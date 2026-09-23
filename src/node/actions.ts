@@ -17,7 +17,9 @@ import type { P2PNode } from './types.js';
 /** The subset of JSON Schema these inputs use */
 export interface ActionSchema {
   readonly type: 'object';
-  readonly properties: Readonly<Record<string, { readonly type?: string; readonly enum?: ReadonlyArray<string>; readonly description?: string }>>;
+  readonly properties: Readonly<
+    Record<string, { readonly type?: string; readonly enum?: ReadonlyArray<string>; readonly description?: string; readonly items?: unknown }>
+  >;
   readonly required?: ReadonlyArray<string>;
   readonly additionalProperties?: boolean;
 }
@@ -42,6 +44,17 @@ const space = { type: 'string', description: 'Space id, from spaces_list' } as c
 const key = { type: 'string', description: 'Record key — stays the same when the record is edited' } as const;
 
 const str = (input: Record<string, unknown>, key: string) => input[key] as string;
+
+const links = {
+  type: 'array',
+  description: 'What this record points at: [{ "rel": "about", "to": "<record key>" }]. Roles come from the collection\'s declared links.',
+  items: {
+    type: 'object',
+    properties: { rel: { type: 'string' }, to: { type: 'string' } },
+    required: ['rel', 'to'],
+  },
+} as const;
+const linksOf = (input: Record<string, unknown>) => (Array.isArray(input.links) ? { links: input.links as Array<{ rel: string; to: string }> } : {});
 
 export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[]>([
   {
@@ -124,8 +137,9 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
   {
     name: 'collections_list',
     description:
-      'What a space holds: each collection with its title, description, JSON Schema and record count. ' +
-      'Collections with records but no definition have schema null. Read this before writing, to match the shape others use.',
+      'What a space holds and how it connects: each collection with its title, description, JSON Schema, declared ' +
+      'link roles and record count — including the built-in sys.* annotations (reaction, comment, tag, attachment, ' +
+      'reference) that attach to any record. Read this before writing, to match the shapes and links others use.',
     input: { type: 'object', properties: { space }, required: ['space'] },
     readOnly: true,
     run: (node, input) => node.collections.list(str(input, 'space')),
@@ -147,6 +161,11 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         schema: { type: 'object' },
         version: { type: 'integer' },
         history: { type: 'string', enum: ['latest', 'all'], description: 'Keep every version of its records ("all"), or only the current one' },
+        links: {
+          type: 'object',
+          description:
+            'Link roles its records may carry: { "about": { "to": ["app.poll"], "cardinality": "one" } }. "to" is "*" for any collection.',
+        },
       },
       required: ['space', 'name', 'schema'],
     },
@@ -159,6 +178,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
         ...(typeof input.version === 'number' ? { version: input.version } : {}),
         ...(input.history === 'all' || input.history === 'latest' ? { history: input.history } : {}),
+        ...(typeof input.links === 'object' && input.links !== null ? { links: input.links as Record<string, never> } : {}),
       }),
   },
   {
@@ -205,23 +225,49 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'It gets a random key unless one is given. It is signed by this node and synced to the space.',
     input: {
       type: 'object',
-      properties: { space, collection: { type: 'string' }, body: { type: 'object' }, key: { type: 'string', description: 'Optional chosen key: a–z, 0–9 and : . _ -' } },
+      properties: {
+        space,
+        collection: { type: 'string' },
+        body: { type: 'object' },
+        key: { type: 'string', description: 'Optional chosen key: a–z, 0–9 and : . _ -' },
+        links,
+      },
       required: ['space', 'collection', 'body'],
     },
     readOnly: false,
     run: (node, input) =>
-      node.records.put(str(input, 'space'), str(input, 'collection'), input.body, typeof input.key === 'string' ? { key: input.key } : {}),
+      node.records.put(str(input, 'space'), str(input, 'collection'), input.body, {
+        ...(typeof input.key === 'string' ? { key: input.key } : {}),
+        ...linksOf(input),
+      }),
+  },
+  {
+    name: 'records_linked',
+    description:
+      'The records pointing at a record: its reactions, comments, tags, votes… Optionally only one link role ' +
+      '(e.g. "about") or one collection (e.g. "sys.comment").',
+    input: {
+      type: 'object',
+      properties: { space, key, rel: { type: 'string' }, collection: { type: 'string' } },
+      required: ['space', 'key'],
+    },
+    readOnly: true,
+    run: (node, input) =>
+      node.records.linked(str(input, 'space'), str(input, 'key'), {
+        ...(typeof input.rel === 'string' ? { rel: input.rel } : {}),
+        ...(typeof input.collection === 'string' ? { collection: input.collection } : {}),
+      }),
   },
   {
     name: 'records_update',
-    description: 'Write the next version of a record: a new body under the same key.',
+    description: 'Write the next version of a record: a new body under the same key. Its links are kept unless given.',
     input: {
       type: 'object',
-      properties: { space, key, body: { type: 'object' } },
+      properties: { space, key, body: { type: 'object' }, links },
       required: ['space', 'key', 'body'],
     },
     readOnly: false,
-    run: (node, input) => node.records.update(str(input, 'space'), str(input, 'key'), input.body),
+    run: (node, input) => node.records.update(str(input, 'space'), str(input, 'key'), input.body, linksOf(input)),
   },
   {
     name: 'records_delete',

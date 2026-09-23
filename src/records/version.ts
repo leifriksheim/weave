@@ -18,6 +18,7 @@
  */
 import type { Expression } from '../types.js';
 import { base32Encode } from '../utils/hash.js';
+import { checkLinks } from './links.js';
 
 /** Keys a caller may choose: `profile`, `collection:app.todo.item`, `space:b7…` */
 export const RECORD_KEY_PATTERN = /^[a-z0-9:._-]{1,128}$/;
@@ -83,5 +84,6 @@ export function checkVersionShape(expression: Partial<Expression>): string | nul
   if (deleted !== undefined && deleted !== true) return 'deleted must be true when present';
   if (retain !== undefined && retain !== true) return 'retain must be true when present';
   if (deleted && body !== null) return 'A delete carries no body';
+  if (expression.links !== undefined) return checkLinks(expression.links);
   return null;
 }

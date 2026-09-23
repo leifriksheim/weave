@@ -1,4 +1,4 @@
-import type { Expression, UnsignedExpression } from '../types.js';
+import type { Expression, Link, UnsignedExpression } from '../types.js';
 import { utf8Encode } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
 import { newRecordKey } from '../records/version.js';
@@ -24,6 +24,8 @@ export interface CreateExpressionParams<T> {
   };
   readonly retain?: boolean;
   readonly deleted?: boolean;
+  /** Links in the clear — public spaces only; a private space seals them in the body */
+  readonly links?: ReadonlyArray<Link>;
 }
 
 /**
@@ -72,6 +74,7 @@ export function createExpression<T>(params: CreateExpressionParams<T>): Unsigned
     ...(params.version?.genesis ? { genesis: params.version.genesis } : {}),
     ...(params.retain ? { retain: true as const } : {}),
     ...(params.deleted ? { deleted: true as const } : {}),
+    ...(params.links?.length ? { links: params.links } : {}),
   });
 }
 

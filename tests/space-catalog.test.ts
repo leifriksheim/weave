@@ -103,7 +103,7 @@ describe('a space that describes itself', () => {
     await assert.rejects(me.records.put(space, 'app.trip.expense', { what: 'train' }), /Not a valid app\.trip\.expense.*"amount"/);
 
     await me.records.put(space, 'app.trip.note', { text: 'undescribed' });
-    const listed = await me.collections.list(space);
+    const listed = (await me.collections.list(space)).filter((c) => !c.builtIn);
     assert.deepEqual(
       listed.map((c) => [c.name, c.records, c.version]),
       [['app.trip.expense', 1, 1], ['app.trip.note', 1, null]],
@@ -122,14 +122,16 @@ describe('a space that describes itself', () => {
     for (const node of [owner, member, outsider]) await node.spaces.open(space);
 
     await member.collections.define(space, { name: 'app.trip.expense', schema: expense });
-    await until(async () => (await outsider.collections.list(space)).some((c) => c.version === 1), 3000, 'the definition to sync');
+    const has = (node: P2PNode, version: number) => async () =>
+      (await node.collections.list(space)).some((c) => c.name === 'app.trip.expense' && c.version === version);
+    await until(has(outsider, 1), 3000, 'the definition to sync');
 
     // A third member may not redefine someone else's collection...
     await assert.rejects(outsider.collections.define(space, { name: 'app.trip.expense', schema: { type: 'object' } }), /only they or the space owner/);
     // ...the definer may, and so may the owner.
     const v2 = await member.collections.define(space, { name: 'app.trip.expense', schema: { ...expense, required: ['what'] } });
     assert.equal(v2.version, 2);
-    await until(async () => (await owner.collections.list(space)).some((c) => c.version === 2), 3000, 'v2 to reach the owner');
+    await until(has(owner, 2), 3000, 'v2 to reach the owner');
     const v3 = await owner.collections.define(space, { name: 'app.trip.expense', schema: expense });
     assert.equal(v3.version, 3);
     await assert.rejects(owner.collections.define(space, { name: 'app.trip.expense', schema: expense, version: 3 }), /higher/);
@@ -166,8 +168,8 @@ describe('a space that describes itself', () => {
       description: 'A question with fixed answers',
       schema: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['question', 'options'] },
     });
-    const listed = (await runAction(me, 'collections_list', { space: space.id })) as Array<{ name: string; title: string }>;
-    assert.deepEqual(listed.map((c) => [c.name, c.title]), [['app.friends.poll', 'Poll']]);
+    const listed = (await runAction(me, 'collections_list', { space: space.id })) as Array<{ name: string; title: string; builtIn: boolean }>;
+    assert.deepEqual(listed.filter((c) => !c.builtIn).map((c) => [c.name, c.title]), [['app.friends.poll', 'Poll']]);
     await assert.rejects(runAction(me, 'records_put', { space: space.id, collection: 'sys.collection', body: {} }), /written by the node itself/);
   });
 });

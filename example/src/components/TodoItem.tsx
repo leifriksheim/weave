@@ -6,11 +6,14 @@ export function TodoItem({
   todo,
   onToggle,
   onDelete,
+  onReact,
   readOnly = false,
 }: {
   todo: TodoView;
   onToggle: () => void;
   onDelete: () => void;
+  /** Adds or takes back your 👍 */
+  onReact: () => void;
   /** Following someone else's personal list: shown, not changed */
   readOnly?: boolean;
 }) {
@@ -51,6 +54,17 @@ export function TodoItem({
           {todo.author.slice(-6)}
         </span>
       </div>
+      <button
+        onClick={onReact}
+        disabled={readOnly}
+        data-variant="quiet"
+        style={{ ...styles.rowAction, fontWeight: todo.myReaction ? 700 : 400 }}
+        title={todo.myReaction ? 'Take back your 👍' : 'React with 👍 — a record any app can see'}
+        aria-label={`${todo.myReaction ? 'Remove your reaction to' : 'React to'} "${todo.body.text}"`}
+        aria-pressed={todo.myReaction !== null}
+      >
+        👍{todo.reactions > 0 ? ` ${todo.reactions}` : ''}
+      </button>
       {!readOnly && (
         <button
           onClick={onDelete}

@@ -46,6 +46,14 @@ export interface StandardSchemaIssue {
   readonly path?: ReadonlyArray<PropertyKey>;
 }
 
+/** What a record is about: another record in the same space, in a named role */
+export interface Link {
+  /** The role: 'about', 'in', 'replyTo' — lower camel case */
+  readonly rel: string;
+  /** The key of the record it points at */
+  readonly to: string;
+}
+
 /** Expression — the atomic data unit */
 export interface Expression<T = unknown> {
   readonly id: string;          // CID of the expression
@@ -67,6 +75,11 @@ export interface Expression<T = unknown> {
   readonly retain?: true;
   /** This version deletes the record; its body is null */
   readonly deleted?: true;
+  /**
+   * Links to other records. Signed with the rest. In a private space they are
+   * sealed inside the encrypted body instead, and this is absent.
+   */
+  readonly links?: ReadonlyArray<Link>;
   readonly signature: string;   // Base64URL encoded signature
 }
 
@@ -91,6 +104,11 @@ export interface UnsignedExpression<T = unknown> {
   readonly retain?: true;
   /** This version deletes the record; its body is null */
   readonly deleted?: true;
+  /**
+   * Links to other records. Signed with the rest. In a private space they are
+   * sealed inside the encrypted body instead, and this is absent.
+   */
+  readonly links?: ReadonlyArray<Link>;
 }
 
 /** Space types */

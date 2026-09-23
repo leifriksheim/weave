@@ -15,6 +15,7 @@
  * for one signature an hour, never one per write.
  */
 import { createP256Provider } from '../identity/crypto-p256.js';
+import type { Link } from '../types.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
 import { delegateCapabilities, type Capability, type UCANToken } from '../identity/ucan.js';
 import { createSigner } from '../schema/signer.js';
@@ -385,11 +386,14 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async get<T>(spaceId: string, key: string) {
       return (await runtime(spaceId)).get<T>(key);
     },
-    async put<T>(spaceId: string, collection: string, body: T, options?: { key?: string }) {
+    async put<T>(spaceId: string, collection: string, body: T, options?: { key?: string; links?: ReadonlyArray<Link> }) {
       return (await runtime(spaceId)).put<T>(collection, body, options);
     },
-    async update<T>(spaceId: string, key: string, body: T) {
-      return (await runtime(spaceId)).update<T>(key, body);
+    async update<T>(spaceId: string, key: string, body: T, options?: { links?: ReadonlyArray<Link> }) {
+      return (await runtime(spaceId)).update<T>(key, body, options);
+    },
+    async linked<T>(spaceId: string, key: string, options?: { rel?: string; collection?: string }) {
+      return (await runtime(spaceId)).linked<T>(key, options);
     },
     async delete(spaceId: string, key: string) {
       await (await runtime(spaceId)).remove(key);

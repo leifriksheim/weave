@@ -7,7 +7,8 @@
  * are exposed as actions to a command line, an MCP server and WebMCP, and a
  * value that cannot cross a wire would have to be reshaped at each of them.
  */
-import type { CollectionDef, CryptoProvider, SpaceType, SpaceVisibility } from '../types.js';
+import type { CollectionDef, CryptoProvider, Link, SpaceType, SpaceVisibility } from '../types.js';
+import type { LinkDeclaration } from '../records/links.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import type { Capability, UCANToken } from '../identity/ucan.js';
 import type { PeerTransport } from '../network/transport.js';
@@ -114,6 +115,8 @@ export interface NodeRecord<T = unknown> {
   readonly updatedAt: string;
   /** The content, or null when it is encrypted and this node has no key */
   readonly body: T | null;
+  /** What this record points at — empty when it points at nothing, or cannot be opened */
+  readonly links: ReadonlyArray<Link>;
   readonly encrypted: boolean;
   /** Signature, delegation and shape all check out */
   readonly verified: boolean;
@@ -141,8 +144,12 @@ export interface NodeCollection {
   readonly version: number | null;
   /** Whether edits keep old versions: `all` for an audit trail, `latest` (the default) for current state only */
   readonly history: 'latest' | 'all';
+  /** The link roles its records carry, and what each may point at — how the space's things connect */
+  readonly links: Readonly<Record<string, LinkDeclaration>>;
   /** The identity that first defined it — it and the space owner may change it */
   readonly definedBy: string | null;
+  /** Part of the protocol's annotation library (`sys.*`), known to every node */
+  readonly builtIn: boolean;
   readonly records: number;
 }
 
@@ -156,6 +163,8 @@ export interface DefineCollection {
   readonly version?: number;
   /** Keep every version of every record in it (`all`), or only the current one (`latest`, the default) */
   readonly history?: 'latest' | 'all';
+  /** The link roles its records may carry, and what each may point at */
+  readonly links?: Readonly<Record<string, LinkDeclaration>>;
 }
 
 export interface NodeCollections {
@@ -231,9 +240,16 @@ export interface NodeRecords {
    * Creates a record. Its key is random unless given — a chosen key suits a
    * record there is one of by nature. Writing a key that was deleted brings it back.
    */
-  put<T = unknown>(spaceId: string, collection: string, body: T, options?: { key?: string }): Promise<NodeRecord<T>>;
-  /** Writes the record's next version. Same key; `seq` one higher. */
-  update<T = unknown>(spaceId: string, key: string, body: T): Promise<NodeRecord<T>>;
+  put<T = unknown>(
+    spaceId: string,
+    collection: string,
+    body: T,
+    options?: { key?: string; links?: ReadonlyArray<Link> },
+  ): Promise<NodeRecord<T>>;
+  /** Writes the record's next version. Same key; `seq` one higher. Links carry over unless given. */
+  update<T = unknown>(spaceId: string, key: string, body: T, options?: { links?: ReadonlyArray<Link> }): Promise<NodeRecord<T>>;
+  /** The records whose current version points at this one — optionally in one role, or one collection */
+  linked<T = unknown>(spaceId: string, key: string, options?: { rel?: string; collection?: string }): Promise<ReadonlyArray<NodeRecord<T>>>;
   /**
    * Deletes a record everywhere, by writing a version marked deleted that syncs
    * like any other. Anyone who may write in the space may delete in it.

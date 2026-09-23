@@ -25,7 +25,7 @@ export function SpaceView({
   session: Session;
   onBack: () => void;
 }) {
-  const { todos, status, collections, loading, add, toggle, remove } = useSpaceSession(record);
+  const { todos, status, collections, loading, add, toggle, remove, react } = useSpaceSession(record);
   const [draft, setDraft] = useState('');
   const [invite, setInvite] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -111,6 +111,7 @@ export function SpaceView({
             todo={todo}
             onToggle={() => void toggle(todo)}
             onDelete={() => void remove(todo.key)}
+            onReact={() => void react(todo)}
             readOnly={!space.writable}
           />
         ))}

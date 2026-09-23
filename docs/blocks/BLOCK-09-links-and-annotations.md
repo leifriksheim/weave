@@ -1,5 +1,12 @@
 # BLOCK-09 — Links, and an annotation library agents can compose with
 
+> **Done (2026-09-23).** `src/records/links.ts` (links, the `sys.*` library),
+> links through `src/node/space-runtime.ts` (sealed in private spaces, a local
+> index, declared-link checks), `records.linked` and the `records_linked`
+> action. Tests: `tests/links.test.ts`. The example has 👍 reactions on todos,
+> verified in two browsers: a reaction reaches the other person, survives the
+> todo being ticked, and counts agree as reactions are added and taken back.
+
 ## What this delivers
 
 One record can point at another, in a named role — a comment is *about* a

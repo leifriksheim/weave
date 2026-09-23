@@ -308,6 +308,17 @@ nothing is refused during sync for its shape, so peers that saw definitions in
 different orders still converge. `node.collections.define` publishes one — the
 same call an agent makes through MCP.
 
+**Links, and annotations for everything.** A record can point at another in a
+named role — `{ rel: 'about', to: <key> }` — and `node.records.linked(space,
+key)` answers what points at a thing. Links point at keys, so a comment stays
+on a todo however often it is ticked; in a private space they are sealed with
+the body, so a relay cannot see what points at what. Collections declare their
+links in their definition, so an agent reading `collections_list` sees how a
+space's things connect. And five collections are built into every node —
+`sys.reaction`, `sys.comment`, `sys.tag`, `sys.attachment`, `sys.reference` —
+so every app gets reactions and comments on every other app's data without
+anyone agreeing on anything.
+
 **The account registry.** Which spaces an account belongs to is itself kept in
 a space: a private one whose id and key are derived from the account's vault
 key, so every device of the account finds it and nobody else can. Creating or

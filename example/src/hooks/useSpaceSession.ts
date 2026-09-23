@@ -79,5 +79,13 @@ export function useSpaceSession(record: SpaceSummary | null) {
     [space, refresh],
   );
 
-  return { todos, status, collections, loading, add, toggle, remove, refresh };
+  const react = useCallback(
+    async (todo: TodoView) => {
+      await space?.react(todo);
+      await refresh();
+    },
+    [space, refresh],
+  );
+
+  return { todos, status, collections, loading, add, toggle, remove, react, refresh };
 }

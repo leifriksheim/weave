@@ -24,6 +24,8 @@ import { didToPublicKey } from '../identity/did.js';
 import { createExpression } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
 import { newRecordKey, nextVersion, RECORD_KEY_PATTERN } from '../records/version.js';
+import { checkLinks, SYS_LIBRARY, SYS_LIBRARY_NAMES } from '../records/links.js';
+import type { Link } from '../types.js';
 import { reconcileFolder } from '../storage/folder-reconcile.js';
 import type { FolderAdapter } from '../storage/folder-adapter.js';
 import { createCryptoGate } from '../validation/crypto-gate.js';
@@ -91,8 +93,9 @@ export interface SpaceRuntimeDeps {
 export interface SpaceRuntime {
   list<T>(options?: ListOptions): Promise<ReadonlyArray<NodeRecord<T>>>;
   get<T>(key: string): Promise<NodeRecord<T> | null>;
-  put<T>(collection: string, body: T, options?: { key?: string }): Promise<NodeRecord<T>>;
-  update<T>(key: string, body: T): Promise<NodeRecord<T>>;
+  put<T>(collection: string, body: T, options?: { key?: string; links?: ReadonlyArray<Link> }): Promise<NodeRecord<T>>;
+  update<T>(key: string, body: T, options?: { links?: ReadonlyArray<Link> }): Promise<NodeRecord<T>>;
+  linked<T>(key: string, options?: { rel?: string; collection?: string }): Promise<ReadonlyArray<NodeRecord<T>>>;
   remove(key: string): Promise<void>;
   history<T>(key: string): Promise<ReadonlyArray<NodeRecord<T>>>;
   /** For the node itself: writes the next version of a record in a collection `put` refuses, like the profile */
@@ -171,14 +174,20 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return verdict;
   }
 
-  async function openBody(expression: Expression): Promise<{ body: unknown; encrypted: boolean }> {
-    if (!looksEncrypted(expression.body)) return { body: expression.body, encrypted: false };
-    if (!key) return { body: null, encrypted: true };
+  /**
+   * A version's content: its body and its links. In a private space both are
+   * sealed together, so a relay learns neither what a record says nor what it
+   * points at.
+   */
+  async function openBody(expression: Expression): Promise<{ body: unknown; links: ReadonlyArray<Link>; encrypted: boolean }> {
+    if (!looksEncrypted(expression.body)) return { body: expression.body, links: expression.links ?? [], encrypted: false };
+    if (!key) return { body: null, links: [], encrypted: true };
     try {
-      const opened = await decryptExpression(expression as EncryptedExpression, key);
-      return { body: opened.body, encrypted: true };
+      const opened = (await decryptExpression(expression as EncryptedExpression, key)).body as { body?: unknown; links?: unknown };
+      const links = checkLinks(opened?.links ?? []) === null ? ((opened?.links as ReadonlyArray<Link> | undefined) ?? []) : [];
+      return { body: opened?.body ?? null, links, encrypted: true };
     } catch {
-      return { body: null, encrypted: true };
+      return { body: null, links: [], encrypted: true };
     }
   }
 
@@ -199,13 +208,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   }
 
   async function view<T>(expression: Expression): Promise<NodeRecord<T>> {
-    const [{ body, encrypted }, verdict, genesis] = await Promise.all([
+    const [{ body, links, encrypted }, verdict, genesis] = await Promise.all([
       openBody(expression),
       judge(expression),
       genesisOf(expression),
     ]);
     const creator = genesis ? await judge(genesis) : null;
-    const issues = body === null || expression.deleted ? null : await shapeIssues(expression.collection, body);
+    const issues = body === null || expression.deleted ? null : await contentIssues(expression.collection, body, links);
     return Object.freeze({
       key: expression.key,
       version: expression.id,
@@ -218,6 +227,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       createdAt: genesis?.createdAt ?? expression.createdAt,
       updatedAt: expression.createdAt,
       body: body as T | null,
+      links,
       encrypted,
       verified: verdict.verified,
       ...(verdict.reason ? { reason: verdict.reason } : {}),
@@ -263,11 +273,18 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return result;
   }
 
+  const builtIns = new Map(SYS_LIBRARY.map((definition) => [definition.name, definition]));
+
+  /** A collection's definition: built into every node for `sys.*`, else what the space says. */
+  async function definitionOf(collection: string): Promise<StoredCollection | null> {
+    return builtIns.get(collection) ?? (await catalog()).get(collection)?.definition ?? null;
+  }
+
   /** Issues with a body against its collection's schema; null when there is no schema to check against. */
   async function shapeIssues(collection: string, body: unknown): Promise<ReadonlyArray<SchemaIssue> | null> {
-    if (collection.startsWith('sys.')) return null;
-    const described = (await catalog()).get(collection);
-    if (described) return validateJsonSchema(described.definition.schema, body);
+    if (collection.startsWith('sys.') && !SYS_LIBRARY_NAMES.has(collection)) return null;
+    const described = await definitionOf(collection);
+    if (described) return validateJsonSchema(described.schema, body);
     if (schemas.getCollection(collection)) {
       const checked = await schemas.validate(collection, body);
       return (checked.issues ?? []).map((issue) => ({ path: '/', message: issue.message }));
@@ -275,7 +292,49 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return null;
   }
 
-  function describe(name: string, entry: CatalogEntry | null, records: number): NodeCollection {
+  /**
+   * Issues with a record's links against its collection's declaration. Only
+   * what can be judged from what is held: a link to a record not here yet is
+   * fine — you routinely hold a reaction before its post.
+   */
+  async function linkIssues(collection: string, links: ReadonlyArray<Link>): Promise<SchemaIssue[]> {
+    const malformed = checkLinks(links);
+    if (malformed) return [{ path: '/links', message: malformed }];
+    if (links.length === 0) return [];
+    const declared = (await definitionOf(collection))?.links;
+    // An undescribed collection says nothing about its links, so nothing is wrong.
+    if (!declared) return (await definitionOf(collection)) ? [{ path: '/links', message: `${collection} declares no links` }] : [];
+
+    const issues: SchemaIssue[] = [];
+    const perRole = new Map<string, number>();
+    for (const [index, link] of links.entries()) {
+      const declaration = declared[link.rel];
+      if (!declaration) {
+        issues.push({ path: `/links/${index}`, message: `${collection} has no "${link.rel}" link (it has: ${Object.keys(declared).join(', ')})` });
+        continue;
+      }
+      perRole.set(link.rel, (perRole.get(link.rel) ?? 0) + 1);
+      if (declaration.to === '*') continue;
+      const target = await currentOf(link.to);
+      if (target && !target.deleted && !declaration.to.includes(target.collection)) {
+        issues.push({ path: `/links/${index}`, message: `"${link.rel}" must point at ${declaration.to.join(' or ')}, not ${target.collection}` });
+      }
+    }
+    for (const [rel, count] of perRole) {
+      if (declared[rel]?.cardinality === 'one' && count > 1) issues.push({ path: '/links', message: `At most one "${rel}" link` });
+    }
+    return issues;
+  }
+
+  /** Shape and link issues together; null when neither has anything to check against. */
+  async function contentIssues(collection: string, body: unknown, links: ReadonlyArray<Link>): Promise<ReadonlyArray<SchemaIssue> | null> {
+    const shape = await shapeIssues(collection, body);
+    const linked = await linkIssues(collection, links);
+    if (shape === null && linked.length === 0 && !(await definitionOf(collection))) return null;
+    return [...(shape ?? []), ...linked];
+  }
+
+  function describe(name: string, entry: CatalogEntry | null, records: number, builtIn = false): NodeCollection {
     const definition = entry?.definition;
     return Object.freeze({
       name,
@@ -284,13 +343,39 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       schema: definition?.schema ?? null,
       version: definition?.version ?? null,
       history: definition?.history ?? 'latest',
+      links: definition?.links ?? {},
       definedBy: entry?.definedBy ?? null,
+      builtIn,
       records,
     });
   }
 
-  /** Records changed: the catalogue may have too. */
+  // ─── What points where ─────────────────────────────────────────────
+  //
+  // Derived from the records held, rebuilt when they change, never synced: any
+  // node holding the records can build it, and derived data travelling between
+  // peers would only be one more thing to disagree about.
+
+  let linkIndexCache: Promise<Map<string, Array<{ rel: string; from: string }>>> | null = null;
+  const linkIndex = () => (linkIndexCache ??= buildLinkIndex());
+
+  async function buildLinkIndex(): Promise<Map<string, Array<{ rel: string; from: string }>>> {
+    const index = new Map<string, Array<{ rel: string; from: string }>>();
+    for (const version of await storage.listCurrent()) {
+      if (version.deleted || !(await consistent(version))) continue;
+      const { links } = await openBody(version);
+      for (const link of links) {
+        const list = index.get(link.to) ?? [];
+        list.push({ rel: link.rel, from: version.key });
+        index.set(link.to, list);
+      }
+    }
+    return index;
+  }
+
+  /** Records changed: the catalogue and the link index may have too. */
   const recordsChanged = () => {
+    linkIndexCache = null;
     catalogCache = null;
     emit({ type: 'records', space: space.id });
   };
@@ -435,7 +520,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   }
 
   /** Signs and stores one version. A delete carries no body. */
-  async function write<T>(collection: string, body: T | null, version: VersionFields, deleted = false): Promise<Expression> {
+  async function write<T>(
+    collection: string,
+    body: T | null,
+    version: VersionFields,
+    deleted = false,
+    links: ReadonlyArray<Link> = [],
+  ): Promise<Expression> {
     // Every other copy would reject it, so refuse it here rather than show a
     // change that exists on this device alone.
     if (!writable) throw new Error(`"${space.name}" is a personal space — only its owner can change it`);
@@ -444,7 +535,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (!deleted) {
       // Refused here, where the writer can fix it. On arrival a misfit is kept
       // and flagged instead — see `conforms`.
-      const issues = await shapeIssues(collection, body);
+      const issues = await contentIssues(collection, body, links);
       if (issues?.length) {
         throw new Error(`Not a valid ${collection}: ${issues.map((i) => (i.path === '/' ? i.message : `${i.path} ${i.message}`)).join('; ')}`);
       }
@@ -454,8 +545,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       payload = body;
       if (space.visibility === 'private') {
         if (!key) throw new Error('This private space has no key on this node');
+        // Body and links sealed together: a relay learns neither.
+        const content = links.length ? { body, links } : { body };
         const sealed = await encryptExpression(
-          { id: '', author: '', collection, createdAt: '', body, signature: '', key: version.key, seq: version.seq },
+          { id: '', author: '', collection, createdAt: '', body: content, signature: '', key: version.key, seq: version.seq },
           key,
         );
         payload = sealed.body;
@@ -477,6 +570,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         version,
         retain,
         deleted,
+        // In the clear only where the body is: a private space sealed them above.
+        ...(space.visibility === 'public' && !deleted && links.length ? { links } : {}),
       }),
       session.key,
     );
@@ -505,11 +600,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return current;
   }
 
-  async function writeFirst<T>(collection: string, body: T, recordKey: string): Promise<Expression> {
+  async function writeFirst<T>(collection: string, body: T, recordKey: string, links: ReadonlyArray<Link>): Promise<Expression> {
     const current = await currentOf(recordKey);
     if (current && !current.deleted) throw new Error(`A record ${recordKey} already exists — update it instead`);
     // Writing a key that was deleted brings it back: the next version after the delete.
-    return write(collection, body, current ? nextVersion(current) : { key: recordKey, seq: 0 });
+    return write(collection, body, current ? nextVersion(current) : { key: recordKey, seq: 0 }, false, links);
   }
 
   async function upsert<T>(collection: string, recordKey: string, body: T): Promise<NodeRecord<T>> {
@@ -549,20 +644,35 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     get,
 
-    async put<T>(collection: string, body: T, options: { key?: string } = {}): Promise<NodeRecord<T>> {
+    async put<T>(collection: string, body: T, options: { key?: string; links?: ReadonlyArray<Link> } = {}): Promise<NodeRecord<T>> {
       guard(collection);
       if (options.key !== undefined && !RECORD_KEY_PATTERN.test(options.key)) {
         throw new Error('A record key is 1–128 characters of a–z, 0–9 and : . _ -');
       }
-      return view<T>(await writeFirst(collection, body, options.key ?? newRecordKey()));
+      return view<T>(await writeFirst(collection, body, options.key ?? newRecordKey(), options.links ?? []));
     },
 
     upsertSystem: upsert,
 
-    async update<T>(recordKey: string, body: T): Promise<NodeRecord<T>> {
+    async update<T>(recordKey: string, body: T, options: { links?: ReadonlyArray<Link> } = {}): Promise<NodeRecord<T>> {
       const current = await requireLive(recordKey);
       guard(current.collection);
-      return view<T>(await write(current.collection, body, nextVersion(current)));
+      // Links carry over unless replaced: ticking a todo should not unhook it from anything.
+      const links = options.links ?? (await openBody(current)).links;
+      return view<T>(await write(current.collection, body, nextVersion(current), false, links));
+    },
+
+    async linked<T>(recordKey: string, options: { rel?: string; collection?: string } = {}): Promise<ReadonlyArray<NodeRecord<T>>> {
+      const pointing = (await linkIndex()).get(recordKey) ?? [];
+      const keys = [...new Set(pointing.filter((p) => !options.rel || p.rel === options.rel).map((p) => p.from))];
+      const found: NodeRecord<T>[] = [];
+      for (const from of keys) {
+        const current = await currentOf(from);
+        if (!current || current.deleted) continue;
+        if (options.collection && current.collection !== options.collection) continue;
+        found.push(await view<T>(current));
+      }
+      return found.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key));
     },
 
     async remove(recordKey: string): Promise<void> {
@@ -580,12 +690,17 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     async collections(): Promise<ReadonlyArray<NodeCollection>> {
       const counts = new Map<string, number>();
       for (const version of await storage.listCurrent()) {
-        if (version.deleted || version.collection.startsWith('sys.') || !(await consistent(version))) continue;
+        if (version.deleted || !(await consistent(version))) continue;
+        if (version.collection.startsWith('sys.') && !builtIns.has(version.collection)) continue;
         counts.set(version.collection, (counts.get(version.collection) ?? 0) + 1);
       }
       const described = await catalog();
-      const names = [...new Set([...described.keys(), ...counts.keys()])].sort();
-      return names.map((name) => describe(name, described.get(name) ?? null, counts.get(name) ?? 0));
+      const names = [...new Set([...described.keys(), ...counts.keys()])].filter((n) => !builtIns.has(n)).sort();
+      return [
+        ...names.map((name) => describe(name, described.get(name) ?? null, counts.get(name) ?? 0)),
+        // The annotation library, always there — so an agent sees what it can attach.
+        ...SYS_LIBRARY.map((definition) => describe(definition.name, { definition, definedBy: null }, counts.get(definition.name) ?? 0, true)),
+      ];
     },
 
     async define(input: DefineCollection): Promise<NodeCollection> {
@@ -599,6 +714,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         schema: input.schema,
         version,
         ...(input.history !== undefined ? { history: input.history } : {}),
+        ...(input.links !== undefined ? { links: input.links } : {}),
       };
       const problem = checkStoredCollection(definition);
       if (problem) throw new Error(problem);

@@ -24,7 +24,7 @@ inside the block itself — you never have to go hunting.
 | [BLOCK-06](BLOCK-06-bun-daemon.md) | `p2p` CLI: spaces from a terminal, `run` as the always-on node, `mcp` for agents — **done** | — |
 | [BLOCK-07](BLOCK-07-hosting-tier.md) | Multi-tenant hosting, BYO-storage credentials | ~2 weeks |
 | [BLOCK-08](BLOCK-08-self-describing-spaces.md) | Collection definitions stored in the space — **done** | — |
-| [BLOCK-09](BLOCK-09-links-and-annotations.md) | Links between expressions, and a `sys.*` library | ~1.5 weeks |
+| [BLOCK-09](BLOCK-09-links-and-annotations.md) | Links between records, and a `sys.*` library agents compose with — **done** | — |
 | [BLOCK-10](BLOCK-10-query-layer.md) | Filtering, sorting and following links | ~1 week |
 | [BLOCK-11](BLOCK-11-constraints-and-convergence.md) | "One reaction per person", done so peers agree | ~4 days |
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
@@ -80,7 +80,12 @@ but its links go unchecked until that lands.
 5. ~~**An account registry space** and a signed hello on `/peer`~~ — done.
 6. ~~**BLOCK-08**~~ — done; agents can define collections over MCP.
 7. ~~**BLOCK-14**~~ — done: records keep their key; edits are ordered versions.
-8. **BLOCK-09 → 10**, then WebMCP in the example and a UI generated from stored schemas.
+8. ~~**BLOCK-09**~~ — done: links by key, declared in definitions, `sys.*` annotations.
+9. **Agent keys** — an agent as its own limited key acting for you; delegation
+   chains that verify on every device; agent authorship shown. (Block to write.)
+10. **Views** — `sys.view`: how to show a collection, as data an agent can write
+    and any app can render. (Block to write.)
+11. **BLOCK-10** queries, then WebMCP in the example.
 
 ## Why the always-on node matters most
 

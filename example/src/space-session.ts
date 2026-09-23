@@ -33,6 +33,10 @@ export interface TodoView {
   readonly verification: TodoVerification;
   /** Whether it arrived encrypted and had to be opened with the space key */
   readonly wasEncrypted: boolean;
+  /** 👍 reactions on it — `sys.reaction` records linked to it, from any app */
+  readonly reactions: number;
+  /** The key of your own reaction, to take it back; null if you have not reacted */
+  readonly myReaction: string | null;
 }
 
 export type ConnectionState = 'offline' | 'connecting' | 'connected' | 'error';
@@ -51,6 +55,8 @@ export interface SpaceSession {
   add(text: string): Promise<void>;
   toggle(todo: TodoView): Promise<void>;
   remove(key: string): Promise<void>;
+  /** Adds your 👍, or takes it back */
+  react(todo: TodoView): Promise<void>;
   status(): Promise<SpaceStatus>;
   /** What the space says it holds */
   collections(): Promise<ReadonlyArray<NodeCollection>>;
@@ -59,9 +65,12 @@ export interface SpaceSession {
   close(): void;
 }
 
-function toView(record: NodeRecord<Todo>): TodoView | null {
+function toView(record: NodeRecord<Todo>, reactions: ReadonlyArray<NodeRecord<{ emoji: string }>>, me: string): TodoView | null {
   if (record.body === null) return null; // a member's data we have no key for
+  const likes = reactions.filter((r) => r.verified && r.body?.emoji === REACTION);
   return {
+    reactions: likes.length,
+    myReaction: likes.find((r) => r.root === me)?.key ?? null,
     key: record.key,
     seq: record.seq,
     author: record.author,
@@ -81,8 +90,10 @@ function toView(record: NodeRecord<Todo>): TodoView | null {
  * Opens a space: the node starts syncing it and this adapts it for the UI.
  * @param space The space, from the node's list
  */
+const REACTION = '👍';
+
 export async function openSpace(space: SpaceSummary): Promise<SpaceSession> {
-  const { node }: Session = requireSession();
+  const { node, rootDid }: Session = requireSession();
   await node.spaces.open(space.id);
 
   // Describe todos in the space itself, the first time this app opens it.
@@ -95,8 +106,15 @@ export async function openSpace(space: SpaceSummary): Promise<SpaceSession> {
 
     async list(): Promise<ReadonlyArray<TodoView>> {
       const records = await node.records.list<Todo>(space.id, { collection: COLLECTION });
-      return records
-        .map(toView)
+      // Reactions are their own records, pointing at a todo — written by this
+      // app or any other that knows `sys.reaction`. They stay attached however
+      // often the todo is ticked, because they point at its key.
+      const views = await Promise.all(
+        records.map(async (record) =>
+          toView(record, await node.records.linked<{ emoji: string }>(space.id, record.key, { collection: 'sys.reaction' }), rootDid),
+        ),
+      );
+      return views
         .filter((view): view is TodoView => view !== null)
         .sort((a, b) => a.body.order - b.body.order);
     },
@@ -112,6 +130,11 @@ export async function openSpace(space: SpaceSummary): Promise<SpaceSession> {
 
     async remove(key: string): Promise<void> {
       await node.records.delete(space.id, key);
+    },
+
+    async react(todo: TodoView): Promise<void> {
+      if (todo.myReaction) await node.records.delete(space.id, todo.myReaction);
+      else await node.records.put(space.id, 'sys.reaction', { emoji: REACTION }, { links: [{ rel: 'about', to: todo.key }] });
     },
 
     collections: () => node.collections.list(space.id),

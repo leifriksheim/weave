@@ -18,6 +18,7 @@
  */
 import { Validator } from '@cfworker/json-schema';
 import type { StandardSchemaV1 } from '../types.js';
+import type { LinkDeclaration } from '../records/links.js';
 
 export type JsonSchema = { readonly [keyword: string]: unknown };
 
@@ -37,6 +38,11 @@ export interface StoredCollection {
    * verifiable history. Read by writers, who mark each version accordingly.
    */
   readonly history?: 'latest' | 'all';
+  /**
+   * The link roles its records may carry, and what each may point at. An agent
+   * reading the catalogue learns from these how the space's things connect.
+   */
+  readonly links?: Readonly<Record<string, LinkDeclaration>>;
 }
 
 /** The reserved collection that collection definitions live in. */
@@ -130,6 +136,22 @@ export function checkStoredCollection(definition: unknown): string | null {
   if (d.title !== undefined && typeof d.title !== 'string') return 'title must be text';
   if (d.description !== undefined && typeof d.description !== 'string') return 'description must be text';
   if (d.history !== undefined && d.history !== 'latest' && d.history !== 'all') return 'history must be "latest" or "all"';
+  if (d.links !== undefined) {
+    if (typeof d.links !== 'object' || d.links === null || Array.isArray(d.links)) return 'links must be an object of roles';
+    for (const [rel, declaration] of Object.entries(d.links)) {
+      if (!/^[a-z][a-zA-Z0-9]{0,63}$/.test(rel)) return `Link role "${rel}" must be lower camel case, like "about"`;
+      const decl = declaration as Partial<LinkDeclaration> | null;
+      if (typeof decl !== 'object' || decl === null) return `links.${rel} must be an object`;
+      const to = decl.to;
+      if (to !== '*' && !(Array.isArray(to) && to.length > 0 && to.every((c) => typeof c === 'string'))) {
+        return `links.${rel}.to must be "*" or a list of collection names`;
+      }
+      if (decl.cardinality !== undefined && decl.cardinality !== 'one' && decl.cardinality !== 'many') {
+        return `links.${rel}.cardinality must be "one" or "many"`;
+      }
+      if (decl.description !== undefined && typeof decl.description !== 'string') return `links.${rel}.description must be text`;
+    }
+  }
   return checkPublishableSchema(d.schema);
 }
 
