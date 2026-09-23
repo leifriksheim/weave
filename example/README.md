@@ -1,7 +1,12 @@
 # Weave example
 
 A general-purpose app for your Weave spaces: it shows any kind of data from
-what each space says about itself. A Vite + React app on top of [`weave-protocol`](../README.md). It imports the
+what each space says about itself.
+
+It also serves the landing pages for now: `/` for people, `/developers` for
+developers, and the app itself at `/app` (`example/src/site/`). Links made
+before the move — an invite or a phone-pairing code at `/` — still open the app.
+`public/_redirects` sends every path to `index.html` on Netlify. A Vite + React app on top of [`weave-protocol`](../README.md). It imports the
 protocol straight from `../src`, so edits to the library hot-reload here.
 
 ```bash
