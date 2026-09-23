@@ -9,14 +9,15 @@
     "dev:snap": "VITE_SNAP_ID=local:http://localhost:8080 vite"
   },
   "dependencies": {
-    "@mcp-b/global": "^5.1.0",
+    "@mcp-b/webmcp-polyfill": "^4.0.0",
     "@types/qrcode": "^1.5.6",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@mcp-b/webmcp-types": "^5.1.0",
+    "@mcp-b/webmcp-local-relay": "^4.0.0",
+    "@mcp-b/webmcp-types": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
