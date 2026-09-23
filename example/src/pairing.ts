@@ -33,9 +33,9 @@ import {
   type PeerInfo,
 } from '@p2p-web/protocol';
 import { getSessionSeed, requireSession } from './protocol';
-import { relayUrl, relayUrls, relayProblem, servedOverLan } from './relay';
+import { relayUrl, relayUrls, relayProblem, relayOnlyLocal, servedOverLan } from './relay';
 
-export { relayProblem, servedOverLan };
+export { relayProblem, relayOnlyLocal, servedOverLan };
 
 /** The message the desktop sends once the phone turns up */
 const PAIR_MESSAGE = 'pair';

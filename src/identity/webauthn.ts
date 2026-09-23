@@ -19,6 +19,12 @@ export interface PasskeyOptions {
 
 export interface PasskeyRegistration {
   readonly credentialId: string;
+  /**
+   * The user handle the passkey was made for, base64url. Keep it: it is the
+   * only way to ask the provider to relabel the passkey later
+   * ({@link renamePasskey}).
+   */
+  readonly userHandle: string;
   readonly publicKey: Uint8Array;
   /**
    * What the client reported about PRF at creation time: true, false, or
@@ -132,10 +138,39 @@ export async function registerPasskey(options: PasskeyOptions): Promise<PasskeyR
   
   return Object.freeze({
     credentialId: base64UrlEncode(rawId),
+    userHandle: base64UrlEncode(userId),
     publicKey: new Uint8Array(response.getPublicKey?.() || new ArrayBuffer(0)),
     prfDeclared,
     prfOutput: prfOutputBuffer ? new Uint8Array(prfOutputBuffer) : null
   });
+}
+
+/**
+ * Asks the passkey provider to show a passkey under a new name.
+ *
+ * A site cannot edit a password manager, so after an account is renamed its
+ * passkey would keep the old label and look like a different account. The
+ * WebAuthn Signal API lets a site *ask*; the provider decides. Where the
+ * browser does not have it, this does nothing.
+ *
+ * @returns Whether the browser accepted the request — not whether the provider acted on it
+ */
+export async function renamePasskey(params: { rpId: string; userHandle: string; name: string }): Promise<boolean> {
+  const signal = (globalThis.PublicKeyCredential as unknown as {
+    signalCurrentUserDetails?: (details: { rpId: string; userId: string; name: string; displayName: string }) => Promise<void>;
+  } | undefined)?.signalCurrentUserDetails;
+  if (typeof signal !== 'function') return false;
+  try {
+    await signal.call(globalThis.PublicKeyCredential, {
+      rpId: params.rpId,
+      userId: params.userHandle,
+      name: params.name,
+      displayName: params.name,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -22,7 +22,13 @@ import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
 import { openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
 import { createPeerAuthenticator } from '../network/peer-auth.js';
-import { deriveAccountRegistry, MEMBERSHIP_COLLECTION, type Membership } from '../space/account-registry.js';
+import {
+  deriveAccountRegistry,
+  MEMBERSHIP_COLLECTION,
+  PROFILE_COLLECTION,
+  type AccountProfile,
+  type Membership,
+} from '../space/account-registry.js';
 import type {
   DefineCollection,
   DelegateParams,
@@ -32,6 +38,7 @@ import type {
   NodeConfig,
   NodeEvent,
   NodeRecord,
+  NodeAccount,
   NodeCollections,
   NodeRecords,
   NodeSpaces,
@@ -132,7 +139,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   // ─── Spaces ────────────────────────────────────────────────────────
 
-  const registry = createSpaceManager(await config.stores('registry', { seal: true }));
+  const registryStore = await config.stores('registry', { seal: true });
+  const registry = createSpaceManager(registryStore);
   const runtimes = new Map<string, Promise<SpaceRuntime>>();
 
   // The account's own space list, kept in a space every device of the account
@@ -153,7 +161,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   /** Runtime events pass through; a change to the account registry is also acted on. */
   const fromRuntime = (event: NodeEvent) => {
     emit(event);
-    if (event.type === 'records' && event.space === accountSpaceId) void reconcile();
+    if (event.type === 'records' && event.space === accountSpaceId) {
+      emit({ type: 'account' });
+      void reconcile();
+    }
   };
 
   function runtime(spaceId: string): Promise<SpaceRuntime> {
@@ -263,7 +274,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   let reconciling: Promise<void> = Promise.resolve();
   function reconcile(): Promise<void> {
     reconciling = reconciling.then(reconcileOnce).catch((error: unknown) => {
-      console.error('Could not reconcile the account registry:', error);
+      if (!closed) console.error('Could not reconcile the account registry:', error);
     });
     return reconciling;
   }
@@ -345,6 +356,25 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     },
   });
 
+  const accountApi: NodeAccount = Object.freeze({
+    async profile() {
+      if (!accountSpaceId) return null;
+      const profiles = await (await runtime(accountSpaceId)).list<AccountProfile>({ collection: PROFILE_COLLECTION });
+      // Newest wins — by time, then id, so every device picks the same one.
+      const mine = profiles.filter((p) => p.verified && p.root === config.signer.did && typeof p.body?.name === 'string');
+      const latest = mine[mine.length - 1];
+      return latest ? { name: latest.body!.name, updatedAt: latest.createdAt } : null;
+    },
+    async setName(name: string) {
+      if (!accountSpaceId) throw new Error('Renaming across devices needs the account key');
+      const trimmed = name.trim();
+      if (!trimmed) throw new Error('A name cannot be empty');
+      const written = await (await runtime(accountSpaceId)).putSystem<AccountProfile>(PROFILE_COLLECTION, { name: trimmed });
+      emit({ type: 'account' });
+      return { name: trimmed, updatedAt: written.createdAt };
+    },
+  });
+
   const records: NodeRecords = Object.freeze({
     async list<T>(spaceId: string, options?: ListOptions) {
       return (await runtime(spaceId)).list<T>(options);
@@ -369,6 +399,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     spaces,
     records,
     collections,
+    account: accountApi,
 
     delegation: () => current,
 
@@ -399,6 +430,9 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       if (renewTimer) clearTimeout(renewTimer);
       const open = [...runtimes.keys()];
       await Promise.all(open.map((spaceId) => closeRuntime(spaceId)));
+      // Let go of the registry too: an open database connection blocks the
+      // browser from ever deleting it.
+      await registryStore.close();
       listeners.clear();
     },
   }) satisfies P2PNode;

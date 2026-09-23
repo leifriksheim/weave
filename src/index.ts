@@ -38,6 +38,7 @@ export {
 export {
   registerPasskey,
   authenticatePasskey,
+  renamePasskey,
   hasPlatformAuthenticator,
 } from './identity/webauthn.js';
 export type { PasskeyOptions, PasskeyRegistration, PasskeyAuth, AuthOptions } from './identity/webauthn.js';
@@ -327,6 +328,7 @@ export {
   writeCapability,
   indexedDBStores,
   folderStores,
+  copyAccountData,
   NODE_ACTIONS,
   runAction,
   checkActionInput,
@@ -334,6 +336,8 @@ export {
 export type {
   StoreFactory,
   StoreOptions,
+  CopyAccountParams,
+  CopyResult,
   NodeAction,
   ActionSchema,
   P2PNode,
@@ -354,4 +358,6 @@ export type {
   NodeCollection,
   NodeCollections,
   DefineCollection,
+  NodeAccount,
+  AccountProfileView,
 } from './node/index.js';

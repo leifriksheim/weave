@@ -84,6 +84,8 @@ export interface DeviceWrap extends WrapBase {
   readonly deviceKeyId: string;
   /** The passkey that gates it, when one was used */
   readonly credentialId?: string;
+  /** That passkey's user handle, base64url — what renaming its label needs */
+  readonly userHandle?: string;
 }
 
 /** A seed wrapped under a passphrase */
@@ -197,7 +199,7 @@ async function passphraseWrappingKey(
 export async function wrapSeedWithDeviceKey(
   seed: Uint8Array,
   deviceKey: { id: string; key: CryptoKey },
-  meta: { rpId: string; credentialId?: string; label?: string },
+  meta: { rpId: string; credentialId?: string; userHandle?: string; label?: string },
 ): Promise<DeviceWrap> {
   const sealed = await seal(seed, deviceKey.key);
 
@@ -208,6 +210,7 @@ export async function wrapSeedWithDeviceKey(
     rpId: meta.rpId,
     deviceKeyId: deviceKey.id,
     ...(meta.credentialId ? { credentialId: meta.credentialId } : {}),
+    ...(meta.userHandle ? { userHandle: meta.userHandle } : {}),
     addedAt: new Date().toISOString(),
     // Nothing is stretched into this key, so there is no salt to record.
     salt: '',

@@ -34,6 +34,8 @@ import {
   getDeviceKey,
   deleteDeviceKey,
   createIdentityManager,
+  copyAccountData,
+  renamePasskey,
   generateSeed,
   seedToRecoveryCode,
   recoveryCodeToSeed,
@@ -71,6 +73,7 @@ import {
   walletPresent,
   type SnapAccount,
 } from './snap';
+import { storesFor } from './storage-backend';
 
 /** Where accounts and their data are kept */
 export interface Home {
@@ -235,7 +238,7 @@ export async function openAccount(home: Home, id: string): Promise<AccountEntry 
 async function passkeyGate(
   mode: 'create' | 'get',
   options: { credentialId?: string; label?: string } = {},
-): Promise<string> {
+): Promise<{ credentialId: string; userHandle?: string }> {
   const preferPlatform = mode === 'create' ? await hasPlatformAuthenticator() : false;
   const steer = preferPlatform ? { hints: ['client-device'] as const } : {};
 
@@ -247,11 +250,11 @@ async function passkeyGate(
       ...steer,
       ...(preferPlatform ? { attachment: 'platform' as const } : {}),
     });
-    return registration.credentialId;
+    return { credentialId: registration.credentialId, userHandle: registration.userHandle };
   }
 
   const auth = await authenticatePasskey(options.credentialId, { rpId, ...steer });
-  return auth.credentialId;
+  return { credentialId: auth.credentialId };
 }
 
 /** Records that an account was just used, and starts its session. */
@@ -302,7 +305,13 @@ export async function createAccount(
   const vault = createVault({ did: identity.did, label: name, wraps: [] });
 
   await home.store.write(summary, vault);
-  return { session: await begin(home, summary, seed), code: seedToRecoveryCode(seed) };
+  const session = await begin(home, summary, seed);
+  // The name travels with the account, so the next app it is opened in shows
+  // it instead of "My account". Only at creation and on rename — never on a
+  // plain start, where a device that has not synced yet would publish a stale
+  // name as the newest.
+  await session.node.account.setName(name).catch(() => {});
+  return { session, code: seedToRecoveryCode(seed) };
 }
 
 /**
@@ -472,10 +481,15 @@ export async function addPasskeyHere(
   session: Session,
   seed: Uint8Array,
 ): Promise<void> {
-  const credentialId = await passkeyGate('create', { label: session.account.name });
+  const { credentialId, userHandle } = await passkeyGate('create', { label: session.account.name });
 
   const deviceKey = await createDeviceKey();
-  const wrap = await wrapSeedWithDeviceKey(seed, deviceKey, { rpId, credentialId, label: rpId });
+  const wrap = await wrapSeedWithDeviceKey(seed, deviceKey, {
+    rpId,
+    credentialId,
+    ...(userHandle ? { userHandle } : {}),
+    label: rpId,
+  });
 
   // Replacing an older shortcut leaves its key behind, which would sit in
   // storage opening nothing.
@@ -519,46 +533,99 @@ export async function removeShortcut(
   }));
 }
 
+export interface BroughtToFolder {
+  readonly session: Session;
+  /** The folder already held this account, and the two copies were combined */
+  readonly merged: boolean;
+  readonly spacesAdded: number;
+  readonly recordsAdded: number;
+}
+
 /**
- * Moves a freshly made account into a folder.
+ * Brings the open account into a folder: moves it if the folder has never seen
+ * it, merges it if the folder already holds it. Then carries on from the folder.
  *
- * Takes the source rather than the seed, so it works whoever holds the key —
- * this page, or a wallet that will sign but not hand it over. Depending on the
- * seed meant wallet accounts fell out of the signup flow entirely and were
- * asked to introduce themselves again.
+ * Merging needs no rules. Every record is signed and named by its content, and
+ * deletes are records too, so two copies of one account combine by keeping
+ * everything from both — nothing conflicts, nothing doubles, and whatever
+ * either side deleted stays deleted. The folder's ways of unlocking are kept,
+ * and this site's are added.
  *
- * Only safe while the account is new. An established one would need every file
- * under its data path copied too, which the File System Access API can only do
- * one at a time — worth building when someone asks for it, not before.
+ * The copy in this browser is left alone. Removing it is a separate, deliberate
+ * step ({@link forgetBrowserCopy}), so a copy that fails halfway loses nothing.
  *
- * @param to The folder home to move it into
+ * @param from Where the account is now
+ * @param to The folder
  * @param session The open session
- * @param source What unlocked it, to restart against the folder
- * @returns The session, now reading and writing the folder
+ * @param source What unlocked it — the same key opens the folder copy
  */
-export async function moveNewAccountToFolder(
+export async function bringAccountToFolder(
+  from: Home,
   to: Home,
   session: Session,
   source: SessionSource,
-): Promise<Session> {
-  const id = newAccountId();
-  const summary: AccountSummary = {
-    ...session.account,
-    id,
-    dataPath: accountDataPath(id),
-    lastUsedAt: new Date().toISOString(),
+  onProgress?: (done: number, total: number) => void,
+): Promise<BroughtToFolder> {
+  if (!to.directory) throw new Error('That is not a folder.');
+
+  const existing = (await listAccounts(to)).find((account) => account.did === session.account.did) ?? null;
+  const id = existing?.id ?? newAccountId();
+  const summary: AccountSummary = existing
+    ? { ...existing, lastUsedAt: new Date().toISOString() }
+    : { ...session.account, id, dataPath: accountDataPath(id), lastUsedAt: new Date().toISOString() };
+
+  // Ways of unlocking: the folder's, plus any from here it lacks.
+  const here = await from.store.read(session.account.id);
+  let vault =
+    (existing ? await to.store.read(existing.id) : null) ??
+    createVault({ did: session.account.did, label: session.account.name, wraps: [] });
+  for (const wrap of here?.wraps ?? []) {
+    if (!vault.wraps.some((kept) => kept.id === wrap.id)) vault = withWrap(vault, wrap);
+  }
+  await to.store.write(summary, vault);
+
+  const copied = await copyAccountData({
+    from: storesFor(session.account, from.directory && source.vaultKey ? { directory: from.directory, vaultKey: source.vaultKey } : undefined),
+    to: storesFor(summary, source.vaultKey ? { directory: to.directory, vaultKey: source.vaultKey } : undefined),
+    did: session.account.did,
+    ...(source.accountKey ? { accountKey: source.accountKey } : {}),
+    ...(onProgress ? { onProgress } : {}),
+  });
+
+  rememberLastAccount(summary.id);
+  return {
+    session: await startSession(summary, source, { directory: to.directory }),
+    merged: existing !== null,
+    spacesAdded: copied.spacesAdded,
+    recordsAdded: copied.recordsAdded,
   };
+}
 
-  // Carry any wraps across: a passkey added before picking a folder should
-  // still open the account afterwards.
-  const existing = await currentHome().then((from) => from.store.read(session.account.id));
-  await to.store.write(
-    summary,
-    existing ?? createVault({ did: session.account.did, label: session.account.name, wraps: [] }),
+/**
+ * Removes this browser's own copy of an account, after it has been brought
+ * into a folder. The account itself — and its passkey here, which the folder
+ * now carries — keeps working from the folder.
+ */
+export async function forgetBrowserCopy(account: AccountSummary): Promise<void> {
+  const browser = await createBrowserAccountStore();
+  const copy = (await browser.list()).find((entry) => entry.did === account.did);
+  if (!copy) return;
+  await browser.remove(copy.id);
+
+  const prefix = `p2p-todo:${copy.dataPath.replace(/\//g, ':')}`;
+  const databases = (await globalThis.indexedDB.databases?.()) ?? [];
+  await Promise.all(
+    databases
+      .map((db) => db.name)
+      .filter((name): name is string => typeof name === 'string' && name.startsWith(prefix))
+      .map(
+        (name) =>
+          new Promise<void>((resolve) => {
+            const request = globalThis.indexedDB.deleteDatabase(name);
+            request.onsuccess = request.onerror = request.onblocked = () => resolve();
+          }),
+      ),
   );
-
-  rememberLastAccount(id);
-  return startSession(summary, source, to.directory ? { directory: to.directory } : undefined);
 }
 
 // ─── The wallet ────────────────────────────────────────────────────────
@@ -672,12 +739,31 @@ export async function renameAccount(
   session: Session,
   name: string,
 ): Promise<AccountSummary> {
+  const renamed = await adoptAccountName(home, session, name);
+  // Every other device and app that opens the account follows.
+  await session.node.account.setName(renamed.name).catch(() => {});
+  return renamed;
+}
+
+/**
+ * Takes a name for the open account here: the label this home files it under,
+ * and the label of this site's passkey for it.
+ *
+ * What a rename elsewhere arrives as, and half of what a rename here does.
+ * The passkey is relabelled by asking the passkey provider — a site cannot
+ * edit a password manager — which recent browsers support and older ones
+ * ignore. A passkey made before its handle was recorded cannot be relabelled.
+ */
+export async function adoptAccountName(home: Home, session: Session, name: string): Promise<AccountSummary> {
   const renamed: AccountSummary = { ...session.account, name: name.trim() || session.account.name };
 
   const vault = await home.store.read(session.account.id);
   if (!vault) throw new Error('That account is no longer here.');
   await home.store.write(renamed, { ...vault, label: renamed.name });
 
+  for (const wrap of deviceWrapsFor(vault, rpId)) {
+    if (wrap.userHandle) await renamePasskey({ rpId, userHandle: wrap.userHandle, name: renamed.name });
+  }
   return renamed;
 }
 

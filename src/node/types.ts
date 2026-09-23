@@ -176,6 +176,8 @@ export type NodeEvent =
   | { readonly type: 'status'; readonly space: string }
   /** The registry changed: a space was created, joined or left */
   | { readonly type: 'spaces' }
+  /** The account's profile may have changed, here or on another device */
+  | { readonly type: 'account' }
   | { readonly type: 'rejected'; readonly space: string; readonly peer: string; readonly reason: string };
 
 export interface NodeSpaces {
@@ -229,6 +231,19 @@ export interface Delegated {
   readonly proofs: ReadonlyArray<string>;
 }
 
+export interface AccountProfileView {
+  readonly name: string;
+  /** When it was set, on whichever device set it */
+  readonly updatedAt: string;
+}
+
+export interface NodeAccount {
+  /** The account's profile as its devices last set it. Null without an account key, or before any is set. */
+  profile(): Promise<AccountProfileView | null>;
+  /** Renames the account on every device and app that opens it. Needs an account key. */
+  setName(name: string): Promise<AccountProfileView>;
+}
+
 export interface P2PNode {
   /** The identity this node acts for */
   readonly did: string;
@@ -237,6 +252,8 @@ export interface P2PNode {
   readonly spaces: NodeSpaces;
   readonly records: NodeRecords;
   readonly collections: NodeCollections;
+  /** The account itself — its name, synced through the account registry */
+  readonly account: NodeAccount;
   /** The delegation the session key currently writes under (root → session) */
   delegation(): UCANToken;
   /** Passes a narrower delegation from the session key on to another key */

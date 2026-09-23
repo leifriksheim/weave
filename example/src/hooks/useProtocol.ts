@@ -18,7 +18,10 @@ import {
   removeShortcut,
   renameAccount,
   linkAccountToSnap,
-  moveNewAccountToFolder,
+  bringAccountToFolder,
+  forgetBrowserCopy,
+  adoptAccountName,
+  type BroughtToFolder,
   folderStorageAvailable,
   signOut,
   type AccountEntry,
@@ -255,17 +258,20 @@ export function useSession() {
     setError(null);
     void (async () => {
       try {
+        const from = home;
         const folder = await chooseFolderHome();
         const source = getSessionSource();
 
-        // Mid-signup: the new account moves into the folder it just chose.
+        // Signed in — mid-signup or long after: the open account comes with
+        // it, moved if the folder has never seen it and merged if it has.
         // Keyed on the source rather than the seed, so an account whose key is
-        // in a wallet takes this path too instead of being treated as a
-        // stranger and asked to introduce itself again.
-        if (session && source && stage === 'chooseStorage') {
-          setSession(await moveNewAccountToFolder(folder, session, source));
+        // in a wallet takes this path too.
+        if (session && source && from && from.directory !== folder.directory) {
+          const brought = await bringAccountToFolder(from, folder, session, source);
+          setSession(brought.session);
           setHome(folder);
           setAccounts(await listAccountsIn(folder));
+          setMoved(from.kind === 'browser' ? brought : null);
           setStage('ready');
           return;
         }
@@ -278,7 +284,40 @@ export function useSession() {
         setLoading(false);
       }
     })();
-  }, [session, stage, refresh]);
+  }, [session, stage, refresh, home]);
+
+  /** What the last move into a folder did, while its notice is showing */
+  const [moved, setMoved] = useState<BroughtToFolder | null>(null);
+
+  /** Removes the copy the browser kept after a move into a folder. */
+  const forgetBrowser = useCallback(async () => {
+    if (!session) return;
+    await forgetBrowserCopy(session.account);
+    setMoved(null);
+  }, [session]);
+
+  // The account's name follows it: a rename on another device or app arrives
+  // through the account registry and is taken here too.
+  useEffect(() => {
+    if (!session || !home) return;
+    let live = true;
+    const adopt = async () => {
+      const profile = await session.node.account.profile().catch(() => null);
+      if (!live || !profile || profile.name === session.account.name) return;
+      const renamed = await adoptAccountName(home, session, profile.name);
+      if (!live) return;
+      setSession({ ...session, account: renamed });
+      setAccounts(await listAccountsIn(home));
+    };
+    void adopt();
+    const stop = session.node.subscribe((event) => {
+      if (event.type === 'account') void adopt();
+    });
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [session, home]);
 
   const stayLocal = useCallback(() => setStage('ready'), []);
 
@@ -421,6 +460,9 @@ export function useSession() {
     create,
     codeSaved,
     chooseFolder,
+    moved,
+    forgetBrowser,
+    dismissMoved: () => setMoved(null),
     stayLocal,
     useBrowserAccounts,
     startCreating,

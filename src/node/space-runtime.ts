@@ -45,7 +45,7 @@ import {
   type SchemaIssue,
   type StoredCollection,
 } from '../schema/collection-def.js';
-import { MEMBERSHIP_COLLECTION } from '../space/account-registry.js';
+import { MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
 import type {
   ConnectionState,
   DefineCollection,
@@ -61,7 +61,7 @@ import type {
 export const TOMBSTONE_COLLECTION = 'sys.tombstone';
 
 /** Collections the node writes itself, through their own calls — never through `put` */
-const MANAGED = new Set([TOMBSTONE_COLLECTION, CATALOG_COLLECTION, MEMBERSHIP_COLLECTION]);
+const MANAGED = new Set([TOMBSTONE_COLLECTION, CATALOG_COLLECTION, MEMBERSHIP_COLLECTION, PROFILE_COLLECTION]);
 
 /** The capability a record in a space requires */
 export const writeCapability = (spaceId: string): Capability => ({

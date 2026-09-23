@@ -5,6 +5,7 @@ import {
   canPairPhone,
   servedOverLan,
   relayProblem,
+  relayOnlyLocal,
   type PairingOffer,
   type PairingStage,
 } from '../pairing';
@@ -99,8 +100,8 @@ export function PairPhone() {
                 anyone in the list, not just this computer.
               </Info>
             </p>
-            {relayProblem() && <p style={styles.error}>{relayProblem()}</p>}
-            {!relayProblem() && !servedOverLan() && (
+            {(relayProblem() ?? relayOnlyLocal()) && <p style={styles.error}>{relayProblem() ?? relayOnlyLocal()}</p>}
+            {!relayProblem() && !relayOnlyLocal() && !servedOverLan() && (
               <p style={styles.error}>
                 This page is on localhost, which your phone cannot reach. Restart with{' '}
                 <code>npm run dev -- --host</code> and open the network address it prints.

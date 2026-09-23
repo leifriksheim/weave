@@ -22,6 +22,16 @@ import { cidFromBytes, sha256 } from '../utils/hash.js';
 /** Where membership records live, one per space the account belongs to */
 export const MEMBERSHIP_COLLECTION = 'sys.membership';
 
+/**
+ * The account's profile — what it is called — so a rename on one device or app
+ * reaches the others. The newest record wins.
+ */
+export const PROFILE_COLLECTION = 'sys.profile';
+
+export interface AccountProfile {
+  readonly name: string;
+}
+
 /** A membership record's body. The invite carries a private space's key — the registry is encrypted. */
 export interface Membership {
   readonly space: string;

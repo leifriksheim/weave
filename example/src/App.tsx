@@ -11,7 +11,7 @@ import { PairPhone } from './components/PairPhone';
 import { SpaceList } from './components/SpaceList';
 import { SpaceView } from './components/SpaceView';
 import { clearInviteFromUrl, previewInvite, readInviteFromUrl } from './spaces';
-import { relayProblem } from './relay';
+import { relayOnlyLocal, relayProblem } from './relay';
 import type { Session } from './protocol';
 import { styles } from './styles';
 
@@ -157,6 +157,33 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
               Your lists still work, and still save. They just will not reach your other devices
               until this is set.
             </p>
+          </div>
+        )}
+        {!relayProblem() && relayOnlyLocal() && (
+          <p style={{ ...styles.errorHint, marginBottom: 12 }}>ℹ️ {relayOnlyLocal()}</p>
+        )}
+
+        {auth.moved && (
+          <div style={styles.panel}>
+            <div style={styles.panelBody}>
+              <p style={styles.ok}>
+                {auth.moved.merged
+                  ? `Combined with the copy already in this folder — ${auth.moved.recordsAdded} new records, ${auth.moved.spacesAdded} new lists.`
+                  : `Moved into the folder — ${auth.moved.spacesAdded} lists, ${auth.moved.recordsAdded} records.`}
+              </p>
+              <p style={styles.errorHint}>
+                This browser still has its own copy. Nothing uses it now; remove it once you are happy the
+                folder has everything.
+              </p>
+              <div style={styles.linkRow}>
+                <button onClick={() => void auth.forgetBrowser()} data-variant="quiet" style={styles.linkButton}>
+                  Remove it from this browser
+                </button>
+                <button onClick={auth.dismissMoved} data-variant="ghost" style={styles.linkButton}>
+                  Keep it
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

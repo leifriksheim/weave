@@ -308,7 +308,16 @@ key, so every device of the account finds it and nobody else can. Creating or
 joining a space writes a membership record there (carrying the invite, so the
 key too); every other device and node of the account syncs it and joins by
 itself. A tombstoned membership means the account left, and every device leaves.
-Pass `accountKey` to `createNode` to turn it on. A space lives on the devices that hold it,
+Pass `accountKey` to `createNode` to turn it on. The account's name lives there
+too (`node.account.setName`), so a rename on one device or site reaches every
+other one — and a site opening the account for the first time shows its name.
+
+**Moving and merging.** `copyAccountData` copies an account's spaces, keys and
+records from one set of stores to another — out of a browser's own database into
+a data folder, for instance. Because every record is signed, named by its
+content, and deletes are records too, merging into a folder that already holds
+the same account is the same operation: the result is everything from both, and
+whatever either side deleted stays deleted. A space lives on the devices that hold it,
 not inside the identity — bringing a DID back on a new device restores who you
 are, and an invite (even one you send yourself) restores what you had. Expressions name their space in a signed
 field, which stops one being replayed into another.

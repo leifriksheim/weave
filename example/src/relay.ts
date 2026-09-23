@@ -126,16 +126,6 @@ function resolveRelay(configured: string): string {
  */
 export function relayProblem(): string | null {
   const relay = new URL(relayUrl());
-  const pageHost = globalThis.location.hostname;
-
-  // The page is deployed, but the relay was never configured, so it still
-  // points at a process on whoever's laptop built this.
-  if (isLoopback(relay.hostname) && !isLoopback(pageHost) && !isPrivateLan(pageHost)) {
-    return (
-      'This deployment has no relay configured, so peers cannot find each other. ' +
-      'Set VITE_SIGNALING_URL to a wss:// address running server/signaling-server.mjs and rebuild.'
-    );
-  }
 
   // Configured, but as a plain socket from a secure page. The browser will
   // block it before it is ever attempted.
@@ -146,12 +136,29 @@ export function relayProblem(): string | null {
     );
   }
 
-  // Development on localhost: fine for this machine, unreachable from a phone.
-  if (isLoopback(relay.hostname) && isLoopback(pageHost)) {
-    return null;
-  }
-
   return null;
+}
+
+/**
+ * When the relay only exists on this computer, a sentence saying so.
+ *
+ * A deployed page whose relay is still `ws://localhost:8787` is not broken for
+ * the person who built it: their browser reaches the relay (or node) running
+ * on their own machine — browsers let even an HTTPS page open a socket to
+ * localhost — and meets their other tabs there. Every other device, a phone
+ * included, has no such relay, and finds nobody.
+ *
+ * @returns A sentence to show, or null when the relay is not local-only
+ */
+export function relayOnlyLocal(): string | null {
+  const relay = new URL(relayUrl());
+  const pageHost = globalThis.location.hostname;
+  if (!isLoopback(relay.hostname) || isLoopback(pageHost) || isPrivateLan(pageHost)) return null;
+  return (
+    `This deployment's relay is ${CONFIGURED_RELAY} — a program on this computer. Tabs on this ` +
+    'computer can meet through it; a phone or another computer cannot. Set VITE_SIGNALING_URL to a ' +
+    'public wss:// relay (or `p2p run` on a server) and rebuild.'
+  );
 }
 
 /** Whether this page is reachable from another device on the network. */
