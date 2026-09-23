@@ -151,14 +151,28 @@ export function parseUCAN(encoded: string): { readonly header: UCANHeader; reado
   };
 }
 
+/** When to judge a token's time bounds */
+export interface VerifyOptions {
+  /**
+   * Unix seconds to check `exp` and `nbf` against. Default: now.
+   *
+   * A record is judged at the moment it was signed, not the moment someone
+   * reads it. Checking against now would make every record stop verifying
+   * the hour its session's delegation ran out — and a peer arriving later
+   * would refuse all of it.
+   */
+  readonly at?: number;
+}
+
 /**
- * Verifies a UCAN token's signature and expiration.
+ * Verifies a UCAN token's signature and time bounds.
  * 
  * @param {string} encoded The encoded UCAN token
  * @param {CryptoProvider} provider Crypto provider for verifying
+ * @param {VerifyOptions} options When to judge expiry
  * @returns {Promise<UCANValidation>} The validation result
  */
-export async function verifyUCAN(encoded: string, provider: CryptoProvider): Promise<UCANValidation> {
+export async function verifyUCAN(encoded: string, provider: CryptoProvider, options: VerifyOptions = {}): Promise<UCANValidation> {
   try {
     const parts = encoded.split('.');
     if (parts.length !== 3) {
@@ -167,7 +181,7 @@ export async function verifyUCAN(encoded: string, provider: CryptoProvider): Pro
     
     const { header: _header, payload, signature } = parseUCAN(encoded);
     
-    const now = Math.floor(Date.now() / 1000);
+    const now = options.at ?? Math.floor(Date.now() / 1000);
     
     if (payload.exp <= now) {
       return { valid: false, issuer: payload.iss, audience: payload.aud, capabilities: payload.att, reason: 'Token has expired' };
@@ -237,9 +251,10 @@ export function isCapabilitySubset(parent: Capability, child: Capability): boole
 export async function validateDelegationChain(
   token: string,
   proofTokens: ReadonlyArray<string>,
-  provider: CryptoProvider
+  provider: CryptoProvider,
+  options: VerifyOptions = {}
 ): Promise<UCANValidation> {
-  const leafValidation = await verifyUCAN(token, provider);
+  const leafValidation = await verifyUCAN(token, provider, options);
   if (!leafValidation.valid) {
     return leafValidation;
   }
@@ -253,7 +268,7 @@ export async function validateDelegationChain(
   
   // Parse all proof tokens
   const proofs = await Promise.all(proofTokens.map(async (encoded) => {
-    const validation = await verifyUCAN(encoded, provider);
+    const validation = await verifyUCAN(encoded, provider, options);
     const parsed = parseUCAN(encoded);
     const cid = await cidFromBytes(utf8Encode(encoded));
     return { validation, parsed, encoded, cid };
@@ -352,14 +367,16 @@ const MAX_CHAIN_DEPTH = 10;
  * @param encoded The leaf UCAN
  * @param resolveProof Looks up a parent token by CID (from local storage, a peer, …)
  * @param provider Crypto provider for signature verification
+ * @param options When to judge expiry — for a record, when it was signed
  * @returns What the chain grants, and the root DID behind it
  */
 export async function resolveDelegationRoot(
   encoded: string,
   resolveProof: ProofResolver,
-  provider: CryptoProvider
+  provider: CryptoProvider,
+  options: VerifyOptions = {}
 ): Promise<ChainResolution> {
-  const leafValidation = await verifyUCAN(encoded, provider);
+  const leafValidation = await verifyUCAN(encoded, provider, options);
   if (!leafValidation.valid) {
     return { valid: false, rootDid: null, capabilities: [], audience: null, reason: leafValidation.reason ?? 'Invalid token' };
   }
@@ -387,7 +404,7 @@ export async function resolveDelegationRoot(
 
     // validateDelegationChain checks this single link: parent signature,
     // audience → issuer linkage, and capability attenuation.
-    const link = await validateDelegationChain(current.encoded, [parentEncoded], provider);
+    const link = await validateDelegationChain(current.encoded, [parentEncoded], provider, options);
     if (!link.valid) {
       return { valid: false, rootDid: null, capabilities: [], audience: null, reason: link.reason ?? 'Broken delegation chain' };
     }

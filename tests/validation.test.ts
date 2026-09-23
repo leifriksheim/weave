@@ -174,7 +174,7 @@ describe('capability gate', () => {
     assert.match(result.reason ?? '', /does not grant/i);
   });
 
-  test('rejects an expired proof', async () => {
+  test('rejects a record signed after its proof expired', async () => {
     const root = await makeKey();
     const session = await makeKey();
     const ucan = await issueUCAN(
@@ -191,6 +191,49 @@ describe('capability gate', () => {
     const result = await gate.validate(expression);
     assert.equal(result.passed, false);
     assert.match(result.reason ?? '', /expired/i);
+  });
+
+  test('accepts a record signed while its proof was valid, long after it expired', async () => {
+    // A peer that turns up next week must still accept last week's data.
+    const root = await makeKey();
+    const session = await makeKey();
+    const now = Math.floor(Date.now() / 1000);
+    const ucan = await issueUCAN(
+      { issuer: root, audience: session.did, capabilities: [ALL], expiration: now - 3600 },
+      provider,
+    );
+
+    const signedAt = new Date((now - 7200) * 1000).toISOString();
+    const unsigned = createExpression({
+      author: session.did,
+      collection: COLLECTION,
+      body: { text: 'written two hours ago' },
+      proof: ucan.encoded,
+      createdAt: signedAt,
+    });
+    const expression = (await signer.sign(unsigned, session.privateKey)) as Expression;
+    const result = await gate.validate(expression);
+    assert.equal(result.passed, true, result.reason);
+  });
+
+  test('rejects a record dated in the future', async () => {
+    const root = await makeKey();
+    const session = await makeKey();
+    const now = Math.floor(Date.now() / 1000);
+    const ucan = await issueUCAN(
+      { issuer: root, audience: session.did, capabilities: [ALL], expiration: now + 86_400 },
+      provider,
+    );
+    const unsigned = createExpression({
+      author: session.did,
+      collection: COLLECTION,
+      body: { text: 'from tomorrow' },
+      proof: ucan.encoded,
+      createdAt: new Date((now + 3600) * 1000).toISOString(),
+    });
+    const result = await gate.validate((await signer.sign(unsigned, session.privateKey)) as Expression);
+    assert.equal(result.passed, false);
+    assert.match(result.reason ?? '', /future/);
   });
 
   test('honours an application trust policy', async () => {

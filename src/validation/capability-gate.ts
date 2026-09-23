@@ -32,6 +32,13 @@ export interface CapabilityGate {
 const fail = (reason: string): GateResult => ({ passed: false, gate: 'capability', reason });
 
 /**
+ * How far ahead of this machine's clock a record may be dated. Clocks disagree
+ * by seconds routinely; minutes is generous without letting a record claim a
+ * time when a delegation it does not yet hold will be valid.
+ */
+export const MAX_CLOCK_SKEW_SECONDS = 300;
+
+/**
  * Creates a gate that checks an author was *authorized* to write an expression.
  *
  * The crypto gate proves an expression came from the key it claims. This one
@@ -39,6 +46,13 @@ const fail = (reason: string): GateResult => ({ passed: false, gate: 'capability
  * delegated key carries a UCAN in `proof`, and the gate walks it back to a root
  * identity, refusing anything that is expired, misaddressed, over-broad, or
  * rooted in an identity the application does not trust.
+ *
+ * "Expired" means expired **when the record was signed**, judged by its
+ * `createdAt`. A record stays valid after its session ends, which is what lets a
+ * peer that shows up next week accept last week's data. The cost is that a
+ * leaked session key could backdate records into its own window — which is why
+ * session keys live in memory and are short-lived. A record dated in the future
+ * is refused outright.
  *
  * @param config Gate configuration
  * @returns A CapabilityGate instance
@@ -59,7 +73,15 @@ export function createCapabilityGate(config: CapabilityGateConfig): CapabilityGa
           return { passed: true, gate: 'capability' };
         }
 
-        const chain = await resolveDelegationRoot(expression.proof, resolveProof, provider);
+        const signedAt = Math.floor(Date.parse(expression.createdAt) / 1000);
+        if (!Number.isFinite(signedAt)) {
+          return fail('Expression has no valid creation time');
+        }
+        if (signedAt > Math.floor(Date.now() / 1000) + MAX_CLOCK_SKEW_SECONDS) {
+          return fail('Expression is dated in the future');
+        }
+
+        const chain = await resolveDelegationRoot(expression.proof, resolveProof, provider, { at: signedAt });
         if (!chain.valid || chain.rootDid === null) {
           return fail(chain.reason ?? 'Invalid delegation chain');
         }
