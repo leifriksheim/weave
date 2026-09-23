@@ -1,5 +1,11 @@
 import type { ReactNode } from 'react';
+import { parse, render } from 'sugar-high/core';
+import * as typescript from 'sugar-high/lang/typescript';
+import * as shell from 'sugar-high/lang/shell';
 import './site.css';
+
+/** Syntax highlighting: sugar-high's core and just the two languages used here */
+const LANGUAGES = { typescript: { ...typescript, typescript: true }, shell } as const;
 
 /**
  * The two landing pages — for people, at `/`, and for developers, at
@@ -85,13 +91,17 @@ function Feature({ icon, title, children }: { icon: string; title: string; child
   );
 }
 
-function Code({ file, children }: { file: string; children: string }) {
+function Code({ file, lang = 'typescript', children }: { file: string; lang?: keyof typeof LANGUAGES; children: string }) {
+  // Our own code snippets, not user input — safe to render as HTML.
+  const html = render(parse(children.trim(), LANGUAGES[lang]));
   return (
     <div className="code">
       <div className="bar">
         <span>{file}</span>
       </div>
-      <pre>{children.trim()}</pre>
+      <pre>
+        <code dangerouslySetInnerHTML={{ __html: html }} />
+      </pre>
     </div>
   );
 }
@@ -438,7 +448,7 @@ export function Developers() {
               </p>
               <p>An agent acts as the user, with the same permissions as the app it's in.</p>
             </div>
-            <Code file="terminal">{AGENTS}</Code>
+            <Code file="terminal" lang="shell">{AGENTS}</Code>
           </div>
         </div>
       </section>

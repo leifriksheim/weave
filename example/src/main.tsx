@@ -27,6 +27,14 @@ if (page === 'app') {
   // The node's operations as WebMCP tools, from the start — agents and
   // extensions read the list on load. They act for whoever signs in.
   exposeToAgents();
+
+  // Bridges those tools to desktop MCP clients through a local relay
+  // (npx @mcp-b/webmcp-local-relay). Only in the app: the landing pages have
+  // no tools, and would just knock on the relay's ports.
+  const relay = document.createElement('script');
+  relay.src = '/webmcp/embed.js';
+  relay.defer = true;
+  document.body.appendChild(relay);
 }
 
 const root = document.getElementById('root');

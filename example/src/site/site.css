@@ -91,9 +91,24 @@
 .site .code { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; overflow: hidden; border: 1px solid #1f1f1f; }
 .site .code .bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #1f1f1f; font-size: 12px; color: var(--code-dim); font-family: 'Geist Mono', monospace; }
 .site .code pre { margin: 0; padding: 20px; overflow-x: auto; font-size: 13px; line-height: 1.7; }
-.site .code .c { color: var(--code-dim); }
-.site .code .k { color: #fff; font-weight: 500; }
-.site .code .s { color: #a5a5a5; }
+/* Syntax colours, in greys: sugar-high reads these variables. Bright for what
+   the code says, dim for punctuation and comments — no rainbow. */
+.site .code {
+  --sh-keyword: #ffffff;
+  --sh-class: #ffffff;
+  --sh-entity: #ffffff;
+  --sh-identifier: #d4d4d4;
+  --sh-property: #bdbdbd;
+  --sh-string: #9e9e9e;
+  --sh-jsxliterals: #9e9e9e;
+  --sh-sign: #7a7a7a;
+  --sh-comment: #6b6b6b;
+  --sh-break: #d4d4d4;
+  --sh-space: #d4d4d4;
+}
+.site .code .sh__token--keyword { font-weight: 500; }
+.site .code .sh__token--comment { font-style: italic; }
+.site .code pre code { background: none; border: none; padding: 0; font-size: inherit; color: inherit; }
 
 .site .split { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); gap: 48px; align-items: start; }
 .site .split + .split { margin-top: 72px; }
