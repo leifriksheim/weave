@@ -24,6 +24,7 @@ import {
   validateDelegationChain,
   publicKeyToDid,
   deriveVaultKey,
+  deriveVaultKeyBytes,
   P256_MULTICODEC,
   inspectPasskeyPrf,
   type RootSigner,
@@ -50,6 +51,11 @@ export interface SessionSource {
   readonly signer: RootSigner;
   /** Encrypts this account's registry at rest, when there is a folder */
   readonly vaultKey: CryptoKey | null;
+  /**
+   * The same key as bytes: what the node derives the account registry from, so
+   * lists joined on one device appear on the others. Null keeps lists local.
+   */
+  readonly accountKey: Uint8Array | null;
   /** The seed, when this page is the one holding it */
   readonly seed: Uint8Array | null;
 }
@@ -67,6 +73,7 @@ export async function localSource(seed: Uint8Array): Promise<SessionSource> {
     rootDid: identity.did,
     signer: createLocalRootSigner(identity, manager.getProvider()),
     vaultKey: await deriveVaultKey(seed),
+    accountKey: await deriveVaultKeyBytes(seed),
     seed,
   };
 }
@@ -155,6 +162,7 @@ export async function startSession(
 
   const node = await createNode({
     signer: source.signer,
+    ...(source.accountKey ? { accountKey: source.accountKey } : {}),
     stores: storesFor(account, folder && source.vaultKey ? { directory: folder.directory, vaultKey: source.vaultKey } : undefined),
     collections: [TODO_COLLECTION],
     network: { relays: relayUrls(), nodes: CONFIGURED_NODES },

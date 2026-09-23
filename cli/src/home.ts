@@ -16,6 +16,7 @@ import {
   createLocalRootSigner,
   createVault,
   deriveVaultKey,
+  deriveVaultKeyBytes,
   folderStores,
   generateSeed,
   newAccountId,
@@ -86,8 +87,9 @@ export async function createAccount(
   return { account, code: options.code ? null : seedToRecoveryCode(seed) };
 }
 
-/** Picks an account by id or name; the only one when there is exactly one. */
-export async function chooseAccount(home: Home, which?: string): Promise<AccountSummary> {
+/** Picks an account by id, name or DID (`--account`, then `$P2P_ACCOUNT`); the only one when there is exactly one. */
+export async function chooseAccount(home: Home, flag?: string): Promise<AccountSummary> {
+  const which = flag ?? process.env.P2P_ACCOUNT;
   const accounts = await home.accounts.list();
   if (accounts.length === 0) throw new Error(`No account in ${home.path}. Run "p2p init" first.`);
   if (which) {
@@ -105,6 +107,8 @@ export interface Unlocked {
   readonly account: AccountSummary;
   readonly signer: RootSigner;
   readonly stores: StoreFactory;
+  /** Lets the node follow the account registry, so it joins every space the account does */
+  readonly accountKey: Uint8Array;
 }
 
 /**
@@ -145,5 +149,6 @@ export async function unlock(
     account,
     signer: createLocalRootSigner(identity, manager.getProvider()),
     stores: folderStores(home.directory, { basePath: account.dataPath, vaultKey: await deriveVaultKey(seed) }),
+    accountKey: await deriveVaultKeyBytes(seed),
   };
 }

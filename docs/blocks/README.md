@@ -76,8 +76,7 @@ but its links go unchecked until that lands.
 2. ~~**BLOCK-13**, the Node API~~ — done.
 3. ~~**BLOCK-06**, the CLI and always-on node~~ — done.
 4. ~~**BLOCK-01**~~ — done: 508 KB → 25 KB for one change in 10,000.
-5. **An account registry space** (below) — so the node learns about spaces by
-   syncing rather than by being told; and a signed hello on the node's `/peer`.
+5. ~~**An account registry space** and a signed hello on `/peer`~~ — done.
 6. **BLOCK-08 → 09 → 10**, with agents defining collections over MCP/WebMCP as
    the motivating use.
 
@@ -98,10 +97,12 @@ not your meaning.
 
 Things that came up while building and have no block of their own:
 
-- **An account-wide registry space**, with an id derived from the account DID, so
-  a new device or a new app discovers which lists exist by syncing rather than by
-  being told. Today the list of spaces lives in the folder, or nowhere, which is
-  why pairing a phone has to hand it over explicitly.
+- ~~**An account-wide registry space**~~ — done (2026-09-23):
+  `src/space/account-registry.ts`, wired into `createNode({ accountKey })`.
+  Verified in browsers: a list made on one device appears on another of the
+  same account with no invite. Alongside it, the node's `/peer` endpoint now
+  requires both ends to prove they hold a private space's key
+  (`src/network/peer-auth.ts`).
 - **Revoking access to a private space.** A space has one AES key and no
   rotation, so somebody invited is invited permanently. Re-keying means
   re-encrypting and distributing to the remaining members.

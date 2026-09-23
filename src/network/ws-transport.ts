@@ -6,20 +6,20 @@
  * peers that could not otherwise reach each other. The node appears as a
  * single peer.
  *
- * The wire is deliberately plain:
+ * The wire is deliberately plain — three text frames, then binary:
  *
- * 1. After the socket opens, each side sends one text frame:
- *    `{"type":"hello","did":"<its did>"}`.
- * 2. Everything after that is binary frames, passed through untouched.
+ * 1. node → `{"type":"challenge","nonce":…,"did":…}`
+ * 2. client → `{"type":"hello","did":…,"nonce":…,"mac"?:…}`
+ * 3. node → `{"type":"welcome","did":…,"mac"?:…}`
+ * 4. binary frames either way, passed through untouched.
  *
- * The node's `did` in its hello is a claim, not a proof. That is acceptable for
- * data — every expression is signed and validated on arrival, so a node lying
- * about who it is still cannot forge anything — but anything that trusts the
- * node *as a party* needs a signed challenge first. That belongs to the node's
- * own block, not here.
+ * For a private space both MACs are required and prove each side holds the
+ * space key (see `peer-auth.ts`); a node that cannot prove it is dropped. A
+ * public space needs no proof — anyone may read it anyway.
  */
 
 import type { PeerTransport, PeerTransportEvents } from './transport.js';
+import { peerNonce, type PeerAuthenticator } from './peer-auth.js';
 
 export interface WebSocketTransportConfig {
   /** `wss://node.example.com/peer` */
@@ -30,20 +30,22 @@ export interface WebSocketTransportConfig {
   readonly reconnect?: boolean;
   /** Ceiling for the redial backoff. Default 30 s. */
   readonly maxBackoffMs?: number;
+  /** Proves membership of a private space, and checks the node's proof. Omit for a public space. */
+  readonly authenticator?: PeerAuthenticator | null;
 }
 
-interface Hello {
-  readonly type: 'hello';
-  readonly did: string;
+interface Frame {
+  readonly type?: unknown;
+  readonly did?: unknown;
+  readonly nonce?: unknown;
+  readonly mac?: unknown;
 }
 
-function parseHello(data: unknown): Hello | null {
+function parseFrame(data: unknown, type: string): Frame | null {
   if (typeof data !== 'string') return null;
   try {
-    const parsed = JSON.parse(data) as Partial<Hello>;
-    return parsed?.type === 'hello' && typeof parsed.did === 'string' && parsed.did.length > 0
-      ? { type: 'hello', did: parsed.did }
-      : null;
+    const parsed = JSON.parse(data) as Frame;
+    return parsed?.type === type && typeof parsed.did === 'string' && parsed.did.length > 0 ? parsed : null;
   } catch {
     return null;
   }
@@ -123,27 +125,40 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
       ws = socket;
       socket.binaryType = 'arraybuffer';
       let settled = false;
+      let stage: 'challenge' | 'welcome' | 'open' = 'challenge';
+      const ourNonce = peerNonce();
+      const authenticator = config.authenticator ?? null;
 
-      socket.onopen = () => {
-        socket.send(JSON.stringify({ type: 'hello', did: config.did } satisfies Hello));
+      const refuse = (reason: string) => {
+        const error = new Error(reason);
+        emit('error', config.url, error);
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+        // Clients may only send 1000 or 3000–4999; 4002 mirrors 1002 "protocol error".
+        socket.close(4002, 'protocol error');
       };
 
-      socket.onmessage = (event: MessageEvent) => {
-        if (peerId === null) {
-          const hello = parseHello(event.data);
-          if (!hello) {
-            // A node that does not introduce itself first is not speaking this protocol.
-            const error = new Error('Expected a hello frame from the node');
-            emit('error', config.url, error);
-            if (!settled) {
-              settled = true;
-              reject(error);
-            }
-            // Clients may only send 1000 or 3000–4999; 4002 mirrors 1002 "protocol error".
-            socket.close(4002, 'protocol error');
-            return;
+      const handle = async (event: MessageEvent) => {
+        if (stage === 'challenge') {
+          const challenge = parseFrame(event.data, 'challenge');
+          if (!challenge || typeof challenge.nonce !== 'string') return refuse('Expected a challenge from the node');
+          const mac = authenticator ? await authenticator.sign('client', config.did, challenge.nonce) : undefined;
+          socket.send(JSON.stringify({ type: 'hello', did: config.did, nonce: ourNonce, ...(mac ? { mac } : {}) }));
+          stage = 'welcome';
+          return;
+        }
+
+        if (stage === 'welcome') {
+          const welcome = parseFrame(event.data, 'welcome');
+          if (!welcome) return refuse('Expected a welcome from the node');
+          const did = welcome.did as string;
+          if (authenticator && !(await authenticator.verify('server', did, ourNonce, welcome.mac))) {
+            return refuse('The node could not prove it belongs to this space');
           }
-          peerId = hello.did;
+          stage = 'open';
+          peerId = did;
           retryCount = 0;
           settled = true;
           emit('connected', peerId);
@@ -151,10 +166,19 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
           return;
         }
 
-        if (event.data instanceof ArrayBuffer) {
+        if (event.data instanceof ArrayBuffer && peerId !== null) {
           emit('data', peerId, new Uint8Array(event.data));
         }
-        // Text after the hello has no meaning in this protocol; ignore it.
+        // Text after the welcome has no meaning in this protocol; ignore it.
+      };
+
+      // Frames are handled one at a time: the handshake awaits crypto, and a
+      // data frame must not overtake the welcome that opens the connection.
+      let queue: Promise<void> = Promise.resolve();
+      socket.onmessage = (event: MessageEvent) => {
+        queue = queue
+          .then(() => handle(event))
+          .catch((error: unknown) => refuse(error instanceof Error ? error.message : String(error)));
       };
 
       socket.onerror = () => {
@@ -173,7 +197,7 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
         if (wasConnected) emit('disconnected', wasConnected);
         if (!settled) {
           settled = true;
-          reject(new Error(`Connection to ${config.url} closed before the node said hello`));
+          reject(new Error(`Connection to ${config.url} closed before the handshake finished`));
         }
         scheduleRedial();
       };

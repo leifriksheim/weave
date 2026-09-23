@@ -15,6 +15,15 @@ account.
 In this repo, `npm run dev` (at the root) already runs a node with a throwaway
 identity, and `npm run p2p -- <command>` talks to it — no setup.
 
+To make the dev node *your* account's node — so it serves every list you make
+in the browser, with nothing to hand it — give it your account password once:
+
+```bash
+rm -rf .p2p-dev                                  # drop the throwaway identity
+P2P_RECOVERY_CODE='XXXX-…' npm run p2p -- init --existing --passphrase --name Me
+npm run dev
+```
+
 To have `p2p` everywhere:
 
 ```bash
@@ -83,14 +92,23 @@ an agent can do is exactly what the account can do, through the same gates.
 `p2p mcp` works offline against the folder; with `p2p run` on the same folder,
 whatever the agent writes is synced within seconds.
 
+## Who gets served
+
+For a **private** space, both ends prove they hold the space key before
+anything moves: the node sends a random challenge, the client answers with a MAC
+over it, and the node answers the client's challenge the same way. A stranger
+who knows the space id gets a challenge and a closed socket, never the
+ciphertext; a node that cannot prove it is dropped by the client. A **public**
+space is served to anyone, as its data is public anyway.
+
+## Your node follows your account
+
+Run the node as *your* account (`p2p init --existing` with your recovery code)
+and it follows the account registry: every space you create or join, on any
+device, is served by the node within moments — no invites to hand it. Leaving a
+space anywhere leaves it everywhere.
+
 ## Not yet
 
-- **Access control on `/peer`.** Anyone who knows a space id can connect and
-  sync, as with a relay room. Private spaces stay encrypted and every write is
-  checked, but the ciphertext is served. A signed hello (prove you hold a key
-  the space trusts) belongs here next.
-- **The node's hello is a claim.** A client trusts the DID a node announces;
-  that is fine for data, which is signed, and not fine for anything that treats
-  the node as a party.
 - **WebRTC on the node.** Browsers reach it over WebSocket. `node-datachannel`
   plugs into the same transport seam if measurement says it is needed.

@@ -2,8 +2,10 @@
  * The daemon's server: one port, three jobs.
  *
  * - `/peer?space=<id>` — browsers and other nodes dial in with the protocol's
- *   WebSocket transport (a hello frame each way, then binary). Each socket
- *   becomes a peer in that space, with no relay and no TURN in between.
+ *   WebSocket transport. For a private space both sides first prove they hold
+ *   its key (`src/network/peer-auth.ts`); a public one is open, as it is to
+ *   anyone anyway. Each socket becomes a peer in that space, with no relay and
+ *   no TURN in between.
  * - any other path, `?room=<id>` — the signaling relay, so a self-hoster runs
  *   one process to bootstrap a space.
  * - `GET /health` — rooms, peers and spaces, for monitoring.
@@ -13,7 +15,7 @@
  */
 import { createServer, type IncomingMessage } from 'node:http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
-import type { P2PNode, PeerTransport, PeerTransportEvents } from '../../src/index.js';
+import { peerNonce, type P2PNode, type PeerTransport, type PeerTransportEvents } from '../../src/index.js';
 
 // ─── Inbound peers ─────────────────────────────────────────────────────
 
@@ -173,11 +175,13 @@ export interface Served {
   close(): Promise<void>;
 }
 
-function parseHello(data: RawData, isBinary: boolean): string | null {
+function parseHello(data: RawData, isBinary: boolean): { did: string; nonce: string; mac?: unknown } | null {
   if (isBinary) return null;
   try {
-    const hello = JSON.parse(String(data)) as { type?: unknown; did?: unknown };
-    return hello.type === 'hello' && typeof hello.did === 'string' && hello.did.startsWith('did:') ? hello.did : null;
+    const hello = JSON.parse(String(data)) as { type?: unknown; did?: unknown; nonce?: unknown; mac?: unknown };
+    return hello.type === 'hello' && typeof hello.did === 'string' && hello.did.startsWith('did:') && typeof hello.nonce === 'string'
+      ? { did: hello.did, nonce: hello.nonce, mac: hello.mac }
+      : null;
   } catch {
     return null;
   }
@@ -201,41 +205,47 @@ export async function serve(options: ServeOptions): Promise<Served> {
     res.end('This endpoint speaks WebSocket only.\n');
   });
 
-  const onPeer = (socket: WebSocket, url: URL) => {
+  const onPeer = async (socket: WebSocket, url: URL) => {
     const spaceId = url.searchParams.get('space');
     if (!spaceId) {
       socket.close(4000, 'missing ?space=');
       return;
     }
+    // Not a space this node keeps. Saying so plainly beats a silent stall.
+    if (!(await node.spaces.get(spaceId))) {
+      socket.close(4004, 'this node does not hold that space');
+      return;
+    }
+    const authenticator = await node.spaces.authenticator(spaceId);
+    const nonce = peerNonce();
     const timer = setTimeout(() => socket.close(4008, 'no hello'), options.helloTimeoutMs ?? 10_000);
 
     socket.once('message', (data: RawData, isBinary: boolean) => {
       clearTimeout(timer);
-      const peerDid = parseHello(data, isBinary);
-      if (!peerDid) {
-        socket.close(4002, 'expected a hello frame');
-        return;
-      }
-      void node.spaces
-        .get(spaceId)
-        .then(async (space) => {
-          if (!space) {
-            // Not a space this node keeps. Saying so plainly beats a silent stall.
-            socket.close(4004, 'this node does not hold that space');
-            return;
-          }
-          await node.spaces.open(spaceId);
-          socket.send(JSON.stringify({ type: 'hello', did: node.sessionDid }));
-          inbound.accept(spaceId, socket, peerDid);
-        })
-        .catch(() => socket.close(1011, 'could not open space'));
+      void (async () => {
+        const hello = parseHello(data, isBinary);
+        if (!hello) {
+          socket.close(4002, 'expected a hello frame');
+          return;
+        }
+        if (authenticator && !(await authenticator.verify('client', hello.did, nonce, hello.mac))) {
+          socket.close(4003, 'not a member of this space');
+          return;
+        }
+        await node.spaces.open(spaceId);
+        const mac = authenticator ? await authenticator.sign('server', node.sessionDid, hello.nonce) : undefined;
+        socket.send(JSON.stringify({ type: 'welcome', did: node.sessionDid, ...(mac ? { mac } : {}) }));
+        inbound.accept(spaceId, socket, hello.did);
+      })().catch(() => socket.close(1011, 'could not open space'));
     });
+
+    socket.send(JSON.stringify({ type: 'challenge', nonce, did: node.sessionDid }));
   };
 
   http.on('upgrade', (req: IncomingMessage, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     sockets.handleUpgrade(req, socket, head, (ws) => {
-      if (url.pathname === '/peer') onPeer(ws, url);
+      if (url.pathname === '/peer') void onPeer(ws, url).catch(() => ws.close(1011, 'internal error'));
       else relay.accept(ws, url.searchParams.get('room') ?? 'default');
     });
   });

@@ -9,6 +9,8 @@ import { WebSocketServer, type WebSocket as ServerSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 
 import { createWebSocketTransport } from '../src/network/ws-transport.js';
+import { createPeerAuthenticator, peerNonce, type PeerAuthenticator } from '../src/network/peer-auth.js';
+import { generateSpaceKey } from '../src/privacy/space-encryption.js';
 
 const NODE_DID = 'did:key:zNode';
 
@@ -20,21 +22,38 @@ async function until(predicate: () => boolean, ms = 3000, what = 'condition'): P
   }
 }
 
-/** A node that answers the hello and echoes every binary frame. */
-function startNode(port = 0, hello: string = JSON.stringify({ type: 'hello', did: NODE_DID })) {
+/**
+ * A node that runs the handshake and echoes every binary frame.
+ * `authenticator` makes it demand and give proof; `welcome` overrides its reply.
+ */
+function startNode(
+  port = 0,
+  options: { authenticator?: PeerAuthenticator; welcome?: (hello: { nonce: string }) => Promise<string> } = {},
+) {
   const server = new WebSocketServer({ port, host: '127.0.0.1' });
   const greetedBy: string[] = [];
+  const refused: string[] = [];
   const sockets = new Set<ServerSocket>();
   server.on('connection', (socket) => {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
-    socket.once('message', (data, isBinary) => {
-      if (!isBinary) greetedBy.push(JSON.parse(String(data)).did);
-      socket.send(hello);
+    const nonce = peerNonce();
+    socket.once('message', async (data, isBinary) => {
+      if (isBinary) return;
+      const hello = JSON.parse(String(data)) as { did: string; nonce: string; mac?: string };
+      if (options.authenticator && !(await options.authenticator.verify('client', hello.did, nonce, hello.mac))) {
+        refused.push(hello.did);
+        socket.close(4003, 'not a member');
+        return;
+      }
+      greetedBy.push(hello.did);
+      const mac = options.authenticator ? await options.authenticator.sign('server', NODE_DID, hello.nonce) : undefined;
+      socket.send(options.welcome ? await options.welcome(hello) : JSON.stringify({ type: 'welcome', did: NODE_DID, ...(mac ? { mac } : {}) }));
       socket.on('message', (frame, binary) => {
         if (binary) socket.send(frame, { binary: true });
       });
     });
+    socket.send(JSON.stringify({ type: 'challenge', nonce, did: NODE_DID }));
   });
   const ready = new Promise<number>((resolve) => server.on('listening', () => resolve((server.address() as AddressInfo).port)));
   const stop = () =>
@@ -42,7 +61,7 @@ function startNode(port = 0, hello: string = JSON.stringify({ type: 'hello', did
       for (const socket of sockets) socket.terminate();
       server.close(() => resolve());
     });
-  return { ready, greetedBy, stop };
+  return { ready, greetedBy, refused, stop };
 }
 
 function watch(transport: ReturnType<typeof createWebSocketTransport>) {
@@ -111,15 +130,75 @@ describe('WebSocket transport', () => {
     await node.stop();
   });
 
-  test('a server that does not say hello is refused', async () => {
-    const node = startNode(0, 'not a hello');
+  test('a node that does not welcome properly is refused', async () => {
+    const node = startNode(0, { welcome: async () => 'not a welcome' });
     const port = await node.ready;
     const transport = createWebSocketTransport({ url: `ws://127.0.0.1:${port}`, did: 'did:key:zBrowser', reconnect: false });
     const seen = watch(transport);
 
     await assert.rejects(transport.connect!());
     assert.equal(seen.connected.length, 0);
-    assert.match(seen.errors[0]!.message, /hello/);
+    assert.match(seen.errors[0]!.message, /welcome/);
     await node.stop();
+  });
+
+  describe('a private space', () => {
+    test('connects when both sides hold the key', async () => {
+      const key = await generateSpaceKey();
+      const node = startNode(0, { authenticator: await createPeerAuthenticator('space-1', key) });
+      const port = await node.ready;
+      const transport = createWebSocketTransport({
+        url: `ws://127.0.0.1:${port}`,
+        did: 'did:key:zMember',
+        reconnect: false,
+        authenticator: await createPeerAuthenticator('space-1', key),
+      });
+      const seen = watch(transport);
+      await transport.connect!();
+      assert.deepEqual(seen.connected, [NODE_DID]);
+      transport.closeAll();
+      await node.stop();
+    });
+
+    test('the node refuses a client without the key', async () => {
+      const node = startNode(0, { authenticator: await createPeerAuthenticator('space-1', await generateSpaceKey()) });
+      const port = await node.ready;
+      const transport = createWebSocketTransport({
+        url: `ws://127.0.0.1:${port}`,
+        did: 'did:key:zOutsider',
+        reconnect: false,
+        authenticator: await createPeerAuthenticator('space-1', await generateSpaceKey()),
+      });
+      await assert.rejects(transport.connect!());
+      assert.deepEqual(node.refused, ['did:key:zOutsider']);
+      await node.stop();
+    });
+
+    test('the client refuses a node that cannot prove the key', async () => {
+      const key = await generateSpaceKey();
+      // An impostor: it lets anyone in and answers without a proof.
+      const node = startNode(0);
+      const port = await node.ready;
+      const transport = createWebSocketTransport({
+        url: `ws://127.0.0.1:${port}`,
+        did: 'did:key:zMember',
+        reconnect: false,
+        authenticator: await createPeerAuthenticator('space-1', key),
+      });
+      const seen = watch(transport);
+      await assert.rejects(transport.connect!(), /could not prove/);
+      assert.equal(seen.connected.length, 0);
+      await node.stop();
+    });
+
+    test('a proof for one space is useless in another', async () => {
+      const key = await generateSpaceKey();
+      const one = await createPeerAuthenticator('space-1', key);
+      const two = await createPeerAuthenticator('space-2', key);
+      const mac = await one.sign('client', 'did:key:zX', 'nonce');
+      assert.equal(await one.verify('client', 'did:key:zX', 'nonce', mac), true);
+      assert.equal(await two.verify('client', 'did:key:zX', 'nonce', mac), false);
+      assert.equal(await one.verify('server', 'did:key:zX', 'nonce', mac), false);
+    });
   });
 });

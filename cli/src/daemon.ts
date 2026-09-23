@@ -35,6 +35,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const node = await createNode({
     signer: options.unlocked.signer,
     stores: options.unlocked.stores,
+    // Following the account registry is what makes this *your* node: every
+    // space the account joins, on any device, is served here too.
+    accountKey: options.unlocked.accountKey,
     // No relays: WebRTC needs a browser. Peers reach this node over sockets.
     network: {
       transports: inbound.transports,
@@ -61,7 +64,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   await rescan();
 
   let scanning = false;
-  const timer = setInterval(() => {
+  const timer = setInterval(() => rescanSoon(), options.rescanMs ?? 5000);
+
+  const rescanSoon = () => {
     if (scanning) return;
     scanning = true;
     rescan()
@@ -69,9 +74,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       .finally(() => {
         scanning = false;
       });
-  }, options.rescanMs ?? 5000);
+  };
 
   node.subscribe((event) => {
+    // The registry just joined or left something: serve it now, not in five seconds.
+    if (event.type === 'spaces') rescanSoon();
     if (event.type === 'rejected') log(`rejected a record from ${event.peer} in ${event.space}: ${event.reason}`);
   });
 

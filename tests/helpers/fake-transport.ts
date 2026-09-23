@@ -27,10 +27,14 @@ export interface FakeHubOptions {
 }
 
 export interface FakeHub {
-  transport(did: string): PeerTransport;
-  signalled(did: string): SignalledTransport;
+  /**
+   * @param room Keeps spaces apart, as a real network does: one node holding
+   *   two spaces has two transports, and they must not replace each other.
+   */
+  transport(did: string, room?: string): PeerTransport;
+  signalled(did: string, room?: string): SignalledTransport;
   /** Severs one link, as a network failure would — both sides see `disconnected`. */
-  cut(a: string, b: string): void;
+  cut(a: string, b: string, room?: string): void;
   /** Frames delivered so far */
   readonly delivered: () => number;
 }
@@ -60,18 +64,20 @@ function createEmitter() {
 export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
   const latencyMs = options.latencyMs ?? 0;
   const dropRate = options.dropRate ?? 0;
+  /** Keyed by `room|did` */
   const endpoints = new Map<string, Endpoint>();
-  /** Unsignalled transports that have called connect() — the "everyone reaches it" pool */
-  const dialled = new Set<string>();
+  /** Unsignalled transports that have called connect() — the "everyone reaches it" pool, per room */
+  const dialled = new Map<string, Set<string>>();
+  const at = (room: string, did: string) => `${room}|${did}`;
   let delivered = 0;
 
   const later = (fn: () => void) => {
     setTimeout(fn, latencyMs);
   };
 
-  const link = (a: string, b: string) => {
-    const ea = endpoints.get(a);
-    const eb = endpoints.get(b);
+  const link = (room: string, a: string, b: string) => {
+    const ea = endpoints.get(at(room, a));
+    const eb = endpoints.get(at(room, b));
     if (!ea || !eb || ea.links.has(b)) return;
     ea.links.add(b);
     eb.links.add(a);
@@ -81,9 +87,9 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
     });
   };
 
-  const unlink = (a: string, b: string) => {
-    const ea = endpoints.get(a);
-    const eb = endpoints.get(b);
+  const unlink = (room: string, a: string, b: string) => {
+    const ea = endpoints.get(at(room, a));
+    const eb = endpoints.get(at(room, b));
     if (!ea?.links.delete(b)) return;
     eb?.links.delete(a);
     later(() => {
@@ -92,10 +98,10 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
     });
   };
 
-  const base = (did: string) => {
+  const base = (did: string, room: string) => {
     const emitter = createEmitter();
     const endpoint: Endpoint = { did, links: new Set(), emit: emitter.emit };
-    endpoints.set(did, endpoint);
+    endpoints.set(at(room, did), endpoint);
 
     const send = (peerId: string, data: Uint8Array) => {
       if (!endpoint.links.has(peerId)) throw new Error(`Not connected to ${peerId}`);
@@ -105,17 +111,17 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
       later(() => {
         if (!endpoint.links.has(peerId)) return;
         delivered += 1;
-        endpoints.get(peerId)?.emit('data', did, copy);
+        endpoints.get(at(room, peerId))?.emit('data', did, copy);
       });
     };
 
     return {
       endpoint,
       send,
-      close: (peerId: string) => unlink(did, peerId),
+      close: (peerId: string) => unlink(room, did, peerId),
       closeAll: () => {
-        dialled.delete(did);
-        for (const peer of [...endpoint.links]) unlink(did, peer);
+        dialled.get(room)?.delete(did);
+        for (const peer of [...endpoint.links]) unlink(room, did, peer);
       },
       on: emitter.on,
       off: emitter.off,
@@ -123,19 +129,21 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
   };
 
   return {
-    transport(did) {
-      const { endpoint: _endpoint, ...rest } = base(did);
+    transport(did, room = '') {
+      const { endpoint: _endpoint, ...rest } = base(did, room);
       return Object.freeze({
         ...rest,
         async connect() {
-          dialled.add(did);
-          for (const other of dialled) if (other !== did) link(did, other);
+          const pool = dialled.get(room) ?? new Set<string>();
+          dialled.set(room, pool);
+          pool.add(did);
+          for (const other of pool) if (other !== did) link(room, did, other);
         },
       });
     },
 
-    signalled(did) {
-      const { endpoint: _endpoint, ...rest } = base(did);
+    signalled(did, room = '') {
+      const { endpoint: _endpoint, ...rest } = base(did, room);
       /** Offers made or accepted, keyed by peer — a link opens when both halves exist */
       const offered = new Set<string>();
 
@@ -158,7 +166,7 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
           if (!offered.has(peerId)) throw new Error(`No offer outstanding to ${peerId}`);
           if (answer.sdp !== `answer:${peerId}->${did}`) throw new Error('Answer was not meant for this peer');
           offered.delete(peerId);
-          link(did, peerId);
+          link(room, did, peerId);
         },
         async addIceCandidate() {
           // Accepted and ignored: the fake needs no route discovery.
@@ -166,7 +174,7 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
       });
     },
 
-    cut: unlink,
+    cut: (a: string, b: string, room = '') => unlink(room, a, b),
     delivered: () => delivered,
   };
 }

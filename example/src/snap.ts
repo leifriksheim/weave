@@ -286,6 +286,7 @@ export function createSnapRootSigner(did: string): RootSigner {
  */
 export async function snapSource(account: SnapAccount): Promise<SessionSource> {
   const { key } = await invoke<{ key: string }>('getVaultKey');
+  const accountKey = base64UrlDecode(key);
 
   return {
     rootDid: account.did,
@@ -295,11 +296,12 @@ export async function snapSource(account: SnapAccount): Promise<SessionSource> {
     // folder without it.
     vaultKey: await globalThis.crypto.subtle.importKey(
       'raw',
-      base64UrlDecode(key) as BufferSource,
+      accountKey as BufferSource,
       { name: 'AES-GCM', length: 256 },
       false,
       ['encrypt', 'decrypt'],
     ),
+    accountKey,
     seed: null,
   };
 }

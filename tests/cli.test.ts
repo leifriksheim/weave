@@ -25,6 +25,7 @@ import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
 import { recoveryCodeToSeed } from '../src/identity/recovery-code.js';
+import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { NODE_ACTIONS } from '../src/node/actions.js';
 import { memoryStores } from './helpers/memory-stores.js';
 
@@ -170,6 +171,37 @@ describe('the daemon', () => {
     const texts = (await a.records.list<{ text: string }>(space.id)).map((r) => r.body?.text);
     assert.ok(texts.includes('from B 4'));
     await a.close();
+  });
+
+  test('serves a space the account created elsewhere, without being told', async () => {
+    // A laptop of the same account, following the registry through the node.
+    const laptop = await createNode({
+      signer,
+      stores: memoryStores(),
+      accountKey: await deriveVaultKeyBytes(recoveryCodeToSeed(code)),
+      watchIntervalMs: 0,
+      network: { nodes: [peerUrl] },
+    });
+    const space = await laptop.spaces.create({ name: 'Found by itself', type: 'personal', visibility: 'private' });
+    const written = await laptop.records.put(space.id, 'app.note', { text: 'the node never saw an invite' });
+
+    await until(async () => (await daemon.node.spaces.get(space.id)) !== null, 5000, 'the node to join through the registry');
+    await until(async () => (await daemon.node.records.get(space.id, written.id)) !== null, 5000, 'the note to reach the node');
+    await laptop.close();
+  });
+
+  test('refuses a stranger to a private space, before sending anything', async () => {
+    const space = await daemon.node.spaces.create({ name: 'Members only', type: 'shared', visibility: 'private' });
+    const socket = new WebSocket(`${peerUrl}?space=${space.id}`);
+    const frames: string[] = [];
+    socket.addEventListener('message', (event) => {
+      frames.push(String(event.data));
+      const challenge = JSON.parse(String(event.data));
+      if (challenge.type === 'challenge') socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger', nonce: 'n', mac: 'forged' }));
+    });
+    const closed = await new Promise<number>((resolve) => socket.addEventListener('close', (event) => resolve(event.code)));
+    assert.equal(closed, 4003);
+    assert.equal(frames.length, 1); // the challenge, and nothing of the space
   });
 
   test('refuses a peer for a space it does not hold', async () => {

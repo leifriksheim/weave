@@ -21,6 +21,8 @@ import { createSigner } from '../schema/signer.js';
 import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
 import { openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
+import { createPeerAuthenticator } from '../network/peer-auth.js';
+import { deriveAccountRegistry, MEMBERSHIP_COLLECTION, type Membership } from '../space/account-registry.js';
 import type {
   DelegateParams,
   InvitePreview,
@@ -28,6 +30,7 @@ import type {
   NewSpace,
   NodeConfig,
   NodeEvent,
+  NodeRecord,
   NodeRecords,
   NodeSpaces,
   P2PNode,
@@ -130,11 +133,26 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   const registry = createSpaceManager(await config.stores('registry', { seal: true }));
   const runtimes = new Map<string, Promise<SpaceRuntime>>();
 
+  // The account's own space list, kept in a space every device of the account
+  // derives for itself. Hidden from `list`; everything else treats it as a space.
+  const account = config.accountKey ? await deriveAccountRegistry(config.accountKey, config.signer.did) : null;
+  const accountSpaceId = account?.space.id ?? null;
+
+  async function findRecord(spaceId: string): Promise<SpaceRecord | null> {
+    return spaceId === accountSpaceId ? account : registry.get(spaceId);
+  }
+
   async function requireRecord(spaceId: string): Promise<SpaceRecord> {
-    const record = await registry.get(spaceId);
+    const record = await findRecord(spaceId);
     if (!record) throw new Error(`Unknown space: ${spaceId}`);
     return record;
   }
+
+  /** Runtime events pass through; a change to the account registry is also acted on. */
+  const fromRuntime = (event: NodeEvent) => {
+    emit(event);
+    if (event.type === 'records' && event.space === accountSpaceId) void reconcile();
+  };
 
   function runtime(spaceId: string): Promise<SpaceRuntime> {
     if (closed) return Promise.reject(new Error('Node is closed'));
@@ -151,7 +169,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           rootDid: config.signer.did,
           ...(config.network ? { network: config.network } : {}),
           watchIntervalMs: config.watchIntervalMs ?? 2000,
-          emit,
+          emit: fromRuntime,
         }),
       );
       // A failed open must not be cached, or the space stays broken until restart.
@@ -168,18 +186,99 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     await (await open).close();
   }
 
+  // ─── Memberships ───────────────────────────────────────────────────
+  //
+  // One record per space in the registry, holding its invite. A live record
+  // means the account belongs to the space; a tombstoned one means it left.
+  // Every device converges on the same answer, because it is the same data.
+
+  async function memberships(): Promise<ReadonlyArray<NodeRecord<Membership>>> {
+    if (!accountSpaceId) return [];
+    const records = await (await runtime(accountSpaceId)).list<Membership>({ collection: MEMBERSHIP_COLLECTION, includeDeleted: true });
+    // Only the account itself may say what it belongs to.
+    return records.filter((record) => record.verified && record.root === config.signer.did && typeof record.body?.space === 'string');
+  }
+
+  async function remember(spaceId: string): Promise<void> {
+    if (!accountSpaceId) return;
+    if ((await memberships()).some((m) => !m.deleted && m.body!.space === spaceId)) return;
+    const invite = await registry.createInvite(spaceId, config.signer.did);
+    await (await runtime(accountSpaceId)).put<Membership>(MEMBERSHIP_COLLECTION, { space: spaceId, invite });
+  }
+
+  async function forget(spaceId: string): Promise<void> {
+    if (!accountSpaceId) return;
+    const open = await runtime(accountSpaceId);
+    for (const membership of await memberships()) {
+      if (!membership.deleted && membership.body!.space === spaceId) await open.remove(membership.id);
+    }
+  }
+
+  /**
+   * Makes this node's spaces match the account's: join what the account
+   * belongs to, leave what it left, and record anything held here that the
+   * registry has never heard of.
+   */
+  async function reconcileOnce(): Promise<void> {
+    if (!accountSpaceId || closed) return;
+    const all = await memberships();
+    const held = new Set((await registry.list()).map((record) => record.space.id));
+    let changed = false;
+
+    const bySpace = new Map<string, NodeRecord<Membership>[]>();
+    for (const membership of all) {
+      const list = bySpace.get(membership.body!.space) ?? [];
+      list.push(membership);
+      bySpace.set(membership.body!.space, list);
+    }
+
+    for (const [spaceId, records] of bySpace) {
+      const live = records.find((record) => !record.deleted);
+      if (live && !held.has(spaceId)) {
+        try {
+          await registry.join(live.body!.invite, config.signer.did);
+          changed = true;
+        } catch {
+          // An unreadable invite; the next membership written for it will do.
+        }
+      } else if (!live && held.has(spaceId)) {
+        // Every membership for it is tombstoned: the account left, on some device.
+        await closeRuntime(spaceId);
+        await registry.remove(spaceId);
+        changed = true;
+      }
+    }
+
+    // Held here but never recorded — joined before the registry existed, or on
+    // a node without the account key. Recorded now, so other devices follow.
+    for (const spaceId of held) {
+      if (!bySpace.has(spaceId)) await remember(spaceId);
+    }
+
+    if (changed) emit({ type: 'spaces' });
+  }
+
+  let reconciling: Promise<void> = Promise.resolve();
+  function reconcile(): Promise<void> {
+    reconciling = reconciling.then(reconcileOnce).catch((error: unknown) => {
+      console.error('Could not reconcile the account registry:', error);
+    });
+    return reconciling;
+  }
+
   const spaces: NodeSpaces = Object.freeze({
     async list() {
       return (await registry.list()).map(summarize);
     },
 
     async get(spaceId: string) {
-      const record = await registry.get(spaceId);
+      const record = await findRecord(spaceId);
       return record ? summarize(record) : null;
     },
 
     async create(params: NewSpace) {
       const record = await registry.create({ ...params, owner: config.signer.did });
+      await remember(record.space.id);
       emit({ type: 'spaces' });
       return summarize(record);
     },
@@ -198,11 +297,14 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       const record = await registry.join(bareInvite(invite), config.signer.did);
       // A runtime opened before the key arrived would still be unable to read.
       await closeRuntime(record.space.id);
+      await remember(record.space.id);
       emit({ type: 'spaces' });
       return summarize(record);
     },
 
     async leave(spaceId: string) {
+      if (spaceId === accountSpaceId) throw new Error('The account registry cannot be left');
+      await forget(spaceId);
       await closeRuntime(spaceId);
       await registry.remove(spaceId);
       emit({ type: 'spaces' });
@@ -217,7 +319,20 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async status(spaceId: string) {
       return (await runtime(spaceId)).status();
     },
+
+    async authenticator(spaceId: string) {
+      const record = await findRecord(spaceId);
+      if (!record || record.space.visibility !== 'private' || !record.key) return null;
+      return createPeerAuthenticator(spaceId, record.key);
+    },
   });
+
+  // With an account key, start following the registry at once: it is how this
+  // node learns which spaces it belongs to.
+  if (accountSpaceId) {
+    await runtime(accountSpaceId);
+    await reconcile();
+  }
 
   const records: NodeRecords = Object.freeze({
     async list<T>(spaceId: string, options?: ListOptions) {

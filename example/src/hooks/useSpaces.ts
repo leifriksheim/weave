@@ -31,6 +31,15 @@ export function useSpaces(session: Session | null) {
     void refresh();
   }, [refresh]);
 
+  // Spaces also arrive from elsewhere: another device of this account joins
+  // one, and the account registry brings it here.
+  useEffect(() => {
+    if (!session) return;
+    return session.node.subscribe((event) => {
+      if (event.type === 'spaces') void refresh();
+    });
+  }, [session, refresh]);
+
   const create = useCallback(
     async (params: NewSpace) => {
       setError(null);

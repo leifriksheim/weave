@@ -12,6 +12,7 @@ import type { P2PNode, NodeRecord } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
+import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import type { StandardSchemaV1 } from '../src/types.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
@@ -45,7 +46,6 @@ const todoSchema: StandardSchemaV1<Todo> = {
 
 async function startNode(options: { hub?: FakeHub; seed?: Uint8Array; ttl?: number } = {}) {
   const signer = await rootSigner(options.seed);
-  let sessionDid = '';
   const node = await createNode({
     signer,
     stores: memoryStores(),
@@ -53,10 +53,9 @@ async function startNode(options: { hub?: FakeHub; seed?: Uint8Array; ttl?: numb
     watchIntervalMs: 0,
     ...(options.ttl ? { sessionTtlSeconds: options.ttl } : {}),
     ...(options.hub
-      ? { network: { transports: () => [options.hub!.transport(`${sessionDid}`)] } }
+      ? { network: { transports: (spaceId: string, sessionDid: string) => [options.hub!.transport(sessionDid, spaceId)] } }
       : {}),
   });
-  sessionDid = node.sessionDid;
   open.push(node);
   return node;
 }
@@ -211,6 +210,87 @@ describe('two nodes', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.notEqual(await alice.records.get(space, written.id), null);
     assert.notEqual(await bob.records.get(space, written.id), null);
+  });
+});
+
+describe('the account registry', () => {
+  /** A device of one account: same seed, its own store, on a shared hub. */
+  async function device(seed: Uint8Array, hub: FakeHub, stores = memoryStores()) {
+    const signer = await rootSigner(seed);
+    const node = await createNode({
+      signer,
+      stores,
+      accountKey: await deriveVaultKeyBytes(seed),
+      watchIntervalMs: 0,
+      network: { transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)] },
+    });
+    open.push(node);
+    return node;
+  }
+
+  const names = async (node: P2PNode) => (await node.spaces.list()).map((space) => space.name).sort();
+
+  test('a space made on one device appears on the others by itself, readable', async () => {
+    const seed = generateSeed();
+    const hub = createFakeHub({ latencyMs: 1 });
+    const laptop = await device(seed, hub);
+    const phone = await device(seed, hub);
+
+    const space = await laptop.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
+    const written = await laptop.records.put(space.id, 'app.note', { text: 'dear diary' });
+
+    await until(async () => (await names(phone)).includes('Diary'), 3000, 'the phone to join');
+    await until(async () => (await phone.records.get(space.id, written.id)) !== null, 3000, 'the note to reach the phone');
+    assert.deepEqual((await phone.records.get<{ text: string }>(space.id, written.id))?.body, { text: 'dear diary' });
+    // The registry itself never shows up as a space.
+    assert.deepEqual(await names(laptop), ['Diary']);
+  });
+
+  test('leaving on one device leaves on all of them', async () => {
+    const seed = generateSeed();
+    const hub = createFakeHub({ latencyMs: 1 });
+    const laptop = await device(seed, hub);
+    const phone = await device(seed, hub);
+    const space = await laptop.spaces.create({ name: 'Old project', type: 'personal', visibility: 'public' });
+    await until(async () => (await names(phone)).includes('Old project'), 3000, 'the phone to join');
+
+    await phone.spaces.leave(space.id);
+    await until(async () => (await names(laptop)).length === 0, 3000, 'the laptop to leave');
+  });
+
+  test('a device that was offline catches up when it comes back', async () => {
+    const seed = generateSeed();
+    const hub = createFakeHub({ latencyMs: 1 });
+    const laptop = await device(seed, hub);
+    await laptop.spaces.create({ name: 'While you were away', type: 'shared', visibility: 'private' });
+
+    const phone = await device(seed, hub);
+    await until(async () => (await names(phone)).includes('While you were away'), 3000, 'the phone to catch up');
+  });
+
+  test('spaces from before the registry are recorded, so other devices follow', async () => {
+    const seed = generateSeed();
+    const hub = createFakeHub({ latencyMs: 1 });
+    const stores = memoryStores();
+
+    // An older node, with no account key: its space is its own.
+    const signer = await rootSigner(seed);
+    const before = await createNode({ signer, stores, watchIntervalMs: 0 });
+    await before.spaces.create({ name: 'Legacy', type: 'personal', visibility: 'private' });
+    await before.close();
+
+    await device(seed, hub, stores); // the same store, now with the account key
+    const phone = await device(seed, hub);
+    await until(async () => (await names(phone)).includes('Legacy'), 3000, 'the phone to learn of it');
+  });
+
+  test('a different account cannot find the registry, let alone read it', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const mine = await device(generateSeed(), hub);
+    const theirs = await device(generateSeed(), hub);
+    await mine.spaces.create({ name: 'Mine', type: 'personal', visibility: 'private' });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.deepEqual(await names(theirs), []);
   });
 });
 

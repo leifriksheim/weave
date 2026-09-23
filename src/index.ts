@@ -202,6 +202,8 @@ export type { FolderAccessMode } from './storage/directory-access.js';
 
 // Spaces
 export { createSpaceManager, parseSpaceInvite } from './space/space-manager.js';
+export { deriveAccountRegistry, MEMBERSHIP_COLLECTION } from './space/account-registry.js';
+export type { Membership } from './space/account-registry.js';
 export type { SpaceManager, SpaceRecord, SpaceInvite, CreateSpaceParams } from './space/space-manager.js';
 
 // Phase 4: P2P Networking
@@ -227,6 +229,8 @@ export {
 export { createWebSocketTransport } from './network/ws-transport.js';
 export type { WebSocketTransportConfig } from './network/ws-transport.js';
 export { isSignalledTransport } from './network/transport.js';
+export { createPeerAuthenticator, peerNonce } from './network/peer-auth.js';
+export type { PeerAuthenticator, PeerRole } from './network/peer-auth.js';
 export type { PeerTransport, PeerTransportEvents, SignalledTransport, CandidateSink } from './network/transport.js';
 export {
   createPeerDiscovery,

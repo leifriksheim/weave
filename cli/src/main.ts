@@ -40,7 +40,7 @@ Usage:
 
 Common flags:
   --home DIR          data folder (default $P2P_HOME or ~/.p2p) — can be the folder a browser uses
-  --account NAME      which account, when the folder holds several
+  --account NAME      which account, when the folder holds several (or $P2P_ACCOUNT)
   --json '{…}'        pass an action's input as JSON instead of flags
 
 Unlocking (never as a flag value):
@@ -239,7 +239,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   if (command === 'mcp') {
     // Offline: the MCP process writes to the folder; a running daemon syncs it.
-    const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores });
+    const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, accountKey: unlocked.accountKey });
     stderr(`p2p mcp: serving ${NODE_ACTIONS.length} tools for ${node.did}`);
     await runMcpStdio(node, { name: 'p2p', version: VERSION });
     await node.close();
@@ -254,7 +254,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   // One-shot commands run offline against the folder. With a daemon running on
   // the same folder, it picks the change up and syncs it.
-  const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, watchIntervalMs: 0 });
+  const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, accountKey: unlocked.accountKey, watchIntervalMs: 0 });
   try {
     const result = await runAction(node, found.action.name, inputFromFlags(found.action, found.rest));
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

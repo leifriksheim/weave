@@ -34,6 +34,7 @@ import { createValidationEngine } from '../validation/validation-engine.js';
 import { encryptExpression, decryptExpression, type EncryptedExpression } from '../privacy/space-encryption.js';
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
 import { createWebSocketTransport } from '../network/ws-transport.js';
+import { createPeerAuthenticator } from '../network/peer-auth.js';
 import { createSyncEngine } from '../sync/sync-engine.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { StoreFactory } from './stores.js';
@@ -237,13 +238,20 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         }),
       );
     }
+    // A private space proves membership to the node before anything moves.
+    const authenticator = net.nodes?.length && space.visibility === 'private' && key
+      ? await createPeerAuthenticator(space.id, key)
+      : null;
     for (const node of net.nodes ?? []) {
       const url = `${node}${node.includes('?') ? '&' : '?'}space=${room}`;
       networks.push(
-        createNetworkManager({ did: session.did, createTransport: () => createWebSocketTransport({ url, did: session.did }) }),
+        createNetworkManager({
+          did: session.did,
+          createTransport: () => createWebSocketTransport({ url, did: session.did, authenticator }),
+        }),
       );
     }
-    for (const transport of net.transports?.(space.id) ?? []) {
+    for (const transport of net.transports?.(space.id, session.did) ?? []) {
       networks.push(createNetworkManager({ did: session.did, createTransport: () => transport }));
     }
   }
@@ -379,10 +387,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       }
 
       const deleted = await deletedIds();
-      const live = expressions.filter((e) => !deleted.has(e.id)).sort(byTime);
-      if (options.newestFirst) live.reverse();
-      const page = options.limit === undefined ? live : live.slice(0, options.limit);
-      return Promise.all(page.map((expression) => view<T>(expression)));
+      const kept = (options.includeDeleted ? expressions : expressions.filter((e) => !deleted.has(e.id))).sort(byTime);
+      if (options.newestFirst) kept.reverse();
+      const page = options.limit === undefined ? kept : kept.slice(0, options.limit);
+      return Promise.all(
+        page.map(async (expression) => {
+          const record = await view<T>(expression);
+          return deleted.has(expression.id) ? Object.freeze({ ...record, deleted: true as const }) : record;
+        }),
+      );
     },
 
     get,

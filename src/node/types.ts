@@ -11,6 +11,7 @@ import type { CollectionDef, CryptoProvider, SpaceType, SpaceVisibility } from '
 import type { RootSigner } from '../identity/root-signer.js';
 import type { Capability, UCANToken } from '../identity/ucan.js';
 import type { PeerTransport } from '../network/transport.js';
+import type { PeerAuthenticator } from '../network/peer-auth.js';
 import type { StoreFactory } from './stores.js';
 
 export interface NodeNetworkConfig {
@@ -19,13 +20,25 @@ export interface NodeNetworkConfig {
   /** Always-on nodes to hold a socket to, `ws(s)://host/peer`. The space id is appended. */
   readonly nodes?: ReadonlyArray<string>;
   readonly iceServers?: ReadonlyArray<RTCIceServer>;
-  /** Extra transports per space — how a node serving sockets, or a test, plugs in */
-  readonly transports?: (spaceId: string) => ReadonlyArray<PeerTransport>;
+  /**
+   * Extra transports per space — how a node serving sockets, or a test, plugs
+   * in. Given the space and this node's session DID, which is its identity on
+   * the wire.
+   */
+  readonly transports?: (spaceId: string, sessionDid: string) => ReadonlyArray<PeerTransport>;
 }
 
 export interface NodeConfig {
   /** Who this node acts for. The root key only ever signs session delegations. */
   readonly signer: RootSigner;
+  /**
+   * The account's vault key bytes (`deriveVaultKeyBytes(seed)`, or a Snap's
+   * `getVaultKey`). With it, the node keeps the account's space list in the
+   * account registry space: spaces joined on any device or node of the account
+   * are joined here too, and leaving one leaves it everywhere. Without it,
+   * spaces are this node's alone.
+   */
+  readonly accountKey?: Uint8Array;
   /** Where the registry and each space's store live */
   readonly stores: StoreFactory;
   readonly provider?: CryptoProvider;
@@ -87,6 +100,8 @@ export interface NodeRecord<T = unknown> {
   /** Signature, delegation and shape all check out */
   readonly verified: boolean;
   readonly reason?: string;
+  /** Present, and true, only when listed with `includeDeleted` and hidden by a tombstone */
+  readonly deleted?: true;
 }
 
 export interface ListOptions {
@@ -95,6 +110,8 @@ export interface ListOptions {
   /** Newest first when set; oldest first by default */
   readonly newestFirst?: boolean;
   readonly limit?: number;
+  /** Also return records a tombstone hides, marked `deleted` */
+  readonly includeDeleted?: boolean;
 }
 
 export type ConnectionState = 'offline' | 'connecting' | 'connected' | 'error';
@@ -134,6 +151,12 @@ export interface NodeSpaces {
   /** Stops syncing a space until it is next used */
   close(spaceId: string): Promise<void>;
   status(spaceId: string): Promise<SpaceStatus>;
+  /**
+   * What a node serving this space uses to check a connecting peer holds its
+   * key, and to prove it holds it too. Null for a public space, or one this
+   * node does not hold.
+   */
+  authenticator(spaceId: string): Promise<PeerAuthenticator | null>;
 }
 
 export interface NodeRecords {

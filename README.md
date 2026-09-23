@@ -290,7 +290,15 @@ await theirSpaces.join(invite, friend.did);
 ```
 
 Give each space its own storage and its own MST and a peer you share one list
-with learns nothing about the others. A space lives on the devices that hold it,
+with learns nothing about the others.
+
+**The account registry.** Which spaces an account belongs to is itself kept in
+a space: a private one whose id and key are derived from the account's vault
+key, so every device of the account finds it and nobody else can. Creating or
+joining a space writes a membership record there (carrying the invite, so the
+key too); every other device and node of the account syncs it and joins by
+itself. A tombstoned membership means the account left, and every device leaves.
+Pass `accountKey` to `createNode` to turn it on. A space lives on the devices that hold it,
 not inside the identity — bringing a DID back on a new device restores who you
 are, and an invite (even one you send yourself) restores what you had. Expressions name their space in a signed
 field, which stops one being replayed into another.
@@ -639,7 +647,8 @@ npm run p2p -- records list --space <id>
 ```
 
 Close every browser holding the list, open the link somewhere else, and the
-items come from the node.
+items come from the node. Or make the node your own account's — see
+[cli/README.md](cli/README.md) — and it serves every list you make, unasked.
 
 It exercises the stack end to end: create an account (a code your password
 manager keeps), choose a data folder or this browser to hold it, unlock later
