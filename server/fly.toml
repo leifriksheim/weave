@@ -1,4 +1,5 @@
-# A relay on Fly. Adjust `app` to a name of your own before deploying.
+# A relay on Fly — deployed as p2p-web-relay (https://p2p-web-relay.fly.dev).
+# To run your own, change `app` to a name of your own before deploying.
 #
 #   fly launch --no-deploy --copy-config --name my-relay
 #   fly deploy
