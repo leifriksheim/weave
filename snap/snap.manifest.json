@@ -3,7 +3,7 @@
   "description": "Holds a p2p-web identity and signs short-lived permissions for apps, so no app ever sees the key.",
   "proposedName": "P2P Web Identity",
   "source": {
-    "shasum": "gmjkCnrD2RdejcMrYXJDXIKBDolG4JSvG3VsivrmhOQ=",
+    "shasum": "0hd8qoDmKV8uPRJYRecVPRMfUPaV6PyEFQyVj7yLNtw=",
     "location": {
       "npm": {
         "filePath": "dist/bundle.js",

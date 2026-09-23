@@ -70,6 +70,27 @@ describe('deriveKeyPairFromSeed', () => {
   });
 });
 
+describe('derivation is frozen', () => {
+  // Recorded before the curve arithmetic moved to @noble/curves. If any of these
+  // change, every existing account silently becomes a different identity.
+  const golden: ReadonlyArray<readonly [Uint8Array, string]> = [
+    [new Uint8Array(16), 'did:key:z4oJ8dk6TGuSPJYcFLuHReGAdqn8hBmidESYjG8pCbvKTVv4yg851wgTxGYJNf6WapTkvjGG83xJfMnhgoKmL6HxEVDDN'],
+    [new Uint8Array(16).fill(0xff), 'did:key:z4oJ8a1vBsAgYaQ6mNuuPGVp64EFPuPCe7giGEUmBSJri7CkmLPGCHNxWZ4prRF1dBWMDQuLUuNkdSvzMAiiePn6YbvjK'],
+    [Uint8Array.from({ length: 16 }, (_, i) => i * 17), 'did:key:z4oJ8eJzihinybZXA61w1vwqTvwpE3g2is4EAHffwYvAdXzzLe5Z6BfLi9mDgiAiAtQT6h4kd1PpQL38m4kLN9y7df2Vn'],
+  ];
+
+  test('known seeds still derive their recorded DIDs', async () => {
+    for (const [seed, did] of golden) {
+      assert.equal((await createIdentityManager().fromSeed(seed)).did, did);
+    }
+  });
+
+  test('a known recovery code still derives its recorded DID', async () => {
+    const identity = await createIdentityManager().fromRecoveryCode('K7N6-ERYP-68TZ-A7HN-VJW3-QWKN-CG');
+    assert.equal(identity.did, 'did:key:z4oJ8dgsDeFiybc57znKqCjarJ7ZyNKeMrst1JwDjdA6dxDfmsZEprdnwMiLuxzn9KuDofJuK1G5agVmBPMpmvwTVUuST');
+  });
+});
+
 describe('did:key', () => {
   test('round-trips a public key', async () => {
     const pair = await provider.generateKeyPair();
