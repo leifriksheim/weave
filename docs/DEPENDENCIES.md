@@ -34,7 +34,7 @@ curve output against Web Crypto's).
 |---|---|---|
 | `@noble/curves` | `src/identity/p256-curve.ts` | Audited, dependency-free apart from `@noble/hashes`, used by viem and ethers. Replaced hand-written P-256 point arithmetic. |
 
-Development only: `typescript`, `tsx`.
+Development only: `typescript`, `tsx`, and `ws` — a real WebSocket server for `tests/ws-transport.test.ts`, since Node has a WebSocket client but no server.
 
 ## Decided, not yet needed
 
@@ -42,7 +42,7 @@ Development only: `typescript`, `tsx`.
 |---|---|---|
 | `aws4fetch` | S3-compatible blob driver (BLOCK-04) | Hand-writing SigV4 |
 | `@cfworker/json-schema` | Stored collection definitions (BLOCK-08) | A home-grown validator. Chosen over Ajv, which generates code at runtime and breaks under a strict Content Security Policy |
-| `ws` | The Node signaling relay, if it outlives the daemon | Speaking the WebSocket protocol by hand |
+| `ws` (at runtime) | The Node signaling relay, if it outlives the daemon | Speaking the WebSocket protocol by hand |
 | `node-datachannel` | WebRTC on a headless node, only if measurement says WSS is not enough | — |
 
 ## Considered and declined

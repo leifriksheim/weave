@@ -4,9 +4,10 @@
 
 import type { PeerInfo, NetworkMessage } from '../types.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
-import { SignalingMessage } from './signaling.js';
+import type { SignalingClient, SignalingMessage } from './signaling.js';
 import { createMultiSignalingClient } from './multi-signaling.js';
 import { createRTCTransport } from './rtc-transport.js';
+import { isSignalledTransport, type PeerTransport, type SignalledTransport } from './transport.js';
 import { createPeerDiscovery } from './peer-discovery.js';
 import {
   PEERS_MESSAGE,
@@ -20,7 +21,7 @@ import {
 } from './introductions.js';
 
 export interface NetworkManagerConfig {
-  /** A single relay. Prefer {@link signalingUrls}. */
+  /** A single relay. Prefer {@link signalingUrls}. Signalled transports only. */
   readonly signalingUrl?: string;
   /**
    * Several relays, used all at once.
@@ -29,15 +30,24 @@ export interface NetworkManagerConfig {
    * relays; being present on all of them means they meet wherever either is
    * looking. None of them can do anything but introduce peers, so adding more
    * costs a websocket and removes a single point of failure.
+   *
+   * Required for a signalled transport (the default, WebRTC); ignored by one
+   * that dials on its own.
    */
   readonly signalingUrls?: ReadonlyArray<string>;
   readonly did: string;
   readonly iceServers?: ReadonlyArray<RTCIceServer>;
   /**
    * Let connected peers introduce the peers they know, so the relay is only
-   * needed for the first connection. On by default.
+   * needed for the first connection. On by default; signalled transports only,
+   * since an introduction is an offer carried by a peer.
    */
   readonly introductions?: boolean;
+  /**
+   * How bytes reach peers. Defaults to WebRTC over the configured relays,
+   * which is exactly the behaviour before this option existed.
+   */
+  readonly createTransport?: () => PeerTransport;
 }
 
 export type NetworkEvents = {
@@ -65,15 +75,24 @@ export interface NetworkManager {
  * @returns The network manager instance.
  */
 export function createNetworkManager(config: NetworkManagerConfig): NetworkManager {
-  const relays = config.signalingUrls ?? (config.signalingUrl ? [config.signalingUrl] : []);
-  if (relays.length === 0) {
-    throw new Error('A network manager needs at least one relay to bootstrap from.');
+  const transport: PeerTransport =
+    config.createTransport?.() ?? createRTCTransport({ iceServers: config.iceServers });
+
+  // Relays and introductions exist to carry offers. A transport that dials on
+  // its own has none to carry, so it gets neither.
+  const rtc: SignalledTransport | null = isSignalledTransport(transport) ? transport : null;
+
+  let signaling: SignalingClient | null = null;
+  if (rtc) {
+    const relays = config.signalingUrls ?? (config.signalingUrl ? [config.signalingUrl] : []);
+    if (relays.length === 0) {
+      throw new Error('A network manager needs at least one relay to bootstrap from.');
+    }
+    signaling = createMultiSignalingClient(relays, config.did);
   }
 
-  const signaling = createMultiSignalingClient(relays, config.did);
-  const rtcTransport = createRTCTransport({ iceServers: config.iceServers });
   const discovery = createPeerDiscovery();
-  const introduce = config.introductions !== false;
+  const introduce = rtc !== null && config.introductions !== false;
 
   /**
    * Peers a connection has been started with, so learning about one twice —
@@ -122,7 +141,7 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
   /** Sends a mesh control message straight to a connected peer. */
   const sendControl = (peerId: string, type: string, payload: unknown): void => {
     try {
-      rtcTransport.send(peerId, utf8Encode(JSON.stringify({ type, from: config.did, payload })));
+      transport.send(peerId, utf8Encode(JSON.stringify({ type, from: config.did, payload })));
     } catch {
       // The channel closed between listing the peer and writing to it. The
       // disconnect event will tidy up.
@@ -144,23 +163,21 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
 
   /** Routes our signaling to a peer over the relay. */
   const throughRelay =
-    (target: string) =>
+    (relay: SignalingClient, target: string) =>
     (kind: RelayedSignal['kind'], data: unknown): void => {
-      if (kind === 'offer') signaling.sendOffer(target, data as RTCSessionDescriptionInit);
-      else if (kind === 'answer') signaling.sendAnswer(target, data as RTCSessionDescriptionInit);
-      else signaling.sendCandidate(target, data as RTCIceCandidateInit);
+      if (kind === 'offer') relay.sendOffer(target, data as RTCSessionDescriptionInit);
+      else if (kind === 'answer') relay.sendAnswer(target, data as RTCSessionDescriptionInit);
+      else relay.sendCandidate(target, data as RTCIceCandidateInit);
     };
 
   /** Opens a connection to a peer, sending its signaling however the caller says. */
   const offerTo = async (
+    rtc: SignalledTransport,
     peerDid: string,
     deliver: (kind: RelayedSignal['kind'], data: unknown) => void,
   ): Promise<void> => {
     try {
-      const { offer, connection } = await rtcTransport.createOffer(peerDid);
-      connection.onicecandidate = (event) => {
-        if (event.candidate) deliver('candidate', event.candidate.toJSON());
-      };
+      const offer = await rtc.createOffer(peerDid, (candidate) => deliver('candidate', candidate));
       deliver('offer', offer);
     } catch (err) {
       emit('error', err instanceof Error ? err : new Error(String(err)));
@@ -169,15 +186,13 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
 
   /** Accepts a connection, sending the reply back the way the offer came. */
   const answerTo = async (
+    rtc: SignalledTransport,
     peerDid: string,
     offer: RTCSessionDescriptionInit,
     deliver: (kind: RelayedSignal['kind'], data: unknown) => void,
   ): Promise<void> => {
     try {
-      const { answer, connection } = await rtcTransport.handleOffer(peerDid, offer);
-      connection.onicecandidate = (event) => {
-        if (event.candidate) deliver('candidate', event.candidate.toJSON());
-      };
+      const answer = await rtc.handleOffer(peerDid, offer, (candidate) => deliver('candidate', candidate));
       deliver('answer', answer);
     } catch (err) {
       emit('error', err instanceof Error ? err : new Error(String(err)));
@@ -186,7 +201,7 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
 
   /** Acts on somebody's introduction of peers we have not met. */
   const handlePeerList = (peers: unknown): void => {
-    if (!introduce || !Array.isArray(peers)) return;
+    if (!rtc || !introduce || !Array.isArray(peers)) return;
 
     for (const peer of peers) {
       if (typeof peer !== 'string' || peer === config.did || attempted.has(peer)) continue;
@@ -197,22 +212,22 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
       if (!shouldInitiate(config.did, peer)) continue;
 
       attempted.add(peer);
-      void offerTo(peer, throughMesh(peer));
+      void offerTo(rtc, peer, throughMesh(peer));
     }
   };
 
   /** Acts on signaling that was addressed to us and arrived over the mesh. */
-  const handleRelayedSignal = async (signal: RelayedSignal): Promise<void> => {
+  const handleRelayedSignal = async (rtc: SignalledTransport, signal: RelayedSignal): Promise<void> => {
     const deliver = throughMesh(signal.origin);
 
     try {
       if (signal.kind === 'offer') {
         attempted.add(signal.origin);
-        await answerTo(signal.origin, signal.data as RTCSessionDescriptionInit, deliver);
+        await answerTo(rtc, signal.origin, signal.data as RTCSessionDescriptionInit, deliver);
       } else if (signal.kind === 'answer') {
-        await rtcTransport.handleAnswer(signal.origin, signal.data as RTCSessionDescriptionInit);
+        await rtc.handleAnswer(signal.origin, signal.data as RTCSessionDescriptionInit);
       } else {
-        await rtcTransport.addIceCandidate(signal.origin, signal.data as RTCIceCandidateInit);
+        await rtc.addIceCandidate(signal.origin, signal.data as RTCIceCandidateInit);
       }
     } catch (err) {
       emit('error', err instanceof Error ? err : new Error(String(err)));
@@ -220,38 +235,41 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
   };
 
   // Wire signaling -> RTC
-  signaling.on('peer-joined', async (peerDid: string) => {
-    if (peerDid === config.did || attempted.has(peerDid)) return;
-    attempted.add(peerDid);
-    await offerTo(peerDid, throughRelay(peerDid));
-  });
+  const wireRelay = (relay: SignalingClient, rtc: SignalledTransport): void => {
+    relay.on('peer-joined', async (peerDid: string) => {
+      if (peerDid === config.did || attempted.has(peerDid)) return;
+      attempted.add(peerDid);
+      await offerTo(rtc, peerDid, throughRelay(relay, peerDid));
+    });
 
-  signaling.on('offer', async (msg: SignalingMessage) => {
-    if (!msg.payload || typeof msg.payload !== 'object') return;
-    attempted.add(msg.from);
-    await answerTo(msg.from, msg.payload as RTCSessionDescriptionInit, throughRelay(msg.from));
-  });
+    relay.on('offer', async (msg: SignalingMessage) => {
+      if (!msg.payload || typeof msg.payload !== 'object') return;
+      attempted.add(msg.from);
+      await answerTo(rtc, msg.from, msg.payload as RTCSessionDescriptionInit, throughRelay(relay, msg.from));
+    });
 
-  signaling.on('answer', async (msg: SignalingMessage) => {
-    if (!msg.payload || typeof msg.payload !== 'object') return;
-    try {
-      await rtcTransport.handleAnswer(msg.from, msg.payload as RTCSessionDescriptionInit);
-    } catch (err) {
-      emit('error', err instanceof Error ? err : new Error(String(err)));
-    }
-  });
+    relay.on('answer', async (msg: SignalingMessage) => {
+      if (!msg.payload || typeof msg.payload !== 'object') return;
+      try {
+        await rtc.handleAnswer(msg.from, msg.payload as RTCSessionDescriptionInit);
+      } catch (err) {
+        emit('error', err instanceof Error ? err : new Error(String(err)));
+      }
+    });
 
-  signaling.on('candidate', async (msg: SignalingMessage) => {
-    if (!msg.payload || typeof msg.payload !== 'object') return;
-    try {
-      await rtcTransport.addIceCandidate(msg.from, msg.payload as RTCIceCandidateInit);
-    } catch (err) {
-      emit('error', err instanceof Error ? err : new Error(String(err)));
-    }
-  });
+    relay.on('candidate', async (msg: SignalingMessage) => {
+      if (!msg.payload || typeof msg.payload !== 'object') return;
+      try {
+        await rtc.addIceCandidate(msg.from, msg.payload as RTCIceCandidateInit);
+      } catch (err) {
+        emit('error', err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  };
+  if (signaling && rtc) wireRelay(signaling, rtc);
 
-  // Wire RTC -> Discovery & Events
-  rtcTransport.on('connected', (peerId: string) => {
+  // Wire transport -> Discovery & Events
+  transport.on('connected', (peerId: string) => {
     attempted.add(peerId);
     discovery.addPeer({
       did: peerId,
@@ -270,20 +288,24 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
     for (const other of others) sendControl(other, PEERS_MESSAGE, [peerId]);
   });
 
-  rtcTransport.on('disconnected', (peerId: string) => {
+  transport.on('disconnected', (peerId: string) => {
     attempted.delete(peerId);
     discovery.removePeer(peerId);
   });
 
-  rtcTransport.on('data', (peerId: string, data: Uint8Array) => {
+  transport.on('data', (peerId: string, data: Uint8Array) => {
     try {
       const message = JSON.parse(utf8Decode(data)) as NetworkMessage;
 
-      // Mesh housekeeping never reaches the application above.
+      // Mesh housekeeping never reaches the application above. The sender is
+      // the connection it arrived on, not whatever the message claims.
       if (!isControlMessage(message.type)) {
-        emit('message', message);
+        emit('message', { ...message, from: peerId });
         return;
       }
+
+      // Introductions carry offers, which only mean something to WebRTC.
+      if (!rtc) return;
 
       if (message.type === PEERS_MESSAGE) {
         handlePeerList(message.payload);
@@ -295,7 +317,7 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
       if (typeof signal?.id !== 'string' || !seenSignals.accept(signal.id)) return;
 
       if (signal.target === config.did) {
-        void handleRelayedSignal(signal);
+        void handleRelayedSignal(rtc, signal);
       } else if (signal.hops > 0) {
         floodSignal({ ...signal, hops: signal.hops - 1 }, peerId);
       }
@@ -304,7 +326,7 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
     }
   });
 
-  rtcTransport.on('error', (peerId: string, error: Error) => {
+  transport.on('error', (peerId: string, error: Error) => {
     emit('error', new Error(`Transport error with peer ${peerId}: ${error.message}`));
   });
 
@@ -318,12 +340,12 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
   });
 
   const connect = async (): Promise<void> => {
-    await signaling.connect();
+    await Promise.all([signaling?.connect(), transport.connect?.()]);
   };
 
   const disconnect = (): void => {
-    signaling.disconnect();
-    rtcTransport.closeAll();
+    signaling?.disconnect();
+    transport.closeAll();
     attempted.clear();
   };
 
@@ -331,7 +353,7 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
     try {
       const jsonStr = JSON.stringify(message);
       const data = utf8Encode(jsonStr);
-      rtcTransport.send(peerId, data);
+      transport.send(peerId, data);
     } catch (err) {
       emit('error', err instanceof Error ? err : new Error('Failed to send message'));
     }
@@ -359,6 +381,6 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
     off,
     // Connected means reachable, which after the first introduction no longer
     // depends on a relay being up.
-    isConnected: () => signaling.isConnected() || discovery.listPeers().length > 0
+    isConnected: () => (signaling?.isConnected() ?? false) || discovery.listPeers().length > 0
   });
 }

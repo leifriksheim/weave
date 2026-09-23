@@ -264,7 +264,8 @@ Browser-to-browser communication via WebRTC.
 | `createNetworkManager()` | Full P2P networking (signaling + RTC + discovery + introductions) |
 | `createSignalingClient()` | WebSocket signaling for ICE/SDP exchange |
 | `createMultiSignalingClient()` | Several relays used at once, de-duplicated |
-| `createRTCTransport()` | WebRTC data channel management |
+| `createRTCTransport()` | WebRTC data channel management (the default transport) |
+| `createWebSocketTransport()` | A socket to one always-on node — no relay, no TURN |
 
 #### Signaling relay
 

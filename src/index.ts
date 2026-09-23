@@ -223,6 +223,10 @@ export type { RelayedSignal, SeenSignals } from './network/introductions.js';
 export {
   createRTCTransport,
 } from './network/rtc-transport.js';
+export { createWebSocketTransport } from './network/ws-transport.js';
+export type { WebSocketTransportConfig } from './network/ws-transport.js';
+export { isSignalledTransport } from './network/transport.js';
+export type { PeerTransport, PeerTransportEvents, SignalledTransport, CandidateSink } from './network/transport.js';
 export {
   createPeerDiscovery,
 } from './network/peer-discovery.js';

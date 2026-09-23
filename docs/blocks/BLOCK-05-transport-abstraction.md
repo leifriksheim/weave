@@ -1,5 +1,27 @@
 # BLOCK-05 — Pluggable transport, and a WebSocket one
 
+> **Done (2026-09-23).** What was built differs from the plan below in four
+> places, each deliberate:
+>
+> - **Candidates by callback.** `createOffer(peerId, onCandidate)` /
+>   `handleOffer(peerId, offer, onCandidate)` return the description only,
+>   instead of `{ offer, connection }`. The caller no longer needs an
+>   `RTCPeerConnection`, and the handler is attached before any description is
+>   set, so no early candidate can be missed.
+> - **`connect?()` on `PeerTransport`.** A transport that dials on its own needs
+>   to be told when; the manager's `connect()` calls it.
+> - **Messages are attributed to their connection.** The manager's `message`
+>   event carries `from` = the peer the bytes arrived from, not the sender's
+>   claim.
+> - **The WebSocket transport redials forever** (backoff capped, with jitter)
+>   rather than giving up after five tries — right for an always-on node. The
+>   wire is a hello frame each way, then binary; see `src/network/ws-transport.ts`.
+>
+> Tests: `tests/network-manager.test.ts` (fake transports, a full sync through
+> the manager, and introductions through the real relay as a child process) and
+> `tests/ws-transport.test.ts` (against a real socket server). Not yet done: a
+> manual two-browser check of the example app.
+
 ## What this delivers
 
 `createNetworkManager` stops hard-wiring WebRTC and takes a transport factory

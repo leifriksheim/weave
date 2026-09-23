@@ -2,28 +2,16 @@
  * @fileoverview WebRTC data channel transport management.
  */
 
+import type { CandidateSink, PeerTransportEvents, SignalledTransport } from './transport.js';
+
 export interface RTCTransportConfig {
   readonly iceServers?: ReadonlyArray<RTCIceServer>;
 }
 
-export type RTCTransportEvents = {
-  data: (peerId: string, data: Uint8Array) => void;
-  connected: (peerId: string) => void;
-  disconnected: (peerId: string) => void;
-  error: (peerId: string, error: Error) => void;
-};
+export type RTCTransportEvents = PeerTransportEvents;
 
-export interface RTCTransport {
-  readonly createOffer: (peerId: string) => Promise<{ offer: RTCSessionDescriptionInit; connection: RTCPeerConnection }>;
-  readonly handleOffer: (peerId: string, offer: RTCSessionDescriptionInit) => Promise<{ answer: RTCSessionDescriptionInit; connection: RTCPeerConnection }>;
-  readonly handleAnswer: (peerId: string, answer: RTCSessionDescriptionInit) => Promise<void>;
-  readonly addIceCandidate: (peerId: string, candidate: RTCIceCandidateInit) => Promise<void>;
-  readonly send: (peerId: string, data: Uint8Array) => void;
-  readonly close: (peerId: string) => void;
-  readonly closeAll: () => void;
-  readonly on: <K extends keyof RTCTransportEvents>(event: K, callback: RTCTransportEvents[K]) => void;
-  readonly off: <K extends keyof RTCTransportEvents>(event: K, callback: RTCTransportEvents[K]) => void;
-}
+/** WebRTC data channels: a transport whose connections start with an offer. */
+export type RTCTransport = SignalledTransport;
 
 interface PeerConnectionData {
   readonly connection: RTCPeerConnection;
@@ -98,12 +86,17 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     };
   };
 
-  const createConnection = (peerId: string): RTCPeerConnection => {
+  const createConnection = (peerId: string, onCandidate: CandidateSink): RTCPeerConnection => {
     if (connections.has(peerId)) {
       close(peerId);
     }
     const connection = new RTCPeerConnection({ iceServers: [...iceServers] });
     connections.set(peerId, { connection, channel: null });
+
+    // Attached before any description is set, so no candidate can be missed.
+    connection.onicecandidate = (event) => {
+      if (event.candidate) onCandidate(event.candidate.toJSON());
+    };
 
     connection.onconnectionstatechange = () => {
       if (connection.connectionState === 'failed' || connection.connectionState === 'closed') {
@@ -115,8 +108,8 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     return connection;
   };
 
-  const createOffer = async (peerId: string): Promise<{ offer: RTCSessionDescriptionInit; connection: RTCPeerConnection }> => {
-    const connection = createConnection(peerId);
+  const createOffer = async (peerId: string, onCandidate: CandidateSink): Promise<RTCSessionDescriptionInit> => {
+    const connection = createConnection(peerId, onCandidate);
     const channel = connection.createDataChannel('data', { ordered: true });
     setupDataChannel(peerId, channel);
     
@@ -128,11 +121,15 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     const offer = await connection.createOffer();
     await connection.setLocalDescription(offer);
 
-    return { offer, connection };
+    return offer;
   };
 
-  const handleOffer = async (peerId: string, offer: RTCSessionDescriptionInit): Promise<{ answer: RTCSessionDescriptionInit; connection: RTCPeerConnection }> => {
-    const connection = createConnection(peerId);
+  const handleOffer = async (
+    peerId: string,
+    offer: RTCSessionDescriptionInit,
+    onCandidate: CandidateSink,
+  ): Promise<RTCSessionDescriptionInit> => {
+    const connection = createConnection(peerId, onCandidate);
     
     connection.ondatachannel = (event) => {
       const channel = event.channel;
@@ -147,7 +144,7 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     const answer = await connection.createAnswer();
     await connection.setLocalDescription(answer);
 
-    return { answer, connection };
+    return answer;
   };
 
   const handleAnswer = async (peerId: string, answer: RTCSessionDescriptionInit): Promise<void> => {
