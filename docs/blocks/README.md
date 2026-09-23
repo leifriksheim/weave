@@ -29,6 +29,7 @@ inside the block itself — you never have to go hunting.
 | [BLOCK-11](BLOCK-11-constraints-and-convergence.md) | "One reaction per person", done so peers agree | ~4 days |
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
 | [BLOCK-13](BLOCK-13-node-api.md) | `createNode`: one API for tabs, CLIs, daemons and agents — **done** | — |
+| [BLOCK-14](BLOCK-14-versioned-records.md) | Records with a stable key, ordered versions, history on request | ~1.5 weeks |
 
 ## What depends on what
 
@@ -78,7 +79,8 @@ but its links go unchecked until that lands.
 4. ~~**BLOCK-01**~~ — done: 508 KB → 25 KB for one change in 10,000.
 5. ~~**An account registry space** and a signed hello on `/peer`~~ — done.
 6. ~~**BLOCK-08**~~ — done; agents can define collections over MCP.
-7. **BLOCK-09 → 10**, then WebMCP in the example and a UI generated from stored schemas.
+7. **BLOCK-14** — versioned records, before anything starts pointing at record ids.
+8. **BLOCK-09 → 10**, then WebMCP in the example and a UI generated from stored schemas.
 
 ## Why the always-on node matters most
 
