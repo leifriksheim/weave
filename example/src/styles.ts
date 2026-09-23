@@ -103,6 +103,7 @@ export function injectBaseStyles(): void {
     /* A list row is a target, not a card: it earns a background on hover
        rather than carrying a border all the time. */
     [data-row]:hover { background-color: ${surface.sunken} !important; }
+    [data-menu-item]:not(:disabled):hover { background-color: ${surface.sunken} !important; color: ${ink.strong} !important; }
     [data-row]:hover [data-row-action] { opacity: 1; }
     [data-row-action] { opacity: 0; transition: opacity .12s ease; }
     /* Keyboard users never hover, so the action has to be reachable anyway. */
