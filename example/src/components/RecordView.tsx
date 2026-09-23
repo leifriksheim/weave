@@ -7,11 +7,17 @@ import { SchemaForm } from './SchemaForm';
 import { Value } from './Value';
 import type { Place } from './SpaceView';
 import { styles } from '../styles';
+import { reaction, comment, useSchemas } from 'weave-protocol/schemas';
 import { nameOf, peopleFrom, type People } from '../derive/people';
 
 const LIKE = '👍';
-/** Annotations every record gets a place for, whatever it is */
-const ANNOTATIONS = new Set(['sys.reaction', 'sys.comment']);
+/**
+ * Annotations every record gets a place for, whatever it is. This app's
+ * choice, not the protocol's: it uses the reaction and comment shapes from the
+ * standard schema library, and defines them in a space the first time it
+ * writes one there.
+ */
+export const ANNOTATIONS = new Set<string>([reaction.name, comment.name]);
 
 /**
  * One record: its fields, who wrote it, what it points at and what points at
@@ -44,8 +50,8 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
   const described = fieldsOf(schema);
   const extra = Object.keys(body).filter((k) => !described.some((f) => f.name === k));
 
-  const reactions = linked.filter((r) => r.collection === 'sys.reaction');
-  const comments = linked.filter((r) => r.collection === 'sys.comment');
+  const reactions = linked.filter((r) => r.collection === reaction.name);
+  const comments = linked.filter((r) => r.collection === comment.name);
   const pointing = groupBy(linked.filter((r) => !ANNOTATIONS.has(r.collection)), (r) => r.collection);
   const mine = reactions.find((r) => r.root === rootDid && (r.body as { emoji?: string } | null)?.emoji === LIKE);
   const open = (r: NodeRecord) => go({ collection: r.collection, key: r.key });
@@ -108,7 +114,9 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
             onClick={() =>
               void (mine
                 ? node.records.delete(space.id, mine.key)
-                : node.records.put(space.id, 'sys.reaction', { emoji: LIKE }, { links: [{ rel: 'about', to: record.key }] }))
+                : useSchemas(node, space.id, [reaction]).then(() =>
+                    node.records.put(space.id, reaction.name, { emoji: LIKE }, { links: [{ rel: 'about', to: record.key }] }),
+                  ))
             }
             disabled={!space.writable}
             data-variant={mine ? 'primary' : 'quiet'}
@@ -189,7 +197,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
             </>
           ) : (
             <div style={{ ...styles.linkRow, gap: 8, marginTop: 0 }}>
-              {attachable(collections, record.collection).map((a) => (
+              {attachable(collections, record.collection, ANNOTATIONS).map((a) => (
                 <button key={`${a.collection.name}-${a.rel}`} onClick={() => setAdding(a)} data-variant="quiet" style={styles.smallButton}>
                   + Add {collectionLabel(a.collection).toLowerCase()}
                 </button>
@@ -221,7 +229,10 @@ function Comments({ space, target, comments, people }: { space: SpaceSummary; ta
           onSubmit={(e) => {
             e.preventDefault();
             if (!draft.trim()) return;
-            void node.records.put(space.id, 'sys.comment', { text: draft.trim() }, { links: [{ rel: 'about', to: target }] });
+            const text = draft.trim();
+            void useSchemas(node, space.id, [comment]).then(() =>
+              node.records.put(space.id, comment.name, { text }, { links: [{ rel: 'about', to: target }] }),
+            );
             setDraft('');
           }}
           style={styles.addForm}

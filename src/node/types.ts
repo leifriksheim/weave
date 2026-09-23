@@ -149,8 +149,6 @@ export interface NodeCollection {
   readonly links: Readonly<Record<string, LinkDeclaration>>;
   /** The identity that first defined it — it and the space owner may change it */
   readonly definedBy: string | null;
-  /** Part of the protocol's annotation library (`sys.*`), known to every node */
-  readonly builtIn: boolean;
   readonly records: number;
 }
 

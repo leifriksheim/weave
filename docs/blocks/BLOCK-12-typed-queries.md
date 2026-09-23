@@ -10,7 +10,7 @@ const cards = await db.query({
   collection: 'app.kanban.card',        // ← completes from your collections
   where: { archived: false },           // ← keys completed, values checked
   include: {
-    reactions: { rel: 'about', from: 'sys.reaction' },
+    reactions: { rel: 'about', from: 'std.reaction' },
   },
 });
 
@@ -66,7 +66,7 @@ Everything else in this block is arranging that.
 ```ts
 export const collections = defineCollections({
   'app.kanban.card': cardSchema,     // any Standard Schema validator
-  'sys.reaction': reactionSchema,
+  'std.reaction': reactionSchema,
 });
 
 const db = createClient(storage, collections);

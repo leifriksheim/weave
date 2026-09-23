@@ -40,6 +40,7 @@ function webmcpRelayAssets(): Plugin {
 export default defineConfig({
   resolve: {
     alias: {
+      'weave-protocol/schemas': fileURLToPath(new URL('../src/schemas/index.ts', import.meta.url)),
       'weave-protocol': fileURLToPath(new URL('../src/index.ts', import.meta.url)),
     },
   },

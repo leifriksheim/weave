@@ -5,7 +5,7 @@ import { requireSession, type Session } from '../protocol';
 import { useLive } from '../hooks/useLive';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
-import { RecordView } from './RecordView';
+import { RecordView, ANNOTATIONS } from './RecordView';
 import { NewCollection } from './NewCollection';
 import { DelegationPanel } from './DelegationPanel';
 import { spaceBadges } from './SpaceList';
@@ -111,7 +111,8 @@ export function SpaceView({ record: space, session, onBack }: { record: SpaceSum
 /** The kinds of things in the space. The protocol's own annotations only show once used. */
 function Overview({ space, collections, go }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection>; go: (p: Place) => void }) {
   const [defining, setDefining] = useState(false);
-  const shown = collections.filter((c) => !c.name.startsWith('sys.') || c.records > 0);
+  // Reactions and comments are shown on the records they are about, not as kinds of thing of their own.
+  const shown = collections.filter((c) => !ANNOTATIONS.has(c.name));
 
   return (
     <section style={styles.panelSection} aria-label="What this space holds">

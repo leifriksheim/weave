@@ -29,7 +29,7 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
   delegation to their session key — later, a wallet via the Digital Credentials
   API doing the same job.
 - **Meaning-level UI hints** on collection definitions (a title field, a field's
-  role, tallies), and web components for the protocol's own `sys.*` collections.
+  role, tallies), and web components for the standard schemas (`weave-protocol/schemas`).
 
 ## Written down
 

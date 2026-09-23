@@ -20,6 +20,9 @@
     "paths": {
       "weave-protocol": [
         "../src/index.ts"
+      ],
+      "weave-protocol/schemas": [
+        "../src/schemas/index.ts"
       ]
     }
   },

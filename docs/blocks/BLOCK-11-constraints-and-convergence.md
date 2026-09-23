@@ -105,10 +105,10 @@ export interface StoredCollection {
 }
 ```
 
-`sys.reaction` then declares:
+`std.reaction` then declares:
 
 ```json
-{ "name": "sys.reaction",
+{ "name": "std.reaction",
   "body": { "emoji": "string" },
   "links": { "about": { "to": "*", "cardinality": "one" } },
   "unique": ["author", "links.about"],

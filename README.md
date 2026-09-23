@@ -308,22 +308,33 @@ nothing is refused during sync for its shape, so peers that saw definitions in
 different orders still converge. `node.collections.define` publishes one — the
 same call an agent makes through MCP.
 
-**Links, and annotations for everything.** A record can point at another in a
-named role — `{ rel: 'about', to: <key> }` — and `node.records.linked(space,
-key)` answers what points at a thing. Links point at keys, so a comment stays
-on a todo however often it is ticked; in a private space they are sealed with
-the body, so a relay cannot see what points at what. Collections declare their
-links in their definition, so an agent reading `collections_list` sees how a
-space's things connect. And five collections are built into every node —
-`sys.reaction`, `sys.comment`, `sys.tag`, `sys.attachment`, `sys.reference` —
-so every app gets reactions and comments on every other app's data without
-anyone agreeing on anything.
+**Links.** A record can point at another in a named role — `{ rel: 'about',
+to: <key> }` — and `node.records.linked(space, key)` answers what points at a
+thing. Links point at keys, so a comment stays on a post however often the post
+is edited; in a private space they are sealed with the body, so a relay cannot
+see what points at what. Collections declare their links in their definition,
+so an agent reading `collections_list` sees how a space's things connect.
+
+**Standard schemas, optional.** The protocol has no built-in kinds of record.
+For the patterns nearly every app needs there is a small library of ordinary
+collection definitions — `reaction`, `comment`, `tag`, `attachment`,
+`reference`, named `std.*` — in `weave-protocol/schemas`:
+
+```typescript
+import { reaction, useSchemas } from 'weave-protocol/schemas';
+
+await useSchemas(node, space.id, [reaction]);   // defines only what the space lacks
+await node.records.put(space.id, reaction.name, { emoji: '👍' }, { links: [{ rel: 'about', to: post.key }] });
+```
+
+Using the same ones is how two apps agree — reactions from one show up in the
+other. An app that wants its own shape defines its own collection instead.
 
 **Queries.** `node.records.query(space, { collection, where, include,
 sort, limit, cursor })` finds records with Mongo-style filters (`{ done: false,
 amount: { $gt: 10 } }`; `@author`, `@createdAt` and friends for the record
 itself) and pulls in what links to them — `include: { likes: { rel: 'about',
-from: 'sys.reaction', count: true } }`. A query is plain JSON, so an agent
+from: 'std.reaction', count: true } }`. A query is plain JSON, so an agent
 sends the same thing over `records_query`; `node.records.watch` re-runs one as
 records sync in.
 
@@ -720,7 +731,7 @@ MetaMask Snap in `snap/` is parked for now.)
 **Derived UI.** Open a space and you see the kinds of things in it — its
 catalogue. Open one and you get a table of its records and a form for a new
 one, both drawn from its JSON Schema. Open a record and you see its fields,
-what it points at, what points at it, 👍 and comments (the `sys.*` library),
+what it points at, what points at it, 👍 and comments (`std.reaction` and `std.comment` from the schema library),
 and a "+ Add …" button for every collection that declares a link to this
 kind of thing: define `app.poll.vote` with `about → app.poll` and every poll
 gets "+ Add vote". Choices show by their label: `oneOf: [{ const, title }]`

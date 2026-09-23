@@ -15,6 +15,7 @@ import { createSigner } from '../src/schema/signer.js';
 import { didToPublicKey, publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { createExpression } from '../src/schema/expression.js';
 import { checkLinks } from '../src/records/links.js';
+import { reaction as reactionSchema, comment as commentSchema, useSchemas } from '../src/schemas/index.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 
@@ -49,7 +50,7 @@ describe('links', () => {
     const me = await person();
     const { id: space } = await me.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
     const todo = await me.records.put(space, 'app.todo.item', { text: 'milk', done: false });
-    const reaction = await me.records.put(space, 'sys.reaction', { emoji: '👍' }, { links: [{ rel: 'about', to: todo.key }] });
+    const reaction = await me.records.put(space, 'std.reaction', { emoji: '👍' }, { links: [{ rel: 'about', to: todo.key }] });
 
     assert.deepEqual(reaction.links, [{ rel: 'about', to: todo.key }]);
     assert.deepEqual((await me.records.linked(space, todo.key, { rel: 'about' })).map((r) => r.key), [reaction.key]);
@@ -64,7 +65,7 @@ describe('links', () => {
     const pair = await provider.generateKeyPair();
     const author = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
     const signed = await signer.sign(
-      createExpression({ author, collection: 'sys.reaction', body: { emoji: '👍' }, links: [{ rel: 'about', to: 'todo-a' }] }),
+      createExpression({ author, collection: 'std.reaction', body: { emoji: '👍' }, links: [{ rel: 'about', to: 'todo-a' }] }),
       pair.privateKey,
     );
     const publicKey = await provider.importPublicKey(didToPublicKey(author).publicKeyBytes);
@@ -75,7 +76,8 @@ describe('links', () => {
   test('a reaction that arrives before its target is kept, and attaches when the target does', async () => {
     const me = await person();
     const { id: space } = await me.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
-    const reaction = await me.records.put(space, 'sys.reaction', { emoji: '🎉' }, { links: [{ rel: 'about', to: 'not-here-yet' }] });
+    await useSchemas(me, space, [reactionSchema]);
+    const reaction = await me.records.put(space, 'std.reaction', { emoji: '🎉' }, { links: [{ rel: 'about', to: 'not-here-yet' }] });
     assert.equal(reaction.conforms, true);
     await me.records.put(space, 'app.todo.item', { text: 'late' }, { key: 'not-here-yet' });
     assert.deepEqual((await me.records.linked(space, 'not-here-yet')).map((r) => r.key), [reaction.key]);
@@ -85,7 +87,7 @@ describe('links', () => {
     const me = await person();
     const { id: space } = await me.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
     const todo = await me.records.put(space, 'app.todo.item', { text: 'milk' });
-    const reaction = await me.records.put(space, 'sys.reaction', { emoji: '👍' }, { links: [{ rel: 'about', to: todo.key }] });
+    const reaction = await me.records.put(space, 'std.reaction', { emoji: '👍' }, { links: [{ rel: 'about', to: todo.key }] });
     await me.records.delete(space, reaction.key);
     assert.deepEqual(await me.records.linked(space, todo.key), []);
   });
@@ -147,7 +149,7 @@ describe('private spaces', () => {
     const me = await person(undefined, stores);
     const { id: space } = await me.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
     const entry = await me.records.put(space, 'app.note', { text: 'secret' });
-    const reaction = await me.records.put(space, 'sys.reaction', { emoji: '❤️' }, { links: [{ rel: 'about', to: entry.key }] });
+    const reaction = await me.records.put(space, 'std.reaction', { emoji: '❤️' }, { links: [{ rel: 'about', to: entry.key }] });
 
     // What the store — and so any relay or node — holds:
     const { createStorageProvider } = await import('../src/storage/storage-provider.js');
@@ -172,26 +174,30 @@ describe('an app that knows nothing about todos', () => {
     await until(async () => (await chatApp.records.get(space, todo.key)) !== null, 3000, 'the todo to reach the chat app');
 
     // The chat app reacts to something it has no schema for, using the library.
-    await chatApp.records.put(space, 'sys.reaction', { emoji: '✈️' }, { links: [{ rel: 'about', to: todo.key }] });
+    await chatApp.records.put(space, 'std.reaction', { emoji: '✈️' }, { links: [{ rel: 'about', to: todo.key }] });
     await until(async () => (await todoApp.records.linked(space, todo.key)).length === 1, 3000, 'the reaction to reach the todo app');
-    const [reaction] = await todoApp.records.linked<{ emoji: string }>(space, todo.key, { collection: 'sys.reaction' });
+    const [reaction] = await todoApp.records.linked<{ emoji: string }>(space, todo.key, { collection: 'std.reaction' });
     assert.equal(reaction?.body?.emoji, '✈️');
     assert.equal(reaction?.root, chatApp.did);
   });
 });
 
 describe('for agents', () => {
-  test('collections_list shows the library and how things connect; records_linked follows links', async () => {
+  test('a space knows no kinds of record until someone defines them; the schema library is one way to', async () => {
     const me = await person();
     const { id: space } = await me.spaces.create({ name: 'Trip', type: 'shared', visibility: 'private' });
-    const listed = (await runAction(me, 'collections_list', { space })) as Array<{ name: string; builtIn: boolean; links: Record<string, unknown> }>;
-    const comment = listed.find((c) => c.name === 'sys.comment');
-    assert.equal(comment?.builtIn, true);
+    assert.deepEqual(await runAction(me, 'collections_list', { space }), []);
+
+    await useSchemas(me, space, [reactionSchema, commentSchema]);
+    await useSchemas(me, space, [reactionSchema, commentSchema]); // again: nothing redefined
+    const listed = (await runAction(me, 'collections_list', { space })) as Array<{ name: string; version: number; links: Record<string, unknown> }>;
+    const comment = listed.find((c) => c.name === 'std.comment');
+    assert.equal(comment?.version, 1);
     assert.deepEqual(Object.keys(comment?.links ?? {}), ['about', 'replyTo']);
 
     const todo = (await runAction(me, 'records_put', { space, collection: 'app.todo.item', body: { text: 'pack' } })) as { key: string };
-    await runAction(me, 'records_put', { space, collection: 'sys.comment', body: { text: 'bring the adapter' }, links: [{ rel: 'about', to: todo.key }] });
-    const onIt = (await runAction(me, 'records_linked', { space, key: todo.key, collection: 'sys.comment' })) as Array<{ body: { text: string } }>;
+    await runAction(me, 'records_put', { space, collection: 'std.comment', body: { text: 'bring the adapter' }, links: [{ rel: 'about', to: todo.key }] });
+    const onIt = (await runAction(me, 'records_linked', { space, key: todo.key, collection: 'std.comment' })) as Array<{ body: { text: string } }>;
     assert.deepEqual(onIt.map((c) => c.body.text), ['bring the adapter']);
   });
 });

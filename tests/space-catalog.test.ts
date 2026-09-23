@@ -117,7 +117,7 @@ describe('a space that describes itself', () => {
     await assert.rejects(me.records.put(space, 'app.trip.expense', { what: 'train' }), /Not a valid app\.trip\.expense.*"amount"/);
 
     await me.records.put(space, 'app.trip.note', { text: 'undescribed' });
-    const listed = (await me.collections.list(space)).filter((c) => !c.builtIn);
+    const listed = (await me.collections.list(space));
     assert.deepEqual(
       listed.map((c) => [c.name, c.records, c.version]),
       [['app.trip.expense', 1, 1], ['app.trip.note', 1, null]],
@@ -182,8 +182,8 @@ describe('a space that describes itself', () => {
       description: 'A question with fixed answers',
       schema: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['question', 'options'] },
     });
-    const listed = (await runAction(me, 'collections_list', { space: space.id })) as Array<{ name: string; title: string; builtIn: boolean }>;
-    assert.deepEqual(listed.filter((c) => !c.builtIn).map((c) => [c.name, c.title]), [['app.friends.poll', 'Poll']]);
+    const listed = (await runAction(me, 'collections_list', { space: space.id })) as Array<{ name: string; title: string }>;
+    assert.deepEqual(listed.map((c) => [c.name, c.title]), [['app.friends.poll', 'Poll']]);
     await assert.rejects(runAction(me, 'records_put', { space: space.id, collection: 'sys.collection', body: {} }), /written by the node itself/);
   });
 });

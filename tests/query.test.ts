@@ -139,18 +139,18 @@ describe('queries on a node', () => {
     const me = await person();
     const { space } = await todos(me);
     const on = (key: string) => [{ rel: 'about', to: key }];
-    await me.records.put(space, 'sys.reaction', { emoji: '👍' }, { links: on('todo-0') });
-    await me.records.put(space, 'sys.reaction', { emoji: '🎉' }, { links: on('todo-0') });
-    const comment = await me.records.put(space, 'sys.comment', { text: 'oat milk?' }, { links: on('todo-0') });
-    await me.records.put(space, 'sys.comment', { text: 'yes' }, { links: [...on(comment.key), { rel: 'replyTo', to: comment.key }] });
+    await me.records.put(space, 'std.reaction', { emoji: '👍' }, { links: on('todo-0') });
+    await me.records.put(space, 'std.reaction', { emoji: '🎉' }, { links: on('todo-0') });
+    const comment = await me.records.put(space, 'std.comment', { text: 'oat milk?' }, { links: on('todo-0') });
+    await me.records.put(space, 'std.comment', { text: 'yes' }, { links: [...on(comment.key), { rel: 'replyTo', to: comment.key }] });
 
     const result = await me.records.query(space, {
       collection: 'app.todo.item',
       where: { '@key': 'todo-0' },
       include: {
-        reactions: { rel: 'about', from: 'sys.reaction', count: true },
-        thumbs: { rel: 'about', from: 'sys.reaction', where: { emoji: '👍' } },
-        comments: { rel: 'about', from: 'sys.comment', include: { replies: { rel: 'replyTo', from: 'sys.comment' } } },
+        reactions: { rel: 'about', from: 'std.reaction', count: true },
+        thumbs: { rel: 'about', from: 'std.reaction', where: { emoji: '👍' } },
+        comments: { rel: 'about', from: 'std.comment', include: { replies: { rel: 'replyTo', from: 'std.comment' } } },
       },
     });
     const [todo] = result.records;
@@ -164,9 +164,9 @@ describe('queries on a node', () => {
   test('include with direction "out" follows a record’s own links', async () => {
     const me = await person();
     const { space } = await todos(me, 'public');
-    await me.records.put(space, 'sys.comment', { text: 'about milk' }, { links: [{ rel: 'about', to: 'todo-0' }] });
+    await me.records.put(space, 'std.comment', { text: 'about milk' }, { links: [{ rel: 'about', to: 'todo-0' }] });
     const result = await me.records.query<{ text: string }>(space, {
-      collection: 'sys.comment',
+      collection: 'std.comment',
       include: { target: { rel: 'about', direction: 'out' } },
     });
     const target = result.records[0]?.included?.target as Array<{ body: { text: string } }>;

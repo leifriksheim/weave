@@ -2,7 +2,7 @@
   "name": "weave-protocol",
   "version": "0.1.0",
   "type": "module",
-  "description": "Self-sovereign P2P protocol for the browser — identity, schemas, storage, networking, and gossip sync",
+  "description": "Self-sovereign P2P protocol for the browser \u2014 identity, schemas, storage, networking, and gossip sync",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -41,6 +41,10 @@
     "./node": {
       "import": "./dist/node/index.js",
       "types": "./dist/node/index.d.ts"
+    },
+    "./schemas": {
+      "import": "./dist/schemas/index.js",
+      "types": "./dist/schemas/index.d.ts"
     }
   },
   "scripts": {

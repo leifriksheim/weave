@@ -299,7 +299,7 @@ const { records } = await node.records.query(space.id, {
   sort: { '@createdAt': 'desc' },
   include: {
     votes: { rel: 'about', from: 'app.poll.vote' },
-    likes: { rel: 'about', from: 'sys.reaction', count: true },
+    likes: { rel: 'about', from: 'std.reaction', count: true },
   },
 });
 
@@ -307,6 +307,29 @@ const { records } = await node.records.query(space.id, {
 const stop = node.records.watch(space.id, {
   collection: 'app.poll',
 }, render);
+`;
+
+const SCHEMAS = `
+import {
+  reaction, comment, useSchemas, type Reaction,
+} from 'weave-protocol/schemas';
+
+// Define the shapes this space doesn't know yet
+await useSchemas(node, space.id, [reaction, comment]);
+
+// A reaction is a record that points at what it's about
+const like: Reaction = { emoji: '👍' };
+await node.records.put(space.id, reaction.name, like, {
+  links: [{ rel: 'about', to: poll.key }],
+});
+
+// Any app that uses std.reaction sees it — and can count it
+const { records } = await node.records.query(space.id, {
+  collection: 'app.poll',
+  include: {
+    likes: { rel: 'about', from: reaction.name, count: true },
+  },
+});
 `;
 
 const AGENTS = `
@@ -376,7 +399,7 @@ export function Developers() {
           </div>
           <div className="layers">
             <Layer app name="Your app" what="Reads and writes records through a node. Can be a view on data another app made." tags={['createNode', 'NODE_ACTIONS']} />
-            <Layer name="Data" what="Spaces hold records. Collections describe themselves with JSON Schema; records link to each other; queries are plain JSON." tags={['spaces', 'collections', 'links', 'query']} />
+            <Layer name="Data" what="Spaces hold records. Collections describe themselves with JSON Schema; records link to each other; queries are plain JSON. Common shapes come from an optional schema library." tags={['spaces', 'collections', 'links', 'query']} />
             <Layer name="Identity & auth" what="An account is a seed → a P-256 did:key. The root key delegates to short-lived session keys with UCAN; passkeys unlock per device." tags={['did:key', 'UCAN', 'passkeys']} />
             <Layer name="Storage" what="Every space is a Merkle Search Tree of signed, versioned records — in IndexedDB, or a pod folder any origin can open." tags={['MST', 'IndexedDB', 'pods']} />
             <Layer name="Privacy" what="Private spaces encrypt each record with the space key before signing. Links are sealed with the body." tags={['AES-GCM']} />
@@ -431,12 +454,32 @@ export function Developers() {
                 Mongo-style filters, Prisma-style <code>include</code>, and a total sort so paging never skips on any
                 peer. Queries are JSON, so the same one works over MCP.
               </p>
-              <p>
-                <code>sys.reaction</code>, <code>sys.comment</code> and friends are built in: reactions and comments on
-                any record, from any app.
-              </p>
             </div>
             <Code file="query.ts">{QUERY}</Code>
+          </div>
+
+          <div className="split">
+            <div>
+              <h3>Standard schemas, if you want them</h3>
+              <p>
+                The protocol has no built-in kinds of record. For the patterns nearly every app needs — reactions,
+                comments, tags, attachments, references — there's an optional library of ready-made definitions.
+              </p>
+              <p>
+                They're ordinary collections, nothing privileged. Using the same ones is simply how two apps agree:
+                reactions from one show up in the other. Prefer your own shape? Define your own.
+              </p>
+              <ul>
+                <li>
+                  <code>reaction</code>, <code>comment</code>, <code>tag</code>, <code>attachment</code>,{' '}
+                  <code>reference</code>
+                </li>
+                <li>
+                  <code>useSchemas</code> defines only what a space is missing
+                </li>
+              </ul>
+            </div>
+            <Code file="reactions.ts">{SCHEMAS}</Code>
           </div>
 
           <div className="split">

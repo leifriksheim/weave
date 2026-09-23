@@ -24,7 +24,7 @@ import { didToPublicKey } from '../identity/did.js';
 import { createExpression } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
 import { newRecordKey, nextVersion, RECORD_KEY_PATTERN } from '../records/version.js';
-import { checkLinks, SYS_LIBRARY, SYS_LIBRARY_NAMES } from '../records/links.js';
+import { checkLinks } from '../records/links.js';
 import type { Link } from '../types.js';
 import { reconcileFolder } from '../storage/folder-reconcile.js';
 import type { FolderAdapter } from '../storage/folder-adapter.js';
@@ -288,16 +288,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return result;
   }
 
-  const builtIns = new Map(SYS_LIBRARY.map((definition) => [definition.name, definition]));
-
-  /** A collection's definition: built into every node for `sys.*`, else what the space says. */
+  /** A collection's definition: what the space says. The protocol knows no kinds of record of its own. */
   async function definitionOf(collection: string): Promise<StoredCollection | null> {
-    return builtIns.get(collection) ?? (await catalog()).get(collection)?.definition ?? null;
+    return (await catalog()).get(collection)?.definition ?? null;
   }
 
   /** Issues with a body against its collection's schema; null when there is no schema to check against. */
   async function shapeIssues(collection: string, body: unknown): Promise<ReadonlyArray<SchemaIssue> | null> {
-    if (collection.startsWith('sys.') && !SYS_LIBRARY_NAMES.has(collection)) return null;
+    // The protocol's own bookkeeping — definitions, profiles, memberships — has no user-facing schema.
+    if (collection.startsWith('sys.')) return null;
     const described = await definitionOf(collection);
     if (described) return validateJsonSchema(described.schema, body);
     if (schemas.getCollection(collection)) {
@@ -349,7 +348,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return [...(shape ?? []), ...linked];
   }
 
-  function describe(name: string, entry: CatalogEntry | null, records: number, builtIn = false): NodeCollection {
+  function describe(name: string, entry: CatalogEntry | null, records: number): NodeCollection {
     const definition = entry?.definition;
     return Object.freeze({
       name,
@@ -360,7 +359,6 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       history: definition?.history ?? 'latest',
       links: definition?.links ?? {},
       definedBy: entry?.definedBy ?? null,
-      builtIn,
       records,
     });
   }
@@ -752,16 +750,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const counts = new Map<string, number>();
       for (const version of await storage.listCurrent()) {
         if (version.deleted || !(await consistent(version))) continue;
-        if (version.collection.startsWith('sys.') && !builtIns.has(version.collection)) continue;
+        // The protocol's own bookkeeping is not one of the space's kinds of thing.
+        if (version.collection.startsWith('sys.')) continue;
         counts.set(version.collection, (counts.get(version.collection) ?? 0) + 1);
       }
       const described = await catalog();
-      const names = [...new Set([...described.keys(), ...counts.keys()])].filter((n) => !builtIns.has(n)).sort();
-      return [
-        ...names.map((name) => describe(name, described.get(name) ?? null, counts.get(name) ?? 0)),
-        // The annotation library, always there — so an agent sees what it can attach.
-        ...SYS_LIBRARY.map((definition) => describe(definition.name, { definition, definedBy: null }, counts.get(definition.name) ?? 0, true)),
-      ];
+      const names = [...new Set([...described.keys(), ...counts.keys()])].sort();
+      return names.map((name) => describe(name, described.get(name) ?? null, counts.get(name) ?? 0));
     },
 
     async define(input: DefineCollection): Promise<NodeCollection> {

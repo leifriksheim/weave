@@ -4,6 +4,7 @@ import { requireSession } from '../protocol';
 import { useLive } from '../hooks/useLive';
 import { collectionLabel } from '../derive/schema-ui';
 import { styles } from '../styles';
+import { ANNOTATIONS } from './RecordView';
 
 const TYPES = {
   text: { type: 'string' },
@@ -29,7 +30,7 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
 
   const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const name = `app.${slug || 'thing'}`;
-  const targets = existing.filter((c: NodeCollection) => !c.builtIn && c.schema !== null);
+  const targets = existing.filter((c: NodeCollection) => !ANNOTATIONS.has(c.name) && c.schema !== null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

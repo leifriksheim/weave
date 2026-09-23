@@ -148,8 +148,8 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     name: 'collections_list',
     description:
       'What a space holds and how it connects: each collection with its title, description, JSON Schema, declared ' +
-      'link roles and record count — including the built-in sys.* annotations (reaction, comment, tag, attachment, ' +
-      'reference) that attach to any record. Read this before writing, to match the shapes and links others use.',
+      'link roles and record count. Read this before writing, to match the shapes and links others use. Common ' +
+      'shapes — std.reaction, std.comment, std.tag, std.attachment, std.reference — appear only once a space defines them.',
     input: { type: 'object', properties: { space }, required: ['space'] },
     readOnly: true,
     run: (node, input) => node.collections.list(str(input, 'space')),
@@ -222,7 +222,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'where: { done: false, "@author": "did:…", amount: { "$gt": 10 } } — bare names are body fields (dotted for nested), ' +
       '"@key", "@author", "@root", "@createdAt", "@updatedAt", "@seq" are about the record; ' +
       'operators $eq $ne $gt $gte $lt $lte $in $nin $exists $contains, combined with $and $or $not. ' +
-      'include: { reactions: { rel: "about", from: "sys.reaction", count: true } } — records linking to each result ' +
+      'include: { reactions: { rel: "about", from: "std.reaction", count: true } } — records linking to each result ' +
       '(direction "out" for what each result links to), nested up to 3 deep. ' +
       'sort: { "@createdAt": "desc" }. Pass the returned cursor back to get the next page.',
     input: {
@@ -287,7 +287,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     name: 'records_linked',
     description:
       'The records pointing at a record: its reactions, comments, tags, votes… Optionally only one link role ' +
-      '(e.g. "about") or one collection (e.g. "sys.comment").',
+      '(e.g. "about") or one collection (e.g. "std.comment").',
     input: {
       type: 'object',
       properties: { space, key, rel: { type: 'string' }, collection: { type: 'string' } },

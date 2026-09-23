@@ -119,13 +119,17 @@ export function collectionLabel(collection: Pick<NodeCollection, 'name' | 'title
  * every collection declaring a link whose target includes it. A poll's page
  * offers "Add vote" because `app.poll.vote` declares `about → app.poll`.
  *
- * The protocol's own annotations are left out — reactions and comments get
- * their own place on every record.
+ * Collections the app already gives a place of their own (its reactions and
+ * comments) are left out via `except`.
  */
-export function attachable(collections: ReadonlyArray<NodeCollection>, target: string): ReadonlyArray<{ collection: NodeCollection; rel: string }> {
+export function attachable(
+  collections: ReadonlyArray<NodeCollection>,
+  target: string,
+  except: ReadonlySet<string> = new Set(),
+): ReadonlyArray<{ collection: NodeCollection; rel: string }> {
   const found: Array<{ collection: NodeCollection; rel: string }> = [];
   for (const collection of collections) {
-    if (collection.builtIn || collection.schema === null) continue;
+    if (except.has(collection.name) || collection.schema === null) continue;
     for (const [rel, declaration] of Object.entries(collection.links)) {
       if (declaration.to === '*' || declaration.to.includes(target)) found.push({ collection, rel });
     }
