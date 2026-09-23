@@ -111,10 +111,70 @@ export async function browserHome(): Promise<Home> {
 
 /** Accounts kept in a folder, from the picker. Must be called from a click. */
 export async function chooseFolderHome(): Promise<Home> {
+  return usePod(await pickPod());
+}
+
+/**
+ * Asks for a pod without switching to it yet — so a signed-in person can be
+ * asked what should happen to their data first, and cancelling changes nothing.
+ * Must be called from a click.
+ */
+export async function pickPod(): Promise<Home> {
   const directory = await pickDataFolder({ id: 'weave-pod' });
-  await rememberDataFolder(directory);
-  _home = { kind: 'folder', store: createFolderAccountStore(directory), directory };
+  return { kind: 'folder', store: createFolderAccountStore(directory), directory };
+}
+
+/** Makes a picked pod the one in use, and remembers it for next time. */
+export async function usePod(pod: Home): Promise<Home> {
+  if (!pod.directory) throw new Error('That is not a folder.');
+  await rememberDataFolder(pod.directory);
+  _home = pod;
   return _home;
+}
+
+/** What a pod holds, for deciding what to do before switching to it. */
+export interface PodContents {
+  /** This account's copy in the pod, when it has one */
+  readonly account: AccountSummary | null;
+  /** Other accounts in the pod — never touched by a move */
+  readonly others: number;
+  /** It is the pod already in use */
+  readonly same: boolean;
+}
+
+export async function inspectPod(pod: Home, current: Home, did: string): Promise<PodContents> {
+  const accounts = await listAccounts(pod);
+  const same =
+    current.kind === 'folder' &&
+    !!current.directory &&
+    !!pod.directory &&
+    (await (pod.directory as { isSameEntry?: (other: unknown) => Promise<boolean> }).isSameEntry?.(current.directory).catch(() => false)) === true;
+  return {
+    account: accounts.find((account) => account.did === did) ?? null,
+    others: accounts.filter((account) => account.did !== did).length,
+    same,
+  };
+}
+
+/**
+ * Switches to the pod's own copy of the open account, bringing nothing over.
+ * What was only in the old place stays there.
+ */
+export async function switchToPodCopy(pod: Home, existing: AccountSummary, source: SessionSource): Promise<Session> {
+  await usePod(pod);
+  const summary = { ...existing, lastUsedAt: new Date().toISOString() };
+  const vault = await pod.store.read(existing.id);
+  if (vault) await pod.store.write(summary, vault).catch(() => {});
+  rememberLastAccount(summary.id);
+  const session = await startSession(summary, source, { directory: pod.directory! });
+  await rememberSeedHere(summary.id);
+  return session;
+}
+
+/** "Stay signed in" names the account and where it lives; after a move it must name the pod. */
+async function rememberSeedHere(accountId: string): Promise<void> {
+  const seed = getSessionSeed();
+  if (seed) await rememberSeed(accountId, 'folder', seed).catch(() => {});
 }
 
 /**
@@ -609,8 +669,11 @@ export async function bringAccountToFolder(
   });
 
   rememberLastAccount(summary.id);
+  await usePod(to);
+  const started = await startSession(summary, source, { directory: to.directory });
+  await rememberSeedHere(summary.id);
   return {
-    session: await startSession(summary, source, { directory: to.directory }),
+    session: started,
     merged: existing !== null,
     spacesAdded: copied.spacesAdded,
     recordsAdded: copied.recordsAdded,

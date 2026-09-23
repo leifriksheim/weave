@@ -13,6 +13,7 @@ import { PairPhone } from './components/PairPhone';
 import { SpaceList } from './components/SpaceList';
 import { SpaceView } from './components/SpaceView';
 import { SecuritySettings } from './components/SecuritySettings';
+import { PodChoice } from './components/PodChoice';
 import { clearInviteFromUrl, previewInvite, readInviteFromUrl } from './spaces';
 import { relayOnlyLocal, relayProblem } from './relay';
 import type { Session } from './protocol';
@@ -175,27 +176,55 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
           </div>
         )}
         {!relayProblem() && relayOnlyLocal() && (
-          <p style={{ ...styles.errorHint, marginBottom: 12 }}>ℹ️ {relayOnlyLocal()}</p>
+          <p style={{ ...styles.errorHint, marginBottom: 12 }}>{relayOnlyLocal()}</p>
+        )}
+
+        {auth.podChoice && (
+          <PodChoice
+            pod={auth.podChoice.pod}
+            contents={auth.podChoice.contents}
+            from={auth.podChoice.from}
+            loading={auth.loading}
+            error={auth.error}
+            onConfirm={auth.confirmPod}
+            onCancel={auth.cancelPod}
+          />
+        )}
+
+        {!auth.podChoice && auth.error && (
+          <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 16 }}>
+            <p style={styles.error}>{auth.error.message}</p>
+            {auth.error.hint && <p style={styles.errorHint}>{auth.error.hint}</p>}
+          </div>
         )}
 
         {auth.moved && (
-          <div style={styles.panel}>
-            <div style={styles.panelBody}>
-              <p style={styles.ok}>
+          <div style={{ ...styles.panel, marginTop: 0, marginBottom: 16 }}>
+            <div style={{ ...styles.panelBody, paddingTop: 14 }}>
+              <p style={{ ...styles.ok, color: '#000' }}>
                 {auth.moved.merged
-                  ? `Combined with the copy already in this folder — ${auth.moved.recordsAdded} new records, ${auth.moved.spacesAdded} new spaces.`
-                  : `Moved into the folder — ${auth.moved.spacesAdded} spaces, ${auth.moved.recordsAdded} records.`}
+                  ? `Combined with the copy in the pod — ${auth.moved.recordsAdded} new records, ${auth.moved.spacesAdded} new spaces.`
+                  : `Moved into the pod — ${auth.moved.spacesAdded} spaces, ${auth.moved.recordsAdded} records.`}
               </p>
-              <p style={styles.errorHint}>
-                This browser still has its own copy. Nothing uses it now; remove it once you are happy the
-                folder has everything.
-              </p>
-              <div style={styles.linkRow}>
-                <button onClick={() => void auth.forgetBrowser()} data-variant="quiet" style={styles.linkButton}>
-                  Remove it from this browser
-                </button>
-                <button onClick={auth.dismissMoved} data-variant="ghost" style={styles.linkButton}>
-                  Keep it
+              {auth.moved.from ? (
+                <p style={styles.errorHint}>
+                  “{auth.moved.from}” still has its own copy. Weave won't use it any more — delete the folder yourself
+                  once you're sure you don't need it.
+                </p>
+              ) : (
+                <p style={styles.errorHint}>
+                  This browser still has its own copy. Nothing uses it now; remove it once you're happy the pod has
+                  everything.
+                </p>
+              )}
+              <div style={{ ...styles.linkRow, gap: 8 }}>
+                {!auth.moved.from && (
+                  <button onClick={() => void auth.forgetBrowser()} data-variant="quiet" style={styles.smallButton}>
+                    Remove the browser copy
+                  </button>
+                )}
+                <button onClick={auth.dismissMoved} data-variant="quiet" style={styles.smallButton}>
+                  {auth.moved.from ? 'Got it' : 'Keep it'}
                 </button>
               </div>
             </div>

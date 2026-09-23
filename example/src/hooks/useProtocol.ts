@@ -3,6 +3,10 @@ import { isProtocolError, type AccountSummary, type ProtocolErrorCode } from 'we
 import {
   browserHome,
   chooseFolderHome,
+  pickPod,
+  inspectPod,
+  switchToPodCopy,
+  type PodContents,
   recallFolderHome,
   forgetFolderHome,
   listAccounts as listAccountsIn,
@@ -294,29 +298,31 @@ export function useSession() {
     setStage('ready');
   }, []);
 
+  /**
+   * A pod picked while signed in, waiting on a decision: what should happen to
+   * the data where the account is now. Nothing has changed until it is answered.
+   */
+  const [podChoice, setPodChoice] = useState<{ pod: Home; contents: PodContents; from: Home } | null>(null);
+
   const chooseFolder = useCallback(() => {
     setLoading(true);
     setError(null);
     void (async () => {
       try {
-        const from = home;
-        const folder = await chooseFolderHome();
-        const source = getSessionSource();
-
-        // Signed in — mid-signup or long after: the open account comes with
-        // it, moved if the folder has never seen it and merged if it has.
-        // Keyed on the source rather than the seed, so an account whose key is
-        // in a wallet takes this path too.
-        if (session && source && from && from.directory !== folder.directory) {
-          const brought = await bringAccountToFolder(from, folder, session, source);
-          setSession(brought.session);
-          setHome(folder);
-          setAccounts(await listAccountsIn(folder));
-          setMoved(from.kind === 'browser' ? brought : null);
-          setStage('ready');
+        // Signed in: look before leaping. The picker has to come first — it
+        // needs the click — but switching waits for an answer.
+        if (session && home) {
+          const pod = await pickPod();
+          const contents = await inspectPod(pod, home, session.account.did);
+          if (contents.same) {
+            setError({ message: 'That is the pod you are already using.' });
+            return;
+          }
+          setPodChoice({ pod, contents, from: home });
           return;
         }
 
+        const folder = await chooseFolderHome();
         const listed = await refresh(folder);
         setStage(afterStorage(listed));
       } catch (e) {
@@ -325,10 +331,52 @@ export function useSession() {
         setLoading(false);
       }
     })();
-  }, [session, stage, refresh, home]);
+  }, [session, refresh, home]);
+
+  /**
+   * Answers the pod question. `combine` brings everything from here into the
+   * pod (a plain move when the pod has never seen the account); `switch` uses
+   * the pod's own copy and brings nothing.
+   */
+  const confirmPod = useCallback(
+    (how: 'combine' | 'switch') => {
+      const choice = podChoice;
+      const source = getSessionSource();
+      if (!choice || !session || !source) return;
+      setLoading(true);
+      setError(null);
+      void (async () => {
+        try {
+          if (how === 'switch' && choice.contents.account) {
+            setSession(await switchToPodCopy(choice.pod, choice.contents.account, source));
+            setMoved(null);
+          } else {
+            const brought = await bringAccountToFolder(choice.from, choice.pod, session, source);
+            setSession(brought.session);
+            setMoved({ ...brought, from: choice.from.kind === 'folder' ? (choice.from.directory?.name ?? 'your old pod') : null });
+          }
+          setHome(choice.pod);
+          setAccounts(await listAccountsIn(choice.pod));
+          setPodChoice(null);
+          setStage('ready');
+        } catch (e) {
+          setError(describeAuthError(e));
+        } finally {
+          setLoading(false);
+        }
+      })();
+    },
+    [podChoice, session],
+  );
+
+  const cancelPod = useCallback(() => {
+    setPodChoice(null);
+    setError(null);
+  }, []);
 
   /** What the last move into a folder did, while its notice is showing */
-  const [moved, setMoved] = useState<BroughtToFolder | null>(null);
+  /** `from` names the old pod, or is null when the old place was this browser */
+  const [moved, setMoved] = useState<(BroughtToFolder & { from: string | null }) | null>(null);
 
   /** Removes the copy the browser kept after a move into a folder. */
   const forgetBrowser = useCallback(async () => {
@@ -518,6 +566,9 @@ export function useSession() {
     create,
     codeSaved,
     chooseFolder,
+    podChoice,
+    confirmPod,
+    cancelPod,
     moved,
     forgetBrowser,
     dismissMoved: () => setMoved(null),

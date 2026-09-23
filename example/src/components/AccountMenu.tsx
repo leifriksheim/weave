@@ -155,7 +155,11 @@ export function AccountMenu({ auth, session, onSecurity }: { auth: ReturnType<ty
               Security
             </Item>
             <Item
-              onClick={auth.chooseFolder}
+              onClick={() => {
+                // Closed first: what follows is a folder picker, then a dialog.
+                setOpen(false);
+                auth.chooseFolder();
+              }}
               disabled={auth.loading}
               hint={home?.kind === 'folder' ? `Pod · ${home.directory?.name ?? 'folder'}` : 'Stored in this browser'}
             >
