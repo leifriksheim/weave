@@ -26,7 +26,18 @@ function isEncryptedBody(body: unknown): boolean {
   );
 }
 
-export function createStructuralGate(schemaEngine: SchemaEngine): StructuralGate {
+export interface StructuralGateOptions {
+  /**
+   * Let through collections no schema is registered for. A node that stores
+   * data for apps it has never heard of — an always-on node, or a space an
+   * agent is extending — cannot know every shape, and rejecting what it does not
+   * recognise would make it refuse to keep other people's data. Signatures and
+   * capabilities are still checked. Default false.
+   */
+  readonly allowUnknownCollections?: boolean;
+}
+
+export function createStructuralGate(schemaEngine: SchemaEngine, options: StructuralGateOptions = {}): StructuralGate {
   return {
     async validate(expression: Expression): Promise<GateResult> {
       try {
@@ -34,6 +45,10 @@ export function createStructuralGate(schemaEngine: SchemaEngine): StructuralGate
         // only be checked by a member after decryption. Non-members still relay
         // them, and their signatures and capabilities are checked as usual.
         if (isEncryptedBody(expression.body)) {
+          return { passed: true, gate: 'structural' };
+        }
+
+        if (options.allowUnknownCollections && !schemaEngine.getCollection(expression.collection)) {
           return { passed: true, gate: 'structural' };
         }
 

@@ -303,3 +303,35 @@ export { sha256, cidFromBytes } from './utils/hash.js';
 export { protocolError, isProtocolError } from './utils/errors.js';
 export type { ProtocolError, ProtocolErrorCode } from './utils/errors.js';
 export { TypedEventTarget } from './utils/events.js';
+
+// Node: identity + spaces + sync, behind one API
+export {
+  createNode,
+  SESSION_CAPABILITY,
+  TOMBSTONE_COLLECTION,
+  writeCapability,
+  indexedDBStores,
+  folderStores,
+  NODE_ACTIONS,
+  runAction,
+  checkActionInput,
+} from './node/index.js';
+export type {
+  StoreFactory,
+  StoreOptions,
+  NodeAction,
+  ActionSchema,
+  P2PNode,
+  NodeConfig,
+  NodeNetworkConfig,
+  NodeSpaces,
+  NodeRecords,
+  NodeRecord,
+  NodeEvent,
+  SpaceSummary,
+  SpaceStatus,
+  NewSpace,
+  InvitePreview,
+  ListOptions,
+  ConnectionState,
+} from './node/index.js';
