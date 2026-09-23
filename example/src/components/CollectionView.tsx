@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { NodeCollection, SpaceSummary } from '@p2p-web/protocol';
 import { requireSession } from '../protocol';
 import { useLive } from '../hooks/useLive';
-import { collectionLabel, columnsOf, recordLabel } from '../derive/schema-ui';
+import { byRel, choicesFrom, collectionLabel, columnsOf, recordLabel, type LinkedByRel } from '../derive/schema-ui';
 import { SchemaForm } from './SchemaForm';
 import { Value } from './Value';
 import type { Place } from './SpaceView';
@@ -14,7 +14,20 @@ export function CollectionView({ space, name, collection, go }: { space: SpaceSu
   const [adding, setAdding] = useState(false);
   const schema = collection?.schema ?? null;
   const columns = columnsOf(schema);
-  const result = useLive(space.id, () => node.records.query(space.id, { collection: name, sort: { '@createdAt': 'desc' } }), [name]);
+  // Choices that live in a linked record (a vote's poll) need that record to show their label.
+  const needsLinked = columns.some((c) => choicesFrom(c.schema));
+  const result = useLive(
+    space.id,
+    async () => {
+      const { records } = await node.records.query(space.id, { collection: name, sort: { '@createdAt': 'desc' } });
+      const linked = new Map<string, LinkedByRel>();
+      if (needsLinked) {
+        for (const r of records) linked.set(r.key, byRel(r.links, await Promise.all(r.links.map((l) => node.records.get(space.id, l.to)))));
+      }
+      return { records, linked };
+    },
+    [name, needsLinked],
+  );
   const records = result?.records ?? [];
 
   return (
@@ -61,7 +74,7 @@ export function CollectionView({ space, name, collection, go }: { space: SpaceSu
                 {columns.length > 0 ? (
                   columns.map((c) => (
                     <td key={c.name} style={cell(false)}>
-                      <Value field={c} value={(r.body as Record<string, unknown> | null)?.[c.name]} />
+                      <Value field={c} value={(r.body as Record<string, unknown> | null)?.[c.name]} {...(result?.linked.get(r.key) ? { linked: result.linked.get(r.key)! } : {})} />
                     </td>
                   ))
                 ) : (

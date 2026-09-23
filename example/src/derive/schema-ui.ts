@@ -25,7 +25,7 @@ const LONG_TEXT = 500;
 const TITLE_NAMES = ['title', 'name', 'text', 'question', 'label', 'subject', 'emoji'];
 
 export function kindOf(schema: JsonSchema): FieldKind {
-  if (Array.isArray(schema.enum)) return 'choice';
+  if (Array.isArray(schema.enum) || Array.isArray(schema.oneOf) || choicesFrom(schema)) return 'choice';
   switch (schema.type) {
     case 'string':
       return typeof schema.maxLength === 'number' && schema.maxLength >= LONG_TEXT ? 'longText' : 'text';
@@ -131,4 +131,76 @@ export function attachable(collections: ReadonlyArray<NodeCollection>, target: s
     }
   }
   return found;
+}
+
+/** One choice for a field: what is stored, and what a person sees */
+export interface Choice {
+  readonly value: unknown;
+  readonly label: string;
+}
+
+/** Linked records by link role — what `x-choicesFrom` looks in */
+export type LinkedByRel = Readonly<Record<string, NodeRecord | null | undefined>>;
+
+/** Where a field's choices come from, when they live in a linked record */
+export function choicesFrom(schema: JsonSchema): { rel: string; field: string } | null {
+  const from = schema['x-choicesFrom'] as { rel?: unknown; field?: unknown } | undefined;
+  return from && typeof from.rel === 'string' && typeof from.field === 'string' ? { rel: from.rel, field: from.field } : null;
+}
+
+/**
+ * A field's choices: fixed ones from `oneOf` (labelled) or `enum`, or ones
+ * read from a linked record for `x-choicesFrom`. Null when there are none to
+ * offer — including when the linked record is not here.
+ */
+export function choicesOf(field: Field, linked: LinkedByRel = {}): ReadonlyArray<Choice> | null {
+  const { schema } = field;
+  if (Array.isArray(schema.oneOf)) {
+    return (schema.oneOf as Array<{ const: unknown; title?: string }>).map((c) => ({ value: c.const, label: c.title ?? String(c.const) }));
+  }
+  if (Array.isArray(schema.enum)) return schema.enum.map((value) => ({ value, label: String(value) }));
+  const from = choicesFrom(schema);
+  if (!from) return null;
+  const list = (linked[from.rel]?.body as Record<string, unknown> | null | undefined)?.[from.field];
+  if (!Array.isArray(list)) return null;
+  // A number is a position in the list; anything else is the option itself.
+  const byPosition = schema.type === 'integer' || schema.type === 'number';
+  return list.map((item, index) => ({ value: byPosition ? index : item, label: String(item) }));
+}
+
+/** What a person should see for a value: its label, when it is one of the field's choices */
+export function labelOf(field: Field, value: unknown, linked: LinkedByRel = {}): string | null {
+  const choice = choicesOf(field, linked)?.find((c) => c.value === value);
+  return choice ? choice.label : null;
+}
+
+/** A record's linked records, by role */
+export function byRel(links: ReadonlyArray<{ rel: string; to: string }>, records: ReadonlyArray<NodeRecord | null>): LinkedByRel {
+  return Object.fromEntries(links.map((link, i) => [link.rel, records[i] ?? null]));
+}
+
+/**
+ * Counts of the records pointing at `target` by the choice they picked —
+ * "Oslo 1 · Lisbon 2" — when their collection says a field picks from a list
+ * in the record they point at. Null when nothing says so.
+ */
+export function tally(
+  collection: NodeCollection,
+  pointing: ReadonlyArray<NodeRecord>,
+  target: NodeRecord,
+): { field: Field; counts: ReadonlyArray<{ label: string; count: number }> } | null {
+  const rels = new Set(pointing.flatMap((r) => r.links.filter((l) => l.to === target.key).map((l) => l.rel)));
+  const field = fieldsOf(collection.schema).find((f) => {
+    const from = choicesFrom(f.schema);
+    return from !== null && rels.has(from.rel);
+  });
+  if (!field) return null;
+  const rel = choicesFrom(field.schema)!.rel;
+  const choices = choicesOf(field, { [rel]: target });
+  if (!choices) return null;
+  const counts = choices.map((c) => ({
+    label: c.label,
+    count: pointing.filter((r) => (r.body as Record<string, unknown> | null)?.[field.name] === c.value).length,
+  }));
+  return { field, counts };
 }

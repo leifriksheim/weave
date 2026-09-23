@@ -1,8 +1,10 @@
-import type { Field } from '../derive/schema-ui';
+import { labelOf, type Field, type LinkedByRel } from '../derive/schema-ui';
 
-/** A field's value, read-only, in whatever form suits its kind. */
-export function Value({ field, value }: { field?: Field; value: unknown }) {
+/** A field's value, read-only, in whatever form suits its kind — a choice by its label, not its stored value. */
+export function Value({ field, value, linked }: { field?: Field; value: unknown; linked?: LinkedByRel }) {
   if (value === undefined || value === null || value === '') return <span style={{ opacity: 0.4 }}>—</span>;
+  const label = field ? labelOf(field, value, linked) : null;
+  if (label !== null) return <span>{label}</span>;
   if (typeof value === 'boolean') return <span>{value ? '✓ yes' : '✗ no'}</span>;
   if (Array.isArray(value) && value.every((v) => typeof v !== 'object')) return <span>{value.join(', ')}</span>;
   if (typeof value === 'object') {

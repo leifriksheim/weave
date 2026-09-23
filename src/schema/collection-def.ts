@@ -12,6 +12,16 @@
  *   type · properties · required · items · enum · minimum · maximum ·
  *   minLength · maxLength · additionalProperties (boolean) · title · description
  *
+ * plus two ways to say what a value *means*, so any app can show it well:
+ *
+ * - `oneOf: [{ const, title }]` — fixed choices with labels, the standard
+ *   JSON Schema way (`enum` has no labels).
+ * - `x-choicesFrom: { rel, field }` — the value picks from a list in another
+ *   record: the one this record links to as `rel`, in its field `field`. A
+ *   vote's `choice` picks from the `options` of the poll it is `about`. A
+ *   number is a position in that list; anything else is the option itself.
+ *   Not checked when validating — the other record may not be here yet.
+ *
  * Anything else is refused at publish time — loudly, where the author can fix
  * it. At validation time unknown keywords are ignored instead, so a space
  * written by a newer app that allows more stays readable by an older one.
@@ -61,7 +71,11 @@ const KEYWORDS = new Set([
   'additionalProperties',
   'title',
   'description',
+  'oneOf',
+  'const',
+  'x-choicesFrom',
 ]);
+const LINK_REL = /^[a-z][a-zA-Z0-9]{0,63}$/;
 const TYPES = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
 const NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
 
@@ -117,6 +131,26 @@ export function checkPublishableSchema(schema: unknown, path = 'schema'): string
       case 'description':
         if (typeof value !== 'string') return `${at} must be text`;
         break;
+      case 'oneOf': {
+        // Only labelled choices: [{ const, title? }]. Not general composition.
+        if (!Array.isArray(value) || value.length === 0) return `${at} must be a non-empty list of { const, title }`;
+        for (const [i, choice] of value.entries()) {
+          if (typeof choice !== 'object' || choice === null || !('const' in choice)) return `${at}[${i}] must be { const, title }`;
+          const extra = Object.keys(choice).find((k) => k !== 'const' && k !== 'title' && k !== 'description');
+          if (extra) return `${at}[${i}].${extra}: oneOf is only for labelled choices — { const, title, description }`;
+          if ('title' in choice && typeof choice.title !== 'string') return `${at}[${i}].title must be text`;
+        }
+        break;
+      }
+      case 'const':
+        break;
+      case 'x-choicesFrom': {
+        const from = value as { rel?: unknown; field?: unknown } | null;
+        if (typeof from !== 'object' || from === null || typeof from.rel !== 'string' || !LINK_REL.test(from.rel) || typeof from.field !== 'string' || !from.field) {
+          return `${at} must be { "rel": "<link role>", "field": "<list field in the linked record>" }`;
+        }
+        break;
+      }
     }
   }
   return null;

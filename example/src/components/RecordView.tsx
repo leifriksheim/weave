@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@p2p-web/protocol';
 import { requireSession } from '../protocol';
 import { useLive } from '../hooks/useLive';
-import { attachable, collectionLabel, fieldsOf, humanize, recordLabel } from '../derive/schema-ui';
+import { attachable, byRel, choicesFrom, collectionLabel, fieldsOf, humanize, labelOf, recordLabel, tally } from '../derive/schema-ui';
 import { SchemaForm } from './SchemaForm';
 import { Value } from './Value';
 import type { Place } from './SpaceView';
@@ -47,6 +47,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
   const pointing = groupBy(linked.filter((r) => !ANNOTATIONS.has(r.collection)), (r) => r.collection);
   const mine = reactions.find((r) => r.root === rootDid && (r.body as { emoji?: string } | null)?.emoji === LIKE);
   const open = (r: NodeRecord) => go({ collection: r.collection, key: r.key });
+  const linkedHere = byRel(record.links, targets.map((t) => t.target));
 
   return (
     <article aria-label={recordLabel(record, schema)} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -66,6 +67,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
           <SchemaForm
             schema={schema}
             initial={record.body}
+            linked={linkedHere}
             submitLabel="Save"
             onCancel={() => setEditing(false)}
             onSubmit={async (next) => {
@@ -77,7 +79,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
           <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 16px', margin: 0, fontSize: 14 }}>
             {described.map((f) => (
               <Row key={f.name} label={f.label}>
-                <Value field={f} value={body[f.name]} />
+                <Value field={f} value={body[f.name]} linked={linkedHere} />
               </Row>
             ))}
             {extra.map((name) => (
@@ -135,15 +137,32 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
 
       {[...pointing].map(([name, records]) => {
         const c = collections.find((x) => x.name === name);
+        const counted = c ? tally(c, records, record) : null;
+        // A vote has no title of its own; name it by what it picked.
+        const nameOf = (r: NodeRecord) => {
+          const picked = counted ? labelOf(counted.field, (r.body as Record<string, unknown> | null)?.[counted.field.name], { [choicesFrom(counted.field.schema)!.rel]: record }) : null;
+          return picked ?? recordLabel(r, schemaOf(r.collection));
+        };
         return (
           <section key={name} style={styles.panelSection} aria-label={`${c ? collectionLabel(c) : name} pointing here`}>
             <h3 style={styles.sectionTitle}>
               {c ? collectionLabel(c) : name} ({records.length})
             </h3>
+            {counted && (
+              <div aria-label="Tally" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {counted.counts.map(({ label, count }) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                    <span style={{ minWidth: 90 }}>{label}</span>
+                    <span style={{ height: 8, borderRadius: 4, background: '#3b5bdb', width: `${(count / Math.max(1, records.length)) * 160}px` }} />
+                    <span style={styles.todoMeta}>{count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             {records.map((r) => (
               <button key={r.key} onClick={() => open(r)} data-variant="ghost" style={{ ...styles.linkButton, textAlign: 'left' }}>
-                {recordLabel(r, schemaOf(r.collection))}
-                <span style={styles.todoMeta}> · {r.links.filter((l) => l.to === record.key).map((l) => l.rel).join(', ')}</span>
+                {nameOf(r)}
+                <span style={styles.todoMeta}> · by {r.root?.slice(-6)}</span>
               </button>
             ))}
           </section>
@@ -157,6 +176,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
               <h3 style={styles.sectionTitle}>New {collectionLabel(adding.collection).toLowerCase()}</h3>
               <SchemaForm
                 schema={adding.collection.schema}
+                linked={{ [adding.rel]: record }}
                 submitLabel="Add"
                 onCancel={() => setAdding(null)}
                 onSubmit={async (next) => {

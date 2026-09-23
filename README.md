@@ -710,7 +710,11 @@ one, both drawn from its JSON Schema. Open a record and you see its fields,
 what it points at, what points at it, 👍 and comments (the `sys.*` library),
 and a "+ Add …" button for every collection that declares a link to this
 kind of thing: define `app.poll.vote` with `about → app.poll` and every poll
-gets "+ Add vote". The helpers that work this out are pure functions
+gets "+ Add vote". Choices show by their label: `oneOf: [{ const, title }]`
+for fixed ones, and `x-choicesFrom: { rel: 'about', field: 'options' }` for a
+field that picks from a list in the linked record — so a vote stored as `1`
+shows as "Lisbon", its form offers the poll's options, and the poll shows a
+tally. The helpers that work this out are pure functions
 (`example/src/derive/schema-ui.ts`), with nothing DOM-specific in them. An
 empty space offers a small "define a kind of thing" form; an agent can do the
 same over WebMCP.

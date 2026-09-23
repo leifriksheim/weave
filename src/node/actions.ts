@@ -150,7 +150,10 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     description:
       'Define a collection in a space, so every app and person in it knows its shape. The schema is JSON Schema ' +
       'using only: type, properties, required, items, enum, minimum, maximum, minLength, maxLength, ' +
-      'additionalProperties (boolean), title, description. Name it reverse-DNS, e.g. "app.trip.expense". ' +
+      'additionalProperties (boolean), title, description. For choices with labels use ' +
+      'oneOf: [{ "const": "low", "title": "Low" }, …]. When a value picks from a list in a linked record — a vote\'s choice ' +
+      'from its poll\'s options — add "x-choicesFrom": { "rel": "about", "field": "options" } to the field (a number is a ' +
+      'position in that list; text is the option itself), so apps can show labels and tallies. Name it reverse-DNS, e.g. "app.trip.expense". ' +
       'Redefining bumps the version; only whoever first defined it, or the space owner, may. Records are then checked against it when written.',
     input: {
       type: 'object',

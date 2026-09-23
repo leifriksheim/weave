@@ -48,6 +48,20 @@ describe('stored schemas', () => {
     assert.equal(checkPublishableSchema(expense), null);
   });
 
+  test('choices can carry labels, or come from a linked record', () => {
+    assert.equal(checkPublishableSchema({ type: 'string', oneOf: [{ const: 'low', title: 'Low' }, { const: 'high', title: 'High' }] }), null);
+    assert.match(checkPublishableSchema({ oneOf: [{ type: 'string' }] }) ?? '', /\{ const, title \}/);
+    assert.match(checkPublishableSchema({ oneOf: [{ const: 1, type: 'integer' }] }) ?? '', /only for labelled choices/);
+    const vote = { type: 'object', properties: { choice: { type: 'integer', 'x-choicesFrom': { rel: 'about', field: 'options' } } } };
+    assert.equal(checkPublishableSchema(vote), null);
+    assert.match(checkPublishableSchema({ type: 'integer', 'x-choicesFrom': { rel: 'about' } }) ?? '', /x-choicesFrom/);
+    // Labelled choices are enforced like enum; x-choicesFrom is a hint and never refuses.
+    const level = { type: 'string', oneOf: [{ const: 'low', title: 'Low' }] };
+    assert.deepEqual(validateJsonSchema(level, 'low'), []);
+    assert.equal(validateJsonSchema(level, 'mid').length > 0, true);
+    assert.deepEqual(validateJsonSchema(vote, { choice: 7 }), []);
+  });
+
   test('names are reverse-DNS, and sys.* is reserved', () => {
     assert.equal(checkStoredCollection({ name: 'app.trip.expense', schema: expense, version: 1 }), null);
     assert.match(checkStoredCollection({ name: 'Expense', schema: expense, version: 1 }) ?? '', /reverse-DNS/);

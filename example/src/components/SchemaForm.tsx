@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { JsonSchema } from '@p2p-web/protocol';
-import { emptyValue, fieldsOf, type Field } from '../derive/schema-ui';
+import { choicesOf, emptyValue, fieldsOf, type Field, type LinkedByRel } from '../derive/schema-ui';
 import { styles } from '../styles';
 
 /**
@@ -14,9 +14,12 @@ export function SchemaForm({
   submitLabel,
   onSubmit,
   onCancel,
+  linked = {},
 }: {
   schema: JsonSchema | null;
   initial?: unknown;
+  /** The records this one links to, by role — where `x-choicesFrom` finds its options */
+  linked?: LinkedByRel;
   submitLabel: string;
   onSubmit: (body: unknown) => Promise<void>;
   onCancel?: () => void;
@@ -58,7 +61,7 @@ export function SchemaForm({
         </label>
       ) : (
         fields.map((field) => (
-          <FieldInput key={field.name} field={field} value={value[field.name]} onChange={(v) => setValue((old) => ({ ...old, [field.name]: v }))} />
+          <FieldInput key={field.name} field={field} linked={linked} value={value[field.name]} onChange={(v) => setValue((old) => ({ ...old, [field.name]: v }))} />
         ))
       )}
       {error && <p style={styles.error}>{error}</p>}
@@ -78,7 +81,7 @@ export function SchemaForm({
 
 const labelStyle = { display: 'flex', flexDirection: 'column' as const, gap: 4, fontSize: 13 };
 
-function FieldInput({ field, value, onChange }: { field: Field; value: unknown; onChange: (value: unknown) => void }) {
+function FieldInput({ field, value, onChange, linked = {} }: { field: Field; value: unknown; onChange: (value: unknown) => void; linked?: LinkedByRel }) {
   const label = (
     <span>
       {field.label}
@@ -95,20 +98,25 @@ function FieldInput({ field, value, onChange }: { field: Field; value: unknown; 
           {label}
         </label>
       );
-    case 'choice':
+    case 'choice': {
+      const choices = choicesOf(field, linked);
+      // Choices from a linked record that is not here: fall back to a plain input for the type.
+      if (!choices) return <FieldInput field={{ ...field, kind: field.schema.type === 'integer' ? 'integer' : field.schema.type === 'number' ? 'number' : 'text' }} value={value} onChange={onChange} />;
+      const selected = choices.findIndex((c) => c.value === value);
       return (
         <label style={labelStyle}>
           {label}
-          <select value={value === undefined ? '' : String(value)} onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)} style={styles.input}>
+          <select value={selected < 0 ? '' : String(selected)} onChange={(e) => onChange(e.target.value === '' ? undefined : choices[Number(e.target.value)]?.value)} style={styles.input}>
             <option value="">—</option>
-            {(field.schema.enum as unknown[]).map((option) => (
-              <option key={String(option)} value={String(option)}>
-                {String(option)}
+            {choices.map((choice, i) => (
+              <option key={i} value={String(i)}>
+                {choice.label}
               </option>
             ))}
           </select>
         </label>
       );
+    }
     case 'number':
     case 'integer':
       return (
