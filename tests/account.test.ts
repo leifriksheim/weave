@@ -98,7 +98,7 @@ describe('moving and merging an account', () => {
     const diary = await before.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
     const kept = await before.records.put(diary.id, 'app.note', { text: 'kept' });
     const gone = await before.records.put(diary.id, 'app.note', { text: 'deleted' });
-    await before.records.delete(diary.id, gone.id);
+    await before.records.delete(diary.id, gone.key);
     await before.account.setName('Leif');
     await before.close();
 
@@ -108,7 +108,7 @@ describe('moving and merging an account', () => {
     const after = await device(me, folder);
     assert.deepEqual((await after.spaces.list()).map((s) => s.name), ['Diary']);
     assert.deepEqual((await after.records.list<{ text: string }>(diary.id)).map((r) => r.body?.text), ['kept']);
-    assert.equal((await after.records.get(diary.id, kept.id))?.encrypted, true);
+    assert.equal((await after.records.get(diary.id, kept.key))?.encrypted, true);
     assert.equal((await after.account.profile())?.name, 'Leif');
   });
 

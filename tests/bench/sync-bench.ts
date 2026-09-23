@@ -14,7 +14,7 @@ import { createMemoryAdapter } from '../helpers/memory-adapter.js';
 
 function fakeExpression(i: number): Expression {
   const id = `b${i.toString(36).padStart(8, '0')}${'x'.repeat(40)}`;
-  return { id, author: 'did:key:zBench', collection: 'app.bench', createdAt: new Date(1_700_000_000_000 + i).toISOString(), body: { i }, signature: 'sig' };
+  return { id, author: 'did:key:zBench', collection: 'app.bench', createdAt: new Date(1_700_000_000_000 + i).toISOString(), body: { i }, signature: 'sig', key: `k${i.toString(36)}`, seq: 0 };
 }
 
 async function measure(n: number, differing = 1) {

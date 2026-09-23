@@ -23,7 +23,10 @@ export interface TodoVerification {
 
 /** A todo as the UI needs it: decrypted content plus who vouched for it */
 export interface TodoView {
-  readonly id: string;
+  /** The todo's key — the same before and after it is ticked */
+  readonly key: string;
+  /** How many times it has been changed */
+  readonly seq: number;
   readonly author: string;
   readonly createdAt: string;
   readonly body: Todo;
@@ -47,7 +50,7 @@ export interface SpaceSession {
   list(): Promise<ReadonlyArray<TodoView>>;
   add(text: string): Promise<void>;
   toggle(todo: TodoView): Promise<void>;
-  remove(id: string): Promise<void>;
+  remove(key: string): Promise<void>;
   status(): Promise<SpaceStatus>;
   /** What the space says it holds */
   collections(): Promise<ReadonlyArray<NodeCollection>>;
@@ -59,7 +62,8 @@ export interface SpaceSession {
 function toView(record: NodeRecord<Todo>): TodoView | null {
   if (record.body === null) return null; // a member's data we have no key for
   return {
-    id: record.id,
+    key: record.key,
+    seq: record.seq,
     author: record.author,
     createdAt: record.createdAt,
     body: record.body,
@@ -102,11 +106,12 @@ export async function openSpace(space: SpaceSummary): Promise<SpaceSession> {
     },
 
     async toggle(todo: TodoView): Promise<void> {
-      await node.records.update<Todo>(space.id, todo.id, { ...todo.body, completed: !todo.body.completed });
+      // The next version of the same todo — not a new todo plus a deletion.
+      await node.records.update<Todo>(space.id, todo.key, { ...todo.body, completed: !todo.body.completed });
     },
 
-    async remove(id: string): Promise<void> {
-      await node.records.delete(space.id, id);
+    async remove(key: string): Promise<void> {
+      await node.records.delete(space.id, key);
     },
 
     collections: () => node.collections.list(space.id),

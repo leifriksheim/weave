@@ -504,6 +504,20 @@ export async function listMSTKeys(adapter: StorageAdapter, rootCid: string | nul
 }
 
 /**
+ * List all entries — keys with their values — in key order.
+ * @param adapter The storage adapter.
+ * @param rootCid The root, or null for an empty tree.
+ */
+export async function listMSTEntries(
+  adapter: StorageAdapter,
+  rootCid: string | null,
+): Promise<Array<{ key: string; value: string }>> {
+  const entries: Array<{ key: string; value: string }> = [];
+  await walkEntries(adapter, rootCid, null, (key, value) => { entries.push({ key, value }); });
+  return entries;
+}
+
+/**
  * Compute differences between two MSTs.
  *
  * Any subtree both sides already share has the same CID, so it is skipped

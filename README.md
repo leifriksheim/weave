@@ -110,7 +110,7 @@ const node = await createNode({
 
 const space = await node.spaces.create({ name: 'Groceries', type: 'shared', visibility: 'private' });
 const milk = await node.records.put(space.id, 'app.todo.item', { text: 'milk', done: false });
-await node.records.update(space.id, milk.id, { text: 'milk', done: true });
+await node.records.update(space.id, milk.key, { text: 'milk', done: true }); // same key, next version
 node.subscribe((event) => { if (event.type === 'records') redraw(); });
 
 const invite = await node.spaces.invite(space.id);  // a friend calls node.spaces.join(invite)
@@ -120,9 +120,15 @@ What it takes care of:
 
 - **One root signature an hour.** The node signs with a session key and asks the
   root signer for a fresh delegation before the old one runs out.
-- **Deletes that stay deleted.** A delete is a signed tombstone that syncs;
-  without one, the next sync would pull a removed record straight back from a
-  peer. Only a record's author or the space's owner can delete it.
+- **A record keeps its key; edits are versions.** `update` writes the next
+  version — same key, `seq` one higher, `prev` naming the version it replaces —
+  and `delete` writes a version marked deleted. Which version is current is
+  decided by `seq`, then id, never by a clock: a replayed old version cannot
+  roll a record back, a delete stays deleted, and two devices that edited apart
+  agree on the winner. Only the current version is kept, unless a collection
+  is defined with `history: 'all'`, which keeps every version as a hash-linked
+  chain (`records.history`). Anyone who may write in a space may edit and delete
+  in it.
 - **Records outlive their session.** A delegation is judged at the moment a
   record was signed, so a peer arriving next week still accepts last week's data.
 - **Unknown collections are kept.** Records in collections the node has no
@@ -307,7 +313,7 @@ a space: a private one whose id and key are derived from the account's vault
 key, so every device of the account finds it and nobody else can. Creating or
 joining a space writes a membership record there (carrying the invite, so the
 key too); every other device and node of the account syncs it and joins by
-itself. A tombstoned membership means the account left, and every device leaves.
+itself. A membership deleted on any device means the account left, and every device leaves.
 Pass `accountKey` to `createNode` to turn it on. The account's name lives there
 too (`node.account.setName`), so a rename on one device or site reaches every
 other one — and a site opening the account for the first time shows its name.

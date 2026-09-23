@@ -165,6 +165,7 @@ export {
   lookupInMST,
   diffMST,
   listMSTKeys,
+  listMSTEntries,
   collectReachableCids,
 } from './storage/mst.js';
 export type { MSTNode, MSTDiff } from './storage/mst.js';
@@ -261,7 +262,7 @@ export {
   compareRoots,
   verifyNode,
   unknownChildren,
-  missingKeys,
+  differingEntries,
 } from './sync/anti-entropy.js';
 export {
   createSyncEngine,
@@ -324,7 +325,6 @@ export { TypedEventTarget } from './utils/events.js';
 export {
   createNode,
   SESSION_CAPABILITY,
-  TOMBSTONE_COLLECTION,
   writeCapability,
   indexedDBStores,
   folderStores,

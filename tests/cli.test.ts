@@ -186,7 +186,7 @@ describe('the daemon', () => {
     const written = await laptop.records.put(space.id, 'app.note', { text: 'the node never saw an invite' });
 
     await until(async () => (await daemon.node.spaces.get(space.id)) !== null, 5000, 'the node to join through the registry');
-    await until(async () => (await daemon.node.records.get(space.id, written.id)) !== null, 5000, 'the note to reach the node');
+    await until(async () => (await daemon.node.records.get(space.id, written.key)) !== null, 5000, 'the note to reach the node');
     await laptop.close();
   });
 

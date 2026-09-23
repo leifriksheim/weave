@@ -39,16 +39,9 @@ export function createSigner(provider: CryptoProvider): Signer {
       
       const id = await getExpressionId(payload);
       
-      return Object.freeze({
-        id,
-        author: payload.author,
-        collection: payload.collection,
-        ...(payload.space ? { space: payload.space } : {}),
-        createdAt: payload.createdAt,
-        body: payload.body,
-        ...(payload.proof ? { proof: payload.proof } : {}),
-        signature,
-      });
+      // Everything that was signed, and nothing else: listing fields one by
+      // one would silently drop any field added later from the record.
+      return Object.freeze({ id, ...payload, signature });
     },
     
     async verify<T>(expression: Expression<T>, publicKey: CryptoKey): Promise<boolean> {

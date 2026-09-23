@@ -20,6 +20,8 @@ function note(i: number): Expression {
     createdAt: new Date(1_700_000_000_000 + i).toISOString(),
     body: { i },
     signature: 'sig',
+    key: `k${i.toString(36).padStart(8, '0')}`,
+    seq: 0,
   };
 }
 

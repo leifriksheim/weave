@@ -39,7 +39,7 @@ export interface NodeAction {
 }
 
 const space = { type: 'string', description: 'Space id, from spaces_list' } as const;
-const id = { type: 'string', description: 'Record id' } as const;
+const key = { type: 'string', description: 'Record key — stays the same when the record is edited' } as const;
 
 const str = (input: Record<string, unknown>, key: string) => input[key] as string;
 
@@ -146,6 +146,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         description: { type: 'string' },
         schema: { type: 'object' },
         version: { type: 'integer' },
+        history: { type: 'string', enum: ['latest', 'all'], description: 'Keep every version of its records ("all"), or only the current one' },
       },
       required: ['space', 'name', 'schema'],
     },
@@ -157,6 +158,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         ...(typeof input.title === 'string' ? { title: input.title } : {}),
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
         ...(typeof input.version === 'number' ? { version: input.version } : {}),
+        ...(input.history === 'all' || input.history === 'latest' ? { history: input.history } : {}),
       }),
   },
   {
@@ -183,42 +185,52 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
   {
     name: 'records_get',
     description: 'Read one record.',
-    input: { type: 'object', properties: { space, id }, required: ['space', 'id'] },
+    input: { type: 'object', properties: { space, key }, required: ['space', 'key'] },
     readOnly: true,
-    run: (node, input) => node.records.get(str(input, 'space'), str(input, 'id')),
+    run: (node, input) => node.records.get(str(input, 'space'), str(input, 'key')),
+  },
+  {
+    name: 'records_history',
+    description:
+      'The versions of a record kept here, newest first. Collections defined with history "all" keep every version, ' +
+      'each linked to the one before by hash; otherwise only the current and first versions are kept.',
+    input: { type: 'object', properties: { space, key }, required: ['space', 'key'] },
+    readOnly: true,
+    run: (node, input) => node.records.history(str(input, 'space'), str(input, 'key')),
   },
   {
     name: 'records_put',
     description:
-      'Write a new record into a collection. Collections are named like "app.todo.item"; ' +
-      'the body is any JSON object. It is signed by this node and synced to the space.',
+      'Create a record in a collection. Collections are named like "app.todo.item"; the body is any JSON object. ' +
+      'It gets a random key unless one is given. It is signed by this node and synced to the space.',
     input: {
       type: 'object',
-      properties: { space, collection: { type: 'string' }, body: { type: 'object' } },
+      properties: { space, collection: { type: 'string' }, body: { type: 'object' }, key: { type: 'string', description: 'Optional chosen key: a–z, 0–9 and : . _ -' } },
       required: ['space', 'collection', 'body'],
     },
     readOnly: false,
-    run: (node, input) => node.records.put(str(input, 'space'), str(input, 'collection'), input.body),
+    run: (node, input) =>
+      node.records.put(str(input, 'space'), str(input, 'collection'), input.body, typeof input.key === 'string' ? { key: input.key } : {}),
   },
   {
     name: 'records_update',
-    description: 'Replace a record with a new body. The result has a new id; the old record is deleted.',
+    description: 'Write the next version of a record: a new body under the same key.',
     input: {
       type: 'object',
-      properties: { space, id, body: { type: 'object' } },
-      required: ['space', 'id', 'body'],
+      properties: { space, key, body: { type: 'object' } },
+      required: ['space', 'key', 'body'],
     },
     readOnly: false,
-    run: (node, input) => node.records.update(str(input, 'space'), str(input, 'id'), input.body),
+    run: (node, input) => node.records.update(str(input, 'space'), str(input, 'key'), input.body),
   },
   {
     name: 'records_delete',
     description: 'Delete a record for every member of the space. Anyone who may write in the space may delete in it.',
-    input: { type: 'object', properties: { space, id }, required: ['space', 'id'] },
+    input: { type: 'object', properties: { space, key }, required: ['space', 'key'] },
     readOnly: false,
     run: async (node, input) => {
-      await node.records.delete(str(input, 'space'), str(input, 'id'));
-      return { deleted: str(input, 'id') };
+      await node.records.delete(str(input, 'space'), str(input, 'key'));
+      return { deleted: str(input, 'key') };
     },
   },
 ]);

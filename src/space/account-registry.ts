@@ -28,6 +28,9 @@ export const MEMBERSHIP_COLLECTION = 'sys.membership';
  */
 export const PROFILE_COLLECTION = 'sys.profile';
 
+/** The profile's record key — there is one profile per account */
+export const PROFILE_KEY = 'profile';
+
 export interface AccountProfile {
   readonly name: string;
 }

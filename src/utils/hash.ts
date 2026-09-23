@@ -23,7 +23,7 @@ const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
  * @param {Uint8Array} bytes - The bytes to encode.
  * @returns {string} The base32 encoded string.
  */
-function base32Encode(bytes: Uint8Array): string {
+export function base32Encode(bytes: Uint8Array): string {
   let bits = 0;
   let value = 0;
   let output = '';

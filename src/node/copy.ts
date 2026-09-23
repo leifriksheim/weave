@@ -8,13 +8,13 @@
  * account is the union of what each holds: nothing can conflict, nothing is
  * duplicated, and whatever either copy deleted stays deleted. Copying into a
  * store that already has some of it is therefore safe, and copying twice does
- * nothing the second time.
+ * nothing the second time. Where both hold a version of the same record, the
+ * ordering rule picks the same one sync would.
  */
 import type { StoreFactory } from './stores.js';
 import { createSpaceManager } from '../space/space-manager.js';
 import { deriveAccountRegistry } from '../space/account-registry.js';
 import { createStorageProvider } from '../storage/storage-provider.js';
-import { listMSTKeys } from '../storage/mst.js';
 
 export interface CopyAccountParams {
   readonly from: StoreFactory;
@@ -62,12 +62,17 @@ export async function copyAccountData(params: CopyAccountParams): Promise<CopyRe
     const source = createStorageProvider(await params.from(`spaces/${spaceId}`));
     const target = createStorageProvider(await params.to(`spaces/${spaceId}`));
     try {
-      for (const id of await listMSTKeys(source.getAdapter(), await source.getRootCid())) {
-        if (await target.getExpression(id)) continue;
+      // Every version the source keeps — current, first, retained — goes
+      // through the ordering rule on arrival, so the target ends up with what
+      // it would have reached by syncing with the source.
+      const ids = new Set((await source.entries()).map((entry) => entry.value));
+      for (const id of ids) {
+        const held = await target.getExpression(id);
         const expression = await source.getExpression(id);
         if (!expression) continue;
         await target.addExpression(expression);
-        recordsAdded++;
+        // Counted only if it stayed: a version the target's own one supersedes is dropped again.
+        if (!held && (await target.getExpression(id))) recordsAdded++;
       }
     } finally {
       await Promise.all([source.close(), target.close()]);

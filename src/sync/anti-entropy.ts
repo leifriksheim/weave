@@ -10,7 +10,7 @@
  */
 import type { StorageAdapter } from '../types.js';
 import { cidFromBytes } from '../utils/hash.js';
-import { deserializeNode, type MSTNode } from '../storage/mst.js';
+import { deserializeNode, lookupInMST, type MSTNode } from '../storage/mst.js';
 
 /**
  * Compares two root CIDs to check if they differ.
@@ -56,11 +56,23 @@ export function unknownChildren(node: MSTNode, localTree: ReadonlySet<string>): 
 }
 
 /**
- * Of a node's keys, the ones this store does not hold.
+ * The version ids a peer's node names that differ from this store's.
+ *
+ * A key is a record key under a prefix (`r/`, `g/`, `h/`) and its value a
+ * version id, so two peers can hold the same key with different values — two
+ * versions of one record. Either way the other side's version is worth
+ * fetching: the ordering rule decides, on arrival, whether it is kept.
+ *
  * @param adapter The local store
+ * @param localRoot The local tree's root
  * @param node A node from the peer's tree
  */
-export async function missingKeys(adapter: StorageAdapter, node: MSTNode): Promise<string[]> {
-  const present = await Promise.all(node.keys.map(async (key) => (await adapter.getExpression(key)) !== null));
-  return node.keys.filter((_, i) => !present[i]);
+export async function differingEntries(adapter: StorageAdapter, localRoot: string | null, node: MSTNode): Promise<string[]> {
+  const ours = await Promise.all(node.keys.map((key) => lookupInMST(adapter, localRoot, key)));
+  const wanted: string[] = [];
+  for (let i = 0; i < node.keys.length; i++) {
+    const theirs = node.values[i];
+    if (typeof theirs === 'string' && ours[i] !== theirs && !(await adapter.getExpression(theirs))) wanted.push(theirs);
+  }
+  return wanted;
 }

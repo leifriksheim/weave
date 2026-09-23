@@ -3,7 +3,7 @@
  * A node, and the actions every front end builds on.
  */
 export { createNode, SESSION_CAPABILITY } from './node.js';
-export { TOMBSTONE_COLLECTION, writeCapability } from './space-runtime.js';
+export { writeCapability } from './space-runtime.js';
 export { indexedDBStores, folderStores } from './stores.js';
 export { copyAccountData } from './copy.js';
 export type { CopyAccountParams, CopyResult } from './copy.js';

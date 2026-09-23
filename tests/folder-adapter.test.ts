@@ -178,7 +178,7 @@ describe('two origins, one folder', () => {
     assert.deepEqual(await b.adapter.get('space:new'), new Uint8Array([1, 2, 3]));
   });
 
-  test('what one origin writes, the other sees after reconciling', async () => {
+  test('what one origin writes, the other sees — and reconciling reports it', async () => {
     const folder = createMemoryDirectory();
     const a = await openOrigin(folder.open());
     const b = await openOrigin(folder.open());
@@ -186,10 +186,9 @@ describe('two origins, one folder', () => {
     const expression = await makeExpression('written on A');
     await a.storage.addExpression(expression);
 
-    // B has not looked at the disk since it opened. (`getExpression` would find
-    // it — it falls back to a read — but the index a query runs on is stale.)
-    assert.equal((await b.storage.queryExpressions(COLLECTION, 50)).length, 0);
-
+    // Reconciling notices the file A added. (Both read the same root pointer
+    // from disk, so B's lists already include it; reconciling is what repairs
+    // a tree whose pointer write was lost.)
     const result = await reconcileFolder(b.storage, b.adapter);
     assert.deepEqual(result.added, [expression.id]);
     assert.equal(result.changed, true);

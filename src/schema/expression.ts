@@ -1,6 +1,7 @@
 import type { Expression, UnsignedExpression } from '../types.js';
 import { utf8Encode } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
+import { newRecordKey } from '../records/version.js';
 
 /**
  * Parameters for creating a new expression.
@@ -14,6 +15,15 @@ export interface CreateExpressionParams<T> {
   readonly space?: string;
   /** Encoded UCAN authorizing this author, when signing with a delegated key */
   readonly proof?: string;
+  /** The record this is a version of. Default: a new record, with a fresh key, at seq 0. */
+  readonly version?: {
+    readonly key: string;
+    readonly seq: number;
+    readonly prev?: string;
+    readonly genesis?: string;
+  };
+  readonly retain?: boolean;
+  readonly deleted?: boolean;
 }
 
 /**
@@ -56,6 +66,12 @@ export function createExpression<T>(params: CreateExpressionParams<T>): Unsigned
     createdAt: params.createdAt ?? new Date().toISOString(),
     ...(params.space ? { space: params.space } : {}),
     ...(params.proof ? { proof: params.proof } : {}),
+    key: params.version?.key ?? newRecordKey(),
+    seq: params.version?.seq ?? 0,
+    ...(params.version?.prev ? { prev: params.version.prev } : {}),
+    ...(params.version?.genesis ? { genesis: params.version.genesis } : {}),
+    ...(params.retain ? { retain: true as const } : {}),
+    ...(params.deleted ? { deleted: true as const } : {}),
   });
 }
 

@@ -16,7 +16,6 @@
 
 import type { StorageProvider } from './storage-provider.js';
 import type { FolderAdapter } from './folder-adapter.js';
-import { listMSTKeys } from './mst.js';
 
 /** What a pass over the folder found */
 export interface FolderReconciliation {
@@ -53,22 +52,26 @@ export async function reconcileFolder(
   adapter: FolderAdapter,
 ): Promise<FolderReconciliation> {
   const disk = await adapter.reload();
-
   const onDisk = new Set(await adapter.listExpressionIds());
-  const inTree = new Set(await listMSTKeys(adapter, await storage.getRootCid()));
 
-  const missing = [...onDisk].filter((id) => !inTree.has(id));
-  const stale = [...inTree].filter((id) => !onDisk.has(id));
-
+  // Versions another writer put on disk that this tree has not placed. Each
+  // goes through the ordering rule like anything else: it becomes current,
+  // is kept as history, or loses and is dropped — the same decision the other
+  // writer reached, so both converge on the same tree.
+  const indexed = new Set((await storage.entries()).map((entry) => entry.value));
+  const missing = [...onDisk].filter((id) => !indexed.has(id));
   for (const id of missing) {
     const expression = await adapter.getExpression(id);
     // A file can vanish between the listing and the read — another writer
-    // deleting it. Nothing to add, and the next pass will agree.
+    // dropping a superseded version. Nothing to add, and the next pass agrees.
     if (expression) await storage.addExpression(expression);
   }
 
+  // Entries whose file is gone: another writer superseded and dropped it, and
+  // its replacement was placed above.
+  const stale = [...new Set((await storage.entries()).map((entry) => entry.value))].filter((id) => !onDisk.has(id) && !missing.includes(id));
   for (const id of stale) {
-    await storage.removeExpression(id);
+    if (!(await adapter.getExpression(id))) await storage.removeExpression(id);
   }
 
   const repaired = [...missing, ...stale];

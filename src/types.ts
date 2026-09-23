@@ -55,6 +55,18 @@ export interface Expression<T = unknown> {
   readonly createdAt: string;   // ISO 8601 timestamp
   readonly body: T;             // Typed payload
   readonly proof?: string;      // Encoded UCAN authorizing the author, if delegated
+  /** The record's identity, stable across versions. Links point here. */
+  readonly key: string;
+  /** 0 for a record's first version; each later version is one more than the one it replaces */
+  readonly seq: number;
+  /** Id of the version this one replaces. Absent on seq 0. */
+  readonly prev?: string;
+  /** Id of the record's first version — who created it. Absent on seq 0. */
+  readonly genesis?: string;
+  /** Keep this version once it is superseded — set by the writer, from the collection's `history` */
+  readonly retain?: true;
+  /** This version deletes the record; its body is null */
+  readonly deleted?: true;
   readonly signature: string;   // Base64URL encoded signature
 }
 
@@ -67,6 +79,18 @@ export interface UnsignedExpression<T = unknown> {
   readonly body: T;
   /** Encoded UCAN proving the author may write this — signed along with the rest */
   readonly proof?: string;
+  /** The record's identity, stable across versions. Links point here. */
+  readonly key: string;
+  /** 0 for a record's first version; each later version is one more than the one it replaces */
+  readonly seq: number;
+  /** Id of the version this one replaces. Absent on seq 0. */
+  readonly prev?: string;
+  /** Id of the record's first version — who created it. Absent on seq 0. */
+  readonly genesis?: string;
+  /** Keep this version once it is superseded — set by the writer, from the collection's `history` */
+  readonly retain?: true;
+  /** This version deletes the record; its body is null */
+  readonly deleted?: true;
 }
 
 /** Space types */

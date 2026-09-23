@@ -92,23 +92,33 @@ export interface InvitePreview {
   readonly carriesKey: boolean;
 }
 
-/** A record, opened and checked */
+/** A record, opened and checked — its current version, unless listed as history */
 export interface NodeRecord<T = unknown> {
-  readonly id: string;
+  /** The record's identity. Stays the same across edits; links point here. */
+  readonly key: string;
+  /** This version's id — a content hash, different for every edit */
+  readonly version: string;
+  /** 0 for the first version, one more for each edit */
+  readonly seq: number;
   readonly space: string;
   readonly collection: string;
-  /** The key that signed it — usually a session key */
+  /** The key that signed this version — usually a session key */
   readonly author: string;
   /** The identity that key was acting for, when its delegation checks out */
   readonly root: string | null;
+  /** The identity that created the record, when its first version is held */
+  readonly createdBy: string | null;
+  /** When the record was created, as its creator's clock said — for display; it decides nothing */
   readonly createdAt: string;
+  /** When this version was written, likewise for display only */
+  readonly updatedAt: string;
   /** The content, or null when it is encrypted and this node has no key */
   readonly body: T | null;
   readonly encrypted: boolean;
   /** Signature, delegation and shape all check out */
   readonly verified: boolean;
   readonly reason?: string;
-  /** Present, and true, only when listed with `includeDeleted` and hidden by a tombstone */
+  /** Present, and true, when this version deletes the record (listed only with `includeDeleted`) */
   readonly deleted?: true;
   /**
    * Whether the body fits its collection's schema — the one the space
@@ -129,6 +139,8 @@ export interface NodeCollection {
   /** Null when records exist but the space has no definition for them */
   readonly schema: JsonSchema | null;
   readonly version: number | null;
+  /** Whether edits keep old versions: `all` for an audit trail, `latest` (the default) for current state only */
+  readonly history: 'latest' | 'all';
   /** The identity that first defined it — it and the space owner may change it */
   readonly definedBy: string | null;
   readonly records: number;
@@ -142,6 +154,8 @@ export interface DefineCollection {
   readonly schema: JsonSchema;
   /** Default: one past the current version, or 1 */
   readonly version?: number;
+  /** Keep every version of every record in it (`all`), or only the current one (`latest`, the default) */
+  readonly history?: 'latest' | 'all';
 }
 
 export interface NodeCollections {
@@ -157,7 +171,7 @@ export interface ListOptions {
   /** Newest first when set; oldest first by default */
   readonly newestFirst?: boolean;
   readonly limit?: number;
-  /** Also return records a tombstone hides, marked `deleted` */
+  /** Also return deleted records, marked `deleted` */
   readonly includeDeleted?: boolean;
 }
 
@@ -209,19 +223,27 @@ export interface NodeSpaces {
 }
 
 export interface NodeRecords {
+  /** Current versions, oldest record first; deleted records only with `includeDeleted` */
   list<T = unknown>(spaceId: string, options?: ListOptions): Promise<ReadonlyArray<NodeRecord<T>>>;
-  get<T = unknown>(spaceId: string, id: string): Promise<NodeRecord<T> | null>;
-  put<T = unknown>(spaceId: string, collection: string, body: T): Promise<NodeRecord<T>>;
+  /** A record's current version, or null when there is none or it was deleted */
+  get<T = unknown>(spaceId: string, key: string): Promise<NodeRecord<T> | null>;
   /**
-   * Replaces a record: writes the new body and deletes the old one. The new
-   * record has a new id — ids are content hashes.
+   * Creates a record. Its key is random unless given — a chosen key suits a
+   * record there is one of by nature. Writing a key that was deleted brings it back.
    */
-  update<T = unknown>(spaceId: string, id: string, body: T): Promise<NodeRecord<T>>;
+  put<T = unknown>(spaceId: string, collection: string, body: T, options?: { key?: string }): Promise<NodeRecord<T>>;
+  /** Writes the record's next version. Same key; `seq` one higher. */
+  update<T = unknown>(spaceId: string, key: string, body: T): Promise<NodeRecord<T>>;
   /**
-   * Deletes a record everywhere, by writing a signed tombstone that syncs like
-   * any record. Anyone who may write in the space may delete in it.
+   * Deletes a record everywhere, by writing a version marked deleted that syncs
+   * like any other. Anyone who may write in the space may delete in it.
    */
-  delete(spaceId: string, id: string): Promise<void>;
+  delete(spaceId: string, key: string): Promise<void>;
+  /**
+   * The versions of a record this node keeps, newest first: the current one,
+   * the first one, and — in a collection with `history: 'all'` — every other.
+   */
+  history<T = unknown>(spaceId: string, key: string): Promise<ReadonlyArray<NodeRecord<T>>>;
 }
 
 export interface DelegateParams {

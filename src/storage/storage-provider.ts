@@ -1,21 +1,51 @@
 /**
  * @module storage-provider
- * Orchestrator combining StorageAdapter and Merkle Search Tree (MST).
+ * A space's store: record versions, and the Merkle Search Tree that indexes them.
+ *
+ * The tree maps **record keys to version ids**:
+ *
+ * ```
+ * r/<key>              → the current version          (every record)
+ * g/<key>              → the record's first version   (once it has been edited)
+ * h/<key>/<seq>/<id>   → a superseded version         (only if marked `retain`)
+ * ```
+ *
+ * A version that arrives is compared with the one at `r/<key>` by the ordering
+ * rule (`records/version.ts`). The winner takes `r/<key>`; the loser's body is
+ * dropped — unless it is the record's first version, kept as proof of who
+ * created it, or its writer marked it `retain`. The same set of versions gives
+ * the same tree whatever order they arrive in, which is what lets two peers
+ * converge.
  */
 
 import type { StorageAdapter, Expression } from '../types.js';
-import { insertIntoMST, deleteFromMST } from './mst.js';
+import { insertIntoMST, deleteFromMST, lookupInMST, listMSTEntries } from './mst.js';
+import { supersedes } from '../records/version.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 
 export interface StorageProvider {
-  /** Add an expression and update the MST. */
-  addExpression(expression: Expression): Promise<string>;
-  /** Remove an expression and update the MST. */
+  /**
+   * Takes in a version of a record: it becomes current if it supersedes the
+   * current one, and is kept or dropped otherwise. Idempotent.
+   * @returns The new tree root
+   */
+  addExpression(expression: Expression): Promise<string | null>;
+  /** Drops a version from the tree and the store, wherever it is indexed. */
   removeExpression(id: string): Promise<string | null>;
-  /** Retrieve an expression by ID. */
+  /** A version by its id, current or not, if this store holds it. */
   getExpression(id: string): Promise<Expression | null>;
-  /** Query expressions in a collection. */
-  queryExpressions(collection: string, limit?: number, cursor?: string): Promise<Expression[]>;
+  /** The current version of a record — possibly a delete. */
+  getCurrent(key: string): Promise<Expression | null>;
+  /** The record's first version, when it has been edited and so is stored apart. */
+  getGenesis(key: string): Promise<Expression | null>;
+  /** Every version of a record this store keeps: current, first, and retained. Newest first. */
+  history(key: string): Promise<Expression[]>;
+  /** Current versions of every record, deletes included. */
+  listCurrent(): Promise<Expression[]>;
+  /** Current versions in one collection, deletes included. */
+  queryExpressions(collection: string): Promise<Expression[]>;
+  /** Every tree entry, for sync and copying: `r/…`, `g/…`, `h/…` keys and the version ids under them. */
+  entries(): Promise<Array<{ key: string; value: string }>>;
   /** Get the current MST root CID. */
   getRootCid(): Promise<string | null>;
   /** Get the underlying storage adapter. */
@@ -25,6 +55,15 @@ export interface StorageProvider {
 }
 
 const ROOT_KEY = '__mst_root';
+
+export const CURRENT_PREFIX = 'r/';
+export const GENESIS_PREFIX = 'g/';
+export const HISTORY_PREFIX = 'h/';
+
+const currentKey = (key: string) => `${CURRENT_PREFIX}${key}`;
+const genesisKey = (key: string) => `${GENESIS_PREFIX}${key}`;
+/** `seq` padded so a key's history lists in order */
+const historyKey = (e: Expression) => `${HISTORY_PREFIX}${e.key}/${String(e.seq).padStart(15, '0')}/${e.id}`;
 
 /**
  * Creates a StorageProvider wrapping an adapter.
@@ -55,24 +94,82 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     return run;
   };
 
+  /**
+   * Places a version that is not current: the record's first version if it is
+   * the lowest-id one seen, history if retained, otherwise gone.
+   */
+  async function demote(root: string | null, version: Expression, current: Expression): Promise<string | null> {
+    // A first version is kept as proof of who created the record — the one
+    // with the lowest id, if several devices each created the same chosen key.
+    // Not while the record is still at seq 0: then the current version is it.
+    if (version.seq === 0 && current.seq > 0) {
+      const heldId = await lookupInMST(adapter, root, genesisKey(version.key));
+      if (heldId === version.id) return root;
+      if (heldId === null || version.id < heldId) {
+        await adapter.putExpression(version);
+        root = await insertIntoMST(adapter, root, genesisKey(version.key), version.id);
+        const displaced = heldId ? await adapter.getExpression(heldId) : null;
+        return displaced ? keepOrDrop(root, displaced) : root;
+      }
+    }
+    return keepOrDrop(root, version);
+  }
+
+  async function keepOrDrop(root: string | null, version: Expression): Promise<string | null> {
+    if (version.retain) {
+      await adapter.putExpression(version);
+      return insertIntoMST(adapter, root, historyKey(version), version.id);
+    }
+    await adapter.deleteExpression(version.id);
+    return root;
+  }
+
+  async function listCurrent(): Promise<Expression[]> {
+    const ids = (await listMSTEntries(adapter, await getRootCid()))
+      .filter((e) => e.key.startsWith(CURRENT_PREFIX))
+      .map((e) => e.value);
+    const versions = await Promise.all(ids.map((id) => adapter.getExpression(id)));
+    return versions.filter((v): v is Expression => v !== null);
+  }
+
+  async function currentOf(root: string | null, key: string): Promise<Expression | null> {
+    const id = await lookupInMST(adapter, root, currentKey(key));
+    return id ? adapter.getExpression(id) : null;
+  }
+
   return Object.freeze({
-    addExpression(expression: Expression): Promise<string> {
+    addExpression(incoming: Expression): Promise<string | null> {
       return exclusively(async () => {
-        await adapter.putExpression(expression);
-        const currentRoot = await getRootCid();
-        const newRoot = await insertIntoMST(adapter, currentRoot, expression.id, expression.id);
-        await setRootCid(newRoot);
-        return newRoot;
+        let root = await getRootCid();
+        const current = await currentOf(root, incoming.key);
+
+        if (current?.id === incoming.id) return root;
+
+        if (!current) {
+          await adapter.putExpression(incoming);
+          root = await insertIntoMST(adapter, root, currentKey(incoming.key), incoming.id);
+        } else if (supersedes(incoming, current)) {
+          await adapter.putExpression(incoming);
+          root = await insertIntoMST(adapter, root, currentKey(incoming.key), incoming.id);
+          root = await demote(root, current, incoming);
+        } else {
+          root = await demote(root, incoming, current);
+        }
+
+        await setRootCid(root);
+        return root;
       });
     },
 
     removeExpression(id: string): Promise<string | null> {
       return exclusively(async () => {
-        const currentRoot = await getRootCid();
-        const newRoot = await deleteFromMST(adapter, currentRoot, id);
+        let root = await getRootCid();
+        for (const entry of await listMSTEntries(adapter, root)) {
+          if (entry.value === id) root = await deleteFromMST(adapter, root, entry.key);
+        }
         await adapter.deleteExpression(id);
-        await setRootCid(newRoot);
-        return newRoot;
+        await setRootCid(root);
+        return root;
       });
     },
 
@@ -80,8 +177,34 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
       return adapter.getExpression(id);
     },
 
-    async queryExpressions(collection: string, limit?: number, cursor?: string): Promise<Expression[]> {
-      return adapter.queryExpressions(collection, limit, cursor);
+    async getCurrent(key: string): Promise<Expression | null> {
+      return currentOf(await getRootCid(), key);
+    },
+
+    async getGenesis(key: string): Promise<Expression | null> {
+      const id = await lookupInMST(adapter, await getRootCid(), genesisKey(key));
+      return id ? adapter.getExpression(id) : null;
+    },
+
+    async history(key: string): Promise<Expression[]> {
+      const root = await getRootCid();
+      const ids = (await listMSTEntries(adapter, root))
+        .filter((e) => e.key === currentKey(key) || e.key === genesisKey(key) || e.key.startsWith(`${HISTORY_PREFIX}${key}/`))
+        .map((e) => e.value);
+      const versions = await Promise.all([...new Set(ids)].map((id) => adapter.getExpression(id)));
+      return versions
+        .filter((v): v is Expression => v !== null)
+        .sort((a, b) => (supersedes(a, b) ? -1 : supersedes(b, a) ? 1 : 0));
+    },
+
+    listCurrent,
+
+    async queryExpressions(collection: string): Promise<Expression[]> {
+      return (await listCurrent()).filter((version) => version.collection === collection);
+    },
+
+    async entries() {
+      return listMSTEntries(adapter, await getRootCid());
     },
 
     async getRootCid(): Promise<string | null> {

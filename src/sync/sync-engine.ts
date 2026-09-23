@@ -20,7 +20,7 @@ import { collectReachableCids } from '../storage/mst.js';
 import { base64UrlDecode, base64UrlEncode } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
 import { encodeSyncMessage, decodeSyncMessage, type SyncMessage, type SyncMessageBody } from './sync-messages.js';
-import { compareRoots, missingKeys, unknownChildren, verifyNode } from './anti-entropy.js';
+import { compareRoots, differingEntries, unknownChildren, verifyNode } from './anti-entropy.js';
 
 /** Verdict on an expression that arrived from a peer */
 export interface IncomingValidation {
@@ -72,6 +72,8 @@ const STALE_WALK_MS = 30_000;
 /** One pull of one peer's tree */
 interface Walk {
   readonly remoteRoot: string;
+  /** The local root when the walk began — what the peer's entries are compared with */
+  readonly localRoot: string | null;
   /** Every CID in the local tree when the walk began — the subtrees to skip */
   readonly localTree: ReadonlySet<string>;
   readonly depth: Map<string, number>;
@@ -186,7 +188,8 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       emit('synced', peerId);
       return;
     }
-    const localTree = await collectReachableCids(storageProvider.getAdapter(), await storageProvider.getRootCid());
+    const localRoot = await storageProvider.getRootCid();
+    const localTree = await collectReachableCids(storageProvider.getAdapter(), localRoot);
     if (localTree.has(remoteRoot)) {
       // Their whole tree is a subtree of ours: nothing to pull.
       emit('synced', peerId);
@@ -195,6 +198,7 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
 
     const walk: Walk = {
       remoteRoot,
+      localRoot,
       localTree,
       depth: new Map([[remoteRoot, 0]]),
       queue: [remoteRoot],
@@ -226,7 +230,7 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
         emit('error', new Error(`Sync with ${peerId} abandoned: more than ${MAX_NODES_PER_WALK} nodes`));
         return;
       }
-      for (const key of await missingKeys(adapter, node)) walk.missing.add(key);
+      for (const id of await differingEntries(adapter, walk.localRoot, node)) walk.missing.add(id);
 
       const depth = walk.depth.get(cid) ?? 0;
       if (depth >= MAX_DEPTH) continue;

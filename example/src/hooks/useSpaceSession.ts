@@ -72,8 +72,8 @@ export function useSpaceSession(record: SpaceSummary | null) {
   );
 
   const remove = useCallback(
-    async (id: string) => {
-      await space?.remove(id);
+    async (key: string) => {
+      await space?.remove(key);
       await refresh();
     },
     [space, refresh],

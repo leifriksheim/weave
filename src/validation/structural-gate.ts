@@ -1,6 +1,7 @@
 import { Expression } from '../types.js';
 import { SchemaEngine } from '../schema/schema-engine.js';
 import { GateResult } from './crypto-gate.js';
+import { checkVersionShape } from '../records/version.js';
 
 export interface StructuralGate {
   validate(expression: Expression): Promise<GateResult>;
@@ -41,6 +42,11 @@ export function createStructuralGate(schemaEngine: SchemaEngine, options: Struct
   return {
     async validate(expression: Expression): Promise<GateResult> {
       try {
+        // A version must make sense on its own — key, seq and the links a later
+        // version carries — whatever the body says.
+        const malformed = checkVersionShape(expression);
+        if (malformed) return { passed: false, gate: 'structural', reason: malformed };
+
         // Private-space bodies are encrypted before signing, so their shape can
         // only be checked by a member after decryption. Non-members still relay
         // them, and their signatures and capabilities are checked as usual.

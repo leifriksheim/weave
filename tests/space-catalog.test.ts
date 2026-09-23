@@ -148,8 +148,8 @@ describe('a space that describes itself', () => {
     await a.collections.define(space, { name: 'app.trip.expense', schema: expense });
     await a.spaces.open(space);
 
-    await until(async () => (await a.records.get(space, loose.id)) !== null, 3000, 'B’s record to reach A');
-    const seen = await a.records.get(space, loose.id);
+    await until(async () => (await a.records.get(space, loose.key)) !== null, 3000, 'B’s record to reach A');
+    const seen = await a.records.get(space, loose.key);
     assert.equal(seen?.verified, true);
     assert.equal(seen?.conforms, false);
     assert.match(seen?.issues?.[0]?.message ?? '', /"amount"/);

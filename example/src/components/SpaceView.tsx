@@ -107,10 +107,10 @@ export function SpaceView({
         )}
         {todos.map((todo) => (
           <TodoItem
-            key={todo.id}
+            key={todo.key}
             todo={todo}
             onToggle={() => void toggle(todo)}
-            onDelete={() => void remove(todo.id)}
+            onDelete={() => void remove(todo.key)}
             readOnly={!space.writable}
           />
         ))}

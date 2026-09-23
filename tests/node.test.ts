@@ -6,7 +6,6 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createNode } from '../src/node/node.js';
-import { TOMBSTONE_COLLECTION } from '../src/node/space-runtime.js';
 import { NODE_ACTIONS, runAction } from '../src/node/actions.js';
 import type { P2PNode, NodeRecord } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
@@ -106,10 +105,10 @@ describe('records', () => {
 
     assert.equal(first.verified, true);
     assert.equal(first.root, node.did);
-    assert.deepEqual((await node.records.get<Todo>(space, first.id))?.body, { text: 'milk', done: false });
+    assert.deepEqual((await node.records.get<Todo>(space, first.key))?.body, { text: 'milk', done: false });
     const listed = await node.records.list<Todo>(space);
-    assert.deepEqual(listed.map((r) => r.id), [first.id, second.id]);
-    assert.deepEqual((await node.records.list(space, { newestFirst: true, limit: 1 })).map((r) => r.id), [second.id]);
+    assert.deepEqual(listed.map((r) => r.key), [first.key, second.key]);
+    assert.deepEqual((await node.records.list(space, { newestFirst: true, limit: 1 })).map((r) => r.key), [second.key]);
   });
 
   test('a known collection refuses a malformed body; an unknown one takes anything', async () => {
@@ -130,19 +129,20 @@ describe('records', () => {
     assert.deepEqual(written.body, { text: 'secret', done: false });
   });
 
-  test('update replaces, delete hides, and neither shows tombstones', async () => {
+  test('update writes the next version, delete hides the record', async () => {
     const node = await startNode();
     const { id: space } = await node.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
 
     const original = await node.records.put<Todo>(space, 'app.todo.item', { text: 'milk', done: false });
-    const updated = await node.records.update<Todo>(space, original.id, { text: 'milk', done: true });
-    assert.notEqual(updated.id, original.id);
-    assert.equal(await node.records.get(space, original.id), null);
+    const updated = await node.records.update<Todo>(space, original.key, { text: 'milk', done: true });
+    assert.equal(updated.key, original.key);
+    assert.equal(updated.seq, 1);
+    assert.deepEqual((await node.records.get<Todo>(space, original.key))?.body, { text: 'milk', done: true });
 
-    await node.records.delete(space, updated.id);
+    await node.records.delete(space, updated.key);
     assert.deepEqual(await node.records.list(space), []);
     assert.deepEqual(await node.records.list(space, { collection: 'app.todo.item' }), []);
-    await assert.rejects(node.records.put(space, TOMBSTONE_COLLECTION, { target: 'x' }), /Use delete/);
+    await assert.rejects(node.records.put(space, 'sys.collection', {}), /written by the node itself/);
   });
 
   test('events announce local writes', async () => {
@@ -174,8 +174,8 @@ describe('two nodes', () => {
     const { alice, bob, space, converged } = await pair();
     const written = await alice.records.put<Todo>(space, 'app.todo.item', { text: 'from alice', done: false });
 
-    await until(async () => (await bob.records.get(space, written.id)) !== null, 3000, 'record to reach bob');
-    const seen = (await bob.records.get<Todo>(space, written.id)) as NodeRecord<Todo>;
+    await until(async () => (await bob.records.get(space, written.key)) !== null, 3000, 'record to reach bob');
+    const seen = (await bob.records.get<Todo>(space, written.key)) as NodeRecord<Todo>;
     assert.deepEqual(seen.body, { text: 'from alice', done: false });
     assert.equal(seen.root, alice.did);
     assert.equal(seen.verified, true);
@@ -185,33 +185,34 @@ describe('two nodes', () => {
   test('a delete stays deleted after sync instead of coming back', async () => {
     const { alice, bob, space, converged } = await pair();
     const written = await alice.records.put<Todo>(space, 'app.todo.item', { text: 'soon gone', done: false });
-    await until(async () => (await bob.records.get(space, written.id)) !== null, 3000, 'record to reach bob');
+    await until(async () => (await bob.records.get(space, written.key)) !== null, 3000, 'record to reach bob');
 
-    await alice.records.delete(space, written.id);
-    await until(async () => (await bob.records.get(space, written.id)) === null, 3000, 'delete to reach bob');
+    await alice.records.delete(space, written.key);
+    await until(async () => (await bob.records.get(space, written.key)) === null, 3000, 'delete to reach bob');
     await until(converged, 3000, 'roots to match');
 
     // Reconcile again: the record must not be resurrected on either side.
     await alice.spaces.close(space);
     await alice.spaces.open(space);
     await until(converged, 3000, 'roots to match after reopening');
-    assert.equal(await alice.records.get(space, written.id), null);
-    assert.equal(await bob.records.get(space, written.id), null);
+    assert.equal(await alice.records.get(space, written.key), null);
+    assert.equal(await bob.records.get(space, written.key), null);
   });
 
   test("in a shared space, members tick and delete each other's items", async () => {
     const { alice, bob, space, converged } = await pair();
     const written = await alice.records.put<Todo>(space, 'app.todo.item', { text: "alice's", done: false });
-    await until(async () => (await bob.records.get(space, written.id)) !== null, 3000, 'record to reach bob');
+    await until(async () => (await bob.records.get(space, written.key)) !== null, 3000, 'record to reach bob');
 
     // Bob ticks Alice's item: the old version goes away for both, one ticked copy remains.
-    const ticked = await bob.records.update<Todo>(space, written.id, { text: "alice's", done: true });
-    await until(async () => (await alice.records.get(space, written.id)) === null, 3000, 'the old version to go for alice');
+    const ticked = await bob.records.update<Todo>(space, written.key, { text: "alice's", done: true });
+    assert.equal(ticked.key, written.key);
+    await until(async () => (await alice.records.get<Todo>(space, written.key))?.body?.done === true, 3000, 'alice to see it ticked');
     await until(converged, 3000, 'roots to match');
     const seen = await alice.records.list<Todo>(space);
-    assert.deepEqual(seen.map((r) => [r.id, r.body?.done]), [[ticked.id, true]]);
+    assert.deepEqual(seen.map((r) => [r.key, r.body?.done]), [[written.key, true]]);
 
-    await alice.records.delete(space, ticked.id);
+    await alice.records.delete(space, ticked.key);
     await until(async () => (await bob.records.list(space)).length === 0, 3000, 'the delete to reach bob');
   });
 
@@ -227,11 +228,11 @@ describe('two nodes', () => {
     assert.equal((await owner.spaces.get(space.id))?.writable, true);
     await owner.spaces.open(space.id);
     await follower.spaces.open(space.id);
-    await until(async () => (await follower.records.get(space.id, written.id)) !== null, 3000, 'the follower to read it');
+    await until(async () => (await follower.records.get(space.id, written.key)) !== null, 3000, 'the follower to read it');
 
-    await assert.rejects(follower.records.update(space.id, written.id, { text: 'x', done: true }), /only its owner can change it/);
+    await assert.rejects(follower.records.update(space.id, written.key, { text: 'x', done: true }), /only its owner can change it/);
     await assert.rejects(follower.records.put(space.id, 'app.todo.item', { text: 'y', done: false }), /only its owner/);
-    await assert.rejects(follower.records.delete(space.id, written.id), /only its owner/);
+    await assert.rejects(follower.records.delete(space.id, written.key), /only its owner/);
   });
 });
 
@@ -262,8 +263,8 @@ describe('the account registry', () => {
     const written = await laptop.records.put(space.id, 'app.note', { text: 'dear diary' });
 
     await until(async () => (await names(phone)).includes('Diary'), 3000, 'the phone to join');
-    await until(async () => (await phone.records.get(space.id, written.id)) !== null, 3000, 'the note to reach the phone');
-    assert.deepEqual((await phone.records.get<{ text: string }>(space.id, written.id))?.body, { text: 'dear diary' });
+    await until(async () => (await phone.records.get(space.id, written.key)) !== null, 3000, 'the note to reach the phone');
+    assert.deepEqual((await phone.records.get<{ text: string }>(space.id, written.key))?.body, { text: 'dear diary' });
     // The registry itself never shows up as a space.
     assert.deepEqual(await names(laptop), ['Diary']);
   });
@@ -318,10 +319,12 @@ describe('the account registry', () => {
 
 describe('session', () => {
   test('the delegation is renewed before it expires', async () => {
-    const node = await startNode({ ttl: 1 });
+    // Expiry is whole seconds, so a delegation for 2 s expires between 1 and 2 s
+    // from now, and its renewal (at 1.5 s) lasts until at least 2.5 s. Writing at
+    // 2.2 s is past the first and inside the second, whenever the test starts.
+    const node = await startNode({ ttl: 2 });
     const { id: space } = await node.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
-    // Past the original expiry: only a renewed delegation still verifies.
-    await new Promise((resolve) => setTimeout(resolve, 1600));
+    await new Promise((resolve) => setTimeout(resolve, 2200));
     const written = await node.records.put(space, 'app.todo.item', { text: 'late', done: false });
     assert.equal(written.verified, true);
   });
@@ -339,7 +342,7 @@ describe('session', () => {
     await new Promise((resolve) => setTimeout(resolve, 2100));
     const later = await createNode({ signer, stores, watchIntervalMs: 0 });
     open.push(later);
-    const seen = await later.records.get(space, written.id);
+    const seen = await later.records.get(space, written.key);
     assert.equal(seen?.verified, true, seen?.reason);
   });
 });

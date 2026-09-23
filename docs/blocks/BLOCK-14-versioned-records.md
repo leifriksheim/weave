@@ -1,5 +1,27 @@
 # BLOCK-14 — Records with a stable key, ordered versions, and history on request
 
+> **Done (2026-09-23).** `src/records/version.ts` (the rule), the `r/` `g/` `h/`
+> tree in `src/storage/storage-provider.ts`, keyed records throughout the node.
+> Tests: `tests/versions.test.ts` (order-independence over every permutation,
+> replay, delete-stays-deleted, 1,000 edits → 2 stored, verifiable retained
+> chain, concurrent edits converging) and the existing suites, moved onto keys.
+> Verified in two browsers: a member ticks another's todo and both see one
+> ticked todo; the full two-person, same-account and name flows pass.
+>
+> Where the build differs from the plan below:
+>
+> - **The catalogue always retains its versions** (`collection:<name>`, with
+>   `retain` on every version). The fold must judge each version by its author
+>   — creator or owner — and can only do that with the versions still held.
+> - **`put` on a deleted key writes its next version**, so it comes back; `put`
+>   on a live key is refused ("update it instead").
+> - **Sync cost at N = 10,000** with one differing record rose from 25 KB to
+>   47 KB (at N = 1,000 it fell, 22 KB → 8.7 KB): the tree now holds keys and
+>   version ids rather than one id twice, which changes its shape. Still inside
+>   BLOCK-01's 50 KB bound and still flat in N.
+> - **Only display order uses `createdAt`** — lists, space order. Nothing that
+>   decides a winner does.
+
 ## What this delivers
 
 A record keeps its identity when it changes. Ticking a todo writes a new

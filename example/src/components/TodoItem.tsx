@@ -47,7 +47,7 @@ export function TodoItem({
             {verified ? '🔐' : '⚠️'}
           </span>
           {todo.wasEncrypted && <span title="Stored encrypted; opened with the space key"> 🔑</span>}{' '}
-          {todo.id.slice(0, 12)}… · {new Date(todo.createdAt).toLocaleTimeString()} · by{' '}
+          {todo.key.slice(0, 8)}…{todo.seq > 0 ? ` · v${todo.seq + 1}` : ''} · {new Date(todo.createdAt).toLocaleTimeString()} · by{' '}
           {todo.author.slice(-6)}
         </span>
       </div>

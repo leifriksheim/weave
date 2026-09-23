@@ -26,6 +26,7 @@ import {
   deriveAccountRegistry,
   MEMBERSHIP_COLLECTION,
   PROFILE_COLLECTION,
+  PROFILE_KEY,
   type AccountProfile,
   type Membership,
 } from '../space/account-registry.js';
@@ -202,30 +203,37 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   // ─── Memberships ───────────────────────────────────────────────────
   //
-  // One record per space in the registry, holding its invite. A live record
-  // means the account belongs to the space; a tombstoned one means it left.
-  // Every device converges on the same answer, because it is the same data.
+  // One record per space in the registry, key `space:<id>`, holding its
+  // invite. Current and live: the account belongs to the space. Current and
+  // deleted: it left — and rejoining is simply the next version. Every device
+  // converges on the same answer, because it is the same record.
+
+  const membershipKey = (spaceId: string) => `space:${spaceId}`;
 
   async function memberships(): Promise<ReadonlyArray<NodeRecord<Membership>>> {
     if (!accountSpaceId) return [];
     const records = await (await runtime(accountSpaceId)).list<Membership>({ collection: MEMBERSHIP_COLLECTION, includeDeleted: true });
     // Only the account itself may say what it belongs to.
-    return records.filter((record) => record.verified && record.root === config.signer.did && typeof record.body?.space === 'string');
+    return records.filter(
+      (record) =>
+        record.verified &&
+        record.root === config.signer.did &&
+        (record.deleted || (typeof record.body?.space === 'string' && record.key === membershipKey(record.body.space))),
+    );
   }
 
   async function remember(spaceId: string): Promise<void> {
     if (!accountSpaceId) return;
-    if ((await memberships()).some((m) => !m.deleted && m.body!.space === spaceId)) return;
+    const open = await runtime(accountSpaceId);
+    if (await open.get(membershipKey(spaceId))) return;
     const invite = await registry.createInvite(spaceId, config.signer.did);
-    await (await runtime(accountSpaceId)).putSystem<Membership>(MEMBERSHIP_COLLECTION, { space: spaceId, invite });
+    await open.upsertSystem<Membership>(MEMBERSHIP_COLLECTION, membershipKey(spaceId), { space: spaceId, invite });
   }
 
   async function forget(spaceId: string): Promise<void> {
     if (!accountSpaceId) return;
     const open = await runtime(accountSpaceId);
-    for (const membership of await memberships()) {
-      if (!membership.deleted && membership.body!.space === spaceId) await open.remove(membership.id);
-    }
+    if (await open.get(membershipKey(spaceId))) await open.removeSystem(membershipKey(spaceId));
   }
 
   /**
@@ -235,28 +243,22 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
    */
   async function reconcileOnce(): Promise<void> {
     if (!accountSpaceId || closed) return;
-    const all = await memberships();
     const held = new Set((await registry.list()).map((record) => record.space.id));
+    const known = new Set<string>();
     let changed = false;
 
-    const bySpace = new Map<string, NodeRecord<Membership>[]>();
-    for (const membership of all) {
-      const list = bySpace.get(membership.body!.space) ?? [];
-      list.push(membership);
-      bySpace.set(membership.body!.space, list);
-    }
-
-    for (const [spaceId, records] of bySpace) {
-      const live = records.find((record) => !record.deleted);
-      if (live && !held.has(spaceId)) {
+    for (const membership of await memberships()) {
+      const spaceId = membership.key.slice('space:'.length);
+      known.add(spaceId);
+      if (!membership.deleted && !held.has(spaceId)) {
         try {
-          await registry.join(live.body!.invite, config.signer.did);
+          await registry.join(membership.body!.invite, config.signer.did);
           changed = true;
         } catch {
-          // An unreadable invite; the next membership written for it will do.
+          // An unreadable invite; the next version written for it will do.
         }
-      } else if (!live && held.has(spaceId)) {
-        // Every membership for it is tombstoned: the account left, on some device.
+      } else if (membership.deleted && held.has(spaceId)) {
+        // The account left it, on some device.
         await closeRuntime(spaceId);
         await registry.remove(spaceId);
         changed = true;
@@ -266,7 +268,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     // Held here but never recorded — joined before the registry existed, or on
     // a node without the account key. Recorded now, so other devices follow.
     for (const spaceId of held) {
-      if (!bySpace.has(spaceId)) await remember(spaceId);
+      if (!known.has(spaceId)) await remember(spaceId);
     }
 
     if (changed) emit({ type: 'spaces' });
@@ -360,19 +362,19 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   const accountApi: NodeAccount = Object.freeze({
     async profile() {
       if (!accountSpaceId) return null;
-      const profiles = await (await runtime(accountSpaceId)).list<AccountProfile>({ collection: PROFILE_COLLECTION });
-      // Newest wins — by time, then id, so every device picks the same one.
-      const mine = profiles.filter((p) => p.verified && p.root === config.signer.did && typeof p.body?.name === 'string');
-      const latest = mine[mine.length - 1];
-      return latest ? { name: latest.body!.name, updatedAt: latest.createdAt } : null;
+      // One record, key `profile`: its current version is the name, by the
+      // ordering rule — the same on every device, whatever their clocks say.
+      const profile = await (await runtime(accountSpaceId)).get<AccountProfile>(PROFILE_KEY);
+      if (!profile?.verified || profile.root !== config.signer.did || typeof profile.body?.name !== 'string') return null;
+      return { name: profile.body.name, updatedAt: profile.updatedAt };
     },
     async setName(name: string) {
       if (!accountSpaceId) throw new Error('Renaming across devices needs the account key');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('A name cannot be empty');
-      const written = await (await runtime(accountSpaceId)).putSystem<AccountProfile>(PROFILE_COLLECTION, { name: trimmed });
+      const written = await (await runtime(accountSpaceId)).upsertSystem<AccountProfile>(PROFILE_COLLECTION, PROFILE_KEY, { name: trimmed });
       emit({ type: 'account' });
-      return { name: trimmed, updatedAt: written.createdAt };
+      return { name: trimmed, updatedAt: written.updatedAt };
     },
   });
 
@@ -380,17 +382,20 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async list<T>(spaceId: string, options?: ListOptions) {
       return (await runtime(spaceId)).list<T>(options);
     },
-    async get<T>(spaceId: string, id: string) {
-      return (await runtime(spaceId)).get<T>(id);
+    async get<T>(spaceId: string, key: string) {
+      return (await runtime(spaceId)).get<T>(key);
     },
-    async put<T>(spaceId: string, collection: string, body: T) {
-      return (await runtime(spaceId)).put<T>(collection, body);
+    async put<T>(spaceId: string, collection: string, body: T, options?: { key?: string }) {
+      return (await runtime(spaceId)).put<T>(collection, body, options);
     },
-    async update<T>(spaceId: string, id: string, body: T) {
-      return (await runtime(spaceId)).update<T>(id, body);
+    async update<T>(spaceId: string, key: string, body: T) {
+      return (await runtime(spaceId)).update<T>(key, body);
     },
-    async delete(spaceId: string, id: string) {
-      await (await runtime(spaceId)).remove(id);
+    async delete(spaceId: string, key: string) {
+      await (await runtime(spaceId)).remove(key);
+    },
+    async history<T>(spaceId: string, key: string) {
+      return (await runtime(spaceId)).history<T>(key);
     },
   });
 

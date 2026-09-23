@@ -31,6 +31,12 @@ export interface StoredCollection {
   readonly schema: JsonSchema;
   /** Bumped when the shape changes; records keep the version they were written under */
   readonly version: number;
+  /**
+   * Whether edits to its records keep old versions. `latest` (the default)
+   * keeps current state only; `all` keeps every version, hash-linked, as a
+   * verifiable history. Read by writers, who mark each version accordingly.
+   */
+  readonly history?: 'latest' | 'all';
 }
 
 /** The reserved collection that collection definitions live in. */
@@ -123,6 +129,7 @@ export function checkStoredCollection(definition: unknown): string | null {
   if (!Number.isInteger(d.version) || (d.version as number) < 1) return 'version must be a whole number from 1';
   if (d.title !== undefined && typeof d.title !== 'string') return 'title must be text';
   if (d.description !== undefined && typeof d.description !== 'string') return 'description must be text';
+  if (d.history !== undefined && d.history !== 'latest' && d.history !== 'all') return 'history must be "latest" or "all"';
   return checkPublishableSchema(d.schema);
 }
 
