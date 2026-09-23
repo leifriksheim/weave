@@ -8,20 +8,20 @@ can paste into a terminal. It tells you whether the block is ready to go. Where 
 block needs something small from another block, that thing is written out in full
 inside the block itself — you never have to go hunting.
 
-> Run the check from anywhere inside the project. This isn't a git repo yet, so
-> the `cd` in each command falls back to the current directory — if you're
-> somewhere else entirely, `cd` to the project root first.
+> Run the check from anywhere inside the project — the `cd` in each command
+> finds the repo root. Libraries are allowed where a problem is hard and already
+> solved; see [../DEPENDENCIES.md](../DEPENDENCIES.md) before adding one.
 
 ## The blocks
 
 | Block | Delivers | Rough size |
 |---|---|---|
 | [BLOCK-01](BLOCK-01-sync-protocol.md) | Sync that ships subtree CIDs instead of every key | ~4 days |
-| [BLOCK-02](BLOCK-02-wallet-login.md) | MetaMask as a login option | ~3 days |
+| [BLOCK-02](BLOCK-02-wallet-login.md) | ~~MetaMask as a login option~~ — parked, the Snap in `snap/` does this | — |
 | [BLOCK-03](BLOCK-03-packed-storage.md) | `BlobStore` + `PackedAdapter` + garbage collection | ~2 weeks |
 | [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | S3-compatible and Google Drive blob drivers | ~1 week |
 | [BLOCK-05](BLOCK-05-transport-abstraction.md) | Pluggable network transport + WebSocket transport | ~3 days |
-| [BLOCK-06](BLOCK-06-bun-daemon.md) | The always-on gossiper, as a single binary | ~1.5 weeks |
+| [BLOCK-06](BLOCK-06-bun-daemon.md) | Your always-on data node, as a single binary (under review) | ~1.5 weeks |
 | [BLOCK-07](BLOCK-07-hosting-tier.md) | Multi-tenant hosting, BYO-storage credentials | ~2 weeks |
 | [BLOCK-08](BLOCK-08-self-describing-spaces.md) | Collection definitions stored in the space | ~1 week |
 | [BLOCK-09](BLOCK-09-links-and-annotations.md) | Links between expressions, and a `sys.*` library | ~1.5 weeks |
@@ -39,7 +39,7 @@ inside the block itself — you never have to go hunting.
                                               (needs one small interface file;
                                                BLOCK-04 contains a full copy)
 
-  BLOCK-02  wallet login        (free to start, depends on nothing)
+  BLOCK-02  wallet login        (parked — superseded by snap/)
 
   BLOCK-05  transport           (free to start, depends on nothing)
      │
@@ -63,15 +63,25 @@ inside the block itself — you never have to go hunting.
                             (a typed surface over the engine; no runtime change)
 ```
 
-**Free to start right now, in any order:** 01, 02, 03, 05, 08.
+**Free to start right now, in any order:** 01, 03, 05, 08.
 
 **Two soft orderings:** BLOCK-07 genuinely needs BLOCK-06 finished first — it says
 so at the top and won't let you start by mistake. BLOCK-09 runs without BLOCK-08,
 but its links go unchecked until that lands.
 
-## If you only do one
+## Current order
 
-**BLOCK-06**, now. Everything else assumes somebody is online, and today nobody is:
+1. **BLOCK-05** — small, safe, and makes the whole mesh testable in one process.
+2. **Decide the shape of the always-on node** (daemon, CLI, consumer app) and
+   the API they share, then **BLOCK-06**.
+3. **BLOCK-01** alongside it — an always-on node must not ship every key every round.
+4. **An account registry space** (below) — the node needs it to know which
+   spaces to join.
+5. **BLOCK-08 → 09 → 10.**
+
+## Why the always-on node matters most
+
+Everything else assumes somebody is online, and today nobody is:
 close the last tab with a browser-only account and the data is not slow to reach,
 it is gone. A data folder covers desktop Chrome and nothing else. Until the daemon
 exists, "no server" reads as a feature in the README and as data loss in practice.

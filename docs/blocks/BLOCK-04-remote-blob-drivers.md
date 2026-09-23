@@ -88,10 +88,13 @@ export interface S3Config {
 export function createS3BlobStore(config: S3Config): BlobStore;
 ```
 
-**Use SigV4 over `fetch` rather than the AWS SDK.** The SDK is enormous, and the
-project's stated principle is zero dependencies. SigV4 signing is about 80 lines
-using `crypto.subtle` HMAC-SHA256, which this project already depends on
-everywhere. It also keeps the Bun binary small.
+**Use [`aws4fetch`](https://github.com/mhart/aws4fetch) rather than the AWS SDK
+or hand-written SigV4.** The SDK is enormous. Hand-writing SigV4 is the kind of
+fiddly, easy-to-get-subtly-wrong code `docs/DEPENDENCIES.md` says not to write:
+canonical request ordering, URI encoding rules and header normalisation all
+differ in small ways between providers. `aws4fetch` is tiny, has no
+dependencies, runs on `fetch` + `crypto.subtle` in browsers, Node and Bun, and
+is widely used against R2 and B2. Add it to `docs/DEPENDENCIES.md` when it lands.
 
 Notes:
 
@@ -214,7 +217,7 @@ Document the env vars in the test file header.
 - [ ] Drive driver's name→fileId cache measurably reduces request count — assert it
 - [ ] A 429 storm is survived via backoff without data loss
 - [ ] Tests skip cleanly with no credentials configured
-- [ ] No new runtime dependencies added to `package.json`
+- [ ] The only new runtime dependency is `aws4fetch`, recorded in `docs/DEPENDENCIES.md`
 - [ ] `npx tsc --noEmit` clean, full suite green
 
 ---

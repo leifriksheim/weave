@@ -29,18 +29,27 @@ echo READY || echo "NOT READY — network-manager.ts is not in its expected shap
 
 ## Background
 
-`src/network/network-manager.ts:42` constructs its transport internally:
+`createNetworkManager` in `src/network/network-manager.ts` constructs its
+transport internally, and refuses to start without a relay:
 
 ```ts
 export function createNetworkManager(config: NetworkManagerConfig): NetworkManager {
-  const signaling = createSignalingClient(config.signalingUrl, config.did);
+  const relays = config.signalingUrls ?? (config.signalingUrl ? [config.signalingUrl] : []);
+  if (relays.length === 0) throw new Error('A network manager needs at least one relay to bootstrap from.');
+
+  const signaling = createMultiSignalingClient(relays, config.did);
   const rtcTransport = createRTCTransport({ iceServers: config.iceServers });   // ← hardcoded
   const discovery = createPeerDiscovery();
+  const introduce = config.introductions !== false;
 ```
 
-Everything below that line is transport-agnostic — the manager wires signaling
-events to the transport, the transport's `data` events to message parsing, and
-connect/disconnect to peer discovery. Only the construction is fixed.
+Everything below that is transport-agnostic in spirit — the manager wires
+signaling events to the transport, the transport's `data` events to message
+parsing, and connect/disconnect to peer discovery. Two WebRTC-specific things
+now live below it as well: **peer introductions** (`__peers` / `__signal`
+control messages over existing data channels, which carry WebRTC offers for
+peers not yet met) and the relay requirement. Both belong to the signalled path
+only.
 
 Meanwhile `SyncEngine` already proves the layering is right. It takes
 `sendToPeer` as a plain callback and exposes `handleMessage(peerId, data)`:
@@ -114,7 +123,9 @@ signalled**. A WebSocket transport needs no signaling at all — it just dials.
 ```ts
 export interface NetworkManagerConfig {
   readonly did: string;
-  readonly signalingUrl?: string;                  // now optional
+  readonly signalingUrl?: string;
+  readonly signalingUrls?: ReadonlyArray<string>;  // required only for a signalled transport
+  readonly introductions?: boolean;                // signalled transports only
   readonly iceServers?: ReadonlyArray<RTCIceServer>;
   /** Defaults to WebRTC over the signaling server, preserving today's behaviour. */
   readonly createTransport?: () => PeerTransport | SignalledTransport;
@@ -174,7 +185,8 @@ one process with no browser and no sockets.
 3. Add `createTransport` to `NetworkManagerConfig`, defaulting to the current
    construction. **Run the example app here** — it must behave identically.
 4. Branch the signaling wiring on `'createOffer' in transport`. Skip it entirely
-   for unsignalled transports, and don't require `signalingUrl`.
+   for unsignalled transports — relays, introductions and all — and don't
+   require `signalingUrls`.
 5. Write `tests/helpers/fake-transport.ts` and `tests/network-manager.test.ts`.
 6. Write `ws-transport.ts`.
 
@@ -189,7 +201,7 @@ later you want to know which half did it.
   connects to signaling (assert on the constructor being called)
 - With a fake transport, two managers exchange messages end to end
 - With an unsignalled transport, **no signaling client is constructed at all** and
-  a missing `signalingUrl` is not an error
+  missing relays are not an error
 - `peer-connected` / `peer-disconnected` fire correctly through both paths
 - A transport error surfaces as a manager `error` event rather than throwing
 - Full two-peer sync over the fake transport — reuse the setup in
@@ -206,7 +218,7 @@ stack.
 - [ ] Example app behaves identically with no config change (manually verified)
 - [ ] All 5 existing sync tests pass unmodified
 - [ ] Two network managers over the fake transport complete a full sync
-- [ ] An unsignalled transport needs no `signalingUrl` and builds no signaling client
+- [ ] An unsignalled transport needs no relay and builds no signaling client
 - [ ] WebSocket transport connects to a plain `Bun.serve` echo endpoint and
       round-trips binary frames
 - [ ] Reconnect works: kill the server, restart it, transport recovers

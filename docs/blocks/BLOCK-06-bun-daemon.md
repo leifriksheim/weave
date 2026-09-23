@@ -1,4 +1,14 @@
-# BLOCK-06 — The always-on gossiper, as a single binary
+# BLOCK-06 — Your data daemon, as a single binary
+
+> **Under review.** Before building this, decide whether the first always-on
+> node should be a daemon, a CLI, or a consumer app — and what shared API all
+> three (plus agents over WebMCP) would sit on. That decision may reshape this
+> block. The mechanics below (transport, SQLite, compile targets) hold either way.
+
+**Framing:** this is *your* node — the durable home for your own data, which
+every device and app syncs with. It is an **anchor, not a host**: it adds
+availability, never authority. Any peer can do anything it does; it is just
+always there.
 
 ## What this delivers
 
@@ -53,7 +63,7 @@ Verified: fails without the wrapper, works with it.
 
 ## Step 0 — The transport seam (skip if `src/network/transport.ts` exists)
 
-`src/network/network-manager.ts:42` hardcodes its transport:
+`createNetworkManager` in `src/network/network-manager.ts` hardcodes its transport:
 
 ```ts
 const rtcTransport = createRTCTransport({ iceServers: config.iceServers });
@@ -85,7 +95,7 @@ export type PeerTransportEvents = {
 
 ```ts
 readonly createTransport?: () => PeerTransport;
-readonly signalingUrl?: string;   // now optional
+// signalingUrls: required only for the WebRTC path
 ```
 
 3. Use it, defaulting to today's behaviour:
@@ -95,7 +105,8 @@ const transport = config.createTransport?.() ?? createRTCTransport({ iceServers:
 ```
 
 4. Only wire the signaling handlers when the transport is a WebRTC one
-   (`'createOffer' in transport`) and `signalingUrl` is set.
+   (`'createOffer' in transport`) and relays are configured. Introductions are
+   WebRTC-only too.
 
 **Verify the example app still works before continuing.** Omitting
 `createTransport` must be a no-op.

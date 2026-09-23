@@ -78,7 +78,7 @@ only say what JSON Schema can say, which is shape and not much else — see
 | File | Change |
 |---|---|
 | `src/schema/collection-def.ts` | **New.** The stored shape, and its validator |
-| `src/schema/json-schema.ts` | **New.** A small JSON Schema validator, no dependencies |
+| `src/schema/json-schema.ts` | **New.** Thin wrapper over `@cfworker/json-schema` |
 | `src/schema/schema-engine.ts` | Load definitions from a space; keep the runtime registry as an override |
 | `src/space/space-catalog.ts` | **New.** Reading and writing definitions in a space |
 | `src/storage/storage-provider.ts` | `listCollections()` over what is actually stored |
@@ -110,10 +110,18 @@ export const CATALOG_COLLECTION = 'sys.collection';
 
 ### `src/schema/json-schema.ts`
 
-Keep it to the subset these records need — `type`, `properties`, `required`,
-`items`, `enum`, `minimum`/`maximum`, `minLength`/`maxLength`. A dependency-free
-validator for that subset is a few hundred lines and keeps the zero-dependency
-rule. Do **not** pull in Ajv; it is large and drags in a code generator.
+Use [`@cfworker/json-schema`](https://github.com/cfworker/cfworker/tree/main/packages/json-schema)
+for validation — JSON Schema has a long tail of edge cases and a validator is a
+solved problem (see `docs/DEPENDENCIES.md`). It has no dependencies and
+interprets schemas rather than compiling them, so it works under a strict
+Content Security Policy and inside extensions. Do **not** use Ajv: it generates
+code with `new Function`, which a strict CSP forbids.
+
+Still restrict what a *published* definition may use to the subset these
+records need — `type`, `properties`, `required`, `items`, `enum`,
+`minimum`/`maximum`, `minLength`/`maxLength` — so every app, in any language,
+agrees on what a stored schema means. The subset is a rule about what spaces
+contain, not about what the validator can do.
 
 ```ts
 export interface JsonSchema { readonly [key: string]: unknown }
@@ -200,7 +208,7 @@ be able to see that rather than pretend they do not exist.
 - [ ] A collection with records but no published definition still appears in
       `listCollections()`, marked as undescribed
 - [ ] The catalogue syncs between peers like any other data
-- [ ] Zero new dependencies
+- [ ] The only new runtime dependency is `@cfworker/json-schema`, recorded in `docs/DEPENDENCIES.md`
 - [ ] `npx tsc --noEmit` clean, full suite green
 
 ---
