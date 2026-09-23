@@ -4,7 +4,7 @@
  *
  * A link says "this record is about that one, in a named role". The subject is
  * always the record doing the pointing, so this is not a graph — just a role
- * and a target key. Keys survive edits (BLOCK-14), so a comment stays on a todo
+ * and a target key. Keys survive edits, so a comment stays on a todo
  * however many times it is ticked.
  *
  * **Strict nouns, polymorphic annotations.** A noun declares exactly what it

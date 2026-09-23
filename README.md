@@ -87,8 +87,8 @@ await storage.addExpression(signed);
 ```
 
 Syncing it to other devices is a network manager plus a sync engine with the
-validation engine in front — see *Sync* below, and `example/src/space-session.ts`
-for the full wiring.
+validation engine in front — see *Sync* below. Or skip all of this and use a
+node, which does the wiring for you — next.
 
 ## The node — start here
 
@@ -319,7 +319,7 @@ space's things connect. And five collections are built into every node —
 so every app gets reactions and comments on every other app's data without
 anyone agreeing on anything.
 
-**Queries and views.** `node.records.query(space, { collection, where, include,
+**Queries.** `node.records.query(space, { collection, where, include,
 sort, limit, cursor })` finds records with Mongo-style filters (`{ done: false,
 amount: { $gt: 10 } }`; `@author`, `@createdAt` and friends for the record
 itself) and pulls in what links to them — `include: { likes: { rel: 'about',
@@ -336,6 +336,13 @@ itself. A membership deleted on any device means the account left, and every dev
 Pass `accountKey` to `createNode` to turn it on. The account's name lives there
 too (`node.account.setName`), so a rename on one device or site reaches every
 other one — and a site opening the account for the first time shows its name.
+
+**Profiles.** Other people see you by that name. The node publishes it into
+every space it opens, and again on a rename, as a `sys.profile` record keyed by
+a hash of your identity; `node.spaces.profiles(space)` (and the
+`spaces_profiles` action) says who is who. Every version is kept and the one
+shown is the newest signed by the identity the key names, so nobody can rename
+anyone else. A follower of someone's personal space publishes nothing there.
 
 **Moving and merging.** `copyAccountData` copies an account's spaces, keys and
 records from one set of stores to another — out of a browser's own database into
@@ -464,9 +471,11 @@ interface StorageAdapter {
 - `createIndexedDBAdapter(name)` — works in every browser. Origin-scoped.
 - `createFolderAdapter(directory, namespace)` — a directory the user picked, via the File System Access API. **Not** origin-scoped. Chrome, Edge and Opera on the desktop.
 
-**Planned**: a SQLite adapter (`bun:sqlite`) for the always-on node, and a packed adapter that keeps durable data in blob storage the user already pays for — see `docs/blocks/`. OPFS is not on the list: it is origin-private, so it would inherit exactly the limitation a data folder exists to avoid.
+The always-on node (`weave run`) uses the folder adapter on disk, in the same layout. **Planned**: a packed adapter that keeps durable data in blob storage the user already pays for — see `docs/blocks/`. OPFS is not on the list: it is origin-private, so it would inherit exactly the limitation a data folder exists to avoid.
 
 ### Data folders — storage that outlives the origin
+
+(The app calls a data folder a **pod**.)
 
 Every in-browser store is keyed by origin. IndexedDB, localStorage, Cache API and OPFS (the name is the spec: *Origin Private* File System) all partition by it, so two deployments of one app on two domains can never read each other's data, and a passkey — bound to an RP ID, which is a domain — derives a different identity on each. Two views of the same app become two unrelated accounts.
 
@@ -599,7 +608,7 @@ connections. After that the mesh introduces itself and the relay can go away.
 
 No mobile browser has the File System Access API, so a phone keeps its own
 replica like any other peer. Getting it started takes two things — the identity,
-and the list of lists — and only the first fits in a QR code:
+and the list of spaces — and only the first fits in a QR code:
 
 ```typescript
 import {
@@ -696,14 +705,17 @@ Close every browser holding the space, open the link somewhere else, and the
 records come from the node. Or make the node your own account's — see
 [cli/README.md](cli/README.md) — and it serves every space you make, unasked.
 
-It exercises the stack end to end: create an account (a code your password
-manager keeps), choose a data folder or this browser to hold it, unlock later
-with a passkey or short password, sign in through the MetaMask Snap in `snap/`,
-pair a phone by QR code, make private, public, personal and shared spaces, and share one with a friend via
-an invite link. Every record is signed by a delegated session key, stored in
-that space's MST, encrypted first if the space is private, and gossiped to peers
-over WebRTC. A record shows 🔐 once its signature *and* its delegation chain
-verify locally, and 🔑 when it arrived encrypted.
+It exercises the stack end to end: choose where your data lives (a pod, or
+this browser), create an account (a password your password manager keeps) or
+sign in to one, stay signed in on this device for as long as the Security page
+says, add a passkey, move to a pod or between pods (combining or not), pair a
+phone by QR code, make private, public, personal and shared spaces, and share
+one with a friend via an invite link. Everyone in a space is shown by the name
+they gave. Every record is signed by a delegated session key, stored in that
+space's MST, encrypted first if the space is private, and gossiped to peers over
+WebRTC; a record says *verified* once its signature and its delegation chain
+check out here, and *encrypted* when it arrived encrypted. (Sign-in through the
+MetaMask Snap in `snap/` is parked for now.)
 
 **Derived UI.** Open a space and you see the kinds of things in it — its
 catalogue. Open one and you get a table of its records and a form for a new
@@ -720,11 +732,11 @@ tally. The helpers that work this out are pure functions
 empty space offers a small "define a kind of thing" form; an agent can do the
 same over WebMCP.
 
-**Agents in the browser (WebMCP).** When the page loads, the app registers
+**Agents in the browser (WebMCP).** When `/app` loads, it registers
 every node operation as a WebMCP tool on `document.modelContext`
 (`example/src/webmcp.ts`, with `@mcp-b/webmcp-polyfill`: Chrome's own WebMCP
 when present, a polyfill otherwise). A browser agent or extension sees the same
-18 tools as the CLI and `weave mcp` — `spaces_create`, `records_query`,
+19 tools as the CLI and `weave mcp` — `spaces_create`, `records_query`,
 `records_put`… — and acts for whoever is signed in, with this
 tab's session key; until someone signs in, each tool says so. Anything that
 hands out a space's key (`spaces_invite`) asks you first. Desktop MCP clients
@@ -744,7 +756,9 @@ stores; data folders with several writers; spaces, invites and
 encrypt-then-sign; UCAN issuing, attenuation and chain validation; phone
 pairing; peer introductions; the MST; the validation gates; and two peers
 reconciling over the anti-entropy protocol, including the forged, stolen,
-unauthorized and malformed expressions their gatekeepers reject.
+unauthorized and malformed expressions their gatekeepers reject. Above those:
+the node API — versioned records, links, queries, collection definitions,
+profiles, the account registry, moving and merging accounts — and the CLI.
 
 ## License
 

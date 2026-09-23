@@ -126,23 +126,23 @@ The stronger option was to derive the key from PRF, binding it to the
 authenticator. That was traded for working everywhere. If you want it back it
 belongs as a second tier, labelled differently, not as a silent upgrade.
 
-## The four kinds of list
+## The four kinds of space
 
 Two independent choices — who may write, and who may read:
 
 |  | 👤 Personal | 👥 Shared |
 |---|---|---|
 | 🔒 **Private** | Encrypted, yours alone. Only your DID's writes are accepted. | Encrypted for whoever holds the invite; the relay never sees content. |
-| 🌍 **Public** | Readable by anyone you hand it to, but only you can write. | An open list — anyone with the link reads and writes. |
+| 🌍 **Public** | Readable by anyone you hand it to, but only you can write. | An open space — anyone with the link reads and writes. |
 
-Every list is a space: its own Merkle Search Tree, its own store, its own gossip
+Each space has its own Merkle Search Tree, its own store and its own gossip
 room. Sharing one tells a peer nothing about the others.
 
 ## Adding your phone
 
-Sign in, and on the screen showing your lists open **📱 Add your phone** — the
+Sign in, and on the screen showing your spaces open **Add your phone** — the
 collapsed section below them, next to "How it works". It is there rather than
-inside a list because it hands over the whole account, not one list.
+inside a space because it hands over the whole account, not one space.
 
 Click **Show pairing code**, point your phone's camera at the QR, and open the
 link it offers. There is no scanner in the app —
@@ -154,10 +154,10 @@ address. A fragment never reaches a server, so the secret goes straight from
 your screen to your phone. Treat the code on screen like the recovery code it
 contains: anyone who photographs it gets the account.
 
-The list of lists is deliberately *not* in the QR — it would not fit, and a
+The list of spaces is deliberately *not* in the QR — it would not fit, and a
 denser code is a code your camera struggles with. Instead both devices work out
 the same private room from the seed, meet there over WebRTC, and your computer
-sends the lists across encrypted. Once that is done the phone is a full peer: it
+sends the spaces across encrypted. Once that is done the phone is a full peer: it
 holds its own copy, syncs with anyone in the space, and never needs your
 computer again.
 
@@ -187,13 +187,13 @@ pointed at different ones never meet, however identical everything else is:
 
 ```bash
 npm run signal                              # in the project root, port 8787
-npm run dev                                 # http://localhost:5173
+npm run dev                                 # http://localhost:5173/app
 npm run dev -- --port 5174                  # a second "domain"
 ```
 
 `localhost:5173` and `localhost:5174` are separate origins with separate
-IndexedDB. Choose the *same folder* in both and the second one arrives at the
-same DID and the same lists. Add a todo in one and it shows up in the other
+IndexedDB. Choose the *same pod* in both and the second one arrives at the
+same DID and the same spaces. Add a record in one and it shows up in the other
 within a couple of seconds — the folder is polled, because the web has no
 filesystem change notification.
 
@@ -248,25 +248,23 @@ an expression — so running your own is a small thing, and pointing at someone
 else's costs you nothing but availability.
 
 **And it is only needed for the first connection.** Once two peers are talking,
-their data channel carries connection offers as happily as it carries todos, so
+their data channel carries connection offers as happily as it carries records, so
 each peer introduces the others it knows. Bring a relay down after everyone has
 met and nobody notices; someone arriving later needs one again.
 
 ## Sharing with a friend
 
-Open a list → **Create invite link** → send it. They open it, sign in, and the
+Open a space → **Create invite link** → send it. They open it, sign in, and the
 app offers to join. Both sides then meet in that space's room on the relay and
 sync over WebRTC.
 
 The invite lives in the URL **fragment**, which browsers never send to a server —
-so a private list's key reaches your friend without passing through the relay, the
+so a private space's key reaches your friend without passing through the relay, the
 page host, or anyone's logs. That also makes the link itself the secret.
 
-**Moving a list to another device** works the same way: sign in with your own
-identity there and open your own invite link. Spaces live in the device's
-IndexedDB, not in the identity, so restoring a recovery code on a fresh machine
-brings back your DID but no lists until a peer — including another of your own
-devices — hands them over.
+**Your own other devices** need no invite: sign in with the same account and
+your spaces follow, through the account registry, as soon as another of your
+devices — or your always-on node — is online.
 
 To share across machines, point both at the same relay:
 
@@ -278,31 +276,38 @@ VITE_SIGNALING_URL=wss://your-relay.example npm run dev
 
 | Protocol piece | Where it shows up |
 |----------------|-------------------|
-| Passkey identity | WebAuthn PRF output seeds a root P-256 key — same passkey, same DID, no server |
-| Recovery codes | The PRF-free path to the same kind of identity |
+| Account | A 16-byte seed → a P-256 `did:key`; its written form is the password you save |
 | UCAN delegation | The root issues a 1-hour UCAN to a per-tab, memory-only session key |
-| Spaces | Four kinds of list, each with its own MST, database and gossip room |
-| E2EE | Private spaces encrypt bodies before signing; 🔑 marks an item that had to be decrypted |
+| Stay signed in | The seed kept under a non-extractable device key, for as long as the Security page says |
+| Pods | A folder any origin can open: the same account and spaces in every app pointed at it |
+| Spaces | Four kinds of space, each with its own MST, database and gossip room |
+| E2EE | Private spaces encrypt bodies before signing; a record says *encrypted* when it had to be opened |
 | Validation engine | Signature, schema and capability gates run on everything, including what peers send |
-| Authorization | A personal space rejects writes not rooted in your DID — the ⚠️ counter shows what was dropped |
-| Merkle Search Tree | The root CID in the header changes with every write |
+| Authorization | A personal space rejects writes not rooted in its owner — the *rejected* counter shows what was dropped |
+| Derived UI | Forms, tables, "+ Add …" buttons and tallies worked out from each space's own definitions |
+| Profiles | Everyone in a space shown by the name they gave, which only they can change |
 | Anti-entropy sync | Peers reconcile MST roots over WebRTC data channels |
+| WebMCP | Every node operation as a tool an agent in the page can call |
 | Invites | Space and key encoded into a fragment-only link |
 
 ## Layout
 
 ```
 src/
-  protocol.ts              # identity, session, UCAN delegation
-  spaces.ts                # the space registry and invite links
-  space-session.ts         # one open space: storage, gates, encryption, gossip
+  main.tsx                 # routes: / and /developers (site/), /app (the app)
+  protocol.ts              # the session: node, signer, stores, network
+  accounts.ts              # homes (browser or pod), accounts, ways in, moving pods
+  remember.ts              # staying signed in on this device
+  spaces.ts                # invite links
+  webmcp.ts                # node operations as WebMCP tools
+  derive/                  # pure helpers: UI from schemas and links, names from profiles
   hooks/                   # React bindings
-  components/              # login, diagnostics, recovery, list picker, space view
+  components/              # onboarding, spaces, collections, records, security
+  site/                    # the landing pages
 ```
 
 ## Not production
 
-Demo mode's name-derived key should never ship. Peer discovery depends on a relay
-being reachable by both sides; there is no STUN/TURN configuration for peers
-behind strict NATs beyond the defaults, and no persistence of a space's membership
-beyond what each device has seen.
+Peer discovery depends on a relay being reachable by both sides, and there is
+no TURN configuration for peers behind strict NATs beyond the defaults. Access
+to a private space cannot be revoked yet: its key never rotates.

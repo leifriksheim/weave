@@ -277,7 +277,7 @@ export interface NodeRecords {
   history<T = unknown>(spaceId: string, key: string): Promise<ReadonlyArray<NodeRecord<T>>>;
   /**
    * Records matching a query — filtered, sorted, paged, with linked records
-   * pulled in. The query is plain data (BLOCK-10).
+   * pulled in. The query is plain data.
    * @throws When the query is malformed, saying what to fix
    */
   query<T = unknown>(spaceId: string, query: Query): Promise<QueryResult<T>>;
