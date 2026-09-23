@@ -5,9 +5,9 @@
  * the thin layer that turns its records into todos and its events into
  * re-renders.
  */
-import type { NodeRecord, SpaceSummary } from '@p2p-web/protocol';
+import type { NodeCollection, NodeRecord, SpaceSummary } from '@p2p-web/protocol';
 import { requireSession, type Session } from './protocol';
-import { COLLECTION, type Todo } from './todos';
+import { COLLECTION, TODO_DEFINITION, type Todo } from './todos';
 
 export { COLLECTION, type Todo } from './todos';
 export { relayUrl, relayUrls } from './relay';
@@ -49,6 +49,8 @@ export interface SpaceSession {
   toggle(todo: TodoView): Promise<void>;
   remove(id: string): Promise<void>;
   status(): Promise<SpaceStatus>;
+  /** What the space says it holds */
+  collections(): Promise<ReadonlyArray<NodeCollection>>;
   /** Fires whenever todos or connectivity change */
   subscribe(listener: () => void): () => void;
   close(): void;
@@ -79,6 +81,11 @@ export async function openSpace(space: SpaceSummary): Promise<SpaceSession> {
   const { node }: Session = requireSession();
   await node.spaces.open(space.id);
 
+  // Describe todos in the space itself, the first time this app opens it.
+  // Someone following a personal list cannot write there, and does not need to.
+  const described = (await node.collections.list(space.id)).some((c) => c.name === COLLECTION && c.version !== null);
+  if (!described) await node.collections.define(space.id, TODO_DEFINITION).catch(() => {});
+
   return Object.freeze({
     space,
 
@@ -101,6 +108,8 @@ export async function openSpace(space: SpaceSummary): Promise<SpaceSession> {
     async remove(id: string): Promise<void> {
       await node.records.delete(space.id, id);
     },
+
+    collections: () => node.collections.list(space.id),
 
     async status(): Promise<SpaceStatus> {
       const status = await node.spaces.status(space.id);

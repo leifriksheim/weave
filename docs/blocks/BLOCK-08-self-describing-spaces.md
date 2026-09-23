@@ -1,5 +1,31 @@
 # BLOCK-08 — Spaces that describe themselves
 
+> **Done (2026-09-23).** `src/schema/collection-def.ts`, the catalogue in
+> `src/node/space-runtime.ts`, `node.collections.list/define`, and the
+> `collections_list` / `collections_define` actions (so agents over MCP can
+> define collections). Tests: `tests/space-catalog.test.ts`. The example
+> publishes its todo definition into every list it opens and shows what a list
+> holds; verified in two browsers, where the definition synced to the invitee.
+>
+> Where the build differs from the plan below:
+>
+> - **A record that fails the stored schema is refused on write and flagged on
+>   read — never rejected during sync.** Rejecting on arrival makes validity
+>   depend on which definition a peer has seen first: one peer keeps a record
+>   the other refuses, and they never converge (BLOCK-11's argument, applied
+>   here). Records carry `conforms: boolean | null` and `issues`. The same now
+>   holds for schemas given to `createNode({ collections })`: sync checks
+>   signature and capability only.
+> - **Who may change a definition:** anyone who may write may define a *new*
+>   name; after that, only its first definer or the space owner may publish a
+>   new version. The latest allowed version wins, folded the same on every node.
+> - **Allowed keywords** at publish time: `type`, `properties`, `required`,
+>   `items`, `enum`, `minimum`, `maximum`, `minLength`, `maxLength`, plus
+>   `additionalProperties` (boolean), `title` and `description`, which agents and
+>   generated UIs need. Unknown keywords are ignored when validating.
+> - `sys.collection`, `sys.tombstone` and `sys.membership` can only be written by
+>   the node itself, never through `records.put`.
+
 ## What this delivers
 
 A space carries its own vocabulary. Open one in an app that has never seen it

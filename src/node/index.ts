@@ -24,4 +24,7 @@ export type {
   ConnectionState,
   DelegateParams,
   Delegated,
+  NodeCollection,
+  NodeCollections,
+  DefineCollection,
 } from './types.js';

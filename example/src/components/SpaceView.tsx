@@ -25,7 +25,7 @@ export function SpaceView({
   session: Session;
   onBack: () => void;
 }) {
-  const { todos, status, loading, add, toggle, remove } = useSpaceSession(record);
+  const { todos, status, collections, loading, add, toggle, remove } = useSpaceSession(record);
   const [draft, setDraft] = useState('');
   const [invite, setInvite] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -133,6 +133,26 @@ export function SpaceView({
         </button>
         {invite && <code style={styles.token}>{invite}</code>}
       </section>
+
+      <details style={styles.panel}>
+        <summary data-variant="ghost" style={styles.panelSummary}>📚 What this list holds</summary>
+        <div style={styles.panelBody}>
+          <p style={styles.errorHint}>
+            The list describes its own contents, so another app — or an agent — can open it and know what a
+            todo is without this app's code.
+          </p>
+          {collections.map((collection) => (
+            <div key={collection.name} style={styles.chainRow}>
+              <span>{collection.title ?? collection.name}</span>
+              <code>{collection.name}</code>
+              <span>
+                {collection.records} {collection.records === 1 ? 'record' : 'records'}
+                {collection.version !== null ? ` · v${collection.version}` : ' · undescribed'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </details>
 
       <DelegationPanel session={session} spaceId={space.id} />
     </>

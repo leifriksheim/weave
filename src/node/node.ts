@@ -24,6 +24,7 @@ import { openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space
 import { createPeerAuthenticator } from '../network/peer-auth.js';
 import { deriveAccountRegistry, MEMBERSHIP_COLLECTION, type Membership } from '../space/account-registry.js';
 import type {
+  DefineCollection,
   DelegateParams,
   InvitePreview,
   ListOptions,
@@ -31,6 +32,7 @@ import type {
   NodeConfig,
   NodeEvent,
   NodeRecord,
+  NodeCollections,
   NodeRecords,
   NodeSpaces,
   P2PNode,
@@ -203,7 +205,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     if (!accountSpaceId) return;
     if ((await memberships()).some((m) => !m.deleted && m.body!.space === spaceId)) return;
     const invite = await registry.createInvite(spaceId, config.signer.did);
-    await (await runtime(accountSpaceId)).put<Membership>(MEMBERSHIP_COLLECTION, { space: spaceId, invite });
+    await (await runtime(accountSpaceId)).putSystem<Membership>(MEMBERSHIP_COLLECTION, { space: spaceId, invite });
   }
 
   async function forget(spaceId: string): Promise<void> {
@@ -334,6 +336,15 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     await reconcile();
   }
 
+  const collections: NodeCollections = Object.freeze({
+    async list(spaceId: string) {
+      return (await runtime(spaceId)).collections();
+    },
+    async define(spaceId: string, definition: DefineCollection) {
+      return (await runtime(spaceId)).define(definition);
+    },
+  });
+
   const records: NodeRecords = Object.freeze({
     async list<T>(spaceId: string, options?: ListOptions) {
       return (await runtime(spaceId)).list<T>(options);
@@ -357,6 +368,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     sessionDid,
     spaces,
     records,
+    collections,
 
     delegation: () => current,
 

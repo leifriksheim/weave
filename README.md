@@ -243,6 +243,7 @@ Typed, signed data expressions using [Standard Schema](https://standardschema.de
 | Export | Description |
 |--------|-------------|
 | `createSchemaEngine()` | Register collections with Standard Schema validators |
+| `validateJsonSchema()` / `asStandardSchema()` | The JSON Schema a space stores, and its Standard Schema adapter |
 | `createSigner()` | Sign and verify expressions (JWS-style) |
 | `createExpression()` | Build unsigned expressions (optionally carrying a UCAN `proof`) |
 | `canonicalize()` | Deterministic JSON serialization |
@@ -291,6 +292,15 @@ await theirSpaces.join(invite, friend.did);
 
 Give each space its own storage and its own MST and a peer you share one list
 with learns nothing about the others.
+
+**Spaces describe themselves.** A space stores its collections' definitions —
+name, title, description and a JSON Schema — as signed records in
+`sys.collection`, so an app or an agent that has never seen a space can ask what
+it holds (`node.collections.list`) and what each thing looks like. Records are
+checked against the definition when written, and flagged (`conforms`) when read;
+nothing is refused during sync for its shape, so peers that saw definitions in
+different orders still converge. `node.collections.define` publishes one — the
+same call an agent makes through MCP.
 
 **The account registry.** Which spaces an account belongs to is itself kept in
 a space: a private one whose id and key are derived from the account's vault

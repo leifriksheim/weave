@@ -85,6 +85,10 @@ For a server, `bun build.ts` makes single-file binaries for this machine,
 { "mcpServers": { "p2p": { "command": "p2p", "args": ["mcp"], "env": { "P2P_PASSPHRASE": "…" } } } }
 ```
 
+An agent can also shape a space: `collections_list` shows what a space holds,
+and `collections_define` publishes a new collection — a poll, an expense, a
+reading list — with a JSON Schema, which then syncs to everyone in the space.
+
 The tools are the Node API's actions, with MCP's read-only and destructive
 hints set, and a warning on `spaces_invite` since an invite carries a key. What
 an agent can do is exactly what the account can do, through the same gates.

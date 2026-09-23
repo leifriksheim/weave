@@ -13,6 +13,7 @@ import type { Capability, UCANToken } from '../identity/ucan.js';
 import type { PeerTransport } from '../network/transport.js';
 import type { PeerAuthenticator } from '../network/peer-auth.js';
 import type { StoreFactory } from './stores.js';
+import type { JsonSchema, SchemaIssue } from '../schema/collection-def.js';
 
 export interface NodeNetworkConfig {
   /** Relays for WebRTC, browsers only. Each space meets in the room named after its id. */
@@ -43,9 +44,11 @@ export interface NodeConfig {
   readonly stores: StoreFactory;
   readonly provider?: CryptoProvider;
   /**
-   * Collections this node knows the shape of. Records in them are checked on
-   * write and on arrival; records in any other collection are kept on the
-   * strength of their signature and capability alone.
+   * Collections this node knows the shape of, for when a space does not
+   * describe them itself. Records are checked against them when written here
+   * and flagged (`conforms`) when read. Nothing is refused on arrival for its
+   * shape: sync accepts whatever is signed and authorized, so nodes with
+   * different schemas still converge.
    */
   readonly collections?: ReadonlyArray<CollectionDef>;
   /** Omit to stay offline */
@@ -102,6 +105,45 @@ export interface NodeRecord<T = unknown> {
   readonly reason?: string;
   /** Present, and true, only when listed with `includeDeleted` and hidden by a tombstone */
   readonly deleted?: true;
+  /**
+   * Whether the body fits its collection's schema — the one the space
+   * describes, else one this node was given. Null when there is none, or the
+   * body could not be opened. A record that does not fit is still kept and
+   * synced: whether it fits can depend on which definition a peer has seen yet,
+   * and rejecting it would leave peers that disagree forever.
+   */
+  readonly conforms: boolean | null;
+  readonly issues?: ReadonlyArray<SchemaIssue>;
+}
+
+/** A collection as a space describes it, and how many records it holds */
+export interface NodeCollection {
+  readonly name: string;
+  readonly title?: string;
+  readonly description?: string;
+  /** Null when records exist but the space has no definition for them */
+  readonly schema: JsonSchema | null;
+  readonly version: number | null;
+  /** The identity that first defined it — it and the space owner may change it */
+  readonly definedBy: string | null;
+  readonly records: number;
+}
+
+export interface DefineCollection {
+  readonly name: string;
+  readonly title?: string;
+  readonly description?: string;
+  /** JSON Schema for a record's body, in the supported subset */
+  readonly schema: JsonSchema;
+  /** Default: one past the current version, or 1 */
+  readonly version?: number;
+}
+
+export interface NodeCollections {
+  /** What a space holds: every defined collection, and every collection with records */
+  list(spaceId: string): Promise<ReadonlyArray<NodeCollection>>;
+  /** Publishes a definition into the space, as a signed record that syncs like any other */
+  define(spaceId: string, definition: DefineCollection): Promise<NodeCollection>;
 }
 
 export interface ListOptions {
@@ -194,6 +236,7 @@ export interface P2PNode {
   readonly sessionDid: string;
   readonly spaces: NodeSpaces;
   readonly records: NodeRecords;
+  readonly collections: NodeCollections;
   /** The delegation the session key currently writes under (root → session) */
   delegation(): UCANToken;
   /** Passes a narrower delegation from the session key on to another key */

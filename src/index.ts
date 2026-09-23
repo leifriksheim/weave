@@ -203,6 +203,14 @@ export type { FolderAccessMode } from './storage/directory-access.js';
 // Spaces
 export { createSpaceManager, parseSpaceInvite } from './space/space-manager.js';
 export { deriveAccountRegistry, MEMBERSHIP_COLLECTION } from './space/account-registry.js';
+export {
+  CATALOG_COLLECTION,
+  checkStoredCollection,
+  checkPublishableSchema,
+  validateJsonSchema,
+  asStandardSchema,
+} from './schema/collection-def.js';
+export type { StoredCollection, JsonSchema, SchemaIssue } from './schema/collection-def.js';
 export type { Membership } from './space/account-registry.js';
 export type { SpaceManager, SpaceRecord, SpaceInvite, CreateSpaceParams } from './space/space-manager.js';
 
@@ -343,4 +351,7 @@ export type {
   ConnectionState,
   DelegateParams,
   Delegated,
+  NodeCollection,
+  NodeCollections,
+  DefineCollection,
 } from './node/index.js';

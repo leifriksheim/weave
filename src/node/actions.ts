@@ -122,6 +122,44 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: (node, input) => node.spaces.status(str(input, 'space')),
   },
   {
+    name: 'collections_list',
+    description:
+      'What a space holds: each collection with its title, description, JSON Schema and record count. ' +
+      'Collections with records but no definition have schema null. Read this before writing, to match the shape others use.',
+    input: { type: 'object', properties: { space }, required: ['space'] },
+    readOnly: true,
+    run: (node, input) => node.collections.list(str(input, 'space')),
+  },
+  {
+    name: 'collections_define',
+    description:
+      'Define a collection in a space, so every app and person in it knows its shape. The schema is JSON Schema ' +
+      'using only: type, properties, required, items, enum, minimum, maximum, minLength, maxLength, ' +
+      'additionalProperties (boolean), title, description. Name it reverse-DNS, e.g. "app.trip.expense". ' +
+      'Redefining bumps the version; only whoever first defined it, or the space owner, may. Records are then checked against it when written.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        name: { type: 'string' },
+        title: { type: 'string' },
+        description: { type: 'string' },
+        schema: { type: 'object' },
+        version: { type: 'integer' },
+      },
+      required: ['space', 'name', 'schema'],
+    },
+    readOnly: false,
+    run: (node, input) =>
+      node.collections.define(str(input, 'space'), {
+        name: str(input, 'name'),
+        schema: input.schema as Record<string, unknown>,
+        ...(typeof input.title === 'string' ? { title: input.title } : {}),
+        ...(typeof input.description === 'string' ? { description: input.description } : {}),
+        ...(typeof input.version === 'number' ? { version: input.version } : {}),
+      }),
+  },
+  {
     name: 'records_list',
     description: 'List records in a space, oldest first unless newestFirst is set.',
     input: {

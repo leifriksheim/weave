@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { SpaceSummary } from '@p2p-web/protocol';
+import type { NodeCollection, SpaceSummary } from '@p2p-web/protocol';
 import { openSpace, type SpaceSession, type SpaceStatus, type TodoView } from '../space-session';
 
 const OFFLINE: SpaceStatus = { peers: [], connection: 'offline', mstRoot: null, rejected: 0 };
@@ -9,6 +9,7 @@ export function useSpaceSession(record: SpaceSummary | null) {
   const [space, setSpace] = useState<SpaceSession | null>(null);
   const [todos, setTodos] = useState<ReadonlyArray<TodoView>>([]);
   const [status, setStatus] = useState<SpaceStatus>(OFFLINE);
+  const [collections, setCollections] = useState<ReadonlyArray<NodeCollection>>([]);
   const [loading, setLoading] = useState(false);
 
   // Open on select, and always close on the way out so the relay connection
@@ -45,6 +46,7 @@ export function useSpaceSession(record: SpaceSummary | null) {
     if (!space) return;
     setTodos(await space.list());
     setStatus(await space.status());
+    setCollections(await space.collections());
   }, [space]);
 
   useEffect(() => {
@@ -77,5 +79,5 @@ export function useSpaceSession(record: SpaceSummary | null) {
     [space, refresh],
   );
 
-  return { todos, status, loading, add, toggle, remove, refresh };
+  return { todos, status, collections, loading, add, toggle, remove, refresh };
 }

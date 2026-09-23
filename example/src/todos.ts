@@ -39,3 +39,22 @@ const todoSchema: StandardSchemaV1<Todo> = {
 };
 
 export const TODO_COLLECTION: CollectionDef = { name: COLLECTION, schema: todoSchema as StandardSchemaV1 };
+
+/**
+ * The same shape, as data the space keeps — so another app, or an agent, can
+ * open the list and know what a todo is without this code.
+ */
+export const TODO_DEFINITION = {
+  name: COLLECTION,
+  title: 'Todo',
+  description: 'One item on a list: what to do, whether it is done, and where it sorts.',
+  schema: {
+    type: 'object',
+    properties: {
+      text: { type: 'string', minLength: 1, description: 'What needs doing' },
+      completed: { type: 'boolean' },
+      order: { type: 'number', description: 'Sort key; lower comes first' },
+    },
+    required: ['text', 'completed', 'order'],
+  },
+} as const;

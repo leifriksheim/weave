@@ -16,7 +16,7 @@
  */
 import type { Expression, CryptoProvider, StorageAdapter } from '../types.js';
 import type { Signer } from '../schema/signer.js';
-import type { SchemaEngine } from '../schema/schema-engine.js';
+import { createSchemaEngine, type SchemaEngine } from '../schema/schema-engine.js';
 import type { SpaceRecord } from '../space/space-manager.js';
 import type { Capability } from '../identity/ucan.js';
 import { resolveDelegationRoot } from '../identity/ucan.js';
@@ -38,8 +38,18 @@ import { createPeerAuthenticator } from '../network/peer-auth.js';
 import { createSyncEngine } from '../sync/sync-engine.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { StoreFactory } from './stores.js';
+import {
+  CATALOG_COLLECTION,
+  checkStoredCollection,
+  validateJsonSchema,
+  type SchemaIssue,
+  type StoredCollection,
+} from '../schema/collection-def.js';
+import { MEMBERSHIP_COLLECTION } from '../space/account-registry.js';
 import type {
   ConnectionState,
+  DefineCollection,
+  NodeCollection,
   ListOptions,
   NodeEvent,
   NodeNetworkConfig,
@@ -49,6 +59,9 @@ import type {
 
 /** Where deletes live */
 export const TOMBSTONE_COLLECTION = 'sys.tombstone';
+
+/** Collections the node writes itself, through their own calls — never through `put` */
+const MANAGED = new Set([TOMBSTONE_COLLECTION, CATALOG_COLLECTION, MEMBERSHIP_COLLECTION]);
 
 /** The capability a record in a space requires */
 export const writeCapability = (spaceId: string): Capability => ({
@@ -82,8 +95,12 @@ export interface SpaceRuntime {
   list<T>(options?: ListOptions): Promise<ReadonlyArray<NodeRecord<T>>>;
   get<T>(id: string): Promise<NodeRecord<T> | null>;
   put<T>(collection: string, body: T): Promise<NodeRecord<T>>;
+  /** For the node itself: writes one of the collections `put` refuses, like registry memberships */
+  putSystem<T>(collection: string, body: T): Promise<NodeRecord<T>>;
   update<T>(id: string, body: T): Promise<NodeRecord<T>>;
   remove(id: string): Promise<void>;
+  collections(): Promise<ReadonlyArray<NodeCollection>>;
+  define(definition: DefineCollection): Promise<NodeCollection>;
   status(): Promise<SpaceStatus>;
   close(): Promise<void>;
 }
@@ -119,7 +136,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   const validation = createValidationEngine({
     cryptoGate: createCryptoGate(provider),
-    structuralGate: createStructuralGate(schemas, { allowUnknownCollections: true }),
+    // Shape is not a reason to refuse a record on arrival. Whether it fits can
+    // depend on which definition, or which app's schema, a node happens to have;
+    // refusing would leave nodes that disagree forever. Shape is checked when a
+    // record is written here, and reported as `conforms` when it is read.
+    structuralGate: createStructuralGate(createSchemaEngine(), { allowUnknownCollections: true }),
     statefulGate: createStatefulGate(),
     capabilityGate: createCapabilityGate({
       provider,
@@ -166,6 +187,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   async function view<T>(expression: Expression): Promise<NodeRecord<T>> {
     const [{ body, encrypted }, verdict] = await Promise.all([openBody(expression), judge(expression)]);
+    const issues = body === null ? null : await shapeIssues(expression.collection, body);
     return Object.freeze({
       id: expression.id,
       space: space.id,
@@ -177,8 +199,86 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       encrypted,
       verified: verdict.verified,
       ...(verdict.reason ? { reason: verdict.reason } : {}),
+      conforms: issues === null ? null : issues.length === 0,
+      ...(issues?.length ? { issues } : {}),
     });
   }
+
+  // ─── The catalogue ─────────────────────────────────────────────────
+  //
+  // Definitions are records in `sys.collection`. Per name, the latest version
+  // wins among those written by the name's first definer or the space owner —
+  // so one member cannot redefine another's collection and make their records
+  // stop fitting. Every node folds the same records the same way.
+
+  interface CatalogEntry {
+    readonly definition: StoredCollection;
+    readonly definedBy: string | null;
+  }
+  let catalogCache: Promise<Map<string, CatalogEntry>> | null = null;
+  const catalog = () => (catalogCache ??= loadCatalog());
+
+  async function loadCatalog(): Promise<Map<string, CatalogEntry>> {
+    const deleted = await deletedIds();
+    const stored = (await storage.queryExpressions(CATALOG_COLLECTION, Number.MAX_SAFE_INTEGER))
+      .filter((expression) => !deleted.has(expression.id))
+      .sort(byTime);
+
+    const byName = new Map<string, Array<{ expression: Expression; definition: StoredCollection; root: string | null }>>();
+    for (const expression of stored) {
+      const [opened, verdict] = await Promise.all([openBody(expression), judge(expression)]);
+      if (!verdict.verified || checkStoredCollection(opened.body) !== null) continue;
+      const definition = opened.body as StoredCollection;
+      const list = byName.get(definition.name) ?? [];
+      list.push({ expression, definition, root: verdict.root });
+      byName.set(definition.name, list);
+    }
+
+    const result = new Map<string, CatalogEntry>();
+    for (const [name, list] of byName) {
+      const definedBy = list[0]!.root; // earliest, by time then id — the same on every node
+      const allowed = list.filter((entry) => entry.root === definedBy || entry.root === space.owner);
+      const winner = allowed.reduce((best, entry) =>
+        entry.definition.version > best.definition.version ||
+        (entry.definition.version === best.definition.version && byTime(entry.expression, best.expression) > 0)
+          ? entry
+          : best,
+      );
+      result.set(name, { definition: winner.definition, definedBy });
+    }
+    return result;
+  }
+
+  /** Issues with a body against its collection's schema; null when there is no schema to check against. */
+  async function shapeIssues(collection: string, body: unknown): Promise<ReadonlyArray<SchemaIssue> | null> {
+    if (collection.startsWith('sys.')) return null;
+    const described = (await catalog()).get(collection);
+    if (described) return validateJsonSchema(described.definition.schema, body);
+    if (schemas.getCollection(collection)) {
+      const checked = await schemas.validate(collection, body);
+      return (checked.issues ?? []).map((issue) => ({ path: '/', message: issue.message }));
+    }
+    return null;
+  }
+
+  function describe(name: string, entry: CatalogEntry | null, records: number): NodeCollection {
+    const definition = entry?.definition;
+    return Object.freeze({
+      name,
+      ...(definition?.title !== undefined ? { title: definition.title } : {}),
+      ...(definition?.description !== undefined ? { description: definition.description } : {}),
+      schema: definition?.schema ?? null,
+      version: definition?.version ?? null,
+      definedBy: entry?.definedBy ?? null,
+      records,
+    });
+  }
+
+  /** Records changed: the catalogue may have too. */
+  const recordsChanged = () => {
+    catalogCache = null;
+    emit({ type: 'records', space: space.id });
+  };
 
   /** Ids hidden by a tombstone from someone entitled to write it. */
   async function deletedIds(): Promise<Set<string>> {
@@ -220,7 +320,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     },
   });
 
-  sync.on('expression-received', () => emit({ type: 'records', space: space.id }));
+  sync.on('expression-received', () => recordsChanged());
   sync.on('rejected', (peer: string, _expression: Expression, reason: string) => {
     rejected += 1;
     emit({ type: 'rejected', space: space.id, peer, reason });
@@ -305,7 +405,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       running = true;
       reconcileFolder(storage, adapter)
         .then((result) => {
-          if (result.changed) emit({ type: 'records', space: space.id });
+          if (result.changed) recordsChanged();
         })
         .catch(() => {
           // A revoked permission or a folder that went away; the next pass will tell.
@@ -324,7 +424,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       ? new globalThis.BroadcastChannel(`p2p-node:${deps.rootDid}:${space.id}`)
       : null;
   if (channel) {
-    channel.onmessage = () => emit({ type: 'records', space: space.id });
+    channel.onmessage = () => recordsChanged();
     // In Node a channel holds the process open; it must never be the only thing doing so.
     (channel as { unref?: () => void }).unref?.();
   }
@@ -332,11 +432,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   // ─── Writing ───────────────────────────────────────────────────────
 
   async function write<T>(collection: string, body: T): Promise<Expression> {
-    if (schemas.getCollection(collection)) {
-      const checked = await schemas.validate(collection, body);
-      if (!checked.valid) {
-        throw new Error(checked.issues?.map((issue) => issue.message).join(', ') ?? `Invalid ${collection}`);
-      }
+    // Refused here, where the writer can fix it. On arrival a misfit is kept
+    // and flagged instead — see `conforms`.
+    const issues = await shapeIssues(collection, body);
+    if (issues?.length) {
+      throw new Error(`Not a valid ${collection}: ${issues.map((i) => (i.path === '/' ? i.message : `${i.path} ${i.message}`)).join('; ')}`);
     }
 
     // Encrypt *before* signing: peers without the key still verify the
@@ -358,7 +458,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     await storage.addExpression(signed);
     channel?.postMessage('changed');
     sync.onLocalChange(signed);
-    emit({ type: 'records', space: space.id });
+    recordsChanged();
     return signed;
   }
 
@@ -402,7 +502,54 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     async put<T>(collection: string, body: T): Promise<NodeRecord<T>> {
       if (collection === TOMBSTONE_COLLECTION) throw new Error('Use delete to write a tombstone');
+      if (MANAGED.has(collection)) throw new Error(`${collection} is written by the node itself`);
       return view<T>(await write(collection, body));
+    },
+
+    async putSystem<T>(collection: string, body: T): Promise<NodeRecord<T>> {
+      return view<T>(await write(collection, body));
+    },
+
+    async collections(): Promise<ReadonlyArray<NodeCollection>> {
+      const deleted = await deletedIds();
+      const ids = await listMSTKeys(adapter, await storage.getRootCid());
+      const counts = new Map<string, number>();
+      for (const id of ids) {
+        if (deleted.has(id)) continue;
+        const expression = await storage.getExpression(id);
+        if (!expression || expression.collection.startsWith('sys.')) continue;
+        counts.set(expression.collection, (counts.get(expression.collection) ?? 0) + 1);
+      }
+      const described = await catalog();
+      const names = [...new Set([...described.keys(), ...counts.keys()])].sort();
+      return names.map((name) => describe(name, described.get(name) ?? null, counts.get(name) ?? 0));
+    },
+
+    async define(input: DefineCollection): Promise<NodeCollection> {
+      const current = (await catalog()).get(input.name) ?? null;
+      const version = input.version ?? (current ? current.definition.version + 1 : 1);
+      const definition: StoredCollection = {
+        name: input.name,
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        schema: input.schema,
+        version,
+      };
+      const problem = checkStoredCollection(definition);
+      if (problem) throw new Error(problem);
+      if (current) {
+        if (deps.rootDid !== current.definedBy && deps.rootDid !== space.owner) {
+          throw new Error(`${input.name} was defined by ${current.definedBy}; only they or the space owner can change it`);
+        }
+        if (version <= current.definition.version) {
+          throw new Error(`${input.name} is at version ${current.definition.version}; a new definition needs a higher one`);
+        }
+      }
+      await write(CATALOG_COLLECTION, definition);
+      const entry = (await catalog()).get(input.name) ?? null;
+      const hidden = await deletedIds();
+      const count = (await storage.queryExpressions(input.name, Number.MAX_SAFE_INTEGER)).filter((e) => !hidden.has(e.id)).length;
+      return describe(input.name, entry, count);
     },
 
     async update<T>(id: string, body: T): Promise<NodeRecord<T>> {

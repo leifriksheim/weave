@@ -23,7 +23,7 @@ inside the block itself — you never have to go hunting.
 | [BLOCK-05](BLOCK-05-transport-abstraction.md) | Pluggable network transport + WebSocket transport | ~3 days |
 | [BLOCK-06](BLOCK-06-bun-daemon.md) | `p2p` CLI: spaces from a terminal, `run` as the always-on node, `mcp` for agents — **done** | — |
 | [BLOCK-07](BLOCK-07-hosting-tier.md) | Multi-tenant hosting, BYO-storage credentials | ~2 weeks |
-| [BLOCK-08](BLOCK-08-self-describing-spaces.md) | Collection definitions stored in the space | ~1 week |
+| [BLOCK-08](BLOCK-08-self-describing-spaces.md) | Collection definitions stored in the space — **done** | — |
 | [BLOCK-09](BLOCK-09-links-and-annotations.md) | Links between expressions, and a `sys.*` library | ~1.5 weeks |
 | [BLOCK-10](BLOCK-10-query-layer.md) | Filtering, sorting and following links | ~1 week |
 | [BLOCK-11](BLOCK-11-constraints-and-convergence.md) | "One reaction per person", done so peers agree | ~4 days |
@@ -77,8 +77,8 @@ but its links go unchecked until that lands.
 3. ~~**BLOCK-06**, the CLI and always-on node~~ — done.
 4. ~~**BLOCK-01**~~ — done: 508 KB → 25 KB for one change in 10,000.
 5. ~~**An account registry space** and a signed hello on `/peer`~~ — done.
-6. **BLOCK-08 → 09 → 10**, with agents defining collections over MCP/WebMCP as
-   the motivating use.
+6. ~~**BLOCK-08**~~ — done; agents can define collections over MCP.
+7. **BLOCK-09 → 10**, then WebMCP in the example and a UI generated from stored schemas.
 
 ## Why the always-on node matters most
 
