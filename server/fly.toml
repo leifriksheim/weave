@@ -1,0 +1,44 @@
+# A relay on Fly. Adjust `app` to a name of your own before deploying.
+#
+#   fly launch --no-deploy --copy-config --name my-relay
+#   fly deploy
+#
+# Then point the app at it, remembering that a page served over HTTPS may only
+# open a secure socket:
+#
+#   VITE_SIGNALING_URL=wss://my-relay.fly.dev npm run build
+#
+# Several relays are better than one, and the app takes a comma-separated list:
+#
+#   VITE_SIGNALING_URL=wss://my-relay.fly.dev,wss://a-friends-relay.example
+
+app = "p2p-web-relay"
+primary_region = "ams"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # The relay holds no state worth keeping — rooms are rebuilt as peers
+  # reconnect — so it can sleep when nobody is being introduced. A cold start
+  # costs a second or two on the first connection of the day.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.http_options]
+    # Long-lived websockets: do not cut them off mid-introduction.
+    idle_timeout = 900
+
+  [[http_service.checks]]
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

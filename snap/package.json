@@ -1,0 +1,38 @@
+{
+  "name": "@p2p-web/identity-snap",
+  "version": "0.1.4",
+  "description": "A MetaMask Snap that holds a p2p-web identity",
+  "main": "dist/bundle.js",
+  "files": [
+    "dist",
+    "src",
+    "images",
+    "snap.manifest.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "serve": "node serve.mjs",
+    "dev": "node build.mjs && node serve.mjs",
+    "prepublishOnly": "node build.mjs && node verify.mjs && node smoke.mjs",
+    "verify": "node verify.mjs",
+    "smoke": "node smoke.mjs"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "metamask",
+    "snap",
+    "identity",
+    "p2p",
+    "local-first",
+    "ucan",
+    "did"
+  ],
+  "devDependencies": {
+    "@metamask/snaps-utils": "^12.6.0"
+  }
+}

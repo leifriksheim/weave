@@ -1,0 +1,56 @@
+{
+  "name": "@p2p-web/protocol",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Self-sovereign P2P protocol for the browser \u2014 identity, schemas, storage, networking, and gossip sync",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./identity": {
+      "import": "./dist/identity/index.js",
+      "types": "./dist/identity/index.d.ts"
+    },
+    "./schema": {
+      "import": "./dist/schema/index.js",
+      "types": "./dist/schema/index.d.ts"
+    },
+    "./storage": {
+      "import": "./dist/storage/index.js",
+      "types": "./dist/storage/index.d.ts"
+    },
+    "./network": {
+      "import": "./dist/network/index.js",
+      "types": "./dist/network/index.d.ts"
+    },
+    "./sync": {
+      "import": "./dist/sync/index.js",
+      "types": "./dist/sync/index.d.ts"
+    },
+    "./validation": {
+      "import": "./dist/validation/index.js",
+      "types": "./dist/validation/index.d.ts"
+    },
+    "./privacy": {
+      "import": "./dist/privacy/index.js",
+      "types": "./dist/privacy/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-vm-modules --import tsx --test tests/**/*.test.ts",
+    "signal": "node server/signaling-server.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
