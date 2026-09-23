@@ -9,8 +9,19 @@ import { WebSocketServer, type WebSocket as ServerSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 
 import { createWebSocketTransport } from '../src/network/ws-transport.js';
-import { createPeerAuthenticator, peerNonce, type PeerAuthenticator } from '../src/network/peer-auth.js';
+import { createClientAuth, createServerAuth, peerNonce, type ServerAuth } from '../src/network/peer-auth.js';
 import { generateSpaceKey } from '../src/privacy/space-encryption.js';
+import { deriveReadKey } from '../src/space/space-access.js';
+import { createP256Provider } from '../src/identity/crypto-p256.js';
+import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
+
+const provider = createP256Provider();
+
+/** A node's own identity: a DID and the key it signs welcomes with */
+async function nodeIdentity() {
+  const pair = await provider.generateKeyPair();
+  return { did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC), privateKey: pair.privateKey };
+}
 
 const NODE_DID = 'did:key:zNode';
 
@@ -28,8 +39,9 @@ async function until(predicate: () => boolean, ms = 3000, what = 'condition'): P
  */
 function startNode(
   port = 0,
-  options: { authenticator?: PeerAuthenticator; welcome?: (hello: { nonce: string }) => Promise<string> } = {},
+  options: { authenticator?: ServerAuth; did?: string; welcome?: (hello: { nonce: string }) => Promise<string> } = {},
 ) {
+  const did = options.did ?? NODE_DID;
   const server = new WebSocketServer({ port, host: '127.0.0.1' });
   const greetedBy: string[] = [];
   const refused: string[] = [];
@@ -40,20 +52,20 @@ function startNode(
     const nonce = peerNonce();
     socket.once('message', async (data, isBinary) => {
       if (isBinary) return;
-      const hello = JSON.parse(String(data)) as { did: string; nonce: string; mac?: string };
-      if (options.authenticator && !(await options.authenticator.verify('client', hello.did, nonce, hello.mac))) {
+      const hello = JSON.parse(String(data)) as { did: string; nonce: string; sig?: string };
+      if (options.authenticator && !(await options.authenticator.checkHello(hello.did, did, nonce, hello.sig))) {
         refused.push(hello.did);
-        socket.close(4003, 'not a member');
+        socket.close(4003, 'not a reader');
         return;
       }
       greetedBy.push(hello.did);
-      const mac = options.authenticator ? await options.authenticator.sign('server', NODE_DID, hello.nonce) : undefined;
-      socket.send(options.welcome ? await options.welcome(hello) : JSON.stringify({ type: 'welcome', did: NODE_DID, ...(mac ? { mac } : {}) }));
+      const sig = options.authenticator ? await options.authenticator.welcome(did, hello.nonce) : undefined;
+      socket.send(options.welcome ? await options.welcome(hello) : JSON.stringify({ type: 'welcome', did, ...(sig ? { sig } : {}) }));
       socket.on('message', (frame, binary) => {
         if (binary) socket.send(frame, { binary: true });
       });
     });
-    socket.send(JSON.stringify({ type: 'challenge', nonce, did: NODE_DID }));
+    socket.send(JSON.stringify({ type: 'challenge', nonce, did }));
   });
   const ready = new Promise<number>((resolve) => server.on('listening', () => resolve((server.address() as AddressInfo).port)));
   const stop = () =>
@@ -143,47 +155,59 @@ describe('WebSocket transport', () => {
   });
 
   describe('a private space', () => {
-    test('connects when both sides hold the key', async () => {
+    /** A node for space-1 that holds only its public read key, as a blind host would */
+    async function privateNode(key: Awaited<ReturnType<typeof generateSpaceKey>>, spaceId = 'space-1') {
+      const me = await nodeIdentity();
+      const readKey = (await deriveReadKey(key, provider)).did;
+      return { me, node: startNode(0, { did: me.did, authenticator: createServerAuth(spaceId, readKey, me.privateKey, provider) }) };
+    }
+
+    test('connects when the client can read — and the node holds no secret of the space', async () => {
       const key = await generateSpaceKey();
-      const node = startNode(0, { authenticator: await createPeerAuthenticator('space-1', key) });
+      const { me, node } = await privateNode(key);
       const port = await node.ready;
       const transport = createWebSocketTransport({
         url: `ws://127.0.0.1:${port}`,
         did: 'did:key:zMember',
         reconnect: false,
-        authenticator: await createPeerAuthenticator('space-1', key),
+        authenticator: createClientAuth('space-1', await deriveReadKey(key, provider), provider),
       });
       const seen = watch(transport);
       await transport.connect!();
-      assert.deepEqual(seen.connected, [NODE_DID]);
+      assert.deepEqual(seen.connected, [me.did]);
       transport.closeAll();
       await node.stop();
     });
 
     test('the node refuses a client without the key', async () => {
-      const node = startNode(0, { authenticator: await createPeerAuthenticator('space-1', await generateSpaceKey()) });
+      const { node } = await privateNode(await generateSpaceKey());
       const port = await node.ready;
       const transport = createWebSocketTransport({
         url: `ws://127.0.0.1:${port}`,
         did: 'did:key:zOutsider',
         reconnect: false,
-        authenticator: await createPeerAuthenticator('space-1', await generateSpaceKey()),
+        authenticator: createClientAuth('space-1', await deriveReadKey(await generateSpaceKey(), provider), provider),
       });
       await assert.rejects(transport.connect!());
       assert.deepEqual(node.refused, ['did:key:zOutsider']);
       await node.stop();
     });
 
-    test('the client refuses a node that cannot prove the key', async () => {
+    test('the client refuses a welcome not signed by the node that sent the challenge', async () => {
       const key = await generateSpaceKey();
-      // An impostor: it lets anyone in and answers without a proof.
-      const node = startNode(0);
+      const me = await nodeIdentity();
+      const other = await nodeIdentity();
+      // Signs its welcome with a key that is not the one its DID names.
+      const node = startNode(0, {
+        did: me.did,
+        authenticator: createServerAuth('space-1', (await deriveReadKey(key, provider)).did, other.privateKey, provider),
+      });
       const port = await node.ready;
       const transport = createWebSocketTransport({
         url: `ws://127.0.0.1:${port}`,
         did: 'did:key:zMember',
         reconnect: false,
-        authenticator: await createPeerAuthenticator('space-1', key),
+        authenticator: createClientAuth('space-1', await deriveReadKey(key, provider), provider),
       });
       const seen = watch(transport);
       await assert.rejects(transport.connect!(), /could not prove/);
@@ -191,14 +215,30 @@ describe('WebSocket transport', () => {
       await node.stop();
     });
 
-    test('a proof for one space is useless in another', async () => {
+    test('the client refuses a node that answers without a proof', async () => {
       const key = await generateSpaceKey();
-      const one = await createPeerAuthenticator('space-1', key);
-      const two = await createPeerAuthenticator('space-2', key);
-      const mac = await one.sign('client', 'did:key:zX', 'nonce');
-      assert.equal(await one.verify('client', 'did:key:zX', 'nonce', mac), true);
-      assert.equal(await two.verify('client', 'did:key:zX', 'nonce', mac), false);
-      assert.equal(await one.verify('server', 'did:key:zX', 'nonce', mac), false);
+      const node = startNode(0);
+      const port = await node.ready;
+      const transport = createWebSocketTransport({
+        url: `ws://127.0.0.1:${port}`,
+        did: 'did:key:zMember',
+        reconnect: false,
+        authenticator: createClientAuth('space-1', await deriveReadKey(key, provider), provider),
+      });
+      await assert.rejects(transport.connect!(), /could not prove/);
+      await node.stop();
+    });
+
+    test('a hello is useless for another space, or at another node', async () => {
+      const key = await generateSpaceKey();
+      const readKey = await deriveReadKey(key, provider);
+      const a = await nodeIdentity();
+      const b = await nodeIdentity();
+      const client = createClientAuth('space-1', readKey, provider);
+      const sig = await client.hello('did:key:zX', a.did, 'nonce');
+      assert.equal(await createServerAuth('space-1', readKey.did, a.privateKey, provider).checkHello('did:key:zX', a.did, 'nonce', sig), true);
+      assert.equal(await createServerAuth('space-2', readKey.did, a.privateKey, provider).checkHello('did:key:zX', a.did, 'nonce', sig), false);
+      assert.equal(await createServerAuth('space-1', readKey.did, b.privateKey, provider).checkHello('did:key:zX', b.did, 'nonce', sig), false);
     });
   });
 });

@@ -11,8 +11,9 @@
  * and deleting it writes a version marked deleted. Which version is current is
  * decided by `seq` and id alone (`records/version.ts`), never by a clock, so
  * every node agrees and nothing replayed can roll a record back. Who may write a
- * version is the space's rule: its owner in a personal space, anyone invited in
- * a shared one — so members of a shared list tick and remove each other's items.
+ * version is the space's rule: its owner in a personal space, anyone given the
+ * write key in a shared one — so members of a shared list tick and remove each
+ * other's items, and a stranger who learns the space's id cannot.
  */
 import type { Expression, CryptoProvider, StorageAdapter } from '../types.js';
 import type { Signer } from '../schema/signer.js';
@@ -37,7 +38,9 @@ import { createValidationEngine } from '../validation/validation-engine.js';
 import { encryptExpression, decryptExpression, type EncryptedExpression } from '../privacy/space-encryption.js';
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
 import { createWebSocketTransport } from '../network/ws-transport.js';
-import { createPeerAuthenticator } from '../network/peer-auth.js';
+import { createClientAuth } from '../network/peer-auth.js';
+import { countersign, deriveReadKey, deriveWriteKey } from '../space/space-access.js';
+import { createSpaceGate } from '../validation/space-gate.js';
 import { createSyncEngine } from '../sync/sync-engine.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { StoreFactory } from './stores.js';
@@ -143,11 +146,13 @@ function isFolderAdapter(adapter: StorageAdapter): adapter is FolderAdapter {
 
 export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRuntime> {
   const { record, provider, signer, schemas, session, emit } = deps;
-  const { space, key } = record;
+  const { space, key, writeSecret } = record;
 
   const adapter = await deps.stores(`spaces/${space.id}`);
-  /** A personal space takes writes from its owner alone; a shared one from anyone in it. */
-  const writable = space.type === 'shared' || deps.rootDid === space.owner;
+  /** Countersigns every record written here — held only by those given a full invite to a shared space */
+  const writeKey = writeSecret ? await deriveWriteKey(writeSecret, provider) : null;
+  /** A personal space takes writes from its owner alone; a shared one from whoever holds its write key. */
+  const writable = space.type === 'personal' ? deps.rootDid === space.owner : writeKey !== null;
   const storage: StorageProvider = createStorageProvider(adapter);
 
   const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
@@ -160,11 +165,14 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     // record is written here, and reported as `conforms` when it is read.
     structuralGate: createStructuralGate(createSchemaEngine(), { allowUnknownCollections: true }),
     statefulGate: createStatefulGate(),
+    // A shared space's records must carry its write key's signature. Checked
+    // against the public half the space names, so no secret is needed here.
+    spaceGate: createSpaceGate({ provider, writeKey: space.type === 'shared' ? (space.writeKey ?? '') : null }),
     capabilityGate: createCapabilityGate({
       provider,
       requiredCapability: () => writeCapability(space.id),
-      // A personal space takes writes from its owner alone. A shared one
-      // accepts anyone holding an invite — for a private space, the key too.
+      // A personal space takes writes from its owner alone. In a shared one,
+      // the space gate above has already asked for the write key.
       ...(space.type === 'personal' ? { isTrustedRoot: (root: string) => root === space.owner } : {}),
     }),
     resolvePublicKey,
@@ -575,9 +583,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         }),
       );
     }
-    // A private space proves membership to the node before anything moves.
+    // A private space proves to the node that this side may read it, before anything moves.
     const authenticator = net.nodes?.length && space.visibility === 'private' && key
-      ? await createPeerAuthenticator(space.id, key)
+      ? createClientAuth(space.id, await deriveReadKey(key, provider), provider)
       : null;
     for (const node of net.nodes ?? []) {
       const url = `${node}${node.includes('?') ? '&' : '?'}space=${room}`;
@@ -685,7 +693,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   ): Promise<Expression> {
     // Every other copy would reject it, so refuse it here rather than show a
     // change that exists on this device alone.
-    if (!writable) throw new Error(`"${space.name}" is a personal space — only its owner can change it`);
+    if (!writable) {
+      throw new Error(
+        space.type === 'personal'
+          ? `"${space.name}" is a personal space — only its owner can change it`
+          : `"${space.name}" was shared with you to view — you can't change it`,
+      );
+    }
 
     let payload: unknown = null;
     if (!deleted) {
@@ -722,7 +736,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       collection === PROFILE_COLLECTION ||
       (await catalog()).get(collection)?.definition.history === 'all';
 
-    const signed = await signer.sign(
+    const authored = await signer.sign(
       createExpression({
         author: session.did,
         collection,
@@ -738,6 +752,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       }),
       session.key,
     );
+    // In a shared space, the write key vouches for it too — over its id, so
+    // the countersignature cannot be moved to another record.
+    const signed = writeKey
+      ? Object.freeze({ ...authored, spaceSignature: await countersign(authored.id, writeKey, provider) })
+      : authored;
     // The same verdict every other peer will reach: refused here, with the reason, rather than there.
     const ruled = await ruleVerdict(signed);
     if (!ruled.ok) throw new Error(ruled.reason);

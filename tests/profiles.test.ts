@@ -18,6 +18,7 @@ import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { PROFILE_COLLECTION } from '../src/space/account-registry.js';
+import { asMember } from './helpers/as-member.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 
@@ -100,7 +101,7 @@ describe('profiles', () => {
       capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
       expiration: Math.floor(Date.now() / 1000) + 3600,
     });
-    const forged = await createSigner(provider).sign(
+    const authored = await createSigner(provider).sign(
       createExpression({
         author: keyDid,
         collection: PROFILE_COLLECTION,
@@ -112,6 +113,8 @@ describe('profiles', () => {
       }),
       pair.privateKey,
     );
+    // Mallory is a member — she holds the write key — so the profile rule is what must stop her.
+    const forged = await asMember(mallory.stores, space, authored, provider);
     await createStorageProvider(await mallory.stores(`spaces/${space}`)).addExpression(forged);
     await mallory.node.spaces.open(space);
 

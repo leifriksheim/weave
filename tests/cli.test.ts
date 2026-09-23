@@ -197,7 +197,7 @@ describe('the daemon', () => {
     socket.addEventListener('message', (event) => {
       frames.push(String(event.data));
       const challenge = JSON.parse(String(event.data));
-      if (challenge.type === 'challenge') socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger', nonce: 'n', mac: 'forged' }));
+      if (challenge.type === 'challenge') socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger', nonce: 'n', sig: 'forged' }));
     });
     const closed = await new Promise<number>((resolve) => socket.addEventListener('close', (event) => resolve(event.code)));
     assert.equal(closed, 4003);

@@ -292,7 +292,7 @@ function InviteBanner({
     const preview = previewInvite(invite);
     description = `“${preview.space.name}”`;
     detail = `${preview.space.visibility === 'private' ? 'private' : 'public'} · ${
-      preview.space.type === 'shared' ? 'shared' : 'personal'
+      preview.space.type === 'shared' ? (preview.carriesWrite ? 'shared' : 'shared, view only') : 'personal'
     } · invited by ${preview.invitedBy.slice(-6)}`;
   } catch {
     detail = 'This invite could not be read.';

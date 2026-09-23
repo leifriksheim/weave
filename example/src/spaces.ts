@@ -22,14 +22,15 @@ export async function removeSpace(spaceId: string): Promise<void> {
 }
 
 /**
- * Builds a link that lets someone else open this list.
+ * Builds a link that lets someone else open this list — to change it too, or
+ * with `viewOnly`, only to read it.
  *
  * The invite rides in the URL fragment, which browsers never put in a request —
  * so a private space's key reaches your friend without passing through any
  * server, including the one hosting this page.
  */
-export async function createInviteLink(spaceId: string): Promise<string> {
-  const invite = await requireSession().node.spaces.invite(spaceId);
+export async function createInviteLink(spaceId: string, options: { viewOnly?: boolean } = {}): Promise<string> {
+  const invite = await requireSession().node.spaces.invite(spaceId, options.viewOnly ? { write: false } : {});
   const { origin, pathname } = globalThis.location;
   return `${origin}${pathname}#invite=${invite}`;
 }

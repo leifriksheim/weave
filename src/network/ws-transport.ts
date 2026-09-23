@@ -9,17 +9,18 @@
  * The wire is deliberately plain — three text frames, then binary:
  *
  * 1. node → `{"type":"challenge","nonce":…,"did":…}`
- * 2. client → `{"type":"hello","did":…,"nonce":…,"mac"?:…}`
- * 3. node → `{"type":"welcome","did":…,"mac"?:…}`
+ * 2. client → `{"type":"hello","did":…,"nonce":…,"sig"?:…}`
+ * 3. node → `{"type":"welcome","did":…,"sig"?:…}`
  * 4. binary frames either way, passed through untouched.
  *
- * For a private space both MACs are required and prove each side holds the
- * space key (see `peer-auth.ts`); a node that cannot prove it is dropped. A
- * public space needs no proof — anyone may read it anyway.
+ * For a private space both signatures are required: the client's proves it
+ * may read the space, the node's that the welcome comes from the node that
+ * sent the challenge (see `peer-auth.ts`). A public space needs no proof —
+ * anyone may read it anyway.
  */
 
 import type { PeerTransport, PeerTransportEvents } from './transport.js';
-import { peerNonce, type PeerAuthenticator } from './peer-auth.js';
+import { peerNonce, type ClientAuth } from './peer-auth.js';
 
 export interface WebSocketTransportConfig {
   /** `wss://node.example.com/peer` */
@@ -30,15 +31,15 @@ export interface WebSocketTransportConfig {
   readonly reconnect?: boolean;
   /** Ceiling for the redial backoff. Default 30 s. */
   readonly maxBackoffMs?: number;
-  /** Proves membership of a private space, and checks the node's proof. Omit for a public space. */
-  readonly authenticator?: PeerAuthenticator | null;
+  /** Proves this side may read a private space, and checks the node's welcome. Omit for a public space. */
+  readonly authenticator?: ClientAuth | null;
 }
 
 interface Frame {
   readonly type?: unknown;
   readonly did?: unknown;
   readonly nonce?: unknown;
-  readonly mac?: unknown;
+  readonly sig?: unknown;
 }
 
 function parseFrame(data: unknown, type: string): Frame | null {
@@ -128,6 +129,8 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
       let stage: 'challenge' | 'welcome' | 'open' = 'challenge';
       const ourNonce = peerNonce();
       const authenticator = config.authenticator ?? null;
+      /** Who sent the challenge: the welcome must come from the same node */
+      let nodeDid: string | null = null;
 
       const refuse = (reason: string) => {
         const error = new Error(reason);
@@ -144,8 +147,9 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
         if (stage === 'challenge') {
           const challenge = parseFrame(event.data, 'challenge');
           if (!challenge || typeof challenge.nonce !== 'string') return refuse('Expected a challenge from the node');
-          const mac = authenticator ? await authenticator.sign('client', config.did, challenge.nonce) : undefined;
-          socket.send(JSON.stringify({ type: 'hello', did: config.did, nonce: ourNonce, ...(mac ? { mac } : {}) }));
+          nodeDid = challenge.did as string;
+          const sig = authenticator ? await authenticator.hello(config.did, nodeDid, challenge.nonce) : undefined;
+          socket.send(JSON.stringify({ type: 'hello', did: config.did, nonce: ourNonce, ...(sig ? { sig } : {}) }));
           stage = 'welcome';
           return;
         }
@@ -154,8 +158,8 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
           const welcome = parseFrame(event.data, 'welcome');
           if (!welcome) return refuse('Expected a welcome from the node');
           const did = welcome.did as string;
-          if (authenticator && !(await authenticator.verify('server', did, ourNonce, welcome.mac))) {
-            return refuse('The node could not prove it belongs to this space');
+          if (authenticator && (did !== nodeDid || !(await authenticator.checkWelcome(did, ourNonce, welcome.sig)))) {
+            return refuse('The node could not prove it is the node that answered');
           }
           stage = 'open';
           peerId = did;

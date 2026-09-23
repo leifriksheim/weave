@@ -37,7 +37,8 @@ export WEAVE_PASSPHRASE='…'                  # so later commands don't ask
 weave spaces create --name Groceries --type shared --visibility private
 weave records put --space <id> --collection app.todo.item --body '{"text":"milk","completed":false,"order":1}'
 weave records list --space <id>
-weave spaces invite --space <id>             # a secret: it carries the space key
+weave spaces invite --space <id>             # a secret: it carries the space key and the write key
+weave spaces invite --space <id> --view-only # they can read it, not change it
 weave spaces join --invite 'https://…#invite=…'
 weave run                                    # stay up and serve; --create makes an account on first start
 ```
@@ -98,12 +99,18 @@ whatever the agent writes is synced within seconds.
 
 ## Who gets served
 
-For a **private** space, both ends prove they hold the space key before
-anything moves: the node sends a random challenge, the client answers with a MAC
-over it, and the node answers the client's challenge the same way. A stranger
-who knows the space id gets a challenge and a closed socket, never the
-ciphertext; a node that cannot prove it is dropped by the client. A **public**
-space is served to anyone, as its data is public anyway.
+For a **private** space, the client proves it may read before anything moves:
+the node sends a random challenge, and the client signs it with the space's
+read key, which comes from the space key. The node checks that against the
+public read key the space names, so it needs no secret of the space's to do it.
+The node then signs the client's challenge with its own key, so the client
+knows the welcome comes from the node that sent the challenge. A stranger who
+knows the space id gets a challenge and a closed socket, never the ciphertext.
+A **public** space is served to anyone, as its data is public anyway.
+
+Writing is checked separately, record by record: in a shared space every record
+must carry a signature by the space's write key, and the node refuses any that
+doesn't, as every peer does.
 
 ## Your node follows your account
 

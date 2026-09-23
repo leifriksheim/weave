@@ -98,11 +98,21 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     name: 'spaces_invite',
     description:
       'Create an invite someone else can use to join a space. For a private space the invite contains ' +
-      'the space key: anyone holding it can read everything. Only share it with the intended person.',
-    input: { type: 'object', properties: { space }, required: ['space'] },
+      'the space key: anyone holding it can read everything. For a shared space it also lets them write, ' +
+      'unless viewOnly is set. Only share it with the intended person.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        viewOnly: { type: 'boolean', description: 'They can read the space but not change it' },
+      },
+      required: ['space'],
+    },
     readOnly: false,
     sensitive: true,
-    run: async (node, input) => ({ invite: await node.spaces.invite(str(input, 'space')) }),
+    run: async (node, input) => ({
+      invite: await node.spaces.invite(str(input, 'space'), input.viewOnly === true ? { write: false } : {}),
+    }),
   },
   {
     name: 'spaces_preview_invite',

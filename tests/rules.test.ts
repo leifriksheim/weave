@@ -18,6 +18,7 @@ import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { checkRules } from '../src/records/rules.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { asMember } from './helpers/as-member.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -60,7 +61,9 @@ async function forge(who: Person, space: string, fields: Parameters<typeof creat
     capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
     expiration: Math.floor(Date.now() / 1000) + 3600,
   });
-  const signed = await createSigner(provider).sign(createExpression({ ...fields, author: keyDid, space, proof: ucan.encoded }), pair.privateKey);
+  const authored = await createSigner(provider).sign(createExpression({ ...fields, author: keyDid, space, proof: ucan.encoded }), pair.privateKey);
+  // A member forging: they hold the write key, so the rules are what must stop them.
+  const signed = await asMember(who.stores, space, authored, provider);
   await createStorageProvider(await who.stores(`spaces/${space}`)).addExpression(signed);
   return signed;
 }

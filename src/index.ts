@@ -153,6 +153,7 @@ export {
   serializeExpression,
   deserializeExpression,
   getExpressionId,
+  signedPart,
 } from './schema/expression.js';
 
 // Phase 3: Local Storage & State
@@ -215,7 +216,18 @@ export {
 } from './schema/collection-def.js';
 export type { StoredCollection, JsonSchema, SchemaIssue } from './schema/collection-def.js';
 export type { Membership } from './space/account-registry.js';
-export type { SpaceManager, SpaceRecord, SpaceInvite, CreateSpaceParams } from './space/space-manager.js';
+export type { SpaceManager, SpaceRecord, SpaceInvite, InviteOptions, CreateSpaceParams } from './space/space-manager.js';
+export {
+  generateWriteSecret,
+  deriveWriteKey,
+  deriveReadKey,
+  spaceGenesis,
+  spaceIdOf,
+  checkSpace,
+  countersign,
+  verifyCountersignature,
+} from './space/space-access.js';
+export type { SpaceGenesis, SpaceKeyPair } from './space/space-access.js';
 
 // Phase 4: P2P Networking
 export {
@@ -240,8 +252,8 @@ export {
 export { createWebSocketTransport } from './network/ws-transport.js';
 export type { WebSocketTransportConfig } from './network/ws-transport.js';
 export { isSignalledTransport } from './network/transport.js';
-export { createPeerAuthenticator, peerNonce } from './network/peer-auth.js';
-export type { PeerAuthenticator, PeerRole } from './network/peer-auth.js';
+export { createClientAuth, createServerAuth, peerNonce } from './network/peer-auth.js';
+export type { ClientAuth, ServerAuth } from './network/peer-auth.js';
 export type { PeerTransport, PeerTransportEvents, SignalledTransport, CandidateSink } from './network/transport.js';
 export {
   createPeerDiscovery,
@@ -284,6 +296,8 @@ export {
   createCapabilityGate,
 } from './validation/capability-gate.js';
 export type { CapabilityGate, CapabilityGateConfig } from './validation/capability-gate.js';
+export { createSpaceGate } from './validation/space-gate.js';
+export type { SpaceGate, SpaceGateConfig } from './validation/space-gate.js';
 export {
   createValidationEngine,
 } from './validation/validation-engine.js';

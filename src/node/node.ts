@@ -24,7 +24,7 @@ import { createSigner } from '../schema/signer.js';
 import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
 import { openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
-import { createPeerAuthenticator } from '../network/peer-auth.js';
+import { createServerAuth } from '../network/peer-auth.js';
 import {
   deriveAccountRegistry,
   MEMBERSHIP_COLLECTION,
@@ -66,7 +66,7 @@ function summarize(record: SpaceRecord, did: string): SpaceSummary {
     members: space.members,
     createdAt: space.createdAt,
     readable: space.visibility === 'public' || key !== null,
-    writable: space.type === 'shared' || space.owner === did,
+    writable: space.type === 'personal' ? space.owner === did : record.writeSecret !== null,
   });
 }
 
@@ -145,12 +145,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   // ─── Spaces ────────────────────────────────────────────────────────
 
   const registryStore = await config.stores('registry', { seal: true });
-  const registry = createSpaceManager(registryStore);
+  const registry = createSpaceManager(registryStore, provider);
   const runtimes = new Map<string, Promise<SpaceRuntime>>();
 
   // The account's own space list, kept in a space every device of the account
   // derives for itself. Hidden from `list`; everything else treats it as a space.
-  const account = config.accountKey ? await deriveAccountRegistry(config.accountKey, config.signer.did) : null;
+  const account = config.accountKey ? await deriveAccountRegistry(config.accountKey, config.signer.did, provider) : null;
   const accountSpaceId = account?.space.id ?? null;
 
   async function findRecord(spaceId: string): Promise<SpaceRecord | null> {
@@ -252,10 +252,23 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     );
   }
 
+  /** Whether an invite lets its holder write */
+  const carriesWrite = (invite: string) => {
+    try {
+      return typeof parseSpaceInvite(invite).write === 'string';
+    } catch {
+      return false;
+    }
+  };
+
   async function remember(spaceId: string): Promise<void> {
     if (!accountSpaceId) return;
     const open = await runtime(accountSpaceId);
-    if (await open.get(membershipKey(spaceId))) return;
+    const existing = await open.get<Membership>(membershipKey(spaceId));
+    // Rewritten only when this device can now write and the record says it
+    // cannot — a full invite after a view-only one — so every device gets it.
+    const held = await registry.get(spaceId);
+    if (existing && (!held?.writeSecret || carriesWrite(existing.body?.invite ?? ''))) return;
     const invite = await registry.createInvite(spaceId, config.signer.did);
     await open.upsertSystem<Membership>(MEMBERSHIP_COLLECTION, membershipKey(spaceId), { space: spaceId, invite });
   }
@@ -273,16 +286,20 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
    */
   async function reconcileOnce(): Promise<void> {
     if (!accountSpaceId || closed) return;
-    const held = new Set((await registry.list()).map((record) => record.space.id));
+    const records = new Map((await registry.list()).map((record) => [record.space.id, record]));
+    const held = new Set(records.keys());
     const known = new Set<string>();
     let changed = false;
 
     for (const membership of await memberships()) {
       const spaceId = membership.key.slice('space:'.length);
       known.add(spaceId);
-      if (!membership.deleted && !held.has(spaceId)) {
+      // Not held here yet — or held to view, while another device of the account can now write.
+      const upgrade = held.has(spaceId) && !records.get(spaceId)!.writeSecret && carriesWrite(membership.body?.invite ?? '');
+      if (!membership.deleted && (!held.has(spaceId) || upgrade)) {
         try {
           await registry.join(membership.body!.invite, config.signer.did);
+          if (upgrade) await closeRuntime(spaceId); // reopened with the write key on next use
           changed = true;
         } catch {
           // An unreadable invite; the next version written for it will do.
@@ -329,14 +346,19 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return summarize(record, config.signer.did);
     },
 
-    async invite(spaceId: string) {
-      return registry.createInvite(spaceId, config.signer.did);
+    async invite(spaceId: string, options?: { write?: boolean }) {
+      return registry.createInvite(spaceId, config.signer.did, options);
     },
 
     preview(invite: string): InvitePreview {
       const parsed = parseSpaceInvite(bareInvite(invite));
-      const { encryptionKeyId: _keyId, ...space } = parsed.space;
-      return { space, invitedBy: parsed.invitedBy, carriesKey: typeof parsed.key === 'string' };
+      const { id, name, type, visibility, owner, members, createdAt } = parsed.space;
+      return {
+        space: { id, name, type, visibility, owner, members, createdAt },
+        invitedBy: parsed.invitedBy,
+        carriesKey: typeof parsed.key === 'string',
+        carriesWrite: typeof parsed.write === 'string',
+      };
     },
 
     async join(invite: string) {
@@ -372,8 +394,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
     async authenticator(spaceId: string) {
       const record = await findRecord(spaceId);
-      if (!record || record.space.visibility !== 'private' || !record.key) return null;
-      return createPeerAuthenticator(spaceId, record.key);
+      if (!record || record.space.visibility !== 'private' || !record.space.readKey) return null;
+      // Readers are checked against the space's public read key; the welcome
+      // is signed by the key this node introduces itself with.
+      return createServerAuth(spaceId, record.space.readKey, sessionKeys.privateKey, provider);
     },
   });
 

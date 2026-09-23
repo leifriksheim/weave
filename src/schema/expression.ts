@@ -82,6 +82,18 @@ export function createExpression<T>(params: CreateExpressionParams<T>): Unsigned
 }
 
 /**
+ * What the author signed and the id hashes: everything but the id and the two
+ * signatures. Both checks — id and signature — must drop exactly these, or a
+ * field added later is hashed on one side and not the other.
+ * @param expression A signed expression
+ * @returns Its unsigned payload
+ */
+export function signedPart<T>(expression: Expression<T>): UnsignedExpression<T> {
+  const { id: _id, signature: _signature, spaceSignature: _spaceSignature, ...payload } = expression;
+  return payload as UnsignedExpression<T>;
+}
+
+/**
  * Computes the CID for an unsigned expression by hashing its canonical serialization.
  * @param expr The unsigned expression
  * @returns Promise resolving to the CID string

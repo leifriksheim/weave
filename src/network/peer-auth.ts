@@ -1,72 +1,92 @@
 /**
  * @module peer-auth
- * Proving, over a socket, that you belong in a space.
+ * Proving, over a socket, that you may read a space.
  *
  * An always-on node serves a space to whoever connects. For a public space that
  * is fine — anyone may read it anyway. For a private one, serving the
  * ciphertext to anyone who knows the id hands out the space's whole shape and
- * history. So both ends prove they hold the space key before a byte of the
- * space moves:
+ * history. So a client proves it can read before a byte of the space moves:
  *
  * ```
  * node   → client   challenge { nonce: Nₛ, did: node }
- * client → node     hello     { did: client, nonce: N꜀, mac: MAC(client | space | client did | Nₛ) }
- * node   → client   welcome   { did: node, mac: MAC(server | space | node did | N꜀) }
+ * client → node     hello     { did: client, nonce: N꜀, sig: read key signs (client | space | client did | node did | Nₛ) }
+ * node   → client   welcome   { did: node, sig: node key signs (server | space | node did | N꜀) }
  * ```
  *
- * The MAC key is derived from the space key, never the key itself. Each side
- * signs the other's fresh nonce, so a recorded exchange cannot be replayed, and
- * the node proves itself too — a client learns it is talking to a member, not
- * an impostor feeding it nothing.
+ * The client signs with the space's **read key**, derived from the space key
+ * (`space/space-access.ts`). The node checks it against the public half, which
+ * is part of the space — so a node needs no secret to do it, and a host that
+ * cannot read the space checks readers exactly as a member's own node does.
+ *
+ * The node signs with **its own key**, the one its DID names. That proves the
+ * welcome comes from the node that sent the challenge; which node to trust is
+ * the client's choice of URL. Naming the node in the client's signature keeps
+ * a hello from being replayed to a different node.
  */
-import type { SpaceKey } from '../privacy/space-encryption.js';
+import type { CryptoProvider } from '../types.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
+import { didToPublicKey } from '../identity/did.js';
 
-export type PeerRole = 'client' | 'server';
-
-/** Signs and checks handshake labels for one space. */
-export interface PeerAuthenticator {
-  sign(role: PeerRole, did: string, nonce: string): Promise<string>;
-  verify(role: PeerRole, did: string, nonce: string, mac: unknown): Promise<boolean>;
+/** The connecting side: proves it may read, and checks the node's welcome. */
+export interface ClientAuth {
+  hello(clientDid: string, nodeDid: string, nodeNonce: string): Promise<string>;
+  checkWelcome(nodeDid: string, clientNonce: string, sig: unknown): Promise<boolean>;
 }
 
-const INFO = utf8Encode('weave/peer-auth/v1');
+/** The serving side: checks a reader's hello, and signs its welcome. */
+export interface ServerAuth {
+  checkHello(clientDid: string, nodeDid: string, nodeNonce: string, sig: unknown): Promise<boolean>;
+  welcome(nodeDid: string, clientNonce: string): Promise<string>;
+}
 
 /** A fresh random nonce, as a string. */
 export function peerNonce(): string {
   return base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(16)));
 }
 
+const helloLabel = (spaceId: string, clientDid: string, nodeDid: string, nonce: string) =>
+  utf8Encode(`weave-peer/v2|client|${spaceId}|${clientDid}|${nodeDid}|${nonce}`);
+const welcomeLabel = (spaceId: string, nodeDid: string, nonce: string) =>
+  utf8Encode(`weave-peer/v2|server|${spaceId}|${nodeDid}|${nonce}`);
+
+async function verifyBy(provider: CryptoProvider, did: string, sig: unknown, data: Uint8Array): Promise<boolean> {
+  if (typeof sig !== 'string') return false;
+  try {
+    const publicKey = await provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
+    return await provider.verify(publicKey, base64UrlDecode(sig), data);
+  } catch {
+    return false;
+  }
+}
+
 /**
- * The authenticator for a private space, derived from its key.
- * @param spaceId The space — bound into every label, so a MAC for one space is useless in another
- * @param spaceKey The space's AES key; must be extractable
+ * The client side for a private space.
+ * @param spaceId The space — bound into every signature, so a proof for one space is useless in another
+ * @param readKey The space's read key (`deriveReadKey`)
  */
-export async function createPeerAuthenticator(spaceId: string, spaceKey: SpaceKey): Promise<PeerAuthenticator> {
-  const raw = new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', spaceKey.key));
-  const material = await globalThis.crypto.subtle.importKey('raw', raw as BufferSource, 'HKDF', false, ['deriveKey']);
-  const hmac = await globalThis.crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: INFO as BufferSource },
-    material,
-    { name: 'HMAC', hash: 'SHA-256', length: 256 },
-    false,
-    ['sign', 'verify'],
-  );
-
-  const label = (role: PeerRole, did: string, nonce: string) => utf8Encode(`weave-peer/v1|${role}|${spaceId}|${did}|${nonce}`);
-
+export function createClientAuth(spaceId: string, readKey: { readonly privateKey: CryptoKey }, provider: CryptoProvider): ClientAuth {
   return Object.freeze({
-    async sign(role: PeerRole, did: string, nonce: string) {
-      const mac = await globalThis.crypto.subtle.sign('HMAC', hmac, label(role, did, nonce) as BufferSource);
-      return base64UrlEncode(new Uint8Array(mac));
+    async hello(clientDid: string, nodeDid: string, nodeNonce: string) {
+      return base64UrlEncode(await provider.sign(readKey.privateKey, helloLabel(spaceId, clientDid, nodeDid, nodeNonce)));
     },
-    async verify(role: PeerRole, did: string, nonce: string, mac: unknown) {
-      if (typeof mac !== 'string') return false;
-      try {
-        return await globalThis.crypto.subtle.verify('HMAC', hmac, base64UrlDecode(mac) as BufferSource, label(role, did, nonce) as BufferSource);
-      } catch {
-        return false;
-      }
+    checkWelcome(nodeDid: string, clientNonce: string, sig: unknown) {
+      return verifyBy(provider, nodeDid, sig, welcomeLabel(spaceId, nodeDid, clientNonce));
+    },
+  });
+}
+
+/**
+ * The node side for a private space. Holds no secret of the space's.
+ * @param readKey The space's public read key, from the space itself
+ * @param nodeKey The private key of the DID the node introduces itself as
+ */
+export function createServerAuth(spaceId: string, readKey: string, nodeKey: CryptoKey, provider: CryptoProvider): ServerAuth {
+  return Object.freeze({
+    checkHello(clientDid: string, nodeDid: string, nodeNonce: string, sig: unknown) {
+      return verifyBy(provider, readKey, sig, helloLabel(spaceId, clientDid, nodeDid, nodeNonce));
+    },
+    async welcome(nodeDid: string, clientNonce: string) {
+      return base64UrlEncode(await provider.sign(nodeKey, welcomeLabel(spaceId, nodeDid, clientNonce)));
     },
   });
 }

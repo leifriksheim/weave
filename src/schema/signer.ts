@@ -1,5 +1,5 @@
 import type { CryptoProvider, Expression, UnsignedExpression } from '../types.js';
-import { canonicalize, getExpressionId } from './expression.js';
+import { canonicalize, getExpressionId, signedPart } from './expression.js';
 import { utf8Encode, base64UrlEncode, base64UrlDecode } from '../utils/encoding.js';
 
 /**
@@ -45,10 +45,11 @@ export function createSigner(provider: CryptoProvider): Signer {
     },
     
     async verify<T>(expression: Expression<T>, publicKey: CryptoKey): Promise<boolean> {
-      const { id, signature, ...unsignedPayload } = expression;
+      const { id, signature } = expression;
+      const unsignedPayload = signedPart(expression);
       
       // Verify ID
-      const expectedId = await getExpressionId(unsignedPayload as UnsignedExpression<T>);
+      const expectedId = await getExpressionId(unsignedPayload);
       if (id !== expectedId) {
         return false;
       }

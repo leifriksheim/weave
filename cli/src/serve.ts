@@ -175,12 +175,12 @@ export interface Served {
   close(): Promise<void>;
 }
 
-function parseHello(data: RawData, isBinary: boolean): { did: string; nonce: string; mac?: unknown } | null {
+function parseHello(data: RawData, isBinary: boolean): { did: string; nonce: string; sig?: unknown } | null {
   if (isBinary) return null;
   try {
-    const hello = JSON.parse(String(data)) as { type?: unknown; did?: unknown; nonce?: unknown; mac?: unknown };
+    const hello = JSON.parse(String(data)) as { type?: unknown; did?: unknown; nonce?: unknown; sig?: unknown };
     return hello.type === 'hello' && typeof hello.did === 'string' && hello.did.startsWith('did:') && typeof hello.nonce === 'string'
-      ? { did: hello.did, nonce: hello.nonce, mac: hello.mac }
+      ? { did: hello.did, nonce: hello.nonce, sig: hello.sig }
       : null;
   } catch {
     return null;
@@ -228,13 +228,13 @@ export async function serve(options: ServeOptions): Promise<Served> {
           socket.close(4002, 'expected a hello frame');
           return;
         }
-        if (authenticator && !(await authenticator.verify('client', hello.did, nonce, hello.mac))) {
-          socket.close(4003, 'not a member of this space');
+        if (authenticator && !(await authenticator.checkHello(hello.did, node.sessionDid, nonce, hello.sig))) {
+          socket.close(4003, 'not a reader of this space');
           return;
         }
         await node.spaces.open(spaceId);
-        const mac = authenticator ? await authenticator.sign('server', node.sessionDid, hello.nonce) : undefined;
-        socket.send(JSON.stringify({ type: 'welcome', did: node.sessionDid, ...(mac ? { mac } : {}) }));
+        const sig = authenticator ? await authenticator.welcome(node.sessionDid, hello.nonce) : undefined;
+        socket.send(JSON.stringify({ type: 'welcome', did: node.sessionDid, ...(sig ? { sig } : {}) }));
         inbound.accept(spaceId, socket, hello.did);
       })().catch(() => socket.close(1011, 'could not open space'));
     });

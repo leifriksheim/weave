@@ -14,7 +14,7 @@ import type { LinkDeclaration } from '../records/links.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import type { Capability, UCANToken } from '../identity/ucan.js';
 import type { PeerTransport } from '../network/transport.js';
-import type { PeerAuthenticator } from '../network/peer-auth.js';
+import type { ServerAuth } from '../network/peer-auth.js';
 import type { StoreFactory } from './stores.js';
 import type { JsonSchema, SchemaIssue } from '../schema/collection-def.js';
 
@@ -74,8 +74,9 @@ export interface SpaceSummary {
   /** Whether this node can read the space: always for public ones, only with the key for private */
   readonly readable: boolean;
   /**
-   * Whether this node's account may change it: always in a shared space, only
-   * as its owner in a personal one. Someone following a personal space reads it.
+   * Whether this node's account may change it: in a shared space, when it was
+   * given the write key (a full invite, not a view-only one); in a personal
+   * one, only as its owner. Anyone else follows it and reads.
    */
   readonly writable: boolean;
 }
@@ -93,6 +94,13 @@ export interface InvitePreview {
   readonly invitedBy: string;
   /** Whether the invite carries the key to a private space */
   readonly carriesKey: boolean;
+  /** Whether the invite lets you write — a shared space's full invite. False for a view-only one, and for a personal space. */
+  readonly carriesWrite: boolean;
+}
+
+export interface InviteOptions {
+  /** Let whoever uses the invite write, when this node can. Default true; false makes a view-only invite. */
+  readonly write?: boolean;
 }
 
 /** A record, opened and checked — its current version, unless listed as history */
@@ -224,8 +232,11 @@ export interface NodeSpaces {
   list(): Promise<ReadonlyArray<SpaceSummary>>;
   get(spaceId: string): Promise<SpaceSummary | null>;
   create(params: NewSpace): Promise<SpaceSummary>;
-  /** An invite string; for a private space it carries the key, so treat it as a secret */
-  invite(spaceId: string): Promise<string>;
+  /**
+   * An invite string. For a private space it carries the key, and for a shared
+   * one the write key unless `write: false` — so treat it as a secret.
+   */
+  invite(spaceId: string, options?: InviteOptions): Promise<string>;
   preview(invite: string): InvitePreview;
   join(invite: string): Promise<SpaceSummary>;
   /** Forgets a space on this node, with its key. Other members keep theirs. */
@@ -236,11 +247,11 @@ export interface NodeSpaces {
   close(spaceId: string): Promise<void>;
   status(spaceId: string): Promise<SpaceStatus>;
   /**
-   * What a node serving this space uses to check a connecting peer holds its
-   * key, and to prove it holds it too. Null for a public space, or one this
-   * node does not hold.
+   * What a node serving this space uses to check a connecting peer may read
+   * it, and to sign its welcome. Needs no key of the space's. Null for a
+   * public space, or one this node does not hold.
    */
-  authenticator(spaceId: string): Promise<PeerAuthenticator | null>;
+  authenticator(spaceId: string): Promise<ServerAuth | null>;
   /**
    * The name each person gave in this space, by identity. Your own is
    * published for you, from the account's name, into every space you can

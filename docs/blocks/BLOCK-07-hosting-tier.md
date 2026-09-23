@@ -31,11 +31,11 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && \
 test -f cli/src/daemon.ts && test -f cli/src/serve.ts && \
 test -f src/storage/mirror.ts \
   && echo "READY" \
-  || echo "NOT READY — needs the always-on node (cli/, exists) and mirrors (BLOCK-03)"
+  || echo "NOT READY — needs mirrors (BLOCK-03)"
 ```
 
-**Needs BLOCK-03.** Without mirrors a host can only keep data on its own disk,
-which works but isn't the design. BLOCK-04 adds the cloud drivers; until then,
+**Needs BLOCK-03.** Without mirrors a host can only
+keep data on its own disk, which works but isn't the design. BLOCK-04 adds the cloud drivers; until then,
 use the directory driver.
 
 ---
@@ -91,19 +91,12 @@ The host runs the same gates as any peer. Crypto and capability work without
 the key: a record carries its signature and its delegation, and a personal
 space accepts only its owner, whom the space record names.
 
-**The gap to close first.** A shared space today accepts any validly signed
-author (`space-runtime.ts`, `isTrustedRoot` is only set for personal spaces).
-Membership is effectively "knows the space key", and a blind host can't check
-that. So anyone who learns a space id could fill a paying user's quota and
-folder with junk.
-
-Fix it in the protocol, not in the host: derive a **space write key pair** from
-the space key. Members hold the private half. Every record in a shared space
-carries a second signature by it, over the record's id. The public half is in
-the space record, so anyone can check "the writer knew the space key" without
-knowing it. A blind host, a mirror and an ordinary peer all check it the same
-way. Do this before launch; it's a wire-format change, and nothing is released
-yet.
+Shared spaces are closed too (README, *Who may write, checked without a
+secret*): every record carries a second signature by the space's write key,
+whose public half is hashed into the space id, and the host checks it with no
+secret, as every peer does. Who may *read* a private space is checked the same
+way, against the space's public read key (`createServerAuth`), and the space id
+vouches for owner and type, so a device can't mislead the host about either.
 
 ### How a device hands spaces to the host
 
@@ -115,8 +108,9 @@ yet.
    registry: new space, add it; left a space, remove it. The registry space
    itself is on the list too, so a full restore works from the recovery code
    alone.
-4. With each space it sends what the gates need: the space record (type,
-   owner, public write key). Never the space key.
+4. With each space it sends what the gates need: the space's genesis (owner,
+   type, public keys), which the host checks against the space id
+   (`checkSpace`). Never the space key or the write secret.
 
 ### Storage grants
 
@@ -152,8 +146,6 @@ period, and the app says so plainly before it happens.
 
 | File | Change |
 |---|---|
-| `src/identity/space-write-key.ts` | **New.** Derive the pair from the space key; sign and check |
-| `src/validation/capability-gate.ts` | Shared spaces require the space write signature |
 | `cli/src/host.ts` | **New.** Blind mode: no signer, spaces come from subscriptions |
 | `cli/src/host/subscriptions.ts` | **New.** Subscriptions, their spaces and quotas |
 | `cli/src/host/grants.ts` | **New.** Sealed storage grants, encrypted at rest |
@@ -166,17 +158,15 @@ period, and the app says so plainly before it happens.
 
 ## Steps
 
-1. **The space write key.** Protocol change first, with its tests: records
-   from a non-member are refused by an ordinary peer.
-2. **Blind mode.** A node started with a list of spaces and no account syncs,
+1. **Blind mode.** A node started with a list of spaces and no account syncs,
    checks and mirrors them. Test: two browsers that are never online together
    converge through it, and it can't read a private record.
-3. **Measure whether TURN is needed at all.** Browsers dial the host over WSS
+2. **Measure whether TURN is needed at all.** Browsers dial the host over WSS
    directly. Try home, mobile and a corporate VPN before paying for any relay.
-4. Subscriptions and the API, then the Settings screen.
-5. Grants: Dropbox first (see Gotchas), then Drive and OneDrive.
-6. Metrics. You can't price what you don't measure.
-7. Load test: 1,000 spaces on one small box; record memory and bandwidth.
+3. Subscriptions and the API, then the Settings screen.
+4. Grants: Dropbox first (see Gotchas), then Drive and OneDrive.
+5. Metrics. You can't price what you don't measure.
+6. Load test: 1,000 spaces on one small box; record memory and bandwidth.
 
 ---
 
@@ -184,8 +174,8 @@ period, and the app says so plainly before it happens.
 
 - The host never receives a space key, seed or vault key. Assert on every
   message the API and the sync path accept.
-- A record by someone without the space write key is refused by the host and
-  by peers alike
+- A record by someone without the space write key is refused by the host
+  (`tests/space-access.test.ts`, run against a blind node)
 - Two subscriptions can't see each other's spaces, grants or metrics
 - One space throwing repeatedly doesn't disturb the others
 - Deleting the host's disk and restarting restores every space from mirrors
@@ -198,7 +188,7 @@ period, and the app says so plainly before it happens.
 ## Acceptance criteria
 
 - [ ] Blind: the host holds no key that can read or sign a record
-- [ ] Shared spaces refuse writers without the space write key, everywhere
+- [ ] The host refuses writers without the space write key
 - [ ] 1,000 spaces on one box, memory measured and written down
 - [ ] Bandwidth and storage metered per subscription
 - [ ] Works with the user's Dropbox, and with no storage connected

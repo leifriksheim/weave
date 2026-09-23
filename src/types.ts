@@ -87,6 +87,12 @@ export interface Expression<T = unknown> {
    */
   readonly links?: ReadonlyArray<Link>;
   readonly signature: string;   // Base64URL encoded signature
+  /**
+   * Shared spaces: the space write key's signature over `id` — proof the
+   * writer was given the space's write key. Outside the id and the author's
+   * signature, because it signs the id.
+   */
+  readonly spaceSignature?: string;
 }
 
 export interface UnsignedExpression<T = unknown> {
@@ -129,14 +135,26 @@ export type SpaceType = 'personal' | 'shared';
 /** Whether a space's contents are readable by anyone who has them */
 export type SpaceVisibility = 'public' | 'private';
 
+/**
+ * A space. Its id is the hash of what is fixed at creation — owner, type,
+ * visibility, time, nonce and public keys (`space/space-access.ts`) — so
+ * whoever hands over a space cannot change who owns it or who may write.
+ * `name` and `members` are not part of that: they are descriptions.
+ */
 export interface Space {
-  readonly id: string;          // CID of the space
+  readonly id: string;          // hash of the space's genesis
   readonly type: SpaceType;     // 'personal' (just the owner) or 'shared'
   readonly visibility: SpaceVisibility; // 'private' means the bodies are encrypted
   readonly owner: string;       // DID of the creator
   readonly name: string;
-  readonly members: ReadonlyArray<string>; // DIDs
+  readonly members: ReadonlyArray<string>; // DIDs seen joining, for display — no gate reads it
   readonly createdAt: string;
+  /** Random, so two spaces made alike still differ */
+  readonly nonce: string;
+  /** Shared spaces: the public half of the write key, as a did:key. Every record carries its signature. */
+  readonly writeKey?: string;
+  /** Private spaces: the public half of the read key, derived from the space key — what a node checks a reader against */
+  readonly readKey?: string;
   readonly encryptionKeyId?: string; // For private spaces
 }
 

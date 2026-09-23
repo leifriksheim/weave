@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { NodeRecord, SpaceProfile, SpaceSummary } from 'weave-protocol';
 import { standardSchemas, useSchemas } from 'weave-protocol/schemas';
 import { createInviteLink } from '../spaces';
+import { Choice } from './Modal';
 import { requireSession, type Session } from '../protocol';
 import { useLive } from '../hooks/useLive';
 import { collectionLabel } from '../derive/schema-ui';
@@ -80,7 +81,11 @@ export function SpaceView({ record: space, session, onBack }: { record: SpaceSum
           )}
         </div>
         {!space.writable && (
-          <p style={{ ...styles.errorHint, marginTop: 0 }}>You're following this space. It's {nameOf(space.owner, people)}'s, so only they can change it.</p>
+          <p style={{ ...styles.errorHint, marginTop: 0 }}>
+            {space.type === 'personal'
+              ? `You're following this space. It's ${nameOf(space.owner, people)}'s, so only they can change it.`
+              : "You can see this space but not change it. Anyone who can edit it can send you a link that lets you."}
+          </p>
         )}
       </header>
 
@@ -183,16 +188,39 @@ function People({ profiles, me, owner, people }: { profiles: ReadonlyArray<Space
 
 function Share({ space }: { space: SpaceSummary }) {
   const [invite, setInvite] = useState<string | null>(null);
+  // Only someone who can change a shared space can hand that on.
+  const canOfferEdit = space.type === 'shared' && space.writable;
+  const [access, setAccess] = useState<'edit' | 'view'>(canOfferEdit ? 'edit' : 'view');
   const share = async () => {
-    const link = await createInviteLink(space.id);
+    const link = await createInviteLink(space.id, { viewOnly: access === 'view' });
     setInvite(link);
     await globalThis.navigator.clipboard?.writeText(link).catch(() => {});
   };
+  const explanation =
+    space.type === 'personal'
+      ? 'Anyone with the link can follow along; only you write.'
+      : access === 'edit'
+        ? 'Anyone with the link joins and can add and change things.'
+        : 'Anyone with the link can see everything, but change nothing.';
   return (
     <section style={{ ...styles.panelSection, gap: 10 }}>
       <h2 style={styles.sectionTitle}>Invite</h2>
+      {canOfferEdit && (
+        <Choice
+          label="People with the link"
+          value={access}
+          options={[
+            { value: 'edit', label: 'Can edit' },
+            { value: 'view', label: 'Can view' },
+          ]}
+          onChange={(next) => {
+            setAccess(next);
+            setInvite(null); // a link made for the other choice would say the wrong thing
+          }}
+        />
+      )}
       <p style={{ fontSize: 13, lineHeight: 1.5, color: palette.ink.muted }}>
-        {space.type === 'shared' ? 'Anyone with the link joins and can write.' : 'Anyone with the link can follow along; only you write.'}
+        {explanation}
         {space.visibility === 'private' && ' The link carries the key — treat it as a secret.'}
       </p>
       <button onClick={() => void share()} data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start' }}>

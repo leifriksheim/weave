@@ -1,6 +1,6 @@
-import { CryptoProvider, Expression, UnsignedExpression } from '../types.js';
+import { CryptoProvider, Expression } from '../types.js';
 import { utf8Encode, base64UrlDecode } from '../utils/encoding.js';
-import { canonicalize, getExpressionId } from '../schema/expression.js';
+import { canonicalize, getExpressionId, signedPart } from '../schema/expression.js';
 
 export interface GateResult {
   readonly passed: boolean;
@@ -21,11 +21,12 @@ export function createCryptoGate(provider: CryptoProvider): CryptoGate {
   return {
     async validate(expression: Expression, resolvePublicKey: (did: string) => Promise<CryptoKey>): Promise<GateResult> {
       try {
-        // Only the unsigned payload is signed — the id is a hash of it, and the
-        // signature is not part of what was hashed.
-        const { id, signature, ...unsignedPayload } = expression;
+        // Only the unsigned payload is signed — the id is a hash of it, and
+        // neither signature is part of what was hashed.
+        const { id, signature } = expression;
+        const unsignedPayload = signedPart(expression);
 
-        const expectedId = await getExpressionId(unsignedPayload as UnsignedExpression);
+        const expectedId = await getExpressionId(unsignedPayload);
         if (id !== expectedId) {
           return { passed: false, gate: 'crypto', reason: 'Expression id does not match its content' };
         }

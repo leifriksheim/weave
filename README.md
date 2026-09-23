@@ -114,6 +114,7 @@ await node.records.update(space.id, milk.key, { text: 'milk', done: true }); // 
 node.subscribe((event) => { if (event.type === 'records') redraw(); });
 
 const invite = await node.spaces.invite(space.id);  // a friend calls node.spaces.join(invite)
+const view = await node.spaces.invite(space.id, { write: false });  // they can read, not change
 ```
 
 What it takes care of:
@@ -270,15 +271,17 @@ Local-first storage with Merkle Search Tree for efficient sync.
 ### Spaces
 
 A space is the container everything else lives in, described by two independent
-choices: **who writes** (`personal` — the owner alone; `shared` — anyone invited)
-and **who can read** (`public` — signed in the clear; `private` — every body
-encrypted with the space key). That covers the four combinations an app usually
-wants, from a private notebook to an open collaborative list.
+choices: **who writes** (`personal` — the owner alone; `shared` — anyone given
+its write key) and **who can read** (`public` — signed in the clear; `private` —
+every body encrypted with the space key). That covers the four combinations an
+app usually wants, from a private notebook to an open collaborative list.
 
 | Export | Description |
 |--------|-------------|
 | `createSpaceManager()` | Create, list, join and forget spaces; mint invites |
 | `parseSpaceInvite()` | Read an invite without joining, to show what it offers |
+| `checkSpace()` / `spaceIdOf()` | Whether a space you were handed is the one its id names |
+| `deriveWriteKey()` / `deriveReadKey()` / `countersign()` | A space's access keys |
 
 ```typescript
 const spaces = createSpaceManager(adapter);
@@ -298,6 +301,26 @@ await theirSpaces.join(invite, friend.did);
 
 Give each space its own storage and its own MST and a peer you share one list
 with learns nothing about the others.
+
+#### Who may write, checked without a secret
+
+A shared space has a **write key**: 32 random bytes, made with the space and
+carried by a full invite. Every record written there carries a second signature
+by it (`spaceSignature`), over the record's id. The space names the public half,
+so every peer checks it — and so could a relay, a mirror or a host holding no
+secret of the space's. Someone who learns a space's id, even with a valid
+account, cannot write in it. An invite made with `{ write: false }` leaves the
+write key out: whoever uses it reads the space and changes nothing.
+
+A private space also has a **read key**, derived from the space key, so everyone
+who can read has it. An always-on node checks a connecting reader against its
+public half, before serving any ciphertext, without holding the space key.
+
+A space's **id is the hash of what is fixed at creation**: owner, type,
+visibility, time, a random nonce and both public keys (the name is left out, so
+it can change). `join` refuses an invite whose space does not hash to its id,
+or whose keys are not the ones the space names — so whoever passes an invite on
+cannot change who owns the space, whether it is shared, or who may write.
 
 **Spaces describe themselves.** A space stores its collections' definitions —
 name, title, description and a JSON Schema — as signed records in
@@ -402,6 +425,7 @@ Browser-to-browser communication via WebRTC.
 | `createMultiSignalingClient()` | Several relays used at once, de-duplicated |
 | `createRTCTransport()` | WebRTC data channel management (the default transport) |
 | `createWebSocketTransport()` | A socket to one always-on node — no relay, no TURN |
+| `createClientAuth()` / `createServerAuth()` | The handshake for a private space: the reader signs with the read key, the node with its own |
 
 #### Signaling relay
 
@@ -439,13 +463,14 @@ dropped and surface as a `rejected` event with the reason.
 
 ### Validation (`weave-protocol/validation`)
 
-Three-gate validation pipeline for incoming expressions.
+A pipeline of gates for incoming expressions.
 
 | Export | Description |
 |--------|-------------|
 | `createValidationEngine()` | Full gatekeeper pipeline |
 | `createCryptoGate()` | Expression id + signature verification |
 | `createStructuralGate()` | Schema conformance via Standard Schema |
+| `createSpaceGate()` | In a shared space: was it countersigned by the space's write key? |
 | `createCapabilityGate()` | UCAN authorization: may this key write this? |
 | `createStatefulGate()` | Custom Wasm rules |
 

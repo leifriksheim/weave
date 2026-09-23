@@ -8,16 +8,19 @@
  * space only the account can find, and every other device and node of the
  * account syncs that record and joins by itself.
  *
- * The registry's id and key are derived from the account's vault key, so
- * nothing needs to be exchanged to find it — and nobody without the account can.
- * It is not derived from the DID: a DID appears in everything the account signs,
- * and a room named after one could be found by anyone who had seen its data.
+ * The registry's key and nonce are derived from the account's vault key, and
+ * its id is the hash of its genesis like any space's — so nothing needs to be
+ * exchanged to find it, and nobody without the account can. The DID alone is
+ * not enough: it appears in everything the account signs, and a room named
+ * after it could be found by anyone who had seen its data.
  */
-import type { Space } from '../types.js';
+import type { CryptoProvider, Space } from '../types.js';
 import type { SpaceRecord } from './space-manager.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
 import { base64UrlEncode, utf8Encode } from '../utils/encoding.js';
-import { cidFromBytes, sha256 } from '../utils/hash.js';
+import { sha256 } from '../utils/hash.js';
+import { createP256Provider } from '../identity/crypto-p256.js';
+import { deriveReadKey, spaceGenesis, spaceIdOf } from './space-access.js';
 
 /** Where membership records live, one per space the account belongs to */
 export const MEMBERSHIP_COLLECTION = 'sys.membership';
@@ -56,8 +59,12 @@ async function expand(accountKey: Uint8Array, info: string): Promise<Uint8Array>
  * @param accountKey The account's vault key bytes (`deriveVaultKeyBytes(seed)`, or a Snap's `getVaultKey`)
  * @param owner The account's DID
  */
-export async function deriveAccountRegistry(accountKey: Uint8Array, owner: string): Promise<SpaceRecord> {
-  const id = await cidFromBytes(await expand(accountKey, 'weave/account-registry/id/v1'));
+export async function deriveAccountRegistry(
+  accountKey: Uint8Array,
+  owner: string,
+  provider: CryptoProvider = createP256Provider(),
+): Promise<SpaceRecord> {
+  const nonce = base64UrlEncode((await expand(accountKey, 'weave/account-registry/nonce/v1')).subarray(0, 12));
   const keyBytes = await expand(accountKey, 'weave/account-registry/key/v1');
   const cryptoKey = await globalThis.crypto.subtle.importKey('raw', keyBytes as BufferSource, { name: 'AES-GCM', length: 256 }, true, [
     'encrypt',
@@ -70,15 +77,20 @@ export async function deriveAccountRegistry(accountKey: Uint8Array, owner: strin
     createdAt,
     version: 1,
   });
-  const space: Space = Object.freeze({
-    id,
-    type: 'personal',
-    visibility: 'private',
+  const fixed = {
+    type: 'personal' as const,
+    visibility: 'private' as const,
     owner,
+    createdAt,
+    nonce,
+    readKey: (await deriveReadKey(key, provider)).did,
+    encryptionKeyId: key.id,
+  };
+  const space: Space = Object.freeze({
+    id: await spaceIdOf(spaceGenesis(fixed)),
+    ...fixed,
     name: 'Account registry',
     members: Object.freeze([owner]),
-    createdAt,
-    encryptionKeyId: key.id,
   });
-  return { space, key };
+  return { space, key, writeSecret: null };
 }
