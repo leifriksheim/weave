@@ -362,3 +362,9 @@ export type {
   NodeAccount,
   AccountProfileView,
 } from './node/index.js';
+
+// Queries: plain-data filters, sorting, paging and includes over a space
+export { runQuery } from './query/engine.js';
+export type { QuerySource } from './query/engine.js';
+export { matches, checkQuery, MAX_INCLUDE_DEPTH } from './query/filter.js';
+export type { Query, Filter, Operators, Include, SortDirection, QueryRecord, QueryResult } from './query/types.js';

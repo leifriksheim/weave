@@ -7,6 +7,7 @@
  * are exposed as actions to a command line, an MCP server and WebMCP, and a
  * value that cannot cross a wire would have to be reshaped at each of them.
  */
+import type { Query, QueryResult } from '../query/types.js';
 import type { CollectionDef, CryptoProvider, Link, SpaceType, SpaceVisibility } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { RootSigner } from '../identity/root-signer.js';
@@ -260,6 +261,17 @@ export interface NodeRecords {
    * the first one, and — in a collection with `history: 'all'` — every other.
    */
   history<T = unknown>(spaceId: string, key: string): Promise<ReadonlyArray<NodeRecord<T>>>;
+  /**
+   * Records matching a query — filtered, sorted, paged, with linked records
+   * pulled in. The query is plain data (BLOCK-10).
+   * @throws When the query is malformed, saying what to fix
+   */
+  query<T = unknown>(spaceId: string, query: Query): Promise<QueryResult<T>>;
+  /**
+   * Runs a query now and again whenever the space's records change, calling
+   * back with each result. Returns a function that stops it.
+   */
+  watch<T = unknown>(spaceId: string, query: Query, onResult: (result: QueryResult<T>) => void, onError?: (error: Error) => void): () => void;
 }
 
 export interface DelegateParams {

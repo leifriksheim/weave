@@ -13,6 +13,7 @@
  * a function.
  */
 import type { P2PNode } from './types.js';
+import type { Query } from '../query/types.js';
 
 /** The subset of JSON Schema these inputs use */
 export interface ActionSchema {
@@ -201,6 +202,35 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         ...(typeof input.limit === 'number' ? { limit: input.limit } : {}),
         ...(input.newestFirst === true ? { newestFirst: true } : {}),
       }),
+  },
+  {
+    name: 'records_query',
+    description:
+      'Find records: filter, sort, page, and pull in what links to them. ' +
+      'where: { done: false, "@author": "did:…", amount: { "$gt": 10 } } — bare names are body fields (dotted for nested), ' +
+      '"@key", "@author", "@root", "@createdAt", "@updatedAt", "@seq" are about the record; ' +
+      'operators $eq $ne $gt $gte $lt $lte $in $nin $exists $contains, combined with $and $or $not. ' +
+      'include: { reactions: { rel: "about", from: "sys.reaction", count: true } } — records linking to each result ' +
+      '(direction "out" for what each result links to), nested up to 3 deep. ' +
+      'sort: { "@createdAt": "desc" }. Pass the returned cursor back to get the next page.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        collection: { type: 'string', description: 'The collection to query, e.g. "app.todo.item"' },
+        where: { type: 'object', description: 'Filter' },
+        include: { type: 'object', description: 'Linked records to pull in, by name' },
+        sort: { type: 'object', description: '{ field: "asc" | "desc" }; ties break on the key' },
+        limit: { type: 'integer' },
+        cursor: { type: 'string', description: 'From the previous page' },
+      },
+      required: ['space', 'collection'],
+    },
+    readOnly: true,
+    run: (node, input) => {
+      const { space: spaceId, ...query } = input;
+      return node.records.query(spaceId as string, query as unknown as Query);
+    },
   },
   {
     name: 'records_get',

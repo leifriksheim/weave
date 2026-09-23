@@ -67,7 +67,7 @@ export interface SpaceSession {
 
 function toView(record: NodeRecord<Todo>, reactions: ReadonlyArray<NodeRecord<{ emoji: string }>>, me: string): TodoView | null {
   if (record.body === null) return null; // a member's data we have no key for
-  const likes = reactions.filter((r) => r.verified && r.body?.emoji === REACTION);
+  const likes = reactions.filter((r) => r.verified);
   return {
     reactions: likes.length,
     myReaction: likes.find((r) => r.root === me)?.key ?? null,
@@ -105,18 +105,18 @@ export async function openSpace(space: SpaceSummary): Promise<SpaceSession> {
     space,
 
     async list(): Promise<ReadonlyArray<TodoView>> {
-      const records = await node.records.list<Todo>(space.id, { collection: COLLECTION });
-      // Reactions are their own records, pointing at a todo — written by this
-      // app or any other that knows `sys.reaction`. They stay attached however
-      // often the todo is ticked, because they point at its key.
-      const views = await Promise.all(
-        records.map(async (record) =>
-          toView(record, await node.records.linked<{ emoji: string }>(space.id, record.key, { collection: 'sys.reaction' }), rootDid),
-        ),
-      );
-      return views
-        .filter((view): view is TodoView => view !== null)
-        .sort((a, b) => a.body.order - b.body.order);
+      // One query: the todos in order, each with the 👍 reactions pointing at
+      // it. Reactions are their own records — written by this app or any other
+      // that knows `sys.reaction` — and stay attached however often the todo
+      // is ticked, because they point at its key.
+      const { records } = await node.records.query<Todo>(space.id, {
+        collection: COLLECTION,
+        sort: { order: 'asc' },
+        include: { likes: { rel: 'about', from: 'sys.reaction', where: { emoji: REACTION } } },
+      });
+      return records
+        .map((record) => toView(record, (record.included?.likes ?? []) as ReadonlyArray<NodeRecord<{ emoji: string }>>, rootDid))
+        .filter((view): view is TodoView => view !== null);
     },
 
     async add(text: string): Promise<void> {

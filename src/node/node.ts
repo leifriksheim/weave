@@ -14,6 +14,8 @@
  * key, so the root — a seed in this page, a Snap, whatever holds it — is asked
  * for one signature an hour, never one per write.
  */
+import { runQuery } from '../query/engine.js';
+import type { Query, QueryResult } from '../query/types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 import type { Link } from '../types.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
@@ -400,6 +402,50 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     },
     async history<T>(spaceId: string, key: string) {
       return (await runtime(spaceId)).history<T>(key);
+    },
+    async query<T>(spaceId: string, query: Query) {
+      const space = await runtime(spaceId);
+      return runQuery<T>(
+        {
+          list: (collection) => space.list({ collection }),
+          get: (key) => space.get(key),
+          linked: (key, options) => space.linked(key, options),
+        },
+        query,
+      );
+    },
+    watch<T>(spaceId: string, query: Query, onResult: (result: QueryResult<T>) => void, onError?: (error: Error) => void) {
+      // Changes arrive in bursts during sync; one run at a time, and one more
+      // after it if anything changed meanwhile — never a queue of stale runs.
+      let stopped = false;
+      let running = false;
+      let again = false;
+      const run = async () => {
+        if (running) {
+          again = true;
+          return;
+        }
+        running = true;
+        do {
+          again = false;
+          try {
+            const result = await records.query<T>(spaceId, query);
+            if (!stopped) onResult(result);
+          } catch (error) {
+            if (!stopped) onError?.(error instanceof Error ? error : new Error(String(error)));
+          }
+        } while (again && !stopped);
+        running = false;
+      };
+      const listener = (event: NodeEvent) => {
+        if (event.type === 'records' && event.space === spaceId) void run();
+      };
+      listeners.add(listener);
+      void run();
+      return () => {
+        stopped = true;
+        listeners.delete(listener);
+      };
     },
   });
 

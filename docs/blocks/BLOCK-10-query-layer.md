@@ -1,5 +1,27 @@
 # BLOCK-10 — A query layer
 
+> **Done (2026-09-23).** `src/query/` (types, filter, engine), exposed as
+> `node.records.query(space, query)` and `node.records.watch(space, query, onResult)`,
+> and as the `records_query` action — so the CLI, MCP and WebMCP get it too.
+> Tests: `tests/query.test.ts`. The example's list is one query, with its 👍
+> reactions pulled in through `include`; verified in two browsers.
+>
+> What changed from the plan below, now that BLOCK-09 and BLOCK-14 exist:
+>
+> - **It lives on the node, not the storage provider.** Filtering needs opened
+>   records — decrypted, verified — which only the node has.
+> - **`@` names are about the record, bare names are the body.** `@key`,
+>   `@author`, `@root`, `@createdBy`, `@createdAt`, `@updatedAt`, `@seq`. So
+>   `{ createdAt: … }` in a body never collides with the record's own. An
+>   unknown `@` name is refused; an unknown body field simply matches nothing.
+> - **Ties break on the record key**, not the version id — the key survives edits,
+>   so a cursor (the last key of a page) stays valid when a record is ticked.
+> - **`include` has `count: true`**, for reactions and votes; `from` is optional.
+> - **Queries are checked before they run.** An unknown operator, a `$where`, or
+>   includes nested past 3 are refused with a message saying what to fix.
+> - **Links are sealed in private spaces** (BLOCK-09), so the gotcha below about
+>   filtering links without decrypting holds for public spaces only.
+
 ## What this delivers
 
 Filtering, sorting, paging and following links, in a shape TypeScript developers

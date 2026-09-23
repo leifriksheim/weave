@@ -81,11 +81,13 @@ but its links go unchecked until that lands.
 6. ~~**BLOCK-08**~~ — done; agents can define collections over MCP.
 7. ~~**BLOCK-14**~~ — done: records keep their key; edits are ordered versions.
 8. ~~**BLOCK-09**~~ — done: links by key, declared in definitions, `sys.*` annotations.
-9. **Agent keys** — an agent as its own limited key acting for you; delegation
-   chains that verify on every device; agent authorship shown. (Block to write.)
-10. **Views** — `sys.view`: how to show a collection, as data an agent can write
-    and any app can render. (Block to write.)
-11. **BLOCK-10** queries, then WebMCP in the example.
+9. ~~**BLOCK-10**~~ — done: `records.query` / `watch` / `records_query`; plain-data filters, includes over links.
+10. **Views** — `sys.view`: a query plus a layout, as data an agent can write
+    and any app can render. The format is protocol; renderers are app code. (Block to write.)
+11. **Agent sessions** — an agent is not its own identity: it signs for you with
+    a session key, like any device, given a narrower, labelled delegation
+    (which spaces, which collections, read or write). (Block to write.)
+12. WebMCP in the example.
 
 ## Why the always-on node matters most
 
