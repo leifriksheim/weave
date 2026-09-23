@@ -77,19 +77,28 @@ export function SpaceView({
         </div>
       </header>
 
-      <form onSubmit={handleAdd} style={styles.addForm}>
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="What needs to be done?"
-          style={styles.todoInput}
-          autoFocus
-        />
-        <button type="submit" disabled={!draft.trim()} data-variant="primary" style={styles.addButton}>
-          Add
-        </button>
-      </form>
+      {!space.writable && (
+        <p style={styles.errorHint}>
+          👀 You are following this list. It is {space.owner.slice(-6)}'s personal list, so only they can
+          change it — ask them for a shared list to edit together.
+        </p>
+      )}
+
+      {space.writable && (
+        <form onSubmit={handleAdd} style={styles.addForm}>
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="What needs to be done?"
+            style={styles.todoInput}
+            autoFocus
+          />
+          <button type="submit" disabled={!draft.trim()} data-variant="primary" style={styles.addButton}>
+            Add
+          </button>
+        </form>
+      )}
 
       <div style={styles.todoList}>
         {loading && todos.length === 0 && <p style={styles.emptyState}>Opening…</p>}
@@ -102,6 +111,7 @@ export function SpaceView({
             todo={todo}
             onToggle={() => void toggle(todo)}
             onDelete={() => void remove(todo.id)}
+            readOnly={!space.writable}
           />
         ))}
       </div>

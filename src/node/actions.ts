@@ -213,7 +213,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
   },
   {
     name: 'records_delete',
-    description: 'Delete a record for every member of the space. Only its author or the space owner can.',
+    description: 'Delete a record for every member of the space. Anyone who may write in the space may delete in it.',
     input: { type: 'object', properties: { space, id }, required: ['space', 'id'] },
     readOnly: false,
     run: async (node, input) => {

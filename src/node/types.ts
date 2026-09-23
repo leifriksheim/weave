@@ -70,6 +70,11 @@ export interface SpaceSummary {
   readonly createdAt: string;
   /** Whether this node can read the space: always for public ones, only with the key for private */
   readonly readable: boolean;
+  /**
+   * Whether this node's account may change it: always in a shared space, only
+   * as its owner in a personal one. Someone following a personal space reads it.
+   */
+  readonly writable: boolean;
 }
 
 export interface NewSpace {
@@ -81,7 +86,7 @@ export interface NewSpace {
 }
 
 export interface InvitePreview {
-  readonly space: Omit<SpaceSummary, 'readable'>;
+  readonly space: Omit<SpaceSummary, 'readable' | 'writable'>;
   readonly invitedBy: string;
   /** Whether the invite carries the key to a private space */
   readonly carriesKey: boolean;
@@ -212,7 +217,10 @@ export interface NodeRecords {
    * record has a new id — ids are content hashes.
    */
   update<T = unknown>(spaceId: string, id: string, body: T): Promise<NodeRecord<T>>;
-  /** Deletes a record everywhere, by writing a signed tombstone that syncs like any record */
+  /**
+   * Deletes a record everywhere, by writing a signed tombstone that syncs like
+   * any record. Anyone who may write in the space may delete in it.
+   */
   delete(spaceId: string, id: string): Promise<void>;
 }
 

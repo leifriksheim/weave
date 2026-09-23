@@ -51,7 +51,7 @@ export const SESSION_CAPABILITY: Capability = { with: '*', can: 'expression/*' }
 
 const DEFAULT_TTL_SECONDS = 3600;
 
-function summarize(record: SpaceRecord): SpaceSummary {
+function summarize(record: SpaceRecord, did: string): SpaceSummary {
   const { space, key } = record;
   return Object.freeze({
     id: space.id,
@@ -62,6 +62,7 @@ function summarize(record: SpaceRecord): SpaceSummary {
     members: space.members,
     createdAt: space.createdAt,
     readable: space.visibility === 'public' || key !== null,
+    writable: space.type === 'shared' || space.owner === did,
   });
 }
 
@@ -281,19 +282,19 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   const spaces: NodeSpaces = Object.freeze({
     async list() {
-      return (await registry.list()).map(summarize);
+      return (await registry.list()).map((record) => summarize(record, config.signer.did));
     },
 
     async get(spaceId: string) {
       const record = await findRecord(spaceId);
-      return record ? summarize(record) : null;
+      return record ? summarize(record, config.signer.did) : null;
     },
 
     async create(params: NewSpace) {
       const record = await registry.create({ ...params, owner: config.signer.did });
       await remember(record.space.id);
       emit({ type: 'spaces' });
-      return summarize(record);
+      return summarize(record, config.signer.did);
     },
 
     async invite(spaceId: string) {
@@ -312,7 +313,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       await closeRuntime(record.space.id);
       await remember(record.space.id);
       emit({ type: 'spaces' });
-      return summarize(record);
+      return summarize(record, config.signer.did);
     },
 
     async leave(spaceId: string) {

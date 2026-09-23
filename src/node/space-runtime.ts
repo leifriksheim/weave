@@ -10,9 +10,11 @@
  * anywhere else: the next sync finds it missing and pulls it straight back from
  * a peer. So a delete is a signed tombstone in `sys.tombstone` naming its
  * target. It syncs like anything else, and every node hides the target once it
- * holds a tombstone from someone allowed to write one — the target's own
- * author, or the space's owner. The target itself stays stored; dropping it
- * would only invite it back.
+ * holds a valid tombstone. Valid means what it means for any record: signed,
+ * and written by someone the space lets write — its owner alone in a personal
+ * space, anyone invited in a shared one. So members of a shared list can tick
+ * and remove each other's items, which is what a shared list is for. The
+ * target itself stays stored; dropping it would only invite it back.
  */
 import type { Expression, CryptoProvider, StorageAdapter } from '../types.js';
 import type { Signer } from '../schema/signer.js';
@@ -130,6 +132,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   const { space, key } = record;
 
   const adapter = await deps.stores(`spaces/${space.id}`);
+  /** A personal space takes writes from its owner alone; a shared one from anyone in it. */
+  const writable = space.type === 'shared' || deps.rootDid === space.owner;
   const storage: StorageProvider = createStorageProvider(adapter);
 
   const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
@@ -280,7 +284,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     emit({ type: 'records', space: space.id });
   };
 
-  /** Ids hidden by a tombstone from someone entitled to write it. */
+  /** Ids hidden by a valid tombstone. The capability gate already decided who may write one. */
   async function deletedIds(): Promise<Set<string>> {
     const deleted = new Set<string>();
     const stones = await storage.queryExpressions(TOMBSTONE_COLLECTION, Number.MAX_SAFE_INTEGER);
@@ -289,12 +293,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const target = (opened.body as { target?: unknown } | null)?.target;
       if (!stoneVerdict.verified || typeof target !== 'string') continue;
 
-      const targetExpression = await storage.getExpression(target);
-      if (!targetExpression) continue; // nothing here to hide yet
-      const targetVerdict = await judge(targetExpression);
-      if (stoneVerdict.root === targetVerdict.root || stoneVerdict.root === space.owner) {
-        deleted.add(target);
-      }
+      deleted.add(target);
     }
     return deleted;
   }
@@ -432,6 +431,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   // ─── Writing ───────────────────────────────────────────────────────
 
   async function write<T>(collection: string, body: T): Promise<Expression> {
+    // Every other copy would reject it, so refuse it here rather than show a
+    // change that exists on this device alone.
+    if (!writable) throw new Error(`"${space.name}" is a personal space — only its owner can change it`);
+
     // Refused here, where the writer can fix it. On arrival a misfit is kept
     // and flagged instead — see `conforms`.
     const issues = await shapeIssues(collection, body);

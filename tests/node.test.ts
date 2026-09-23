@@ -199,17 +199,39 @@ describe('two nodes', () => {
     assert.equal(await bob.records.get(space, written.id), null);
   });
 
-  test("a member cannot delete someone else's record", async () => {
-    const { alice, bob, space } = await pair();
+  test("in a shared space, members tick and delete each other's items", async () => {
+    const { alice, bob, space, converged } = await pair();
     const written = await alice.records.put<Todo>(space, 'app.todo.item', { text: "alice's", done: false });
     await until(async () => (await bob.records.get(space, written.id)) !== null, 3000, 'record to reach bob');
 
-    // Bob is neither the author nor the owner. His tombstone is written and
-    // synced, but nobody honours it.
-    await bob.records.delete(space, written.id);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.notEqual(await alice.records.get(space, written.id), null);
-    assert.notEqual(await bob.records.get(space, written.id), null);
+    // Bob ticks Alice's item: the old version goes away for both, one ticked copy remains.
+    const ticked = await bob.records.update<Todo>(space, written.id, { text: "alice's", done: true });
+    await until(async () => (await alice.records.get(space, written.id)) === null, 3000, 'the old version to go for alice');
+    await until(converged, 3000, 'roots to match');
+    const seen = await alice.records.list<Todo>(space);
+    assert.deepEqual(seen.map((r) => [r.id, r.body?.done]), [[ticked.id, true]]);
+
+    await alice.records.delete(space, ticked.id);
+    await until(async () => (await bob.records.list(space)).length === 0, 3000, 'the delete to reach bob');
+  });
+
+  test('someone following a personal space can read it but not change it', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const owner = await startNode({ hub });
+    const follower = await startNode({ hub });
+    const space = await owner.spaces.create({ name: 'Mine', type: 'personal', visibility: 'private' });
+    const written = await owner.records.put<Todo>(space.id, 'app.todo.item', { text: 'only I edit this', done: false });
+
+    const joined = await follower.spaces.join(await owner.spaces.invite(space.id));
+    assert.equal(joined.writable, false);
+    assert.equal((await owner.spaces.get(space.id))?.writable, true);
+    await owner.spaces.open(space.id);
+    await follower.spaces.open(space.id);
+    await until(async () => (await follower.records.get(space.id, written.id)) !== null, 3000, 'the follower to read it');
+
+    await assert.rejects(follower.records.update(space.id, written.id, { text: 'x', done: true }), /only its owner can change it/);
+    await assert.rejects(follower.records.put(space.id, 'app.todo.item', { text: 'y', done: false }), /only its owner/);
+    await assert.rejects(follower.records.delete(space.id, written.id), /only its owner/);
   });
 });
 

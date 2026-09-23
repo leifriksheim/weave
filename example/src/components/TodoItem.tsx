@@ -6,10 +6,13 @@ export function TodoItem({
   todo,
   onToggle,
   onDelete,
+  readOnly = false,
 }: {
   todo: TodoView;
   onToggle: () => void;
   onDelete: () => void;
+  /** Following someone else's personal list: shown, not changed */
+  readOnly?: boolean;
 }) {
   const { verification } = todo;
   const verified = verification.signatureValid && verification.authorized;
@@ -25,6 +28,7 @@ export function TodoItem({
         type="checkbox"
         checked={todo.body.completed}
         onChange={onToggle}
+        disabled={readOnly}
         style={styles.checkbox}
         aria-label={`Mark "${todo.body.text}" ${todo.body.completed ? 'not done' : 'done'}`}
       />
@@ -47,16 +51,18 @@ export function TodoItem({
           {todo.author.slice(-6)}
         </span>
       </div>
-      <button
-        onClick={onDelete}
-        data-row-action
-        data-variant="danger"
-        style={styles.rowAction}
-        title="Delete"
-        aria-label={`Delete "${todo.body.text}"`}
-      >
-        ✕
-      </button>
+      {!readOnly && (
+        <button
+          onClick={onDelete}
+          data-row-action
+          data-variant="danger"
+          style={styles.rowAction}
+          title="Delete"
+          aria-label={`Delete "${todo.body.text}"`}
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
