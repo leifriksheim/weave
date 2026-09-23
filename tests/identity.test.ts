@@ -8,17 +8,17 @@ import assert from 'node:assert/strict';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../src/identity/did.js';
-import { scalarMultBase, seedToScalar, fieldToBytes } from '../src/identity/p256-curve.js';
+import { p256 } from '@noble/curves/nist.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
-import { utf8Encode, base64UrlEncode } from '../src/utils/encoding.js';
+import { utf8Encode, base64UrlEncode, base64UrlDecode } from '../src/utils/encoding.js';
 
 const provider = createP256Provider();
 
-describe('p256-curve', () => {
-  test('derives the same public point Web Crypto does', async () => {
-    // Generate a key pair with Web Crypto, then recompute its public point from
-    // the private scalar alone — the two must agree.
+describe('P-256 keys', () => {
+  test('noble computes the same public point Web Crypto does', async () => {
+    // Web Crypto can sign with a scalar but not compute its public point, so
+    // derived keys rely on noble for that one step. The two must agree.
     for (let i = 0; i < 5; i++) {
       const pair = await globalThis.crypto.subtle.generateKey(
         { name: 'ECDSA', namedCurve: 'P-256' },
@@ -26,20 +26,34 @@ describe('p256-curve', () => {
         ['sign', 'verify'],
       );
       const jwk = await globalThis.crypto.subtle.exportKey('jwk', pair.privateKey);
+      const point = p256.getPublicKey(base64UrlDecode(jwk.d!), false);
 
-      const d = BigInt('0x' + Buffer.from(jwk.d!, 'base64url').toString('hex'));
-      const point = scalarMultBase(d);
-
-      assert.equal(base64UrlEncode(fieldToBytes(point.x)), jwk.x);
-      assert.equal(base64UrlEncode(fieldToBytes(point.y)), jwk.y);
+      assert.equal(base64UrlEncode(point.subarray(1, 33)), jwk.x);
+      assert.equal(base64UrlEncode(point.subarray(33, 65)), jwk.y);
     }
   });
 
-  test('maps seeds into the valid scalar range', () => {
-    const zero = seedToScalar(new Uint8Array(32));
-    assert.equal(zero > 0n, true);
-    const max = seedToScalar(new Uint8Array(32).fill(0xff));
-    assert.equal(max > 0n, true);
+  test('public keys export compressed and import either way', async () => {
+    const pair = await provider.generateKeyPair();
+    const compressed = await provider.exportPublicKey(pair.publicKey);
+    assert.equal(compressed.length, 33);
+
+    const message = utf8Encode('hello');
+    const signature = await provider.sign(pair.privateKey, message);
+    const fromCompressed = await provider.importPublicKey(compressed);
+    const fromFull = await provider.importPublicKey(p256.Point.fromBytes(compressed).toBytes(false));
+    assert.equal(await provider.verify(fromCompressed, signature, message), true);
+    assert.equal(await provider.verify(fromFull, signature, message), true);
+  });
+
+  test('reads the did:key specification\'s P-256 example', async () => {
+    // https://w3c-ccg.github.io/did-key-spec/#p-256
+    const did = 'did:key:zDnaerDaTF5BXEavCrfRZEk316dpbLsfPDZ3WJ5hRTPFU2169';
+    const { publicKeyBytes, multicodecPrefix } = didToPublicKey(did);
+    assert.deepEqual(multicodecPrefix, P256_MULTICODEC);
+    assert.equal(publicKeyBytes.length, 33);
+    await provider.importPublicKey(publicKeyBytes); // a valid point, or this throws
+    assert.equal(publicKeyToDid(publicKeyBytes, P256_MULTICODEC), did);
   });
 });
 
@@ -71,23 +85,24 @@ describe('deriveKeyPairFromSeed', () => {
 });
 
 describe('derivation is frozen', () => {
-  // Recorded before the curve arithmetic moved to @noble/curves. If any of these
-  // change, every existing account silently becomes a different identity.
+  // HKDF-SHA256 → 48 bytes → noble's FIPS 186-5 reduction → compressed did:key.
+  // If any of these change, every existing account silently becomes a
+  // different identity — fine before release, never after.
   const golden: ReadonlyArray<readonly [Uint8Array, string]> = [
-    [new Uint8Array(16), 'did:key:z4oJ8dk6TGuSPJYcFLuHReGAdqn8hBmidESYjG8pCbvKTVv4yg851wgTxGYJNf6WapTkvjGG83xJfMnhgoKmL6HxEVDDN'],
-    [new Uint8Array(16).fill(0xff), 'did:key:z4oJ8a1vBsAgYaQ6mNuuPGVp64EFPuPCe7giGEUmBSJri7CkmLPGCHNxWZ4prRF1dBWMDQuLUuNkdSvzMAiiePn6YbvjK'],
-    [Uint8Array.from({ length: 16 }, (_, i) => i * 17), 'did:key:z4oJ8eJzihinybZXA61w1vwqTvwpE3g2is4EAHffwYvAdXzzLe5Z6BfLi9mDgiAiAtQT6h4kd1PpQL38m4kLN9y7df2Vn'],
+    [new Uint8Array(16), 'did:key:zDnaejnU4yVmCwifaJXRc4zCSM4tBEy6fJwLj3uULYoZYxzvT'],
+    [new Uint8Array(16).fill(0xff), 'did:key:zDnaeYtp37ZppNF2m7cfRXpJXmeQ1P1WfLADn8WsAGramXmuF'],
+    [Uint8Array.from({ length: 16 }, (_, i) => i * 17), 'did:key:zDnaeeHEx2sEZ8LHHw6tvqCBH3JQ7YMdna8bvxU3TdcErPqDg'],
   ];
 
-  test('known seeds still derive their recorded DIDs', async () => {
+  test('known seeds derive their recorded DIDs', async () => {
     for (const [seed, did] of golden) {
       assert.equal((await createIdentityManager().fromSeed(seed)).did, did);
     }
   });
 
-  test('a known recovery code still derives its recorded DID', async () => {
+  test('a known recovery code derives its recorded DID', async () => {
     const identity = await createIdentityManager().fromRecoveryCode('K7N6-ERYP-68TZ-A7HN-VJW3-QWKN-CG');
-    assert.equal(identity.did, 'did:key:z4oJ8dgsDeFiybc57znKqCjarJ7ZyNKeMrst1JwDjdA6dxDfmsZEprdnwMiLuxzn9KuDofJuK1G5agVmBPMpmvwTVUuST');
+    assert.equal(identity.did, 'did:key:zDnaeTLEZ7dbN3BFYgbvhtTDQLPQqTY1o5G335iwGa5g9m48F');
   });
 });
 

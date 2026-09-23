@@ -32,7 +32,8 @@ curve output against Web Crypto's).
 
 | Package | Where | Why it clears the bar |
 |---|---|---|
-| `@noble/curves` | `src/identity/p256-curve.ts` | Audited, dependency-free apart from `@noble/hashes`, used by viem and ethers. Replaced hand-written P-256 point arithmetic. |
+| `@noble/curves` | `src/identity/crypto-p256.ts` | Audited, dependency-free apart from `@noble/hashes`, used by viem and ethers. Turns a seed into a P-256 key (FIPS 186-5 A.2) and compresses/decompresses points; replaced hand-written curve arithmetic and a home-grown seed-to-scalar mapping. |
+| `@scure/base` | `src/identity/did.ts` | Same author and audit as noble, no dependencies. Base58btc for `did:key`; replaced a hand-written codec. |
 
 Development only: `typescript`, `tsx`, and `ws` — a real WebSocket server for `tests/ws-transport.test.ts`, since Node has a WebSocket client but no server.
 

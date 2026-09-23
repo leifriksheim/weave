@@ -6,37 +6,18 @@ export interface DerivedKeyPair {
   readonly publicKeyBytes: Uint8Array;
 }
 
-const HKDF_INFO = new TextEncoder().encode('p2p-protocol-keypair-v1');
-
 /**
- * Derives a key pair from PRF output.
- * @param {Uint8Array} prfOutput The PRF output bytes.
+ * Derives a key pair from seed bytes: an account seed, a PRF output, or a
+ * stretched password. One KDF step, owned by the provider, since how many bytes
+ * a curve needs to reach a key without bias is a property of the curve.
+ * @param {Uint8Array} seed At least 16 uniformly random bytes.
  * @param {CryptoProvider} provider The cryptography provider.
  * @returns {Promise<DerivedKeyPair>} The derived key pair.
  */
-export async function deriveKeyPair(prfOutput: Uint8Array, provider: CryptoProvider): Promise<DerivedKeyPair> {
-  const hkdfKey = await globalThis.crypto.subtle.importKey(
-    'raw',
-    prfOutput as BufferSource,
-    { name: 'HKDF' },
-    false,
-    ['deriveBits']
-  );
-
-  const derivedBits = await globalThis.crypto.subtle.deriveBits(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: new Uint8Array(0),
-      info: HKDF_INFO
-    },
-    hkdfKey,
-    256
-  );
-
+export async function deriveKeyPair(seed: Uint8Array, provider: CryptoProvider): Promise<DerivedKeyPair> {
   // The provider turns the seed into a key pair whose public key genuinely
   // matches the private one — that correspondence is what makes a DID verifiable.
-  const keyPair = await provider.deriveKeyPairFromSeed(new Uint8Array(derivedBits));
+  const keyPair = await provider.deriveKeyPairFromSeed(seed);
   const publicKeyBytes = await provider.exportPublicKey(keyPair.publicKey);
 
   return Object.freeze({

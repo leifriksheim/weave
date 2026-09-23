@@ -1,6 +1,23 @@
 import { CryptoProvider, CryptoKeyPairResult } from '../types.js';
 import { base64UrlEncode } from '../utils/encoding.js';
-import { scalarMultBase, seedToScalar, fieldToBytes } from './p256-curve.js';
+import { p256 } from '@noble/curves/nist.js';
+
+/** 48 bytes: the 32-byte group order plus 16 more, so reducing mod n is unbiased */
+const P256_SEED_BYTES = 48;
+
+/** Domain separation for identity keys. Changing it changes every derived DID. */
+const P256_KEY_INFO = new TextEncoder().encode('p2p-web/p256-identity-key/v1');
+
+/** HKDF-SHA256 with an empty salt: the seed is already uniformly random. */
+async function hkdf(ikm: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
+  const key = await globalThis.crypto.subtle.importKey('raw', ikm as BufferSource, 'HKDF', false, ['deriveBits']);
+  const bits = await globalThis.crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: info as BufferSource },
+    key,
+    length * 8,
+  );
+  return new Uint8Array(bits);
+}
 
 /**
  * Creates a CryptoProvider using the Web Crypto API with ECDSA P-256.
@@ -27,12 +44,17 @@ export function createP256Provider(): CryptoProvider {
     },
 
     async deriveKeyPairFromSeed(seed: Uint8Array): Promise<CryptoKeyPairResult> {
-      const scalar = seedToScalar(seed);
-      const point = scalarMultBase(scalar);
+      // HKDF stretches the seed to the 48 bytes FIPS 186-5 (appendix A.2) asks
+      // for, and noble reduces them to a scalar in [1, n-1] with negligible bias.
+      // Web Crypto can sign with a scalar but cannot compute its public point,
+      // which is the one step noble supplies.
+      const expanded = await hkdf(seed, P256_KEY_INFO, P256_SEED_BYTES);
+      const secretKey = p256.utils.randomSecretKey(expanded);
+      const point = p256.getPublicKey(secretKey, false); // 0x04 ‖ x ‖ y
 
-      const x = base64UrlEncode(fieldToBytes(point.x));
-      const y = base64UrlEncode(fieldToBytes(point.y));
-      const d = base64UrlEncode(fieldToBytes(scalar));
+      const x = base64UrlEncode(point.subarray(1, 33));
+      const y = base64UrlEncode(point.subarray(33, 65));
+      const d = base64UrlEncode(secretKey);
 
       const algorithm = { name: 'ECDSA', namedCurve: 'P-256' } as const;
 
@@ -79,15 +101,18 @@ export function createP256Provider(): CryptoProvider {
       );
     },
 
+    /** The 33-byte compressed point — the form did:key specifies for P-256. */
     async exportPublicKey(key: CryptoKey): Promise<Uint8Array> {
-      const exported = await globalThis.crypto.subtle.exportKey('raw', key);
-      return new Uint8Array(exported);
+      const raw = new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', key));
+      return p256.Point.fromBytes(raw).toBytes(true);
     },
 
+    /** Accepts a compressed or uncompressed point; Web Crypto only reliably imports the latter. */
     async importPublicKey(bytes: Uint8Array): Promise<CryptoKey> {
+      const uncompressed = p256.Point.fromBytes(bytes).toBytes(false);
       return await globalThis.crypto.subtle.importKey(
         'raw',
-        bytes as BufferSource,
+        uncompressed as BufferSource,
         {
           name: 'ECDSA',
           namedCurve: 'P-256'

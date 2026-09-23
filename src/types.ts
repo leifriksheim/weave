@@ -7,7 +7,10 @@
 export interface CryptoProvider {
   readonly algorithm: string;
   generateKeyPair(): Promise<CryptoKeyPairResult>;
-  /** Deterministically derives a key pair from seed bytes (same seed → same keys) */
+  /**
+   * Deterministically derives a key pair from seed bytes (same seed → same keys).
+   * Owns the whole KDF: callers pass the raw seed, at least 16 uniform bytes.
+   */
   deriveKeyPairFromSeed(seed: Uint8Array): Promise<CryptoKeyPairResult>;
   sign(privateKey: CryptoKey, data: Uint8Array): Promise<Uint8Array>;
   verify(publicKey: CryptoKey, signature: Uint8Array, data: Uint8Array): Promise<boolean>;

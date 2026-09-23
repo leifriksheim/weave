@@ -22,7 +22,7 @@ devices, and every app is a view onto that data rather than its owner.
 │    several relays at once · peers introduce peers            │
 ├──────────────────────────────────────────────────────────────┤
 │    Web Crypto · WebAuthn · IndexedDB · File System Access ·  │
-│    WebRTC · @noble/curves                                    │
+│    WebRTC · @noble/curves · @scure/base                      │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -111,12 +111,13 @@ for the full wiring.
 
 #### The account is a seed
 
-An identity is 16 random bytes. They are stretched with HKDF, mapped onto a
-P-256 private key, and the public key becomes a `did:key` — so the same seed
-always yields the same DID, and anything that DID signs verifies for anyone who
-holds only the DID. The curve arithmetic comes from `@noble/curves`; the mapping
-from seed to key is ours and is pinned by golden tests, because changing it would
-silently give every account a new identity.
+An identity is 16 random bytes. HKDF-SHA256 stretches them to 48, `@noble/curves`
+reduces those to a P-256 private key the standard way (FIPS 186-5, appendix
+A.2), and the compressed public key becomes a spec-conformant `did:key`
+(`did:key:zDn…`). The same seed always yields the same DID, and anything that
+DID signs verifies for anyone who holds only the DID. Golden tests pin known
+seeds to their DIDs, because a silent change here would give every account a
+new identity.
 
 The seed's written form is the **recovery code**: 128 bits in Crockford base32.
 It is the primary way in, not a fallback. It is the only credential that works
