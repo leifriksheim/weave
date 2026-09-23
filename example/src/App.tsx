@@ -5,6 +5,8 @@ import { useSpaces } from './hooks/useSpaces';
 import { CreateAccount } from './components/CreateAccount';
 import { SignIn } from './components/SignIn';
 import { ChooseStorage } from './components/ChooseStorage';
+import { Welcome } from './components/Welcome';
+import { Wordmark } from './components/ChooseStorage';
 import { AccountMenu } from './components/AccountMenu';
 import { PairArrival } from './components/PairArrival';
 import { PairPhone } from './components/PairPhone';
@@ -60,10 +62,9 @@ export function App() {
     );
   }
 
-  if (auth.stage === 'chooseStorage') {
+  if (auth.stage === 'where') {
     return (
       <ChooseStorage
-        folderAvailable={auth.folderAvailable}
         loading={auth.loading}
         error={auth.error}
         onChooseFolder={auth.chooseFolder}
@@ -83,6 +84,18 @@ export function App() {
           </p>
         </div>
       </div>
+    );
+  }
+
+  if (auth.stage === 'welcome' && auth.home) {
+    return (
+      <Welcome
+        home={auth.home}
+        loading={auth.loading}
+        onCreate={auth.startCreating}
+        onHaveAccount={auth.backToSignIn}
+        onChangeStorage={auth.changeStorage}
+      />
     );
   }
 
@@ -151,7 +164,7 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
             peer count that never moves. Better to say it than to look broken. */}
         {relayProblem() && (
           <div style={styles.errorBox}>
-            <p style={styles.error}>⚠️ Peers cannot find each other</p>
+            <p style={styles.error}>Peers cannot find each other</p>
             <p style={styles.errorHint}>{relayProblem()}</p>
             <p style={styles.errorHint}>
               Your spaces still work, and still save. They just will not reach your other devices
@@ -192,9 +205,10 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
         ) : (
           <>
             <header style={styles.headerRow}>
-              <h1 style={styles.appTitle}>🗂️ Your spaces</h1>
+              <Wordmark compact />
               <AccountMenu auth={auth} session={session} />
             </header>
+            <h1 style={{ ...styles.appTitle, marginBottom: 20 }}>Spaces</h1>
 
             <SpaceList
               spaces={spaces}
@@ -209,7 +223,7 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
             <PairPhone />
 
             <details style={styles.panel}>
-              <summary data-variant="ghost" style={styles.panelSummary}>⚙️ How it works</summary>
+              <summary data-variant="ghost" style={styles.panelSummary}>How it works</summary>
               <ul style={styles.infoList}>
                 <li>Each <strong>space</strong> has its own Merkle Search Tree, its own store, its own gossip room</li>
                 <li>Private spaces encrypt every body with an AES key <em>before</em> signing, so peers relay what they cannot read</li>
@@ -219,7 +233,7 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
                 <li>A phone cannot open a folder, so it takes its own copy — the QR hands over the identity, and the spaces follow over the peer connection</li>
                 <li>A <strong>data folder</strong> is the only store that is not scoped to this origin — point a second app at it and you get the same account and the same spaces</li>
                 <li>Screens are worked out from what a space says about itself — its kinds of things, their fields and how they point at each other — so this app shows data it has never seen before</li>
-                <li>🔐 on a record means its signature and delegation chain both check out here</li>
+                <li>“verified” on a record means its signature and delegation chain both check out here</li>
               </ul>
             </details>
           </>
@@ -244,8 +258,8 @@ function InviteBanner({
   try {
     const preview = previewInvite(invite);
     description = `“${preview.space.name}”`;
-    detail = `${preview.space.visibility === 'private' ? '🔒 private' : '🌍 public'} · ${
-      preview.space.type === 'shared' ? '👥 shared' : '👤 personal'
+    detail = `${preview.space.visibility === 'private' ? 'private' : 'public'} · ${
+      preview.space.type === 'shared' ? 'shared' : 'personal'
     } · invited by ${preview.invitedBy.slice(-6)}`;
   } catch {
     detail = 'This invite could not be read.';

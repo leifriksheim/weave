@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import type { AuthError } from '../hooks/useProtocol';
 import { Info } from './Info';
+import { Wordmark } from './ChooseStorage';
 import { accountCredentialName } from '../accounts';
 import { offerToSave } from '../credentials';
 import { styles, variants } from '../styles';
@@ -56,7 +57,8 @@ export function CreateAccount({
     return (
       <div style={styles.container}>
         <div data-card style={styles.card}>
-          <h1 style={styles.title}>🔑 Save your password</h1>
+          <Wordmark />
+          <h1 style={styles.title}>Save your password</h1>
           <p style={styles.hint}>
             Save this to your password manager now — it will fill itself in from then on.
             <Info label="About this password">
@@ -124,15 +126,16 @@ export function CreateAccount({
   return (
     <div style={styles.container}>
       <div data-card style={styles.card}>
-        <h1 style={styles.title}>Weave</h1>
-        <p style={styles.subtitle}>Lists that live in your hands, not on a server.</p>
+        <Wordmark />
+        <h1 style={styles.title}>Create your account</h1>
+        <p style={styles.subtitle}>Your data stays with you, not on a server.</p>
 
         <form onSubmit={submit} style={styles.form}>
           <input
             type="text"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="What should we call you?"
+            placeholder="Your name"
             disabled={loading}
             style={styles.input}
             autoFocus
@@ -152,12 +155,12 @@ export function CreateAccount({
         <p style={styles.errorHint}>
           We'll generate a strong password and show it once.
           <Info label="What happens next">
-            Then you choose where your lists live: in this browser, or in a folder on your computer
-            that other apps can open too. A folder is what lets a second app read the same data;
-            this browser keeps it to itself.
+            Save it in your password manager. It opens your account in any Weave app, even one that
+            has never seen you — and nobody can reissue it.
           </Info>
         </p>
 
+        {/* MetaMask is parked for now.
         {walletHere && (
           <section style={{ ...styles.panelSection, marginTop: 20 }}>
             <p style={styles.sectionTitle}>Or keep your key in MetaMask</p>
@@ -171,11 +174,10 @@ export function CreateAccount({
               </Info>
             </p>
             <button onClick={onWallet} disabled={loading} data-variant="quiet" style={quietButton}>
-              {loading ? 'Waiting for MetaMask…' : '🦊 Continue with MetaMask'}
+              {loading ? 'Waiting for MetaMask…' : 'Continue with MetaMask'}
             </button>
-
           </section>
-        )}
+        )} */}
 
         {error && (
           <div style={styles.errorBox}>

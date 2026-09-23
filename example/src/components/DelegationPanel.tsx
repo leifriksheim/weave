@@ -23,11 +23,11 @@ export function DelegationPanel({ session, spaceId }: { session: Session; spaceI
 
   return (
     <details style={styles.panel}>
-      <summary data-variant="ghost" style={styles.panelSummary}>🎟️ UCAN delegation chain</summary>
+      <summary data-variant="ghost" style={styles.panelSummary}>UCAN delegation chain</summary>
       <div style={styles.panelBody}>
         <div style={styles.chain}>
           <div style={styles.chainRow}>
-            <span>🔑 root</span>
+            <span>root</span>
             <span>{short(payload.iss)}</span>
           </div>
           <div style={styles.chainRow}>
@@ -39,7 +39,7 @@ export function DelegationPanel({ session, spaceId }: { session: Session; spaceI
             <span>· expires in {expiresIn}m</span>
           </div>
           <div style={styles.chainRow}>
-            <span>🖥️ session</span>
+            <span>session</span>
             <span>{short(payload.aud)}</span>
           </div>
         </div>
@@ -64,7 +64,7 @@ export function DelegationPanel({ session, spaceId }: { session: Session; spaceI
                 </span>
               </div>
               <div style={styles.chainRow}>
-                <span>👤 guest</span>
+                <span>guest</span>
                 <span>{short(guest.guestDid)}</span>
               </div>
               <div style={styles.chainRow}>

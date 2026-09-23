@@ -7,8 +7,8 @@ import { styles } from '../styles';
 
 /** How a space is described once it exists. */
 export function spaceBadges(space: Pick<SpaceSummary, 'type' | 'visibility'>): string {
-  return `${space.visibility === 'private' ? '🔒 private' : '🌍 public'} · ${
-    space.type === 'shared' ? '👥 shared' : '👤 personal'
+  return `${space.visibility === 'private' ? 'private' : 'public'} · ${
+    space.type === 'shared' ? 'shared' : 'personal'
   }`;
 }
 
@@ -138,8 +138,8 @@ export function SpaceList({
               value={visibility}
               onChange={setVisibility}
               options={[
-                { value: 'private', label: '🔒 Encrypted' },
-                { value: 'public', label: '🌍 Anyone' },
+                { value: 'private', label: 'Encrypted' },
+                { value: 'public', label: 'Anyone' },
               ]}
             />
 
@@ -148,8 +148,8 @@ export function SpaceList({
               value={type}
               onChange={setType}
               options={[
-                { value: 'personal', label: '👤 Just me' },
-                { value: 'shared', label: '👥 People I invite' },
+                { value: 'personal', label: 'Just me' },
+                { value: 'shared', label: 'People I invite' },
               ]}
             />
 

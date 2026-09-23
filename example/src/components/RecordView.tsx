@@ -56,11 +56,11 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
         <p style={styles.todoMeta}>
           {collection ? collectionLabel(collection) : record.collection} · by {record.root?.slice(-6) ?? '?'} · {new Date(record.createdAt).toLocaleString()}
           {record.seq > 0 && ` · edited ${record.seq}×`}
-          {record.verified && ' · 🔐 verified'}
-          {record.encrypted && ' · 🔑 encrypted'}
+          {record.verified && ' · verified'}
+          {record.encrypted && ' · encrypted'}
         </p>
         {record.conforms === false && (
-          <p style={styles.error}>⚠️ Does not fit its definition: {record.issues?.map((i) => i.message).join('; ')}</p>
+          <p style={styles.error}>Does not fit its definition: {record.issues?.map((i) => i.message).join('; ')}</p>
         )}
 
         {editing ? (
@@ -101,7 +101,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
           </dl>
         )}
 
-        <div style={styles.linkRow}>
+        <div style={{ ...styles.linkRow, gap: 8 }}>
           <button
             onClick={() =>
               void (mine
@@ -109,15 +109,15 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
                 : node.records.put(space.id, 'sys.reaction', { emoji: LIKE }, { links: [{ rel: 'about', to: record.key }] }))
             }
             disabled={!space.writable}
-            data-variant={mine ? 'primary' : 'ghost'}
-            style={styles.linkButton}
+            data-variant={mine ? 'primary' : 'quiet'}
+            style={mine ? { ...styles.smallButton, backgroundColor: '#000', color: '#fff', borderColor: '#000' } : styles.smallButton}
             aria-label={mine ? 'Take back your 👍' : 'Add 👍'}
           >
             {summarizeReactions(reactions) || LIKE}
           </button>
           {space.writable && !editing && (
             <>
-              <button onClick={() => setEditing(true)} data-variant="ghost" style={styles.linkButton}>
+              <button onClick={() => setEditing(true)} data-variant="quiet" style={styles.smallButton}>
                 Edit
               </button>
               <button
@@ -126,7 +126,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
                   void node.records.delete(space.id, record.key).then(() => go({ collection: record.collection, key: null }));
                 }}
                 data-variant="quiet"
-                style={styles.linkButton}
+                style={{ ...styles.smallButton, color: '#e5484d' }}
               >
                 Delete
               </button>
@@ -153,7 +153,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
                 {counted.counts.map(({ label, count }) => (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
                     <span style={{ minWidth: 90 }}>{label}</span>
-                    <span style={{ height: 8, borderRadius: 4, background: '#3b5bdb', width: `${(count / Math.max(1, records.length)) * 160}px` }} />
+                    <span style={{ height: 8, borderRadius: 4, background: '#000', width: `${(count / Math.max(1, records.length)) * 160}px` }} />
                     <span style={styles.todoMeta}>{count}</span>
                   </div>
                 ))}
@@ -186,9 +186,9 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
               />
             </>
           ) : (
-            <div style={styles.linkRow}>
+            <div style={{ ...styles.linkRow, gap: 8, marginTop: 0 }}>
               {attachable(collections, record.collection).map((a) => (
-                <button key={`${a.collection.name}-${a.rel}`} onClick={() => setAdding(a)} data-variant="ghost" style={styles.addButton}>
+                <button key={`${a.collection.name}-${a.rel}`} onClick={() => setAdding(a)} data-variant="quiet" style={styles.smallButton}>
                   + Add {collectionLabel(a.collection).toLowerCase()}
                 </button>
               ))}

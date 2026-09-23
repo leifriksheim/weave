@@ -155,7 +155,7 @@ export function AccountMenu({
             </p>
 
             <p style={styles.errorHint}>
-              {home?.kind === 'folder' ? `📂 ${home.directory?.name ?? 'folder'}` : '🗄️ This browser'}
+              {home?.kind === 'folder' ? `${home.directory?.name ?? 'folder'}` : 'This browser'}
               <Info label="Where your spaces live">
                 {home?.kind === 'folder'
                   ? 'Any app you point at this folder opens the same spaces. Copy it, back it up, or sync it and your devices follow.'
@@ -181,7 +181,7 @@ export function AccountMenu({
                   data-variant="primary"
                   style={styles.addButton}
                 >
-                  {auth.loading ? 'Waiting…' : '🔑 Set up a passkey'}
+                  {auth.loading ? 'Waiting…' : 'Set up a passkey'}
                 </button>
 
 
@@ -194,6 +194,7 @@ export function AccountMenu({
               </p>
             )}
 
+            {/* MetaMask is parked for now: walletHere is always false, so this stays hidden. */}
             {session.custody === 'local' && auth.walletHere && !linked && (
               <section style={styles.panelSection}>
                 <p style={styles.sectionTitle}>Take this account anywhere</p>
@@ -211,13 +212,13 @@ export function AccountMenu({
                   data-variant="quiet"
                   style={quiet}
                 >
-                  {auth.loading ? 'Waiting for MetaMask…' : '🦊 Keep this account in MetaMask'}
+                  {auth.loading ? 'Waiting for MetaMask…' : 'Keep this account in MetaMask'}
                 </button>
               </section>
             )}
 
             {(linked || session.custody === 'remote') && (
-              <p style={styles.ok}>🦊 This account is held in your wallet.</p>
+              <p style={styles.ok}>This account is held in your wallet.</p>
             )}
 
             <details style={{ ...styles.panel, marginTop: 4 }}>

@@ -4,6 +4,7 @@ import type { AuthError } from '../hooks/useProtocol';
 import { accountCredentialName, deviceCredentialName, type AccountEntry, type Home } from '../accounts';
 
 import { Avatar } from './Avatar';
+import { Wordmark } from './ChooseStorage';
 import { Info } from './Info';
 import { offScreen } from '../credentials';
 import { styles, variants } from '../styles';
@@ -127,9 +128,10 @@ export function SignIn({
   return (
     <div style={styles.container}>
       <div data-card style={styles.card}>
-        <h1 style={styles.title}>Weave</h1>
+        <Wordmark />
+        <h1 style={styles.title}>{accounts.length > 0 ? 'Welcome back' : 'Sign in'}</h1>
         <p style={styles.subtitle}>
-          {accounts.length > 0 ? 'Welcome back.' : 'Sign in with your account password.'}
+          {accounts.length > 0 ? 'Choose your account.' : 'Paste the account password you saved when you made it.'}
         </p>
 
         {accounts.map((account) => {
@@ -172,15 +174,16 @@ export function SignIn({
 
               {isSelected && entry && (
                 <div style={{ marginTop: 10 }}>
+                  {/* MetaMask is parked for now.
                   {account.custodian && !showCode && (
                     <button
                       onClick={() => onWithWallet(account.did)}
                       disabled={loading}
                       style={styles.button}
                     >
-                      {loading ? 'Waiting for MetaMask…' : '🦊 Unlock with MetaMask'}
+                      {loading ? 'Waiting for MetaMask…' : 'Unlock with MetaMask'}
                     </button>
-                  )}
+                  )} */}
 
                   {entry.shortcuts.length > 0 && !showCode && (
                     <button
@@ -192,7 +195,7 @@ export function SignIn({
                         ...(account.custodian ? { marginTop: 8 } : {}),
                       }}
                     >
-                      {loading ? 'Waiting…' : '🔑 Unlock with passkey'}
+                      {loading ? 'Waiting…' : 'Unlock with passkey'}
                     </button>
                   )}
 
@@ -280,14 +283,11 @@ export function SignIn({
         {accounts.length === 0 && (
           <>
             <p style={styles.hint}>
-              {home.kind === 'folder'
-                ? 'No accounts in this folder yet.'
-                : 'Nothing is stored in this browser.'}{' '}
-              Paste your account password to bring an account here.
+              {home.kind === 'folder' ? 'This pod has no accounts yet.' : 'No accounts in this browser yet.'}
               <Info label="Why this works with nothing stored">
                 The password is your key written out, not a hint to look something up with — so it
-                opens the account on an app that has never seen you. If your lists are in a data
-                folder, opening it below brings its accounts back without the password.
+                opens the account in an app that has never seen you. If your account is in a pod,
+                opening the pod below brings it back without the password.
               </Info>
             </p>
             {codeForm}
@@ -301,18 +301,14 @@ export function SignIn({
           </div>
         )}
 
+        {/* MetaMask is parked for now.
         {walletHere && (
           <div style={styles.linkRow}>
-            <button
-              onClick={() => onWithWallet()}
-              disabled={loading}
-              data-variant="ghost"
-              style={styles.linkButton}
-            >
-              🦊 Use MetaMask
+            <button onClick={() => onWithWallet()} disabled={loading} data-variant="ghost" style={styles.linkButton}>
+              Use MetaMask
             </button>
           </div>
-        )}
+        )} */}
 
         <div style={styles.linkRow}>
           <button onClick={onCreate} disabled={loading} data-variant="ghost" style={styles.linkButton}>
@@ -321,13 +317,11 @@ export function SignIn({
         </div>
 
         <p style={styles.errorHint}>
-          {home.kind === 'folder'
-            ? `📂 ${home.directory?.name ?? 'your folder'}`
-            : 'Accounts kept in this browser'}
+          {home.kind === 'folder' ? `Pod: ${home.directory?.name ?? 'your folder'}` : 'Accounts kept in this browser'}
         </p>
         <div style={styles.linkRow}>
           <button onClick={onChangeFolder} disabled={loading} data-variant="ghost" style={styles.linkButton}>
-            {home.kind === 'folder' ? 'Use a different folder' : 'Open a data folder'}
+            {home.kind === 'folder' ? 'Open a different pod' : 'Open a pod'}
           </button>
           {home.kind === 'folder' && (
             <button onClick={onUseBrowser} disabled={loading} data-variant="ghost" style={styles.linkButton}>

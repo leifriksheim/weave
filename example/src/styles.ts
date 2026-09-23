@@ -3,9 +3,10 @@ import type { CSSProperties } from 'react';
 /**
  * One visual vocabulary for the whole app.
  *
- * Light, quiet, and built from a small set of tokens rather than ad-hoc values:
- * a 4px spacing rhythm, three text weights, one accent, and borders instead of
- * shadows. The aim is that nothing on screen competes with the lists themselves.
+ * Black and white, after Vercel's: white page, near-black text, one grey for
+ * everything secondary, hairline borders instead of shadows, and black as the
+ * only accent. Built from a small set of tokens rather than ad-hoc values, so
+ * nothing on screen competes with the data itself.
  *
  * Inline styles cannot express hover, focus or placeholders, so those live in
  * {@link injectBaseStyles} — the two halves are meant to be read together.
@@ -13,36 +14,36 @@ import type { CSSProperties } from 'react';
 
 const ink = {
   /** Headings and anything that must be read first */
-  strong: '#0f1115',
+  strong: '#000000',
   /** Body text */
-  body: '#3c4149',
+  body: '#171717',
   /** Supporting text: metadata, hints, the things you skim */
-  muted: '#6b7280',
+  muted: '#666666',
   /** Barely there: timestamps, ids */
-  faint: '#9aa1ab',
+  faint: '#8f8f8f',
 } as const;
 
 const surface = {
-  page: '#f7f8fa',
+  page: '#ffffff',
   card: '#ffffff',
-  sunken: '#f3f4f6',
-  line: '#e6e8ec',
-  lineStrong: '#d6dae1',
+  sunken: '#fafafa',
+  line: '#eaeaea',
+  lineStrong: '#d4d4d4',
 } as const;
 
 const accent = {
-  base: '#3b5bdb',
-  soft: '#eef1fd',
-  danger: '#d64545',
-  dangerSoft: '#fdf0ef',
-  good: '#2f8a5b',
+  /** The one accent is black */
+  base: '#000000',
+  soft: '#f2f2f2',
+  danger: '#e5484d',
+  dangerSoft: '#fff0f0',
+  good: '#1a7f37',
 } as const;
 
-const radius = { sm: 6, md: 10, lg: 14, pill: 999 } as const;
+const radius = { sm: 6, md: 6, lg: 8, pill: 999 } as const;
 
-const font =
-  '-apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, Helvetica, Arial, sans-serif';
-const mono = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
+const font = '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+const mono = '"Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 
 /**
  * The rules inline styles cannot carry.
@@ -63,6 +64,8 @@ export function injectBaseStyles(): void {
       background: ${surface.page};
       color: ${ink.body};
       font-family: ${font};
+      font-size: 14px;
+      letter-spacing: -0.006em;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
@@ -74,17 +77,21 @@ export function injectBaseStyles(): void {
     button:disabled { opacity: .5; cursor: not-allowed; }
 
     /* Primary actions lift slightly; quiet ones just warm up. */
-    [data-variant="primary"]:not(:disabled):hover { background-color: #324fc4 !important; }
+    [data-variant="primary"]:not(:disabled):hover { background-color: #383838 !important; }
     [data-variant="quiet"]:not(:disabled):hover { background-color: ${surface.sunken} !important; color: ${ink.strong} !important; }
     [data-variant="ghost"]:not(:disabled):hover { color: ${ink.strong} !important; }
     [data-variant="danger"]:not(:disabled):hover { background-color: ${accent.dangerSoft} !important; color: ${accent.danger} !important; }
 
-    input { font-family: inherit; transition: border-color .15s ease, box-shadow .15s ease; }
-    input::placeholder { color: ${ink.faint}; }
-    input:focus { border-color: ${accent.base} !important; box-shadow: 0 0 0 3px ${accent.soft}; }
+    input, textarea, select { font-family: inherit; transition: border-color .15s ease, box-shadow .15s ease; }
+    input::placeholder, textarea::placeholder { color: ${ink.faint}; }
+    input:focus, textarea:focus, select:focus { border-color: ${ink.muted} !important; box-shadow: 0 0 0 3px rgba(0, 0, 0, .06); outline: none; }
+    [data-variant="quiet"], [data-variant="secondary"] { border: 1px solid ${surface.line} !important; }
+    tbody tr { transition: background-color .12s ease; }
+    tbody tr:hover { background-color: ${surface.sunken}; }
+    button[style*="text-align: left"]:not(:disabled):hover { border-color: ${surface.lineStrong} !important; }
 
     /* Visible only for keyboard users, so a mouse click stays quiet. */
-    :focus-visible { outline: 2px solid ${accent.base}; outline-offset: 2px; }
+    :focus-visible { outline: 2px solid ${ink.strong}; outline-offset: 2px; }
     button:focus:not(:focus-visible) { outline: none; }
 
     summary { cursor: pointer; list-style: none; }
@@ -114,14 +121,14 @@ export function injectBaseStyles(): void {
 }
 
 const button: CSSProperties = {
-  padding: '11px 18px',
+  height: 40,
+  padding: '0 16px',
   borderRadius: radius.md,
   border: '1px solid transparent',
   backgroundColor: accent.base,
   color: '#fff',
-  fontSize: 15,
-  fontWeight: 600,
-  letterSpacing: '-0.01em',
+  fontSize: 14,
+  fontWeight: 500,
   width: '100%',
 };
 
@@ -141,33 +148,32 @@ export const styles = {
     alignItems: 'flex-start',
     padding: '56px 20px 80px',
   },
+  /** Onboarding is a column on a white page, not a box — Vercel's sign-in, not a dialog. */
   card: {
-    backgroundColor: surface.card,
-    borderRadius: radius.lg,
-    padding: '40px 36px',
-    maxWidth: 440,
+    padding: '64px 0 0',
+    maxWidth: 380,
     width: '100%',
-    border: `1px solid ${surface.line}`,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 700,
-    letterSpacing: '-0.02em',
+    fontSize: 28,
+    fontWeight: 600,
+    letterSpacing: '-0.04em',
     color: ink.strong,
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  subtitle: { fontSize: 15, color: ink.muted, marginBottom: 24 },
-  hint: { fontSize: 14, color: ink.body, marginBottom: 20, lineHeight: 1.6 },
+  subtitle: { fontSize: 15, color: ink.muted, marginBottom: 32, lineHeight: 1.5 },
+  hint: { fontSize: 14, color: ink.muted, marginBottom: 20, lineHeight: 1.6 },
 
   form: { display: 'flex', flexDirection: 'column', gap: 8 },
   input: {
     width: '100%',
-    padding: '11px 14px',
+    height: 40,
+    padding: '0 12px',
     borderRadius: radius.md,
     border: `1px solid ${surface.lineStrong}`,
     backgroundColor: surface.card,
     color: ink.strong,
-    fontSize: 15,
+    fontSize: 14,
     outline: 'none',
   },
   button,
@@ -182,7 +188,7 @@ export const styles = {
   },
   errorHint: { color: ink.muted, fontSize: 13, marginTop: 8, lineHeight: 1.6 },
 
-  app: { maxWidth: 560, width: '100%' },
+  app: { maxWidth: 720, width: '100%' },
   header: {
     marginBottom: 24,
     display: 'flex',
@@ -197,31 +203,44 @@ export const styles = {
     justifyContent: 'space-between',
     gap: 12,
   },
-  appTitle: { fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: ink.strong },
+  appTitle: { fontSize: 24, fontWeight: 600, letterSpacing: '-0.04em', color: ink.strong },
   identityBar: { display: 'flex', gap: 6, flexWrap: 'wrap' },
   badge: {
     fontSize: 12,
     color: ink.muted,
-    backgroundColor: surface.sunken,
+    backgroundColor: surface.card,
     border: `1px solid ${surface.line}`,
-    padding: '4px 10px',
+    padding: '2px 8px',
     borderRadius: radius.pill,
   },
 
   addForm: { display: 'flex', gap: 8, marginBottom: 16 },
   todoInput: {
     flex: 1,
-    padding: '11px 14px',
+    height: 40,
+    padding: '0 12px',
     borderRadius: radius.md,
     border: `1px solid ${surface.lineStrong}`,
     backgroundColor: surface.card,
     color: ink.strong,
-    fontSize: 15,
+    fontSize: 14,
     outline: 'none',
   },
-  addButton: { ...button, width: 'auto', whiteSpace: 'nowrap' },
+  addButton: { ...button, width: 'auto', whiteSpace: 'nowrap', alignSelf: 'flex-start' },
+  /** Secondary actions: white, hairline border, a little shorter */
+  smallButton: {
+    height: 32,
+    padding: '0 12px',
+    borderRadius: radius.md,
+    border: `1px solid ${surface.line}`,
+    backgroundColor: surface.card,
+    color: ink.body,
+    fontSize: 13,
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+  },
 
-  todoList: { listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 2 },
+  todoList: { listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 },
   emptyState: {
     textAlign: 'center',
     color: ink.faint,
@@ -240,7 +259,7 @@ export const styles = {
   },
   checkbox: { marginTop: 4, width: 15, height: 15, accentColor: accent.base, cursor: 'pointer' },
   todoContent: { flex: 1, minWidth: 0 },
-  todoText: { fontSize: 15, color: ink.strong, lineHeight: 1.5, wordBreak: 'break-word' },
+  todoText: { fontSize: 14, fontWeight: 500, color: ink.strong, lineHeight: 1.5, wordBreak: 'break-word' },
   todoMeta: { fontSize: 12, color: ink.faint, marginTop: 3, lineHeight: 1.5 },
   footer: { marginTop: 28, textAlign: 'center' },
   footerHint: { fontSize: 12, color: ink.faint, lineHeight: 1.6 },
@@ -269,13 +288,14 @@ export const styles = {
     gap: 10,
   },
   panelSection: {
-    paddingTop: 14,
+    paddingTop: 20,
+    marginTop: 8,
     borderTop: `1px solid ${surface.line}`,
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
   },
-  sectionTitle: { fontSize: 13, fontWeight: 600, color: ink.strong },
+  sectionTitle: { fontSize: 14, fontWeight: 600, color: ink.strong, letterSpacing: '-0.01em' },
 
   chain: {
     backgroundColor: surface.sunken,
@@ -320,7 +340,7 @@ export const styles = {
     backgroundColor: surface.sunken,
     border: `1px solid ${surface.line}`,
     borderRadius: radius.md,
-    fontSize: 15,
+    fontSize: 14,
     letterSpacing: '0.06em',
     color: ink.strong,
     textAlign: 'center',
@@ -330,12 +350,12 @@ export const styles = {
   spaceButton: {
     width: '100%',
     textAlign: 'left',
-    padding: '14px 16px',
-    borderRadius: radius.md,
+    padding: '16px',
+    borderRadius: radius.lg,
     border: `1px solid ${surface.line}`,
     backgroundColor: surface.card,
     color: ink.strong,
-    fontSize: 15,
+    fontSize: 14,
     display: 'flex',
     flexDirection: 'column',
     gap: 3,
@@ -343,9 +363,9 @@ export const styles = {
 
   inviteBanner: {
     padding: '16px 18px',
-    borderRadius: radius.md,
-    backgroundColor: accent.soft,
-    border: `1px solid #dce2fb`,
+    borderRadius: radius.lg,
+    backgroundColor: surface.sunken,
+    border: `1px solid ${surface.line}`,
     marginBottom: 16,
   },
 
@@ -422,7 +442,7 @@ export const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
-    backgroundColor: 'rgba(15, 17, 21, .28)',
+    backgroundColor: 'rgba(0, 0, 0, .4)',
     animation: 'weave-fade .12s ease',
   },
   modal: {
@@ -437,7 +457,7 @@ export const styles = {
     flexDirection: 'column',
     gap: 14,
   },
-  modalTitle: { fontSize: 17, fontWeight: 700, letterSpacing: '-0.01em', color: ink.strong },
+  modalTitle: { fontSize: 18, fontWeight: 600, letterSpacing: '-0.03em', color: ink.strong },
 
   /** Two choices side by side, for a question with exactly two answers. */
   segmented: {

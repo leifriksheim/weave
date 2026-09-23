@@ -79,7 +79,7 @@ export function titleField(schema: JsonSchema | null): string | null {
 
 /** A record in a few words */
 export function recordLabel(record: NodeRecord, schema: JsonSchema | null): string {
-  if (record.body === null) return '🔒 (cannot open)';
+  if (record.body === null) return '(cannot open)';
   const body = record.body as Record<string, unknown>;
   const field = titleField(schema) ?? TITLE_NAMES.find((name) => typeof body[name] === 'string');
   const value = field ? body[field] : undefined;

@@ -57,14 +57,38 @@ function describeAuthError(error: unknown): AuthError | null {
 /**
  * Which screen the app is on.
  *
- * Three questions in order, and each one only asked when it has an answer worth
- * giving: who are you, keep this password, and where should the data live.
+ * Onboarding asks two questions, in this order: where should Weave keep your
+ * data — a pod (a folder you choose) or just this browser — and do you already
+ * have a Weave account. Where comes first because it decides which accounts
+ * there are to sign in to: a pod may already hold yours.
+ *
+ * `where` is asked once per browser; after that the choice is remembered, and
+ * a pod is reopened without asking.
  *
  * Showing the new password is not a stage of its own — `freshCode` being set
- * already says the create screen is on its second step, and having both was a
- * second thing to keep in step with the first.
+ * already says the create screen is on its second step.
  */
-export type Stage = 'starting' | 'signIn' | 'create' | 'chooseStorage' | 'ready';
+export type Stage = 'starting' | 'where' | 'welcome' | 'signIn' | 'create' | 'ready';
+
+/** Remembers that this browser chose to keep data in the browser, so `where` is not asked again */
+const BROWSER_CHOSEN = 'weave.storage-choice';
+const choseBrowser = () => {
+  try {
+    return globalThis.localStorage.getItem(BROWSER_CHOSEN) === 'browser';
+  } catch {
+    return false;
+  }
+};
+const rememberBrowser = () => {
+  try {
+    globalThis.localStorage.setItem(BROWSER_CHOSEN, 'browser');
+  } catch {
+    /* private mode: it will simply ask again */
+  }
+};
+
+/** After storage is settled: accounts to sign in to, or the have-an-account question */
+const afterStorage = (accounts: ReadonlyArray<unknown>): Stage => (accounts.length > 0 ? 'signIn' : 'welcome');
 
 /** Accounts, the ways into them, and where they live. */
 export function useSession() {
@@ -82,7 +106,10 @@ export function useSession() {
   const [pairingStage, setPairingStage] = useState<PairingStage | null>(null);
 
   const folderAvailable = folderStorageAvailable();
-  const walletHere = walletAvailable();
+  // MetaMask sign-in is parked for now; the Snap and its code stay in place.
+  // const walletHere = walletAvailable();
+  const walletHere = false;
+  void walletAvailable;
 
   /** Re-reads the accounts in a home and picks one to expand. */
   const refresh = useCallback(async (next: Home): Promise<ReadonlyArray<AccountSummary>> => {
@@ -106,10 +133,12 @@ export function useSession() {
         const recalled = await recallFolderHome(false);
         const next = recalled ?? (await browserHome());
         const listed = await refresh(next);
-        setStage(listed.length > 0 ? 'signIn' : 'create');
+        // Nothing here yet and the storage question never answered: ask it first.
+        const undecided = !recalled && listed.length === 0 && folderAvailable && !choseBrowser();
+        setStage(undecided ? 'where' : afterStorage(listed));
       } catch (e) {
         setError(describeAuthError(e));
-        setStage('create');
+        setStage('welcome');
       }
     })();
   }, [refresh]);
@@ -177,8 +206,8 @@ export function useSession() {
         const started = await signInWithSnap(home, did);
         setSession(started);
 
-        const isNew = (await listAccountsIn(home)).length > before;
-        setStage(isNew && home.kind !== 'folder' ? 'chooseStorage' : 'ready');
+        void before;
+        setStage('ready');
       } catch (e) {
         setError(describeAuthError(e));
       } finally {
@@ -247,10 +276,10 @@ export function useSession() {
     [home],
   );
 
-  /** The code has been saved; now decide where the lists go. */
+  /** The code has been saved. Where the data lives was settled before the account existed. */
   const codeSaved = useCallback(() => {
     setFreshCode(null);
-    setStage('chooseStorage');
+    setStage('ready');
   }, []);
 
   const chooseFolder = useCallback(() => {
@@ -277,7 +306,7 @@ export function useSession() {
         }
 
         const listed = await refresh(folder);
-        setStage(listed.length > 0 ? 'signIn' : 'create');
+        setStage(afterStorage(listed));
       } catch (e) {
         setError(describeAuthError(e));
       } finally {
@@ -319,14 +348,26 @@ export function useSession() {
     };
   }, [session, home]);
 
-  const stayLocal = useCallback(() => setStage('ready'), []);
+  /** Keep data in this browser. */
+  const stayLocal = useCallback(() => {
+    rememberBrowser();
+    setError(null);
+    setStage(afterStorage(accounts));
+  }, [accounts]);
+
+  /** Back to the storage question, from the account question. */
+  const changeStorage = useCallback(() => {
+    setError(null);
+    setStage('where');
+  }, []);
 
   const useBrowserAccounts = useCallback(() => {
     setLoading(true);
     void (async () => {
       try {
+        rememberBrowser();
         const listed = await refresh(await forgetFolderHome());
-        setStage(listed.length > 0 ? 'signIn' : 'create');
+        setStage(afterStorage(listed));
       } catch (e) {
         setError(describeAuthError(e));
       } finally {
@@ -344,6 +385,11 @@ export function useSession() {
     setError(null);
     setStage('signIn');
   }, []);
+
+  const backToWelcome = useCallback(() => {
+    setError(null);
+    setStage(afterStorage(accounts));
+  }, [accounts]);
 
   // ─── Shortcuts, once you are in ──────────────────────────────────────
 
@@ -409,7 +455,7 @@ export function useSession() {
     signOut();
     setSession(null);
     setEntry(null);
-    if (home) void refresh(home).then((listed) => setStage(listed.length > 0 ? 'signIn' : 'create'));
+    if (home) void refresh(home).then((listed) => setStage(afterStorage(listed)));
   }, [home, refresh]);
 
   // ─── Arriving from a QR code ─────────────────────────────────────────
@@ -464,9 +510,11 @@ export function useSession() {
     forgetBrowser,
     dismissMoved: () => setMoved(null),
     stayLocal,
+    changeStorage,
     useBrowserAccounts,
     startCreating,
     backToSignIn,
+    backToWelcome,
     addPasskey,
     removeShortcut: removeShortcutHere,
     rename,

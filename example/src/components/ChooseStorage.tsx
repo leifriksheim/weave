@@ -1,27 +1,25 @@
 import type { AuthError } from '../hooks/useProtocol';
 import { Info } from './Info';
-import { styles } from '../styles';
+import { styles, variants, palette } from '../styles';
 
 /**
- * Where a new account's spaces should live.
+ * The first question: where Weave keeps your data.
  *
- * Asked after the account exists rather than before, because "pick a folder" is
- * a strange first thing to say to someone opening an app. By this point
- * they have an account and the question has a reason.
+ * A **pod** is a folder you choose. It is the only storage a second app on a
+ * different address can open, so it is what makes one account work across
+ * apps without a server — and it may already hold your account, which is why
+ * this comes before signing in.
  *
- * Staying in the browser is a real option, not a booby prize — it is a full
- * peer that syncs with your other devices. What it cannot do is let a second
- * app on a different domain read the same data, and that is worth saying
- * plainly rather than discovering later.
+ * Staying in the browser is a real option, not a booby prize: it is a full
+ * peer that syncs with your other devices. It just belongs to this one web
+ * address, and that is worth saying plainly rather than discovering later.
  */
 export function ChooseStorage({
-  folderAvailable,
   loading,
   error,
   onChooseFolder,
   onStayLocal,
 }: {
-  folderAvailable: boolean;
   loading: boolean;
   error: AuthError | null;
   onChooseFolder: () => void;
@@ -30,52 +28,34 @@ export function ChooseStorage({
   return (
     <div style={styles.container}>
       <div data-card style={styles.card}>
-        <h1 style={styles.title}>📂 Where should your spaces live?</h1>
+        <Wordmark />
+        <h1 style={styles.title}>Where should your data live?</h1>
+        <p style={styles.subtitle}>You can change this later.</p>
 
-        {folderAvailable ? (
-          <>
-            <p style={styles.hint}>
-              In a folder, any app you point at it opens the same spaces.
-              <Info label="Why a folder">
-                They become yours the way any other file is: copy them to a USB stick, back them up,
-                or put the folder in iCloud or Dropbox and your devices stay in step with no server
-                involved. It is also the only store a second app on a different address can read.
-              </Info>
-            </p>
-            <button onClick={onChooseFolder} disabled={loading} data-variant="primary" style={styles.button}>
-              {loading ? 'Waiting…' : 'Choose a folder'}
-            </button>
-            <p style={styles.errorHint}>Your browser will ask twice: to see it, and to save into it.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Option
+            title="Choose a pod"
+            recommended
+            description="A folder on your computer that holds your Weave data. Every app you open it in sees the same account and the same spaces."
+            onClick={onChooseFolder}
+            disabled={loading}
+          />
+          <Option
+            title="Continue in this browser"
+            description="Nothing to set up. Your data syncs with your other devices, but other apps on other addresses can't open it."
+            onClick={onStayLocal}
+            disabled={loading}
+          />
+        </div>
 
-            <div style={styles.linkRow}>
-              <button onClick={onStayLocal} disabled={loading} data-variant="ghost" style={styles.linkButton}>
-                Just use this browser
-              </button>
-            </div>
-            <p style={styles.errorHint}>
-              This browser works too, but only here.
-              <Info label="What staying in the browser means">
-                Your spaces still sync with your other devices, and nothing is stored on a server.
-                What changes is that browser storage belongs to one web address — another app, on
-                another address, cannot read it, even if it is the same app.
-              </Info>
-            </p>
-          </>
-        ) : (
-          <>
-            <p style={styles.hint}>
-              Your spaces will be kept in this browser, and sync with your other devices.
-              <Info label="Why there is no folder option here">
-                Keeping spaces in a folder — which is what lets a second app open the same data —
-                needs the File System Access API, which today means Chrome, Edge or Opera on a
-                desktop.
-              </Info>
-            </p>
-            <button onClick={onStayLocal} disabled={loading} data-variant="primary" style={styles.button}>
-              Continue
-            </button>
-          </>
-        )}
+        <p style={{ ...styles.errorHint, marginTop: 16 }}>
+          Your browser will ask to see the folder, then to save into it.
+          <Info label="Why a pod">
+            Your data becomes yours the way any other file is: copy it, back it up, or put the folder in iCloud or
+            Dropbox and your devices stay in step with no server involved. It is also the only storage a second app on
+            a different address can read.
+          </Info>
+        </p>
 
         {error && (
           <div style={styles.errorBox}>
@@ -84,6 +64,43 @@ export function ChooseStorage({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** One of a small number of choices: a bordered row with a title and a line under it. */
+export function Option({
+  title,
+  description,
+  onClick,
+  disabled,
+  recommended,
+}: {
+  title: string;
+  description: string;
+  onClick: () => void;
+  disabled?: boolean;
+  recommended?: boolean;
+}) {
+  return (
+    <button onClick={onClick} disabled={disabled} data-variant="quiet" style={{ ...variants.quiet, height: 'auto', padding: 16, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 500, color: palette.ink.strong }}>
+        {title}
+        {recommended && <span style={{ ...styles.badge, fontSize: 11 }}>Recommended</span>}
+      </span>
+      <span style={{ color: palette.ink.muted, fontSize: 13, fontWeight: 400, lineHeight: 1.5 }}>{description}</span>
+    </button>
+  );
+}
+
+/** The product's name, small, above every onboarding step */
+export function Wordmark({ compact = false }: { compact?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: compact ? 0 : 40 }}>
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden>
+        <path d="M2 5 L7 15 L10 8 L13 15 L18 5" fill="none" stroke="#000" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+      <span style={{ fontWeight: 600, fontSize: 16, letterSpacing: '-0.03em', color: '#000' }}>Weave</span>
     </div>
   );
 }

@@ -71,7 +71,7 @@ export function PairPhone() {
   if (!canPairPhone()) {
     return (
       <details style={styles.panel}>
-        <summary data-variant="ghost" style={styles.panelSummary}>📱 Add your phone</summary>
+        <summary data-variant="ghost" style={styles.panelSummary}>Add your phone</summary>
         <div style={styles.panelBody}>
           <p style={styles.errorHint}>
             This sign-in has nothing to hand over.
@@ -88,7 +88,7 @@ export function PairPhone() {
 
   return (
     <details style={styles.panel}>
-      <summary data-variant="ghost" style={styles.panelSummary}>📱 Add your phone</summary>
+      <summary data-variant="ghost" style={styles.panelSummary}>Add your phone</summary>
       <div style={styles.panelBody}>
         {!offer ? (
           <>

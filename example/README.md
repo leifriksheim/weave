@@ -1,6 +1,7 @@
-# P2P Collaborative Todos
+# Weave example
 
-A Vite + React app on top of [`weave-protocol`](../README.md). It imports the
+A general-purpose app for your Weave spaces: it shows any kind of data from
+what each space says about itself. A Vite + React app on top of [`weave-protocol`](../README.md). It imports the
 protocol straight from `../src`, so edits to the library hot-reload here.
 
 ```bash
@@ -12,6 +13,14 @@ npm run dev:full    # app on :5173 and the signaling relay on :8787
 
 ## Signing in
 
+**First: where your data lives.** A *pod* — a folder on your computer that any
+Weave app you point at it can open — or just this browser, which no other app
+can reach. Asked first because a pod may already hold your account; once
+answered it is remembered, and a pod is reopened without asking.
+
+**Then: do you have a Weave account?** Sign in with your account password, or
+create one.
+
 **Create an account.** Pick a name; the app generates a strong password and
 shows it once. Save it to your password manager — that is the whole credential,
 and it is the only thing that works on an app which has never seen you.
@@ -19,11 +28,6 @@ and it is the only thing that works on an app which has never seen you.
 It is not a backup of your key. It *is* your key, written out, which is why it
 needs nothing stored to work. A password that unlocks something needs that
 something to be present, and on a new domain it is not.
-
-**Then choose where your lists live.** A folder on your computer, which any app
-you point at it can open, or just this browser, which no other app can reach.
-Asked after the account exists rather than before, because "pick a folder" is a
-strange first thing to say to someone opening a todo app.
 
 **On another app, on another domain**: paste the same password. Your password
 manager scopes entries by address, so it will not offer it unprompted — search
@@ -42,6 +46,9 @@ The list of names and DIDs is readable without unlocking anything — you cannot
 offer a choice without knowing what to call it. The keys are not.
 
 ### Or keep the key in MetaMask
+
+> **Parked for now.** The sign-in buttons are commented out; the Snap and its
+> code stay in the repo.
 
 With MetaMask installed, **Continue with MetaMask** offers a fourth way in: a
 Snap that holds the identity inside the extension. Because a Snap is not scoped

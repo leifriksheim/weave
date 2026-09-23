@@ -43,7 +43,7 @@ export function PairArrival({
   return (
     <div style={styles.container}>
       <div data-card style={styles.card}>
-        <h1 style={styles.title}>📱 Add this phone</h1>
+        <h1 style={styles.title}>Add this phone</h1>
         <p style={styles.subtitle}>You scanned a code from your computer.</p>
         <p style={styles.hint}>
           This phone becomes the same account, with its own copy of your spaces.

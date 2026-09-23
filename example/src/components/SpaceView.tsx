@@ -73,14 +73,14 @@ export function SpaceView({ record: space, session, onBack }: { record: SpaceSum
           )}
           {status && status.rejected > 0 && (
             <span style={{ ...styles.badge, color: palette.accent.danger }} title="Records peers sent that failed validation">
-              ⚠️ {status.rejected} rejected
+              {status.rejected} rejected
             </span>
           )}
         </div>
       </header>
 
       {!space.writable && (
-        <p style={styles.errorHint}>👀 You are following this space. It is {space.owner.slice(-6)}'s, so only they can change it.</p>
+        <p style={styles.errorHint}>You are following this space. It is {space.owner.slice(-6)}'s, so only they can change it.</p>
       )}
 
       {place.key && place.collection ? (
@@ -136,7 +136,7 @@ function Overview({ space, collections, go }: { space: SpaceSummary; collections
             }}
           />
         ) : (
-          <button onClick={() => setDefining(true)} data-variant="ghost" style={{ ...styles.addButton, alignSelf: 'flex-start', marginTop: 8 }}>
+          <button onClick={() => setDefining(true)} data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start', marginTop: 8 }}>
             + Define a kind of thing
           </button>
         ))}
