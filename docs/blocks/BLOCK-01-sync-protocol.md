@@ -1,5 +1,39 @@
 # BLOCK-01 — Sync protocol: exchange subtree CIDs, not every key
 
+> **Done (2026-09-23).** `src/sync/`. Tests: `tests/anti-entropy.test.ts`; the
+> five tests in `tests/sync.test.ts` pass unmodified. Harness:
+> `npx tsx tests/bench/sync-bench.ts`.
+>
+> | N | one entry differs, before | after | identical, after |
+> |---:|---:|---:|---:|
+> | 100 | 5.7 KB | 10.0 KB | 210 B, 1 round trip |
+> | 1,000 | 51.3 KB | 22.3 KB | 210 B |
+> | 10,000 | 508 KB | 24.8 KB | 210 B |
+>
+> Small spaces cost a little more than before, because both sides now walk;
+> from about 500 entries up the new protocol wins, and its cost stays flat. A
+> cold peer pulls 10,000 entries in 128 messages and converges exactly.
+>
+> Where the build differs from the plan below:
+>
+> - **"Already have it" means "part of my current tree"**, not `adapter.has()`.
+>   A store keeps orphaned nodes from older versions; skipping a subtree because
+>   an orphan shares its CID would miss entries. The walk takes the set of CIDs
+>   reachable from the local root (`collectReachableCids`, exported from the MST
+>   as BLOCK-03 wanted) once per walk.
+> - **Requests carry an id**, echoed in the reply. Requests are served
+>   concurrently, so replies arrive out of order even on an ordered channel.
+> - **Both sides pull from one exchange**: the side answering a `sync-request`
+>   starts its own walk too, so one message reconciles both directions.
+> - **Only content-addressed nodes are served** — a requested key is sent only
+>   if its bytes hash to it — and only requested records are accepted.
+> - `findMissingExpressions` / `findLocalOnlyExpressions` and `remoteKeys` are
+>   gone. The protocol is `v: 2`; other versions are dropped.
+>
+> Found on the way: **concurrent writes to one store lost entries from the
+> tree** (each read the same root). Writes through `createStorageProvider` now
+> take turns; regression test in `tests/anti-entropy.test.ts`.
+
 ## What this delivers
 
 Two peers reconcile by comparing Merkle subtree CIDs and descending only where

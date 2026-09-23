@@ -45,21 +45,35 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     }
   }
 
+  // Every change reads the root, rewrites the path to one entry, and writes a
+  // new root. Two of those interleaved would each start from the same root and
+  // the second would silently drop the first's entry. So changes take turns.
+  let tail: Promise<unknown> = Promise.resolve();
+  const exclusively = <T>(change: () => Promise<T>): Promise<T> => {
+    const run = tail.then(change, change);
+    tail = run.catch(() => {});
+    return run;
+  };
+
   return Object.freeze({
-    async addExpression(expression: Expression): Promise<string> {
-      await adapter.putExpression(expression);
-      const currentRoot = await getRootCid();
-      const newRoot = await insertIntoMST(adapter, currentRoot, expression.id, expression.id);
-      await setRootCid(newRoot);
-      return newRoot;
+    addExpression(expression: Expression): Promise<string> {
+      return exclusively(async () => {
+        await adapter.putExpression(expression);
+        const currentRoot = await getRootCid();
+        const newRoot = await insertIntoMST(adapter, currentRoot, expression.id, expression.id);
+        await setRootCid(newRoot);
+        return newRoot;
+      });
     },
 
-    async removeExpression(id: string): Promise<string | null> {
-      const currentRoot = await getRootCid();
-      const newRoot = await deleteFromMST(adapter, currentRoot, id);
-      await adapter.deleteExpression(id);
-      await setRootCid(newRoot);
-      return newRoot;
+    removeExpression(id: string): Promise<string | null> {
+      return exclusively(async () => {
+        const currentRoot = await getRootCid();
+        const newRoot = await deleteFromMST(adapter, currentRoot, id);
+        await adapter.deleteExpression(id);
+        await setRootCid(newRoot);
+        return newRoot;
+      });
     },
 
     async getExpression(id: string): Promise<Expression | null> {

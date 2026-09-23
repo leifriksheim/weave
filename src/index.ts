@@ -164,6 +164,7 @@ export {
   lookupInMST,
   diffMST,
   listMSTKeys,
+  collectReachableCids,
 } from './storage/mst.js';
 export type { MSTNode, MSTDiff } from './storage/mst.js';
 export {
@@ -240,12 +241,14 @@ export type { SignalingClient, SignalingMessage } from './network/signaling.js';
 export {
   encodeSyncMessage,
   decodeSyncMessage,
+  SYNC_PROTOCOL_VERSION,
 } from './sync/sync-messages.js';
 export type { SyncMessage } from './sync/sync-messages.js';
 export {
   compareRoots,
-  findMissingExpressions,
-  findLocalOnlyExpressions,
+  verifyNode,
+  unknownChildren,
+  missingKeys,
 } from './sync/anti-entropy.js';
 export {
   createSyncEngine,

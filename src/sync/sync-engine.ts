@@ -1,8 +1,26 @@
-import { Expression } from '../types.js';
-import { StorageProvider } from '../storage/storage-provider.js';
-import { SyncMessage, encodeSyncMessage, decodeSyncMessage } from './sync-messages.js';
-import { compareRoots, findMissingExpressions } from './anti-entropy.js';
-import { listMSTKeys } from '../storage/mst.js';
+/**
+ * @module sync-engine
+ * Keeps one store in step with its peers.
+ *
+ * Reconciliation is a pull, and both sides do it:
+ *
+ * 1. A tells B its root. Equal roots mean identical data — one round trip, done.
+ * 2. Otherwise each walks the other's tree from the root, asking for nodes in
+ *    batches and skipping any subtree that is already part of its own tree.
+ * 3. The keys found in the nodes it fetched, less the records it already
+ *    holds, are what it is missing. It asks for those, and every one of them
+ *    passes the gatekeeper before it is stored.
+ *
+ * Cost follows the difference, not the size: two trees differing by one entry
+ * exchange the few nodes on the path to it.
+ */
+import type { Expression } from '../types.js';
+import type { StorageProvider } from '../storage/storage-provider.js';
+import { collectReachableCids } from '../storage/mst.js';
+import { base64UrlDecode, base64UrlEncode } from '../utils/encoding.js';
+import { cidFromBytes } from '../utils/hash.js';
+import { encodeSyncMessage, decodeSyncMessage, type SyncMessage, type SyncMessageBody } from './sync-messages.js';
+import { compareRoots, missingKeys, unknownChildren, verifyNode } from './anti-entropy.js';
 
 /** Verdict on an expression that arrived from a peer */
 export interface IncomingValidation {
@@ -40,6 +58,35 @@ export interface SyncEngine {
   off(event: SyncEvent, callback: EventHandler): void;
 }
 
+/** Nodes asked for in one message. Nodes are small; this keeps round trips few. */
+export const MAX_CIDS_PER_REQUEST = 64;
+/** Records asked for in one message. */
+export const MAX_IDS_PER_REQUEST = 200;
+/** A real tree of a billion entries is about seven deep. Anything past this is hostile. */
+const MAX_DEPTH = 32;
+/** Nodes one walk may fetch before it is abandoned as runaway. */
+const MAX_NODES_PER_WALK = 200_000;
+/** A walk that has heard nothing for this long is given up on. */
+const STALE_WALK_MS = 30_000;
+
+/** One pull of one peer's tree */
+interface Walk {
+  readonly remoteRoot: string;
+  /** Every CID in the local tree when the walk began — the subtrees to skip */
+  readonly localTree: ReadonlySet<string>;
+  readonly depth: Map<string, number>;
+  readonly queue: string[];
+  /** Node requests in flight, by request id */
+  readonly nodeBatches: Map<number, ReadonlyArray<string>>;
+  readonly missing: Set<string>;
+  /** Record requests in flight, by request id */
+  readonly idBatches: Map<number, ReadonlyArray<string>>;
+  fetched: number;
+  touchedAt: number;
+  /** A newer root the peer announced mid-walk, to pull once this one ends */
+  next: string | null;
+}
+
 /**
  * Creates a sync engine orchestrator.
  * @param config Sync engine configuration.
@@ -48,8 +95,10 @@ export interface SyncEngine {
 export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
   const { storageProvider, sendToPeer, heartbeatInterval = 30000, validate } = config;
   const peers = new Set<string>();
+  const walks = new Map<string, Walk>();
   const eventHandlers = new Map<SyncEvent, Set<EventHandler>>();
   let intervalId: ReturnType<typeof setInterval> | null = null;
+  let nextRequestId = 1;
 
   const emit = (event: SyncEvent, ...args: any[]) => {
     const handlers = eventHandlers.get(event);
@@ -62,6 +111,13 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
         }
       }
     }
+  };
+
+  const send = (peerId: string, msg: SyncMessageBody) => sendToPeer(peerId, encodeSyncMessage(msg));
+
+  const broadcast = (msg: SyncMessageBody) => {
+    const data = encodeSyncMessage(msg);
+    for (const peer of peers) sendToPeer(peer, data);
   };
 
   /**
@@ -81,11 +137,150 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     return true;
   };
 
-  const broadcast = (msg: SyncMessage) => {
-    const data = encodeSyncMessage(msg);
-    for (const peer of peers) {
-      sendToPeer(peer, data);
+  // ─── The walk ──────────────────────────────────────────────────────
+
+  const finish = (peerId: string, walk: Walk) => {
+    walks.delete(peerId);
+    emit('synced', peerId);
+    if (walk.next !== null && walk.next !== walk.remoteRoot) void pull(peerId, walk.next);
+  };
+
+  /** Sends whatever is queued, or moves on to records once the tree is done. */
+  const advance = (peerId: string, walk: Walk) => {
+    walk.touchedAt = Date.now();
+
+    while (walk.queue.length > 0) {
+      const batch = walk.queue.splice(0, MAX_CIDS_PER_REQUEST);
+      const id = nextRequestId++;
+      walk.nodeBatches.set(id, batch);
+      send(peerId, { type: 'node-request', id, cids: batch });
     }
+    if (walk.nodeBatches.size > 0) return;
+
+    // The tree is walked. Ask for the records it named that are not here.
+    if (walk.missing.size > 0 && walk.idBatches.size === 0) {
+      const ids = [...walk.missing];
+      walk.missing.clear();
+      for (let i = 0; i < ids.length; i += MAX_IDS_PER_REQUEST) {
+        const batch = ids.slice(i, i + MAX_IDS_PER_REQUEST);
+        const id = nextRequestId++;
+        walk.idBatches.set(id, batch);
+        send(peerId, { type: 'diff-request', id, missingIds: batch });
+      }
+      return;
+    }
+    if (walk.idBatches.size === 0) finish(peerId, walk);
+  };
+
+  /** Pulls a peer's tree, given its root. */
+  const pull = async (peerId: string, remoteRoot: string | null): Promise<void> => {
+    const current = walks.get(peerId);
+    if (current && Date.now() - current.touchedAt < STALE_WALK_MS) {
+      // One walk per peer at a time; a newer root is pulled when this one ends.
+      if (current.remoteRoot !== remoteRoot) current.next = remoteRoot;
+      return;
+    }
+    walks.delete(peerId);
+
+    if (remoteRoot === null) {
+      emit('synced', peerId);
+      return;
+    }
+    const localTree = await collectReachableCids(storageProvider.getAdapter(), await storageProvider.getRootCid());
+    if (localTree.has(remoteRoot)) {
+      // Their whole tree is a subtree of ours: nothing to pull.
+      emit('synced', peerId);
+      return;
+    }
+
+    const walk: Walk = {
+      remoteRoot,
+      localTree,
+      depth: new Map([[remoteRoot, 0]]),
+      queue: [remoteRoot],
+      nodeBatches: new Map(),
+      missing: new Set(),
+      idBatches: new Map(),
+      fetched: 0,
+      touchedAt: Date.now(),
+      next: null,
+    };
+    walks.set(peerId, walk);
+    advance(peerId, walk);
+  };
+
+  const onNodes = async (peerId: string, requestId: number, nodes: ReadonlyArray<{ cid: string; bytes: string }>) => {
+    const walk = walks.get(peerId);
+    const batch = walk?.nodeBatches.get(requestId);
+    if (!walk || !batch) return; // not ours, or already answered
+    const asked = new Set(batch);
+    const adapter = storageProvider.getAdapter();
+
+    for (const { cid, bytes } of nodes) {
+      if (typeof cid !== 'string' || typeof bytes !== 'string' || !asked.has(cid)) continue;
+      const node = await verifyNode(cid, base64UrlDecode(bytes));
+      if (!node) continue; // bytes that do not hash to their CID
+
+      if (++walk.fetched > MAX_NODES_PER_WALK) {
+        walks.delete(peerId);
+        emit('error', new Error(`Sync with ${peerId} abandoned: more than ${MAX_NODES_PER_WALK} nodes`));
+        return;
+      }
+      for (const key of await missingKeys(adapter, node)) walk.missing.add(key);
+
+      const depth = walk.depth.get(cid) ?? 0;
+      if (depth >= MAX_DEPTH) continue;
+      for (const child of unknownChildren(node, walk.localTree)) {
+        if (walk.depth.has(child)) continue; // already queued — a cycle, or a shared subtree
+        walk.depth.set(child, depth + 1);
+        walk.queue.push(child);
+      }
+    }
+    // Asked-for nodes the peer did not send are simply not followed: a peer can
+    // legitimately have compacted a node away between its root and our request.
+    // Marked answered only now, so a reply processed alongside this one cannot
+    // decide the tree is finished while this one's children are still unqueued.
+    walk.nodeBatches.delete(requestId);
+    advance(peerId, walk);
+  };
+
+  const onRecords = async (peerId: string, requestId: number, expressions: ReadonlyArray<Expression>) => {
+    const walk = walks.get(peerId);
+    const asked = walk?.idBatches.get(requestId);
+    // Only records this node asked for are considered; anything else was not
+    // requested and is not taken on trust as a side effect.
+    const wanted = asked ? new Set(asked) : null;
+    for (const expression of expressions) {
+      if (wanted?.has(expression?.id)) await admit(peerId, expression);
+    }
+    if (!walk || !asked) return;
+    walk.idBatches.delete(requestId);
+    advance(peerId, walk);
+  };
+
+  // ─── Serving ───────────────────────────────────────────────────────
+
+  const serveNodes = async (peerId: string, requestId: number, cids: ReadonlyArray<string>) => {
+    const adapter = storageProvider.getAdapter();
+    const nodes: Array<{ cid: string; bytes: string }> = [];
+    for (const cid of cids.slice(0, MAX_CIDS_PER_REQUEST)) {
+      if (typeof cid !== 'string') continue;
+      const bytes = await adapter.get(cid);
+      // Only content-addressed tree nodes leave this store — never another key
+      // that happens to share the namespace.
+      if (bytes && (await cidFromBytes(bytes)) === cid) nodes.push({ cid, bytes: base64UrlEncode(bytes) });
+    }
+    send(peerId, { type: 'node-response', id: requestId, nodes });
+  };
+
+  const serveRecords = async (peerId: string, requestId: number, ids: ReadonlyArray<string>) => {
+    const expressions: Expression[] = [];
+    for (const id of ids.slice(0, MAX_IDS_PER_REQUEST)) {
+      const expression = typeof id === 'string' ? await storageProvider.getExpression(id) : null;
+      if (expression) expressions.push(expression);
+    }
+    // Always answered, even empty: the asker counts replies to know it is done.
+    send(peerId, { type: 'diff-response', id: requestId, expressions });
   };
 
   return {
@@ -102,77 +297,43 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
         clearInterval(intervalId);
         intervalId = null;
       }
+      walks.clear();
     },
 
     async handleMessage(peerId: string, data: Uint8Array): Promise<void> {
       try {
-        const msg = decodeSyncMessage(data);
-        const localRoot = await storageProvider.getRootCid();
-        const adapter = storageProvider.getAdapter();
+        const msg: SyncMessage | null = decodeSyncMessage(data);
+        if (!msg) return; // malformed, or a protocol version this peer does not speak
 
         switch (msg.type) {
           case 'sync-request': {
-            const hasChanges = compareRoots(localRoot, msg.rootCid);
-            if (hasChanges) {
-              const localKeys = await listMSTKeys(adapter, localRoot);
-              sendToPeer(peerId, encodeSyncMessage({
-                type: 'sync-response',
-                rootCid: localRoot,
-                hasChanges: true,
-                remoteKeys: localKeys
-              }));
-            } else {
-              sendToPeer(peerId, encodeSyncMessage({
-                type: 'sync-response',
-                rootCid: localRoot,
-                hasChanges: false
-              }));
-            }
+            const localRoot = await storageProvider.getRootCid();
+            const differs = compareRoots(localRoot, msg.rootCid);
+            send(peerId, { type: 'sync-response', rootCid: localRoot, hasChanges: differs });
+            // They will pull ours from the response; we pull theirs.
+            if (differs) await pull(peerId, msg.rootCid);
             break;
           }
           case 'sync-response': {
-            if (msg.hasChanges && msg.remoteKeys) {
-              const missing = await findMissingExpressions(adapter, localRoot, msg.remoteKeys);
-              if (missing.length > 0) {
-                sendToPeer(peerId, encodeSyncMessage({
-                  type: 'diff-request',
-                  missingIds: missing
-                }));
-              } else {
-                emit('synced', peerId);
-              }
-            } else {
-              emit('synced', peerId);
-            }
+            if (msg.hasChanges) await pull(peerId, msg.rootCid);
+            else emit('synced', peerId);
             break;
           }
-          case 'diff-request': {
-            const expressions: Expression[] = [];
-            for (const id of msg.missingIds) {
-              const expr = await storageProvider.getExpression(id);
-              if (expr) {
-                expressions.push(expr);
-              }
-            }
-            if (expressions.length > 0) {
-              sendToPeer(peerId, encodeSyncMessage({
-                type: 'diff-response',
-                expressions
-              }));
-            }
+          case 'node-request':
+            await serveNodes(peerId, msg.id, Array.isArray(msg.cids) ? msg.cids : []);
             break;
-          }
-          case 'diff-response': {
-            for (const expr of msg.expressions) {
-              await admit(peerId, expr);
-            }
-            emit('synced', peerId);
+          case 'node-response':
+            await onNodes(peerId, msg.id, Array.isArray(msg.nodes) ? msg.nodes : []);
             break;
-          }
-          case 'push-update': {
+          case 'diff-request':
+            await serveRecords(peerId, msg.id, Array.isArray(msg.missingIds) ? msg.missingIds : []);
+            break;
+          case 'diff-response':
+            await onRecords(peerId, msg.id, Array.isArray(msg.expressions) ? msg.expressions : []);
+            break;
+          case 'push-update':
             await admit(peerId, msg.expression);
             break;
-          }
         }
       } catch (err) {
         emit('error', err);
@@ -181,11 +342,8 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
 
     notifyPeers(peerIds: ReadonlyArray<string>) {
       storageProvider.getRootCid().then(rootCid => {
-        const msg = encodeSyncMessage({ type: 'sync-request', rootCid });
         for (const peer of peerIds) {
-          if (peers.has(peer)) {
-            sendToPeer(peer, msg);
-          }
+          if (peers.has(peer)) send(peer, { type: 'sync-request', rootCid });
         }
       }).catch(err => emit('error', err));
     },
@@ -202,6 +360,8 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
 
     removePeer(peerId: string) {
       peers.delete(peerId);
+      // A dropped peer must not leave a half-finished walk holding memory.
+      walks.delete(peerId);
     },
 
     on(event: SyncEvent, callback: EventHandler) {

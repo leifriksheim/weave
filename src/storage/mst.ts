@@ -392,6 +392,18 @@ async function collectCids(
 // ------------------------------------------------------------ public API
 
 /**
+ * Every node CID reachable from a root: the tree as it stands, without the
+ * orphans older versions left behind in the store. Sync uses it to decide
+ * which of a peer's subtrees it already holds; garbage collection uses it to
+ * decide what to keep.
+ * @param adapter The storage adapter.
+ * @param rootCid The root, or null for an empty tree.
+ */
+export async function collectReachableCids(adapter: StorageAdapter, rootCid: string | null): Promise<Set<string>> {
+  return collectCids(adapter, rootCid);
+}
+
+/**
  * Insert a key-value pair into the MST.
  * @param adapter The storage adapter.
  * @param rootCid The current root, or null for an empty tree.

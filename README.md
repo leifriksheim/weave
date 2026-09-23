@@ -335,7 +335,12 @@ Anti-entropy gossip protocol for eventual consistency.
 |--------|-------------|
 | `createSyncEngine()` | Automatic MST reconciliation with heartbeat |
 | `compareRoots()` | Quick root CID comparison |
-| `findMissingExpressions()` | Identify missing data |
+| `verifyNode()` / `unknownChildren()` | The pieces of a tree walk |
+
+Two peers compare roots — equal means identical, one round trip. Otherwise each
+walks the other's tree from the root, skipping every subtree already in its own,
+so cost follows the size of the difference: one changed entry in 10,000 costs
+about 25 KB, where sending every key cost 508 KB.
 
 The engine's `validate` hook is the seam where the validation engine sits.
 Expressions a peer sends are only committed if it accepts them; the rest are

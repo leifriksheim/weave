@@ -16,7 +16,7 @@ inside the block itself — you never have to go hunting.
 
 | Block | Delivers | Rough size |
 |---|---|---|
-| [BLOCK-01](BLOCK-01-sync-protocol.md) | Sync that ships subtree CIDs instead of every key | ~4 days |
+| [BLOCK-01](BLOCK-01-sync-protocol.md) | Sync that ships subtree CIDs instead of every key — **done** | — |
 | [BLOCK-02](BLOCK-02-wallet-login.md) | ~~MetaMask as a login option~~ — parked, the Snap in `snap/` does this | — |
 | [BLOCK-03](BLOCK-03-packed-storage.md) | `BlobStore` + `PackedAdapter` + garbage collection | ~2 weeks |
 | [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | S3-compatible and Google Drive blob drivers | ~1 week |
@@ -75,7 +75,7 @@ but its links go unchecked until that lands.
 1. ~~**BLOCK-05**~~ — done.
 2. ~~**BLOCK-13**, the Node API~~ — done.
 3. ~~**BLOCK-06**, the CLI and always-on node~~ — done.
-4. **BLOCK-01** — an always-on node must not ship every key every round.
+4. ~~**BLOCK-01**~~ — done: 508 KB → 25 KB for one change in 10,000.
 5. **An account registry space** (below) — so the node learns about spaces by
    syncing rather than by being told; and a signed hello on the node's `/peer`.
 6. **BLOCK-08 → 09 → 10**, with agents defining collections over MCP/WebMCP as
