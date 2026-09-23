@@ -11,15 +11,15 @@ import { styles, palette } from '../styles';
  * The avatar in the corner, and a short menu hanging off it: who you are, a
  * few things you can do to the account, and the way out.
  *
- * Deliberately small. The passkey diagnostics and the MetaMask hand-off
- * (parked for now) used to live here; they belong somewhere a person goes on
+ * Deliberately small: passkeys and staying signed in are on the Security
+ * page. The passkey diagnostics and the MetaMask hand-off (parked) used to
+ * live here; they belong somewhere a person goes on
  * purpose, not in the menu they open to sign out.
  */
-export function AccountMenu({ auth, session }: { auth: ReturnType<typeof useSession>; session: Session }) {
+export function AccountMenu({ auth, session, onSecurity }: { auth: ReturnType<typeof useSession>; session: Session; onSecurity: () => void }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(session.account.name);
-  const [added, setAdded] = useState(false);
   const [copied, setCopied] = useState(false);
   // The name a password manager still files this account under, after a rename.
   const [staleAs, setStaleAs] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function AccountMenu({ auth, session }: { auth: ReturnType<typeof useSess
   useEffect(() => setName(session.account.name), [session.account.name]);
 
   const home = auth.home;
-  const hasPasskeyHere = (auth.entry?.shortcuts.length ?? 0) > 0 || added;
+  const hasPasskeyHere = (auth.entry?.shortcuts.length ?? 0) > 0;
   const did = session.rootDid;
 
   const rename = () => {
@@ -145,12 +145,15 @@ export function AccountMenu({ auth, session }: { auth: ReturnType<typeof useSess
 
           <div style={{ padding: 6 }}>
             <Item onClick={() => setRenaming((was) => !was)}>{renaming ? 'Cancel rename' : 'Rename'}</Item>
-            {session.custody === 'local' && !hasPasskeyHere && (
-              <Item onClick={() => void auth.addPasskey().then(setAdded)} hint="Faster sign-in" disabled={auth.loading}>
-                {auth.loading ? 'Waiting…' : 'Set up a passkey'}
-              </Item>
-            )}
-            {added && <p style={{ ...styles.ok, padding: '6px 10px' }}>A passkey opens this app now.</p>}
+            <Item
+              onClick={() => {
+                setOpen(false);
+                onSecurity();
+              }}
+              hint={session.custody === 'local' && !hasPasskeyHere ? 'Passkey, stay signed in' : undefined}
+            >
+              Security
+            </Item>
             <Item
               onClick={auth.chooseFolder}
               disabled={auth.loading}
@@ -172,7 +175,7 @@ export function AccountMenu({ auth, session }: { auth: ReturnType<typeof useSess
 }
 
 /** One row of the menu: a label, and optionally a quieter line on the right */
-function Item({ children, hint, onClick, disabled }: { children: ReactNode; hint?: string; onClick: () => void; disabled?: boolean }) {
+function Item({ children, hint, onClick, disabled }: { children: ReactNode; hint?: string | undefined; onClick: () => void; disabled?: boolean }) {
   return (
     <button role="menuitem" onClick={onClick} disabled={disabled} data-menu-item style={item}>
       <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{children}</span>

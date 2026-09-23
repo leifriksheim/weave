@@ -74,6 +74,7 @@ import {
   type SnapAccount,
 } from './snap';
 import { storesFor } from './storage-backend';
+import { forgetRemembered, recallSeed, rememberSeed } from './remember';
 
 /** Where accounts and their data are kept */
 export interface Home {
@@ -271,7 +272,22 @@ async function begin(home: Home, summary: AccountSummary, seed: Uint8Array): Pro
   }
 
   rememberLastAccount(summary.id);
-  return startSession(used, await localSource(seed), home.directory ? { directory: home.directory } : undefined);
+  const session = await startSession(used, await localSource(seed), home.directory ? { directory: home.directory } : undefined);
+  // So a refresh does not ask again — for as long as the security setting allows.
+  await rememberSeed(summary.id, home.kind === 'folder' ? 'folder' : 'browser', seed).catch(() => {});
+  return session;
+}
+
+/**
+ * Picks up where this device left off, without asking to unlock — when it was
+ * told to stay signed in and that has not run out.
+ * @returns The session, or null when there is nothing to resume
+ */
+export async function resumeSession(home: Home): Promise<Session | null> {
+  const kept = await recallSeed(home.kind === 'folder' ? 'folder' : 'browser');
+  if (!kept) return null;
+  const summary = (await listAccounts(home)).find((account) => account.id === kept.accountId);
+  return summary ? begin(home, summary, kept.seed) : null;
 }
 
 /**
@@ -829,5 +845,6 @@ export function openAccountPassword(): string | null {
 
 /** Signs out. The account and its data stay exactly where they are. */
 export function signOut(): void {
+  void forgetRemembered();
   endSession();
 }

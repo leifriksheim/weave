@@ -13,6 +13,7 @@ import {
   signInWithPassword,
   signInWithPasskey,
   signInWithSnap,
+  resumeSession,
   walletAvailable,
   addPasskeyHere,
   removeShortcut,
@@ -133,6 +134,17 @@ export function useSession() {
         const recalled = await recallFolderHome(false);
         const next = recalled ?? (await browserHome());
         const listed = await refresh(next);
+
+        // Told to stay signed in on this device, and still in date: straight in.
+        if (listed.length > 0) {
+          const resumed = await resumeSession(next).catch(() => null);
+          if (resumed) {
+            setSession(resumed);
+            setStage('ready');
+            return;
+          }
+        }
+
         // Nothing here yet and the storage question never answered: ask it first.
         const undecided = !recalled && listed.length === 0 && folderAvailable && !choseBrowser();
         setStage(undecided ? 'where' : afterStorage(listed));

@@ -12,6 +12,7 @@ import { PairArrival } from './components/PairArrival';
 import { PairPhone } from './components/PairPhone';
 import { SpaceList } from './components/SpaceList';
 import { SpaceView } from './components/SpaceView';
+import { SecuritySettings } from './components/SecuritySettings';
 import { clearInviteFromUrl, previewInvite, readInviteFromUrl } from './spaces';
 import { relayOnlyLocal, relayProblem } from './relay';
 import type { Session } from './protocol';
@@ -130,6 +131,7 @@ type Auth = ReturnType<typeof useSession>;
 function Workspace({ auth, session }: { auth: Auth; session: Session }) {
   const { spaces, loading, error, create, join, remove } = useSpaces(session);
   const [open, setOpen] = useState<SpaceSummary | null>(null);
+  const [page, setPage] = useState<'spaces' | 'security'>('spaces');
   const [pendingInvite, setPendingInvite] = useState<string | null>(() => readInviteFromUrl());
 
   // Keep the opened record in step with the registry, so a join that adds a
@@ -200,13 +202,15 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
           </div>
         )}
 
-        {open ? (
+        {page === 'security' ? (
+          <SecuritySettings auth={auth} session={session} onBack={() => setPage('spaces')} />
+        ) : open ? (
           <SpaceView record={open} session={session} onBack={() => setOpen(null)} />
         ) : (
           <>
             <header style={styles.headerRow}>
               <Wordmark compact />
-              <AccountMenu auth={auth} session={session} />
+              <AccountMenu auth={auth} session={session} onSecurity={() => setPage('security')} />
             </header>
             <h1 style={{ ...styles.appTitle, marginBottom: 20 }}>Spaces</h1>
 
