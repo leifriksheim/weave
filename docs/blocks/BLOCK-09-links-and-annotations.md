@@ -1,67 +1,144 @@
-# BLOCK-09 — Links, and an annotation library
+# BLOCK-09 — Links, and an annotation library agents can compose with
 
 ## What this delivers
 
-One expression can point at another, in a named role, and you can ask what
-points at a thing. Plus five collections shipped with the protocol — reactions,
-comments, tags, attachments, references — so **every app gets reactions and
-comments on every other app's data without anyone agreeing on anything**.
+One record can point at another, in a named role — a comment is *about* a
+todo, a vote is *about* a poll, a reply *replies to* a comment — and anyone can
+ask what points at a thing. Collections declare which links they have, so an
+agent reading a space's catalogue sees not just what things look like but how
+they connect. And five collections ship with the protocol — reactions,
+comments, tags, attachments, references — so **every app gets them on every
+other app's data without anyone agreeing on anything**.
 
-A reaction written by a chat app lands on a Kanban card, because both understand
-`sys.reaction` and neither had to know about the other.
+This is the substrate the agent work builds on: an agent can find what is in a
+space (`collections_list`), see how it connects (declared links), attach to
+anything (`sys.*`), and follow links (`records_linked`).
 
 ---
 
 ## Before you start
 
-Paste this. It must print `READY`.
-
 ```bash
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && \
-grep -q 'readonly proof' src/types.ts && \
-grep -q 'insertIntoMST' src/storage/mst.ts && \
-grep -q 'createStructuralGate' src/validation/structural-gate.ts && \
+grep -q 'supersedes' src/records/version.ts && \
+grep -q 'CATALOG_COLLECTION' src/schema/collection-def.ts && \
 npx tsc --noEmit >/dev/null 2>&1 && \
-echo READY || echo "NOT READY — see below"
+echo READY || echo "NOT READY — needs BLOCK-14 (record keys) and BLOCK-08 (the catalogue)"
 ```
 
-**Needs BLOCK-08** for the part that declares which links a collection may have.
-The link field, the index and the `sys.*` collections all work without it — you
-just cannot *check* that a card points at a column rather than at a todo. Start
-here if you want the mechanism sooner; do BLOCK-08 first if you want it
-enforced.
+**Needs BLOCK-14** — links point at record *keys*, which survive edits — and
+**BLOCK-08**, for declaring links in a collection's definition. Both done.
 
 ---
 
 ## The design, and why it is not a graph
 
-The thing every one of these apps needs is *"this expression is about that one,
-in a named role"*:
+The thing every one of these apps needs is *"this record is about that one, in
+a named role"*. The subject is always the record doing the pointing. That is a
+link with a role, not a general graph — no triples, nobody has to think in RDF.
 
-- a reaction is about one post
-- a comment is about one thing, and maybe replies to another
-- a card is in one column
-- a tag is about many things
+> **Strict nouns, polymorphic annotations.** A Kanban card is a Kanban card,
+> not a generic Task — nouns declare exactly what they point at. A reaction
+> attaches to anything — annotations declare `"*"`. That escape hatch is
+> deliberate, visible and rare.
 
-The subject is **always the expression doing the pointing**. That is not a
-general graph — it is a link with a role, which is a much smaller thing. No
-triples, no subject-predicate-object, nobody has to think in RDF.
+### The link
 
-### Strict nouns, polymorphic annotations
+```ts
+export interface Link {
+  /** The role: 'about', 'in', 'replyTo' — lower camel case */
+  readonly rel: string;
+  /** The key of the record it points at, in the same space */
+  readonly to: string;
+}
+```
 
-The rule that makes this work, and the one to hold onto when it is tempting to
-generalise:
+- **Links point at keys, not versions** (BLOCK-14). A comment stays on a todo
+  however many times the todo is ticked.
+- **Links are part of the signed record.** An unsigned link is a link anyone
+  could add to someone else's record.
+- **At most 32 per record.** A record that points at more is a list, and should
+  be one.
+- **Changing a record's links is an edit** — a new version, like any other.
+  `update` keeps the previous version's links unless given new ones.
 
-> A Kanban card is a Kanban card, not a generic Task. A reaction attaches to
-> anything.
+### Where links live, and who can see them
 
-Polymorphism is almost never wanted for **nouns** — nobody wants their card
-silently appearing in a todo app, and a subject class per overlapping concept is
-how that ends up happening. It is almost always wanted for **annotations** — a
-reaction that only worked on posts would be useless.
+| Space | Links are | So a relay or an always-on node without the key sees |
+|---|---|---|
+| **Public** | a signed field on the record, in the clear | everything, as it does the bodies |
+| **Private** | sealed inside the encrypted body, with it | that records exist and how often they change — not what points at what |
 
-So nouns declare exactly what they point at. Annotations declare `"*"`, and that
-escape hatch is deliberate, visible and rare.
+The original version of this block kept links outside the body everywhere,
+which would have let a relay count the comments on every item of a private
+list and see who reacted to what. Private spaces seal them. The cost: an
+always-on node without the key cannot answer "what points at this" — and it
+never needs to; members can.
+
+### The index is derived, and local
+
+"What points at X" is answered from an index each node builds from the
+records it holds — rebuilt when records change, never synced. The original
+block synced it as a second tree; that would be derived data travelling
+between peers, one more thing to disagree about, with nothing gained: any node
+holding the records can build it. A link to a record not held here is kept
+and indexed — you will routinely hold a reaction before its post.
+
+### Declaring links
+
+A collection definition (BLOCK-08) gains `links`:
+
+```ts
+export interface StoredCollection {
+  // …name, schema, version, history…
+  readonly links?: Readonly<Record<string, {
+    /** Collections the target may be in, or '*' for any */
+    readonly to: '*' | ReadonlyArray<string>;
+    /** How many links of this role a record may have. Default 'many'. */
+    readonly cardinality?: 'one' | 'many';
+    readonly description?: string;
+  }>>;
+}
+```
+
+Checked the way schemas are (BLOCK-08): **refused on write, flagged on read,
+never rejected during sync.** Whether a link's target is in an allowed
+collection depends on whether a node holds the target yet — a check at sync
+time would make nodes disagree forever. A link to a record not held here
+passes; a link of an undeclared role, or to a record in a disallowed
+collection, is reported in `issues`.
+
+### The `sys.*` library
+
+Built into every node, not published into spaces — so every node agrees on
+them without anyone defining them, and apps and agents find them in
+`collections_list` marked `builtIn`.
+
+| Collection | Body | Links |
+|---|---|---|
+| `sys.reaction` | `{ emoji }` | `about → *` (one) |
+| `sys.comment` | `{ text }` | `about → *` (one), `replyTo → sys.comment` (one) |
+| `sys.tag` | `{ label }` | `about → *` (many) |
+| `sys.attachment` | `{ name, mime, size?, url? }` | `about → *` (one) |
+| `sys.reference` | `{ note? }` | `about → *` (one), `to → *` (one) |
+
+**Do not let `sys.*` grow.** Five cover the annotation layer of nearly every
+app. The sixth will be somebody's noun wearing a disguise.
+
+---
+
+## API
+
+```ts
+node.records.put(space, collection, body, { key?, links? })
+node.records.update(space, key, body, { links? })     // links kept unless given
+node.records.linked(space, key, { rel?, collection? }) → NodeRecord[]   // what points here
+// NodeRecord gains: links: ReadonlyArray<Link>
+```
+
+Actions: `records_put` and `records_update` take `links`; `records_linked` is
+new; `collections_define` takes `links`; `collections_list` includes the
+`sys.*` library with its declared links, so an agent sees the space's map.
 
 ---
 
@@ -69,160 +146,61 @@ escape hatch is deliberate, visible and rare.
 
 | File | Change |
 |---|---|
-| `src/types.ts` | `links` on `Expression` and `UnsignedExpression` |
-| `src/schema/expression.ts` | Links are canonicalised, so they are signed |
-| `src/storage/link-index.ts` | **New.** The reverse index |
-| `src/storage/storage-provider.ts` | Maintain the index; add `linked()` |
-| `src/validation/structural-gate.ts` | Check links against the declared shape |
-| `src/schema/collections/` | **New.** The `sys.*` library |
-| `src/index.ts` | Exports |
+| `src/types.ts` | `Link`; `links` on `Expression` / `UnsignedExpression` |
+| `src/schema/expression.ts` | `createExpression` takes `links` |
+| `src/records/links.ts` | **New.** `checkLinks` (shape), the `sys.*` library definitions |
+| `src/records/version.ts` | The shape check covers links in the clear |
+| `src/schema/collection-def.ts` | `links` in definitions, validated |
+| `src/node/space-runtime.ts` | Links on write and read; sealing them in private spaces; the index; `linked`; link issues |
+| `src/node/node.ts`, `types.ts`, `actions.ts` | API above |
+| `example/` | Reactions on todos — a count, and your own to toggle |
 | `tests/links.test.ts` | **New** |
-| `tests/link-index.test.ts` | **New** |
-
-### `src/types.ts`
-
-```ts
-/** What an expression is about. Signed along with the rest. */
-export interface Link {
-  /** The role, from the collection's declaration: 'about', 'in', 'replyTo' */
-  readonly rel: string;
-  /** The expression it points at */
-  readonly to: string;
-}
-
-export interface Expression<T = unknown> {
-  // …existing fields…
-  readonly links?: ReadonlyArray<Link>;
-}
-```
-
-Outside `body` on purpose — see *Gotchas*, because that choice has a cost.
-
-### `src/storage/link-index.ts`
-
-A second MST, keyed so that "everything pointing at X" is one prefix scan:
-
-```
-<to>|<rel>|<from>   →   <from>
-```
-
-```ts
-export function indexLink(adapter, root, link, from): Promise<string>;
-export function unindexLink(adapter, root, link, from): Promise<string>;
-export function findLinked(adapter, root, to, rel?): Promise<ReadonlyArray<string>>;
-```
-
-It syncs, validates and merges exactly like the expression tree, because it is
-the same structure — so this costs a second root pointer and no new machinery.
-
-### `src/storage/storage-provider.ts`
-
-```ts
-/** Expressions pointing at this one, optionally in one role. */
-linked(to: string, rel?: string): Promise<ReadonlyArray<Expression>>;
-```
-
-`addExpression` and `removeExpression` maintain the index. Keep both roots in
-one place so a reconcile cannot leave them disagreeing.
-
-### `src/schema/collections/`
-
-The library. Small, and that is the point:
-
-```ts
-sys.reaction    { emoji: string }                      about → *
-sys.comment     { text: string }                       about → *, replyTo → sys.comment
-sys.tag         { label: string }                      about → *
-sys.attachment  { name, mime, blob }                   about → *
-sys.reference   { note?: string }                      about → *, to → *
-```
-
-Ship them as `StoredCollection` values (BLOCK-08's shape) so an app can publish
-them into a space with one call, and so they are described by the same mechanism
-as everything else rather than being special.
-
----
-
-## Steps
-
-1. Add `Link` and the `links` field. Make sure `canonicalize` includes it —
-   an unsigned link is a link anyone can add to someone else's record.
-2. Write `link-index.ts` against the memory adapter. Pure tree work, testable
-   without a browser.
-3. Wire it into the storage provider, both directions, and make the root
-   pointers move together.
-4. Add `linked()` and test one hop in both directions.
-5. Extend the structural gate: when the collection declares `links`, check
-   `rel` is known and the target's collection is allowed. **When the target is
-   not held locally, pass** — see *Gotchas*.
-6. Write the `sys.*` definitions and publish them alongside a space's own.
-7. Show it: reactions on todos in the example, and a count that does not require
-   decrypting anything.
 
 ---
 
 ## Testing
 
-`tests/links.test.ts`
-
-- Links are part of the signature: adding one to a signed expression invalidates it
-- A link to a collection the definition does not allow is rejected
-- A link to an expression not held locally is accepted — this is normal in a P2P
-  system and must not be treated as invalid
-- `"*"` accepts any target
-
-`tests/link-index.test.ts`
-
-- `findLinked` returns everything pointing at a target, filtered by `rel`
-- Removing an expression removes its links from the index
-- Two expressions pointing at the same target both appear
-- Index and expression roots stay consistent across a reconcile
-- Order-independence: the same links inserted in any order give the same root
-
----
+- A link is part of the signature: changing it invalidates the record
+- `linked(todo, { rel: 'about' })` returns the reactions on it; editing the todo
+  keeps them attached (same key)
+- A reaction arriving before its target is kept, and appears once the target does
+- An undeclared role, or a target in a disallowed collection, is refused on
+  write and flagged on read — and never rejected during sync
+- In a private space, links are not visible in the stored record without the key
+- An app that knows nothing about todos lists and renders reactions on them
+- The index follows deletes: a deleted reaction stops being returned
+- `collections_list` shows the `sys.*` library with its links
 
 ## Acceptance criteria
 
-- [ ] React to a todo; the reaction is an ordinary signed expression in `sys.reaction`
-- [ ] `linked(todoId, 'about')` returns it
+- [ ] React to a todo; the reaction is an ordinary signed record in `sys.reaction`
+- [ ] `linked(todoKey, { rel: 'about' })` returns it, before and after the todo is ticked
 - [ ] A second app that knows nothing of todos can list and render reactions on them
 - [ ] A reaction arriving before its target is kept, not rejected
-- [ ] Deleting a todo leaves no dangling index entries
-- [ ] The index syncs between peers
+- [ ] Private spaces keep links sealed
+- [ ] Example verified in two browsers: react, see the count on the other side
 - [ ] `npx tsc --noEmit` clean, full suite green
 
 ---
 
 ## Out of scope
 
-**Multi-hop traversal.** Every query these apps run is one hop from a node you
-already have. If something later needs pattern matching, the index is the
-substrate for it — but do not build a query language on speculation.
-
-**Cardinality enforcement.** Declarations can say `"one"`, and nothing should
-enforce it yet: in a P2P system two devices will legitimately write a second
-`in` link before they meet, and the resolution is a merge question, not a
-validation one.
-
-**Cross-space links.** A link names a CID, which could live anywhere. Resolving
-one into another space needs a fetching story. Leave it undefined rather than
-half-working.
-
----
+- **"One reaction per person."** Cardinality across *records* — one per author
+  per target — is a fold at read time, BLOCK-11. `cardinality` here is per
+  record: how many links of one role a single record carries.
+- **Multi-hop traversal and `include`.** One hop from a node you hold covers
+  these apps. Nested includes are BLOCK-10.
+- **Cross-space links.** A key names a record in *this* space. Resolving one
+  into another space needs a fetching story; left undefined rather than
+  half-working.
+- **Attachments' bytes.** `sys.attachment` describes a file; storing blobs is
+  BLOCK-03/04's.
 
 ## Gotchas
 
-- **Links outside `body` are readable when the body is not.** That is useful —
-  count reactions on a private list without decrypting — and it is a leak: the
-  shape of a private space becomes visible. How many comments, what is attached
-  to what, who reacted. Make it a per-space choice rather than deciding for
-  everyone, and decide before anyone has data.
-- **Referential integrity has to be soft.** You will routinely hold a reaction
-  before its post. A link to something absent is normal, not invalid. A gate
-  that rejects it will quietly drop half the annotations on a slow sync.
-- **The index is derived, so it must be rebuildable.** Follow the folder
-  adapter's rule: the expression files are the truth, the index is a cache over
-  them. A reconcile should be able to throw the index away and rebuild it.
-- **Do not let `sys.*` grow.** Five collections cover the annotation layer of
-  nearly every app. The sixth will be somebody's noun wearing a disguise, and
-  once one is in, the argument against the seventh is gone.
+- **Referential integrity has to be soft.** A link to a record not held here is
+  normal. A check that rejects it drops half the annotations on a slow sync.
+- **The index is a cache.** Throw it away and rebuild it from the records; never
+  treat it as the source of truth.
+- **`rel` names are forever.** Changing `about` to `on` orphans every existing
+  link. Choose them like field names in a public API.
