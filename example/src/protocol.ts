@@ -17,6 +17,7 @@
  * is open and where its data lives. Accounts and how to open them live in
  * `accounts.ts`; a list as the screens see it in `space-session.ts`.
  */
+import { exposeToAgents } from './webmcp';
 import {
   createIdentityManager,
   createLocalRootSigner,
@@ -136,7 +137,12 @@ export function requireSession(): Session {
 }
 
 /** Ends the session. The account and its data stay where they are. */
+/** Unregisters this session's WebMCP tools */
+let _hideFromAgents: () => void = () => {};
+
 export function endSession(): void {
+  _hideFromAgents();
+  _hideFromAgents = () => {};
   void _session?.node.close();
   _session = null;
   _seed = null;
@@ -158,6 +164,7 @@ export async function startSession(
 ): Promise<Session> {
   // A restart — moving an account into a folder, say — must not leave the old
   // node syncing behind the new one.
+  _hideFromAgents();
   await _session?.node.close();
 
   const node = await createNode({
@@ -177,6 +184,8 @@ export async function startSession(
     sessionDid: node.sessionDid,
     node,
   });
+  // An agent in this tab — through WebMCP — gets the same operations as the CLI and MCP.
+  _hideFromAgents = exposeToAgents(node);
 
   return _session;
 }

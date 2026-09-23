@@ -87,7 +87,7 @@ but its links go unchecked until that lands.
 11. **Agent sessions** — an agent is not its own identity: it signs for you with
     a session key, like any device, given a narrower, labelled delegation
     (which spaces, which collections, read or write). (Block to write.)
-12. WebMCP in the example.
+12. ~~WebMCP in the example~~ — done: every action is a tool on `document.modelContext` (`@mcp-b/global`).
 
 ## Why the always-on node matters most
 

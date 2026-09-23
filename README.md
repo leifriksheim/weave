@@ -705,6 +705,15 @@ stored in that space's MST, encrypted first if the space is private, and gossipe
 to peers over WebRTC. Each item shows 🔐 once its signature *and* its delegation
 chain verify locally, and 🔑 when it arrived encrypted.
 
+**Agents in the browser (WebMCP).** Once signed in, the app registers every
+node operation as a WebMCP tool on `document.modelContext`
+(`example/src/webmcp.ts`, using [`@mcp-b/global`](https://www.npmjs.com/package/@mcp-b/global):
+Chrome's own WebMCP when present, a polyfill otherwise). A browser agent sees
+the same 18 tools as the CLI and `p2p mcp` — `spaces_create`, `records_query`,
+`records_put` with a `sys.view`… — and acts as you, with this tab's session
+key. Anything that hands out a space's key (`spaces_invite`) asks you first.
+Signing out removes the tools.
+
 ## Tests
 
 ```bash
