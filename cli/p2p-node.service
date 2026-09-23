@@ -1,0 +1,30 @@
+# systemd unit for an always-on p2p node.
+#
+#   sudo useradd --system --home /var/lib/p2p p2p
+#   sudo install -m 755 dist/p2p-linux-x64 /usr/local/bin/p2p
+#   sudo -u p2p P2P_HOME=/var/lib/p2p p2p init --existing --passphrase
+#   echo 'P2P_PASSPHRASE=…' | sudo tee /etc/p2p.env && sudo chmod 600 /etc/p2p.env
+#   sudo cp p2p-node.service /etc/systemd/system/ && sudo systemctl enable --now p2p-node
+#
+# The passphrase lives in a root-only file, never on the command line.
+
+[Unit]
+Description=p2p-web always-on node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=p2p
+Environment=P2P_HOME=/var/lib/p2p
+EnvironmentFile=/etc/p2p.env
+ExecStart=/usr/local/bin/p2p run --port 8787
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/p2p
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -603,6 +603,14 @@ schema.registerCollection({
 });
 ```
 
+## Command line, always-on node, and agents
+
+`cli/` is `p2p`: every node operation from a terminal, `p2p run` to keep an
+account's spaces syncing on a server (browsers connect to it over WebSocket, and
+it doubles as a relay), and `p2p mcp` to hand the same operations to an agent.
+It reads and writes the same data folder layout a browser does. See
+[cli/README.md](cli/README.md).
+
 ## Example app
 
 `example/` is a collaborative todo list — Vite + React, consuming the protocol

@@ -34,7 +34,7 @@ import {
   type DirectoryHandleLike,
 } from '@p2p-web/protocol';
 import { storesFor } from './storage-backend';
-import { relayUrls } from './relay';
+import { CONFIGURED_NODES, relayUrls } from './relay';
 import { TODO_COLLECTION } from './todos';
 
 /**
@@ -157,7 +157,7 @@ export async function startSession(
     signer: source.signer,
     stores: storesFor(account, folder && source.vaultKey ? { directory: folder.directory, vaultKey: source.vaultKey } : undefined),
     collections: [TODO_COLLECTION],
-    network: { relays: relayUrls() },
+    network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
   });
 
   _seed = source.seed;

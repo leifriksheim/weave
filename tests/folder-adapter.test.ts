@@ -164,6 +164,20 @@ describe('two origins, one folder', () => {
     return { adapter, storage: createStorageProvider(adapter) };
   }
 
+  test('a key another writer creates after a miss is found by listing', async () => {
+    const folder = createMemoryDirectory();
+    const a = await openOrigin(folder.open());
+    const b = await openOrigin(folder.open());
+
+    // B asks first and finds nothing — and remembers that.
+    assert.equal(await b.adapter.get('space:new'), null);
+    await a.adapter.put('space:new', new Uint8Array([1, 2, 3]));
+
+    // Listing is how a writer's additions are discovered; the stale miss must not hide them.
+    assert.deepEqual(await b.adapter.list('space:'), ['space:new']);
+    assert.deepEqual(await b.adapter.get('space:new'), new Uint8Array([1, 2, 3]));
+  });
+
   test('what one origin writes, the other sees after reconciling', async () => {
     const folder = createMemoryDirectory();
     const a = await openOrigin(folder.open());

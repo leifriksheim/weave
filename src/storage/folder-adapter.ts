@@ -293,7 +293,11 @@ export async function createFolderAdapter(
       const keys: string[] = [];
       for await (const name of kvDir.keys()) {
         const key = decodeKey(name);
-        if (key.startsWith(prefix)) keys.push(key);
+        if (!key.startsWith(prefix)) continue;
+        keys.push(key);
+        // Another writer created it after this process looked and found
+        // nothing. The file is on disk now, so the remembered miss is stale.
+        if (kvCache.get(key) === null) kvCache.delete(key);
       }
       return keys;
     },

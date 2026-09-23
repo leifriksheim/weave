@@ -99,7 +99,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
   },
   {
     name: 'spaces_join',
-    description: 'Join a space from an invite, storing it (and its key, if private) on this node.',
+    description: 'Join a space from an invite or an invite link, storing it (and its key, if private) on this node.',
     input: { type: 'object', properties: { invite: { type: 'string' } }, required: ['invite'] },
     readOnly: false,
     run: (node, input) => node.spaces.join(str(input, 'invite')),

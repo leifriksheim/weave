@@ -37,13 +37,19 @@ curve output against Web Crypto's).
 
 Development only: `typescript`, `tsx`, and `ws` — a real WebSocket server for `tests/ws-transport.test.ts`, since Node has a WebSocket client but no server.
 
+The CLI (`cli/`, a separate package) has one runtime dependency:
+
+| Package | Where | Why it clears the bar |
+|---|---|---|
+| `ws` | `cli/src/serve.ts` | The standard WebSocket server for Node for over a decade, no dependencies, and runs unchanged under Bun — so the node serves browsers without a hand-written protocol implementation. |
+
 ## Decided, not yet needed
 
 | Package | For | Instead of |
 |---|---|---|
 | `aws4fetch` | S3-compatible blob driver (BLOCK-04) | Hand-writing SigV4 |
 | `@cfworker/json-schema` | Stored collection definitions (BLOCK-08) | A home-grown validator. Chosen over Ajv, which generates code at runtime and breaks under a strict Content Security Policy |
-| `ws` (at runtime) | The Node signaling relay, if it outlives the daemon | Speaking the WebSocket protocol by hand |
+| `ws` for `server/signaling-server.mjs` | Only if the standalone relay outlives `p2p run`, which now serves a relay too | Speaking the WebSocket protocol by hand |
 | `node-datachannel` | WebRTC on a headless node, only if measurement says WSS is not enough | — |
 
 ## Considered and declined
@@ -53,6 +59,7 @@ Development only: `typescript`, `tsx`, and `ws` — a real WebSocket server for 
 | Merkle Search Tree | Keep ours (`src/storage/mst.ts`) | No standalone, widely used MST library exists. The closest, `@atproto/repo`, is bound to the AT Protocol's data model. Ours is covered by order-independence and inverse-delete tests. |
 | UCAN | Keep ours (`src/identity/ucan.ts`, UCAN 0.10) | The official libraries are migrating to UCAN 1.0 with a different envelope — the opposite of stable. Revisit when that settles. |
 | Browser WebRTC wrappers (`simple-peer` etc.) | Use the native API | Thinly maintained; they would add risk, not remove it. Connection stability comes from negotiation patterns and TURN, not a wrapper. |
+| `@modelcontextprotocol/sdk` | Hand-written stdio server (`cli/src/mcp.ts`) | Only stdio and tools are needed — four JSON-RPC methods. The SDK brings an HTTP stack and a schema library, and changes often. Revisit for HTTP transport or resources. |
 
 ## Keeping the list honest
 

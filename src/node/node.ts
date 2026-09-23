@@ -53,6 +53,11 @@ function summarize(record: SpaceRecord): SpaceSummary {
   });
 }
 
+/** Accepts a bare invite or a whole share link carrying one (`…#invite=…`). */
+function bareInvite(invite: string): string {
+  return /[#&?]invite=([^&\s]+)/.exec(invite)?.[1] ?? invite.trim();
+}
+
 /** Lets a long-lived timer not hold a process open on its own. */
 function unref(timer: ReturnType<typeof setTimeout>): void {
   (timer as { unref?: () => void }).unref?.();
@@ -184,13 +189,13 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     },
 
     preview(invite: string): InvitePreview {
-      const parsed = parseSpaceInvite(invite);
+      const parsed = parseSpaceInvite(bareInvite(invite));
       const { encryptionKeyId: _keyId, ...space } = parsed.space;
       return { space, invitedBy: parsed.invitedBy, carriesKey: typeof parsed.key === 'string' };
     },
 
     async join(invite: string) {
-      const record = await registry.join(invite, config.signer.did);
+      const record = await registry.join(bareInvite(invite), config.signer.did);
       // A runtime opened before the key arrived would still be unable to read.
       await closeRuntime(record.space.id);
       emit({ type: 'spaces' });

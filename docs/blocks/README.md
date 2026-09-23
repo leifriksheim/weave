@@ -21,7 +21,7 @@ inside the block itself — you never have to go hunting.
 | [BLOCK-03](BLOCK-03-packed-storage.md) | `BlobStore` + `PackedAdapter` + garbage collection | ~2 weeks |
 | [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | S3-compatible and Google Drive blob drivers | ~1 week |
 | [BLOCK-05](BLOCK-05-transport-abstraction.md) | Pluggable network transport + WebSocket transport | ~3 days |
-| [BLOCK-06](BLOCK-06-bun-daemon.md) | Your always-on data node, as a single binary (under review) | ~1.5 weeks |
+| [BLOCK-06](BLOCK-06-bun-daemon.md) | `p2p` CLI: spaces from a terminal, `run` as the always-on node, `mcp` for agents — **done** | — |
 | [BLOCK-07](BLOCK-07-hosting-tier.md) | Multi-tenant hosting, BYO-storage credentials | ~2 weeks |
 | [BLOCK-08](BLOCK-08-self-describing-spaces.md) | Collection definitions stored in the space | ~1 week |
 | [BLOCK-09](BLOCK-09-links-and-annotations.md) | Links between expressions, and a `sys.*` library | ~1.5 weeks |
@@ -73,12 +73,13 @@ but its links go unchecked until that lands.
 ## Current order
 
 1. ~~**BLOCK-05**~~ — done.
-2. ~~**BLOCK-13**, the Node API~~ — done. Then **BLOCK-06** as a CLI whose
-   `node run` command is the daemon.
-3. **BLOCK-01** alongside it — an always-on node must not ship every key every round.
-4. **An account registry space** (below) — the node needs it to know which
-   spaces to join.
-5. **BLOCK-08 → 09 → 10.**
+2. ~~**BLOCK-13**, the Node API~~ — done.
+3. ~~**BLOCK-06**, the CLI and always-on node~~ — done.
+4. **BLOCK-01** — an always-on node must not ship every key every round.
+5. **An account registry space** (below) — so the node learns about spaces by
+   syncing rather than by being told; and a signed hello on the node's `/peer`.
+6. **BLOCK-08 → 09 → 10**, with agents defining collections over MCP/WebMCP as
+   the motivating use.
 
 ## Why the always-on node matters most
 

@@ -29,6 +29,16 @@ export const CONFIGURED_RELAYS: ReadonlyArray<string> = (
   .map((url: string) => url.trim())
   .filter(Boolean);
 
+/**
+ * Always-on nodes to hold a socket to, comma separated — `p2p run` serves one
+ * at `ws(s)://host:port/peer`. Optional: without one, lists sync only while
+ * someone else has them open.
+ */
+export const CONFIGURED_NODES: ReadonlyArray<string> = (import.meta.env.VITE_P2P_NODES ?? '')
+  .split(',')
+  .map((url: string) => url.trim())
+  .filter(Boolean);
+
 /** The first configured relay, for messages that talk about one. */
 export const CONFIGURED_RELAY: string = CONFIGURED_RELAYS[0] ?? 'ws://localhost:8787';
 
