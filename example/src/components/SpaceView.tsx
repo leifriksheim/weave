@@ -1,12 +1,14 @@
-import { useState, type FormEvent } from 'react';
-import type { SpaceSummary } from '@p2p-web/protocol';
-import { useSpaceSession } from '../hooks/useSpaceSession';
+import { useEffect, useState } from 'react';
+import type { NodeCollection, SpaceSummary } from '@p2p-web/protocol';
 import { createInviteLink } from '../spaces';
-import { TodoItem } from './TodoItem';
+import { requireSession, type Session } from '../protocol';
+import { useLive } from '../hooks/useLive';
+import { collectionLabel } from '../derive/schema-ui';
+import { CollectionView } from './CollectionView';
+import { RecordView } from './RecordView';
+import { NewCollection } from './NewCollection';
 import { DelegationPanel } from './DelegationPanel';
-import { ViewsPanel } from './ViewsPanel';
 import { spaceBadges } from './SpaceList';
-import type { Session } from '../protocol';
 import { styles, palette } from '../styles';
 
 const CONNECTION_LABEL: Record<string, string> = {
@@ -16,62 +18,61 @@ const CONNECTION_LABEL: Record<string, string> = {
   error: '○ no relay',
 };
 
-/** One open list: its todos, its peers, and the link that invites someone in. */
-export function SpaceView({
-  record,
-  session,
-  onBack,
-}: {
-  record: SpaceSummary;
-  session: Session;
-  onBack: () => void;
-}) {
-  const { todos, status, collections, loading, add, toggle, remove, react } = useSpaceSession(record);
-  const [draft, setDraft] = useState('');
-  const [invite, setInvite] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+/** Where in the space we are: its overview, one collection, or one record */
+export interface Place {
+  readonly collection: string | null;
+  readonly key: string | null;
+}
 
-  const space = record;
-  const completed = todos.filter((todo) => todo.body.completed).length;
+/**
+ * One space, drawn from what it says about itself: the kinds of things in it
+ * (its catalogue), their records, and how they point at each other. Nothing
+ * here knows what any of them are.
+ */
+export function SpaceView({ record: space, session, onBack }: { record: SpaceSummary; session: Session; onBack: () => void }) {
+  const { node } = requireSession();
+  const [place, setPlace] = useState<Place>({ collection: null, key: null });
 
-  const handleAdd = async (e: FormEvent) => {
-    e.preventDefault();
-    const text = draft.trim();
-    if (!text) return;
-    setDraft('');
-    await add(text);
-  };
+  // Opening a space starts syncing it; leaving stops.
+  useEffect(() => {
+    void node.spaces.open(space.id);
+    return () => void node.spaces.close(space.id);
+  }, [node, space.id]);
 
-  const share = async () => {
-    const link = await createInviteLink(space.id);
-    setInvite(link);
-    try {
-      await globalThis.navigator.clipboard.writeText(link);
-      setCopied(true);
-      globalThis.setTimeout(() => setCopied(false), 2500);
-    } catch {
-      setCopied(false);
-    }
-  };
+  const collections = useLive(space.id, () => node.collections.list(space.id), []) ?? [];
+  const status = useLive(space.id, () => node.spaces.status(space.id), []);
+
+  const go = (next: Place) => setPlace(next);
+  const current = collections.find((c) => c.name === place.collection) ?? null;
 
   return (
     <>
       <header style={styles.header}>
-        <button onClick={onBack} data-variant="ghost" style={styles.linkButton}>
-          ← All lists
-        </button>
+        <nav style={{ ...styles.linkRow, marginTop: 0 }} aria-label="Breadcrumbs">
+          <button onClick={onBack} data-variant="ghost" style={styles.linkButton}>
+            ← All spaces
+          </button>
+          {place.collection && (
+            <button onClick={() => go({ collection: null, key: null })} data-variant="ghost" style={styles.linkButton}>
+              / {space.name}
+            </button>
+          )}
+          {place.key && place.collection && (
+            <button onClick={() => go({ collection: place.collection, key: null })} data-variant="ghost" style={styles.linkButton}>
+              / {current ? collectionLabel(current) : place.collection}
+            </button>
+          )}
+        </nav>
         <h1 style={{ ...styles.appTitle, fontSize: 22 }}>{space.name}</h1>
         <div style={styles.identityBar}>
           <span style={styles.badge}>{spaceBadges(space)}</span>
-          <span style={styles.badge} title={`Relay: peers currently connected to this space`}>
-            {CONNECTION_LABEL[status.connection]} · {status.peers.length}{' '}
-            {status.peers.length === 1 ? 'peer' : 'peers'}
-          </span>
-          <span style={styles.badge} title={status.mstRoot ?? 'No root yet'}>
-            🌳 {status.mstRoot ? `${status.mstRoot.slice(0, 10)}…` : 'empty'}
-          </span>
-          {status.rejected > 0 && (
-            <span style={{ ...styles.badge, color: palette.accent.danger }} title="Expressions peers sent that failed validation">
+          {status && (
+            <span style={styles.badge}>
+              {CONNECTION_LABEL[status.connection]} · {status.peers.length} {status.peers.length === 1 ? 'peer' : 'peers'}
+            </span>
+          )}
+          {status && status.rejected > 0 && (
+            <span style={{ ...styles.badge, color: palette.accent.danger }} title="Records peers sent that failed validation">
               ⚠️ {status.rejected} rejected
             </span>
           )}
@@ -79,96 +80,90 @@ export function SpaceView({
       </header>
 
       {!space.writable && (
-        <p style={styles.errorHint}>
-          👀 You are following this list. It is {space.owner.slice(-6)}'s personal list, so only they can
-          change it — ask them for a shared list to edit together.
+        <p style={styles.errorHint}>👀 You are following this space. It is {space.owner.slice(-6)}'s, so only they can change it.</p>
+      )}
+
+      {place.key && place.collection ? (
+        <RecordView space={space} recordKey={place.key} collections={collections} go={go} />
+      ) : place.collection ? (
+        <CollectionView space={space} name={place.collection} collection={current} go={go} />
+      ) : (
+        <Overview space={space} collections={collections} go={go} />
+      )}
+
+      {!place.collection && (
+        <>
+          <Share space={space} />
+          <DelegationPanel session={session} spaceId={space.id} />
+        </>
+      )}
+    </>
+  );
+}
+
+/** The kinds of things in the space. The protocol's own annotations only show once used. */
+function Overview({ space, collections, go }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection>; go: (p: Place) => void }) {
+  const [defining, setDefining] = useState(false);
+  const shown = collections.filter((c) => !c.name.startsWith('sys.') || c.records > 0);
+
+  return (
+    <section style={styles.panelSection} aria-label="What this space holds">
+      <h2 style={styles.sectionTitle}>What's here</h2>
+      {shown.length === 0 && (
+        <p style={styles.hint}>
+          Nothing yet. Define a kind of thing below — or ask an agent: this page offers the space's operations as WebMCP tools.
         </p>
       )}
-
-      {space.writable && (
-        <form onSubmit={handleAdd} style={styles.addForm}>
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="What needs to be done?"
-            style={styles.todoInput}
-            autoFocus
-          />
-          <button type="submit" disabled={!draft.trim()} data-variant="primary" style={styles.addButton}>
-            Add
-          </button>
-        </form>
-      )}
-
       <div style={styles.todoList}>
-        {loading && todos.length === 0 && <p style={styles.emptyState}>Opening…</p>}
-        {!loading && todos.length === 0 && (
-          <p style={styles.emptyState}>Nothing here yet. Add the first item.</p>
-        )}
-        {todos.map((todo) => (
-          <TodoItem
-            key={todo.key}
-            todo={todo}
-            onToggle={() => void toggle(todo)}
-            onDelete={() => void remove(todo.key)}
-            onReact={() => void react(todo)}
-            readOnly={!space.writable}
-          />
+        {shown.map((c) => (
+          <button key={c.name} onClick={() => go({ collection: c.name, key: null })} data-variant="ghost" style={styles.spaceButton}>
+            <span style={styles.todoText}>{collectionLabel(c)}</span>
+            <span style={styles.todoMeta}>
+              {c.records} {c.records === 1 ? 'record' : 'records'} · <code>{c.name}</code>
+              {c.schema === null && ' · undescribed'}
+            </span>
+            {c.description && <span style={styles.todoMeta}>{c.description}</span>}
+          </button>
         ))}
       </div>
+      {space.writable &&
+        (defining ? (
+          <NewCollection
+            space={space}
+            onDone={(name) => {
+              setDefining(false);
+              if (name) go({ collection: name, key: null });
+            }}
+          />
+        ) : (
+          <button onClick={() => setDefining(true)} data-variant="ghost" style={{ ...styles.addButton, alignSelf: 'flex-start', marginTop: 8 }}>
+            + Define a kind of thing
+          </button>
+        ))}
+    </section>
+  );
+}
 
-      {todos.length > 0 && (
-        <footer style={styles.footer}>
-          <span>
-            {completed}/{todos.length} completed
-          </span>
-          <span style={styles.footerHint}>
-            {space.visibility === 'private'
-              ? 'Encrypted before signing — peers relay what they cannot read'
-              : 'Signed in the clear — anyone holding it can verify it'}
-          </span>
-        </footer>
-      )}
-
-      <section style={styles.panelSection}>
-        <h2 style={styles.sectionTitle}>Share this list</h2>
-        <p style={styles.hint}>
-          {space.type === 'shared'
-            ? 'Anyone who opens this link joins as a member and can write.'
-            : 'This is a personal list: the link lets others follow along, but the gate only accepts writes signed by you.'}
-          {space.visibility === 'private' &&
-            ' The space key travels in the link fragment, so it never reaches a server — treat the link as the secret it is.'}
-        </p>
-        <button onClick={share} data-variant="primary" style={styles.addButton}>
-          {copied ? 'Link copied' : 'Create invite link'}
-        </button>
-        {invite && <code style={styles.token}>{invite}</code>}
-      </section>
-
-      <details style={styles.panel}>
-        <summary data-variant="ghost" style={styles.panelSummary}>📚 What this list holds</summary>
-        <div style={styles.panelBody}>
-          <p style={styles.errorHint}>
-            The list describes its own contents, so another app — or an agent — can open it and know what a
-            todo is without this app's code.
-          </p>
-          {collections.map((collection) => (
-            <div key={collection.name} style={styles.chainRow}>
-              <span>{collection.title ?? collection.name}</span>
-              <code>{collection.name}</code>
-              <span>
-                {collection.records} {collection.records === 1 ? 'record' : 'records'}
-                {collection.version !== null ? ` · v${collection.version}` : ' · undescribed'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </details>
-
-      <ViewsPanel space={space} />
-
-      <DelegationPanel session={session} spaceId={space.id} />
-    </>
+function Share({ space }: { space: SpaceSummary }) {
+  const [invite, setInvite] = useState<string | null>(null);
+  const share = async () => {
+    const link = await createInviteLink(space.id);
+    setInvite(link);
+    await globalThis.navigator.clipboard?.writeText(link).catch(() => {});
+  };
+  return (
+    <section style={styles.panelSection}>
+      <h2 style={styles.sectionTitle}>Share this space</h2>
+      <p style={styles.hint}>
+        {space.type === 'shared'
+          ? 'Anyone who opens this link joins as a member and can write.'
+          : 'This is a personal space: the link lets others follow along, but only you can write.'}
+        {space.visibility === 'private' && ' The key travels in the link fragment, so it never reaches a server — treat the link as a secret.'}
+      </p>
+      <button onClick={() => void share()} data-variant="primary" style={styles.addButton}>
+        Create invite link
+      </button>
+      {invite && <code style={styles.token}>{invite}</code>}
+    </section>
   );
 }

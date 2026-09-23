@@ -5,7 +5,7 @@ import { Modal, Choice } from './Modal';
 import { Info } from './Info';
 import { styles } from '../styles';
 
-/** How a list is described once it exists. */
+/** How a space is described once it exists. */
 export function spaceBadges(space: Pick<SpaceSummary, 'type' | 'visibility'>): string {
   return `${space.visibility === 'private' ? '🔒 private' : '🌍 public'} · ${
     space.type === 'shared' ? '👥 shared' : '👤 personal'
@@ -13,7 +13,7 @@ export function spaceBadges(space: Pick<SpaceSummary, 'type' | 'visibility'>): s
 }
 
 /**
- * What a list is, in a sentence, given the two choices behind it.
+ * What a space is, in a sentence, given the two choices behind it.
  *
  * Shown live in the dialog: four combinations is more than anyone will hold in
  * their head from labels alone, and the consequences are worth being sure of
@@ -78,7 +78,7 @@ export function SpaceList({
     <>
       {loading && spaces.length === 0 && <p style={styles.emptyState}>Loading…</p>}
       {!loading && spaces.length === 0 && (
-        <p style={styles.emptyState}>No lists yet.</p>
+        <p style={styles.emptyState}>No spaces yet.</p>
       )}
 
       <div style={styles.todoList}>
@@ -112,7 +112,7 @@ export function SpaceList({
 
       <div style={{ ...styles.linkRow, marginTop: 14 }}>
         <button onClick={() => setDialog('new')} data-variant="primary" style={styles.addButton}>
-          New list
+          New space
         </button>
         <button onClick={() => setDialog('join')} data-variant="ghost" style={styles.linkButton}>
           Join with a link
@@ -122,13 +122,13 @@ export function SpaceList({
       {error && <p style={{ ...styles.error, marginTop: 10 }}>{error}</p>}
 
       {dialog === 'new' && (
-        <Modal title="New list" onClose={close}>
+        <Modal title="New space" onClose={close}>
           <form onSubmit={create} style={styles.form}>
             <input
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Name this list"
+              placeholder="Name this space"
               style={styles.input}
               aria-label="List name"
             />
@@ -156,14 +156,14 @@ export function SpaceList({
             <p style={styles.errorHint}>{describe(type, visibility)}</p>
 
             <button type="submit" disabled={!name.trim()} data-variant="primary" style={styles.button}>
-              Create list
+              Create space
             </button>
           </form>
         </Modal>
       )}
 
       {dialog === 'join' && (
-        <Modal title="Join a list" onClose={close}>
+        <Modal title="Join a space" onClose={close}>
           <form onSubmit={join} style={styles.form}>
             <input
               type="text"
@@ -177,7 +177,7 @@ export function SpaceList({
             <p style={styles.errorHint}>
               Paste a link someone shared with you.
               <Info label="What an invite link carries">
-                The list itself and, for a private one, the key that opens it — in the part after
+                The space itself and, for a private one, the key that opens it — in the part after
                 the <code>#</code>, which browsers never send to a server. So it reaches you
                 without passing through whatever is hosting the page.
               </Info>

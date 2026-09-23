@@ -113,7 +113,7 @@ export function App() {
 
 type Auth = ReturnType<typeof useSession>;
 
-/** Signed in: the list of spaces, or one of them opened. */
+/** Signed in: the spaces, or one of them opened. */
 function Workspace({ auth, session }: { auth: Auth; session: Session }) {
   const { spaces, loading, error, create, join, remove } = useSpaces(session);
   const [open, setOpen] = useState<SpaceSummary | null>(null);
@@ -154,7 +154,7 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
             <p style={styles.error}>⚠️ Peers cannot find each other</p>
             <p style={styles.errorHint}>{relayProblem()}</p>
             <p style={styles.errorHint}>
-              Your lists still work, and still save. They just will not reach your other devices
+              Your spaces still work, and still save. They just will not reach your other devices
               until this is set.
             </p>
           </div>
@@ -168,8 +168,8 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
             <div style={styles.panelBody}>
               <p style={styles.ok}>
                 {auth.moved.merged
-                  ? `Combined with the copy already in this folder — ${auth.moved.recordsAdded} new records, ${auth.moved.spacesAdded} new lists.`
-                  : `Moved into the folder — ${auth.moved.spacesAdded} lists, ${auth.moved.recordsAdded} records.`}
+                  ? `Combined with the copy already in this folder — ${auth.moved.recordsAdded} new records, ${auth.moved.spacesAdded} new spaces.`
+                  : `Moved into the folder — ${auth.moved.spacesAdded} spaces, ${auth.moved.recordsAdded} records.`}
               </p>
               <p style={styles.errorHint}>
                 This browser still has its own copy. Nothing uses it now; remove it once you are happy the
@@ -192,7 +192,7 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
         ) : (
           <>
             <header style={styles.headerRow}>
-              <h1 style={styles.appTitle}>📝 P2P Todos</h1>
+              <h1 style={styles.appTitle}>🗂️ Your spaces</h1>
               <AccountMenu auth={auth} session={session} />
             </header>
 
@@ -211,14 +211,15 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
             <details style={styles.panel}>
               <summary data-variant="ghost" style={styles.panelSummary}>⚙️ How it works</summary>
               <ul style={styles.infoList}>
-                <li>Each list is a <strong>space</strong>: its own Merkle Search Tree, its own store, its own gossip room</li>
+                <li>Each <strong>space</strong> has its own Merkle Search Tree, its own store, its own gossip room</li>
                 <li>Private spaces encrypt every body with an AES key <em>before</em> signing, so peers relay what they cannot read</li>
                 <li>Personal spaces reject writes not rooted in your DID; shared ones accept anyone holding an invite</li>
                 <li>Invites carry the space — and its key — in the URL fragment, which never reaches a server</li>
                 <li>Peers meet through a relay only for the <em>first</em> connection; after that they introduce each other</li>
-                <li>A phone cannot open a folder, so it takes its own copy — the QR hands over the identity, and the lists follow over the peer connection</li>
-                <li>A <strong>data folder</strong> is the only store that is not scoped to this origin — point a second app at it and you get the same account and the same lists</li>
-                <li>🔐 next to an item means its signature and delegation chain both check out here</li>
+                <li>A phone cannot open a folder, so it takes its own copy — the QR hands over the identity, and the spaces follow over the peer connection</li>
+                <li>A <strong>data folder</strong> is the only store that is not scoped to this origin — point a second app at it and you get the same account and the same spaces</li>
+                <li>Screens are worked out from what a space says about itself — its kinds of things, their fields and how they point at each other — so this app shows data it has never seen before</li>
+                <li>🔐 on a record means its signature and delegation chain both check out here</li>
               </ul>
             </details>
           </>
@@ -238,7 +239,7 @@ function InviteBanner({
   onAccept: () => void;
   onDecline: () => void;
 }) {
-  let description = 'a list';
+  let description = 'a space';
   let detail = '';
   try {
     const preview = previewInvite(invite);
@@ -256,7 +257,7 @@ function InviteBanner({
       <p style={styles.todoMeta}>{detail}</p>
       <div style={styles.linkRow}>
         <button onClick={onAccept} data-variant="primary" style={styles.addButton}>
-          Join this list
+          Join this space
         </button>
         <button onClick={onDecline} data-variant="ghost" style={styles.linkButton}>
           Not now

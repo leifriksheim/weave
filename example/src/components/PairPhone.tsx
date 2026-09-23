@@ -18,9 +18,9 @@ function describe(stage: PairingStage): string {
     case 'waiting':
       return 'Waiting for your phone…';
     case 'connected':
-      return 'Phone found. Sending your lists…';
+      return 'Phone found. Sending your spaces…';
     case 'sent':
-      return stage.spaces === 1 ? 'Sent 1 list. Done.' : `Sent ${stage.spaces} lists. Done.`;
+      return stage.spaces === 1 ? 'Sent 1 space. Done.' : `Sent ${stage.spaces} spaces. Done.`;
     case 'received':
       return 'Done.';
     case 'failed':
@@ -95,9 +95,9 @@ export function PairPhone() {
             <p style={styles.errorHint}>
               Show a code and point your phone's camera at it.
               <Info label="What your phone becomes">
-                The same account, with its own copy of every list — a peer in its own right rather
+                The same account, with its own copy of every space — a peer in its own right rather
                 than a screen for this one. It keeps working after you close this, and syncs with
-                anyone in the list, not just this computer.
+                anyone in the space, not just this computer.
               </Info>
             </p>
             {(relayProblem() ?? relayOnlyLocal()) && <p style={styles.error}>{relayProblem() ?? relayOnlyLocal()}</p>}

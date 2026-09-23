@@ -368,7 +368,3 @@ export { runQuery } from './query/engine.js';
 export type { QuerySource } from './query/engine.js';
 export { matches, checkQuery, fieldValue, MAX_INCLUDE_DEPTH } from './query/filter.js';
 export type { Query, Filter, Operators, Include, SortDirection, QueryRecord, QueryResult } from './query/types.js';
-
-// Views: a query and a layout, as data any app can render
-export { VIEW_COLLECTION, VIEW_LAYOUTS, VIEW_DEFINITION, checkView } from './records/views.js';
-export type { View, ViewLayout, ViewField } from './records/views.js';

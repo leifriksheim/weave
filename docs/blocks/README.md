@@ -30,7 +30,6 @@ inside the block itself — you never have to go hunting.
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
 | [BLOCK-13](BLOCK-13-node-api.md) | `createNode`: one API for tabs, CLIs, daemons and agents — **done** | — |
 | [BLOCK-14](BLOCK-14-versioned-records.md) | Records with a stable key, ordered versions, history on request — **done** | — |
-| [BLOCK-15](BLOCK-15-views.md) | `sys.view`: a query and a layout, as data any app can draw — **done** | — |
 
 ## What depends on what
 
@@ -83,7 +82,7 @@ but its links go unchecked until that lands.
 7. ~~**BLOCK-14**~~ — done: records keep their key; edits are ordered versions.
 8. ~~**BLOCK-09**~~ — done: links by key, declared in definitions, `sys.*` annotations.
 9. ~~**BLOCK-10**~~ — done: `records.query` / `watch` / `records_query`; plain-data filters, includes over links.
-10. ~~**BLOCK-15**, views~~ — done: `sys.view`, a query plus a layout; the format is protocol, drawing is app code.
+10. ~~`sys.view`~~ — tried and removed: a layout per saved query put presentation in the wrong place. Replaced by UI derived from the types themselves (schema, links) — the example app is now built this way. Later: optional meaning-level hints on collection definitions (title field, a field's role, tallies), and web components for the protocol's own `sys.*` standards.
 11. **Agent sessions** — an agent is not its own identity: it signs for you with
     a session key, like any device, given a narrower, labelled delegation
     (which spaces, which collections, read or write). (Block to write.)

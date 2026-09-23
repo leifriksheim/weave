@@ -16,7 +16,7 @@ const quiet = variants.quiet;
  * The avatar in the corner, and what hangs off it.
  *
  * Where the account lives, the shortcuts this device could have, and the way
- * out. Everything here is about the account rather than the lists, which is why
+ * out. Everything here is about the account rather than the spaces, which is why
  * it is not in the page itself.
  */
 export function AccountMenu({
@@ -156,10 +156,10 @@ export function AccountMenu({
 
             <p style={styles.errorHint}>
               {home?.kind === 'folder' ? `📂 ${home.directory?.name ?? 'folder'}` : '🗄️ This browser'}
-              <Info label="Where your lists live">
+              <Info label="Where your spaces live">
                 {home?.kind === 'folder'
-                  ? 'Any app you point at this folder opens the same lists. Copy it, back it up, or sync it and your devices follow.'
-                  : 'Browser storage belongs to one web address, so another app cannot read these lists — even the same app on a different address.'}
+                  ? 'Any app you point at this folder opens the same spaces. Copy it, back it up, or sync it and your devices follow.'
+                  : 'Browser storage belongs to one web address, so another app cannot read these spaces — even the same app on a different address.'}
               </Info>
             </p>
 

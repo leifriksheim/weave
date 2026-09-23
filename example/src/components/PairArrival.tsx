@@ -9,9 +9,9 @@ function describe(stage: PairingStage): string {
     case 'waiting':
       return 'Looking for your computer…';
     case 'connected':
-      return 'Found it. Collecting your lists…';
+      return 'Found it. Collecting your spaces…';
     case 'received':
-      return stage.spaces === 1 ? 'Got 1 list.' : `Got ${stage.spaces} lists.`;
+      return stage.spaces === 1 ? 'Got 1 space.' : `Got ${stage.spaces} spaces.`;
     case 'sent':
       return 'Done.';
     case 'failed':
@@ -46,10 +46,10 @@ export function PairArrival({
         <h1 style={styles.title}>📱 Add this phone</h1>
         <p style={styles.subtitle}>You scanned a code from your computer.</p>
         <p style={styles.hint}>
-          This phone becomes the same account, with its own copy of your lists.
+          This phone becomes the same account, with its own copy of your spaces.
           <Info label="What happens next">
             It syncs with your computer when both are around, and keeps working when they are not.
-            Your lists come over the network directly between the two devices — the relay only
+            Your spaces come over the network directly between the two devices — the relay only
             introduces them.
           </Info>
         </p>

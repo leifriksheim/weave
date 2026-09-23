@@ -325,9 +325,7 @@ amount: { $gt: 10 } }`; `@author`, `@createdAt` and friends for the record
 itself) and pulls in what links to them — `include: { likes: { rel: 'about',
 from: 'sys.reaction', count: true } }`. A query is plain JSON, so an agent
 sends the same thing over `records_query`; `node.records.watch` re-runs one as
-records sync in. A **view** (`sys.view`) is a query plus a layout — list,
-table, cards, board — saved in the space as a record: an agent can build you a
-screen by writing data, and any app that draws views shows it.
+records sync in.
 
 **The account registry.** Which spaces an account belongs to is itself kept in
 a space: a private one whose id and key are derived from the account's vault
@@ -672,8 +670,9 @@ It reads and writes the same data folder layout a browser does. See
 
 ## Example app
 
-`example/` is a collaborative todo list — Vite + React, consuming the protocol
-straight from `src/`:
+`example/` is a general-purpose app for your spaces — Vite + React, consuming
+the protocol straight from `src/`. It knows no kinds of data in advance: every
+screen is worked out from what a space says about itself (see *Derived UI* below):
 
 ```bash
 npm install && (cd example && npm install) && (cd cli && npm install)
@@ -685,32 +684,43 @@ that is also the relay. The node gets a throwaway identity on first run
 (`cli/.env.dev`, data in `.p2p-dev/`), and `example/.env.development` points
 the app at it. Override either in a `.env.local`.
 
-To give the node a list, create an invite link in the app and:
+To give the node a space, create an invite link in the app and:
 
 ```bash
 npm run p2p -- spaces join --invite '<link>'
 npm run p2p -- records list --space <id>
 ```
 
-Close every browser holding the list, open the link somewhere else, and the
-items come from the node. Or make the node your own account's — see
-[cli/README.md](cli/README.md) — and it serves every list you make, unasked.
+Close every browser holding the space, open the link somewhere else, and the
+records come from the node. Or make the node your own account's — see
+[cli/README.md](cli/README.md) — and it serves every space you make, unasked.
 
 It exercises the stack end to end: create an account (a code your password
 manager keeps), choose a data folder or this browser to hold it, unlock later
 with a passkey or short password, sign in through the MetaMask Snap in `snap/`,
-pair a phone by QR code, make private, public, personal and shared lists, and share one with a friend via
-an invite link. Every todo is an Expression signed by a delegated session key,
-stored in that space's MST, encrypted first if the space is private, and gossiped
-to peers over WebRTC. Each item shows 🔐 once its signature *and* its delegation
-chain verify locally, and 🔑 when it arrived encrypted.
+pair a phone by QR code, make private, public, personal and shared spaces, and share one with a friend via
+an invite link. Every record is signed by a delegated session key, stored in
+that space's MST, encrypted first if the space is private, and gossiped to peers
+over WebRTC. A record shows 🔐 once its signature *and* its delegation chain
+verify locally, and 🔑 when it arrived encrypted.
+
+**Derived UI.** Open a space and you see the kinds of things in it — its
+catalogue. Open one and you get a table of its records and a form for a new
+one, both drawn from its JSON Schema. Open a record and you see its fields,
+what it points at, what points at it, 👍 and comments (the `sys.*` library),
+and a "+ Add …" button for every collection that declares a link to this
+kind of thing: define `app.poll.vote` with `about → app.poll` and every poll
+gets "+ Add vote". The helpers that work this out are pure functions
+(`example/src/derive/schema-ui.ts`), with nothing DOM-specific in them. An
+empty space offers a small "define a kind of thing" form; an agent can do the
+same over WebMCP.
 
 **Agents in the browser (WebMCP).** When the page loads, the app registers
 every node operation as a WebMCP tool on `document.modelContext`
 (`example/src/webmcp.ts`, with `@mcp-b/webmcp-polyfill`: Chrome's own WebMCP
 when present, a polyfill otherwise). A browser agent or extension sees the same
 18 tools as the CLI and `p2p mcp` — `spaces_create`, `records_query`,
-`records_put` with a `sys.view`… — and acts for whoever is signed in, with this
+`records_put`… — and acts for whoever is signed in, with this
 tab's session key; until someone signs in, each tool says so. Anything that
 hands out a space's key (`spaces_invite`) asks you first. Desktop MCP clients
 reach the same tools through `npx @mcp-b/webmcp-local-relay`, whose browser

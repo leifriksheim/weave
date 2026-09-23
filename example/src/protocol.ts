@@ -36,7 +36,6 @@ import {
 } from '@p2p-web/protocol';
 import { storesFor } from './storage-backend';
 import { CONFIGURED_NODES, relayUrls } from './relay';
-import { TODO_COLLECTION } from './todos';
 
 /**
  * Where a session's root key is, and what it can do for us.
@@ -164,7 +163,6 @@ export async function startSession(
     signer: source.signer,
     ...(source.accountKey ? { accountKey: source.accountKey } : {}),
     stores: storesFor(account, folder && source.vaultKey ? { directory: folder.directory, vaultKey: source.vaultKey } : undefined),
-    collections: [TODO_COLLECTION],
     network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
   });
 

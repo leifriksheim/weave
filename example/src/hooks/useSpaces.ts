@@ -9,7 +9,7 @@ import {
 } from '../spaces';
 import type { Session } from '../protocol';
 
-/** The identity's lists, and the ways to add one. */
+/** The identity's spaces, and the ways to add one. */
 export function useSpaces(session: Session | null) {
   const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
   const [loading, setLoading] = useState(true);
@@ -21,7 +21,7 @@ export function useSpaces(session: Session | null) {
     try {
       setSpaces(await listSpaces());
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load your lists');
+      setError(e instanceof Error ? e.message : 'Could not load your spaces');
     } finally {
       setLoading(false);
     }
@@ -48,7 +48,7 @@ export function useSpaces(session: Session | null) {
         await refresh();
         return record;
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not create that list');
+        setError(e instanceof Error ? e.message : 'Could not create that space');
         return null;
       }
     },
@@ -63,7 +63,7 @@ export function useSpaces(session: Session | null) {
         await refresh();
         return record;
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not join that list');
+        setError(e instanceof Error ? e.message : 'Could not join that space');
         return null;
       }
     },
