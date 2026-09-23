@@ -617,13 +617,24 @@ It reads and writes the same data folder layout a browser does. See
 straight from `src/`:
 
 ```bash
-cd example
-npm install
+npm install && (cd example && npm install) && (cd cli && npm install)
 npm run dev
 ```
 
-Run `npm run dev:full` instead to start the signaling relay alongside it, which
-is what lets two browsers find each other.
+That starts two things: the example app, and an always-on node on port 8787
+that is also the relay. The node gets a throwaway identity on first run
+(`cli/.env.dev`, data in `.p2p-dev/`), and `example/.env.development` points
+the app at it. Override either in a `.env.local`.
+
+To give the node a list, create an invite link in the app and:
+
+```bash
+npm run p2p -- spaces join --invite '<link>'
+npm run p2p -- records list --space <id>
+```
+
+Close every browser holding the list, open the link somewhere else, and the
+items come from the node.
 
 It exercises the stack end to end: create an account (a code your password
 manager keeps), choose a data folder or this browser to hold it, unlock later

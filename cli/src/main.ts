@@ -34,7 +34,7 @@ Usage:
   p2p whoami
   p2p spaces  list | create | invite | join | leave | status   [--flags]
   p2p records list | get | put | update | delete               [--flags]
-  p2p run [--port 8787] [--host 0.0.0.0] [--node wss://…/peer]
+  p2p run [--port 8787] [--host 0.0.0.0] [--node wss://…/peer] [--create]
   p2p mcp
   p2p actions
 
@@ -170,6 +170,20 @@ async function init(home: Home, args: ReadonlyArray<string>): Promise<void> {
   }
 }
 
+/**
+ * `run --create`: make an account on first start, locked with P2P_PASSPHRASE.
+ * For dev nodes and fresh servers; does nothing once the home has an account.
+ */
+async function createIfEmpty(globals: Globals): Promise<void> {
+  const home = await openHome(globals.home);
+  if ((await home.accounts.list()).length > 0) return;
+  const passphrase = process.env.P2P_PASSPHRASE;
+  if (!passphrase) throw new Error('--create needs P2P_PASSPHRASE, to lock the new account with');
+  const { account, code } = await createAccount(home, { name: 'Node', passphrase });
+  stderr(`Created account "${account.name}" (${account.did}) in ${home.path}`);
+  if (code) stderr(`Recovery code: ${code}`);
+}
+
 async function main(argv: ReadonlyArray<string>): Promise<number> {
   const { globals, rest } = splitGlobals(argv);
   const [command, ...args] = rest;
@@ -195,8 +209,14 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
   if (command === 'run') {
     const { values } = parseArgs({
       args,
-      options: { port: { type: 'string', default: process.env.PORT ?? '8787' }, host: { type: 'string' }, node: { type: 'string', multiple: true } },
+      options: {
+        port: { type: 'string', default: process.env.PORT ?? '8787' },
+        host: { type: 'string' },
+        node: { type: 'string', multiple: true },
+        create: { type: 'boolean' },
+      },
     });
+    if (values.create) await createIfEmpty(globals);
     const unlocked = await openAccount(globals);
     const daemon = await startDaemon({
       unlocked,

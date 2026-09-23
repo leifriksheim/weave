@@ -4,15 +4,15 @@
   "description": "The p2p-web protocol from a terminal: manage spaces, run an always-on node, serve MCP to agents",
   "type": "module",
   "bin": {
-    "p2p": "dist/p2p.js"
+    "p2p": "bin/p2p.mjs"
   },
   "scripts": {
     "start": "node --import tsx src/main.ts",
-    "build": "bun build.ts",
-    "build:js": "bun build src/main.ts --target=node --outfile=dist/p2p.js"
+    "build": "bun build.ts"
   },
   "dependencies": {
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "tsx": "^4.19.0"
   },
   "engines": {
     "node": ">=22"

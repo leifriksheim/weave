@@ -12,10 +12,16 @@ account.
 
 ## Quick start
 
-```bash
-cd cli && npm install
-alias p2p="node --import tsx $(pwd)/src/main.ts"   # or build a binary: bun build.ts --native
+In this repo, `npm run dev` (at the root) already runs a node with a throwaway
+identity, and `npm run p2p -- <command>` talks to it — no setup.
 
+To have `p2p` everywhere:
+
+```bash
+cd cli && npm install && npm link          # or a binary with no Node at all: bun build.ts --native
+```
+
+```bash
 p2p init --name Leif --passphrase          # prints your recovery code once
 export P2P_PASSPHRASE='…'                  # so later commands don't ask
 
@@ -24,6 +30,7 @@ p2p records put --space <id> --collection app.todo.item --body '{"text":"milk","
 p2p records list --space <id>
 p2p spaces invite --space <id>             # a secret: it carries the space key
 p2p spaces join --invite 'https://…#invite=…'
+p2p run                                    # stay up and serve; --create makes an account on first start
 ```
 
 Every data command is an action from `NODE_ACTIONS`: `p2p records put` runs

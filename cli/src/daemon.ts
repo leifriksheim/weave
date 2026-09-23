@@ -81,6 +81,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   } catch (error) {
     clearInterval(timer);
     await node.close();
+    if ((error as { code?: string }).code === 'EADDRINUSE') {
+      throw new Error(`Port ${options.port} is already in use — is another "p2p run" going? Stop it, or pick another port with --port.`);
+    }
     throw error;
   }
   log(`${node.did} listening on port ${served.port}`);

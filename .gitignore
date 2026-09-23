@@ -2,5 +2,9 @@ node_modules/
 dist/
 .DS_Store
 *.log
+# Local overrides and secrets. Committed defaults live in .env.development / *.env.dev.
 .env
-.env.*
+.env.local
+.env.*.local
+# The dev node's throwaway data folder
+.p2p-dev/
