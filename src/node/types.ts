@@ -9,6 +9,7 @@
  */
 import type { CollectionDef, CryptoProvider, SpaceType, SpaceVisibility } from '../types.js';
 import type { RootSigner } from '../identity/root-signer.js';
+import type { Capability, UCANToken } from '../identity/ucan.js';
 import type { PeerTransport } from '../network/transport.js';
 import type { StoreFactory } from './stores.js';
 
@@ -148,6 +149,21 @@ export interface NodeRecords {
   delete(spaceId: string, id: string): Promise<void>;
 }
 
+export interface DelegateParams {
+  /** The key being given permission — an agent's, a guest's */
+  readonly audience: string;
+  /** Must be no broader than the node's own */
+  readonly capabilities: ReadonlyArray<Capability>;
+  /** Unix seconds; capped at the node's own delegation. Default: the same. */
+  readonly expiration?: number;
+}
+
+export interface Delegated {
+  readonly token: UCANToken;
+  /** The chain above it, root first, for anyone verifying it */
+  readonly proofs: ReadonlyArray<string>;
+}
+
 export interface P2PNode {
   /** The identity this node acts for */
   readonly did: string;
@@ -155,6 +171,10 @@ export interface P2PNode {
   readonly sessionDid: string;
   readonly spaces: NodeSpaces;
   readonly records: NodeRecords;
+  /** The delegation the session key currently writes under (root → session) */
+  delegation(): UCANToken;
+  /** Passes a narrower delegation from the session key on to another key */
+  delegate(params: DelegateParams): Promise<Delegated>;
   subscribe(listener: (event: NodeEvent) => void): () => void;
   close(): Promise<void>;
 }

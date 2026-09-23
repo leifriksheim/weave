@@ -1,31 +1,24 @@
 /**
  * The space registry: creating lists, sharing them, and joining someone else's.
  */
-import { parseSpaceInvite, type SpaceRecord, type SpaceType, type SpaceVisibility } from '@p2p-web/protocol';
+import type { InvitePreview, NewSpace, SpaceSummary } from '@p2p-web/protocol';
 import { requireSession } from './protocol';
 
-export interface NewSpace {
-  readonly name: string;
-  /** `personal` is yours alone; `shared` accepts writes from invited peers */
-  readonly type: SpaceType;
-  /** `private` encrypts every body with the space key */
-  readonly visibility: SpaceVisibility;
-}
+export type { NewSpace };
 
 /** Every space this identity knows about. */
-export async function listSpaces(): Promise<ReadonlyArray<SpaceRecord>> {
-  return requireSession().spaces.list();
+export async function listSpaces(): Promise<ReadonlyArray<SpaceSummary>> {
+  return requireSession().node.spaces.list();
 }
 
 /** Creates a list. A private one gets an AES key; a personal one starts with one member. */
-export async function createSpace(params: NewSpace): Promise<SpaceRecord> {
-  const session = requireSession();
-  return session.spaces.create({ ...params, owner: session.rootDid });
+export async function createSpace(params: NewSpace): Promise<SpaceSummary> {
+  return requireSession().node.spaces.create(params);
 }
 
 /** Forgets a space locally, along with its key. */
 export async function removeSpace(spaceId: string): Promise<void> {
-  await requireSession().spaces.remove(spaceId);
+  await requireSession().node.spaces.leave(spaceId);
 }
 
 /**
@@ -36,21 +29,19 @@ export async function removeSpace(spaceId: string): Promise<void> {
  * server, including the one hosting this page.
  */
 export async function createInviteLink(spaceId: string): Promise<string> {
-  const session = requireSession();
-  const invite = await session.spaces.createInvite(spaceId, session.rootDid);
+  const invite = await requireSession().node.spaces.invite(spaceId);
   const { origin, pathname } = globalThis.location;
   return `${origin}${pathname}#invite=${invite}`;
 }
 
 /** Accepts an invite, storing the space (and its key) on this device. */
-export async function joinFromInvite(invite: string): Promise<SpaceRecord> {
-  const session = requireSession();
-  return session.spaces.join(extractInvite(invite), session.rootDid);
+export async function joinFromInvite(invite: string): Promise<SpaceSummary> {
+  return requireSession().node.spaces.join(extractInvite(invite));
 }
 
 /** Describes an invite without joining, so the user can see what they are accepting. */
-export function previewInvite(invite: string) {
-  return parseSpaceInvite(extractInvite(invite));
+export function previewInvite(invite: string): InvitePreview {
+  return requireSession().node.spaces.preview(extractInvite(invite));
 }
 
 /** The pending invite in this page's URL, if someone opened a share link. */

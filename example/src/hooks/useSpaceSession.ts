@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { SpaceRecord } from '@p2p-web/protocol';
+import type { SpaceSummary } from '@p2p-web/protocol';
 import { openSpace, type SpaceSession, type SpaceStatus, type TodoView } from '../space-session';
 
 const OFFLINE: SpaceStatus = { peers: [], connection: 'offline', mstRoot: null, rejected: 0 };
 
 /** Opens one space and keeps its todos and connection state fresh. */
-export function useSpaceSession(record: SpaceRecord | null) {
+export function useSpaceSession(record: SpaceSummary | null) {
   const [space, setSpace] = useState<SpaceSession | null>(null);
   const [todos, setTodos] = useState<ReadonlyArray<TodoView>>([]);
   const [status, setStatus] = useState<SpaceStatus>(OFFLINE);
@@ -44,7 +44,7 @@ export function useSpaceSession(record: SpaceRecord | null) {
   const refresh = useCallback(async () => {
     if (!space) return;
     setTodos(await space.list());
-    setStatus(space.status());
+    setStatus(await space.status());
   }, [space]);
 
   useEffect(() => {

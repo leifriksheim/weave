@@ -9,7 +9,7 @@ export function DelegationPanel({ session, spaceId }: { session: Session; spaceI
   const [guest, setGuest] = useState<GuestDelegation | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const { payload } = session.ucan;
+  const { payload } = session.node.delegation();
   const expiresIn = Math.max(0, Math.round((payload.exp * 1000 - Date.now()) / 60000));
 
   const handleDelegate = async () => {

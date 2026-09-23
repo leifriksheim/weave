@@ -22,4 +22,6 @@ export type {
   InvitePreview,
   ListOptions,
   ConnectionState,
+  DelegateParams,
+  Delegated,
 } from './types.js';

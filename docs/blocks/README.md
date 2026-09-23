@@ -28,6 +28,7 @@ inside the block itself — you never have to go hunting.
 | [BLOCK-10](BLOCK-10-query-layer.md) | Filtering, sorting and following links | ~1 week |
 | [BLOCK-11](BLOCK-11-constraints-and-convergence.md) | "One reaction per person", done so peers agree | ~4 days |
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
+| [BLOCK-13](BLOCK-13-node-api.md) | `createNode`: one API for tabs, CLIs, daemons and agents — **done** | — |
 
 ## What depends on what
 
@@ -71,9 +72,9 @@ but its links go unchecked until that lands.
 
 ## Current order
 
-1. **BLOCK-05** — small, safe, and makes the whole mesh testable in one process.
-2. **Decide the shape of the always-on node** (daemon, CLI, consumer app) and
-   the API they share, then **BLOCK-06**.
+1. ~~**BLOCK-05**~~ — done.
+2. ~~**BLOCK-13**, the Node API~~ — done. Then **BLOCK-06** as a CLI whose
+   `node run` command is the daemon.
 3. **BLOCK-01** alongside it — an always-on node must not ship every key every round.
 4. **An account registry space** (below) — the node needs it to know which
    spaces to join.

@@ -334,4 +334,6 @@ export type {
   InvitePreview,
   ListOptions,
   ConnectionState,
+  DelegateParams,
+  Delegated,
 } from './node/index.js';

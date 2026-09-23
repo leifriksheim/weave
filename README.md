@@ -90,6 +90,50 @@ Syncing it to other devices is a network manager plus a sync engine with the
 validation engine in front — see *Sync* below, and `example/src/space-session.ts`
 for the full wiring.
 
+## The node — start here
+
+Most applications never touch the modules below directly. `createNode` wires an
+identity, its spaces, validation, encryption and sync into one object, and its
+API is plain data in and out:
+
+```typescript
+import { createNode, createIdentityManager, createLocalRootSigner, indexedDBStores } from '@p2p-web/protocol';
+
+const manager = createIdentityManager();
+const me = await manager.fromRecoveryCode(code);
+
+const node = await createNode({
+  signer: createLocalRootSigner(me, manager.getProvider()), // or a Snap, or anything that signs
+  stores: indexedDBStores('my-app'),                       // or folderStores(directory, …)
+  network: { relays: ['wss://relay.example'] },
+});
+
+const space = await node.spaces.create({ name: 'Groceries', type: 'shared', visibility: 'private' });
+const milk = await node.records.put(space.id, 'app.todo.item', { text: 'milk', done: false });
+await node.records.update(space.id, milk.id, { text: 'milk', done: true });
+node.subscribe((event) => { if (event.type === 'records') redraw(); });
+
+const invite = await node.spaces.invite(space.id);  // a friend calls node.spaces.join(invite)
+```
+
+What it takes care of:
+
+- **One root signature an hour.** The node signs with a session key and asks the
+  root signer for a fresh delegation before the old one runs out.
+- **Deletes that stay deleted.** A delete is a signed tombstone that syncs;
+  without one, the next sync would pull a removed record straight back from a
+  peer. Only a record's author or the space's owner can delete it.
+- **Records outlive their session.** A delegation is judged at the moment a
+  record was signed, so a peer arriving next week still accepts last week's data.
+- **Unknown collections are kept.** Records in collections the node has no
+  schema for are stored and synced on the strength of their signature and
+  capability, so an always-on node — or an agent inventing a collection — does
+  not need every app's schema.
+
+Every operation is also described in `NODE_ACTIONS` — a name, a sentence and a
+JSON Schema for its input — which is what the CLI, MCP and WebMCP front ends are
+generated from. `runAction(node, 'records_put', { … })` runs one by name.
+
 ## Modules
 
 ### Identity (`@p2p-web/protocol/identity`)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { SpaceRecord } from '@p2p-web/protocol';
+import type { SpaceSummary } from '@p2p-web/protocol';
 import {
   listSpaces,
   createSpace,
@@ -11,7 +11,7 @@ import type { Session } from '../protocol';
 
 /** The identity's lists, and the ways to add one. */
 export function useSpaces(session: Session | null) {
-  const [spaces, setSpaces] = useState<ReadonlyArray<SpaceRecord>>([]);
+  const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

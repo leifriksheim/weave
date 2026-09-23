@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { SpaceRecord } from '@p2p-web/protocol';
+import type { SpaceSummary } from '@p2p-web/protocol';
 import { useSpaceSession } from '../hooks/useSpaceSession';
 import { createInviteLink } from '../spaces';
 import { TodoItem } from './TodoItem';
@@ -21,7 +21,7 @@ export function SpaceView({
   session,
   onBack,
 }: {
-  record: SpaceRecord;
+  record: SpaceSummary;
   session: Session;
   onBack: () => void;
 }) {
@@ -30,7 +30,7 @@ export function SpaceView({
   const [invite, setInvite] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const { space } = record;
+  const space = record;
   const completed = todos.filter((todo) => todo.body.completed).length;
 
   const handleAdd = async (e: FormEvent) => {

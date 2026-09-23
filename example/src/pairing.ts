@@ -98,10 +98,8 @@ export async function offerToPhone(onStage: (stage: PairingStage) => void): Prom
         // Invites already carry everything a peer needs to open a list,
         // including the key for a private one. Pairing is handing over a
         // bundle of them at once.
-        const records = await session.spaces.list();
-        const invites = await Promise.all(
-          records.map((record) => session.spaces.createInvite(record.space.id, session.rootDid)),
-        );
+        const spaces = await session.node.spaces.list();
+        const invites = await Promise.all(spaces.map((space) => session.node.spaces.invite(space.id)));
 
         const sealed = await sealPairingPayload(
           utf8Encode(JSON.stringify({ spaces: invites } satisfies Handover)),
@@ -213,7 +211,7 @@ export async function collectFromDesktop(
           const { spaces } = JSON.parse(utf8Decode(opened)) as Handover;
 
           for (const invite of spaces) {
-            await session.spaces.join(invite, session.rootDid);
+            await session.node.spaces.join(invite);
           }
           finish(spaces.length, { kind: 'received', spaces: spaces.length });
         } catch (error) {

@@ -70,6 +70,8 @@ export interface SpaceRuntimeDeps {
   readonly signer: Signer;
   readonly schemas: SchemaEngine;
   readonly session: ActiveSession;
+  /** The identity the node acts for — names the cross-tab channel */
+  readonly rootDid: string;
   readonly network?: NodeNetworkConfig;
   readonly watchIntervalMs: number;
   readonly emit: (event: NodeEvent) => void;
@@ -306,6 +308,19 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }, deps.watchIntervalMs);
   }
 
+  // Tabs of one browser share one IndexedDB but not memory, so a write in one
+  // is invisible to the other until it is told. A nudge is enough: the store
+  // already holds the data.
+  const channel =
+    typeof globalThis.BroadcastChannel === 'function'
+      ? new globalThis.BroadcastChannel(`p2p-node:${deps.rootDid}:${space.id}`)
+      : null;
+  if (channel) {
+    channel.onmessage = () => emit({ type: 'records', space: space.id });
+    // In Node a channel holds the process open; it must never be the only thing doing so.
+    (channel as { unref?: () => void }).unref?.();
+  }
+
   // ─── Writing ───────────────────────────────────────────────────────
 
   async function write<T>(collection: string, body: T): Promise<Expression> {
@@ -333,6 +348,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       session.key,
     );
     await storage.addExpression(signed);
+    channel?.postMessage('changed');
     sync.onLocalChange(signed);
     emit({ type: 'records', space: space.id });
     return signed;
@@ -398,6 +414,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     async close(): Promise<void> {
       if (watchTimer) clearInterval(watchTimer);
+      channel?.close();
       sync.stop();
       for (const network of networks) network.disconnect();
       await storage.close();

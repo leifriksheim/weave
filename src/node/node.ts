@@ -16,12 +16,13 @@
  */
 import { createP256Provider } from '../identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
-import type { Capability } from '../identity/ucan.js';
+import { delegateCapabilities, type Capability, type UCANToken } from '../identity/ucan.js';
 import { createSigner } from '../schema/signer.js';
 import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
 import { openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
 import type {
+  DelegateParams,
   InvitePreview,
   ListOptions,
   NewSpace,
@@ -83,7 +84,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       expiration: Math.floor(Date.now() / 1000) + ttl,
     });
 
-  let proof = (await delegate()).encoded;
+  let current: UCANToken = await delegate();
   let closed = false;
   let renewTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -91,7 +92,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     renewTimer = setTimeout(() => {
       delegate()
         .then((token) => {
-          proof = token.encoded;
+          current = token;
           scheduleRenewal(ttl * 0.75);
         })
         .catch(() => {
@@ -104,7 +105,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   };
   scheduleRenewal(ttl * 0.75);
 
-  const session: ActiveSession = { did: sessionDid, key: sessionKeys.privateKey, proof: () => proof };
+  const session: ActiveSession = { did: sessionDid, key: sessionKeys.privateKey, proof: () => current.encoded };
 
   // ─── Events ────────────────────────────────────────────────────────
 
@@ -142,6 +143,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           signer,
           schemas,
           session,
+          rootDid: config.signer.did,
           ...(config.network ? { network: config.network } : {}),
           watchIntervalMs: config.watchIntervalMs ?? 2000,
           emit,
@@ -235,6 +237,22 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     sessionDid,
     spaces,
     records,
+
+    delegation: () => current,
+
+    async delegate(params: DelegateParams) {
+      const token = await delegateCapabilities(
+        {
+          parent: current,
+          issuer: { did: sessionDid, privateKey: sessionKeys.privateKey },
+          audience: params.audience,
+          capabilities: params.capabilities,
+          ...(params.expiration !== undefined ? { expiration: params.expiration } : {}),
+        },
+        provider,
+      );
+      return { token, proofs: [current.encoded] };
+    },
 
     subscribe(listener: (event: NodeEvent) => void) {
       listeners.add(listener);

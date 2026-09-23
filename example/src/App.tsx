@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { SpaceRecord } from '@p2p-web/protocol';
+import type { SpaceSummary } from '@p2p-web/protocol';
 import { useSession } from './hooks/useProtocol';
 import { useSpaces } from './hooks/useSpaces';
 import { CreateAccount } from './components/CreateAccount';
@@ -116,15 +116,15 @@ type Auth = ReturnType<typeof useSession>;
 /** Signed in: the list of spaces, or one of them opened. */
 function Workspace({ auth, session }: { auth: Auth; session: Session }) {
   const { spaces, loading, error, create, join, remove } = useSpaces(session);
-  const [open, setOpen] = useState<SpaceRecord | null>(null);
+  const [open, setOpen] = useState<SpaceSummary | null>(null);
   const [pendingInvite, setPendingInvite] = useState<string | null>(() => readInviteFromUrl());
 
   // Keep the opened record in step with the registry, so a join that adds a
   // member does not leave a stale copy on screen.
   useEffect(() => {
     if (!open) return;
-    const fresh = spaces.find((record) => record.space.id === open.space.id);
-    if (fresh && fresh.space.members.length !== open.space.members.length) setOpen(fresh);
+    const fresh = spaces.find((space) => space.id === open.id);
+    if (fresh && fresh.members.length !== open.members.length) setOpen(fresh);
   }, [spaces, open]);
 
   const acceptInvite = async () => {

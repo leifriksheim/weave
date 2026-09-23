@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react';
-import type { SpaceRecord, SpaceType, SpaceVisibility } from '@p2p-web/protocol';
+import type { SpaceSummary, SpaceType, SpaceVisibility } from '@p2p-web/protocol';
 import type { NewSpace } from '../spaces';
 import { Modal, Choice } from './Modal';
 import { Info } from './Info';
 import { styles } from '../styles';
 
 /** How a list is described once it exists. */
-export function spaceBadges(space: SpaceRecord['space']): string {
+export function spaceBadges(space: Pick<SpaceSummary, 'type' | 'visibility'>): string {
   return `${space.visibility === 'private' ? '🔒 private' : '🌍 public'} · ${
     space.type === 'shared' ? '👥 shared' : '👤 personal'
   }`;
@@ -39,10 +39,10 @@ export function SpaceList({
   onJoin,
   onRemove,
 }: {
-  spaces: ReadonlyArray<SpaceRecord>;
+  spaces: ReadonlyArray<SpaceSummary>;
   loading: boolean;
   error: string | null;
-  onOpen: (record: SpaceRecord) => void;
+  onOpen: (space: SpaceSummary) => void;
   onCreate: (params: NewSpace) => void;
   onJoin: (invite: string) => void;
   onRemove: (spaceId: string) => void;
@@ -82,27 +82,27 @@ export function SpaceList({
       )}
 
       <div style={styles.todoList}>
-        {spaces.map((record) => (
-          <div key={record.space.id} data-row style={styles.row}>
+        {spaces.map((space) => (
+          <div key={space.id} data-row style={styles.row}>
             <button
-              onClick={() => onOpen(record)}
+              onClick={() => onOpen(space)}
               style={{ ...styles.row, padding: 0, border: 'none' }}
             >
               <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={styles.todoText}>{record.space.name}</span>
+                <span style={styles.todoText}>{space.name}</span>
                 <span style={{ ...styles.todoMeta, display: 'block' }}>
-                  {spaceBadges(record.space)} · {record.space.members.length}{' '}
-                  {record.space.members.length === 1 ? 'member' : 'members'}
+                  {spaceBadges(space)} · {space.members.length}{' '}
+                  {space.members.length === 1 ? 'member' : 'members'}
                 </span>
               </span>
             </button>
             <button
-              onClick={() => onRemove(record.space.id)}
+              onClick={() => onRemove(space.id)}
               data-row-action
               data-variant="danger"
               style={styles.rowAction}
-              title={`Forget ${record.space.name}`}
-              aria-label={`Forget ${record.space.name}`}
+              title={`Forget ${space.name}`}
+              aria-label={`Forget ${space.name}`}
             >
               ✕
             </button>
