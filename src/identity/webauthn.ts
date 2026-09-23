@@ -52,7 +52,7 @@ export interface PasskeyAuth {
   readonly authenticatorData: Uint8Array;
 }
 
-const PRF_SALT = new TextEncoder().encode('p2p-protocol-key-v1');
+const PRF_SALT = new TextEncoder().encode('weave-protocol-key-v1');
 
 /**
  * Whether this device has a built-in authenticator — Touch ID, Windows Hello.

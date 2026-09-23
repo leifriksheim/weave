@@ -30,11 +30,11 @@ export const CONFIGURED_RELAYS: ReadonlyArray<string> = (
   .filter(Boolean);
 
 /**
- * Always-on nodes to hold a socket to, comma separated — `p2p run` serves one
+ * Always-on nodes to hold a socket to, comma separated — `weave run` serves one
  * at `ws(s)://host:port/peer`. Optional: without one, lists sync only while
  * someone else has them open.
  */
-export const CONFIGURED_NODES: ReadonlyArray<string> = (import.meta.env.VITE_P2P_NODES ?? '')
+export const CONFIGURED_NODES: ReadonlyArray<string> = (import.meta.env.VITE_WEAVE_NODES ?? '')
   .split(',')
   .map((url: string) => url.trim())
   .filter(Boolean);
@@ -157,7 +157,7 @@ export function relayOnlyLocal(): string | null {
   return (
     `This deployment's relay is ${CONFIGURED_RELAY} — a program on this computer. Tabs on this ` +
     'computer can meet through it; a phone or another computer cannot. Set VITE_SIGNALING_URL to a ' +
-    'public wss:// relay (or `p2p run` on a server) and rebuild.'
+    'public wss:// relay (or `weave run` on a server) and rebuild.'
   );
 }
 

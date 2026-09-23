@@ -1,4 +1,4 @@
-# @p2p-web/protocol
+# weave-protocol
 
 A peer-to-peer data protocol for the browser. You own your identity as a
 written-down code, keep your data in signed records that sync directly between
@@ -47,7 +47,7 @@ import {
   generateSeed, seedToRecoveryCode, createIdentityManager, createLocalRootSigner,
   publicKeyToDid, P256_MULTICODEC, createSigner, createExpression,
   createIndexedDBAdapter, createStorageProvider, createSpaceManager,
-} from '@p2p-web/protocol';
+} from 'weave-protocol';
 
 // 1. An account is a 16-byte seed. Show the code once; the user keeps it.
 const seed = generateSeed();
@@ -97,7 +97,7 @@ identity, its spaces, validation, encryption and sync into one object, and its
 API is plain data in and out:
 
 ```typescript
-import { createNode, createIdentityManager, createLocalRootSigner, indexedDBStores } from '@p2p-web/protocol';
+import { createNode, createIdentityManager, createLocalRootSigner, indexedDBStores } from 'weave-protocol';
 
 const manager = createIdentityManager();
 const me = await manager.fromRecoveryCode(code);
@@ -142,7 +142,7 @@ generated from. `runAction(node, 'records_put', { … })` runs one by name.
 
 ## Modules
 
-### Identity (`@p2p-web/protocol/identity`)
+### Identity (`weave-protocol/identity`)
 
 | Export | Description |
 |--------|-------------|
@@ -215,7 +215,7 @@ A root identity — a passkey you never expose to a web app — delegates narrow
 expiring capabilities to keys that do the day-to-day signing:
 
 ```typescript
-import { issueUCAN, delegateCapabilities, validateDelegationChain } from '@p2p-web/protocol';
+import { issueUCAN, delegateCapabilities, validateDelegationChain } from 'weave-protocol';
 
 // Root grants a session key everything it may do with todos, for an hour
 const sessionUcan = await issueUCAN({
@@ -242,7 +242,7 @@ Escalation is refused at issue time (a child capability must be a subset of its
 parent), a delegation can never outlive its parent, and only the audience of a
 token may delegate it onward.
 
-### Schema (`@p2p-web/protocol/schema`)
+### Schema (`weave-protocol/schema`)
 
 Typed, signed data expressions using [Standard Schema](https://standardschema.dev/).
 
@@ -254,7 +254,7 @@ Typed, signed data expressions using [Standard Schema](https://standardschema.de
 | `createExpression()` | Build unsigned expressions (optionally carrying a UCAN `proof`) |
 | `canonicalize()` | Deterministic JSON serialization |
 
-### Storage (`@p2p-web/protocol/storage`)
+### Storage (`weave-protocol/storage`)
 
 Local-first storage with Merkle Search Tree for efficient sync.
 
@@ -352,7 +352,7 @@ is signed, so the signature covers the ciphertext: peers without the key still
 verify and relay the data, they simply cannot read it. The structural gate steps
 aside for encrypted bodies — their shape is checked by members after decryption.
 
-### Network (`@p2p-web/protocol/network`)
+### Network (`weave-protocol/network`)
 
 Browser-to-browser communication via WebRTC.
 
@@ -379,7 +379,7 @@ npm run signal          # ws://localhost:8787, /health reports rooms and peers
 Only peers already in a room hear about a newcomer, so exactly one side creates
 the offer and the two never collide.
 
-### Sync (`@p2p-web/protocol/sync`)
+### Sync (`weave-protocol/sync`)
 
 Anti-entropy gossip protocol for eventual consistency.
 
@@ -398,7 +398,7 @@ The engine's `validate` hook is the seam where the validation engine sits.
 Expressions a peer sends are only committed if it accepts them; the rest are
 dropped and surface as a `rejected` event with the reason.
 
-### Validation (`@p2p-web/protocol/validation`)
+### Validation (`weave-protocol/validation`)
 
 Three-gate validation pipeline for incoming expressions.
 
@@ -432,7 +432,7 @@ const validation = createValidationEngine({
 });
 ```
 
-### Privacy (`@p2p-web/protocol/privacy`)
+### Privacy (`weave-protocol/privacy`)
 
 End-to-end encryption for private Spaces.
 
@@ -490,7 +490,7 @@ import {
   pickDataFolder, createFolderAccountStore, recoveryCodeToSeed, deriveVaultKey,
   createFolderAdapter, createEncryptedAdapter, reconcileFolder,
   createIdentityManager, createStorageProvider,
-} from '@p2p-web/protocol';
+} from 'weave-protocol';
 
 const folder = await pickDataFolder();                 // needs a user gesture
 const accounts = createFolderAccountStore(folder);
@@ -605,7 +605,7 @@ and the list of lists — and only the first fits in a QR code:
 import {
   pairingRoomId, derivePairingKey, encodePairingTicket,
   sealPairingPayload, openPairingPayload,
-} from '@p2p-web/protocol';
+} from 'weave-protocol';
 
 // Desktop: a link for the QR. The fragment never reaches a server.
 const ticket = encodePairingTicket({ v: 1, code: seedToRecoveryCode(seed), relay });
@@ -646,7 +646,7 @@ Collections accept any [Standard Schema v1](https://standardschema.dev/) compati
 
 ```typescript
 import { z } from 'zod';
-import { createSchemaEngine } from '@p2p-web/protocol';
+import { createSchemaEngine } from 'weave-protocol';
 
 const PostSchema = z.object({
   text: z.string().max(300),
@@ -662,9 +662,9 @@ schema.registerCollection({
 
 ## Command line, always-on node, and agents
 
-`cli/` is `p2p`: every node operation from a terminal, `p2p run` to keep an
+`cli/` is `weave`: every node operation from a terminal, `weave run` to keep an
 account's spaces syncing on a server (browsers connect to it over WebSocket, and
-it doubles as a relay), and `p2p mcp` to hand the same operations to an agent.
+it doubles as a relay), and `weave mcp` to hand the same operations to an agent.
 It reads and writes the same data folder layout a browser does. See
 [cli/README.md](cli/README.md).
 
@@ -681,14 +681,14 @@ npm run dev
 
 That starts two things: the example app, and an always-on node on port 8787
 that is also the relay. The node gets a throwaway identity on first run
-(`cli/.env.dev`, data in `.p2p-dev/`), and `example/.env.development` points
+(`cli/.env.dev`, data in `.weave-dev/`), and `example/.env.development` points
 the app at it. Override either in a `.env.local`.
 
 To give the node a space, create an invite link in the app and:
 
 ```bash
-npm run p2p -- spaces join --invite '<link>'
-npm run p2p -- records list --space <id>
+npm run weave -- spaces join --invite '<link>'
+npm run weave -- records list --space <id>
 ```
 
 Close every browser holding the space, open the link somewhere else, and the
@@ -723,7 +723,7 @@ same over WebMCP.
 every node operation as a WebMCP tool on `document.modelContext`
 (`example/src/webmcp.ts`, with `@mcp-b/webmcp-polyfill`: Chrome's own WebMCP
 when present, a polyfill otherwise). A browser agent or extension sees the same
-18 tools as the CLI and `p2p mcp` — `spaces_create`, `records_query`,
+18 tools as the CLI and `weave mcp` — `spaces_create`, `records_query`,
 `records_put`… — and acts for whoever is signed in, with this
 tab's session key; until someone signs in, each tool says so. Anything that
 hands out a space's key (`spaces_invite`) asks you first. Desktop MCP clients

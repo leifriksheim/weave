@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { JsonSchema, NodeCollection, SpaceSummary } from '@p2p-web/protocol';
+import type { JsonSchema, NodeCollection, SpaceSummary } from 'weave-protocol';
 import { requireSession } from '../protocol';
 import { useLive } from '../hooks/useLive';
 import { collectionLabel } from '../derive/schema-ui';

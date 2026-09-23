@@ -1,6 +1,6 @@
 # P2P Collaborative Todos
 
-A Vite + React app on top of [`@p2p-web/protocol`](../README.md). It imports the
+A Vite + React app on top of [`weave-protocol`](../README.md). It imports the
 protocol straight from `../src`, so edits to the library hot-reload here.
 
 ```bash
@@ -70,7 +70,7 @@ enough, and there is no setting that changes it. Flask installs any Snap,
 including the published one:
 
 ```
-npm:@p2p-web/identity-snap
+npm:weave-identity-snap
 ```
 
 With both MetaMask and Flask installed they overwrite each other's

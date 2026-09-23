@@ -33,7 +33,7 @@ import {
   type PasskeyDiagnostics,
   type AccountSummary,
   type DirectoryHandleLike,
-} from '@p2p-web/protocol';
+} from 'weave-protocol';
 import { storesFor } from './storage-backend';
 import { CONFIGURED_NODES, relayUrls } from './relay';
 
@@ -185,7 +185,7 @@ export async function startSession(
  */
 export async function diagnosePasskeys(credentialId?: string): Promise<PasskeyDiagnostics> {
   return inspectPasskeyPrf({
-    rpName: 'P2P Todos',
+    rpName: 'Weave',
     userName: 'PRF diagnostic',
     ...(credentialId ? { credentialId } : {}),
   });

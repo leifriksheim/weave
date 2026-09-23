@@ -6,14 +6,14 @@
 
 ## What it delivers
 
-- `p2p spaces …` / `p2p records …` — every `NODE_ACTIONS` operation, flags
+- `weave spaces …` / `weave records …` — every `NODE_ACTIONS` operation, flags
   generated from each action's input schema
-- `p2p run` — keeps every space open and syncing, serves the WebSocket
+- `weave run` — keeps every space open and syncing, serves the WebSocket
   transport at `/peer?space=`, the signaling relay on any other path, and
   `/health`; notices spaces added by other processes
-- `p2p mcp` — the same actions as MCP tools over stdio
+- `weave mcp` — the same actions as MCP tools over stdio
 - `bun build.ts` — single-file executables for this machine, `linux-x64` and
-  `linux-arm64`; `p2p-node.service` for systemd
+  `linux-arm64`; `weave-node.service` for systemd
 
 The data folder has the exact layout a browser's does (`accounts.json`,
 `accounts/<id>/…`), through `cli/src/fs-directory.ts`, a Node/Bun implementation
@@ -23,7 +23,7 @@ of the directory handle the folder adapter already expects.
 
 - **Two devices never online at the same time converge through the node** —
   automated (`tests/cli.test.ts`), and in real browsers: Alice made an encrypted
-  list, the node joined via `p2p spaces join`, Alice closed her browser, Bob
+  list, the node joined via `weave spaces join`, Alice closed her browser, Bob
   joined later and received her items from the node, and Bob's item reached the
   node.
 - The compiled binary (Bun, native) runs `init`, writes an encrypted record,

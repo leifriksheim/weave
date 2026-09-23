@@ -20,12 +20,12 @@ import { isValidRecoveryCode, recoveryCodeToSeed } from './recovery-code.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { protocolError } from '../utils/errors.js';
 
-export const ACCOUNT_FILE = 'p2p-account.json';
+export const ACCOUNT_FILE = 'weave-account.json';
 const README_FILE = 'README.txt';
 
 const README = `This folder is your data.
 
-  p2p-account.json    your identity, locked
+  weave-account.json    your identity, locked
   stores/             your spaces, their contents, and the index over them
 
 Any app that can open this folder — and unlock it — is a view on what is in it.

@@ -66,7 +66,7 @@ export function createIdentityManager(config?: IdentityConfig): IdentityManager 
   // Use globalThis.location if available, fallback to localhost for Node/testing
   const defaultRpId = typeof globalThis.location !== 'undefined' ? globalThis.location.hostname : 'localhost';
   const rpId = config?.rpId || defaultRpId;
-  const rpName = config?.rpName || 'P2P Protocol';
+  const rpName = config?.rpName || 'Weave';
 
   return Object.freeze({
     async register(userName: string, preferences?: CeremonyPreferences): Promise<Identity> {
@@ -133,7 +133,7 @@ export function createIdentityManager(config?: IdentityConfig): IdentityManager 
     },
 
     async fromPassword(password: string, salt?: Uint8Array): Promise<Identity> {
-      const actualSalt = salt || new TextEncoder().encode('default-p2p-salt');
+      const actualSalt = salt || new TextEncoder().encode('default-weave-salt');
       const keyPair = await deriveKeyFromPassword(password, actualSalt, provider);
       const did = publicKeyToDid(keyPair.publicKeyBytes, P256_MULTICODEC);
 

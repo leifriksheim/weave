@@ -1,5 +1,5 @@
 /**
- * Builds `p2p` as single-file executables with Bun: one for this machine and one
+ * Builds `weave` as single-file executables with Bun: one for this machine and one
  * per Linux server architecture. Each carries its runtime, so a server needs
  * nothing installed.
  *
@@ -12,11 +12,11 @@ import { $ } from 'bun';
 
 const native = process.argv.includes('--native');
 const targets: ReadonlyArray<[string, string]> = native
-  ? [['', 'p2p']]
+  ? [['', 'weave']]
   : [
-      ['', 'p2p'],
-      ['bun-linux-x64', 'p2p-linux-x64'],
-      ['bun-linux-arm64', 'p2p-linux-arm64'],
+      ['', 'weave'],
+      ['bun-linux-x64', 'weave-linux-x64'],
+      ['bun-linux-arm64', 'weave-linux-arm64'],
     ];
 
 for (const [target, name] of targets) {

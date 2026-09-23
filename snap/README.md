@@ -1,6 +1,6 @@
-# @p2p-web/identity-snap
+# weave-identity-snap
 
-A MetaMask Snap that holds a p2p-web identity.
+A MetaMask Snap that holds a Weave identity.
 
 ## What it is for
 
@@ -23,7 +23,7 @@ account, and disconnecting one means something.
 
 ```
 m / 44' / 7343' / 0' / 0 / 0        (secp256k1)
-  → SHA-256 with "p2p-web-identity-v1"
+  → SHA-256 with "weave-identity-v1"
   → first 16 bytes = the account seed
 ```
 
@@ -72,7 +72,7 @@ identity cannot read its own folder without it.
 The package is publish-ready but deliberately not published — a name on npm is
 effectively permanent, and the scope has to be one you own.
 
-One thing to decide first: **the scope.** `@p2p-web` is unclaimed. A different
+One thing to decide first: **the scope.** `weave-*` names may be taken. A different
 one has to change in three places that must agree, or the install fails in a way
 that does not name the cause — `package.json` `name`,
 `snap.manifest.json` `source.location.npm.packageName`, and the default
@@ -96,13 +96,13 @@ bump in **both** `package.json` and `snap.manifest.json` — they have to agree.
 `publishConfig.access` is set to public, because a scoped package is private by
 default and that needs a paid plan.
 
-Once it is up, nothing needs configuring in the app — `npm:@p2p-web/identity-snap`
+Once it is up, nothing needs configuring in the app — `npm:weave-identity-snap`
 is already the default, so release MetaMask will find it and your app can stay on
 localhost.
 
 ### Release MetaMask will refuse it — this is expected
 
-> Cannot install version "0.1.1" of snap "npm:@p2p-web/identity-snap": The snap
+> Cannot install version "0.1.1" of snap "npm:weave-identity-snap": The snap
 > is not on the allowlist.
 
 Being on npm is not enough. **Release MetaMask only installs Snaps on MetaMask's
@@ -118,7 +118,7 @@ allowlisted Flask is the only build that can install it at all.)
 Flask can install the published package directly — nothing local needed:
 
 ```
-npm:@p2p-web/identity-snap
+npm:weave-identity-snap
 ```
 
 **Worth weighing before committing to Snaps:** the allowlist means you do not

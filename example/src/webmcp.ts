@@ -17,7 +17,7 @@
  * a separate identity. Anything that hands out a space's key asks you first.
  */
 import { initializeWebMCPPolyfill } from '@mcp-b/webmcp-polyfill';
-import { NODE_ACTIONS, checkActionInput } from '@p2p-web/protocol';
+import { NODE_ACTIONS, checkActionInput } from 'weave-protocol';
 import { getSession } from './protocol';
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };

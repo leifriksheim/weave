@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { SpaceSummary, SpaceType, SpaceVisibility } from '@p2p-web/protocol';
+import type { SpaceSummary, SpaceType, SpaceVisibility } from 'weave-protocol';
 import type { NewSpace } from '../spaces';
 import { Modal, Choice } from './Modal';
 import { Info } from './Info';

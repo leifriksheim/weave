@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { isProtocolError, type AccountSummary, type ProtocolErrorCode } from '@p2p-web/protocol';
+import { isProtocolError, type AccountSummary, type ProtocolErrorCode } from 'weave-protocol';
 import {
   browserHome,
   chooseFolderHome,

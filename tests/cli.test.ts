@@ -32,7 +32,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 const run = promisify(execFile);
 const temporary: string[] = [];
 async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'p2p-cli-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-cli-'));
   temporary.push(dir);
   return dir;
 }
@@ -213,7 +213,7 @@ describe('the daemon', () => {
 });
 
 describe('MCP', () => {
-  const info = { name: 'p2p', version: 'test' };
+  const info = { name: 'weave', version: 'test' };
 
   test('initialises, lists the node actions as tools, and calls them', async () => {
     const manager = createIdentityManager();
@@ -253,20 +253,20 @@ describe('MCP', () => {
   });
 });
 
-describe('the p2p command', () => {
+describe('the weave command', () => {
   test('init, create and list from a real process', async () => {
     const main = fileURLToPath(new URL('../cli/src/main.ts', import.meta.url));
-    const env = { ...process.env, P2P_HOME: await tempDir(), P2P_PASSPHRASE: 'pw' };
-    const p2p = (...args: string[]) => run(process.execPath, ['--import', 'tsx', main, ...args], { env });
+    const env = { ...process.env, WEAVE_HOME: await tempDir(), WEAVE_PASSPHRASE: 'pw' };
+    const weave = (...args: string[]) => run(process.execPath, ['--import', 'tsx', main, ...args], { env });
 
-    const { stderr } = await p2p('init', '--name', 'Leif', '--passphrase');
+    const { stderr } = await weave('init', '--name', 'Leif', '--passphrase');
     assert.match(stderr, /Recovery code: [0-9A-Z-]+/);
 
-    const created = JSON.parse((await p2p('spaces', 'create', '--name', 'Notes', '--type', 'personal', '--visibility', 'private')).stdout);
-    await p2p('records', 'put', '--space', created.id, '--collection', 'app.note', '--body', '{"text":"hi"}');
-    const listed = JSON.parse((await p2p('records', 'list', '--space', created.id)).stdout);
+    const created = JSON.parse((await weave('spaces', 'create', '--name', 'Notes', '--type', 'personal', '--visibility', 'private')).stdout);
+    await weave('records', 'put', '--space', created.id, '--collection', 'app.note', '--body', '{"text":"hi"}');
+    const listed = JSON.parse((await weave('records', 'list', '--space', created.id)).stdout);
     assert.equal(listed[0].body.text, 'hi');
 
-    await assert.rejects(p2p('records', 'put', '--space', created.id, '--nonsense', 'x'), /has no --nonsense/);
+    await assert.rejects(weave('records', 'put', '--space', created.id, '--nonsense', 'x'), /has no --nonsense/);
   });
 });

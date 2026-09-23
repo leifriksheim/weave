@@ -44,7 +44,7 @@ export interface DiagnosticsOptions {
   readonly userName?: string;
 }
 
-const PRF_SALT = new TextEncoder().encode('p2p-protocol-key-v1');
+const PRF_SALT = new TextEncoder().encode('weave-protocol-key-v1');
 
 /** AAGUIDs of providers common enough to be worth naming. */
 const KNOWN_AAGUIDS: Record<string, string> = {

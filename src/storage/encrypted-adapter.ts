@@ -28,7 +28,7 @@ import { concatBytes } from '../utils/encoding.js';
  * folder had a lock, and "try to decrypt, fall back to raw on failure" turns
  * every genuine key mismatch into silently wrong data.
  */
-const MAGIC = new Uint8Array([0x70, 0x32, 0x70, 0x65, 0x6e, 0x63, 0x01, 0x00]); // "p2penc\x01\x00"
+const MAGIC = new Uint8Array([0x77, 0x65, 0x61, 0x76, 0x65, 0x65, 0x01, 0x00]); // "weavee\x01\x00" — Weave, encrypted, v1
 const IV_BYTES = 12;
 
 /** What gets sealed by default: the space registry, and nothing else. */

@@ -6,7 +6,7 @@ import { p256 } from '@noble/curves/nist.js';
 const P256_SEED_BYTES = 48;
 
 /** Domain separation for identity keys. Changing it changes every derived DID. */
-const P256_KEY_INFO = new TextEncoder().encode('p2p-web/p256-identity-key/v1');
+const P256_KEY_INFO = new TextEncoder().encode('weave/p256-identity-key/v1');
 
 /** HKDF-SHA256 with an empty salt: the seed is already uniformly random. */
 async function hkdf(ikm: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {

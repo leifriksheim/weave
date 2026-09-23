@@ -1,5 +1,5 @@
 {
-  "name": "@p2p-web/protocol",
+  "name": "weave-protocol",
   "version": "0.1.0",
   "type": "module",
   "description": "Self-sovereign P2P protocol for the browser — identity, schemas, storage, networking, and gossip sync",
@@ -45,7 +45,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "p2p": "node --env-file=cli/.env.dev --import tsx cli/src/main.ts",
+    "weave": "node --env-file=cli/.env.dev --import tsx cli/src/main.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-vm-modules --import tsx --test tests/**/*.test.ts",

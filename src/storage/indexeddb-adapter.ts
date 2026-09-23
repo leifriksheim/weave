@@ -46,10 +46,10 @@ function idbTransaction(
 
 /**
  * Creates an IndexedDB backed storage adapter.
- * @param dbName The name of the database (defaults to 'p2p-storage')
+ * @param dbName The name of the database (defaults to 'weave-storage')
  * @returns A promise resolving to the StorageAdapter
  */
-export async function createIndexedDBAdapter(dbName: string = 'p2p-storage'): Promise<StorageAdapter> {
+export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): Promise<StorageAdapter> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = globalThis.indexedDB.open(dbName, DB_VERSION);
 

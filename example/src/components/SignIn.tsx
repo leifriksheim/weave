@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react';
-import type { AccountSummary } from '@p2p-web/protocol';
+import type { AccountSummary } from 'weave-protocol';
 import type { AuthError } from '../hooks/useProtocol';
 import { accountCredentialName, deviceCredentialName, type AccountEntry, type Home } from '../accounts';
 
@@ -127,7 +127,7 @@ export function SignIn({
   return (
     <div style={styles.container}>
       <div data-card style={styles.card}>
-        <h1 style={styles.title}>📝 P2P Todos</h1>
+        <h1 style={styles.title}>Weave</h1>
         <p style={styles.subtitle}>
           {accounts.length > 0 ? 'Welcome back.' : 'Sign in with your account password.'}
         </p>

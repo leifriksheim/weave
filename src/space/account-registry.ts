@@ -57,8 +57,8 @@ async function expand(accountKey: Uint8Array, info: string): Promise<Uint8Array>
  * @param owner The account's DID
  */
 export async function deriveAccountRegistry(accountKey: Uint8Array, owner: string): Promise<SpaceRecord> {
-  const id = await cidFromBytes(await expand(accountKey, 'p2p-web/account-registry/id/v1'));
-  const keyBytes = await expand(accountKey, 'p2p-web/account-registry/key/v1');
+  const id = await cidFromBytes(await expand(accountKey, 'weave/account-registry/id/v1'));
+  const keyBytes = await expand(accountKey, 'weave/account-registry/key/v1');
   const cryptoKey = await globalThis.crypto.subtle.importKey('raw', keyBytes as BufferSource, { name: 'AES-GCM', length: 256 }, true, [
     'encrypt',
     'decrypt',

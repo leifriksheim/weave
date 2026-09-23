@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { NodeCollection, SpaceSummary } from '@p2p-web/protocol';
+import type { NodeCollection, SpaceSummary } from 'weave-protocol';
 import { createInviteLink } from '../spaces';
 import { requireSession, type Session } from '../protocol';
 import { useLive } from '../hooks/useLive';

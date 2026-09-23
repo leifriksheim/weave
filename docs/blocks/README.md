@@ -21,7 +21,7 @@ inside the block itself — you never have to go hunting.
 | [BLOCK-03](BLOCK-03-packed-storage.md) | `BlobStore` + `PackedAdapter` + garbage collection | ~2 weeks |
 | [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | S3-compatible and Google Drive blob drivers | ~1 week |
 | [BLOCK-05](BLOCK-05-transport-abstraction.md) | Pluggable network transport + WebSocket transport | ~3 days |
-| [BLOCK-06](BLOCK-06-bun-daemon.md) | `p2p` CLI: spaces from a terminal, `run` as the always-on node, `mcp` for agents — **done** | — |
+| [BLOCK-06](BLOCK-06-bun-daemon.md) | `weave` CLI: spaces from a terminal, `run` as the always-on node, `mcp` for agents — **done** | — |
 | [BLOCK-07](BLOCK-07-hosting-tier.md) | Multi-tenant hosting, BYO-storage credentials | ~2 weeks |
 | [BLOCK-08](BLOCK-08-self-describing-spaces.md) | Collection definitions stored in the space — **done** | — |
 | [BLOCK-09](BLOCK-09-links-and-annotations.md) | Links between records, and a `sys.*` library agents compose with — **done** | — |

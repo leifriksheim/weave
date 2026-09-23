@@ -216,7 +216,7 @@ export function asStandardSchema(schema: JsonSchema): StandardSchemaV1 {
   return {
     '~standard': {
       version: 1,
-      vendor: 'p2p-web/json-schema',
+      vendor: 'weave/json-schema',
       validate(value: unknown) {
         const issues = validateJsonSchema(schema, value);
         return issues.length

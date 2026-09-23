@@ -26,7 +26,7 @@
 
 import { base64UrlEncode } from '../utils/encoding.js';
 
-const DB_NAME = 'p2p-web-device-keys';
+const DB_NAME = 'weave-device-keys';
 const STORE = 'keys';
 
 /** A local key, and the id a wrap records to find it again. */

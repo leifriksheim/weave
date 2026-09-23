@@ -31,7 +31,7 @@ import {
   type NetworkMessage,
   type PairingTicket,
   type PeerInfo,
-} from '@p2p-web/protocol';
+} from 'weave-protocol';
 import { getSessionSeed, requireSession } from './protocol';
 import { relayUrl, relayUrls, relayProblem, relayOnlyLocal, servedOverLan } from './relay';
 

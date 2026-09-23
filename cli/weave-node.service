@@ -1,0 +1,30 @@
+# systemd unit for an always-on weave node.
+#
+#   sudo useradd --system --home /var/lib/weave weave
+#   sudo install -m 755 dist/weave-linux-x64 /usr/local/bin/weave
+#   sudo -u weave WEAVE_HOME=/var/lib/weave weave init --existing --passphrase
+#   echo 'WEAVE_PASSPHRASE=…' | sudo tee /etc/weave.env && sudo chmod 600 /etc/weave.env
+#   sudo cp weave-node.service /etc/systemd/system/ && sudo systemctl enable --now weave-node
+#
+# The passphrase lives in a root-only file, never on the command line.
+
+[Unit]
+Description=Weave always-on node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=weave
+Environment=WEAVE_HOME=/var/lib/weave
+EnvironmentFile=/etc/weave.env
+ExecStart=/usr/local/bin/weave run --port 8787
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/weave
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

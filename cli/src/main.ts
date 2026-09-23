@@ -1,20 +1,20 @@
 /**
- * `p2p` — the protocol from a terminal.
+ * `weave` — the protocol from a terminal.
  *
- *   p2p init                         create an account (prints its recovery code once)
- *   p2p whoami
- *   p2p spaces list | create | invite | join | leave | status
- *   p2p records list | get | put | update | delete
- *   p2p run                          stay up: sync every space, serve sockets and a relay
- *   p2p mcp                          serve the same operations to an agent over MCP (stdio)
- *   p2p actions                      every operation, with its input schema
+ *   weave init                         create an account (prints its recovery code once)
+ *   weave whoami
+ *   weave spaces list | create | invite | join | leave | status
+ *   weave records list | get | put | update | delete
+ *   weave run                          stay up: sync every space, serve sockets and a relay
+ *   weave mcp                          serve the same operations to an agent over MCP (stdio)
+ *   weave actions                      every operation, with its input schema
  *
- * Every data command is generated from NODE_ACTIONS: `p2p records put` is the
+ * Every data command is generated from NODE_ACTIONS: `weave records put` is the
  * `records_put` action, and its flags are that action's input fields. The same
  * list is what MCP and WebMCP expose, so the three never drift apart.
  *
  * Secrets never go on the command line, where `ps` would show them. An account
- * unlocks with P2P_RECOVERY_CODE or P2P_PASSPHRASE, a file named by
+ * unlocks with WEAVE_RECOVERY_CODE or WEAVE_PASSPHRASE, a file named by
  * --code-file / --passphrase-file, or a prompt.
  */
 import { readFile } from 'node:fs/promises';
@@ -27,25 +27,25 @@ import { runMcpStdio } from './mcp.js';
 
 const VERSION = '0.1.0';
 
-const USAGE = `p2p ${VERSION} — your spaces, from a terminal
+const USAGE = `weave ${VERSION} — your spaces, from a terminal
 
 Usage:
-  p2p init [--name NAME] [--passphrase] [--existing]
-  p2p whoami
-  p2p spaces  list | create | invite | join | leave | status   [--flags]
-  p2p records list | get | put | update | delete               [--flags]
-  p2p run [--port 8787] [--host 0.0.0.0] [--node wss://…/peer] [--create]
-  p2p mcp
-  p2p actions
+  weave init [--name NAME] [--passphrase] [--existing]
+  weave whoami
+  weave spaces  list | create | invite | join | leave | status   [--flags]
+  weave records list | get | put | update | delete               [--flags]
+  weave run [--port 8787] [--host 0.0.0.0] [--node wss://…/peer] [--create]
+  weave mcp
+  weave actions
 
 Common flags:
-  --home DIR          data folder (default $P2P_HOME or ~/.p2p) — can be the folder a browser uses
-  --account NAME      which account, when the folder holds several (or $P2P_ACCOUNT)
+  --home DIR          data folder (default $WEAVE_HOME or ~/.weave) — can be the folder a browser uses
+  --account NAME      which account, when the folder holds several (or $WEAVE_ACCOUNT)
   --json '{…}'        pass an action's input as JSON instead of flags
 
 Unlocking (never as a flag value):
-  P2P_RECOVERY_CODE / --code-file FILE   the account's recovery code
-  P2P_PASSPHRASE / --passphrase-file FILE  a passphrase set with "init --passphrase"
+  WEAVE_RECOVERY_CODE / --code-file FILE   the account's recovery code
+  WEAVE_PASSPHRASE / --passphrase-file FILE  a passphrase set with "init --passphrase"
   otherwise you are asked
 `;
 
@@ -79,8 +79,8 @@ async function openAccount(globals: Globals) {
   const home = await openHome(globals.home);
   const account = await chooseAccount(home, globals.account);
 
-  let code = process.env.P2P_RECOVERY_CODE ?? (await readSecretFile(globals.codeFile));
-  let passphrase = process.env.P2P_PASSPHRASE ?? (await readSecretFile(globals.passphraseFile));
+  let code = process.env.WEAVE_RECOVERY_CODE ?? (await readSecretFile(globals.codeFile));
+  let passphrase = process.env.WEAVE_PASSPHRASE ?? (await readSecretFile(globals.passphraseFile));
   if (!code && !passphrase) {
     const answer = await askSecret(`Recovery code or passphrase for ${account.name}: `);
     if (isValidRecoveryCode(answer)) code = answer;
@@ -153,12 +153,12 @@ async function init(home: Home, args: ReadonlyArray<string>): Promise<void> {
 
   let code: string | undefined;
   if (values.existing) {
-    code = process.env.P2P_RECOVERY_CODE ?? (await askSecret('Recovery code of the existing account: '));
+    code = process.env.WEAVE_RECOVERY_CODE ?? (await askSecret('Recovery code of the existing account: '));
   }
   let passphrase: string | undefined;
   if (values.passphrase) {
-    passphrase = process.env.P2P_PASSPHRASE ?? (await askSecret('Choose a passphrase: '));
-    if (!process.env.P2P_PASSPHRASE && (await askSecret('Again: ')) !== passphrase) throw new Error('Passphrases did not match');
+    passphrase = process.env.WEAVE_PASSPHRASE ?? (await askSecret('Choose a passphrase: '));
+    if (!process.env.WEAVE_PASSPHRASE && (await askSecret('Again: ')) !== passphrase) throw new Error('Passphrases did not match');
   }
 
   const created = await createAccount(home, { name, ...(code ? { code } : {}), ...(passphrase ? { passphrase } : {}) });
@@ -171,14 +171,14 @@ async function init(home: Home, args: ReadonlyArray<string>): Promise<void> {
 }
 
 /**
- * `run --create`: make an account on first start, locked with P2P_PASSPHRASE.
+ * `run --create`: make an account on first start, locked with WEAVE_PASSPHRASE.
  * For dev nodes and fresh servers; does nothing once the home has an account.
  */
 async function createIfEmpty(globals: Globals): Promise<void> {
   const home = await openHome(globals.home);
   if ((await home.accounts.list()).length > 0) return;
-  const passphrase = process.env.P2P_PASSPHRASE;
-  if (!passphrase) throw new Error('--create needs P2P_PASSPHRASE, to lock the new account with');
+  const passphrase = process.env.WEAVE_PASSPHRASE;
+  if (!passphrase) throw new Error('--create needs WEAVE_PASSPHRASE, to lock the new account with');
   const { account, code } = await createAccount(home, { name: 'Node', passphrase });
   stderr(`Created account "${account.name}" (${account.did}) in ${home.path}`);
   if (code) stderr(`Recovery code: ${code}`);
@@ -240,15 +240,15 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
   if (command === 'mcp') {
     // Offline: the MCP process writes to the folder; a running daemon syncs it.
     const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, accountKey: unlocked.accountKey });
-    stderr(`p2p mcp: serving ${NODE_ACTIONS.length} tools for ${node.did}`);
-    await runMcpStdio(node, { name: 'p2p', version: VERSION });
+    stderr(`weave mcp: serving ${NODE_ACTIONS.length} tools for ${node.did}`);
+    await runMcpStdio(node, { name: 'weave', version: VERSION });
     await node.close();
     return 0;
   }
 
   const found = command === 'whoami' ? findAction(['node_info']) : findAction([command, ...args]);
   if (!found) {
-    stderr(`Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "p2p help" or "p2p actions".`);
+    stderr(`Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "weave help" or "weave actions".`);
     return 2;
   }
 
@@ -269,7 +269,7 @@ main(process.argv.slice(2)).then(
     process.exitCode = code;
   },
   (error: unknown) => {
-    stderr(`p2p: ${error instanceof Error ? error.message : String(error)}`);
+    stderr(`weave: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   },
 );

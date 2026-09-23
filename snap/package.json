@@ -1,7 +1,7 @@
 {
-  "name": "@p2p-web/identity-snap",
+  "name": "weave-identity-snap",
   "version": "0.1.4",
-  "description": "A MetaMask Snap that holds a p2p-web identity",
+  "description": "A MetaMask Snap that holds a Weave identity",
   "main": "dist/bundle.js",
   "files": [
     "dist",
@@ -27,7 +27,7 @@
     "metamask",
     "snap",
     "identity",
-    "p2p",
+    "weave",
     "local-first",
     "ucan",
     "did"

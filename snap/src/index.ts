@@ -1,5 +1,5 @@
 /**
- * A MetaMask Snap that holds a p2p-web identity.
+ * A MetaMask Snap that holds a Weave identity.
  *
  * The point is what it refuses to do: **the seed never leaves.** An app asks for
  * a short-lived permission note for a key it just generated, and gets back a
@@ -49,7 +49,7 @@ import { base64UrlEncode, utf8Encode, concatBytes } from '../../src/utils/encodi
 const BIP32_PATH = ['m', "44'", "7343'", "0'", '0', '0'] as const;
 
 /** Separates the wallet-derived entropy from anything else using the same path. */
-const DERIVATION_INFO = utf8Encode('p2p-web-identity-v1');
+const DERIVATION_INFO = utf8Encode('weave-identity-v1');
 
 /** Nothing gets a permission note for longer than this, whatever it asks for. */
 const MAX_SESSION_SECONDS = 3600;

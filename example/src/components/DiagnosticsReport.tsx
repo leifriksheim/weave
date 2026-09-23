@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { PasskeyDiagnostics } from '@p2p-web/protocol';
+import type { PasskeyDiagnostics } from 'weave-protocol';
 import { styles } from '../styles';
 
 /**

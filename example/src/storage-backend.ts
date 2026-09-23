@@ -20,7 +20,7 @@ import {
   type AccountSummary,
   type DirectoryHandleLike,
   type StoreFactory,
-} from '@p2p-web/protocol';
+} from 'weave-protocol';
 
 /**
  * The stores for one account.
@@ -37,5 +37,5 @@ export function storesFor(
 ): StoreFactory {
   return folder
     ? folderStores(folder.directory, { basePath: account.dataPath, vaultKey: folder.vaultKey })
-    : indexedDBStores(`p2p-todo:${account.dataPath.replace(/\//g, ':')}`);
+    : indexedDBStores(`weave:${account.dataPath.replace(/\//g, ':')}`);
 }

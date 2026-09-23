@@ -216,7 +216,7 @@ export function createFolderAccountStore(dir: DirectoryHandleLike): AccountStore
 
 // ─── Accounts kept in this browser ─────────────────────────────────────
 
-const DB_NAME = 'p2p-web-accounts';
+const DB_NAME = 'weave-accounts';
 const STORE = 'accounts';
 const LIST_KEY = '__list';
 

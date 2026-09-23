@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { useSession } from '../hooks/useProtocol';
 import type { Session } from '../protocol';
-import type { PasskeyDiagnostics } from '@p2p-web/protocol';
+import type { PasskeyDiagnostics } from 'weave-protocol';
 
 import { Avatar } from './Avatar';
 import { DiagnosticsReport } from './DiagnosticsReport';

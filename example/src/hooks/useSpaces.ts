@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { SpaceSummary } from '@p2p-web/protocol';
+import type { SpaceSummary } from 'weave-protocol';
 import {
   listSpaces,
   createSpace,

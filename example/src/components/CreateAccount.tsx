@@ -124,7 +124,7 @@ export function CreateAccount({
   return (
     <div style={styles.container}>
       <div data-card style={styles.card}>
-        <h1 style={styles.title}>📝 P2P Todos</h1>
+        <h1 style={styles.title}>Weave</h1>
         <p style={styles.subtitle}>Lists that live in your hands, not on a server.</p>
 
         <form onSubmit={submit} style={styles.form}>

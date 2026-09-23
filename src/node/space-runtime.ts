@@ -502,7 +502,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   // already holds the data.
   const channel =
     typeof globalThis.BroadcastChannel === 'function'
-      ? new globalThis.BroadcastChannel(`p2p-node:${deps.rootDid}:${space.id}`)
+      ? new globalThis.BroadcastChannel(`weave-node:${deps.rootDid}:${space.id}`)
       : null;
   if (channel) {
     channel.onmessage = () => recordsChanged();

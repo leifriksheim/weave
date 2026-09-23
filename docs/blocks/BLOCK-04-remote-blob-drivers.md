@@ -201,7 +201,7 @@ Remote driver tests must **skip, not fail**, without credentials, so CI stays
 green for contributors:
 
 ```ts
-const hasS3 = !!process.env.P2P_TEST_S3_BUCKET;
+const hasS3 = !!process.env.WEAVE_TEST_S3_BUCKET;
 describe('s3 blob store', { skip: !hasS3 ? 'no S3 credentials in env' : false }, () => { ... });
 ```
 

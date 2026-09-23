@@ -49,7 +49,7 @@ The CLI (`cli/`, a separate package) has one runtime dependency:
 | Package | For | Instead of |
 |---|---|---|
 | `aws4fetch` | S3-compatible blob driver (BLOCK-04) | Hand-writing SigV4 |
-| `ws` for `server/signaling-server.mjs` | Only if the standalone relay outlives `p2p run`, which now serves a relay too | Speaking the WebSocket protocol by hand |
+| `ws` for `server/signaling-server.mjs` | Only if the standalone relay outlives `weave run`, which now serves a relay too | Speaking the WebSocket protocol by hand |
 | `node-datachannel` | WebRTC on a headless node, only if measurement says WSS is not enough | — |
 
 ## Considered and declined

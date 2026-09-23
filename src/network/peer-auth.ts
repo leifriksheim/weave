@@ -30,7 +30,7 @@ export interface PeerAuthenticator {
   verify(role: PeerRole, did: string, nonce: string, mac: unknown): Promise<boolean>;
 }
 
-const INFO = utf8Encode('p2p-web/peer-auth/v1');
+const INFO = utf8Encode('weave/peer-auth/v1');
 
 /** A fresh random nonce, as a string. */
 export function peerNonce(): string {
@@ -53,7 +53,7 @@ export async function createPeerAuthenticator(spaceId: string, spaceKey: SpaceKe
     ['sign', 'verify'],
   );
 
-  const label = (role: PeerRole, did: string, nonce: string) => utf8Encode(`p2p-peer/v1|${role}|${spaceId}|${did}|${nonce}`);
+  const label = (role: PeerRole, did: string, nonce: string) => utf8Encode(`weave-peer/v1|${role}|${spaceId}|${did}|${nonce}`);
 
   return Object.freeze({
     async sign(role: PeerRole, did: string, nonce: string) {

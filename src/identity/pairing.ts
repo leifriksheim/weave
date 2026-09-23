@@ -26,8 +26,8 @@ import { base64UrlEncode, base64UrlDecode, utf8Encode, utf8Decode, concatBytes }
 import { cidFromBytes } from '../utils/hash.js';
 import { protocolError } from '../utils/errors.js';
 
-const ROOM_PREFIX = utf8Encode('p2p-pairing-room-v1');
-const PAIRING_KEY_INFO = utf8Encode('p2p-pairing-key-v1');
+const ROOM_PREFIX = utf8Encode('weave-pairing-room-v1');
+const PAIRING_KEY_INFO = utf8Encode('weave-pairing-key-v1');
 const IV_BYTES = 12;
 
 /** What the QR code carries */

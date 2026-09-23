@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { JsonSchema } from '@p2p-web/protocol';
+import type { JsonSchema } from 'weave-protocol';
 import { choicesOf, emptyValue, fieldsOf, type Field, type LinkedByRel } from '../derive/schema-ui';
 import { styles } from '../styles';
 

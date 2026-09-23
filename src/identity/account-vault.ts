@@ -48,7 +48,7 @@ const SALT_BYTES = 16;
  */
 export const PASSPHRASE_ITERATIONS = 600_000;
 
-const VAULT_KEY_INFO = utf8Encode('p2p-vault-key-v1');
+const VAULT_KEY_INFO = utf8Encode('weave-vault-key-v1');
 
 /** Fields every wrap carries, whatever unlocks it */
 interface WrapBase {

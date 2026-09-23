@@ -55,7 +55,7 @@ import {
   type AccountVault,
   type DirectoryHandleLike,
   type DeviceWrap,
-} from '@p2p-web/protocol';
+} from 'weave-protocol';
 import {
   startSession,
   localSource,
@@ -95,7 +95,7 @@ export const folderStorageAvailable = isFolderStorageAvailable;
  */
 const rpId = globalThis.location.hostname;
 
-const LAST_ACCOUNT_KEY = 'p2p-todo.last-account';
+const LAST_ACCOUNT_KEY = 'weave.last-account';
 
 let _home: Home | null = null;
 
@@ -110,7 +110,7 @@ export async function browserHome(): Promise<Home> {
 
 /** Accounts kept in a folder, from the picker. Must be called from a click. */
 export async function chooseFolderHome(): Promise<Home> {
-  const directory = await pickDataFolder({ id: 'p2p-data' });
+  const directory = await pickDataFolder({ id: 'weave-pod' });
   await rememberDataFolder(directory);
   _home = { kind: 'folder', store: createFolderAccountStore(directory), directory };
   return _home;
@@ -245,8 +245,8 @@ async function passkeyGate(
   if (mode === 'create') {
     const registration = await registerPasskey({
       rpId,
-      rpName: 'P2P Todos',
-      userName: options.label ?? 'P2P Todos',
+      rpName: 'Weave',
+      userName: options.label ?? 'Weave',
       ...steer,
       ...(preferPlatform ? { attachment: 'platform' as const } : {}),
     });
@@ -612,7 +612,7 @@ export async function forgetBrowserCopy(account: AccountSummary): Promise<void> 
   if (!copy) return;
   await browser.remove(copy.id);
 
-  const prefix = `p2p-todo:${copy.dataPath.replace(/\//g, ':')}`;
+  const prefix = `weave:${copy.dataPath.replace(/\//g, ':')}`;
   const databases = (await globalThis.indexedDB.databases?.()) ?? [];
   await Promise.all(
     databases

@@ -1,13 +1,13 @@
 {
   "version": "0.1.4",
-  "description": "Holds a p2p-web identity and signs short-lived permissions for apps, so no app ever sees the key.",
-  "proposedName": "P2P Web Identity",
+  "description": "Holds a Weave identity and signs short-lived permissions for apps, so no app ever sees the key.",
+  "proposedName": "Weave Identity",
   "source": {
     "shasum": "EoeKuYfNV5lFjX3Q8xG5ApV5Winm1gx/xrwZWiajJC0=",
     "location": {
       "npm": {
         "filePath": "dist/bundle.js",
-        "packageName": "@p2p-web/identity-snap",
+        "packageName": "weave-identity-snap",
         "registry": "https://registry.npmjs.org/",
         "iconPath": "images/icon.svg"
       }

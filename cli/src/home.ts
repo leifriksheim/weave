@@ -40,9 +40,9 @@ export interface Home {
   readonly accounts: AccountStore;
 }
 
-/** `--home`, then `$P2P_HOME`, then `~/.p2p`. */
+/** `--home`, then `$WEAVE_HOME`, then `~/.weave`. */
 export function homePath(flag?: string): string {
-  return path.resolve(flag ?? process.env.P2P_HOME ?? path.join(os.homedir(), '.p2p'));
+  return path.resolve(flag ?? process.env.WEAVE_HOME ?? path.join(os.homedir(), '.weave'));
 }
 
 export async function openHome(flag?: string): Promise<Home> {
@@ -87,11 +87,11 @@ export async function createAccount(
   return { account, code: options.code ? null : seedToRecoveryCode(seed) };
 }
 
-/** Picks an account by id, name or DID (`--account`, then `$P2P_ACCOUNT`); the only one when there is exactly one. */
+/** Picks an account by id, name or DID (`--account`, then `$WEAVE_ACCOUNT`); the only one when there is exactly one. */
 export async function chooseAccount(home: Home, flag?: string): Promise<AccountSummary> {
-  const which = flag ?? process.env.P2P_ACCOUNT;
+  const which = flag ?? process.env.WEAVE_ACCOUNT;
   const accounts = await home.accounts.list();
-  if (accounts.length === 0) throw new Error(`No account in ${home.path}. Run "p2p init" first.`);
+  if (accounts.length === 0) throw new Error(`No account in ${home.path}. Run "weave init" first.`);
   if (which) {
     const found = accounts.find((account) => account.id === which || account.name === which || account.did === which);
     if (!found) throw new Error(`No account called "${which}" in ${home.path}`);
@@ -138,7 +138,7 @@ export async function unlock(
     }
     if (!seed) throw new Error('That passphrase does not open this account');
   } else {
-    throw new Error('Unlocking needs the recovery code (P2P_RECOVERY_CODE) or a passphrase (P2P_PASSPHRASE)');
+    throw new Error('Unlocking needs the recovery code (WEAVE_RECOVERY_CODE) or a passphrase (WEAVE_PASSPHRASE)');
   }
 
   const manager = createIdentityManager();

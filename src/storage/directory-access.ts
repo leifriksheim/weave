@@ -27,7 +27,7 @@ interface DirectoryPickerOptions {
   readonly startIn?: string;
 }
 
-const HANDLE_DB = 'p2p-web-folder';
+const HANDLE_DB = 'weave-folder';
 const HANDLE_STORE = 'handles';
 const HANDLE_KEY = 'data-folder';
 
@@ -67,7 +67,7 @@ export async function pickDataFolder(options?: { id?: string }): Promise<Directo
     );
   }
 
-  return picker({ id: options?.id ?? 'p2p-data', mode: 'readwrite', startIn: 'documents' });
+  return picker({ id: options?.id ?? 'weave-pod', mode: 'readwrite', startIn: 'documents' });
 }
 
 /**

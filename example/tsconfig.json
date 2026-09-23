@@ -18,7 +18,7 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@p2p-web/protocol": [
+      "weave-protocol": [
         "../src/index.ts"
       ]
     }

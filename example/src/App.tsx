@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { SpaceSummary } from '@p2p-web/protocol';
+import type { SpaceSummary } from 'weave-protocol';
 import { useSession } from './hooks/useProtocol';
 import { useSpaces } from './hooks/useSpaces';
 import { CreateAccount } from './components/CreateAccount';

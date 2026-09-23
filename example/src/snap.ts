@@ -16,12 +16,12 @@ import {
   type Capability,
   type RootSigner,
   type UCANToken,
-} from '@p2p-web/protocol';
+} from 'weave-protocol';
 import type { SessionSource } from './protocol';
 
 /** The published Snap. Point at a local build while developing. */
 export const SNAP_ID: string =
-  import.meta.env.VITE_SNAP_ID ?? 'npm:@p2p-web/identity-snap';
+  import.meta.env.VITE_SNAP_ID ?? 'npm:weave-identity-snap';
 
 /** The minimum of EIP-1193 this needs. */
 interface Ethereum {

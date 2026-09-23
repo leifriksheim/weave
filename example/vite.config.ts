@@ -40,7 +40,7 @@ function webmcpRelayAssets(): Plugin {
 export default defineConfig({
   resolve: {
     alias: {
-      '@p2p-web/protocol': fileURLToPath(new URL('../src/index.ts', import.meta.url)),
+      'weave-protocol': fileURLToPath(new URL('../src/index.ts', import.meta.url)),
     },
   },
   plugins: [webmcpRelayAssets(), react()],

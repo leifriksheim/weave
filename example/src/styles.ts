@@ -52,10 +52,10 @@ const mono = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospac
  * look for how something is arranged.
  */
 export function injectBaseStyles(): void {
-  if (globalThis.document.getElementById('p2p-base-styles')) return;
+  if (globalThis.document.getElementById('weave-base-styles')) return;
 
   const style = globalThis.document.createElement('style');
-  style.id = 'p2p-base-styles';
+  style.id = 'weave-base-styles';
   style.textContent = `
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -101,8 +101,8 @@ export function injectBaseStyles(): void {
     /* Keyboard users never hover, so the action has to be reachable anyway. */
     [data-row-action]:focus-visible { opacity: 1; }
 
-    @keyframes p2p-fade { from { opacity: 0 } to { opacity: 1 } }
-    @keyframes p2p-rise { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+    @keyframes weave-fade { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes weave-rise { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
 
     code { font-family: ${mono}; }
 
@@ -410,7 +410,7 @@ export const styles = {
     color: ink.muted,
     textAlign: 'left',
     fontWeight: 400,
-    animation: 'p2p-fade .1s ease',
+    animation: 'weave-fade .1s ease',
   },
 
   /** Dims the page behind a modal, and centres it. */
@@ -423,7 +423,7 @@ export const styles = {
     justifyContent: 'center',
     padding: 20,
     backgroundColor: 'rgba(15, 17, 21, .28)',
-    animation: 'p2p-fade .12s ease',
+    animation: 'weave-fade .12s ease',
   },
   modal: {
     width: '100%',
@@ -432,7 +432,7 @@ export const styles = {
     borderRadius: radius.lg,
     padding: '24px 22px',
     boxShadow: '0 24px 48px -20px rgba(15, 17, 21, .3)',
-    animation: 'p2p-rise .16s ease',
+    animation: 'weave-rise .16s ease',
     display: 'flex',
     flexDirection: 'column',
     gap: 14,

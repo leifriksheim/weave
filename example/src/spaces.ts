@@ -1,7 +1,7 @@
 /**
  * The space registry: creating lists, sharing them, and joining someone else's.
  */
-import type { InvitePreview, NewSpace, SpaceSummary } from '@p2p-web/protocol';
+import type { InvitePreview, NewSpace, SpaceSummary } from 'weave-protocol';
 import { requireSession } from './protocol';
 
 export type { NewSpace };

@@ -89,9 +89,9 @@ describe('derivation is frozen', () => {
   // If any of these change, every existing account silently becomes a
   // different identity — fine before release, never after.
   const golden: ReadonlyArray<readonly [Uint8Array, string]> = [
-    [new Uint8Array(16), 'did:key:zDnaejnU4yVmCwifaJXRc4zCSM4tBEy6fJwLj3uULYoZYxzvT'],
-    [new Uint8Array(16).fill(0xff), 'did:key:zDnaeYtp37ZppNF2m7cfRXpJXmeQ1P1WfLADn8WsAGramXmuF'],
-    [Uint8Array.from({ length: 16 }, (_, i) => i * 17), 'did:key:zDnaeeHEx2sEZ8LHHw6tvqCBH3JQ7YMdna8bvxU3TdcErPqDg'],
+    [new Uint8Array(16), 'did:key:zDnaebsZZSYuq5oaFMhu2qAaAygqtwPtZwuiVJpjenjA9GwQE'],
+    [new Uint8Array(16).fill(0xff), 'did:key:zDnaexDGpQByMfPbsypSPAewepYNqS1yerAq5pEpDZwAmFQWS'],
+    [Uint8Array.from({ length: 16 }, (_, i) => i * 17), 'did:key:zDnaeaA7BcVxAiLdNP15wLvS6SC1vaQc9zpeVxrUpEC48yxkr'],
   ];
 
   test('known seeds derive their recorded DIDs', async () => {
@@ -102,7 +102,7 @@ describe('derivation is frozen', () => {
 
   test('a known recovery code derives its recorded DID', async () => {
     const identity = await createIdentityManager().fromRecoveryCode('K7N6-ERYP-68TZ-A7HN-VJW3-QWKN-CG');
-    assert.equal(identity.did, 'did:key:zDnaeTLEZ7dbN3BFYgbvhtTDQLPQqTY1o5G335iwGa5g9m48F');
+    assert.equal(identity.did, 'did:key:zDnaeUvx3uMBwitdxXZoqFuvYEqWuuXeEzGb3TLqkbShhPcPR');
   });
 });
 

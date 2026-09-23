@@ -1,10 +1,10 @@
 {
-  "name": "@p2p-web/cli",
+  "name": "weave-protocol-cli",
   "version": "0.1.0",
-  "description": "The p2p-web protocol from a terminal: manage spaces, run an always-on node, serve MCP to agents",
+  "description": "The Weave protocol from a terminal: manage spaces, run an always-on node, serve MCP to agents",
   "type": "module",
   "bin": {
-    "p2p": "bin/p2p.mjs"
+    "weave": "bin/weave.mjs"
   },
   "scripts": {
     "start": "node --import tsx src/main.ts",

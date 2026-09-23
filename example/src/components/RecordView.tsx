@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { NodeCollection, NodeRecord, SpaceSummary } from '@p2p-web/protocol';
+import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
 import { requireSession } from '../protocol';
 import { useLive } from '../hooks/useLive';
 import { attachable, byRel, choicesFrom, collectionLabel, fieldsOf, humanize, labelOf, recordLabel, tally } from '../derive/schema-ui';
