@@ -73,6 +73,12 @@ export interface Expression<T = unknown> {
   readonly genesis?: string;
   /** Keep this version once it is superseded — set by the writer, from the collection's `history` */
   readonly retain?: true;
+  /**
+   * First versions only: the id of the collection definition this record was
+   * written under. Its rules — who may edit or delete, what must be unique —
+   * are the ones every peer judges the record by, forever.
+   */
+  readonly def?: string;
   /** This version deletes the record; its body is null */
   readonly deleted?: true;
   /**
@@ -102,6 +108,12 @@ export interface UnsignedExpression<T = unknown> {
   readonly genesis?: string;
   /** Keep this version once it is superseded — set by the writer, from the collection's `history` */
   readonly retain?: true;
+  /**
+   * First versions only: the id of the collection definition this record was
+   * written under. Its rules — who may edit or delete, what must be unique —
+   * are the ones every peer judges the record by, forever.
+   */
+  readonly def?: string;
   /** This version deletes the record; its body is null */
   readonly deleted?: true;
   /**

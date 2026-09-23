@@ -70,6 +70,7 @@ export function CollectionView({
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
   const people = peopleFrom(useLive(space.id, () => node.spaces.profiles(space.id), []));
+  const mayCreate = useLive(space.id, () => node.records.can(space.id, 'create', name), [name]) ?? false;
   const shownLayout = layout === 'board' && !group ? 'list' : layout;
 
   const choose = (next: Layout) => {
@@ -143,7 +144,7 @@ export function CollectionView({
         </div>
       </header>
 
-      {space.writable &&
+      {mayCreate &&
         (adding ? (
           <div style={{ border: `1px solid ${palette.surface.line}`, borderRadius: 12, padding: 16 }}>
             <SchemaForm schema={schema} initial={adding} submitLabel="Add" onCancel={() => setAdding(null)} onSubmit={add} />
@@ -313,7 +314,8 @@ function BoardLayout({ rows, schema, field, people, space, onOpen }: { rows: Row
     const body = { ...(row.record.body as Record<string, unknown>) };
     if (value === undefined) delete body[field.name];
     else body[field.name] = value;
-    void node.records.update(space.id, key, body);
+    // Refused by the record's rules — it stays where it was.
+    void node.records.update(space.id, key, body).catch(() => {});
   };
 
   return (

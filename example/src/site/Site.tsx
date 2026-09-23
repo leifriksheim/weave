@@ -309,6 +309,27 @@ const stop = node.records.watch(space.id, {
 }, render);
 `;
 
+const RULES = `
+await node.collections.define(space.id, {
+  name: 'app.poll',
+  schema: pollSchema,
+  rules: { edit: 'creator', delete: ['creator', 'owner'] },
+});
+await node.collections.define(space.id, {
+  name: 'app.poll.vote',
+  schema: voteSchema,
+  links: { about: { to: ['app.poll'], cardinality: 'one' } },
+  rules: { edit: 'creator', onePer: ['@author', 'link:about'] },
+});
+
+// Voting twice is changing your vote
+const vote = { links: [{ rel: 'about', to: poll.key }] };
+await node.records.put(space.id, 'app.poll.vote', { choice: 0 }, vote);
+await node.records.put(space.id, 'app.poll.vote', { choice: 1 }, vote);
+
+await node.records.can(space.id, 'edit', poll.key); // false for others
+`;
+
 const SCHEMAS = `
 import {
   reaction, comment, useSchemas, type Reaction,
@@ -399,7 +420,7 @@ export function Developers() {
           </div>
           <div className="layers">
             <Layer app name="Your app" what="Reads and writes records through a node. Can be a view on data another app made." tags={['createNode', 'NODE_ACTIONS']} />
-            <Layer name="Data" what="Spaces hold records. Collections describe themselves with JSON Schema; records link to each other; queries are plain JSON. Common shapes come from an optional schema library." tags={['spaces', 'collections', 'links', 'query']} />
+            <Layer name="Data" what="Spaces hold records. Collections describe themselves with JSON Schema and rules every peer enforces; records link to each other; queries are plain JSON." tags={['spaces', 'collections', 'links', 'query']} />
             <Layer name="Identity & auth" what="An account is a seed → a P-256 did:key. The root key delegates to short-lived session keys with UCAN; passkeys unlock per device." tags={['did:key', 'UCAN', 'passkeys']} />
             <Layer name="Storage" what="Every space is a Merkle Search Tree of signed, versioned records — in IndexedDB, or a pod folder any origin can open." tags={['MST', 'IndexedDB', 'pods']} />
             <Layer name="Privacy" what="Private spaces encrypt each record with the space key before signing. Links are sealed with the body." tags={['AES-GCM']} />
@@ -456,6 +477,29 @@ export function Developers() {
               </p>
             </div>
             <Code file="query.ts">{QUERY}</Code>
+          </div>
+
+          <div className="split">
+            <div>
+              <h3>Rules every peer enforces</h3>
+              <p>
+                Say who may create, edit and delete a collection's records, what must be unique, and which fields are
+                fixed. There's no server to enforce it — every device does, when records arrive.
+              </p>
+              <p>
+                "One per" is by construction: the key is derived from what must be unique, so voting again changes your
+                vote. Nobody ever needs to see every vote to stop a second one.
+              </p>
+              <ul>
+                <li>
+                  <code>member</code>, <code>owner</code>, <code>creator</code>
+                </li>
+                <li>
+                  <code>node.records.can()</code> to hide what you can't do
+                </li>
+              </ul>
+            </div>
+            <Code file="rules.ts">{RULES}</Code>
           </div>
 
           <div className="split">

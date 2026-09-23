@@ -29,6 +29,7 @@
 import { Validator } from '@cfworker/json-schema';
 import type { StandardSchemaV1 } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
+import { checkRules, type CollectionRules } from '../records/rules.js';
 
 export type JsonSchema = { readonly [keyword: string]: unknown };
 
@@ -53,6 +54,12 @@ export interface StoredCollection {
    * reading the catalogue learns from these how the space's things connect.
    */
   readonly links?: Readonly<Record<string, LinkDeclaration>>;
+  /**
+   * Who may create, edit and delete its records, what must be unique, which
+   * fields are fixed. A record is judged by the rules of the definition
+   * version it was created under, on every peer.
+   */
+  readonly rules?: CollectionRules;
 }
 
 /** The reserved collection that collection definitions live in. */
@@ -186,6 +193,8 @@ export function checkStoredCollection(definition: unknown): string | null {
       if (decl.description !== undefined && typeof decl.description !== 'string') return `links.${rel}.description must be text`;
     }
   }
+  const rules = checkRules(d.rules);
+  if (rules) return rules;
   return checkPublishableSchema(d.schema);
 }
 

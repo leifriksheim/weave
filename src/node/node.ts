@@ -435,6 +435,9 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async history<T>(spaceId: string, key: string) {
       return (await runtime(spaceId)).history<T>(key);
     },
+    async can(spaceId: string, action: 'create' | 'edit' | 'delete', target: string) {
+      return (await runtime(spaceId)).can(action, target);
+    },
     async query<T>(spaceId: string, query: Query) {
       const space = await runtime(spaceId);
       return runQuery<T>(

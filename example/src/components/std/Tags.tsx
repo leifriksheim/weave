@@ -13,7 +13,7 @@ export const labelOf = (r: NodeRecord) => (r.body as { label?: string } | null)?
  * uses `std.tag` sees the same labels.
  */
 export function Tags({ space, target, tags }: { space: SpaceSummary; target: string; tags: ReadonlyArray<NodeRecord> }) {
-  const { node } = requireSession();
+  const { node, rootDid } = requireSession();
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
   const labels = new Set(tags.map(labelOf));
@@ -31,7 +31,8 @@ export function Tags({ space, target, tags }: { space: SpaceSummary; target: str
       {tags.map((t) => (
         <span key={t.key} style={chip}>
           #{labelOf(t)}
-          {space.writable && (
+          {/* Yours to remove — or anyone's, if the space is yours. */}
+          {space.writable && (t.root === rootDid || space.owner === rootDid) && (
             <button onClick={() => void node.records.delete(space.id, t.key)} aria-label={`Remove tag ${labelOf(t)}`} style={{ border: 'none', background: 'none', padding: 0, color: palette.ink.faint, fontSize: 12 }}>
               ✕
             </button>

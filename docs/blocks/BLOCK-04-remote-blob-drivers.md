@@ -25,7 +25,7 @@ npx tsc --noEmit >/dev/null 2>&1 && {
 small file from it, and that file is reproduced in full below. If you do both
 blocks, the file is identical either way — no conflict.
 
-What you *won't* have without BLOCK-03 is `PackedAdapter`, so these drivers won't
+What you *won't* have without BLOCK-03 is the mirror, so these drivers won't
 be wired into anything yet. That's fine: they're independently testable against
 the contract suite described below, and they're genuinely useful on their own.
 
@@ -49,10 +49,16 @@ export interface BlobStore {
   put(key: string, bytes: Uint8Array): Promise<void>;
   delete(key: string): Promise<void>;
   list(prefix: string): Promise<string[]>;
+  /**
+   * Keys that appeared or went away under `prefix` since `cursor`, where the
+   * service can say so cheaply. Without it the mirror lists.
+   */
+  changes?(prefix: string, cursor: string | null): Promise<{ added: string[]; removed: string[]; cursor: string }>;
 }
 ```
 
-Four methods. Every driver in this block implements only these.
+Four methods, and an optional fifth. Implement `changes` where the service
+has a change feed (Drive `changes.list`); S3 lists.
 
 ---
 
@@ -224,11 +230,15 @@ Document the env vars in the test file header.
 
 ## Out of scope
 
-- **The packing layer** — BLOCK-03. These drivers are dumb byte stores.
+- **The mirror** — BLOCK-03. These drivers are dumb byte stores.
 - **OAuth token brokering and refresh-token storage** — BLOCK-07. `getAccessToken`
   is a callback so this block doesn't need to care.
-- **Dropbox, iCloud, WebDAV.** Once the contract suite exists, each is an
-  afternoon. Add them when someone asks.
+- **Dropbox and OneDrive.** Both have an app-folder permission, the narrowest
+  grant there is, and Dropbox is the first provider hosting needs (BLOCK-07).
+  Once the contract suite exists each is an afternoon: do Dropbox next, with
+  `list_folder/continue` and long polling as its `changes`.
+- **iCloud, WebDAV.** iCloud has no usable web API for this; iCloud users keep
+  a data folder on their Mac instead.
 
 ---
 

@@ -1,10 +1,24 @@
-# BLOCK-07 — Hosting tier: multi-tenancy and bring-your-own-storage
+# BLOCK-07 — Hosting: a device that never sleeps
 
 ## What this delivers
 
-One box running many people's nodes, each pointed at storage they already pay
-for. The product this whole architecture has been aiming at: **you sell uptime,
-not storage.**
+A paid service that keeps people's spaces online when all their devices are
+off. One process serves many spaces for many people, and it is **blind**: it
+never holds a seed, a vault key or a space key. It keeps encrypted records
+moving and stored, checks that each one is signed and allowed, and can't read
+or forge any of them.
+
+What the user sees:
+
+1. Settings, then **"Keep my spaces online"**, with one sentence: *your spaces
+   stay reachable when your devices are off; we store them encrypted and can't
+   read them.*
+2. Pay. Done. No provider to pick, nothing to set up.
+3. If they've connected storage (BLOCK-03, "Back up to…"), the host writes to
+   that. If not, it writes to the host's own bucket in the same layout.
+
+**You sell uptime.** Storage is the user's (BLOCK-03). A host is one more writer
+into their folder, so switching host means handing another one the same folder.
 
 ---
 
@@ -14,129 +28,123 @@ Paste this. It must print `READY`.
 
 ```bash
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && \
-test -d daemon && test -f daemon/main.ts \
+test -f cli/src/daemon.ts && test -f cli/src/serve.ts && \
+test -f src/storage/mirror.ts \
   && echo "READY" \
-  || echo "NOT READY — do BLOCK-06 first (the daemon does not exist yet)"
+  || echo "NOT READY — needs the always-on node (cli/, exists) and mirrors (BLOCK-03)"
 ```
 
-### This is the one block with a real ordering constraint
-
-Every other block in this folder can be started in any order. This one cannot:
-it multiplies an existing daemon across tenants, and there is no sensible way to
-inline "build the daemon" as a preliminary step.
-
-**If the check says NOT READY, open [BLOCK-06](BLOCK-06-bun-daemon.md) instead.**
-Nothing here will make sense without it, and you can't damage anything by
-trying — you'll just have nothing to multiply.
-
-Recommended but not required first: [BLOCK-03](BLOCK-03-packed-storage.md) and
-[BLOCK-04](BLOCK-04-remote-blob-drivers.md). Without them, tenants can't actually
-bring their own storage and you're just running N SQLite files — which is a fine
-v1, but it isn't the pitch.
+**Needs BLOCK-03.** Without mirrors a host can only keep data on its own disk,
+which works but isn't the design. BLOCK-04 adds the cloud drivers; until then,
+use the directory driver.
 
 ---
 
-## The shape of the business, and why the architecture matches it
+## Why one machine can serve many people safely
 
-### The node is stateless
+What matters is what the host holds, not how many people share the box:
 
-If durable data lives in the tenant's own Drive or S3 (BLOCK-03/04), the box
-holds only a hot cache and an MST root. Nuke it and redeploy — it rehydrates.
+| If the host held… | A break-in would… |
+|---|---|
+| a seed | let the attacker become the user. **Never.** |
+| space keys | expose every private space on the box. **Never.** |
+| storage grants | give access to one app folder full of encrypted records |
+| encrypted records | give nothing readable and nothing forgeable |
 
-No backups to run. No durability SLA. No data migration. That's an enormous
-category of operational cost and liability you simply never take on.
+A blind host holds only the last two. A stolen grant reaches only the folder
+the service scoped it to (a Dropbox or OneDrive app folder, Drive
+`drive.file`, a bucket-scoped key), and that folder holds what the host already
+holds. What an attacker *can* do is delete, which is softened by the service's
+version history, by S3 object lock where available, and by every device's own
+copy.
 
-### It's zero-knowledge even on the paid tier
+Today's `weave run` is the opposite: it unlocks an account and opens every
+space with its key. That stays, for people running their own server. The hosted
+mode is a different way to start the same node code.
 
-With space encryption on (`src/privacy/space-encryption.ts`), the gossiper relays
-and stores ciphertext it cannot read. "We hold your uptime, never your data" is
-both a marketing line and a real reduction in GDPR surface — you're barely a data
-processor.
+### What the host still learns
 
-**This claim has exactly one hole, and it's this block's main job to plug it:**
-tenant storage credentials. See below.
-
-### The actual cost driver is not what you'd guess
-
-Gossip, CPU and disk on a stateless node are close to free — a €4 VPS
-multi-tenants a lot of spaces. The line item that scales with users is **relayed
-bandwidth**.
-
-If BLOCK-06's WSS transport works, browsers connect *directly* to the node and
-peer↔node traffic needs no TURN at all. **Measure this before provisioning any
-TURN infrastructure.** It may be unnecessary, and it's the difference between a
-cheap product and an expensive one.
+Which spaces exist, their sizes, when they change, IP addresses, and record
+envelopes: author, collection name, record key, `seq`. Say so in the privacy
+copy. Encrypting collection names would help both the host and the mirrors; it
+belongs to the protocol, not this block (see the blocks README).
 
 ---
 
 ## Design
 
-### Supervisor, not one process per tenant
+### Spaces, not accounts
 
-One Bun process hosting N tenant contexts — each with its own identity, storage
-adapter, sync engine and peer set — is far cheaper than N processes, since the
-runtime is ~57 MB resident.
+The host doesn't know accounts. It knows **subscriptions**, and a subscription
+is a list of space ids plus a quota. No per-user node identity, no delegation
+from the user's root: a blind node never signs a record, so it needs no
+permission to write one. The host has one identity of its own, used only to
+connect to peers.
 
-The risk is blast radius: one tenant's unhandled rejection shouldn't take down
-the others. Wrap each tenant's event handlers so failures are isolated and
-logged, and give each a restart-in-place path.
+This also gives a family plan without designing one: **a space stays online if
+any member pays for it.** Share a space with your family and it's online for
+all of them.
 
-```ts
-interface Tenant {
-  readonly id: string;
-  readonly did: string;
-  readonly spaces: ReadonlyArray<string>;
-  readonly storage: StorageProvider;
-  readonly sync: SyncEngine;
-  readonly status: 'starting' | 'running' | 'failed';
-}
-```
+### Knowing who may write, without the key
 
-### Credentials — the part that decides whether the pitch survives
+The host runs the same gates as any peer. Crypto and capability work without
+the key: a record carries its signature and its delegation, and a personal
+space accepts only its owner, whom the space record names.
 
-Tenant refresh tokens and S3 keys are **the one genuinely sensitive thing you
-hold.** If they leak, "we never hold your data" becomes false, and someone will
-notice.
+**The gap to close first.** A shared space today accepts any validly signed
+author (`space-runtime.ts`, `isTrustedRoot` is only set for personal spaces).
+Membership is effectively "knows the space key", and a blind host can't check
+that. So anyone who learns a space id could fill a paying user's quota and
+folder with junk.
 
-Non-negotiables:
+Fix it in the protocol, not in the host: derive a **space write key pair** from
+the space key. Members hold the private half. Every record in a shared space
+carries a second signature by it, over the record's id. The public half is in
+the space record, so anyone can check "the writer knew the space key" without
+knowing it. A blind host, a mirror and an ordinary peer all check it the same
+way. Do this before launch; it's a wire-format change, and nothing is released
+yet.
 
-- **Envelope encryption.** A KMS-held master key encrypts per-tenant data keys;
-  the master key never sits on the box. Cloud KMS, or age/sops if you'd rather
-  not depend on a provider.
-- **Decrypt at use, never at rest in memory longer than needed.** Don't hold
-  plaintext refresh tokens for the process lifetime.
-- **Never log them.** The retry/backoff wrapper from BLOCK-04 is the easiest
-  place to leak one by accident.
-- **Scope them down.** `drive.file` (app-created files only) and per-bucket S3
-  keys, never account-wide credentials.
-- **Write down what happens on breach** before you launch, not after.
+### How a device hands spaces to the host
 
-### OAuth broker
+1. Paying creates a subscription and returns a **subscription secret**.
+2. The device stores host URL and secret as a record in the account registry
+   (`sys.hosting`, encrypted like every registry record). Every other device of
+   the account learns about the host by syncing, with nothing to set up.
+3. Any device of the account keeps the host's list in step with the
+   registry: new space, add it; left a space, remove it. The registry space
+   itself is on the list too, so a full restore works from the recovery code
+   alone.
+4. With each space it sends what the gates need: the space record (type,
+   owner, public write key). Never the space key.
 
-Google Drive needs user OAuth; there's no static key. Flow:
+### Storage grants
 
-1. Browser starts consent, redirects to your callback
-2. Callback exchanges the code for a refresh token
-3. Refresh token is envelope-encrypted and stored against the tenant
-4. The daemon's `getAccessToken` callback (BLOCK-04) decrypts, exchanges for an
-   access token, caches it in memory until expiry
+When the user has connected storage, the device seals the grant (for Dropbox, a
+refresh token) to the host's public key and sends it. The host keeps it
+encrypted at rest under a key that lives outside its database (a secret
+manager, or `age`), decrypts it when it needs an access token, and never logs
+it. That's good practice; it's no longer what the whole design rests on, because
+a leaked grant exposes only ciphertext.
 
-Handle revocation: a tenant can revoke access from their Google account page at
-any time. Surface it as a clear tenant-facing error, not a silent sync stall.
+Without connected storage, the host mirrors into its own bucket, one prefix per
+subscription, in exactly the BLOCK-03 layout. "Move to my Dropbox" later is
+just adding the user's store as a second mirror: the host pushes everything,
+and the user's devices see it arrive.
 
-### Node identity vs tenant identity
+### One process, many spaces
 
-Each tenant's node needs a DID. **Do not derive it from the tenant's own recovery
-code** — that would mean holding their root identity, which is strictly worse
-than holding their storage credentials.
+One Bun process runs many space runtimes, each with its own mirror and peer set.
+The risk is one space's failure taking the others down: catch per space, log,
+restart that space alone. Cap memory per space so one big space can't evict the
+rest. The local disk is a cache; lose it and every space rehydrates from its
+mirrors.
 
-Generate a separate per-tenant node identity, and have the tenant's root delegate
-a scoped UCAN to it. `src/identity/ucan.ts` already has `delegateCapabilities`
-and `validateDelegationChain`, and the example app already delegates root →
-session key this way. Same pattern, longer expiry.
+### When someone stops paying
 
-This means a hosted node can be revoked by the tenant without touching their
-identity. Worth building right the first time.
+Grace period (30 days), then the host drops the spaces. Data in the user's own
+storage is untouched. Data in the host's bucket is deleted after the grace
+period, and the app says so plainly before it happens.
 
 ---
 
@@ -144,86 +152,89 @@ identity. Worth building right the first time.
 
 | File | Change |
 |---|---|
-| `daemon/supervisor.ts` | **New.** Tenant lifecycle, isolation |
-| `daemon/tenant-store.ts` | **New.** Tenant records + encrypted credentials |
-| `daemon/crypto/envelope.ts` | **New.** KMS envelope encryption |
-| `daemon/oauth/google.ts` | **New.** Consent callback, refresh exchange |
-| `daemon/admin-api.ts` | **New.** Provision, suspend, inspect |
-| `daemon/metrics.ts` | **New.** Per-tenant bandwidth and storage counters |
-| `daemon/main.ts` | Boot the supervisor instead of a single tenant |
+| `src/identity/space-write-key.ts` | **New.** Derive the pair from the space key; sign and check |
+| `src/validation/capability-gate.ts` | Shared spaces require the space write signature |
+| `cli/src/host.ts` | **New.** Blind mode: no signer, spaces come from subscriptions |
+| `cli/src/host/subscriptions.ts` | **New.** Subscriptions, their spaces and quotas |
+| `cli/src/host/grants.ts` | **New.** Sealed storage grants, encrypted at rest |
+| `cli/src/host/api.ts` | **New.** Add and remove spaces, send a grant, status. Signed by the subscription secret |
+| `cli/src/host/metrics.ts` | **New.** Bandwidth and storage per subscription |
+| `src/node/…` | The node runs with no signer and no account: store, check, sync, mirror |
+| `example/src/…` | "Keep my spaces online" in Settings, and an "Always online" mark on covered spaces |
 
 ---
 
 ## Steps
 
-1. **Measure TURN necessity first.** Deploy BLOCK-06's daemon, connect from a
-   handful of real networks (home, mobile, corporate VPN) and record how many
-   reach it over plain WSS. This decides whether TURN is in scope at all.
-2. `envelope.ts` and `tenant-store.ts`. Get credential handling right before any
-   credentials exist — retrofitting this is how leaks happen.
-3. `supervisor.ts` with two hardcoded tenants. Prove isolation: kill one, the
-   other keeps gossiping.
-4. `oauth/google.ts` + the browser-side consent flow.
-5. `admin-api.ts` — provision, suspend, delete. Authenticated.
-6. `metrics.ts`. You cannot price a product whose bandwidth you don't measure.
-7. Load test: 50 tenants on one box, measure RSS and bandwidth.
+1. **The space write key.** Protocol change first, with its tests: records
+   from a non-member are refused by an ordinary peer.
+2. **Blind mode.** A node started with a list of spaces and no account syncs,
+   checks and mirrors them. Test: two browsers that are never online together
+   converge through it, and it can't read a private record.
+3. **Measure whether TURN is needed at all.** Browsers dial the host over WSS
+   directly. Try home, mobile and a corporate VPN before paying for any relay.
+4. Subscriptions and the API, then the Settings screen.
+5. Grants: Dropbox first (see Gotchas), then Drive and OneDrive.
+6. Metrics. You can't price what you don't measure.
+7. Load test: 1,000 spaces on one small box; record memory and bandwidth.
 
 ---
 
 ## Testing
 
-- Two tenants can't see each other's spaces, expressions or peers
-- One tenant throwing repeatedly doesn't disturb the other
-- Credentials round-trip through envelope encryption; ciphertext alone is useless
-- A revoked Google token surfaces a clear, tenant-visible error
-- A tenant's node DID is distinct from their root DID, and its UCAN validates
-- Suspending a tenant stops its sync and releases its resources
-- Restart restores every tenant from the store
-- **No credential appears in any log at any level** — grep the output of a full
-  test run
+- The host never receives a space key, seed or vault key. Assert on every
+  message the API and the sync path accept.
+- A record by someone without the space write key is refused by the host and
+  by peers alike
+- Two subscriptions can't see each other's spaces, grants or metrics
+- One space throwing repeatedly doesn't disturb the others
+- Deleting the host's disk and restarting restores every space from mirrors
+- A revoked Dropbox grant shows the user a clear error, not a quiet stall
+- A space paid for by one member stays online for all of them
+- **No grant or secret appears in any log at any level.** Grep a full test run.
 
 ---
 
 ## Acceptance criteria
 
-- [ ] 50 tenants on one box, RSS measured and documented
-- [ ] Per-tenant bandwidth and storage metered
-- [ ] Credentials envelope-encrypted, master key off-box
-- [ ] Tenant isolation verified by test, not by inspection
-- [ ] A tenant can point at their own Drive/S3 and the box stores nothing durable
-- [ ] Tenant node identity is delegated, never derived from their root
-- [ ] TURN decision made **from measurement**, and written down
-- [ ] Breach runbook exists
+- [ ] Blind: the host holds no key that can read or sign a record
+- [ ] Shared spaces refuse writers without the space write key, everywhere
+- [ ] 1,000 spaces on one box, memory measured and written down
+- [ ] Bandwidth and storage metered per subscription
+- [ ] Works with the user's Dropbox, and with no storage connected
+- [ ] TURN decided **from measurement**, and written down
+- [ ] What happens on a breach is written down before launch
 - [ ] `npx tsc --noEmit` clean, full suite green
 
 ---
 
 ## Out of scope
 
-- **Billing.** Separate concern. Note that wallet login (BLOCK-02) means the same
-  identity that signs in could also pay.
-- **A web dashboard.** Admin API first; a UI on top of it is easy and not on the
-  critical path.
-- **Autoscaling.** One box until one box isn't enough. The node is stateless, so
-  horizontal scaling is easy later — which is exactly why you can defer it.
+- **Billing internals.** Use a payment provider's checkout; the host needs only
+  "this subscription is paid until …".
+- **An admin dashboard.** The API first.
+- **Autoscaling.** One box until it isn't enough. The disk is a cache, so
+  splitting spaces across boxes later is simple.
 
 ---
 
 ## Gotchas
 
-- **The marketing claim and the credential store are in tension.** "We hold
-  nothing" is false while you hold refresh tokens. Either be precise in the copy
-  ("we never hold your data; we hold the keys you give us, encrypted, and here's
-  how") or don't make the claim. Precision here is cheap and being caught is not.
-- **Drive OAuth verification takes weeks.** If Drive is a launch feature, start
-  the review process early — `drive.file` scope is much lighter than full
-  `drive`, but it isn't instant.
-- **One blob store, one writer.** The `PackedAdapter` manifest has no
-  compare-and-swap (see BLOCK-03). Two nodes writing one tenant's store will
-  clobber each other. Enforce single-writer per tenant in the supervisor, and
-  fail loudly if a second tries.
-- **A tenant deleting their own Drive files looks exactly like data corruption.**
-  Detect the missing-manifest case and say so plainly, rather than reporting a
-  sync failure.
-- **Per-tenant memory adds up.** Each tenant holds a hot cache and an MST root.
-  Cap the hot tier per tenant, or one large tenant will evict everyone else.
+- **Not every provider lets a server keep a grant a browser obtained.** Dropbox
+  issues long-lived refresh tokens to browser apps (PKCE, no secret), so the
+  device can hand one over. Google gives browser apps no refresh token, and
+  OneDrive's browser-app refresh tokens expire within a day, so for those the
+  consent has to finish on the host, with the code exchanged there. Check the
+  current rules before building; they change.
+- **One grant, two users.** If the device and the host share one refresh token,
+  revoking the host in Dropbox's settings disconnects the device too. Either
+  accept it and say so, or ask for a second consent for the host.
+- **Provider reviews take calendar time.** Dropbox wants a production review
+  after 50 users; Google reviews `drive.file` lightly, but it's still a review.
+  Start early.
+- **A user deleting their app folder looks like data loss.** It isn't, since
+  devices still have copies, but say plainly what happened instead of reporting
+  a sync failure.
+- **Precise copy beats a slogan.** "We can't read your data" is true.
+  "We hold nothing" isn't: the host holds encrypted records, metadata and,
+  if given, a storage grant. Say exactly that.

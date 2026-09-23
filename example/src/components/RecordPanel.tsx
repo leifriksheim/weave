@@ -76,6 +76,12 @@ export function RecordPanel({
     [recordKey],
   );
 
+  // What this account may do here — by the record's rules and the space's.
+  const may = useLive(
+    space.id,
+    async () => ({ edit: await node.records.can(space.id, 'edit', recordKey), delete: await node.records.can(space.id, 'delete', recordKey) }),
+    [recordKey],
+  );
   const record = data?.record ?? null;
   const schemaOf = (name: string) => collections.find((c) => c.name === name)?.schema ?? null;
   const collection = record ? collections.find((c) => c.name === record.collection) : undefined;
@@ -85,7 +91,7 @@ export function RecordPanel({
   const fields = fieldsOf(schema).filter((f) => f.name !== title);
   const extra = Object.keys(body).filter((k) => k !== title && !fieldsOf(schema).some((f) => f.name === k));
   const linkedHere: LinkedByRel = record && data ? byRel(record.links, data.targets.map((t) => t.target)) : {};
-  const editable = space.writable && record !== null && record.body !== null;
+  const editable = !!may?.edit && record !== null && record.body !== null;
 
   /** Writes one field: the next version of the record, everything else unchanged */
   const save = async (name: string, value: unknown) => {
@@ -247,7 +253,7 @@ export function RecordPanel({
                 {record.encrypted && ' · encrypted'}
                 {record.seq > 0 && ` · version ${record.seq + 1}`}
               </span>
-              {editable && (
+              {may?.delete && (
                 <button
                   onClick={() => {
                     if (!globalThis.confirm('Delete this for everyone in the space?')) return;

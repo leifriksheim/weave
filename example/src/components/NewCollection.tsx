@@ -26,6 +26,8 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
   const [title, setTitle] = useState('');
   const [fields, setFields] = useState<Array<{ name: string; type: TypeName; required: boolean }>>([{ name: 'title', type: 'text', required: true }]);
   const [pointsAt, setPointsAt] = useState('');
+  const [ownOnly, setOwnOnly] = useState(true);
+  const [onePerPerson, setOnePerPerson] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -47,6 +49,10 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
         title: title.trim(),
         schema,
         ...(pointsAt ? { links: { about: { to: [pointsAt], cardinality: 'one' as const } } } : {}),
+        rules: {
+          ...(ownOnly ? { edit: 'creator' as const, delete: ['creator' as const, 'owner' as const] } : {}),
+          ...(pointsAt && onePerPerson ? { onePer: ['@author', 'link:about'] } : {}),
+        },
       });
       onDone(name);
     } catch (err) {
@@ -104,6 +110,17 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
           </select>
         </label>
       )}
+      <label style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input type="checkbox" checked={ownOnly} onChange={(e) => setOwnOnly(e.target.checked)} />
+        Only whoever adds one can change it (the space owner can also delete)
+      </label>
+      {pointsAt && (
+        <label style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input type="checkbox" checked={onePerPerson} onChange={(e) => setOnePerPerson(e.target.checked)} />
+          One per person, per {collectionLabel(targets.find((c) => c.name === pointsAt) ?? { name: pointsAt }).toLowerCase()} — adding again changes theirs
+        </label>
+      )}
+      <p style={{ fontSize: 12, color: '#8f8f8f' }}>Every device in the space enforces these, not just this app.</p>
       {error && <p style={styles.error}>{error}</p>}
       <div style={styles.linkRow}>
         <button type="submit" data-variant="primary" style={styles.addButton}>

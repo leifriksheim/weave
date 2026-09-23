@@ -8,6 +8,7 @@
  * value that cannot cross a wire would have to be reshaped at each of them.
  */
 import type { Query, QueryResult } from '../query/types.js';
+import type { CollectionRules } from '../records/rules.js';
 import type { CollectionDef, CryptoProvider, Link, SpaceType, SpaceVisibility } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { RootSigner } from '../identity/root-signer.js';
@@ -149,6 +150,8 @@ export interface NodeCollection {
   readonly links: Readonly<Record<string, LinkDeclaration>>;
   /** The identity that first defined it — it and the space owner may change it */
   readonly definedBy: string | null;
+  /** Who may create, edit and delete, what must be unique — for records created from now on */
+  readonly rules: CollectionRules;
   readonly records: number;
 }
 
@@ -164,6 +167,8 @@ export interface DefineCollection {
   readonly history?: 'latest' | 'all';
   /** The link roles its records may carry, and what each may point at */
   readonly links?: Readonly<Record<string, LinkDeclaration>>;
+  /** Who may create, edit and delete, what must be unique, which fields are fixed */
+  readonly rules?: CollectionRules;
 }
 
 export interface NodeCollections {
@@ -273,6 +278,12 @@ export interface NodeRecords {
    * the first one, and — in a collection with `history: 'all'` — every other.
    */
   history<T = unknown>(spaceId: string, key: string): Promise<ReadonlyArray<NodeRecord<T>>>;
+  /**
+   * Whether this account may `create` in a collection (`target` = its name),
+   * or `edit` / `delete` a record (`target` = its key) — by the collection's
+   * rules and the space's. For hiding a button rather than showing an error.
+   */
+  can(spaceId: string, action: 'create' | 'edit' | 'delete', target: string): Promise<boolean>;
   /**
    * Records matching a query — filtered, sorted, paged, with linked records
    * pulled in. The query is plain data.

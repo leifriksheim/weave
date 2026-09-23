@@ -330,6 +330,27 @@ await node.records.put(space.id, reaction.name, { emoji: '👍' }, { links: [{ r
 Using the same ones is how two apps agree — reactions from one show up in the
 other. An app that wants its own shape defines its own collection instead.
 
+**Rules, enforced by every peer.** A definition can say who may create, edit and
+delete its records, what must be unique, and which fields are fixed:
+
+```typescript
+await node.collections.define(space.id, {
+  name: 'app.poll.vote',
+  schema: voteSchema,
+  links: { about: { to: ['app.poll'], cardinality: 'one' } },
+  rules: { edit: 'creator', onePer: ['@author', 'link:about'] },  // one vote per person per poll
+});
+```
+
+`create`/`edit`/`delete` take `member`, `owner` or `creator`. `onePer` derives
+the record's key from what must be unique, so voting again *is* changing your
+vote — no peer ever needs to see every vote to stop a second one. `fixed` fields
+keep their first value. Each record's first version pins the definition version
+it was written under, so every peer judges it by the same rules: a forged edit
+or a second vote is refused during sync, and something that arrives before what
+it depends on waits instead of being guessed about. `node.records.can(space,
+'edit', key)` asks first — for hiding a button rather than showing an error.
+
 **Queries.** `node.records.query(space, { collection, where, include,
 sort, limit, cursor })` finds records with Mongo-style filters (`{ done: false,
 amount: { $gt: 10 } }`; `@author`, `@createdAt` and friends for the record
@@ -482,7 +503,7 @@ interface StorageAdapter {
 - `createIndexedDBAdapter(name)` — works in every browser. Origin-scoped.
 - `createFolderAdapter(directory, namespace)` — a directory the user picked, via the File System Access API. **Not** origin-scoped. Chrome, Edge and Opera on the desktop.
 
-The always-on node (`weave run`) uses the folder adapter on disk, in the same layout. **Planned**: a packed adapter that keeps durable data in blob storage the user already pays for — see `docs/blocks/`. OPFS is not on the list: it is origin-private, so it would inherit exactly the limitation a data folder exists to avoid.
+The always-on node (`weave run`) uses the folder adapter on disk, in the same layout. **Planned**: mirrors, which keep a space in storage the user already pays for (a Dropbox app folder, Drive, S3) and sync with it like a peer — see `docs/blocks/BLOCK-03-mirrors.md`. OPFS is not on the list: it is origin-private, so it would inherit exactly the limitation a data folder exists to avoid.
 
 ### Data folders — storage that outlives the origin
 

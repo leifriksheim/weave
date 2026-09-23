@@ -25,6 +25,7 @@ import { createExpression } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
 import { newRecordKey, nextVersion, RECORD_KEY_PATTERN } from '../records/version.js';
 import { checkLinks } from '../records/links.js';
+import { allows, changedFixedField, describeWho, onePerKey, type CollectionRules } from '../records/rules.js';
 import type { Link } from '../types.js';
 import { reconcileFolder } from '../storage/folder-reconcile.js';
 import type { FolderAdapter } from '../storage/folder-adapter.js';
@@ -113,6 +114,8 @@ export interface SpaceRuntime {
   upsertSystem<T>(collection: string, key: string, body: T): Promise<NodeRecord<T>>;
   /** For the node itself: deletes a record in a managed collection */
   removeSystem(key: string): Promise<void>;
+  /** Whether this account may create in a collection (`target` = its name), or edit or delete a record (`target` = its key) */
+  can(action: 'create' | 'edit' | 'delete', target: string): Promise<boolean>;
   /** The name each person in the space gave, by identity */
   profiles(): Promise<ReadonlyArray<SpaceProfile>>;
   /** For the node itself: says who this account is, here — when that changed and the space takes its writes */
@@ -229,7 +232,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       genesisOf(expression),
     ]);
     const creator = genesis ? await judge(genesis) : null;
-    const issues = body === null || expression.deleted ? null : await contentIssues(expression.collection, body, links);
+    const content = body === null || expression.deleted ? null : await contentIssues(expression.collection, body, links);
+    const issues =
+      content !== null && !expression.deleted && (await withoutRules(expression))
+        ? [...content, { path: '/', message: 'Written without this collection\'s rules, so never judged by them' }]
+        : content;
     return Object.freeze({
       key: expression.key,
       version: expression.id,
@@ -263,6 +270,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   interface CatalogEntry {
     readonly definition: StoredCollection;
     readonly definedBy: string | null;
+    /** The id of the version that holds this definition — what a new record pins */
+    readonly version: string;
   }
   let catalogCache: Promise<Map<string, CatalogEntry>> | null = null;
   const catalog = () => (catalogCache ??= loadCatalog());
@@ -281,7 +290,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         if (verdict.root !== definedBy && verdict.root !== space.owner) continue;
         const definition = opened.body as StoredCollection;
         if (`collection:${definition.name}` !== version.key) continue;
-        result.set(definition.name, { definition, definedBy });
+        result.set(definition.name, { definition, definedBy, version: version.id });
         break;
       }
     }
@@ -359,6 +368,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       history: definition?.history ?? 'latest',
       links: definition?.links ?? {},
       definedBy: entry?.definedBy ?? null,
+      rules: definition?.rules ?? {},
       records,
     });
   }
@@ -384,6 +394,106 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       }
     }
     return index;
+  }
+
+  // ─── Rules ─────────────────────────────────────────────────────────
+  //
+  // A record's first version names the definition version it was written
+  // under (`def`); its rules are the ones it is judged by, on every peer, for
+  // good. Everything a verdict needs is the record, its first version, that
+  // definition and the space's owner — all immutable, all of which a peer
+  // either has or will get. So a record that breaks a rule can be refused
+  // during sync, and one whose first version or definition has not arrived
+  // yet waits instead of being guessed about.
+
+  type Pinned = { readonly name: string; readonly rules: CollectionRules } | 'missing' | 'unreadable' | 'invalid';
+  const pinned = new Map<string, Promise<Pinned>>();
+
+  /** The rules in one definition version, if it is a genuine one */
+  function definitionAt(id: string): Promise<Pinned> {
+    let found = pinned.get(id);
+    if (!found) {
+      found = (async (): Promise<Pinned> => {
+        const version = await storage.getExpression(id);
+        if (!version) return 'missing';
+        if (version.collection !== CATALOG_COLLECTION || version.deleted) return 'invalid';
+        const verdict = await judge(version);
+        if (!verdict.verified) return 'invalid';
+        // Written by whoever first defined the collection, or the space owner — as the catalogue requires.
+        const first = version.seq === 0 ? version : await storage.getExpression(version.genesis!);
+        if (!first) return 'missing';
+        const definer = (await judge(first)).root;
+        if (verdict.root !== definer && verdict.root !== space.owner) return 'invalid';
+        const opened = await openBody(version);
+        if (opened.body === null) return 'unreadable';
+        const definition = opened.body as StoredCollection;
+        if (checkStoredCollection(definition) !== null || version.key !== `collection:${definition.name}`) return 'invalid';
+        return { name: definition.name, rules: definition.rules ?? {} };
+      })();
+      pinned.set(id, found);
+      // Something missing may turn up; only settled answers are worth keeping.
+      void found.then((answer) => answer === 'missing' && pinned.delete(id));
+    }
+    return found;
+  }
+
+  type RuleVerdict = { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly later?: boolean };
+  const OK: RuleVerdict = { ok: true };
+
+  /** Whether a version keeps the rules its record was created under */
+  async function ruleVerdict(expression: Expression): Promise<RuleVerdict> {
+    if (expression.collection.startsWith('sys.')) return OK;
+    const first = expression.seq === 0 ? expression : expression.genesis ? await storage.getExpression(expression.genesis) : null;
+    if (!first) return { ok: false, reason: 'Its first version has not arrived yet', later: true };
+    if (!first.def) return OK; // written with no rules — see `withoutRules`
+    const definition = await definitionAt(first.def);
+    if (definition === 'missing') return { ok: false, reason: 'The definition it was written under has not arrived yet', later: true };
+    // A peer without the space key cannot read the rules, or the body they talk about; members judge.
+    if (definition === 'unreadable') return OK;
+    if (definition === 'invalid' || definition.name !== expression.collection) return { ok: false, reason: 'It names a definition that is not this collection\'s' };
+    const { rules } = definition;
+    const root = (await judge(expression)).root;
+    const creator = (await judge(first)).root;
+
+    if (expression.seq === 0) {
+      if (!allows(rules.create, root, { owner: space.owner, creator: null })) {
+        return { ok: false, reason: `Only ${describeWho(rules.create)} can create ${expression.collection} records` };
+      }
+      if (rules.onePer) {
+        const opened = await openBody(expression);
+        if (opened.body === null && opened.encrypted) return OK;
+        const expected = await onePerKey(expression.collection, rules.onePer, { root: root ?? '', links: opened.links, body: opened.body });
+        if (expected !== expression.key) {
+          return { ok: false, reason: `${expression.collection} allows one per ${rules.onePer.join(' + ')} — its key must be derived from them` };
+        }
+      }
+      return OK;
+    }
+
+    const action = expression.deleted ? 'delete' : 'edit';
+    const who = action === 'delete' ? (rules.delete ?? rules.edit) : rules.edit;
+    if (!allows(who, root, { owner: space.owner, creator })) {
+      return { ok: false, reason: `Only ${describeWho(who)} can ${action} this ${expression.collection} record` };
+    }
+    if (!expression.deleted && rules.fixed?.length) {
+      const [now, then] = await Promise.all([openBody(expression), openBody(first)]);
+      if (now.body !== null && then.body !== null) {
+        const field = changedFixedField(rules.fixed, then.body, now.body);
+        if (field) return { ok: false, reason: `"${field}" is fixed once a ${expression.collection} record is created` };
+      }
+    }
+    return OK;
+  }
+
+  /**
+   * Written with no definition pinned, in a collection that now has rules — so
+   * never judged by them. Kept (it may predate them), and flagged when read.
+   */
+  async function withoutRules(version: Expression): Promise<boolean> {
+    const rules = (await catalog()).get(version.collection)?.definition.rules;
+    if (!rules || Object.keys(rules).length === 0) return false;
+    const first = await genesisOf(version);
+    return !!first && !first.def;
   }
 
   // ─── Profiles ──────────────────────────────────────────────────────
@@ -441,7 +551,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // An expression may only claim the space it actually arrived in.
       if (expression.space !== space.id) return { valid: false, reason: 'Expression belongs to a different space' };
       const verdict = await judge(expression);
-      return { valid: verdict.verified, ...(verdict.reason ? { reason: verdict.reason } : {}) };
+      if (!verdict.verified) return { valid: false, ...(verdict.reason ? { reason: verdict.reason } : {}) };
+      const ruled = await ruleVerdict(expression);
+      return ruled.ok ? { valid: true } : { valid: false, reason: ruled.reason, ...(ruled.later ? { later: true } : {}) };
     },
   });
 
@@ -602,6 +714,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     // Whether superseded versions are kept is the writer's decision, carried
     // on the version — never each reader's, or nodes that had seen different
     // definitions would store different things and never converge.
+    // A first version pins the definition it is written under — its rules are the record's, for good.
+    const def = version.seq === 0 && !collection.startsWith('sys.') ? (await catalog()).get(collection)?.version : undefined;
+
     const retain =
       collection === CATALOG_COLLECTION ||
       collection === PROFILE_COLLECTION ||
@@ -617,11 +732,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         version,
         retain,
         deleted,
+        ...(def ? { def } : {}),
         // In the clear only where the body is: a private space sealed them above.
         ...(space.visibility === 'public' && !deleted && links.length ? { links } : {}),
       }),
       session.key,
     );
+    // The same verdict every other peer will reach: refused here, with the reason, rather than there.
+    const ruled = await ruleVerdict(signed);
+    if (!ruled.ok) throw new Error(ruled.reason);
     await storage.addExpression(signed);
     channel?.postMessage('changed');
     sync.onLocalChange(signed);
@@ -696,7 +815,31 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (options.key !== undefined && !RECORD_KEY_PATTERN.test(options.key)) {
         throw new Error('A record key is 1–128 characters of a–z, 0–9 and : . _ -');
       }
-      return view<T>(await writeFirst(collection, body, options.key ?? newRecordKey(), options.links ?? []));
+      const links = options.links ?? [];
+      // One per something: the key is derived from it, so writing again is the next version of the same record.
+      const onePer = (await catalog()).get(collection)?.definition.rules?.onePer;
+      if (onePer && options.key === undefined) {
+        const derived = await onePerKey(collection, onePer, { root: deps.rootDid, links, body });
+        if (!derived) throw new Error(`${collection} is one per ${onePer.join(' + ')} — give it every one of those`);
+        const current = await currentOf(derived);
+        return view<T>(await write(collection, body, current ? nextVersion(current) : { key: derived, seq: 0 }, false, links));
+      }
+      return view<T>(await writeFirst(collection, body, options.key ?? newRecordKey(), links));
+    },
+
+    async can(action: 'create' | 'edit' | 'delete', target: string): Promise<boolean> {
+      if (!writable) return false;
+      if (action === 'create') {
+        return allows((await catalog()).get(target)?.definition.rules?.create, deps.rootDid, { owner: space.owner, creator: null });
+      }
+      const current = await currentOf(target);
+      if (!current || current.deleted) return false;
+      const first = await genesisOf(current);
+      const definition = first?.def ? await definitionAt(first.def) : null;
+      if (!first || !definition || typeof definition === 'string') return true;
+      const creator = (await judge(first)).root;
+      const who = action === 'delete' ? (definition.rules.delete ?? definition.rules.edit) : definition.rules.edit;
+      return allows(who, deps.rootDid, { owner: space.owner, creator });
     },
 
     upsertSystem: upsert,
@@ -771,6 +914,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         version,
         ...(input.history !== undefined ? { history: input.history } : {}),
         ...(input.links !== undefined ? { links: input.links } : {}),
+        ...(input.rules !== undefined ? { rules: input.rules } : {}),
       };
       const problem = checkStoredCollection(definition);
       if (problem) throw new Error(problem);

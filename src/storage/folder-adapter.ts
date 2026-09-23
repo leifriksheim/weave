@@ -191,8 +191,7 @@ async function removeFile(dir: DirectoryHandleLike, name: string): Promise<void>
  *
  * Expressions are held in memory as well as on disk — a query would otherwise
  * mean one file read per record, and the example app re-lists on every render.
- * The cost is that the working set has to fit in memory; the packed-storage work
- * is where that stops being true.
+ * The cost is that the working set has to fit in memory.
  *
  * @param root The directory the user picked
  * @param path Where to keep these files inside it, `/` separating

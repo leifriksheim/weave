@@ -24,6 +24,8 @@ export interface CreateExpressionParams<T> {
   };
   readonly retain?: boolean;
   readonly deleted?: boolean;
+  /** First versions only: the definition version this record is written under */
+  readonly def?: string;
   /** Links in the clear — public spaces only; a private space seals them in the body */
   readonly links?: ReadonlyArray<Link>;
 }
@@ -73,6 +75,7 @@ export function createExpression<T>(params: CreateExpressionParams<T>): Unsigned
     ...(params.version?.prev ? { prev: params.version.prev } : {}),
     ...(params.version?.genesis ? { genesis: params.version.genesis } : {}),
     ...(params.retain ? { retain: true as const } : {}),
+    ...(params.def ? { def: params.def } : {}),
     ...(params.deleted ? { deleted: true as const } : {}),
     ...(params.links?.length ? { links: params.links } : {}),
   });

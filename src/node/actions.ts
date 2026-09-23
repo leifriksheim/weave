@@ -179,6 +179,14 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
           description:
             'Link roles its records may carry: { "about": { "to": ["app.poll"], "cardinality": "one" } }. "to" is "*" for any collection.',
         },
+        rules: {
+          type: 'object',
+          description:
+            'What its records allow, enforced by every peer: { "create": "member", "edit": "creator", "delete": ["creator", "owner"], ' +
+            '"onePer": ["@author", "link:about"], "fixed": ["options"] }. Who is "member" (anyone who may write here, the default), ' +
+            '"owner" (the space owner) or "creator" (whoever created that record). onePer makes at most one record per author + ' +
+            'linked record (+ body field): writing again changes it. fixed fields keep their first value.',
+        },
       },
       required: ['space', 'name', 'schema'],
     },
@@ -192,6 +200,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         ...(typeof input.version === 'number' ? { version: input.version } : {}),
         ...(input.history === 'all' || input.history === 'latest' ? { history: input.history } : {}),
         ...(typeof input.links === 'object' && input.links !== null ? { links: input.links as Record<string, never> } : {}),
+        ...(typeof input.rules === 'object' && input.rules !== null ? { rules: input.rules as Record<string, never> } : {}),
       }),
   },
   {
@@ -299,6 +308,19 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         ...(typeof input.rel === 'string' ? { rel: input.rel } : {}),
         ...(typeof input.collection === 'string' ? { collection: input.collection } : {}),
       }),
+  },
+  {
+    name: 'records_can',
+    description:
+      'Whether you may do something before trying: "create" in a collection (target = its name), or "edit" / "delete" a record ' +
+      '(target = its key). Follows the collection\'s rules and the space\'s.',
+    input: {
+      type: 'object',
+      properties: { space, action: { type: 'string', enum: ['create', 'edit', 'delete'] }, target: { type: 'string' } },
+      required: ['space', 'action', 'target'],
+    },
+    readOnly: true,
+    run: (node, input) => node.records.can(str(input, 'space'), str(input, 'action') as 'create' | 'edit' | 'delete', str(input, 'target')),
   },
   {
     name: 'records_update',

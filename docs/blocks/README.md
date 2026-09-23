@@ -12,13 +12,22 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 
 | Block | Delivers | Rough size |
 |---|---|---|
-| [BLOCK-03](BLOCK-03-packed-storage.md) | `BlobStore` + `PackedAdapter` + garbage collection — also what files and avatars need | ~2 weeks |
+| [BLOCK-03](BLOCK-03-mirrors.md) | Mirrors: a space kept in any dumb file store, synced like a peer; tree garbage collection | ~2 weeks |
 | [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | S3-compatible and Google Drive blob drivers (after 03) | ~1 week |
-| [BLOCK-07](BLOCK-07-hosting-tier.md) | Multi-tenant hosting of always-on nodes, bring-your-own storage. Its readiness check predates the `weave` CLI — the "daemon" it needs is `weave run` | ~2 weeks |
-| [BLOCK-11](BLOCK-11-constraints-and-convergence.md) | "One reaction per person", done so peers agree | ~4 days |
+| [BLOCK-07](BLOCK-07-hosting-tier.md) | Hosting: one blind always-on node serving many people's spaces, writing into their own storage (after 03) | ~2 weeks |
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
 
 ## Next, not written as blocks yet
+
+- **Roles in rules (`can:<role>`).** "Anyone the owner made a moderator" as a
+  rule: a UCAN from the owner, carried in the record's own proof chain, so any
+  peer can check it. Needs proof chains that travel (below).
+- **Uniqueness that cannot be a key.** `onePer` covers "one per author per
+  thing" by deriving the key. Anything that cannot be derived would need a
+  deterministic fold on read instead — every peer keeping the same one.
+- **Typed collections.** A TypeScript builder that emits the JSON Schema, the
+  rules and the types in one, and typed handles (`node.use(space, Poll)`) —
+  replaces BLOCK-12.
 
 - **Agent sessions.** An agent is not its own identity: it signs for you with a
   session key, like any device, given a narrower, labelled delegation (which
@@ -40,5 +49,13 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
   scale, not search. Ranking and prefix matching need an inverted index.
 - **Proof chains that travel.** Delegations deeper than root → session →
   one more need their intermediate proofs carried with the record.
+- **Merging inside one record.** Two devices editing different fields of one
+  record while apart produce two versions, and one wins whole. Field-level
+  merging, or a text CRDT for long text, would keep both edits. A question
+  about record bodies; storage and sync don't change.
+- **Collection names travel in the clear.** A private space encrypts record
+  bodies, but envelopes stay readable, so a host, a mirror's provider or a
+  relay can see `app.todo.item`. Encrypting the name, or replacing it with a
+  keyed hash, would close that.
 - **Orphaned tree nodes** still accumulate, a few per insert, with nothing
   collecting them → BLOCK-03.

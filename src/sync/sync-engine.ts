@@ -26,7 +26,20 @@ import { compareRoots, differingEntries, unknownChildren, verifyNode } from './a
 export interface IncomingValidation {
   readonly valid: boolean;
   readonly reason?: string;
+  /**
+   * Not judged yet, rather than refused: it depends on something that has not
+   * arrived — a record's first version, the definition it was written under.
+   * It is held and tried again as other records come in, and fetched again on
+   * the next round if it is still waiting.
+   */
+  readonly later?: boolean;
 }
+
+/** At most this many records wait for what they depend on; the oldest give way */
+const MAX_WAITING = 1000;
+
+/** Collection definitions first, then records by version — what others depend on comes first */
+const rank = (e: Expression): number => (e?.collection === 'sys.collection' ? -1 : (e?.seq ?? 0));
 
 export interface SyncEngineConfig {
   readonly storageProvider: StorageProvider;
@@ -130,13 +143,32 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     if (validate) {
       const verdict = await validate(expression);
       if (!verdict.valid) {
-        emit('rejected', peerId, expression, verdict.reason);
+        if (verdict.later) {
+          waiting.set(expression.id, { peerId, expression });
+          if (waiting.size > MAX_WAITING) waiting.delete(waiting.keys().next().value!);
+        } else {
+          emit('rejected', peerId, expression, verdict.reason);
+        }
         return false;
       }
     }
+    waiting.delete(expression.id);
     await storageProvider.addExpression(expression);
     emit('expression-received', expression);
     return true;
+  };
+
+  /** Records that could not be judged yet — tried again whenever something new is admitted */
+  const waiting = new Map<string, { peerId: string; expression: Expression }>();
+  const retryWaiting = async () => {
+    let progressed = true;
+    while (progressed && waiting.size > 0) {
+      progressed = false;
+      for (const [id, held] of [...waiting]) {
+        waiting.delete(id);
+        if (await admit(held.peerId, held.expression)) progressed = true;
+      }
+    }
   };
 
   // ─── The walk ──────────────────────────────────────────────────────
@@ -254,9 +286,13 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     // Only records this node asked for are considered; anything else was not
     // requested and is not taken on trust as a side effect.
     const wanted = asked ? new Set(asked) : null;
-    for (const expression of expressions) {
-      if (wanted?.has(expression?.id)) await admit(peerId, expression);
+    // Definitions and first versions before what depends on them, so little has to wait.
+    const ordered = [...expressions].sort((a, b) => rank(a) - rank(b));
+    let admitted = false;
+    for (const expression of ordered) {
+      if (wanted?.has(expression?.id) && (await admit(peerId, expression))) admitted = true;
     }
+    if (admitted) await retryWaiting();
     if (!walk || !asked) return;
     walk.idBatches.delete(requestId);
     advance(peerId, walk);
