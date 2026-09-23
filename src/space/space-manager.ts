@@ -3,9 +3,10 @@
  * Spaces — the cryptographic containers everything else lives in.
  *
  * A space is `personal` or `shared` (who writes to it) and independently
- * `public` or `private` (whether bodies are encrypted). A personal space becomes
- * collaborative by handing its invite to someone; a private one stays readable
- * only to whoever holds its key.
+ * `public` or `private` (whether bodies are encrypted). Both are fixed at
+ * creation and identical for every member: an invite to a personal space lets
+ * someone follow it, not write to it. A private one stays readable only to
+ * whoever holds its key.
  */
 
 import type { Space, SpaceType, SpaceVisibility, StorageAdapter } from '../types.js';
@@ -198,8 +199,10 @@ export function createSpaceManager(adapter: StorageAdapter): SpaceManager {
 
       const space: Space = Object.freeze({
         ...parsed.space,
-        // Joining always lands in a shared space, whatever the inviter called it.
-        type: 'shared',
+        // The type is part of the space, not of anyone's copy of it. Every
+        // member's gate has to agree on who may write, or one copy keeps a
+        // record another rejects and the two never converge. Joining a
+        // personal space means following it; collaborating needs a shared one.
         members: Object.freeze([...members]),
       });
 

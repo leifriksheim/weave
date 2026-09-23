@@ -115,14 +115,14 @@ describe('invites', () => {
     assert.equal(parseSpaceInvite(invite).key, undefined);
   });
 
-  test('joining a personal space makes it shared for the joiner', async () => {
+  test('joining a personal space keeps it personal, so every copy agrees who may write', async () => {
     const mine = createSpaceManager(createMemoryAdapter());
     const theirs = createSpaceManager(createMemoryAdapter());
 
     const record = await mine.create({ name: 'Reading', type: 'personal', visibility: 'public', owner: OWNER });
     const joined = await theirs.join(await mine.createInvite(record.space.id, OWNER), 'did:key:zFriend');
 
-    assert.equal(joined.space.type, 'shared');
+    assert.equal(joined.space.type, 'personal');
   });
 
   test('rejects a corrupted invite', () => {
