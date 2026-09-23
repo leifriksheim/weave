@@ -24,6 +24,7 @@ import { didToPublicKey } from '../identity/did.js';
 import { createExpression } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
 import { newRecordKey, nextVersion, RECORD_KEY_PATTERN } from '../records/version.js';
+import { checkView, VIEW_COLLECTION } from '../records/views.js';
 import { checkLinks, SYS_LIBRARY, SYS_LIBRARY_NAMES } from '../records/links.js';
 import type { Link } from '../types.js';
 import { reconcileFolder } from '../storage/folder-reconcile.js';
@@ -284,7 +285,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   async function shapeIssues(collection: string, body: unknown): Promise<ReadonlyArray<SchemaIssue> | null> {
     if (collection.startsWith('sys.') && !SYS_LIBRARY_NAMES.has(collection)) return null;
     const described = await definitionOf(collection);
-    if (described) return validateJsonSchema(described.schema, body);
+    if (described) {
+      const issues = validateJsonSchema(described.schema, body);
+      return collection === VIEW_COLLECTION ? [...issues, ...checkView(body)] : issues;
+    }
     if (schemas.getCollection(collection)) {
       const checked = await schemas.validate(collection, body);
       return (checked.issues ?? []).map((issue) => ({ path: '/', message: issue.message }));

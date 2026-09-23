@@ -319,6 +319,16 @@ space's things connect. And five collections are built into every node —
 so every app gets reactions and comments on every other app's data without
 anyone agreeing on anything.
 
+**Queries and views.** `node.records.query(space, { collection, where, include,
+sort, limit, cursor })` finds records with Mongo-style filters (`{ done: false,
+amount: { $gt: 10 } }`; `@author`, `@createdAt` and friends for the record
+itself) and pulls in what links to them — `include: { likes: { rel: 'about',
+from: 'sys.reaction', count: true } }`. A query is plain JSON, so an agent
+sends the same thing over `records_query`; `node.records.watch` re-runs one as
+records sync in. A **view** (`sys.view`) is a query plus a layout — list,
+table, cards, board — saved in the space as a record: an agent can build you a
+screen by writing data, and any app that draws views shows it.
+
 **The account registry.** Which spaces an account belongs to is itself kept in
 a space: a private one whose id and key are derived from the account's vault
 key, so every device of the account finds it and nobody else can. Creating or

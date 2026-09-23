@@ -11,8 +11,10 @@
  * points at; an annotation — a reaction, a comment — attaches to anything
  * (`'*'`). The `sys.*` library below is the annotation layer, built into every
  * node so they all agree on it without anyone publishing it. Keep it small:
- * the sixth entry would be somebody's noun wearing a disguise.
+ * the sixth annotation would be somebody's noun wearing a disguise. (`sys.view`
+ * sits alongside them but is not one: it is how to show records, not about them.)
  */
+import { VIEW_DEFINITION } from './views.js';
 import type { Link } from '../types.js';
 import type { StoredCollection } from '../schema/collection-def.js';
 import { RECORD_KEY_PATTERN } from './version.js';
@@ -109,6 +111,7 @@ export const SYS_LIBRARY: ReadonlyArray<StoredCollection> = Object.freeze<Stored
       to: about('The record referred to'),
     },
   },
+  VIEW_DEFINITION,
 ]);
 
 export const SYS_LIBRARY_NAMES: ReadonlySet<string> = new Set(SYS_LIBRARY.map((c) => c.name));

@@ -4,6 +4,7 @@ import { useSpaceSession } from '../hooks/useSpaceSession';
 import { createInviteLink } from '../spaces';
 import { TodoItem } from './TodoItem';
 import { DelegationPanel } from './DelegationPanel';
+import { ViewsPanel } from './ViewsPanel';
 import { spaceBadges } from './SpaceList';
 import type { Session } from '../protocol';
 import { styles, palette } from '../styles';
@@ -164,6 +165,8 @@ export function SpaceView({
           ))}
         </div>
       </details>
+
+      <ViewsPanel space={space} />
 
       <DelegationPanel session={session} spaceId={space.id} />
     </>
