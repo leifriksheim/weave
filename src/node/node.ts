@@ -169,8 +169,34 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     if (event.type === 'records' && event.space === accountSpaceId) {
       emit({ type: 'account' });
       void reconcile();
+      // A rename on another device reaches the spaces open here too.
+      void publishProfileToOpenSpaces();
     }
   };
+
+  /** The account's name, from its registry — null without an account key, or before one is set */
+  async function ownName(): Promise<string | null> {
+    if (!accountSpaceId) return null;
+    const profile = await (await runtime(accountSpaceId)).get<AccountProfile>(PROFILE_KEY);
+    return profile?.verified && profile.root === config.signer.did && typeof profile.body?.name === 'string' ? profile.body.name : null;
+  }
+
+  /**
+   * Tells a space who this account is. Done when the space opens and when the
+   * name changes — not by opening every space, which would start syncing them
+   * all; a space not open now hears on its next open.
+   */
+  async function publishProfile(spaceId: string, open: SpaceRuntime): Promise<void> {
+    if (spaceId === accountSpaceId) return;
+    const name = await ownName();
+    if (name) await open.publishProfile({ name });
+  }
+
+  async function publishProfileToOpenSpaces(): Promise<void> {
+    for (const [spaceId, open] of runtimes) {
+      await open.then((rt) => publishProfile(spaceId, rt)).catch(() => {});
+    }
+  }
 
   function runtime(spaceId: string): Promise<SpaceRuntime> {
     if (closed) return Promise.reject(new Error('Node is closed'));
@@ -192,6 +218,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       );
       // A failed open must not be cached, or the space stays broken until restart.
       open.catch(() => runtimes.delete(spaceId));
+      void open.then((rt) => publishProfile(spaceId, rt)).catch(() => {});
       runtimes.set(spaceId, open);
     }
     return open;
@@ -339,6 +366,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return (await runtime(spaceId)).status();
     },
 
+    async profiles(spaceId: string) {
+      return (await runtime(spaceId)).profiles();
+    },
+
     async authenticator(spaceId: string) {
       const record = await findRecord(spaceId);
       if (!record || record.space.visibility !== 'private' || !record.key) return null;
@@ -377,6 +408,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       if (!trimmed) throw new Error('A name cannot be empty');
       const written = await (await runtime(accountSpaceId)).upsertSystem<AccountProfile>(PROFILE_COLLECTION, PROFILE_KEY, { name: trimmed });
       emit({ type: 'account' });
+      await publishProfileToOpenSpaces();
       return { name: trimmed, updatedAt: written.updatedAt };
     },
   });

@@ -7,6 +7,7 @@ import { SchemaForm } from './SchemaForm';
 import { Value } from './Value';
 import type { Place } from './SpaceView';
 import { styles } from '../styles';
+import { nameOf, peopleFrom, type People } from '../derive/people';
 
 const LIKE = '👍';
 /** Annotations every record gets a place for, whatever it is */
@@ -21,6 +22,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState<{ collection: NodeCollection; rel: string } | null>(null);
 
+  const people = peopleFrom(useLive(space.id, () => node.spaces.profiles(space.id), []));
   const data = useLive(
     space.id,
     async () => {
@@ -54,7 +56,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
       <section style={styles.panelSection}>
         <h2 style={{ ...styles.appTitle, fontSize: 18 }}>{recordLabel(record, schema)}</h2>
         <p style={styles.todoMeta}>
-          {collection ? collectionLabel(collection) : record.collection} · by {record.root?.slice(-6) ?? '?'} · {new Date(record.createdAt).toLocaleString()}
+          {collection ? collectionLabel(collection) : record.collection} · by {nameOf(record.root, people)} · {new Date(record.createdAt).toLocaleString()}
           {record.seq > 0 && ` · edited ${record.seq}×`}
           {record.verified && ' · verified'}
           {record.encrypted && ' · encrypted'}
@@ -139,7 +141,7 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
         const c = collections.find((x) => x.name === name);
         const counted = c ? tally(c, records, record) : null;
         // A vote has no title of its own; name it by what it picked.
-        const nameOf = (r: NodeRecord) => {
+        const labelFor = (r: NodeRecord) => {
           const picked = counted ? labelOf(counted.field, (r.body as Record<string, unknown> | null)?.[counted.field.name], { [choicesFrom(counted.field.schema)!.rel]: record }) : null;
           return picked ?? recordLabel(r, schemaOf(r.collection));
         };
@@ -161,8 +163,8 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
             )}
             {records.map((r) => (
               <button key={r.key} onClick={() => open(r)} data-variant="ghost" style={{ ...styles.linkButton, textAlign: 'left' }}>
-                {nameOf(r)}
-                <span style={styles.todoMeta}> · by {r.root?.slice(-6)}</span>
+                {labelFor(r)}
+                <span style={styles.todoMeta}> · by {nameOf(r.root, people)}</span>
               </button>
             ))}
           </section>
@@ -197,12 +199,12 @@ export function RecordView({ space, recordKey, collections, go }: { space: Space
         </section>
       )}
 
-      <Comments space={space} target={record.key} comments={comments} />
+      <Comments space={space} target={record.key} comments={comments} people={people} />
     </article>
   );
 }
 
-function Comments({ space, target, comments }: { space: SpaceSummary; target: string; comments: ReadonlyArray<NodeRecord> }) {
+function Comments({ space, target, comments, people }: { space: SpaceSummary; target: string; comments: ReadonlyArray<NodeRecord>; people: People }) {
   const { node } = requireSession();
   const [draft, setDraft] = useState('');
   return (
@@ -210,7 +212,7 @@ function Comments({ space, target, comments }: { space: SpaceSummary; target: st
       <h3 style={styles.sectionTitle}>Comments ({comments.length})</h3>
       {comments.map((c) => (
         <p key={c.key} style={styles.todoText}>
-          <span style={styles.todoMeta}>{c.root?.slice(-6)}: </span>
+          <span style={styles.todoMeta}>{nameOf(c.root, people)}: </span>
           {(c.body as { text?: string } | null)?.text}
         </p>
       ))}

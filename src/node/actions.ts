@@ -136,6 +136,15 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: (node, input) => node.spaces.status(str(input, 'space')),
   },
   {
+    name: 'spaces_profiles',
+    description:
+      'Who is who in a space: the name each person gave, by their identity (did). A record names its author by ' +
+      'did in "root" and "createdBy" — look the name up here. Only each person can set their own.',
+    input: { type: 'object', properties: { space }, required: ['space'] },
+    readOnly: true,
+    run: (node, input) => node.spaces.profiles(str(input, 'space')),
+  },
+  {
     name: 'collections_list',
     description:
       'What a space holds and how it connects: each collection with its title, description, JSON Schema, declared ' +

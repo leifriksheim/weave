@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { NodeCollection, SpaceSummary } from 'weave-protocol';
+import type { NodeCollection, SpaceProfile, SpaceSummary } from 'weave-protocol';
 import { createInviteLink } from '../spaces';
 import { requireSession, type Session } from '../protocol';
 import { useLive } from '../hooks/useLive';
@@ -10,6 +10,8 @@ import { NewCollection } from './NewCollection';
 import { DelegationPanel } from './DelegationPanel';
 import { spaceBadges } from './SpaceList';
 import { styles, palette } from '../styles';
+import { Avatar } from './Avatar';
+import { nameOf, peopleFrom } from '../derive/people';
 
 const CONNECTION_LABEL: Record<string, string> = {
   offline: '○ offline',
@@ -40,6 +42,8 @@ export function SpaceView({ record: space, session, onBack }: { record: SpaceSum
   }, [node, space.id]);
 
   const collections = useLive(space.id, () => node.collections.list(space.id), []) ?? [];
+  const profiles = useLive(space.id, () => node.spaces.profiles(space.id), []);
+  const people = peopleFrom(profiles);
   const status = useLive(space.id, () => node.spaces.status(space.id), []);
 
   const go = (next: Place) => setPlace(next);
@@ -80,7 +84,7 @@ export function SpaceView({ record: space, session, onBack }: { record: SpaceSum
       </header>
 
       {!space.writable && (
-        <p style={styles.errorHint}>You are following this space. It is {space.owner.slice(-6)}'s, so only they can change it.</p>
+        <p style={styles.errorHint}>You are following this space. It is {nameOf(space.owner, people)}'s, so only they can change it.</p>
       )}
 
       {place.key && place.collection ? (
@@ -88,7 +92,10 @@ export function SpaceView({ record: space, session, onBack }: { record: SpaceSum
       ) : place.collection ? (
         <CollectionView space={space} name={place.collection} collection={current} go={go} />
       ) : (
-        <Overview space={space} collections={collections} go={go} />
+        <>
+          <Overview space={space} collections={collections} go={go} />
+          <People profiles={profiles ?? []} me={session.rootDid} owner={space.owner} people={people} />
+        </>
       )}
 
       {!place.collection && (
@@ -140,6 +147,26 @@ function Overview({ space, collections, go }: { space: SpaceSummary; collections
             + Define a kind of thing
           </button>
         ))}
+    </section>
+  );
+}
+
+/** Who is here: everyone who has said who they are in this space */
+function People({ profiles, me, owner, people }: { profiles: ReadonlyArray<SpaceProfile>; me: string; owner: string; people: ReturnType<typeof peopleFrom> }) {
+  if (profiles.length === 0) return null;
+  return (
+    <section style={styles.panelSection} aria-label="People">
+      <h2 style={styles.sectionTitle}>People ({profiles.length})</h2>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {profiles.map((p) => (
+          <span key={p.did} title={p.did} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 4px', border: `1px solid ${palette.surface.line}`, borderRadius: 999, fontSize: 13 }}>
+            <Avatar did={p.did} size={22} />
+            <span style={{ color: palette.ink.strong }}>{nameOf(p.did, people)}</span>
+            {p.did === me && <span style={{ color: palette.ink.faint }}>you</span>}
+            {p.did === owner && p.did !== me && <span style={{ color: palette.ink.faint }}>owner</span>}
+          </span>
+        ))}
+      </div>
     </section>
   );
 }

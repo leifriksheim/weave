@@ -20,6 +20,7 @@ export type {
   NodeEvent,
   SpaceSummary,
   SpaceStatus,
+  SpaceProfile,
   NewSpace,
   InvitePreview,
   ListOptions,

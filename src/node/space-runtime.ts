@@ -48,6 +48,7 @@ import {
   type StoredCollection,
 } from '../schema/collection-def.js';
 import { MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
+import { sha256 } from '../utils/hash.js';
 import type {
   ConnectionState,
   DefineCollection,
@@ -56,11 +57,21 @@ import type {
   NodeEvent,
   NodeNetworkConfig,
   NodeRecord,
+  SpaceProfile,
   SpaceStatus,
 } from './types.js';
 
 /** Collections the node writes itself, through their own calls — never through `put` */
 const MANAGED = new Set([CATALOG_COLLECTION, MEMBERSHIP_COLLECTION, PROFILE_COLLECTION]);
+
+/**
+ * The key of a person's profile record in a space: one per identity, named by
+ * a hash of it (record keys are lower case; a did:key is not).
+ */
+export async function profileKey(did: string): Promise<string> {
+  const digest = await sha256(new TextEncoder().encode(did));
+  return `profile:${Array.from(digest.subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
 
 /** The capability a record in a space requires */
 export const writeCapability = (spaceId: string): Capability => ({
@@ -102,6 +113,10 @@ export interface SpaceRuntime {
   upsertSystem<T>(collection: string, key: string, body: T): Promise<NodeRecord<T>>;
   /** For the node itself: deletes a record in a managed collection */
   removeSystem(key: string): Promise<void>;
+  /** The name each person in the space gave, by identity */
+  profiles(): Promise<ReadonlyArray<SpaceProfile>>;
+  /** For the node itself: says who this account is, here — when that changed and the space takes its writes */
+  publishProfile(profile: { name: string }): Promise<void>;
   collections(): Promise<ReadonlyArray<NodeCollection>>;
   define(definition: DefineCollection): Promise<NodeCollection>;
   status(): Promise<SpaceStatus>;
@@ -373,10 +388,41 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return index;
   }
 
+  // ─── Profiles ──────────────────────────────────────────────────────
+  //
+  // Each person says who they are in a space with one record, keyed by their
+  // identity (`profileKey`), whose versions are always retained — the same
+  // trick as the catalogue. The fold takes the newest version signed by the
+  // identity the key names, so nobody can rename anyone else: a version
+  // written by someone else under your key is simply never the answer, and it
+  // cannot push yours out, because yours are kept.
+
+  let profilesCache: Promise<Map<string, SpaceProfile>> | null = null;
+  const profileMap = () => (profilesCache ??= loadProfiles());
+
+  async function loadProfiles(): Promise<Map<string, SpaceProfile>> {
+    const result = new Map<string, SpaceProfile>();
+    for (const current of await storage.queryExpressions(PROFILE_COLLECTION)) {
+      if (!current.key.startsWith('profile:')) continue;
+      for (const version of await storage.history(current.key)) {
+        const verdict = await judge(version);
+        if (!verdict.verified || !verdict.root || (await profileKey(verdict.root)) !== current.key) continue;
+        if (version.deleted) break; // they took it down
+        const name = ((await openBody(version)).body as { name?: unknown } | null)?.name;
+        if (typeof name === 'string' && name.trim()) {
+          result.set(verdict.root, { did: verdict.root, name: name.trim().slice(0, 64), updatedAt: version.createdAt });
+        }
+        break;
+      }
+    }
+    return result;
+  }
+
   /** Records changed: the catalogue and the link index may have too. */
   const recordsChanged = () => {
     linkIndexCache = null;
     catalogCache = null;
+    profilesCache = null;
     emit({ type: 'records', space: space.id });
   };
 
@@ -558,7 +604,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     // Whether superseded versions are kept is the writer's decision, carried
     // on the version — never each reader's, or nodes that had seen different
     // definitions would store different things and never converge.
-    const retain = collection === CATALOG_COLLECTION || (await catalog()).get(collection)?.definition.history === 'all';
+    const retain =
+      collection === CATALOG_COLLECTION ||
+      collection === PROFILE_COLLECTION ||
+      (await catalog()).get(collection)?.definition.history === 'all';
 
     const signed = await signer.sign(
       createExpression({
@@ -653,6 +702,18 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     },
 
     upsertSystem: upsert,
+
+    async profiles() {
+      return [...(await profileMap()).values()].sort((a, b) => a.name.localeCompare(b.name) || a.did.localeCompare(b.did));
+    },
+
+    async publishProfile(profile: { name: string }) {
+      // Someone following a personal space cannot write in it, and says nothing.
+      if (!writable) return;
+      const name = profile.name.trim().slice(0, 64);
+      if (!name || (await profileMap()).get(deps.rootDid)?.name === name) return;
+      await upsert(PROFILE_COLLECTION, await profileKey(deps.rootDid), { name });
+    },
 
     async update<T>(recordKey: string, body: T, options: { links?: ReadonlyArray<Link> } = {}): Promise<NodeRecord<T>> {
       const current = await requireLive(recordKey);

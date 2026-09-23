@@ -209,6 +209,14 @@ export type NodeEvent =
   | { readonly type: 'account' }
   | { readonly type: 'rejected'; readonly space: string; readonly peer: string; readonly reason: string };
 
+/** Who someone is in a space: the name they gave there, by their identity */
+export interface SpaceProfile {
+  /** Their identity — what `root` and `createdBy` on a record name */
+  readonly did: string;
+  readonly name: string;
+  readonly updatedAt: string;
+}
+
 export interface NodeSpaces {
   list(): Promise<ReadonlyArray<SpaceSummary>>;
   get(spaceId: string): Promise<SpaceSummary | null>;
@@ -230,6 +238,12 @@ export interface NodeSpaces {
    * node does not hold.
    */
   authenticator(spaceId: string): Promise<PeerAuthenticator | null>;
+  /**
+   * The name each person gave in this space, by identity. Your own is
+   * published for you, from the account's name, into every space you can
+   * write in — and kept up to date when you rename. Only you can change yours.
+   */
+  profiles(spaceId: string): Promise<ReadonlyArray<SpaceProfile>>;
 }
 
 export interface NodeRecords {
