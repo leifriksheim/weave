@@ -119,6 +119,13 @@ export function injectBaseStyles(): void {
     .space-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; align-items: start; }
     @media (max-width: 760px) { .space-layout { grid-template-columns: 1fr; gap: 24px; } }
     [data-nav]:not([aria-current]):hover { background: ${surface.sunken} !important; }
+    .space-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    [data-tile] { transition: border-color .15s ease, box-shadow .15s ease; }
+    [data-tile]:hover { border-color: ${surface.lineStrong} !important; box-shadow: 0 6px 16px -10px rgba(15, 17, 21, .18); }
+    [data-tile]:hover [data-row-action] { opacity: 1; }
+    [data-tile-new]:hover { border-color: ${ink.muted} !important; color: ${ink.strong} !important; background: ${surface.sunken} !important; }
+    [data-rail-item]:not([aria-current]):hover [data-rail-pill] { height: 10px !important; opacity: 1 !important; }
+    [data-rail-add]:hover > span { border-color: ${ink.muted} !important; color: ${ink.strong} !important; background: ${surface.card}; }
     @keyframes weave-rise { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
 
     code { font-family: ${mono}; }

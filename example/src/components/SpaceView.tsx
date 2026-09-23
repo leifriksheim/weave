@@ -37,7 +37,7 @@ const NEW = '__new__';
  * it drawn from what the space says about itself — nothing here knows what
  * any of the things are.
  */
-export function SpaceView({ record: space, session, onBack }: { record: SpaceSummary; session: Session; onBack: () => void }) {
+export function SpaceView({ record: space, session }: { record: SpaceSummary; session: Session }) {
   const { node } = requireSession();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
 
@@ -63,9 +63,6 @@ export function SpaceView({ record: space, session, onBack }: { record: SpaceSum
   return (
     <>
       <header style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
-        <button onClick={onBack} data-variant="ghost" style={{ ...styles.linkButton, alignSelf: 'flex-start', paddingLeft: 0 }}>
-          ← Spaces
-        </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h1 style={{ ...styles.appTitle, fontSize: 26 }}>{space.name}</h1>
           <span style={styles.badge}>{spaceBadges(space)}</span>

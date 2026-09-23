@@ -12,6 +12,7 @@ import { PairArrival } from './components/PairArrival';
 import { PairPhone } from './components/PairPhone';
 import { SpaceList } from './components/SpaceList';
 import { SpaceView } from './components/SpaceView';
+import { SpaceRail, RAIL_WIDTH } from './components/SpaceRail';
 import { SecuritySettings } from './components/SecuritySettings';
 import { PodChoice } from './components/PodChoice';
 import { clearInviteFromUrl, previewInvite, readInviteFromUrl } from './spaces';
@@ -156,9 +157,26 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
     clearInviteFromUrl();
   };
 
+  const inSpace = open !== null && page === 'spaces';
+
   return (
-    <div style={styles.container}>
-      <div style={open && page === 'spaces' ? { ...styles.app, maxWidth: 1120 } : styles.app}>
+    <div style={inSpace ? { ...styles.container, paddingLeft: RAIL_WIDTH + 20 } : styles.container}>
+      {inSpace && (
+        <SpaceRail
+          spaces={spaces}
+          current={open.id}
+          onOpen={setOpen}
+          onHome={() => setOpen(null)}
+          onCreate={(params) => void create(params).then((record) => record && setOpen(record))}
+          onJoin={(invite) => void join(invite).then((record) => record && setOpen(record))}
+        />
+      )}
+      <div style={inSpace ? { ...styles.app, maxWidth: 1120 } : styles.app}>
+        {inSpace && error && (
+          <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 16 }}>
+            <p style={styles.error}>{error}</p>
+          </div>
+        )}
         {pendingInvite && (
           <InviteBanner invite={pendingInvite} onAccept={acceptInvite} onDecline={declineInvite} />
         )}
@@ -234,7 +252,7 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
         {page === 'security' ? (
           <SecuritySettings auth={auth} session={session} onBack={() => setPage('spaces')} />
         ) : open ? (
-          <SpaceView record={open} session={session} onBack={() => setOpen(null)} />
+          <SpaceView key={open.id} record={open} session={session} />
         ) : (
           <>
             <header style={styles.headerRow}>
