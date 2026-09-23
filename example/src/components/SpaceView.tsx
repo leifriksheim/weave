@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import type { NodeRecord, SpaceProfile, SpaceSummary } from 'weave-protocol';
-import { standardSchemas, useSchemas } from 'weave-protocol/schemas';
 import { createInviteLink } from '../spaces';
 import { Choice } from './Modal';
 import { requireSession, type Session } from '../protocol';
@@ -8,6 +7,7 @@ import { useLive } from '../hooks/useLive';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
 import { RecordPanel, ANNOTATIONS } from './RecordPanel';
+import { Library } from './Library';
 import { NewCollection } from './NewCollection';
 import { DelegationPanel } from './DelegationPanel';
 import { spaceBadges } from './SpaceList';
@@ -41,11 +41,10 @@ export function SpaceView({ record: space, session }: { record: SpaceSummary; se
   const { node } = requireSession();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
 
-  // Opening a space starts syncing it; leaving stops. The standard schemas are
-  // this app's vocabulary for reactions, comments and tags: it makes sure a
-  // space it can write in knows them.
+  // Opening a space starts syncing it; leaving stops. It writes nothing:
+  // standard schemas are added only when someone picks them from the library.
   useEffect(() => {
-    void node.spaces.open(space.id).then(() => useSchemas(node, space.id, standardSchemas)).catch(() => {});
+    void node.spaces.open(space.id).catch(() => {});
     return () => void node.spaces.close(space.id);
   }, [node, space.id]);
 
@@ -119,6 +118,7 @@ export function SpaceView({ record: space, session }: { record: SpaceSummary; se
               <h2 style={{ ...styles.appTitle, fontSize: 22 }}>New kind of thing</h2>
               <p style={{ fontSize: 13, color: palette.ink.muted }}>Give it a name and some fields. Everything else — forms, lists, boards — is worked out from this.</p>
               <NewCollection space={space} onDone={(name) => setPlace({ collection: name, key: null })} />
+              <Library space={space} collections={collections} title="Or add one from the library" onAdded={(name) => !ANNOTATIONS.has(name) && setPlace({ collection: name, key: null })} />
             </section>
           ) : selected ? (
             <CollectionView key={selected} space={space} name={selected} collection={current} onOpen={openRecord} />
@@ -132,6 +132,9 @@ export function SpaceView({ record: space, session }: { record: SpaceSummary; se
                 </button>
               )}
             </div>
+          )}
+          {!selected && (
+            <Library space={space} collections={collections} title="Start with a standard schema" onAdded={(name) => !ANNOTATIONS.has(name) && setPlace({ collection: name, key: null })} />
           )}
           <div style={{ marginTop: 40 }}>
             <DelegationPanel session={session} spaceId={space.id} />

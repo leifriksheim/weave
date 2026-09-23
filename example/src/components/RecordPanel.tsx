@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
-import { reaction, comment, tag, standardSchemas } from 'weave-protocol/schemas';
+import { reaction, comment, tag } from 'weave-protocol/schemas';
 import { requireSession } from '../protocol';
 import { useLive } from '../hooks/useLive';
 import {
@@ -28,11 +28,11 @@ import { Comments } from './std/Comments';
 import { styles, palette } from '../styles';
 
 /**
- * The standard schemas: registered in every space this app opens. Reactions,
- * comments and tags get a place of their own on every record; none of them is
- * listed as a kind of thing, or offered as "+ Add …".
+ * The standard schemas this app gives a place of their own on every record —
+ * once a space has added them. They are not listed as kinds of thing, or
+ * offered as "+ Add …"; the other standard schemas behave like any collection.
  */
-export const ANNOTATIONS = new Set<string>(standardSchemas.map((s) => s.name));
+export const ANNOTATIONS = new Set<string>([reaction.name, comment.name, tag.name]);
 
 /**
  * One record, in a panel beside the list it came from: its title, its fields
@@ -108,6 +108,8 @@ export function RecordPanel({
   };
 
   const linked = data?.linked ?? [];
+  // Reactions, comments and tags appear once the space has added them from the library.
+  const uses = (name: string) => collections.some((c) => c.name === name && c.version !== null);
   const pointing = groupBy(linked.filter((r) => !ANNOTATIONS.has(r.collection)), (r) => r.collection);
 
   return (
@@ -141,7 +143,7 @@ export function RecordPanel({
               </div>
             </div>
 
-            <Reactions space={space} target={record.key} reactions={linked.filter((r) => r.collection === reaction.name)} />
+            {uses(reaction.name) && <Reactions space={space} target={record.key} reactions={linked.filter((r) => r.collection === reaction.name)} />}
 
             <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {fields.map((f) => (
@@ -165,9 +167,11 @@ export function RecordPanel({
                   )}
                 </Property>
               ))}
-              <Property label="Tags">
-                <Tags space={space} target={record.key} tags={linked.filter((r) => r.collection === tag.name)} />
-              </Property>
+              {uses(tag.name) && (
+                <Property label="Tags">
+                  <Tags space={space} target={record.key} tags={linked.filter((r) => r.collection === tag.name)} />
+                </Property>
+              )}
             </dl>
 
             {record.conforms === false && (
@@ -244,8 +248,12 @@ export function RecordPanel({
                 )
               ))}
 
-            <div style={{ height: 1, background: palette.surface.line }} />
-            <Comments space={space} target={record.key} comments={linked.filter((r) => r.collection === comment.name)} people={people} />
+            {uses(comment.name) && (
+              <>
+                <div style={{ height: 1, background: palette.surface.line }} />
+                <Comments space={space} target={record.key} comments={linked.filter((r) => r.collection === comment.name)} people={people} />
+              </>
+            )}
 
             <footer style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingTop: 8, fontSize: 12, color: palette.ink.faint }}>
               <span>
