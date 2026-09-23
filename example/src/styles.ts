@@ -110,6 +110,15 @@ export function injectBaseStyles(): void {
     [data-row-action]:focus-visible { opacity: 1; }
 
     @keyframes weave-fade { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes weave-slide { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
+    [data-editable]:hover { border-color: ${surface.line} !important; background: ${surface.sunken} !important; }
+    [data-editable]:focus { border-color: ${surface.lineStrong} !important; background: ${surface.card} !important; box-shadow: none !important; }
+    .inline-field select, .inline-field input { height: 32px !important; border-color: transparent !important; background: none !important; margin-left: -8px; padding-left: 8px !important; width: calc(100% + 8px) !important; }
+    .inline-field select:hover, .inline-field input:hover { border-color: ${surface.line} !important; background: ${surface.sunken} !important; }
+    .inline-field select:focus, .inline-field input:focus { border-color: ${surface.lineStrong} !important; background: ${surface.card} !important; box-shadow: none !important; }
+    .space-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; align-items: start; }
+    @media (max-width: 760px) { .space-layout { grid-template-columns: 1fr; gap: 24px; } }
+    [data-nav]:not([aria-current]):hover { background: ${surface.sunken} !important; }
     @keyframes weave-rise { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
 
     code { font-family: ${mono}; }

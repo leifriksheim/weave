@@ -81,7 +81,7 @@ export function SchemaForm({
 
 const labelStyle = { display: 'flex', flexDirection: 'column' as const, gap: 4, fontSize: 13 };
 
-function FieldInput({ field, value, onChange, linked = {} }: { field: Field; value: unknown; onChange: (value: unknown) => void; linked?: LinkedByRel }) {
+export function FieldInput({ field, value, onChange, linked = {} }: { field: Field; value: unknown; onChange: (value: unknown) => void; linked?: LinkedByRel }) {
   const label = (
     <span>
       {field.label}

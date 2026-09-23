@@ -728,13 +728,16 @@ WebRTC; a record says *verified* once its signature and its delegation chain
 check out here, and *encrypted* when it arrived encrypted. (Sign-in through the
 MetaMask Snap in `snap/` is parked for now.)
 
-**Derived UI.** Open a space and you see the kinds of things in it — its
-catalogue. Open one and you get a table of its records and a form for a new
-one, both drawn from its JSON Schema. Open a record and you see its fields,
-what it points at, what points at it, 👍 and comments (`std.reaction` and `std.comment` from the schema library),
-and a "+ Add …" button for every collection that declares a link to this
-kind of thing: define `app.poll.vote` with `about → app.poll` and every poll
-gets "+ Add vote". Choices show by their label: `oneOf: [{ const, title }]`
+**Derived UI.** Open a space and its kinds of things are down the side — its
+catalogue. Each one is a list you can search and add to in one line, or a
+table, or — when it has a field with fixed choices — a board you drag cards
+across; a yes/no field becomes a checkbox on each row. A record opens in a
+panel beside the list: its fields as properties you edit in place, what it
+points at and what points at it, and reactions, tags and comments — the app
+registers the standard schemas in every space it opens, and gives those three
+a place on every record. And there is a "+ Add …" button for every collection
+that declares a link to this kind of thing: define `app.poll.vote` with
+`about → app.poll` and every poll gets "+ Add vote". Choices show by their label: `oneOf: [{ const, title }]`
 for fixed ones, and `x-choicesFrom: { rel: 'about', field: 'options' }` for a
 field that picks from a list in the linked record — so a vote stored as `1`
 shows as "Lisbon", its form offers the poll's options, and the poll shows a

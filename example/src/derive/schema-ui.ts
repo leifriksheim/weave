@@ -208,3 +208,43 @@ export function tally(
   }));
   return { field, counts };
 }
+
+/**
+ * The yes/no field a list shows as a checkbox — the first boolean, which for
+ * the things people keep lists of is nearly always "done".
+ */
+export function checkField(schema: JsonSchema | null): Field | null {
+  return fieldsOf(schema).find((f) => f.kind === 'boolean') ?? null;
+}
+
+/** The field a board groups by: the first one with a fixed set of choices */
+export function groupField(schema: JsonSchema | null): Field | null {
+  return fieldsOf(schema).find((f) => f.kind === 'choice' && !choicesFrom(f.schema)) ?? null;
+}
+
+/**
+ * What a one-line "add" creates from its text: the title field filled in, the
+ * rest at their empty values. Null when something else is required that has
+ * no sensible empty value — then the full form is the honest way in.
+ */
+export function quickAddBody(schema: JsonSchema | null, text: string): Record<string, unknown> | null {
+  const title = titleField(schema);
+  if (!title) return null;
+  const body: Record<string, unknown> = { [title]: text };
+  for (const field of fieldsOf(schema)) {
+    if (field.name === title) continue;
+    const empty = emptyValue(field);
+    if (empty !== undefined) body[field.name] = empty;
+    else if (field.required) return null;
+  }
+  return body;
+}
+
+/** The short fields worth showing beside a title in a list: not the title, not the checkbox */
+export function metaFields(schema: JsonSchema | null): ReadonlyArray<Field> {
+  const title = titleField(schema);
+  const check = checkField(schema)?.name;
+  return fieldsOf(schema)
+    .filter((f) => f.name !== title && f.name !== check && ['text', 'number', 'integer', 'choice', 'list'].includes(f.kind))
+    .slice(0, 3);
+}

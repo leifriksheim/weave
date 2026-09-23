@@ -124,7 +124,9 @@ const segmented = {
 const segment = {
   height: 30,
   padding: '0 12px',
-  border: '1px solid transparent',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'transparent',
   borderRadius: 6,
   background: 'none',
   color: palette.ink.muted,

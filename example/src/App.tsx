@@ -158,7 +158,7 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
 
   return (
     <div style={styles.container}>
-      <div style={styles.app}>
+      <div style={open && page === 'spaces' ? { ...styles.app, maxWidth: 1120 } : styles.app}>
         {pendingInvite && (
           <InviteBanner invite={pendingInvite} onAccept={acceptInvite} onDecline={declineInvite} />
         )}

@@ -4,7 +4,7 @@ import { requireSession } from '../protocol';
 import { useLive } from '../hooks/useLive';
 import { collectionLabel } from '../derive/schema-ui';
 import { styles } from '../styles';
-import { ANNOTATIONS } from './RecordView';
+import { ANNOTATIONS } from './RecordPanel';
 
 const TYPES = {
   text: { type: 'string' },

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { NodeCollection, SpaceProfile, SpaceSummary } from 'weave-protocol';
+import type { NodeRecord, SpaceProfile, SpaceSummary } from 'weave-protocol';
+import { standardSchemas, useSchemas } from 'weave-protocol/schemas';
 import { createInviteLink } from '../spaces';
 import { requireSession, type Session } from '../protocol';
 import { useLive } from '../hooks/useLive';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
-import { RecordView, ANNOTATIONS } from './RecordView';
+import { RecordPanel, ANNOTATIONS } from './RecordPanel';
 import { NewCollection } from './NewCollection';
 import { DelegationPanel } from './DelegationPanel';
 import { spaceBadges } from './SpaceList';
@@ -20,24 +21,30 @@ const CONNECTION_LABEL: Record<string, string> = {
   error: '○ no relay',
 };
 
-/** Where in the space we are: its overview, one collection, or one record */
+/** Where in the space we are: which kind of thing, and which record is open beside it */
 export interface Place {
   readonly collection: string | null;
   readonly key: string | null;
 }
 
+/** Defining a new kind of thing, in the main area */
+const NEW = '__new__';
+
 /**
- * One space, drawn from what it says about itself: the kinds of things in it
- * (its catalogue), their records, and how they point at each other. Nothing
- * here knows what any of them are.
+ * One space, laid out like an app: its kinds of things down the side, the
+ * chosen one in the middle, and a record opening in a panel beside it. All of
+ * it drawn from what the space says about itself — nothing here knows what
+ * any of the things are.
  */
 export function SpaceView({ record: space, session, onBack }: { record: SpaceSummary; session: Session; onBack: () => void }) {
   const { node } = requireSession();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
 
-  // Opening a space starts syncing it; leaving stops.
+  // Opening a space starts syncing it; leaving stops. The standard schemas are
+  // this app's vocabulary for reactions, comments and tags: it makes sure a
+  // space it can write in knows them.
   useEffect(() => {
-    void node.spaces.open(space.id);
+    void node.spaces.open(space.id).then(() => useSchemas(node, space.id, standardSchemas)).catch(() => {});
     return () => void node.spaces.close(space.id);
   }, [node, space.id]);
 
@@ -46,32 +53,23 @@ export function SpaceView({ record: space, session, onBack }: { record: SpaceSum
   const people = peopleFrom(profiles);
   const status = useLive(space.id, () => node.spaces.status(space.id), []);
 
-  const go = (next: Place) => setPlace(next);
-  const current = collections.find((c) => c.name === place.collection) ?? null;
+  const kinds = collections.filter((c) => !ANNOTATIONS.has(c.name));
+  // Land on the first kind of thing rather than an empty page.
+  const selected = place.collection === NEW ? NEW : kinds.some((c) => c.name === place.collection) ? place.collection : (kinds[0]?.name ?? null);
+  const current = collections.find((c) => c.name === selected) ?? null;
+  const openRecord = (r: NodeRecord) => setPlace({ collection: kinds.some((c) => c.name === r.collection) ? r.collection : selected, key: r.key });
 
   return (
     <>
-      <header style={styles.header}>
-        <nav style={{ ...styles.linkRow, marginTop: 0 }} aria-label="Breadcrumbs">
-          <button onClick={onBack} data-variant="ghost" style={styles.linkButton}>
-            ← All spaces
-          </button>
-          {place.collection && (
-            <button onClick={() => go({ collection: null, key: null })} data-variant="ghost" style={styles.linkButton}>
-              / {space.name}
-            </button>
-          )}
-          {place.key && place.collection && (
-            <button onClick={() => go({ collection: place.collection, key: null })} data-variant="ghost" style={styles.linkButton}>
-              / {current ? collectionLabel(current) : place.collection}
-            </button>
-          )}
-        </nav>
-        <h1 style={{ ...styles.appTitle, fontSize: 22 }}>{space.name}</h1>
-        <div style={styles.identityBar}>
+      <header style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
+        <button onClick={onBack} data-variant="ghost" style={{ ...styles.linkButton, alignSelf: 'flex-start', paddingLeft: 0 }}>
+          ← Spaces
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <h1 style={{ ...styles.appTitle, fontSize: 26 }}>{space.name}</h1>
           <span style={styles.badge}>{spaceBadges(space)}</span>
           {status && (
-            <span style={styles.badge}>
+            <span style={styles.badge} title="Peers connected to this space right now">
               {CONNECTION_LABEL[status.connection]} · {status.peers.length} {status.peers.length === 1 ? 'peer' : 'peers'}
             </span>
           )}
@@ -81,76 +79,87 @@ export function SpaceView({ record: space, session, onBack }: { record: SpaceSum
             </span>
           )}
         </div>
+        {!space.writable && (
+          <p style={{ ...styles.errorHint, marginTop: 0 }}>You're following this space. It's {nameOf(space.owner, people)}'s, so only they can change it.</p>
+        )}
       </header>
 
-      {!space.writable && (
-        <p style={styles.errorHint}>You are following this space. It is {nameOf(space.owner, people)}'s, so only they can change it.</p>
-      )}
-
-      {place.key && place.collection ? (
-        <RecordView space={space} recordKey={place.key} collections={collections} go={go} />
-      ) : place.collection ? (
-        <CollectionView space={space} name={place.collection} collection={current} go={go} />
-      ) : (
-        <>
-          <Overview space={space} collections={collections} go={go} />
+      <div className="space-layout">
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+          <nav aria-label="Kinds of things" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={sideHeading}>In this space</span>
+            {kinds.map((c) => (
+              <button
+                key={c.name}
+                onClick={() => setPlace({ collection: c.name, key: null })}
+                aria-current={selected === c.name ? 'page' : undefined}
+                data-nav
+                style={{ ...navItem, ...(selected === c.name ? navItemOn : {}) }}
+              >
+                <span>{collectionLabel(c)}</span>
+                <span style={{ color: palette.ink.faint, fontSize: 12 }}>{c.records}</span>
+              </button>
+            ))}
+            {kinds.length === 0 && <span style={{ fontSize: 13, color: palette.ink.faint, padding: '6px 10px' }}>Nothing yet</span>}
+            {space.writable && (
+              <button onClick={() => setPlace({ collection: NEW, key: null })} data-nav style={{ ...navItem, color: palette.ink.muted, ...(selected === NEW ? navItemOn : {}) }}>
+                + New kind of thing
+              </button>
+            )}
+          </nav>
           <People profiles={profiles ?? []} me={session.rootDid} owner={space.owner} people={people} />
-        </>
-      )}
-
-      {!place.collection && (
-        <>
           <Share space={space} />
-          <DelegationPanel session={session} spaceId={space.id} />
-        </>
+        </aside>
+
+        <main style={{ minWidth: 0 }}>
+          {selected === NEW ? (
+            <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <h2 style={{ ...styles.appTitle, fontSize: 22 }}>New kind of thing</h2>
+              <p style={{ fontSize: 13, color: palette.ink.muted }}>Give it a name and some fields. Everything else — forms, lists, boards — is worked out from this.</p>
+              <NewCollection space={space} onDone={(name) => setPlace({ collection: name, key: null })} />
+            </section>
+          ) : selected ? (
+            <CollectionView key={selected} space={space} name={selected} collection={current} onOpen={openRecord} />
+          ) : (
+            <div style={{ ...styles.emptyState, padding: '64px 24px', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+              <strong style={{ color: palette.ink.strong, fontSize: 15 }}>This space is empty</strong>
+              <span>Define a kind of thing — or ask an agent: this page offers the space's operations as WebMCP tools.</span>
+              {space.writable && (
+                <button onClick={() => setPlace({ collection: NEW, key: null })} data-variant="primary" style={{ ...styles.addButton, alignSelf: 'center' }}>
+                  New kind of thing
+                </button>
+              )}
+            </div>
+          )}
+          <div style={{ marginTop: 40 }}>
+            <DelegationPanel session={session} spaceId={space.id} />
+          </div>
+        </main>
+      </div>
+
+      {place.key && (
+        <RecordPanel space={space} recordKey={place.key} collections={collections} onOpen={openRecord} onClose={() => setPlace({ collection: selected, key: null })} />
       )}
     </>
   );
 }
 
-/** The kinds of things in the space. The protocol's own annotations only show once used. */
-function Overview({ space, collections, go }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection>; go: (p: Place) => void }) {
-  const [defining, setDefining] = useState(false);
-  // Reactions and comments are shown on the records they are about, not as kinds of thing of their own.
-  const shown = collections.filter((c) => !ANNOTATIONS.has(c.name));
-
-  return (
-    <section style={styles.panelSection} aria-label="What this space holds">
-      <h2 style={styles.sectionTitle}>What's here</h2>
-      {shown.length === 0 && (
-        <p style={styles.hint}>
-          Nothing yet. Define a kind of thing below — or ask an agent: this page offers the space's operations as WebMCP tools.
-        </p>
-      )}
-      <div style={styles.todoList}>
-        {shown.map((c) => (
-          <button key={c.name} onClick={() => go({ collection: c.name, key: null })} data-variant="ghost" style={styles.spaceButton}>
-            <span style={styles.todoText}>{collectionLabel(c)}</span>
-            <span style={styles.todoMeta}>
-              {c.records} {c.records === 1 ? 'record' : 'records'} · <code>{c.name}</code>
-              {c.schema === null && ' · undescribed'}
-            </span>
-            {c.description && <span style={styles.todoMeta}>{c.description}</span>}
-          </button>
-        ))}
-      </div>
-      {space.writable &&
-        (defining ? (
-          <NewCollection
-            space={space}
-            onDone={(name) => {
-              setDefining(false);
-              if (name) go({ collection: name, key: null });
-            }}
-          />
-        ) : (
-          <button onClick={() => setDefining(true)} data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start', marginTop: 8 }}>
-            + Define a kind of thing
-          </button>
-        ))}
-    </section>
-  );
-}
+const sideHeading = { fontSize: 12, fontWeight: 500, color: palette.ink.faint, textTransform: 'uppercase' as const, letterSpacing: '.05em', padding: '0 10px 6px' };
+const navItem = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  height: 34,
+  padding: '0 10px',
+  border: 'none',
+  borderRadius: 6,
+  background: 'none',
+  color: palette.ink.body,
+  fontSize: 14,
+  textAlign: 'left' as const,
+};
+const navItemOn = { background: palette.surface.sunken, color: palette.ink.strong, fontWeight: 500 };
 
 /** Who is here: everyone who has said who they are in this space */
 function People({ profiles, me, owner, people }: { profiles: ReadonlyArray<SpaceProfile>; me: string; owner: string; people: ReturnType<typeof peopleFrom> }) {
@@ -180,16 +189,14 @@ function Share({ space }: { space: SpaceSummary }) {
     await globalThis.navigator.clipboard?.writeText(link).catch(() => {});
   };
   return (
-    <section style={styles.panelSection}>
-      <h2 style={styles.sectionTitle}>Share this space</h2>
-      <p style={styles.hint}>
-        {space.type === 'shared'
-          ? 'Anyone who opens this link joins as a member and can write.'
-          : 'This is a personal space: the link lets others follow along, but only you can write.'}
-        {space.visibility === 'private' && ' The key travels in the link fragment, so it never reaches a server — treat the link as a secret.'}
+    <section style={{ ...styles.panelSection, gap: 10 }}>
+      <h2 style={styles.sectionTitle}>Invite</h2>
+      <p style={{ fontSize: 13, lineHeight: 1.5, color: palette.ink.muted }}>
+        {space.type === 'shared' ? 'Anyone with the link joins and can write.' : 'Anyone with the link can follow along; only you write.'}
+        {space.visibility === 'private' && ' The link carries the key — treat it as a secret.'}
       </p>
-      <button onClick={() => void share()} data-variant="primary" style={styles.addButton}>
-        Create invite link
+      <button onClick={() => void share()} data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start' }}>
+        {invite ? 'Copied — new link' : 'Create invite link'}
       </button>
       {invite && <code style={styles.token}>{invite}</code>}
     </section>
