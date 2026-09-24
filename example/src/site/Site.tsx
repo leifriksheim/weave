@@ -113,7 +113,6 @@ export function Landing() {
     <Page page="users">
       <section className="hero">
         <div className="wrap">
-          <span className="eyebrow">Local-first · peer-to-peer · yours</span>
           <h1>
             Your data.
             <br />
@@ -465,7 +464,6 @@ export function Developers() {
     <Page page="developers">
       <section className="hero">
         <div className="wrap">
-          <span className="eyebrow">weave-protocol · TypeScript · browser, Node, Bun</span>
           <h1>
             Build apps on data
             <br />

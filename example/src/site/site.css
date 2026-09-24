@@ -46,7 +46,6 @@
 
 /* Hero */
 .site .hero { padding: 112px 0 88px; text-align: center; border-bottom: 1px solid var(--line); background: radial-gradient(ellipse 60% 50% at 50% 0%, #f4f4f4 0%, #fff 70%); }
-.site .eyebrow { display: inline-block; font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 12px; margin-bottom: 24px; background: #fff; }
 .site .hero h1 { font-size: clamp(40px, 7vw, 72px); line-height: 1.02; font-weight: 600; letter-spacing: -0.055em; color: var(--ink); }
 .site .hero p { max-width: 640px; margin: 24px auto 0; font-size: 19px; color: var(--muted); }
 .site .hero .actions { margin-top: 36px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
