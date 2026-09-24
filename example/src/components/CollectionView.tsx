@@ -80,6 +80,8 @@ export function CollectionView({
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
   const people = peopleFrom(useProfiles(space.id));
   const mayCreate = useCan(space.id, 'create', name);
+  // Things that can be about anything — comments, reactions, tags — are added on the thing they're about.
+  const onOthers = Object.values(collection?.links ?? {}).some((l) => l.to === '*');
   const shownLayout = layout;
 
   const choose = (next: Layout) => {
@@ -168,7 +170,9 @@ export function CollectionView({
         </div>
       </header>
 
-      {mayCreate &&
+      {onOthers && <p style={{ fontSize: 13, color: palette.ink.muted }}>These are added on the thing they're about — open any record to add one.</p>}
+
+      {mayCreate && !onOthers &&
         (adding ? (
           <div style={{ border: `1px solid ${palette.surface.line}`, borderRadius: 12, padding: 16 }}>
             <SchemaForm schema={schema} initial={adding} submitLabel="Add" onCancel={() => setAdding(null)} onSubmit={add} />

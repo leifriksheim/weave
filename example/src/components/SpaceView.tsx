@@ -5,7 +5,7 @@ import { createInviteLink } from '../spaces';
 import { Choice } from './Modal';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
-import { RecordPanel, ANNOTATIONS } from './RecordPanel';
+import { RecordPanel } from './RecordPanel';
 import { Library } from './Library';
 import { NewCollection } from './NewCollection';
 import { GraphView } from './GraphView';
@@ -62,7 +62,8 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
   const access = useAccess(space.id);
   const roleOf = new Map((access?.members ?? []).map((m) => [m.did, access?.roles.find((r) => r.name === m.role)?.title ?? m.role]));
 
-  const kinds = collections.filter((c) => !ANNOTATIONS.has(c.name));
+  // Every collection is a kind of thing; the space's own come before the standard ones.
+  const kinds = [...collections].sort((a, b) => Number(a.name.startsWith('std.')) - Number(b.name.startsWith('std.')));
   // Land on the first kind of thing rather than an empty page.
   const selected = place.collection === NEW ? NEW : kinds.some((c) => c.name === place.collection) ? place.collection : (kinds[0]?.name ?? null);
   const current = collections.find((c) => c.name === selected) ?? null;
@@ -154,7 +155,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
               <h2 style={{ ...styles.appTitle, fontSize: 22 }}>New kind of thing</h2>
               <p style={{ fontSize: 13, color: palette.ink.muted }}>Give it a name and some fields. Everything else — forms, lists, boards — is worked out from this.</p>
               <NewCollection space={space} onDone={(name) => setPlace({ collection: name, key: null })} />
-              <Library space={space} collections={collections} title="Or add one from the library" onAdded={(name) => !ANNOTATIONS.has(name) && setPlace({ collection: name, key: null })} />
+              <Library space={space} collections={collections} title="Or add one from the library" onAdded={(name) => setPlace({ collection: name, key: null })} />
             </section>
           ) : selected ? (
             <CollectionView key={selected} space={space} name={selected} collection={current} onOpen={openRecord} />
@@ -170,7 +171,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
             </div>
           )}
           {!selected && (
-            <Library space={space} collections={collections} title="Start with a standard schema" onAdded={(name) => !ANNOTATIONS.has(name) && setPlace({ collection: name, key: null })} />
+            <Library space={space} collections={collections} title="Start with a standard schema" onAdded={(name) => setPlace({ collection: name, key: null })} />
           )}
         </main>
       </div>}

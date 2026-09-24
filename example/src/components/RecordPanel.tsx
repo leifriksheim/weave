@@ -29,8 +29,8 @@ import { styles, palette } from '../styles';
 
 /**
  * The standard schemas this app gives a place of their own on every record —
- * once a space has added them. They are not listed as kinds of thing, or
- * offered as "+ Add …"; the other standard schemas behave like any collection.
+ * once a space has added them — so they are not also offered as "+ Add …"
+ * here. They are still ordinary collections, listed like any other.
  */
 export const ANNOTATIONS = new Set<string>([reaction.name, comment.name, tag.name]);
 
