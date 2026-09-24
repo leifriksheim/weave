@@ -191,6 +191,49 @@ function Todos({ node, space }) {
 deps)` for anything that is not a query. React is an optional peer dependency;
 only that entry point imports it.
 
+## Apps without the seed — the account home
+
+An app does not have to sign anyone in at all. It can ask an **account home** —
+a page, at an address the person chose, that holds their account — for access,
+and never see the seed:
+
+```typescript
+import { connectToHome, startConnectedNode, grantStore } from 'weave-protocol/session';
+
+// From a click: browsers only allow popups a person asked for.
+const grant = await connectToHome({
+  home: 'https://weave.example/connect',
+  request: {
+    name: 'Todo',
+    access: 'write',                                                   // or 'read'
+    create: [{ name: 'Todos', type: 'personal', visibility: 'private' }], // made by the home, in the account
+  },
+});
+grantStore().save(grant);                                              // for the next visit
+const node = await startConnectedNode({ grant, network: { relays } });
+```
+
+1. The app makes its own key, kept in its own site's storage and never
+   exportable (`appKey()`).
+2. The home opens in a popup. The person unlocks there — the account password
+   from their password manager, or a passkey — and picks which spaces the app
+   gets.
+3. The home signs a note from the account to the app's key: these spaces, read
+   or change, for seven days. It hands the note back with invites for those
+   spaces, to the app's origin only.
+4. The app's node signs with its own key under that note. It acts *for* the
+   account — records show the account as their author — but every peer checks
+   the note, so it cannot write anywhere it was not given.
+
+What the note limits: **writing**, per space, checked by every peer. What it
+cannot limit: **reading** a private space it was given — whoever holds a space's
+key can read all of it, and that key does not change yet. Spaces an app wants
+for itself are created by the home, as part of the approval, so they land in
+the account's list on every device.
+
+The home side is `receiveConnectRequest()` and `auth.grant(…)`; the example's
+`/connect` page is a home, and its Security page lists connected apps.
+
 ## Modules
 
 ### Identity (`weave-protocol/identity`)

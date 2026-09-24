@@ -803,6 +803,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       ? Object.freeze({ ...authored, spaceSignature: await countersign(authored.id, writeKey, provider) })
       : authored;
     // The same verdict every other peer will reach: refused here, with the reason, rather than there.
+    // A key whose delegation does not cover this space — an app given other
+    // spaces — would otherwise keep a record nobody else accepts.
+    const judged = await judge(signed);
+    if (!judged.verified) throw new Error(judged.reason ?? 'This key may not write here.');
     const ruled = await ruleVerdict(signed);
     if (!ruled.ok) throw new Error(ruled.reason);
     await storage.addExpression(signed);

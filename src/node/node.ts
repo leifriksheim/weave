@@ -96,7 +96,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   // ─── Session ───────────────────────────────────────────────────────
 
-  const sessionKeys = await provider.generateKeyPair();
+  const sessionKeys = config.sessionKey ?? (await provider.generateKeyPair());
   const sessionDid = publicKeyToDid(await provider.exportPublicKey(sessionKeys.publicKey), P256_MULTICODEC);
 
   const delegate = () =>

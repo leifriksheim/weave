@@ -57,6 +57,12 @@ export interface NodeConfig {
   readonly network?: NodeNetworkConfig;
   /** How long each session delegation lasts. Renewed before it runs out. Default 3600. */
   readonly sessionTtlSeconds?: number;
+  /**
+   * The key this node signs with, when it must be one the signer already
+   * knows — an app given a delegation by an account home, which named the
+   * app's key. By default the node makes a fresh one each time it starts.
+   */
+  readonly sessionKey?: CryptoKeyPair;
   /** How often to look for writes another process made to a folder store. 0 disables. Default 2000. */
   readonly watchIntervalMs?: number;
 }

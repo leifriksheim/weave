@@ -3,16 +3,19 @@ import { App } from './App';
 import { injectBaseStyles } from './styles';
 import { exposeToAgents, desktopAgentsEnabled, connectDesktopAgents } from './webmcp';
 import { Landing, Developers } from './site/Site';
+import { ConnectPage } from './components/ConnectPage';
 
 /**
- * Three pages for now: the landing page for people (`/`), the one for
- * developers (`/developers`), and the app (`/app`). A link made before the app
+ * Four pages for now: the landing page for people (`/`), the one for
+ * developers (`/developers`), the app (`/app`), and the account home's
+ * connect page (`/connect`), which other apps open in a popup. A link made before the app
  * moved — an invite, or a phone-pairing code, both in the fragment — still
  * opens the app wherever it lands.
  */
 const path = globalThis.location.pathname.replace(/\/+$/, '') || '/';
 const carriesAppLink = /[#&](invite|pair)=/.test(globalThis.location.hash);
-const page = carriesAppLink ? 'app' : path === '/' ? 'landing' : path === '/developers' ? 'developers' : 'app';
+const page =
+  path === '/connect' ? 'connect' : carriesAppLink ? 'app' : path === '/' ? 'landing' : path === '/developers' ? 'developers' : 'app';
 
 // Hover, focus and placeholder states, plus the page background — the things
 // inline styles cannot express.
@@ -31,4 +34,6 @@ if (page === 'app') {
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
-createRoot(root).render(page === 'landing' ? <Landing /> : page === 'developers' ? <Developers /> : <App />);
+createRoot(root).render(
+  page === 'landing' ? <Landing /> : page === 'developers' ? <Developers /> : page === 'connect' ? <ConnectPage /> : <App />,
+);

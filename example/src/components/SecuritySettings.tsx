@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { STAY_SIGNED_IN_CHOICES, type AuthState, type StaySignedIn } from 'weave-protocol/session';
+import { STAY_SIGNED_IN_CHOICES, type AuthState, type Connection, type StaySignedIn } from 'weave-protocol/session';
 import { auth, type Session } from '../protocol';
 import { styles, palette } from '../styles';
 import { connectDesktopAgents, desktopAgentsEnabled } from '../webmcp';
@@ -78,6 +78,26 @@ export function SecuritySettings({ state, session, onBack }: { state: AuthState;
       </Section>
 
       <Section
+        title="Connected apps"
+        description="Apps on other addresses that you let use your account from here. Each one got a note, signed by your account, saying which spaces it may use and until when."
+      >
+        {state.session && auth.connections().length === 0 && <Row label="No apps yet.">{null}</Row>}
+        {auth.connections().map((app) => (
+          <Row key={app.origin} label={describeConnection(app)}>
+            <button onClick={() => auth.disconnect(app.origin)} data-variant="quiet" style={styles.smallButton}>
+              Disconnect
+            </button>
+          </Row>
+        ))}
+        {auth.connections().length > 0 && (
+          <p style={styles.errorHint}>
+            Disconnecting stops this home renewing the app's access. What it was given keeps working until it runs out — and it can
+            still read a private space it was given, since that space's key cannot be changed yet.
+          </p>
+        )}
+      </Section>
+
+      <Section
         title="Desktop agents"
         description="Let AI apps on this computer — Claude Desktop and others — use your spaces through a local relay. Any program on this computer that listens where the relay does gets the same access, so leave it off unless you use it."
       >
@@ -104,6 +124,16 @@ export function SecuritySettings({ state, session, onBack }: { state: AuthState;
       </Section>
     </>
   );
+}
+
+/** "Todo (todo.example) · read and change Groceries · until 3 October" */
+function describeConnection(app: Connection): string {
+  const host = new URL(app.origin).host;
+  const who = app.name ? `${app.name} (${host})` : host;
+  const what = app.spaces.length ? app.spaces.map((space) => space.name).join(', ') : 'no spaces';
+  const until = new Date(app.expiresAt * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+  const expired = app.expiresAt * 1000 < Date.now();
+  return `${who} · ${app.access === 'write' ? 'read and change' : 'read'} ${what} · ${expired ? 'ran out' : `until ${until}`}`;
 }
 
 function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {

@@ -17,7 +17,20 @@ export type {
   AccountEntry,
   WeaveSession,
   MovedToPod,
+  Connection,
+  GrantChoice,
 } from './auth.js';
+export {
+  connectToHome,
+  receiveConnectRequest,
+  startConnectedNode,
+  grantSigner,
+  grantStore,
+  grantCapabilities,
+  appKey,
+  forgetAppKey,
+} from './connect.js';
+export type { ConnectRequest, ConnectOptions, Grant, GrantedSpace, IncomingRequest, AppKey } from './connect.js';
 export {
   browserPlace,
   folderPlace,

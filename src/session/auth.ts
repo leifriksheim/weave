@@ -58,6 +58,7 @@ import {
   type PodContents,
 } from './places.js';
 import { createStaySignedIn, type KeyValueStore, type StaySignedIn } from './stay-signed-in.js';
+import { grantCapabilities, type ConnectRequest, type Grant, type GrantedSpace } from './connect.js';
 import {
   clearPairingTicket,
   collectFromDesktop,
@@ -144,6 +145,31 @@ export interface MovedToPod {
   readonly from: string | null;
 }
 
+/** An app this account gave access to, as the home remembers it */
+export interface Connection {
+  /** Where the app lives — as the browser reported it, not as the app named itself */
+  readonly origin: string;
+  /** What the app called itself */
+  readonly name: string | null;
+  /** The app's key */
+  readonly audience: string;
+  readonly access: 'read' | 'write';
+  readonly spaces: ReadonlyArray<{ readonly id: string; readonly name: string }>;
+  readonly grantedAt: string;
+  /** Unix seconds */
+  readonly expiresAt: number;
+}
+
+/** What the person chose on the approval screen */
+export interface GrantChoice {
+  readonly origin: string;
+  readonly request: ConnectRequest;
+  /** Existing spaces to give the app */
+  readonly spaceIds: ReadonlyArray<string>;
+  /** How long the note lasts. Default 7. */
+  readonly days?: number;
+}
+
 export interface AuthState {
   readonly stage: AuthStage;
   /** Where accounts are being read from */
@@ -210,6 +236,19 @@ export interface WeaveAuth {
   accountPassword(): string | null;
   /** Starts offering this account to a phone */
   offerToPhone(onStage: (stage: PairingStage) => void): Promise<PairingOffer>;
+  /**
+   * Gives an app access, as the account home: makes any spaces it asked for,
+   * signs a note from the account to the app's key for these spaces, and
+   * remembers the app as connected. The seed signs here and goes nowhere.
+   */
+  grant(choice: GrantChoice): Promise<Omit<Grant, 'home'>>;
+  /** Apps this account is connected to from this home, newest first */
+  connections(): ReadonlyArray<Connection>;
+  /**
+   * Forgets an app. Its current note still works until it runs out — nothing
+   * revokes a signed note early yet — but the home will not renew it unasked.
+   */
+  disconnect(origin: string): void;
   readonly staySignedIn: {
     choice(): StaySignedIn;
     setChoice(choice: StaySignedIn): Promise<void>;
@@ -487,6 +526,13 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       await apply(seed);
       await refreshEntry();
     });
+
+  /** Connected apps are remembered per account, on this device */
+  function writeConnections(connections: ReadonlyArray<Connection>): void {
+    const account = state.session?.account.id;
+    if (account) set(`${prefix}.connections:${account}`, JSON.stringify(connections));
+    update({});
+  }
 
   // ─── The flow ──────────────────────────────────────────────────────
 
@@ -854,6 +900,61 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         },
         onStage,
       );
+    },
+
+    async grant(choice) {
+      const session = state.session;
+      if (!session || !seed) throw new Error('Sign in first.');
+      const { node } = session;
+      const { request } = choice;
+
+      const created = [];
+      for (const params of request.create ?? []) created.push(await node.spaces.create(params));
+      const ids = [...new Set([...choice.spaceIds, ...created.map((space) => space.id)])];
+
+      const spaces: GrantedSpace[] = [];
+      for (const id of ids) {
+        const space = await node.spaces.get(id);
+        if (!space) throw new Error(`No space ${id} in this account.`);
+        const invite = await node.spaces.invite(id, { write: request.access === 'write' && space.writable });
+        spaces.push({ id, name: space.name, invite });
+      }
+
+      const expiresAt = Math.floor(Date.now() / 1000) + Math.round((choice.days ?? 7) * 24 * 3600);
+      const manager = createIdentityManager();
+      const root = createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider());
+      const token = await root.delegate({
+        audience: request.audience,
+        capabilities: grantCapabilities(request.access, ids),
+        expiration: expiresAt,
+      });
+
+      const connection: Connection = {
+        origin: choice.origin,
+        name: request.name?.slice(0, 80) ?? null,
+        audience: request.audience,
+        access: request.access,
+        spaces: spaces.map(({ id, name }) => ({ id, name })),
+        grantedAt: new Date().toISOString(),
+        expiresAt,
+      };
+      writeConnections([connection, ...auth.connections().filter((known) => known.origin !== choice.origin)]);
+
+      return { v: 1, did: session.did, name: session.account.name, token: token.encoded, access: request.access, spaces, expiresAt };
+    },
+
+    connections() {
+      const account = state.session?.account.id;
+      if (!account) return [];
+      try {
+        return JSON.parse(get(`${prefix}.connections:${account}`) ?? '[]') as Connection[];
+      } catch {
+        return [];
+      }
+    },
+
+    disconnect(origin) {
+      writeConnections(auth.connections().filter((known) => known.origin !== origin));
     },
 
     staySignedIn: {
