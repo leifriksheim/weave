@@ -419,9 +419,21 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
     const onMessage = (event: MessageEvent) => {
       if (event.source !== opener) return;
       const data = event.data as { type?: string; request?: ConnectRequest } | null;
-      if (data?.type !== REQUEST || !isRequest(data.request)) return;
+      if (data?.type !== REQUEST) return;
       globalThis.removeEventListener('message', onMessage);
       globalThis.clearTimeout(timer);
+
+      // A request this home cannot read — often an app newer than the home —
+      // is answered, not ignored: otherwise both sides wait with nothing said.
+      if (!isRequest(data.request)) {
+        opener.postMessage(
+          { type: DENIED, reason: 'Your account home did not understand what was asked. It may be older than this app — update it, or use another home.' },
+          event.origin,
+        );
+        globalThis.setTimeout(() => globalThis.close(), 100);
+        resolve(null);
+        return;
+      }
 
       const origin = event.origin;
       const reply = (message: unknown) => {

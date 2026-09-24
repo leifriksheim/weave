@@ -301,3 +301,56 @@ describe('connecting a carrier to an account home', () => {
     assert.deepEqual(auth.connections(), []);
   });
 });
+
+describe('the home receiving a request', () => {
+  /** Stands in for the popup's window: an opener, and the page's message events. */
+  function popupWindow() {
+    const sent: Array<{ message: unknown; origin: string }> = [];
+    const listeners = new Set<(event: MessageEvent) => void>();
+    const opener = { postMessage: (message: unknown, origin: string) => sent.push({ message, origin }) };
+    const g = globalThis as Record<string, unknown>;
+    const saved = { opener: g.opener, add: g.addEventListener, remove: g.removeEventListener, close: g.close };
+    g.opener = opener;
+    g.addEventListener = (_type: string, listener: (event: MessageEvent) => void) => listeners.add(listener);
+    g.removeEventListener = (_type: string, listener: (event: MessageEvent) => void) => listeners.delete(listener);
+    g.close = () => {};
+    return {
+      sent,
+      send: (data: unknown, origin = 'https://app.test') => {
+        for (const listener of [...listeners]) listener({ source: opener, data, origin } as unknown as MessageEvent);
+      },
+      restore: () => Object.assign(g, { opener: saved.opener, addEventListener: saved.add, removeEventListener: saved.remove, close: saved.close }),
+    };
+  }
+
+  test('a request it cannot read is refused out loud, not left waiting', async () => {
+    const popup = popupWindow();
+    try {
+      const { receiveConnectRequest } = await import('../src/session/connect.js');
+      const received = receiveConnectRequest(1000);
+      popup.send({ type: 'weave:request', request: { v: 1, audience: 'did:key:zApp', access: 'something-new' } });
+      assert.equal(await received, null);
+      const denied = popup.sent.find((m) => (m.message as { type?: string }).type === 'weave:denied');
+      assert.ok(denied, 'the app is told');
+      assert.equal(denied.origin, 'https://app.test', 'and only the app that asked');
+      assert.match((denied.message as { reason: string }).reason, /did not understand/);
+      await new Promise((resolve) => setTimeout(resolve, 150)); // the window closes itself a moment later
+    } finally {
+      popup.restore();
+    }
+  });
+
+  test('a carry request is read', async () => {
+    const popup = popupWindow();
+    try {
+      const { receiveConnectRequest } = await import('../src/session/connect.js');
+      const received = receiveConnectRequest(1000);
+      popup.send({ type: 'weave:request', request: { v: 1, audience: 'did:key:zCarrier', access: 'carry', name: 'Weave for Chrome' } }, 'chrome-extension://abc');
+      const incoming = await received;
+      assert.equal(incoming?.request.access, 'carry');
+      assert.equal(incoming?.origin, 'chrome-extension://abc');
+    } finally {
+      popup.restore();
+    }
+  });
+});
