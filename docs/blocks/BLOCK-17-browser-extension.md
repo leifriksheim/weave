@@ -300,6 +300,20 @@ The rules:
 - If the pod moves or its account file disappears, stop writing and show
   "Pick your pod again" in the popup, rather than guessing.
 
+**What Chrome actually does (read in Chromium's
+`chrome_file_system_access_permission_context.cc`, 2026-09-24):** a folder
+permission lasts until the last *page* of the origin closes, and for an
+extension that means the welcome tab and the toolbar popup. The offscreen page
+is not one, so the permission lapses soon after the popup closes. The way out
+is Chrome's **"Allow on every visit"**: once an origin has it, the permission
+does not lapse. Chrome offers it only in its restore prompt, which needs a tab.
+Asked from the toolbar popup, Chrome grants silently but only for that
+session, without offering it. So every request for the pod happens in the
+welcome tab, which tells the person to choose "Allow on every visit". Still to
+confirm by hand, since the prompt can't be scripted: that Chrome offers it to a
+`chrome-extension://` origin at all. If it doesn't, the only no-click route is
+a local helper outside the browser (the `weave` daemon) writing the pod.
+
 **The open question (spike, step 0):** whether Chrome keeps the extension's
 folder permission across restarts without asking again. Websites can get
 "allow on every visit"; whether an extension's hidden page gets the same is

@@ -135,7 +135,11 @@ function podSection(pod: NonNullable<CarryGrant['pod']>): HTMLElement {
     state === 'writing'
       ? [h('p', { class: 'hint' }, h('span', { class: 'dot good' }), `Everything that arrives is written into “${pod.folder}”.`), h('div', { class: 'actions' }, h('button', { class: 'quiet small', disabled: busy, onClick: () => void choose() }, 'Choose another folder'))]
       : state === 'needs-permission'
-        ? [h('p', { class: 'hint' }, h('span', { class: 'dot warn' }), `Chrome wants a click before this writes to “${pod.folder}” again. Until then, your pod catches up later.`), h('div', { class: 'actions' }, h('button', { class: 'small', disabled: busy, onClick: () => void resume() }, 'Resume pod sync'))]
+        ? [
+            h('p', { class: 'hint' }, h('span', { class: 'dot warn' }), `Chrome wants a click before this writes to “${pod.folder}” again. Until then, your pod catches up later.`),
+            h('p', { class: 'note', style: 'margin-top: 10px' }, 'When Chrome asks, choose ', h('strong', {}, 'Allow on every visit'), '. Then it keeps writing to your pod without asking again.'),
+            h('div', { class: 'actions' }, h('button', { class: 'small', disabled: busy, onClick: () => void resume() }, 'Resume pod sync')),
+          ]
         : [h('p', { class: 'hint' }, `Your account lives in a pod, “${pod.folder}”. Choose that folder, and this keeps it up to date while your apps are closed.`), h('div', { class: 'actions' }, h('button', { class: 'small', disabled: busy, onClick: () => void choose() }, 'Choose your pod folder'))];
 
   return h('section', {}, h('h2', {}, 'Your pod'), ...body);
