@@ -1,5 +1,9 @@
 # BLOCK-18 — Apps an agent makes, that a group can use straight away
 
+> **Status (2026-09-24):** built on branch `agent-made-apps`, all four parts.
+> Where the build differs from the plan below, it says **Built:**. What's left
+> is under "Still open" at the end.
+
 ## What this delivers
 
 Someone in a space asks their agent for a new way to work together, and it's
@@ -106,6 +110,16 @@ goes through the same connect flow as any app, with a new `agent: true` on the
 renewed while the tab is open). The home writes the label into the note
 itself, as a UCAN fact (`fct: { weave: { agent: true } }`). Notes carry no
 facts today, so this is the one addition to how notes are made and read.
+
+**Built:** the fact is `{ weave: 'agent' }` (`AGENT_FACT`,
+`src/identity/agent-note.ts`). The note lasts 7 days like an app's: renewing
+means opening the home, which needs a click, so a day would mean asking every
+day. An agent gets chosen spaces only: the home refuses an agent request for
+the whole account or for new spaces. `node.asAgent({ keys, note })` is the node
+acting as the agent: it signs with the agent key, reads and writes only the
+spaces the note names, and refuses joining, leaving, inviting, roles and the
+account. The home keeps the agent's connection apart from the app's (same
+origin); disconnecting the app disconnects its agent too.
 Every WebMCP and desktop-relay tool call signs with the agent key. The person's
 own clicks keep signing with the tab's key.
 
@@ -123,11 +137,13 @@ revoked is refused by peers. A record claiming the `agent` label without a
 note that says so shows as a plain record from that key, not as "via agent"
 of someone else.
 
-**Honest limit:** the note narrows spaces and read or write, not permissions
-inside a space. An agent key held by someone who may `define` could still
-define directly if the tab let it. Part 2 closes that in the tab (the tools
-refuse), not at peers. Limits that peers check would need notes that name
-permissions, which is later work.
+**Built, stronger than planned:** the limit above is closed at peers, not only
+in the tab. Every peer ignores any change to the access history (definitions,
+roles, members, invites, revokes) signed under an agent's note, the same way
+it ignores a malformed one (`buildEvent` in `space-runtime.ts`). So an agent
+can never add a collection or change who may do what, whichever tool it
+reaches, even one it signs by hand. Tests in `tests/agents.test.ts` forge both
+and fail without the rule.
 
 ## 2. Propose, don't define
 
@@ -208,11 +224,13 @@ tab lists the space's `std.app` records:
   opens with its linked collections underneath, with add buttons and counts
   (`x-choicesFrom` already makes vote-style tallies possible). No new UI
   concepts, just the Collections tab narrowed to one app.
+  **Built:** the app's collections, each as the Collections tab draws it,
+  the one nothing else points at first (`MadeApps.tsx`).
 - **Copy to…:** writes the same `std.app` into another space you're in, with
   `from` set, as a proposal there.
 
 When a coded app and a `std.app` need the same collections, the coded app
-wins. It's the better screen for the same data.
+wins. It's the better screen for the same data. **Not built yet:** both show.
 
 ---
 
@@ -241,9 +259,8 @@ In rough order of when they're likely to matter:
 
 ## Open questions
 
-1. **Can an agent key ever add?** In a space for one ("my own tracker"),
-   asking yourself to approve your own agent's proposal is friction. A
-   per-space "my agent may add collections here" switch, off by default?
+1. ~~Can an agent key ever add?~~ **Decided: no.** A person always approves,
+   even in a space that's only theirs.
 2. **Should `std.app` carry a version**, so a changed proposal for an app
    that's already added shows as an update rather than a second app?
 3. **Is "via agent" enough to say?** Or should the card name which agent
@@ -252,3 +269,12 @@ In rough order of when they're likely to matter:
 
 Rough size: **about a week.** Parts 1 and 3 are the protocol-side work; 2 and 4
 are mostly the example.
+
+## Still open
+
+- **The desktop path signs as the person.** `cli/src/mcp.ts` runs the tools on
+  the CLI's own node, so Claude Desktop writes without "via agent" and could
+  define collections. It should start `asAgent` from a note, like the example.
+- **An app still in the tab after its agent is disconnected** only finds out
+  when a write is refused; the tools then say the access doesn't work.
+- **Coded app wins** (part 4) isn't built.
