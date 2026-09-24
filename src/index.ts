@@ -126,6 +126,7 @@ export {
   delegateCapabilities,
   resolveDelegationRoot,
 } from './identity/ucan.js';
+export { AGENT_FACT, isAgentNote } from './identity/agent-note.js';
 export type {
   UCANHeader,
   UCANPayload,
@@ -414,4 +415,5 @@ export { plainQuery } from './query/types.js';
 
 // Rules: who may create, edit and delete a collection's records, what must be unique
 export { checkRules, onePerKey } from './records/rules.js';
+export { describeCollection } from './records/describe.js';
 export type { CollectionRules, Who } from './records/rules.js';

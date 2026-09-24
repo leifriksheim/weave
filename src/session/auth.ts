@@ -21,6 +21,7 @@
  */
 import { createIdentityManager } from '../identity/identity-manager.js';
 import { createLocalRootSigner } from '../identity/root-signer.js';
+import { AGENT_FACT } from '../identity/agent-note.js';
 import { accountDataPath, newAccountId, createBrowserAccountStore } from '../identity/account-store.js';
 import type { AccountStore, AccountSummary } from '../identity/account-store.js';
 import { createVault } from '../identity/folder-account.js';
@@ -166,6 +167,8 @@ export interface Connection {
   readonly expiresAt: number;
   /** The note the app writes under — what disconnecting revokes */
   readonly token?: string;
+  /** Present, and true, for an agent acting inside the app at `origin` — kept apart from the app's own connection */
+  readonly agent?: true;
 }
 
 /** What the person chose on the approval screen */
@@ -270,8 +273,11 @@ export interface WeaveAuth {
    * writes from now on counts, and forgets it. What this home had
    * seen it write stays. What it could already read, it keeps — reading is
    * holding a space's key, and that is not taken back.
+   *
+   * Disconnecting an app disconnects its agent too. `{ agent: true }`
+   * disconnects only the agent, and leaves the app connected.
    */
-  disconnect(origin: string): Promise<void>;
+  disconnect(origin: string, options?: { readonly agent?: boolean }): Promise<void>;
   readonly staySignedIn: {
     choice(): StaySignedIn;
     setChoice(choice: StaySignedIn): Promise<void>;
@@ -937,6 +943,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
       if (request.access === 'carry') throw new Error('A carrier is given passes, not a note — use grantCarry.');
       const access = request.access;
+      const agent = request.agent === true;
+      if (agent && (request.scope === 'account' || request.create?.length)) {
+        throw new Error('An agent gets chosen spaces only — not the whole account, and no new spaces.');
+      }
       const whole = request.scope === 'account';
       const created = [];
       for (const params of request.create ?? []) created.push(await node.spaces.create(params));
@@ -958,6 +968,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         audience: request.audience,
         capabilities: grantCapabilities(access, whole ? 'all' : ids),
         expiration: expiresAt,
+        ...(agent ? { facts: [AGENT_FACT] } : {}),
       });
 
       const connection: Connection = {
@@ -970,8 +981,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         grantedAt: new Date().toISOString(),
         expiresAt,
         token: token.encoded,
+        ...(agent ? { agent: true as const } : {}),
       };
-      writeConnections([connection, ...auth.connections().filter((known) => known.origin !== choice.origin)]);
+      // Connecting again replaces the old note — the app's, or its agent's, not the other.
+      writeConnections([connection, ...auth.connections().filter((known) => known.origin !== choice.origin || !!known.agent !== agent)]);
 
       return {
         v: 1,
@@ -984,6 +997,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         ...(whole ? { accountKey: base64UrlEncode(await deriveVaultKeyBytes(seed)) } : {}),
         ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
         expiresAt,
+        ...(agent ? { agent: true as const } : {}),
       };
     },
 
@@ -1048,23 +1062,27 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         .map((account) => ({ id: account.id, name: account.name }));
     },
 
-    async disconnect(origin) {
-      const connection = auth.connections().find((known) => known.origin === origin);
+    async disconnect(origin, options = {}) {
+      // The app goes with its agent; the agent can go alone.
+      const goes = (known: Connection) => known.origin === origin && (!options.agent || !!known.agent);
+      const going = auth.connections().filter(goes);
       const node = state.session?.node;
-      if (connection?.carrySpace && node) await node.carriers.remove(connection.carrySpace);
-      if (connection?.token && connection.access === 'write' && node) {
-        const covered =
-          connection.scope === 'account'
-            ? (await node.spaces.list()).filter((space) => space.writable).map((space) => space.id)
-            : connection.spaces.map((space) => space.id);
-        for (const spaceId of covered) {
-          // A space that is gone, or that this account no longer writes in, has nothing to revoke.
-          await node.spaces.revoke(spaceId, connection.token).catch(() => {});
+      for (const connection of going) {
+        if (connection.carrySpace && node) await node.carriers.remove(connection.carrySpace);
+        if (connection.token && connection.access === 'write' && node) {
+          const covered =
+            connection.scope === 'account'
+              ? (await node.spaces.list()).filter((space) => space.writable).map((space) => space.id)
+              : connection.spaces.map((space) => space.id);
+          for (const spaceId of covered) {
+            // A space that is gone, or that this account no longer writes in, has nothing to revoke.
+            await node.spaces.revoke(spaceId, connection.token).catch(() => {});
+          }
+          // A whole-account app could also add spaces to the account's list, and rename it.
+          if (connection.scope === 'account') await node.account.revoke(connection.token).catch(() => {});
         }
-        // A whole-account app could also add spaces to the account's list, and rename it.
-        if (connection.scope === 'account') await node.account.revoke(connection.token).catch(() => {});
       }
-      writeConnections(auth.connections().filter((known) => known.origin !== origin));
+      writeConnections(auth.connections().filter((known) => !goes(known)));
     },
 
     staySignedIn: {

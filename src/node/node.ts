@@ -19,11 +19,12 @@ import { nameOf, type CollectionRef, type Query, type ResultOf } from '../query/
 import { createP256Provider } from '../identity/crypto-p256.js';
 import type { Link, SpaceRole } from '../types.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
-import { delegateCapabilities, type Capability, type UCANToken } from '../identity/ucan.js';
+import { delegateCapabilities, parseUCAN, verifyUCAN, type Capability, type UCANToken } from '../identity/ucan.js';
+import { isAgentNote } from '../identity/agent-note.js';
 import { createSigner } from '../schema/signer.js';
 import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
-import { openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
+import { noteCid, openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
 import { createServerAuth } from '../network/peer-auth.js';
 import { deriveInviteKey } from '../space/space-access.js';
 import { base64UrlDecode } from '../utils/encoding.js';
@@ -761,7 +762,109 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     },
   });
 
-  return Object.freeze({
+  // ─── Agents ────────────────────────────────────────────────────────
+
+  async function asAgent(agent: { readonly keys: CryptoKeyPair; readonly note: string }): Promise<P2PNode> {
+    const agentDid = publicKeyToDid(await provider.exportPublicKey(agent.keys.publicKey), P256_MULTICODEC);
+    const checked = await verifyUCAN(agent.note, provider);
+    if (!checked.valid) throw new Error(`The agent's note does not check out: ${checked.reason ?? 'invalid'}`);
+    if (!isAgentNote(agent.note)) throw new Error('That note is not an agent\'s — ask the account home for one with `agent: true`.');
+    const note: UCANToken = { ...parseUCAN(agent.note), encoded: agent.note, cid: await noteCid(agent.note) };
+    if (note.payload.aud !== agentDid) throw new Error('That note was made out to a different key.');
+    if (note.payload.iss !== config.signer.did) throw new Error('That note is from a different account.');
+
+    const as: ActiveSession = { did: agentDid, key: agent.keys.privateKey, proof: () => note.encoded };
+    // The spaces its note names; `*` is every space, which a home never gives an agent but a note could say.
+    const all = note.payload.att.some((capability) => capability.with === '*');
+    const named = new Set(note.payload.att.filter((c) => c.with.startsWith('space:')).map((c) => c.with.slice('space:'.length)));
+    const allowed = (spaceId: string) => all || named.has(spaceId);
+    const inside = (spaceId: string) => {
+      if (!allowed(spaceId)) throw new Error('The agent was not given this space. The person can give it more in their account home.');
+    };
+    const person = (what: string) => async (): Promise<never> => {
+      throw new Error(`An agent can't ${what}. Ask the person to do it.`);
+    };
+
+    const agentSpaces: NodeSpaces = Object.freeze({
+      ...spaces,
+      list: async () => (await spaces.list()).filter((space) => allowed(space.id)),
+      get: async (spaceId: string) => (allowed(spaceId) ? spaces.get(spaceId) : null),
+      create: person('make spaces'),
+      invite: person('invite anyone'),
+      join: person('join spaces'),
+      leave: person('leave spaces'),
+      setMember: person('change who is in a space'),
+      putRole: person('change roles'),
+      removeRole: person('change roles'),
+      closeInvite: person('close invites'),
+      revoke: person('revoke notes'),
+      access: async (spaceId: string) => (inside(spaceId), spaces.access(spaceId)),
+      open: async (spaceId: string) => (inside(spaceId), spaces.open(spaceId)),
+      status: async (spaceId: string) => (inside(spaceId), spaces.status(spaceId)),
+      profiles: async (spaceId: string) => (inside(spaceId), spaces.profiles(spaceId)),
+      authenticator: async () => null,
+    });
+
+    const agentRecords: NodeRecords = Object.freeze({
+      list: async <T>(spaceId: string, options?: ListOptions) => (inside(spaceId), records.list<T>(spaceId, options)),
+      get: async <T>(spaceId: string, key: string) => (inside(spaceId), records.get<T>(spaceId, key)),
+      put: async <T>(spaceId: string, collection: CollectionRef, body: T, options?: { key?: string; links?: ReadonlyArray<Link> }) => {
+        inside(spaceId);
+        return (await runtime(spaceId)).put<T>(nameOf(collection), body, { ...options, as });
+      },
+      update: async <T>(spaceId: string, key: string, body: T, options?: { links?: ReadonlyArray<Link> }) => {
+        inside(spaceId);
+        return (await runtime(spaceId)).update<T>(key, body, { ...options, as });
+      },
+      linked: async <T>(spaceId: string, key: string, options?: { rel?: string; collection?: string }) => (inside(spaceId), records.linked<T>(spaceId, key, options)),
+      delete: async (spaceId: string, key: string) => {
+        inside(spaceId);
+        await (await runtime(spaceId)).remove(key, { as });
+      },
+      history: async <T>(spaceId: string, key: string) => (inside(spaceId), records.history<T>(spaceId, key)),
+      can: async (spaceId: string, action: 'create' | 'edit' | 'delete', target: string) => allowed(spaceId) && records.can(spaceId, action, target),
+      query: async <Q extends Query>(spaceId: string, query: Q) => (inside(spaceId), records.query(spaceId, query)),
+      watch: <Q extends Query>(spaceId: string, query: Q, onResult: (result: ResultOf<Q>) => void, onError?: (error: Error) => void) => {
+        if (!allowed(spaceId)) {
+          onError?.(new Error('The agent was not given this space.'));
+          return () => {};
+        }
+        return records.watch(spaceId, query, onResult, onError);
+      },
+    });
+
+    const agentCollections: NodeCollections = Object.freeze({
+      list: async (spaceId: string) => (inside(spaceId), collections.list(spaceId)),
+      // The runtime refuses these too, and every peer ignores them — said early, with what to do instead.
+      define: async () => {
+        throw new Error('An agent can\'t add or change collections. Propose an app instead (apps_propose), and a person in the space adds it.');
+      },
+      delete: async () => {
+        throw new Error('An agent can\'t remove collections. Ask the person to do it.');
+      },
+    });
+
+    return Object.freeze({
+      did: config.signer.did,
+      sessionDid: agentDid,
+      spaces: agentSpaces,
+      records: agentRecords,
+      collections: agentCollections,
+      account: Object.freeze({ profile: accountApi.profile, setName: person('rename the account'), revoke: person('revoke notes') }),
+      carriers: Object.freeze({ list: carriers.list, add: person('add a carrier'), remove: person('remove a carrier') }),
+      delegation: () => note,
+      delegate: person('pass its access on'),
+      asAgent: person('start another agent'),
+      subscribe: (listener: (event: NodeEvent) => void) =>
+        node.subscribe((event) => {
+          if (!('space' in event) || allowed(event.space)) listener(event);
+        }),
+      // The agent stops; the node it acts through keeps running.
+      close: async () => {},
+    }) satisfies P2PNode;
+  }
+
+  const node: P2PNode = Object.freeze({
     did: config.signer.did,
     sessionDid,
     spaces,
@@ -769,6 +872,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     collections,
     account: accountApi,
     carriers,
+    asAgent,
 
     delegation: () => current,
 
@@ -804,5 +908,6 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       await registryStore.close();
       listeners.clear();
     },
-  }) satisfies P2PNode;
+  });
+  return node;
 }

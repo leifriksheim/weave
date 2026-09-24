@@ -163,6 +163,12 @@ export interface NodeRecord<T = unknown> {
   readonly encrypted: boolean;
   /** Signature, delegation and shape all check out */
   readonly verified: boolean;
+  /**
+   * Present, and true, when an agent wrote this version for `root`: the note
+   * it was signed under says so (`AGENT_FACT`). The account's word, signed —
+   * not something the agent can leave out.
+   */
+  readonly viaAgent?: true;
   readonly reason?: string;
   /** Present, and true, when this version deletes the record (listed only with `includeDeleted`) */
   readonly deleted?: true;
@@ -469,6 +475,18 @@ export interface P2PNode {
   delegation(): UCANToken;
   /** Passes a narrower delegation from the session key on to another key */
   delegate(params: DelegateParams): Promise<Delegated>;
+  /**
+   * The same node, acting as an agent: what it writes is signed by the
+   * agent's key under the agent's note (one carrying `AGENT_FACT`), so it
+   * shows as "via agent" everywhere. It reads and writes only the spaces that
+   * note names, and refuses everything that needs a person — defining
+   * collections, roles, invites, joining or leaving, the account itself.
+   * Closing it leaves this node running.
+   *
+   * @param agent.note The agent's note from the account home (`Grant.token` of an agent grant)
+   * @throws When the note is not an agent's, has run out, or is not made out to `keys`
+   */
+  asAgent(agent: { readonly keys: CryptoKeyPair; readonly note: string }): Promise<P2PNode>;
   subscribe(listener: (event: NodeEvent) => void): () => void;
   close(): Promise<void>;
 }

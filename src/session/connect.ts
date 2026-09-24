@@ -27,6 +27,7 @@ import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
 import { cidFromBytes } from '../utils/hash.js';
 import { base64UrlDecode, utf8Encode } from '../utils/encoding.js';
 import { verifyUCAN, parseUCAN, type Capability, type UCANToken } from '../identity/ucan.js';
+import { isAgentNote } from '../identity/agent-note.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import { createNode } from '../node/node.js';
 import { indexedDBStores, type StoreFactory } from '../node/stores.js';
@@ -65,6 +66,13 @@ export interface ConnectRequest {
   readonly create?: ReadonlyArray<NewSpace>;
   /** Whether to offer the person's existing spaces to pick from. Default true. */
   readonly chooseSpaces?: boolean;
+  /**
+   * The key is an agent's, acting for the person inside this app. Its note
+   * says so (`AGENT_FACT`), so every record it writes shows as "via agent",
+   * and every peer refuses it changing the space's collections or who may do
+   * what. Only for chosen spaces: never the whole account, never new spaces.
+   */
+  readonly agent?: boolean;
 }
 
 /** A space an app was given */
@@ -96,6 +104,8 @@ export interface Grant {
   readonly accountKey?: string;
   /** Unix seconds */
   readonly expiresAt: number;
+  /** Present, and true, when the note is an agent's */
+  readonly agent?: true;
   /** The home that granted it, so the app can go back there */
   readonly home: string;
   /**
@@ -227,8 +237,10 @@ export interface ConnectOptions {
   readonly home: string;
   /** What to ask for; `audience` is filled in with this app's key */
   readonly request: Omit<ConnectRequest, 'v' | 'audience'>;
-  /** The key to ask for. Default: {@link appKey}. */
+  /** The key to ask for. Default: {@link appKey} under `keyName`. */
   readonly key?: AppKey;
+  /** Which of this app's keys to use when `key` is not given — `agent` for its agent. Default `default`. */
+  readonly keyName?: string;
   /** How long to wait for the person. Default 10 minutes. */
   readonly timeoutMs?: number;
 }
@@ -244,9 +256,11 @@ export async function connectToHome(options: ConnectOptions): Promise<Grant> {
   const homeUrl = new URL(options.home, globalThis.location.href);
   // Opened before anything is awaited, so it still counts as the click's.
   const popup = openHome(homeUrl);
-  const key = options.key ?? (await appKey());
+  const key = options.key ?? (await appKey(options.keyName));
   const grant = (await askHome(popup, homeUrl.origin, { v: 1, audience: key.did, ...options.request }, options.timeoutMs)) as Grant;
   await checkGrant(grant, key.did);
+  // An agent's note must say so, or its writes would pass as the person's own.
+  if (options.request.agent && !isAgentNote(grant.token)) throw new Error('The home gave an ordinary note, not an agent\'s. Update your account home.');
   return { ...grant, home: homeUrl.href };
 }
 
@@ -469,7 +483,11 @@ function isRequest(value: unknown): value is ConnectRequest {
     (request.access === 'read' || request.access === 'write' || request.access === 'carry') &&
     (request.scope === undefined || request.scope === 'spaces' || request.scope === 'account') &&
     (request.name === undefined || (typeof request.name === 'string' && request.name.length <= 80)) &&
-    (request.create === undefined || isNewSpaces(request.create))
+    (request.create === undefined || isNewSpaces(request.create)) &&
+    // An agent gets chosen spaces only: not the whole account, not spaces of its own, not carrying.
+    (request.agent === undefined ||
+      request.agent === false ||
+      (request.agent === true && request.access !== 'carry' && request.scope !== 'account' && request.create === undefined && request.chooseSpaces !== false))
   );
 }
 

@@ -26,6 +26,7 @@ import { createSchemaEngine, type SchemaEngine } from '../schema/schema-engine.j
 import type { SpaceRecord } from '../space/space-manager.js';
 import type { Capability } from '../identity/ucan.js';
 import { parseUCAN, resolveDelegationRoot } from '../identity/ucan.js';
+import { isAgentNote } from '../identity/agent-note.js';
 import { didToPublicKey } from '../identity/did.js';
 import { createExpression } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
@@ -179,10 +180,10 @@ export interface SpaceRuntimeDeps {
 export interface SpaceRuntime {
   list<T>(options?: ListOptions): Promise<ReadonlyArray<NodeRecord<T>>>;
   get<T>(key: string): Promise<NodeRecord<T> | null>;
-  put<T>(collection: string, body: T, options?: { key?: string; links?: ReadonlyArray<Link> }): Promise<NodeRecord<T>>;
-  update<T>(key: string, body: T, options?: { links?: ReadonlyArray<Link> }): Promise<NodeRecord<T>>;
+  put<T>(collection: string, body: T, options?: { key?: string; links?: ReadonlyArray<Link>; as?: ActiveSession }): Promise<NodeRecord<T>>;
+  update<T>(key: string, body: T, options?: { links?: ReadonlyArray<Link>; as?: ActiveSession }): Promise<NodeRecord<T>>;
   linked<T>(key: string, options?: { rel?: string; collection?: string }): Promise<ReadonlyArray<NodeRecord<T>>>;
-  remove(key: string): Promise<void>;
+  remove(key: string, options?: { as?: ActiveSession }): Promise<void>;
   history<T>(key: string): Promise<ReadonlyArray<NodeRecord<T>>>;
   /** For the node itself: writes the next version of a record in a collection `put` refuses, like the profile */
   upsertSystem<T>(collection: string, key: string, body: T): Promise<NodeRecord<T>>;
@@ -363,6 +364,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   async function buildEvent(version: Expression): Promise<AccessEvent | null> {
     if (!ACCESS_COLLECTIONS.has(version.collection) || !version.retain) return null;
+    // An agent never changes the space's collections or who may do what: a person does.
+    if (isAgentNote(version.proof)) return null;
     const verdict = await judge(version);
     if (!verdict.verified || !verdict.root) return null;
     const seen = version.seen ?? [];
@@ -663,6 +666,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       links,
       encrypted,
       verified: verdict.verified && stands.ok,
+      ...(isAgentNote(expression.proof) ? { viaAgent: true as const } : {}),
       ...(reason ? { reason } : {}),
       ...(expression.deleted ? { deleted: true as const } : {}),
       conforms: issues === null ? null : issues.length === 0,
@@ -1022,8 +1026,17 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     version: VersionFields,
     deleted = false,
     links: ReadonlyArray<Link> = [],
-    options: { joining?: boolean } = {},
+    options: { joining?: boolean; as?: ActiveSession } = {},
   ): Promise<Expression> {
+    const writer = options.as ?? session;
+    // Every peer would ignore it (see buildEvent); say why here instead.
+    if (ACCESS_COLLECTIONS.has(collection) && isAgentNote(writer.proof())) {
+      throw new Error(
+        collection === CATALOG_COLLECTION
+          ? 'An agent can\'t add or change collections. Propose an app instead (apps_propose), and a person in the space adds it.'
+          : 'An agent can\'t change who may do what in a space. Ask the person to do it.',
+      );
+    }
     // Every other copy would refuse it, so refuse it here rather than show a
     // change that exists on this device alone.
     if (!options.joining) {
@@ -1067,11 +1080,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const { history, events: held } = await access();
     const signed = await signer.sign(
       createExpression({
-        author: session.did,
+        author: writer.did,
         collection,
         space: space.id,
         body: payload,
-        proof: session.proof(),
+        proof: writer.proof(),
         version,
         retain,
         deleted,
@@ -1079,7 +1092,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         // In the clear only where the body is: a private space sealed them above.
         ...(space.visibility === 'public' && !deleted && links.length ? { links } : {}),
       }),
-      session.key,
+      writer.key,
     );
 
     // The same verdict every other peer will reach: refused here, with the reason, rather than there.
@@ -1119,20 +1132,20 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return held ? nextVersion(held) : { key: recordKey, seq: 0 };
   }
 
-  async function writeFirst<T>(collection: string, body: T, recordKey: string, links: ReadonlyArray<Link>): Promise<Expression> {
+  async function writeFirst<T>(collection: string, body: T, recordKey: string, links: ReadonlyArray<Link>, as?: ActiveSession): Promise<Expression> {
     const current = await currentOf(recordKey);
     if (current && !current.deleted) throw new Error(`A record ${recordKey} already exists — update it instead`);
     // Writing a key that was deleted brings it back: the next version after the delete.
-    return write(collection, body, await after(recordKey), false, links);
+    return write(collection, body, await after(recordKey), false, links, as ? { as } : {});
   }
 
   async function upsert<T>(collection: string, recordKey: string, body: T, options: { joining?: boolean } = {}): Promise<NodeRecord<T>> {
     return view<T>(await write(collection, body, await after(recordKey), false, [], options));
   }
 
-  async function removeKey(recordKey: string): Promise<void> {
+  async function removeKey(recordKey: string, as?: ActiveSession): Promise<void> {
     const current = await requireLive(recordKey);
-    await write(current.collection, null, await after(current.key), true);
+    await write(current.collection, null, await after(current.key), true, [], as ? { as } : {});
   }
 
   const guard = (collection: string) => {
@@ -1185,7 +1198,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     get,
 
-    async put<T>(collection: string, body: T, options: { key?: string; links?: ReadonlyArray<Link> } = {}): Promise<NodeRecord<T>> {
+    async put<T>(collection: string, body: T, options: { key?: string; links?: ReadonlyArray<Link>; as?: ActiveSession } = {}): Promise<NodeRecord<T>> {
       guard(collection);
       if (options.key !== undefined && !RECORD_KEY_PATTERN.test(options.key)) {
         throw new Error('A record key is 1–128 characters of a–z, 0–9 and : . _ -');
@@ -1196,9 +1209,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (onePer && options.key === undefined) {
         const derived = await onePerKey(collection, onePer, { root: deps.rootDid, links, body });
         if (!derived) throw new Error(`${collection} is one per ${onePer.join(' + ')} — give it every one of those`);
-        return view<T>(await write(collection, body, await after(derived), false, links));
+        return view<T>(await write(collection, body, await after(derived), false, links, options.as ? { as: options.as } : {}));
       }
-      return view<T>(await writeFirst(collection, body, options.key ?? newRecordKey(), links));
+      return view<T>(await writeFirst(collection, body, options.key ?? newRecordKey(), links, options.as));
     },
 
     async can(action: 'create' | 'edit' | 'delete', target: string): Promise<boolean> {
@@ -1222,12 +1235,12 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       await upsert(PROFILE_COLLECTION, await profileKey(deps.rootDid), { name });
     },
 
-    async update<T>(recordKey: string, body: T, options: { links?: ReadonlyArray<Link> } = {}): Promise<NodeRecord<T>> {
+    async update<T>(recordKey: string, body: T, options: { links?: ReadonlyArray<Link>; as?: ActiveSession } = {}): Promise<NodeRecord<T>> {
       const current = await requireLive(recordKey);
       guard(current.collection);
       // Links carry over unless replaced: ticking a todo should not unhook it from anything.
       const links = options.links ?? (await openBody(current)).links;
-      return view<T>(await write(current.collection, body, await after(recordKey), false, links));
+      return view<T>(await write(current.collection, body, await after(recordKey), false, links, options.as ? { as: options.as } : {}));
     },
 
     async linked<T>(recordKey: string, options: { rel?: string; collection?: string } = {}): Promise<ReadonlyArray<NodeRecord<T>>> {
@@ -1243,9 +1256,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return found.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key));
     },
 
-    async remove(recordKey: string): Promise<void> {
+    async remove(recordKey: string, options: { as?: ActiveSession } = {}): Promise<void> {
       guard((await requireLive(recordKey)).collection);
-      await removeKey(recordKey);
+      await removeKey(recordKey, options.as);
     },
 
     removeSystem: removeKey,

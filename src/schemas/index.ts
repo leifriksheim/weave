@@ -293,3 +293,6 @@ export async function useSchemas(node: P2PNode, spaceId: string, schemas: Readon
     if (!known.has(schema.name)) await node.collections.define(spaceId, schema);
   }
 }
+
+export { app, checkApp, reviewApp, proposeApp, addApp, copyApp, MAX_APP_COLLECTIONS } from './apps.js';
+export type { App, AppDefinition, AppReview, AppNeedReview } from './apps.js';
