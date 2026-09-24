@@ -1050,10 +1050,15 @@ same over WebMCP.
 every node operation as a WebMCP tool on `document.modelContext`
 (`example/src/webmcp.ts`, with `@mcp-b/webmcp-polyfill`: Chrome's own WebMCP
 when present, a polyfill otherwise). A browser agent or extension sees the same
-19 tools as the CLI and `weave mcp` — `spaces_create`, `records_query`,
-`records_put`… — and acts for whoever is signed in, with this
-tab's session key; until someone signs in, each tool says so. Anything that
-hands out a space's key (`spaces_invite`) asks you first. Desktop MCP clients
+tools as the CLI and `weave mcp` — `spaces_list`, `records_query`,
+`records_put`, `apps_propose`… — but only once the person lets an agent in
+("Let an agent help", in the account menu). Their account home then signs a
+note for a separate agent key, marked as an agent's, for the spaces they pick;
+the note stays in the tab, and each tool call is signed with that key
+(`node.asAgent`). What it writes shows "via agent", and every peer ignores an
+agent changing collections or who may do what: it proposes apps
+(`apps_propose`) and a person adds them. Anything that changes a space's
+people, or hands out its key, asks the person first and is done as them. Desktop MCP clients
 reach the same tools through `npx @mcp-b/webmcp-local-relay`, whose browser
 side is served at `/webmcp/embed.js`.
 
