@@ -125,8 +125,10 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
   for (const [rel, link] of Object.entries(definition.links ?? {})) {
     const target =
       link.to === '*' ? 'anything in the space' : joinOr(link.to.map((to) => article(words(to))));
+    // The link's own name only when it says something the target doesn't: "about", not "trip" → a trip.
+    const named = Array.isArray(link.to) && link.to.length === 1 && words(link.to[0]!) === words(rel) ? '' : ` (“${rel}”)`;
     sentences.push(
-      link.cardinality === 'one' ? `Each ${noun} points at one thing: ${target} (“${rel}”).` : `${capital(a)} can point at ${target} (“${rel}”).`,
+      link.cardinality === 'one' ? `Each ${noun} points at one thing: ${target}${named}.` : `${capital(a)} can point at ${target}${named}.`,
     );
   }
 

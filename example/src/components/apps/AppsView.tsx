@@ -4,12 +4,17 @@ import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
 import { useAccess, useNode } from 'weave-protocol/react';
 import { useSchemas } from 'weave-protocol/schemas';
 import { APPS, readiness, has, type WeaveApp } from './index';
+import { isAdded, MadeAppScreen, MadeAppTiles, Proposals, useMadeApps } from './MadeApps';
 import { styles, palette } from '../../styles';
 
 /**
  * The apps a space can be used with. The ones whose schemas the space already
  * holds are ready to open; the rest say what they need, and adding one
  * defines just what is missing.
+ *
+ * Two kinds sit side by side: apps written as code here (Chat, Kanban…), and
+ * apps made for this space and kept in it as records — often by an agent.
+ * Those arrive as proposals, and someone who can add collections adds them.
  */
 export function AppsView({ space, collections, onOpen }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection>; onOpen: (record: NodeRecord) => void }) {
   const node = useNode();
@@ -18,6 +23,15 @@ export function AppsView({ space, collections, onOpen }: { space: SpaceSummary; 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mayDefine = space.writable && roleHolds(access?.role, DEFINE);
+  const made = useMadeApps(space);
+  const [openMade, setOpenMade] = useState<string | null>(null);
+  const madeAdded = made.filter((record) => isAdded(record, collections));
+  const proposed = made.filter((record) => !isAdded(record, collections));
+
+  const openRecordApp = madeAdded.find((record) => record.key === openMade);
+  if (openRecordApp) {
+    return <MadeAppScreen space={space} record={openRecordApp} collections={collections} onOpen={onOpen} onBack={() => setOpenMade(null)} />;
+  }
 
   const open = APPS.find((a) => a.id === openId && readiness(a, collections).ready);
   if (open) {
@@ -58,10 +72,11 @@ export function AppsView({ space, collections, onOpen }: { space: SpaceSummary; 
           <h2 style={styles.sectionTitle}>In this space</h2>
           <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>Apps show up here once the space holds the collections they understand.</p>
         </div>
-        {ready.length === 0 ? (
-          <div style={{ ...styles.emptyState, padding: '28px 16px' }}>No apps yet — add one below.</div>
+        {ready.length === 0 && madeAdded.length === 0 ? (
+          <div style={{ ...styles.emptyState, padding: '28px 16px' }}>No apps yet — add one below, or ask your agent to make one.</div>
         ) : (
           <div style={grid}>
+            <MadeAppTiles apps={madeAdded} collections={collections} onOpen={setOpenMade} />
             {ready.map((app) => (
               <button key={app.id} onClick={() => setOpenId(app.id)} data-tile style={{ ...tile, textAlign: 'left', cursor: 'pointer' }}>
                 <strong style={tileTitle}>{app.title}</strong>
@@ -72,6 +87,8 @@ export function AppsView({ space, collections, onOpen }: { space: SpaceSummary; 
           </div>
         )}
       </section>
+
+      <Proposals space={space} apps={proposed} collections={collections} mayDefine={mayDefine} onAdded={setOpenMade} />
 
       {addable.length > 0 && (
         <section aria-label="Add an app" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

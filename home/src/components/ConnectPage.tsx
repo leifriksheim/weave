@@ -71,7 +71,8 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
   const { auth } = useAuth();
   const session = useSession();
   const host = new URL(origin).host;
-  const previous = auth.connections().find((known) => known.origin === origin);
+  const agent = request.agent === true;
+  const previous = auth.connections().find((known) => known.origin === origin && !!known.agent === agent);
 
   const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set(previous?.spaces.map((space) => space.id) ?? []));
@@ -79,7 +80,23 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void session.node.spaces.list().then(setSpaces);
+    const opened = new Set<string>();
+    const load = () =>
+      void session.node.spaces.list().then((found) => {
+        setSpaces(found);
+        // A space this home has never opened doesn't know its role here yet, and so can't be offered
+        // to write in. Opening it syncs its access history; the role follows.
+        for (const space of found) {
+          if (space.role !== null || opened.has(space.id)) continue;
+          opened.add(space.id);
+          void session.node.spaces.open(space.id).catch(() => {});
+        }
+      }, () => {});
+    load();
+    // A space made in an app a moment ago may still be on its way here, and its role with it.
+    return session.node.subscribe((event) => {
+      if (event.type === 'spaces' || event.type === 'account' || event.type === 'records') load();
+    });
   }, [session]);
 
   const whole = request.scope === 'account';
@@ -113,11 +130,37 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
 
   return (
     <Frame>
-      <h1 style={styles.title}>Connect to {host}</h1>
-      <p style={styles.subtitle}>
-        {request.name ? <>It calls itself “{request.name}”. </> : null}It wants to {writes ? 'read and change' : 'read'}{' '}
-        {whole ? 'everything in' : 'spaces in'} your account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>.
-      </p>
+      {agent ? (
+        <>
+          <h1 style={styles.title}>Let an agent help in {host}</h1>
+          <p style={styles.subtitle}>
+            An AI agent working in {request.name ? <>“{request.name}”</> : host} wants to {writes ? 'read and change' : 'read'} spaces in your
+            account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>, for you.
+          </p>
+          <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 12, background: palette.surface.sunken }}>
+            <p style={{ ...styles.todoText }}>What it can do</p>
+            <p style={styles.errorHint}>
+              Read the spaces you pick, write in them as you, and propose new apps there. Everything it writes shows as yours, “via agent”,
+              to everyone in the space.
+            </p>
+          </div>
+          <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
+            <p style={{ ...styles.todoText }}>What always needs you</p>
+            <p style={styles.errorHint}>
+              Adding an app or a collection, changing roles, inviting or removing people. Every device in the space ignores an agent that
+              tries. It gets no other spaces and can't sign in as you.
+            </p>
+          </div>
+        </>
+      ) : (
+        <>
+          <h1 style={styles.title}>Connect to {host}</h1>
+          <p style={styles.subtitle}>
+            {request.name ? <>It calls itself “{request.name}”. </> : null}It wants to {writes ? 'read and change' : 'read'}{' '}
+            {whole ? 'everything in' : 'spaces in'} your account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>.
+          </p>
+        </>
+      )}
 
       {whole && (
         <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
@@ -131,7 +174,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
 
       {choosing && (
         <section style={{ marginBottom: 20 }}>
-          <p style={styles.fieldLabel}>Which spaces</p>
+          <p style={styles.fieldLabel}>{agent ? 'Which spaces it may work in' : 'Which spaces'}</p>
           {offered.length === 0 && <p style={styles.errorHint}>You have no spaces it could use.</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {offered.map((space) => (
@@ -185,7 +228,8 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
       </div>
 
       <p style={{ ...styles.errorHint, marginTop: 20 }}>
-        The app gets a note signed by your account, for its own key. It never sees your password.
+        {agent ? 'The agent' : 'The app'} gets a note signed by your account, for its own key. It never sees your password.
+        {agent && ' You can disconnect the agent alone, in your account, and keep the app.'}
       </p>
     </Frame>
   );
