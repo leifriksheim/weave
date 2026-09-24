@@ -265,96 +265,130 @@ const space = await node.spaces.create({
 const invite = await node.spaces.invite(space.id);
 `;
 
-const DATA = `
-// Describe your data in the space itself,
-// so any app (or agent) can read it
+const STEP_POLL = `
+import * as z from 'zod'; // or Valibot, ArkType: any Standard Schema
+
+const Poll = z.object({
+  question: z.string().min(1).max(500),
+  options: z.array(z.string().min(1)).min(2).max(10),
+});
+
+await node.collections.define(space.id, {
+  name: 'app.poll',
+  schema: Poll, // stored in the space as plain JSON Schema
+  permissions: ['moderate'],
+  rules: {
+    edit: 'creator',                     // only the asker edits it
+    delete: ['creator', 'can:moderate'], // or a moderator removes it
+    fixed: ['options'],                  // votes point at these
+  },
+});
+`;
+
+const STEP_VOTE = `
+const Vote = z.object({
+  // Which option, by its place in the list. The hint lets any
+  // app show "Lisbon" instead of 0, and count the votes.
+  choice: z.int().min(0).meta({
+    'x-choicesFrom': { rel: 'about', field: 'options' },
+  }),
+});
+
 await node.collections.define(space.id, {
   name: 'app.poll.vote',
-  schema: {
-    type: 'object',
-    properties: { choice: { type: 'integer' } },
-  },
+  schema: Vote,
   links: { about: { to: ['app.poll'], cardinality: 'one' } },
-});
-
-const poll = await node.records.put(space.id, 'app.poll', {
-  question: 'Where?', options: ['Oslo', 'Lisbon'],
-});
-await node.records.put(space.id, 'app.poll.vote', { choice: 1 }, {
-  links: [{ rel: 'about', to: poll.key }],
-});
-
-// Edits keep the key: each is a signed new version
-await node.records.update(space.id, poll.key, {
-  question: 'Where in May?', options: ['Oslo', 'Lisbon'],
-});
-`;
-
-const QUERY = `
-// Plain-data queries: filters, sorting, paging,
-// and the records that link here
-const { records } = await node.records.query(space.id, {
-  collection: 'app.poll',
-  where: { question: { $contains: 'may' } },
-  sort: { '@createdAt': 'desc' },
-  include: {
-    votes: { rel: 'about', from: 'app.poll.vote' },
-    likes: { rel: 'about', from: 'std.reaction', count: true },
+  rules: {
+    edit: 'creator',
+    delete: 'creator',
+    onePer: ['@author', 'link:about'], // one per person per poll
   },
 });
-
-// Live: runs again whenever a peer syncs something in
-const stop = node.records.watch(space.id, {
-  collection: 'app.poll',
-}, render);
 `;
 
-const RULES = `
-// Roles live in the space: a name, a rank, what they may do
+const STEP_USE = `
+const poll = await node.records.put(space.id, 'app.poll', {
+  question: 'Where should we go in May?',
+  options: ['Lisbon', 'Oslo', 'Rome'],
+});
+
+const about = [{ rel: 'about', to: poll.key }];
+const vote = await node.records.put(space.id, 'app.poll.vote',
+  { choice: 0 }, { links: about });
+
+// Changed your mind? Voting again replaces your vote:
+// its key comes from you + the poll, so it's the same record
+await node.records.put(space.id, 'app.poll.vote',
+  { choice: 2 }, { links: about });
+
+// Or take it back
+await node.records.delete(space.id, vote.key);
+`;
+
+const STEP_COUNT = `
+import type { QueryRecord } from 'weave-protocol';
+type Poll = z.infer<typeof Poll>;
+type Vote = z.infer<typeof Vote>;
+
+// Every poll with its votes, again whenever a peer syncs a change
+const stop = node.records.watch<Poll>(space.id, {
+  collection: 'app.poll',
+  sort: { '@createdAt': 'desc' },
+  include: { votes: { rel: 'about', from: 'app.poll.vote' } },
+}, ({ records }) => {
+  for (const { body, included } of records) {
+    if (!body) continue; // encrypted, and this device has no key
+    const votes = included?.votes as QueryRecord<Vote>[];
+    const tally = body.options.map((option, i) => ({
+      option,
+      count: votes.filter((v) => v.body?.choice === i).length,
+    }));
+    render(body.question, tally);
+  }
+});
+`;
+
+const STEP_RULES = `
+// Bob tries to reword Anna's question
+await node.records.update(space.id, poll.key, { ...poll.body,
+  question: 'Pizza or tacos?' });
+// ✗ Only whoever created it can edit this app.poll record
+
+// Anna tries to swap the options after people voted
+await node.records.update(space.id, poll.key, { ...poll.body,
+  options: ['Paris', 'Rome'] });
+// ✗ "options" is fixed once a app.poll record is created
+
+// A modified app skips the checks and sends a second vote.
+// Every other device refuses it on arrival:
+// ✗ app.poll.vote allows one per @author + link:about
+
+// Moderators are a role in the space, not code in your app
 await node.spaces.putRole(space.id, {
   name: 'host', title: 'Host', rank: 50,
   permissions: ['invite', 'app.poll/moderate'],
 });
-await node.spaces.setMember(space.id, anna, 'host');
 
-// Collections say which permission each action needs
-await node.collections.define(space.id, {
-  name: 'app.poll',
-  schema: pollSchema,
-  permissions: ['moderate'],
-  rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
-});
-await node.collections.define(space.id, {
-  name: 'app.poll.vote',
-  schema: voteSchema,
-  links: { about: { to: ['app.poll'], cardinality: 'one' } },
-  rules: { edit: 'creator', onePer: ['@author', 'link:about'] },
-});
-
-// Hide what someone can't do, instead of showing an error
-await node.records.can(space.id, 'delete', poll.key);
+// Hide the button, rather than show the error
+const mayEdit = await node.records.can(space.id, 'edit', poll.key);
 `;
 
 const SCHEMAS = `
 import {
-  reaction, comment, useSchemas, type Reaction,
+  poll, vote, reaction, useSchemas,
 } from 'weave-protocol/schemas';
 
-// Define the shapes this space doesn't know yet
-await useSchemas(node, space.id, [reaction, comment]);
+// The poll above ships ready-made, as std.poll and std.vote
+await useSchemas(node, space.id, [poll, vote, reaction]);
 
-// A reaction is a record that points at what it's about
-const like: Reaction = { emoji: '👍' };
-await node.records.put(space.id, reaction.name, like, {
-  links: [{ rel: 'about', to: poll.key }],
+const lunch = await node.records.put(space.id, poll.name, {
+  question: 'Pizza or tacos?', options: ['Pizza', 'Tacos'],
 });
 
-// Any app that uses std.reaction sees it — and can count it
-const { records } = await node.records.query(space.id, {
-  collection: 'app.poll',
-  include: {
-    likes: { rel: 'about', from: reaction.name, count: true },
-  },
+// Any app that knows std.poll can show it and count it,
+// and a reaction from any app lands on it too
+await node.records.put(space.id, reaction.name, { emoji: '🍕' }, {
+  links: [{ rel: 'about', to: lunch.key }],
 });
 `;
 
@@ -610,77 +644,128 @@ export function Developers() {
             <Code file="node.ts">{NODE}</Code>
           </div>
 
-          <div className="split">
-            <div>
-              <h3>Data that describes itself</h3>
-              <p>
-                Define a collection once and it lives in the space: its schema, and how its records connect. Another app
-                — or an agent — opens the space and knows what's there without your code.
-              </p>
-              <p>
-                Records keep their key across edits. Which version wins is decided by order, never by a clock, so every
-                device agrees.
-              </p>
-            </div>
-            <Code file="data.ts">{DATA}</Code>
+        </div>
+      </section>
+
+      <section className="band">
+        <div className="wrap">
+          <div className="section-head">
+            <div className="kicker">Guide</div>
+            <h2>Build a poll, step by step.</h2>
+            <p>
+              Questions, options, one vote each, live results, and rules nobody can get around. There's no server
+              anywhere: every rule below is checked by every device.
+            </p>
           </div>
 
           <div className="split">
             <div>
-              <h3>Queries without a query language</h3>
+              <div className="step-label">Step 1</div>
+              <h3>Say what a poll is</h3>
               <p>
-                Mongo-style filters, Prisma-style <code>include</code>, and a total sort so paging never skips on any
-                peer. Queries are JSON, so the same one works over MCP.
+                Describe the shape with the validator you already use, and say who may do what. The definition is saved
+                in the space itself, so another app, or an agent, opens it and knows what a poll is without your code.
+              </p>
+              <p>
+                The options are fixed once a poll is asked, because votes point at them. Only the asker can edit, and
+                moderators can remove it.
               </p>
             </div>
-            <Code file="query.ts">{QUERY}</Code>
+            <Code file="poll.ts">{STEP_POLL}</Code>
           </div>
 
           <div className="split">
             <div>
-              <h3>Roles and rules, enforced by every peer</h3>
+              <div className="step-label">Step 2</div>
+              <h3>One vote per person</h3>
               <p>
-                A space has its own roles, each with a rank and a list of what it may do. A collection says which
-                permission each action needs. There's no server to enforce it — every device does, when records arrive.
+                A vote points at its poll. <code>onePer</code> makes the vote's key out of who voted and which poll,
+                so there can only ever be one. Nobody has to look through every vote to stop a second one.
               </p>
               <p>
-                "One per" is by construction: the key is derived from what must be unique, so voting again changes your
-                vote. Nobody ever needs to see every vote to stop a second one.
+                The <code>x-choicesFrom</code> hint says the number picks from the poll's options, so a generic app
+                shows "Lisbon" and can count the votes without knowing what a poll is.
+              </p>
+            </div>
+            <Code file="vote.ts">{STEP_VOTE}</Code>
+          </div>
+
+          <div className="split">
+            <div>
+              <div className="step-label">Step 3</div>
+              <h3>Ask, and vote</h3>
+              <p>
+                Records are signed and saved on the device first, then synced to everyone in the space. Changing your
+                vote is just voting again. Taking it back is a delete.
+              </p>
+            </div>
+            <Code file="ask.ts">{STEP_USE}</Code>
+          </div>
+
+          <div className="split">
+            <div>
+              <div className="step-label">Step 4</div>
+              <h3>Count the votes, live</h3>
+              <p>
+                Queries are plain JSON: Mongo-style filters, Prisma-style <code>include</code> to pull in the votes
+                that point at each poll. Watch one, and it runs again whenever a vote arrives from anyone.
+              </p>
+            </div>
+            <Code file="results.ts">{STEP_COUNT}</Code>
+          </div>
+
+          <div className="split">
+            <div>
+              <div className="step-label">Step 5</div>
+              <h3>Try to cheat</h3>
+              <p>
+                Your app refuses a broken rule before anything is signed, with the reason. An app that skips the
+                checks gets nowhere either: every device checks every record that arrives, and they all reach the same
+                verdict.
               </p>
               <ul>
                 <li>
-                  <code>member</code>, <code>creator</code>, or <code>can:</code> any permission you declare
+                  Rules name <code>member</code>, <code>creator</code>, or <code>can:</code> a permission you declare
                 </li>
                 <li>
-                  <code>rolePresets</code> to start from: <code>solo</code>, <code>team</code>, <code>community</code>
+                  Roles live in the space. Start from <code>rolePresets</code>: <code>solo</code>, <code>team</code>,{' '}
+                  <code>community</code>
                 </li>
               </ul>
             </div>
-            <Code file="rules.ts">{RULES}</Code>
+            <Code file="rules.ts">{STEP_RULES}</Code>
           </div>
+        </div>
+      </section>
 
+      <section className="band">
+        <div className="wrap">
           <div className="split">
             <div>
-              <h3>Standard schemas, if you want them</h3>
+              <h3>Or skip to the end</h3>
               <p>
-                The protocol has no built-in kinds of record. For the patterns nearly every app needs — reactions,
-                comments, tags, attachments, references — there's an optional library of ready-made definitions.
+                The protocol has no built-in kinds of record. For the things nearly every app needs, there's an optional
+                library of ready-made definitions, including the poll you just built.
               </p>
               <p>
-                They're ordinary collections, nothing privileged. Using the same ones is simply how two apps agree:
-                reactions from one show up in the other. Prefer your own shape? Define your own.
+                They're ordinary collections, nothing special. Using the same ones is simply how two apps agree: a poll
+                asked in one can be voted on in another. Prefer your own shape? Define your own.
               </p>
               <ul>
                 <li>
-                  <code>reaction</code>, <code>comment</code>, <code>tag</code>, <code>attachment</code>,{' '}
+                  On anything: <code>reaction</code>, <code>comment</code>, <code>tag</code>, <code>attachment</code>,{' '}
                   <code>reference</code>
+                </li>
+                <li>
+                  Things of their own: <code>message</code>, <code>task</code>, <code>column</code>, <code>poll</code>,{' '}
+                  <code>vote</code>
                 </li>
                 <li>
                   <code>useSchemas</code> defines only what a space is missing
                 </li>
               </ul>
             </div>
-            <Code file="reactions.ts">{SCHEMAS}</Code>
+            <Code file="standard.ts">{SCHEMAS}</Code>
           </div>
 
           <div className="split">

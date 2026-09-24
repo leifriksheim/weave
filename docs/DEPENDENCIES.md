@@ -36,7 +36,7 @@ curve output against Web Crypto's).
 | `@scure/base` | `src/identity/did.ts` | Same author and audit as noble, no dependencies. Base58btc for `did:key`; replaced a hand-written codec. |
 | `@cfworker/json-schema` | `src/schema/collection-def.ts` | No dependencies, interprets schemas rather than compiling them (so it runs under a strict CSP and in extensions), and handles JSON Schema's long tail of edge cases. Validates the collection definitions a space stores. |
 
-Development only: `typescript`, `tsx`, and `ws` — a real WebSocket server for `tests/ws-transport.test.ts`, since Node has a WebSocket client but no server.
+Development only: `typescript`, `tsx`, `ws` — a real WebSocket server for `tests/ws-transport.test.ts`, since Node has a WebSocket client but no server — and `zod`, to test that a validator's schema can define a collection (`tests/schemas.test.ts`). The protocol itself only reads the Standard JSON Schema interface, so it works with any library that implements it and needs none of them.
 
 The CLI (`cli/`, a separate package) has one runtime dependency:
 

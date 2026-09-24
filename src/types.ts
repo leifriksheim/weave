@@ -37,6 +37,24 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
   };
 }
 
+/**
+ * Standard JSON Schema v1 (https://standardschema.dev/json-schema): a schema
+ * that can describe itself as JSON Schema — Zod 4.2+, ArkType 2.1.28+, and
+ * Valibot through `toStandardJsonSchema`. It is how a validator you already
+ * use becomes a definition a space can store.
+ */
+export interface StandardJSONSchemaV1<Input = unknown, Output = Input> {
+  readonly '~standard': {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly types?: { readonly input: Input; readonly output: Output };
+    readonly jsonSchema: {
+      readonly input: (options: { readonly target: string; readonly libraryOptions?: Record<string, unknown> }) => Record<string, unknown>;
+      readonly output: (options: { readonly target: string; readonly libraryOptions?: Record<string, unknown> }) => Record<string, unknown>;
+    };
+  };
+}
+
 export type StandardSchemaResult<Output> =
   | { readonly value: Output; readonly issues?: undefined }
   | { readonly value?: undefined; readonly issues: ReadonlyArray<StandardSchemaIssue> };

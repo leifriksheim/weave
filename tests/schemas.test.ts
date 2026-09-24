@@ -12,6 +12,7 @@ import { generateSeed } from '../src/identity/recovery-code.js';
 import { column, task, message, poll, vote, standardNouns, positionBetween, useSchemas } from '../src/schemas/index.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
+import * as z from 'zod';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -95,3 +96,46 @@ describe('standard nouns', () => {
     await assert.rejects(me.records.update(space, where.key, { question: 'Where?', options: ['Rome', 'Lisbon'] }));
   });
 });
+
+describe('schemas from a validator you already use', () => {
+  // The same poll the landing page builds, step by step.
+  const Poll = z.object({
+    question: z.string().min(1).max(500),
+    options: z.array(z.string().min(1)).min(2).max(10),
+  });
+  const Vote = z.object({
+    choice: z.int().min(0).meta({ 'x-choicesFrom': { rel: 'about', field: 'options' } }),
+  });
+
+  test('a Zod schema is stored as JSON Schema, and every write is checked against it', async () => {
+    const me = await person();
+    const { id: space } = await me.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
+    const defined = await me.collections.define(space, { name: 'app.poll', schema: Poll, rules: { edit: 'creator', fixed: ['options'] } });
+    await me.collections.define(space, {
+      name: 'app.poll.vote',
+      schema: Vote,
+      links: { about: { to: ['app.poll'], cardinality: 'one' } },
+      rules: { edit: 'creator', onePer: ['@author', 'link:about'] },
+    });
+
+    // Plain data, readable by any app in any language — no trace of Zod.
+    assert.deepEqual(defined.schema, JSON.parse(JSON.stringify(defined.schema)));
+    assert.equal((defined.schema as Record<string, unknown>).$schema, undefined);
+    assert.deepEqual(((defined.schema as any).properties.options), { minItems: 2, maxItems: 10, type: 'array', items: { type: 'string', minLength: 1 } });
+
+    const poll = await me.records.put(space, 'app.poll', { question: 'Where?', options: ['Oslo', 'Lisbon'] });
+    await assert.rejects(me.records.put(space, 'app.poll', { question: 'Where?', options: ['Oslo'] }), /options/);
+    await me.records.put(space, 'app.poll.vote', { choice: 1 }, { links: [{ rel: 'about', to: poll.key }] });
+    await assert.rejects(me.records.put(space, 'app.poll.vote', { choice: -1 }, { links: [{ rel: 'about', to: poll.key }] }));
+  });
+
+  test('what a space cannot store is refused up front, saying what it can', async () => {
+    const me = await person();
+    const { id: space } = await me.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
+    await assert.rejects(
+      me.collections.define(space, { name: 'app.contact', schema: z.object({ email: z.email() }) }),
+      /schema\.properties\.email\.(format|pattern) is not supported/,
+    );
+  });
+});
+

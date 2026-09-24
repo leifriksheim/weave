@@ -5,12 +5,16 @@
  * `StandardSchemaV1` is a runtime object carrying a function — it cannot be
  * written into a space and read by another app. So a space stores **JSON
  * Schema**, and Standard Schema becomes the adapter that runs it locally.
+ * A validator that can describe itself as JSON Schema (Standard JSON Schema:
+ * Zod 4.2+, ArkType, Valibot) can be handed to a definition directly —
+ * {@link toJsonSchema} turns it into what gets stored.
  *
  * Only a small, fixed subset may be *published*, so every app in any language
  * agrees on what a stored schema means:
  *
  *   type · properties · required · items · enum · minimum · maximum ·
- *   minLength · maxLength · additionalProperties (boolean) · title · description
+ *   minLength · maxLength · minItems · maxItems · additionalProperties
+ *   (boolean) · title · description
  *
  * plus two ways to say what a value *means*, so any app can show it well:
  *
@@ -27,11 +31,31 @@
  * written by a newer app that allows more stays readable by an older one.
  */
 import { Validator } from '@cfworker/json-schema';
-import type { StandardSchemaV1 } from '../types.js';
+import type { StandardJSONSchemaV1, StandardSchemaV1 } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
 import { checkRules, PERMISSION_PATTERN, type CollectionRules } from '../records/rules.js';
 
 export type JsonSchema = { readonly [keyword: string]: unknown };
+
+/**
+ * The JSON Schema to store for a definition's schema: plain JSON Schema as
+ * it is, or what a Standard JSON Schema validator (a Zod object, say) says it
+ * accepts. The result is checked like any other — a validator feature that
+ * has no stored equivalent, like a regex, is refused with the reason.
+ */
+export function toJsonSchema(schema: JsonSchema | StandardJSONSchemaV1): JsonSchema {
+  const standard = (schema as Partial<StandardJSONSchemaV1>)['~standard'];
+  if (!standard) return schema as JsonSchema;
+  if (typeof standard.jsonSchema?.input !== 'function') {
+    throw new Error(
+      `This ${standard.vendor ?? ''} schema can't describe itself as JSON Schema, which is what a space stores. ` +
+        'Use Zod 4.2+, ArkType 2.1.28+, Valibot with toStandardJsonSchema, or plain JSON Schema.',
+    );
+  }
+  // What was accepted is what gets stored; the dialect marker adds nothing.
+  const { $schema: _dialect, ...json } = standard.jsonSchema.input({ target: 'draft-2020-12' });
+  return json;
+}
 
 /** A collection, as a space describes it to whoever opens it. */
 export interface StoredCollection {
@@ -81,6 +105,8 @@ const KEYWORDS = new Set([
   'maximum',
   'minLength',
   'maxLength',
+  'minItems',
+  'maxItems',
   'additionalProperties',
   'title',
   'description',
@@ -135,6 +161,8 @@ export function checkPublishableSchema(schema: unknown, path = 'schema'): string
       case 'maximum':
       case 'minLength':
       case 'maxLength':
+      case 'minItems':
+      case 'maxItems':
         if (typeof value !== 'number' || !Number.isFinite(value)) return `${at} must be a number`;
         break;
       case 'additionalProperties':

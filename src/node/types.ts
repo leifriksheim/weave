@@ -9,7 +9,7 @@
  */
 import type { Query, QueryResult } from '../query/types.js';
 import type { CollectionRules } from '../records/rules.js';
-import type { CollectionDef, CryptoProvider, Link, SpaceRole, SpaceVisibility } from '../types.js';
+import type { CollectionDef, CryptoProvider, Link, SpaceRole, SpaceVisibility, StandardJSONSchemaV1 } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import type { Capability, UCANToken } from '../identity/ucan.js';
@@ -202,8 +202,12 @@ export interface DefineCollection {
   readonly name: string;
   readonly title?: string;
   readonly description?: string;
-  /** JSON Schema for a record's body, in the supported subset */
-  readonly schema: JsonSchema;
+  /**
+   * A record body's shape: JSON Schema in the supported subset, or a
+   * validator that can describe itself as JSON Schema — a Zod object, say
+   * (Standard JSON Schema). Either way, JSON Schema is what gets stored.
+   */
+  readonly schema: JsonSchema | StandardJSONSchemaV1;
   /** Default: one past the current version, or 1 */
   readonly version?: number;
   /** Keep every version of every record in it (`all`), or only the current one (`latest`, the default) */

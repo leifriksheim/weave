@@ -78,6 +78,7 @@ import type { StoreFactory } from './stores.js';
 import {
   CATALOG_COLLECTION,
   checkStoredCollection,
+  toJsonSchema,
   validateJsonSchema,
   type SchemaIssue,
   type StoredCollection,
@@ -1275,7 +1276,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         name: input.name,
         ...(input.title !== undefined ? { title: input.title } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
-        schema: input.schema,
+        schema: toJsonSchema(input.schema),
         version,
         ...(input.history !== undefined ? { history: input.history } : {}),
         ...(input.links !== undefined ? { links: input.links } : {}),

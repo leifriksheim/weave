@@ -14,6 +14,7 @@ export type {
   CryptoProvider,
   CryptoKeyPairResult,
   StandardSchemaV1,
+  StandardJSONSchemaV1,
   StandardSchemaResult,
   StandardSchemaIssue,
   Expression,
@@ -213,6 +214,7 @@ export {
   checkPublishableSchema,
   validateJsonSchema,
   asStandardSchema,
+  toJsonSchema,
 } from './schema/collection-def.js';
 export type { StoredCollection, JsonSchema, SchemaIssue } from './schema/collection-def.js';
 export type { Membership } from './space/account-registry.js';

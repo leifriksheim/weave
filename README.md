@@ -918,22 +918,37 @@ const identity = createIdentityManager({ provider: myEd25519Provider });
 
 ## Standard Schema Integration
 
-Collections accept any [Standard Schema v1](https://standardschema.dev/) compatible validator:
+A space stores its collections' shapes as JSON Schema, so any app in any
+language can read them. You don't have to write it by hand: pass a validator
+that can describe itself as JSON Schema — [Standard JSON
+Schema](https://standardschema.dev/json-schema): Zod 4.2+, ArkType 2.1.28+,
+Valibot through `toStandardJsonSchema` — and the node stores what it accepts.
 
 ```typescript
-import { z } from 'zod';
+import * as z from 'zod';
+
+const Poll = z.object({
+  question: z.string().min(1).max(500),
+  options: z.array(z.string().min(1)).min(2).max(10),
+});
+
+await node.collections.define(space.id, { name: 'app.poll', schema: Poll });
+```
+
+A space can store only a small subset of JSON Schema, the part every language
+agrees on (types, required, enums, lengths and sizes, number bounds, labelled
+choices). A validator feature with no stored equivalent — `z.email()`, whose
+check is a regex — is refused when you define the collection, saying what is
+supported, rather than quietly not being enforced by other apps.
+
+Lower down, the schema engine takes any [Standard Schema
+v1](https://standardschema.dev/) validator directly, for local checks:
+
+```typescript
 import { createSchemaEngine } from 'weave-protocol';
 
-const PostSchema = z.object({
-  text: z.string().max(300),
-  tags: z.array(z.string()).optional(),
-});
-
 const schema = createSchemaEngine();
-schema.registerCollection({
-  name: 'app.example.post',
-  schema: PostSchema, // Zod implements Standard Schema v1
-});
+schema.registerCollection({ name: 'app.example.post', schema: PostSchema });
 ```
 
 ## Command line, always-on node, and agents

@@ -111,6 +111,7 @@
 
 .site .split { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); gap: 48px; align-items: start; }
 .site .split + .split { margin-top: 72px; }
+.site .split .step-label { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .site .split h3 { font-size: 22px; font-weight: 600; letter-spacing: -0.035em; color: var(--ink); margin-bottom: 12px; }
 .site .split p { color: var(--muted); font-size: 16px; }
 .site .split p + p { margin-top: 12px; }

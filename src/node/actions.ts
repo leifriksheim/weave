@@ -230,7 +230,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     name: 'collections_define',
     description:
       'Define a collection in a space, so every app and person in it knows its shape. The schema is JSON Schema ' +
-      'using only: type, properties, required, items, enum, minimum, maximum, minLength, maxLength, ' +
+      'using only: type, properties, required, items, enum, minimum, maximum, minLength, maxLength, minItems, maxItems, ' +
       'additionalProperties (boolean), title, description. For choices with labels use ' +
       'oneOf: [{ "const": "low", "title": "Low" }, …]. When a value picks from a list in a linked record — a vote\'s choice ' +
       'from its poll\'s options — add "x-choicesFrom": { "rel": "about", "field": "options" } to the field (a number is a ' +
