@@ -21,9 +21,14 @@ import { base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { sha256 } from '../utils/hash.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 import { deriveReadKey, spaceGenesis, spaceIdOf } from './space-access.js';
+import { solo } from './presets.js';
 
-/** Where membership records live, one per space the account belongs to */
-export const MEMBERSHIP_COLLECTION = 'sys.membership';
+/**
+ * Where the account's list of spaces lives, one record per space it follows.
+ * Not to be confused with `sys.member`, a space's own record of who holds
+ * which role there.
+ */
+export const MEMBERSHIP_COLLECTION = 'sys.joined';
 
 /**
  * The account's profile — what it is called — so a rename on one device or app
@@ -78,9 +83,10 @@ export async function deriveAccountRegistry(
     version: 1,
   });
   const fixed = {
-    type: 'personal' as const,
     visibility: 'private' as const,
-    owner,
+    creator: owner,
+    roles: solo.roles,
+    creatorRole: solo.creatorRole,
     createdAt,
     nonce,
     readKey: (await deriveReadKey(key, provider)).did,
@@ -90,7 +96,6 @@ export async function deriveAccountRegistry(
     id: await spaceIdOf(spaceGenesis(fixed)),
     ...fixed,
     name: 'Account registry',
-    members: Object.freeze([owner]),
   });
-  return { space, key, writeSecret: null };
+  return { space, key, invite: null, role: solo.creatorRole };
 }

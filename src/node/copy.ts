@@ -52,7 +52,7 @@ export async function copyAccountData(params: CopyAccountParams): Promise<CopyRe
     spaceIds.push(space.id);
     if (await toRegistry.get(space.id)) continue;
     // An invite carries exactly what a registry needs: the space, and its key.
-    await toRegistry.join(await fromRegistry.createInvite(space.id, params.did), params.did);
+    await toRegistry.join(await fromRegistry.createInvite(space.id, params.did));
     spacesAdded++;
   }
   if (params.accountKey) spaceIds.push((await deriveAccountRegistry(params.accountKey, params.did)).space.id);

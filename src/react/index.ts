@@ -36,4 +36,4 @@ export { useQuery } from './use-query.js';
 export type { QueryState } from './use-query.js';
 export { useSpaces } from './use-spaces.js';
 export type { SpacesState } from './use-spaces.js';
-export { useOpenSpace, useRecord, useLinked, useCollections, useProfiles, useSpaceStatus, useCan } from './use-space.js';
+export { useOpenSpace, useRecord, useLinked, useCollections, useProfiles, useAccess, useSpaceStatus, useCan } from './use-space.js';

@@ -119,15 +119,37 @@
 .site .split li + li { margin-top: 6px; }
 .site .split code { font-size: 13.5px; background: var(--sunken); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; color: var(--body); }
 
-/* Layers */
+/* Layers: a line each, and "Read more" opens its parts underneath */
 .site .layers { display: flex; flex-direction: column; gap: 8px; }
-.site .layer { display: grid; grid-template-columns: 200px 1fr auto; gap: 24px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; background: #fff; text-decoration: none; transition: border-color .15s ease; }
+.site .layer { border: 1px solid var(--line); border-radius: 12px; background: #fff; transition: border-color .15s ease; }
 .site .layer:hover { border-color: #c9c9c9; }
+.site .layer.app { background: var(--sunken); }
+.site .layer-head { display: grid; grid-template-columns: 200px 1fr auto; gap: 24px; align-items: baseline; width: 100%; padding: 20px 24px; font: inherit; text-align: left; color: inherit; background: none; border: none; border-radius: 12px; cursor: pointer; }
+.site .layer-head:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 .site .layer .name { font-weight: 600; color: var(--ink); letter-spacing: -0.02em; }
 .site .layer .what { color: var(--muted); font-size: 15px; }
-.site .layer .tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.site .tag { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; font-family: 'Geist Mono', monospace; }
-.site .layer.app { background: var(--sunken); }
+.site .layer .more { font-size: 13px; color: var(--faint); white-space: nowrap; transition: color .15s ease; }
+.site .layer-head:hover .more, .site .layer-head[aria-expanded="true"] .more { color: var(--ink); }
+.site .parts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 48px; padding: 24px 24px 28px; border-top: 1px solid var(--line); }
+.site .parts[hidden] { display: none; }
+.site .part h4 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
+.site .part p { font-size: 15px; color: var(--muted); }
+.site .part code { font-size: 13.5px; color: var(--body); }
+
+/* Points: a heading and a few lines each, no boxes */
+.site .points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 64px; }
+.site .points h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.03em; color: var(--ink); margin-bottom: 8px; }
+.site .points p { color: var(--muted); font-size: 16px; }
+
+/* Comparison: a plain table, scrolling sideways on its own on a phone */
+.site .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.site .table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 14px; }
+.site .table th, .site .table td { padding: 14px 16px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.site .table tbody tr:last-child th, .site .table tbody tr:last-child td { border-bottom: none; }
+.site .table thead th { font-weight: 600; color: var(--ink); letter-spacing: -0.02em; }
+.site .table tbody th { font-weight: 500; color: var(--ink); width: 180px; }
+.site .table td { color: var(--muted); }
+.site .table td:first-of-type { color: var(--ink); }
 
 /* CTA + footer */
 .site .cta { padding: 96px 0; text-align: center; }
@@ -145,8 +167,10 @@
   .site .grid > .cell:last-child { border-bottom: none !important; }
   .site .compare, .site .steps, .site .split { grid-template-columns: 1fr; }
   .site .split { gap: 20px; }
-  .site .layer { grid-template-columns: 1fr; gap: 8px; }
-  .site .layer .tags { justify-content: flex-start; }
+  .site .layer-head { grid-template-columns: 1fr; gap: 8px; }
+  .site .layer .more { justify-self: start; }
+  .site .parts { grid-template-columns: 1fr; gap: 20px; }
+  .site .points { grid-template-columns: 1fr; gap: 28px; }
   .site .hero { padding: 80px 0 64px; }
   .site section.band { padding: 72px 0; }
   .site .nav-links a.hide-sm { display: none; }

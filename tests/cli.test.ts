@@ -28,6 +28,7 @@ import { recoveryCodeToSeed } from '../src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { NODE_ACTIONS } from '../src/node/actions.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { team } from '../src/space/presets.js';
 
 const run = promisify(execFile);
 const temporary: string[] = [];
@@ -141,7 +142,7 @@ describe('the daemon', () => {
 
     // Device A makes a space and hands it to the daemon.
     let a: P2PNode = await device(deviceStores.a);
-    const space = await a.spaces.create({ name: 'Shared', type: 'shared', visibility: 'private' });
+    const space = await a.spaces.create({ name: 'Shared', ...team, visibility: 'private' });
     const invite = await a.spaces.invite(space.id);
     await daemon.node.spaces.join(invite);
     await until(async () => (await daemon.node.spaces.status(space.id)).connection !== 'offline', 3000, 'daemon to open the space');
@@ -181,7 +182,7 @@ describe('the daemon', () => {
       watchIntervalMs: 0,
       network: { nodes: [peerUrl] },
     });
-    const space = await laptop.spaces.create({ name: 'Found by itself', type: 'personal', visibility: 'private' });
+    const space = await laptop.spaces.create({ name: 'Found by itself', visibility: 'private' });
     const written = await laptop.records.put(space.id, 'app.note', { text: 'the node never saw an invite' });
 
     await until(async () => (await daemon.node.spaces.get(space.id)) !== null, 5000, 'the node to join through the registry');
@@ -190,7 +191,7 @@ describe('the daemon', () => {
   });
 
   test('refuses a stranger to a private space, before sending anything', async () => {
-    const space = await daemon.node.spaces.create({ name: 'Members only', type: 'shared', visibility: 'private' });
+    const space = await daemon.node.spaces.create({ name: 'Members only', ...team, visibility: 'private' });
     const socket = new WebSocket(`${peerUrl}?space=${space.id}`);
     const frames: string[] = [];
     socket.addEventListener('message', (event) => {
@@ -243,7 +244,7 @@ describe('MCP', () => {
         result: { isError: boolean; structuredContent?: Record<string, unknown>; content: Array<{ text: string }> };
       }).result;
 
-    const space = await call('spaces_create', { name: 'Agent made this', type: 'personal', visibility: 'public' });
+    const space = await call('spaces_create', { name: 'Agent made this', visibility: 'public' });
     assert.equal(space.isError, false);
     const put = await call('records_put', { space: space.structuredContent!.id, collection: 'app.agent.idea', body: { idea: 'polls' } });
     assert.equal(put.isError, false);
@@ -267,7 +268,7 @@ describe('the weave command', () => {
     const { stderr } = await weave('init', '--name', 'Leif', '--passphrase');
     assert.match(stderr, /Recovery code: [0-9A-Z-]+/);
 
-    const created = JSON.parse((await weave('spaces', 'create', '--name', 'Notes', '--type', 'personal', '--visibility', 'private')).stdout);
+    const created = JSON.parse((await weave('spaces', 'create', '--name', 'Notes', '--visibility', 'private')).stdout);
     await weave('records', 'put', '--space', created.id, '--collection', 'app.note', '--body', '{"text":"hi"}');
     const listed = JSON.parse((await weave('records', 'list', '--space', created.id)).stdout);
     assert.equal(listed[0].body.text, 'hi');

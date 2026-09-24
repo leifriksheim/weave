@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { parse, render } from 'sugar-high/core';
 import * as typescript from 'sugar-high/lang/typescript';
 import * as shell from 'sugar-high/lang/shell';
@@ -8,8 +8,8 @@ import './site.css';
 const LANGUAGES = { typescript: { ...typescript, typescript: true }, shell } as const;
 
 /**
- * The two landing pages — for people, at `/`, and for developers, at
- * `/developers` — living in the example app for now, so they share its fonts,
+ * The two landing pages — for developers, at `/`, and why Weave, for people,
+ * at `/why` — living in the example app for now, so they share its fonts,
  * colours and deploy. The app itself is at `/app`.
  */
 
@@ -30,11 +30,11 @@ function Nav({ page }: { page: 'users' | 'developers' }) {
           Weave
         </a>
         <nav className="nav-links">
-          <a href="/" aria-current={page === 'users' ? 'page' : undefined} className="hide-sm">
-            Overview
-          </a>
-          <a href="/developers" aria-current={page === 'developers' ? 'page' : undefined}>
+          <a href="/" aria-current={page === 'developers' ? 'page' : undefined} className="hide-sm">
             Developers
+          </a>
+          <a href="/why" aria-current={page === 'users' ? 'page' : undefined}>
+            Why Weave
           </a>
           <a href="/app" className="btn btn-primary" style={{ color: '#fff', marginLeft: 8 }}>
             Open app
@@ -51,8 +51,8 @@ function Footer() {
       <div className="wrap">
         <span>Weave — your data, every app.</span>
         <span style={{ display: 'flex', gap: 16 }}>
-          <a href="/">Overview</a>
-          <a href="/developers">Developers</a>
+          <a href="/">Developers</a>
+          <a href="/why">Why Weave</a>
           <a href="/app">Open app</a>
         </span>
       </div>
@@ -127,7 +127,7 @@ export function Landing() {
             <a href="/app" className="btn btn-primary">
               Get started
             </a>
-            <a href="/developers" className="btn btn-secondary">
+            <a href="/" className="btn btn-secondary">
               For developers
             </a>
           </div>
@@ -244,7 +244,7 @@ export function Landing() {
 const NODE = `
 import {
   createNode, createIdentityManager,
-  createLocalRootSigner, indexedDBStores,
+  createLocalRootSigner, indexedDBStores, rolePresets,
 } from 'weave-protocol';
 
 // Someone's account, from the password they keep
@@ -258,7 +258,8 @@ const node = await createNode({
 });
 
 const space = await node.spaces.create({
-  name: 'Trip', type: 'shared', visibility: 'private',
+  name: 'Trip', visibility: 'private',
+  ...rolePresets.team, // an owner, and editors for whoever's invited
 });
 
 // A friend calls node.spaces.join(invite)
@@ -310,10 +311,19 @@ const stop = node.records.watch(space.id, {
 `;
 
 const RULES = `
+// Roles live in the space: a name, a rank, what they may do
+await node.spaces.putRole(space.id, {
+  name: 'host', title: 'Host', rank: 50,
+  permissions: ['invite', 'app.poll/moderate'],
+});
+await node.spaces.setMember(space.id, anna, 'host');
+
+// Collections say which permission each action needs
 await node.collections.define(space.id, {
   name: 'app.poll',
   schema: pollSchema,
-  rules: { edit: 'creator', delete: ['creator', 'owner'] },
+  permissions: ['moderate'],
+  rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 });
 await node.collections.define(space.id, {
   name: 'app.poll.vote',
@@ -322,12 +332,8 @@ await node.collections.define(space.id, {
   rules: { edit: 'creator', onePer: ['@author', 'link:about'] },
 });
 
-// Voting twice is changing your vote
-const vote = { links: [{ rel: 'about', to: poll.key }] };
-await node.records.put(space.id, 'app.poll.vote', { choice: 0 }, vote);
-await node.records.put(space.id, 'app.poll.vote', { choice: 1 }, vote);
-
-await node.records.can(space.id, 'edit', poll.key); // false for others
+// Hide what someone can't do, instead of showing an error
+await node.records.can(space.id, 'delete', poll.key);
 `;
 
 const SCHEMAS = `
@@ -368,23 +374,93 @@ weave run
 weave mcp
 `;
 
-function Layer({ name, what, tags, app }: { name: string; what: string; tags: string[]; app?: boolean }) {
+const PROTOCOLS = ['Weave', 'AT Protocol (Bluesky)', 'Nostr', 'Solid'] as const;
+
+
+/** The case for rules without a referee, in four points */
+const CONSENSUS: ReadonlyArray<Part> = [
+  {
+    title: 'Roles you design',
+    body: 'Owner, moderator, guest, or whatever your app needs. Each role has a rank and a list of what it may do, and it lives in the space, not in your code.',
+  },
+  {
+    title: 'Every device is the referee',
+    body: 'When a change arrives, each device checks who made it and whether their role allowed it. Anything that breaks the rules is refused, everywhere.',
+  },
+  {
+    title: 'The same answer, everywhere',
+    body: 'Devices that were offline, or saw changes in a different order, replay the same history and reach the same verdict. No leader, no server, no vote to wait for.',
+  },
+  {
+    title: 'Access you can take back',
+    body: 'Remove someone or disconnect an app, and from then on their changes stop counting on every device. Backdating a change doesn’t get around it.',
+  },
+];
+
+/** One row per question: the question, then an answer for each protocol, in order */
+const COMPARISON: ReadonlyArray<readonly [string, string, string, string, string]> = [
+  ['Built for', 'Private and shared app data', 'Public social media', 'Public messages that can’t be censored', 'Personal data stores'],
+  ['Where data lives', 'On the user’s devices, or a folder they own', 'A personal data server, usually hosted', 'Relays the user publishes to', 'A pod server'],
+  ['Servers you need', 'None. Relays only introduce devices', 'Data servers, relays and app views', 'Relays, which store and serve everything', 'A pod server per user or provider'],
+  ['Private data', 'Encrypted end to end by default', 'Public by design', 'Public, with encrypted direct messages', 'Access control on the server'],
+  ['Works offline', 'Yes, local-first', 'No', 'Reading from cache', 'No'],
+  ['Several people editing the same data', 'Yes, shared spaces', 'No, each user writes their own', 'No, each user writes their own', 'Yes, through permissions'],
+  ['Account', 'A recovery code the user keeps', 'A DID and a handle, with a server holding the keys', 'A key pair, and losing it is final', 'A login with an identity provider'],
+  ['Who enforces the rules', 'Every device, and they all agree', 'Each app’s servers and moderation services', 'Each relay and client, separately', 'The pod server'],
+  ['Public feeds at global scale', 'Not the goal', 'Yes, that’s its strength', 'Yes, across relays', 'No'],
+];
+
+/** One piece of a layer, told at a high level */
+interface Part {
+  readonly title: string;
+  readonly body: ReactNode;
+}
+
+/**
+ * A layer of the stack: a line on what it does, and its parts underneath. The
+ * whole line opens it; the page keeps one open at a time.
+ */
+function Layer({
+  name,
+  what,
+  parts,
+  app,
+  open,
+  onToggle,
+}: {
+  name: string;
+  what: string;
+  parts: ReadonlyArray<Part>;
+  app?: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const id = useId();
   return (
     <div className={app ? 'layer app' : 'layer'}>
-      <span className="name">{name}</span>
-      <span className="what">{what}</span>
-      <span className="tags">
-        {tags.map((t) => (
-          <span key={t} className="tag">
-            {t}
-          </span>
+      <button type="button" className="layer-head" aria-expanded={open} aria-controls={id} onClick={onToggle}>
+        <span className="name">{name}</span>
+        <span className="what">{what}</span>
+        <span className="more">{open ? 'Show less' : 'Read more'}</span>
+      </button>
+      <div id={id} className="parts" hidden={!open}>
+        {parts.map((part) => (
+          <div key={part.title} className="part">
+            <h4>{part.title}</h4>
+            <p>{part.body}</p>
+          </div>
         ))}
-      </span>
+      </div>
     </div>
   );
 }
 
 export function Developers() {
+  const [openLayer, setOpenLayer] = useState<string | null>(null);
+  const toggle = (name: string) => ({
+    open: openLayer === name,
+    onToggle: () => setOpenLayer(openLayer === name ? null : name),
+  });
   return (
     <Page page="developers">
       <section className="hero">
@@ -414,17 +490,100 @@ export function Developers() {
       <section className="band">
         <div className="wrap">
           <div className="section-head">
+            <div className="kicker">Rules without a referee</div>
+            <h2>Everyone follows the rules. Nobody is in charge.</h2>
+            <p>
+              Most apps trust a server to decide who may do what. Weave has no server to trust, so every device decides,
+              and they all reach the same answer.
+            </p>
+          </div>
+          <div className="points">
+            {CONSENSUS.map((point) => (
+              <div key={point.title}>
+                <h3>{point.title}</h3>
+                <p>{point.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="band">
+        <div className="wrap">
+          <div className="section-head">
             <div className="kicker">The layers</div>
             <h2>What's underneath, top to bottom.</h2>
-            <p>Most apps only touch the top one: a node wires the rest together behind a plain-data API.</p>
+            <p>You only touch the top one. Everything below comes with it.</p>
           </div>
           <div className="layers">
-            <Layer app name="Your app" what="Reads and writes records through a node. Can be a view on data another app made." tags={['createNode', 'NODE_ACTIONS']} />
-            <Layer name="Data" what="Spaces hold records. Collections describe themselves with JSON Schema and rules every peer enforces; records link to each other; queries are plain JSON." tags={['spaces', 'collections', 'links', 'query']} />
-            <Layer name="Identity & auth" what="An account is a seed → a P-256 did:key. The root key delegates to short-lived session keys with UCAN; passkeys unlock per device." tags={['did:key', 'UCAN', 'passkeys']} />
-            <Layer name="Storage" what="Every space is a Merkle Search Tree of signed, versioned records — in IndexedDB, or a pod folder any origin can open." tags={['MST', 'IndexedDB', 'pods']} />
-            <Layer name="Privacy" what="Private spaces encrypt each record with the space key before signing. Links are sealed with the body." tags={['AES-GCM']} />
-            <Layer name="Network & sync" what="Peers meet through relays, then talk directly. Sync compares trees and ships only what differs." tags={['WebRTC', 'WebSocket', 'anti-entropy']} />
+            <Layer
+              app
+              name="Your app"
+              {...toggle('Your app')}
+              what='You write the front end. There’s no backend to build, host or pay for.'
+              parts={[
+                { title: 'No backend to build', body: 'Storage, sync, sign-in and permissions come in one object. Put a record, query it, watch it change. That’s the whole server side.' },
+                { title: 'Sign-in you don’t write', body: 'Drop in one element, or use the React hooks. Creating accounts, passkeys and pairing a phone are built in.' },
+                { title: 'Never hold anyone’s keys', body: 'Your app can ask for access to a person’s account instead of signing them in. It gets only what they approve, for as long as they approve it, and there’s no master key in your app to leak.' },
+                { title: 'Ready for agents', body: 'Every operation is also a CLI command and an MCP tool, so AI agents can work with the same data, with the same permissions as your app.' },
+              ]}
+            />
+            <Layer
+              name="Data"
+              {...toggle('Data')}
+              what='Structured data your users own, that other apps can read too.'
+              parts={[
+                { title: 'Start with your users’ data', body: 'When someone lets your app into their spaces, their data is already there. No blank slate, no import step.' },
+                { title: 'The schema travels with the data', body: 'The shape of your data is stored next to it, so another app, or an agent, can make sense of it without your docs.' },
+                { title: 'Collaboration included', body: 'Shared spaces with invite links. Several people edit, and every device lands on the same result, without you writing merge logic.' },
+                { title: 'Roles you design', body: 'Owner, moderator, guest, or whatever your app needs. Say what each role may do, and every device enforces it. There’s nothing to host.' },
+                { title: 'Queries you already know', body: 'Filters, sorting, paging and related records, in plain JSON. Results update live as changes arrive.' },
+              ]}
+            />
+            <Layer
+              name="Identity & auth"
+              {...toggle('Identity & auth')}
+              what='Accounts your users own. No password database for you to guard.'
+              parts={[
+                { title: 'No user table', body: 'Accounts aren’t stored with you. There’s no password database to protect, and nothing to leak.' },
+                { title: 'One account, every app', body: 'An account comes from a recovery code the person keeps. It works in every Weave app, and no company can shut it off.' },
+                { title: 'Everything is signed', body: 'Every change carries the signature of whoever made it, so you always know who did what, on any device, from any app.' },
+                { title: 'Familiar on the surface', body: 'Password managers, passkeys and QR codes. Your users never see the cryptography.' },
+              ]}
+            />
+            <Layer
+              name="Storage"
+              {...toggle('Storage')}
+              what='Data lives on your users’ devices, so your app is fast and works offline.'
+              parts={[
+                { title: 'Fast, because it’s local', body: 'Reads and writes happen on the device. No round trip to a server, no loading spinners.' },
+                { title: 'Offline by default', body: 'Your app keeps working on a plane, and catches up when it’s back online.' },
+                { title: 'One folder, every app', body: 'People can keep their data in a folder on their own computer. Every app they use, on any website, sees the same data.' },
+                { title: 'No database bill', body: 'You don’t store your users’ data, so more users don’t mean a bigger database.' },
+              ]}
+            />
+            <Layer
+              name="Privacy"
+              {...toggle('Privacy')}
+              what='End-to-end encrypted by default. You can’t leak what you never had.'
+              parts={[
+                { title: 'Encrypted on the device', body: 'Private data is encrypted before it leaves the device. Anything in between, relays or hosts, can’t read what’s inside.' },
+                { title: 'Less to be responsible for', body: 'Your users’ private data never sits on your servers, so there’s far less for you to secure.' },
+                { title: 'Sharing that stays private', body: 'An invite link carries its own key, so sharing a private space never goes through a server.' },
+              ]}
+            />
+            <Layer
+              name="Network & sync"
+              {...toggle('Network & sync')}
+              what='Devices sync directly. You don’t run the servers in between.'
+              parts={[
+                { title: 'Live, device to device', body: 'Changes go straight between devices and show up in real time.' },
+                { title: 'No servers to scale', body: 'Relays only help devices find each other, and data never passes through them. Anyone can run one, and apps can use several.' },
+                { title: 'Sends only what changed', body: 'However big a space gets, syncing costs about as much as the change itself.' },
+                { title: 'Online when devices sleep', body: 'An always-on node keeps data available while your users’ devices are off, without taking ownership of it.' },
+                { title: 'Nothing bad gets in', body: 'Every change is checked on arrival: who signed it, its shape, and whether they were allowed. The rest is dropped.' },
+              ]}
+            />
           </div>
         </div>
       </section>
@@ -481,10 +640,10 @@ export function Developers() {
 
           <div className="split">
             <div>
-              <h3>Rules every peer enforces</h3>
+              <h3>Roles and rules, enforced by every peer</h3>
               <p>
-                Say who may create, edit and delete a collection's records, what must be unique, and which fields are
-                fixed. There's no server to enforce it — every device does, when records arrive.
+                A space has its own roles, each with a rank and a list of what it may do. A collection says which
+                permission each action needs. There's no server to enforce it — every device does, when records arrive.
               </p>
               <p>
                 "One per" is by construction: the key is derived from what must be unique, so voting again changes your
@@ -492,10 +651,10 @@ export function Developers() {
               </p>
               <ul>
                 <li>
-                  <code>member</code>, <code>owner</code>, <code>creator</code>
+                  <code>member</code>, <code>creator</code>, or <code>can:</code> any permission you declare
                 </li>
                 <li>
-                  <code>node.records.can()</code> to hide what you can't do
+                  <code>rolePresets</code> to start from: <code>solo</code>, <code>team</code>, <code>community</code>
                 </li>
               </ul>
             </div>
@@ -540,6 +699,43 @@ export function Developers() {
         </div>
       </section>
 
+      <section className="band">
+        <div className="wrap">
+          <div className="section-head">
+            <div className="kicker">Compared</div>
+            <h2>Where Weave fits.</h2>
+            <p>
+              Other open protocols give people their data back too. They make different bets. Weave is for apps where data
+              is private, shared between a few people, and works offline.
+            </p>
+          </div>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th />
+                  {PROTOCOLS.map((name) => (
+                    <th key={name} scope="col">
+                      {name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {COMPARISON.map(([row, ...cells]) => (
+                  <tr key={row}>
+                    <th scope="row">{row}</th>
+                    {cells.map((cell, i) => (
+                      <td key={PROTOCOLS[i]}>{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section className="cta">
         <div className="wrap">
           <h2>Start with the example.</h2>
@@ -548,7 +744,7 @@ export function Developers() {
             <a href="/app" className="btn btn-primary">
               Open the example app
             </a>
-            <a href="/" className="btn btn-secondary">
+            <a href="/why" className="btn btn-secondary">
               Why Weave
             </a>
           </div>

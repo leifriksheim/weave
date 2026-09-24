@@ -21,7 +21,7 @@ export function InviteBanner({ onJoin }: { onJoin: (invite: string) => Promise<S
     const preview = previewInvite(node, invite);
     description = `“${preview.space.name}”`;
     detail = `${preview.space.visibility} · ${
-      preview.space.type === 'shared' ? (preview.carriesWrite ? 'shared' : 'shared, view only') : 'personal'
+      preview.carriesWrite ? `you join as ${preview.role ?? 'a member'}` : 'view only'
     } · invited by ${preview.invitedBy.slice(-6)}`;
   } catch {
     detail = 'This invite could not be read.';

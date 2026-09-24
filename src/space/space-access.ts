@@ -1,43 +1,36 @@
 /**
  * @module space-access
- * Who may write in a space, and who may read it — checkable by anyone,
- * without a secret.
+ * What a space is, fixed at creation — and the keys around it that anyone can
+ * check without holding a secret.
  *
- * A shared space has a **write secret**: 32 random bytes, handed out with a
- * full invite. It becomes a key pair, and every record written in the space
- * carries a second signature by it, over the record's id. The public half is
- * part of the space, so any peer, relay, mirror or host can check "the writer
- * was given the write key" while holding nothing secret itself.
+ * The space's **genesis** names its creator, its visibility, the roles it
+ * starts with and which of them the creator holds, and — for a private space —
+ * the public half of its read key. The space id is the genesis's hash. A space
+ * someone hands you — in an invite, from a host — either hashes to its id or
+ * is refused, so nobody can quietly change who started it or with which roles.
+ * Everything after that — new roles, members, invites — is records in the
+ * space's access history (`space/roles.ts`).
  *
- * A private space also has a **read key pair**, derived from its AES key, so
- * everyone who can read already has it. A node checks a connecting reader
- * against its public half — again, without the space key.
+ * A private space's **read key pair** is derived from its AES key, so everyone
+ * who can read already has it. A node checks a connecting reader against its
+ * public half — without the space key.
  *
- * Both public halves are in the space's **genesis**, and the space id is the
- * genesis's hash. A space someone hands you — in an invite, from a host —
- * either hashes to its id or is refused, so nobody can quietly change who owns
- * it, whether it is shared, or which key writes to it.
- *
- * Two choices worth knowing:
- *
- * - **The write secret is random, not derived from the AES key.** A public
- *   shared space has no AES key, and a view-only invite must carry the AES
- *   key without granting writes.
- * - **Every record is countersigned, rather than each member holding a grant
- *   signed once by the write key.** A grant would save a signature per record,
- *   but adds a new kind of thing to issue, store and carry — and a joiner would
- *   sign their own anyway, holding the key. One signature over the id keeps
- *   the verdict a matter of one record and the space, like every other rule.
+ * An **invite link** carries a random secret. Its public half is written into
+ * the space as an invite record, for one role. Whoever holds the secret joins
+ * by writing their own member record, signed a second time by the secret over
+ * the space and their identity — so the signature cannot be moved to anyone
+ * else, or another space. Deleting the invite record closes the link.
  */
-import type { CryptoProvider, Expression, Space } from '../types.js';
+import type { CryptoProvider, Space } from '../types.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
 import { canonicalize } from '../schema/expression.js';
-import { cidFromBytes } from '../utils/hash.js';
+import { cidFromBytes, sha256 } from '../utils/hash.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../identity/did.js';
+import { checkRole } from './roles.js';
 
-const WRITE_INFO = 'weave/space-write/v1';
 const READ_INFO = 'weave/space-read/v1';
+const INVITE_INFO = 'weave/space-invite/v1';
 
 /** A key pair belonging to a space, and its public half as a did:key */
 export interface SpaceKeyPair {
@@ -47,19 +40,19 @@ export interface SpaceKeyPair {
 
 /** What a space is, fixed at creation. Its hash is the space id. */
 export interface SpaceGenesis {
-  readonly v: 1;
-  readonly owner: string;
-  readonly type: Space['type'];
+  readonly v: 2;
+  readonly creator: string;
   readonly visibility: Space['visibility'];
+  readonly roles: Space['roles'];
+  readonly creatorRole: string;
   readonly createdAt: string;
   readonly nonce: string;
-  readonly writeKey?: string;
   readonly readKey?: string;
   readonly encryptionKeyId?: string;
 }
 
-/** A fresh write secret for a new shared space */
-export function generateWriteSecret(): Uint8Array {
+/** A fresh secret for an invite link */
+export function generateInviteSecret(): Uint8Array {
   return globalThis.crypto.getRandomValues(new Uint8Array(32));
 }
 
@@ -84,9 +77,9 @@ async function derivePair(secret: Uint8Array, info: string, provider: CryptoProv
   return Object.freeze({ did, privateKey: pair.privateKey });
 }
 
-/** The write key pair a write secret stands for */
-export function deriveWriteKey(writeSecret: Uint8Array, provider: CryptoProvider): Promise<SpaceKeyPair> {
-  return derivePair(writeSecret, WRITE_INFO, provider);
+/** The key pair an invite link's secret stands for */
+export function deriveInviteKey(secret: Uint8Array, provider: CryptoProvider): Promise<SpaceKeyPair> {
+  return derivePair(secret, INVITE_INFO, provider);
 }
 
 /** The read key pair of a private space, from its AES key */
@@ -96,15 +89,15 @@ export async function deriveReadKey(spaceKey: SpaceKey, provider: CryptoProvider
 }
 
 /** The fields of a space its id is made from */
-export function spaceGenesis(space: Omit<Space, 'id' | 'name' | 'members'>): SpaceGenesis {
+export function spaceGenesis(space: Omit<Space, 'id' | 'name'>): SpaceGenesis {
   return {
-    v: 1,
-    owner: space.owner,
-    type: space.type,
+    v: 2,
+    creator: space.creator,
     visibility: space.visibility,
+    roles: space.roles,
+    creatorRole: space.creatorRole,
     createdAt: space.createdAt,
     nonce: space.nonce,
-    ...(space.writeKey ? { writeKey: space.writeKey } : {}),
     ...(space.readKey ? { readKey: space.readKey } : {}),
     ...(space.encryptionKeyId ? { encryptionKeyId: space.encryptionKeyId } : {}),
   };
@@ -115,41 +108,66 @@ export function spaceIdOf(genesis: SpaceGenesis): Promise<string> {
   return cidFromBytes(utf8Encode(canonicalize(genesis)));
 }
 
+/** Why a set of starting roles cannot found a space, or null */
+export function checkStartingRoles(roles: unknown, creatorRole: unknown): string | null {
+  if (!Array.isArray(roles) || roles.length === 0 || roles.length > 64) return 'A space starts with 1–64 roles';
+  for (const role of roles) {
+    const problem = checkRole(role);
+    if (problem) return problem;
+  }
+  if (new Set(roles.map((role: { name: string }) => role.name)).size !== roles.length) return 'Two starting roles share a name';
+  if (!roles.some((role: { name: string }) => role.name === creatorRole)) return 'The creator\'s role is not one of the starting roles';
+  return null;
+}
+
 /**
  * Why a space someone handed over cannot be trusted, or null when it can:
  * its id must be its genesis's hash, and it must have the keys its kind needs.
  */
 export async function checkSpace(space: Space): Promise<string | null> {
-  if (typeof space?.id !== 'string' || typeof space.nonce !== 'string' || typeof space.owner !== 'string') {
+  if (typeof space?.id !== 'string' || typeof space.nonce !== 'string' || typeof space.creator !== 'string') {
     return 'It is missing what identifies it';
   }
-  if (space.type !== 'personal' && space.type !== 'shared') return 'Its type is not personal or shared';
   if (space.visibility !== 'public' && space.visibility !== 'private') return 'Its visibility is not public or private';
-  if (space.type === 'shared' && !space.writeKey) return 'A shared space must name its write key';
-  if (space.type === 'personal' && space.writeKey) return 'A personal space has no write key — only its owner writes';
+  const roles = checkStartingRoles(space.roles, space.creatorRole);
+  if (roles) return roles;
   if (space.visibility === 'private' && (!space.readKey || !space.encryptionKeyId)) return 'A private space must name its read key';
   if (space.visibility === 'public' && (space.readKey || space.encryptionKeyId)) return 'A public space has no read key';
   if ((await spaceIdOf(spaceGenesis(space))) !== space.id) return 'Its id does not match what it says about itself';
   return null;
 }
 
-const countersignLabel = (id: string) => utf8Encode(`${WRITE_INFO}|${id}`);
+// ─── Record keys in the access history ────────────────────────────────
+//
+// Record keys are lower case; DIDs and CIDs are not. So a key names a hash of
+// the thing, and the record's body names the thing itself.
 
-/** The write key's signature over a record's id — what `spaceSignature` holds */
-export async function countersign(id: string, writeKey: SpaceKeyPair, provider: CryptoProvider): Promise<string> {
-  return base64UrlEncode(await provider.sign(writeKey.privateKey, countersignLabel(id)));
+async function hashKey(prefix: string, value: string): Promise<string> {
+  const digest = await sha256(utf8Encode(value));
+  return `${prefix}:${Array.from(digest.subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
 }
 
-/**
- * Whether a record carries a valid signature by the space's write key.
- * @param expression The record; its id is trusted to match its content only once the crypto gate has said so
- * @param writeKey The space's public write key, from its genesis
- */
-export async function verifyCountersignature(expression: Expression, writeKey: string, provider: CryptoProvider): Promise<boolean> {
-  if (typeof expression.spaceSignature !== 'string') return false;
+/** The key of an account's member record */
+export const memberKey = (did: string) => hashKey('member', did);
+/** The key of an invite's record, from its public key */
+export const inviteKey = (inviteDid: string) => hashKey('invite', inviteDid);
+/** The key of the record revoking a note, from the note's CID */
+export const revokeKey = (noteCid: string) => hashKey('revoke', noteCid);
+/** The key of a role's record */
+export const roleKey = (name: string) => `role:${name}`;
+
+const inviteLabel = (spaceId: string, did: string) => utf8Encode(`${INVITE_INFO}|${spaceId}|${did}`);
+
+/** An invite key's signature, letting `did` join `spaceId` — what a member record carries when it joins by invite */
+export async function signInvite(spaceId: string, did: string, invite: SpaceKeyPair, provider: CryptoProvider): Promise<string> {
+  return base64UrlEncode(await provider.sign(invite.privateKey, inviteLabel(spaceId, did)));
+}
+
+/** Whether an invite key signed for `did` to join `spaceId` */
+export async function verifyInvite(spaceId: string, did: string, inviteDid: string, signature: string, provider: CryptoProvider): Promise<boolean> {
   try {
-    const publicKey = await provider.importPublicKey(didToPublicKey(writeKey).publicKeyBytes);
-    return await provider.verify(publicKey, base64UrlDecode(expression.spaceSignature), countersignLabel(expression.id));
+    const publicKey = await provider.importPublicKey(didToPublicKey(inviteDid).publicKeyBytes);
+    return await provider.verify(publicKey, base64UrlDecode(signature), inviteLabel(spaceId, did));
   } catch {
     return false;
   }

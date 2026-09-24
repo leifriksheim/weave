@@ -31,6 +31,7 @@ import type { RootSigner } from '../identity/root-signer.js';
 import { createNode } from '../node/node.js';
 import { indexedDBStores, type StoreFactory } from '../node/stores.js';
 import type { NewSpace, NodeNetworkConfig, P2PNode } from '../node/types.js';
+import { checkStartingRoles } from '../space/space-access.js';
 import type { KeyValueStore } from './stay-signed-in.js';
 
 /** Messages between an app and the home it opened */
@@ -385,6 +386,28 @@ function isRequest(value: unknown): value is ConnectRequest {
     typeof request.audience === 'string' &&
     request.audience.startsWith('did:key:') &&
     (request.access === 'read' || request.access === 'write') &&
-    (request.scope === undefined || request.scope === 'spaces' || request.scope === 'account')
+    (request.scope === undefined || request.scope === 'spaces' || request.scope === 'account') &&
+    (request.name === undefined || (typeof request.name === 'string' && request.name.length <= 80)) &&
+    (request.create === undefined || isNewSpaces(request.create))
+  );
+}
+
+/** At most this many spaces made for an app in one go */
+const MAX_CREATE = 8;
+
+/** Spaces an app asks to have made: few, named, with a visibility — the roles are checked when they are made */
+function isNewSpaces(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_CREATE &&
+    value.every(
+      (space: Partial<NewSpace> | null) =>
+        !!space &&
+        typeof space.name === 'string' &&
+        space.name.trim().length > 0 &&
+        space.name.length <= 80 &&
+        (space.visibility === 'private' || space.visibility === 'public') &&
+        (space.roles === undefined || checkStartingRoles(space.roles, space.creatorRole ?? [...space.roles].sort((a, b) => b.rank - a.rank)[0]?.name) === null),
+    )
   );
 }

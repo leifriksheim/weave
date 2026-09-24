@@ -24,8 +24,8 @@ export interface CreateExpressionParams<T> {
   };
   readonly retain?: boolean;
   readonly deleted?: boolean;
-  /** First versions only: the definition version this record is written under */
-  readonly def?: string;
+  /** The latest access changes the writer knew of */
+  readonly seen?: ReadonlyArray<string>;
   /** Links in the clear — public spaces only; a private space seals them in the body */
   readonly links?: ReadonlyArray<Link>;
 }
@@ -75,21 +75,21 @@ export function createExpression<T>(params: CreateExpressionParams<T>): Unsigned
     ...(params.version?.prev ? { prev: params.version.prev } : {}),
     ...(params.version?.genesis ? { genesis: params.version.genesis } : {}),
     ...(params.retain ? { retain: true as const } : {}),
-    ...(params.def ? { def: params.def } : {}),
+    ...(params.seen ? { seen: params.seen } : {}),
     ...(params.deleted ? { deleted: true as const } : {}),
     ...(params.links?.length ? { links: params.links } : {}),
   });
 }
 
 /**
- * What the author signed and the id hashes: everything but the id and the two
- * signatures. Both checks — id and signature — must drop exactly these, or a
+ * What the author signed and the id hashes: everything but the id and the
+ * signature. Both checks — id and signature — must drop exactly these, or a
  * field added later is hashed on one side and not the other.
  * @param expression A signed expression
  * @returns Its unsigned payload
  */
 export function signedPart<T>(expression: Expression<T>): UnsignedExpression<T> {
-  const { id: _id, signature: _signature, spaceSignature: _spaceSignature, ...payload } = expression;
+  const { id: _id, signature: _signature, ...payload } = expression;
   return payload as UnsignedExpression<T>;
 }
 

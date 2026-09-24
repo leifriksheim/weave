@@ -17,9 +17,11 @@ import { createExpression, type CreateExpressionParams } from '../src/schema/exp
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { encodeSyncMessage } from '../src/sync/sync-messages.js';
 import type { Expression } from '../src/types.js';
-import { asMember } from './helpers/as-member.js';
+import { seenBy } from './helpers/as-member.js';
+import { joined } from './helpers/joined.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { team } from '../src/space/presets.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -61,8 +63,8 @@ async function forge(who: Person, space: string, fields: Omit<CreateExpressionPa
     capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
     expiration: Math.floor(Date.now() / 1000) + 3600,
   });
-  const authored = await createSigner(provider).sign(createExpression({ ...fields, author: keyDid, space, proof: ucan.encoded }), pair.privateKey);
-  const signed = await asMember(who.stores, space, authored, provider);
+  const authored = await createSigner(provider).sign(createExpression({ seen: await seenBy(who.node, space), ...fields, author: keyDid, space, proof: ucan.encoded }), pair.privateKey);
+  const signed = authored;
   await createStorageProvider(await who.stores(`spaces/${space}`)).addExpression(signed);
   return signed;
 }
@@ -72,8 +74,10 @@ async function setup() {
   const hub = createFakeHub({ latencyMs: 1 });
   const alice = await person(hub);
   const bob = await person(hub);
-  const { id: space } = await alice.node.spaces.create({ name: 'Polls', type: 'shared', visibility: 'public' });
+  const { id: space } = await alice.node.spaces.create({ name: 'Polls', ...team, visibility: 'public' });
   await bob.node.spaces.join(await alice.node.spaces.invite(space));
+  await alice.node.spaces.open(space);
+  await joined(bob.node, space);
   await alice.node.collections.define(space, {
     name: 'app.poll',
     schema: { type: 'object' },
@@ -111,6 +115,7 @@ describe('attacks on a shared space', () => {
       collection: 'sys.collection',
       body: null,
       deleted: true,
+      retain: true,
       version: { key: 'collection:app.poll', seq: 50, prev: definition!.id, genesis: definition!.id },
     });
     await bob.node.spaces.open(space);

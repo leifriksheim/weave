@@ -1,16 +1,18 @@
 import { useState, type FormEvent } from 'react';
-import type { SpaceSummary, SpaceType, SpaceVisibility } from 'weave-protocol';
+import type { SpaceSummary, SpaceVisibility } from 'weave-protocol';
 import type { NewSpace } from 'weave-protocol';
+import { rolePresets } from 'weave-protocol';
 import { Modal, Choice } from './Modal';
 import { Info } from './Info';
 import { styles, palette } from '../styles';
 
-/** How a space is described once it exists. */
-export function spaceBadges(space: Pick<SpaceSummary, 'type' | 'visibility'>): string {
-  return `${space.visibility === 'private' ? 'private' : 'public'} · ${
-    space.type === 'shared' ? 'shared' : 'personal'
-  }`;
+/** How a space is described once it exists: who can read it, and what you are in it. */
+export function spaceBadges(space: Pick<SpaceSummary, 'visibility' | 'role' | 'joining'>): string {
+  return `${space.visibility === 'private' ? 'private' : 'public'} · ${space.joining ? 'joining…' : (space.role ?? 'following')}`;
 }
+
+/** Who can write, as the new-space dialog offers it: presets, not protocol */
+type Writers = 'solo' | 'team';
 
 /** A small deterministic hash, so a space keeps its colour everywhere it appears. */
 function hue(text: string): number {
@@ -61,8 +63,8 @@ export function SpaceMark({ space, size = 40 }: { space: Pick<SpaceSummary, 'id'
  * their head from labels alone, and the consequences are worth being sure of
  * before there is data in one.
  */
-function describe(type: SpaceType, visibility: SpaceVisibility): string {
-  if (type === 'personal') {
+function describe(type: Writers, visibility: SpaceVisibility): string {
+  if (type === 'solo') {
     return visibility === 'private'
       ? 'Encrypted, and only your key can write to it.'
       : 'Anyone you hand it to can read it. Only you can write.';
@@ -106,8 +108,7 @@ export function SpaceList({
                     {space.name}
                   </span>
                   <span style={{ ...styles.todoMeta, marginTop: 0 }}>
-                    {spaceBadges(space)} · {space.members.length}{' '}
-                    {space.members.length === 1 ? 'member' : 'members'}
+                    {spaceBadges(space)}
                   </span>
                 </span>
               </button>
@@ -203,7 +204,7 @@ export function SpaceDialog({
 }) {
   const [mode, setMode] = useState(initial);
   const [name, setName] = useState('');
-  const [type, setType] = useState<SpaceType>('personal');
+  const [type, setType] = useState<Writers>('solo');
   const [visibility, setVisibility] = useState<SpaceVisibility>('private');
   const [invite, setInvite] = useState('');
 
@@ -211,7 +212,7 @@ export function SpaceDialog({
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    onCreate({ name: trimmed, type, visibility });
+    onCreate({ name: trimmed, visibility, ...rolePresets[type] });
     onClose();
   };
 
@@ -281,8 +282,8 @@ export function SpaceDialog({
           value={type}
           onChange={setType}
           options={[
-            { value: 'personal', label: 'Just me' },
-            { value: 'shared', label: 'People I invite' },
+            { value: 'solo', label: 'Just me' },
+            { value: 'team', label: 'People I invite' },
           ]}
         />
 

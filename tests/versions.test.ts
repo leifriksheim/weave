@@ -20,6 +20,7 @@ import type { Expression } from '../src/types.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createFakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { team } from '../src/space/presets.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -195,7 +196,7 @@ describe('versioned records through the node', () => {
 
   test('an edit keeps the key and advances the version', async () => {
     const me = await person();
-    const { id: space } = await me.spaces.create({ name: 'Todos', type: 'personal', visibility: 'private' });
+    const { id: space } = await me.spaces.create({ name: 'Todos', visibility: 'private' });
     const made = await me.records.put(space, 'app.todo.item', { text: 'milk', done: false });
     const ticked = await me.records.update(space, made.key, { text: 'milk', done: true });
 
@@ -210,7 +211,7 @@ describe('versioned records through the node', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub);
     const bob = await person(hub);
-    const { id: space } = await alice.spaces.create({ name: 'Shared', type: 'shared', visibility: 'private' });
+    const { id: space } = await alice.spaces.create({ name: 'Shared', ...team, visibility: 'private' });
     await bob.spaces.join(await alice.spaces.invite(space));
     const made = await alice.records.put(space, 'app.todo.item', { text: 'milk', done: false });
     await bob.spaces.open(space);
@@ -232,7 +233,7 @@ describe('versioned records through the node', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub);
     const bob = await person(hub);
-    const { id: space } = await alice.spaces.create({ name: 'Ledger', type: 'shared', visibility: 'public' });
+    const { id: space } = await alice.spaces.create({ name: 'Ledger', ...team, visibility: 'public' });
     await alice.collections.define(space, { name: 'app.ledger.entry', schema: { type: 'object' }, history: 'all' });
 
     const made = await alice.records.put(space, 'app.ledger.entry', { amount: 1 });
@@ -247,7 +248,7 @@ describe('versioned records through the node', () => {
 
   test('a deleted key can be written again, and comes back as its next version', async () => {
     const me = await person();
-    const { id: space } = await me.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
+    const { id: space } = await me.spaces.create({ name: 'Todos', visibility: 'public' });
     const made = await me.records.put(space, 'app.note', { text: 'first' }, { key: 'pinned' });
     await me.records.delete(space, 'pinned');
     assert.equal(await me.records.get(space, 'pinned'), null);

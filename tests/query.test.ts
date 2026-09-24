@@ -92,7 +92,7 @@ describe('queries on a node', () => {
   }
 
   async function todos(node: P2PNode, visibility: 'public' | 'private' = 'private') {
-    const { id: space } = await node.spaces.create({ name: 'Todos', type: 'personal', visibility });
+    const { id: space } = await node.spaces.create({ name: 'Todos', visibility });
     const items = [];
     for (const [i, text] of ['milk', 'bread', 'eggs', 'coffee', 'tea'].entries()) {
       items.push(await node.records.put(space, 'app.todo.item', { text, done: i % 2 === 1, rank: 5 - i }, { key: `todo-${i}` }));

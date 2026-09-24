@@ -19,6 +19,15 @@ export function Settings() {
   const hasPasskey = (state.entry?.shortcuts.length ?? 0) > 0;
   const connections = auth.connections();
   const place = state.place;
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const disconnect = async (origin: string) => {
+    setDisconnecting(origin);
+    try {
+      await auth.disconnect(origin);
+    } finally {
+      setDisconnecting(null);
+    }
+  };
 
   const choose = async (choice: StaySignedIn) => {
     setStay(choice);
@@ -37,15 +46,15 @@ export function Settings() {
         {connections.length === 0 && <Row label="No apps yet.">{null}</Row>}
         {connections.map((app) => (
           <Row key={app.origin} label={describeConnection(app)}>
-            <button onClick={() => auth.disconnect(app.origin)} data-variant="quiet" style={styles.smallButton}>
-              Disconnect
+            <button onClick={() => void disconnect(app.origin)} disabled={disconnecting !== null} data-variant="quiet" style={styles.smallButton}>
+              {disconnecting === app.origin ? 'Disconnecting…' : 'Disconnect'}
             </button>
           </Row>
         ))}
         {connections.length > 0 && (
           <p style={styles.errorHint}>
-            Disconnecting stops this home renewing the app's access. What it was given keeps working until it runs out — and it can
-            still read a private space it was given, since that space's key cannot be changed yet.
+            Disconnecting stops the app's changes counting from now on, in every space, as soon as the people there hear of it. What it
+            already wrote stays. It can still read a private space it was given, since that space's key cannot be changed yet.
           </p>
         )}
       </Section>

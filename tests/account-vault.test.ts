@@ -35,6 +35,7 @@ import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { generateSeed, seedToRecoveryCode, recoveryCodeToSeed } from '../src/identity/recovery-code.js';
 import { utf8Encode, utf8Decode } from '../src/utils/encoding.js';
 import { isProtocolError } from '../src/utils/errors.js';
+import { team } from '../src/space/presets.js';
 
 const manager = createIdentityManager();
 
@@ -240,9 +241,8 @@ describe('encryption at rest', () => {
 
     const { space } = await spaces.create({
       name: 'Grocery list',
-      type: 'personal',
       visibility: 'private',
-      owner: 'did:key:zowner',
+      creator: 'did:key:zowner',
     });
 
     // Through the adapter: ordinary reads.
@@ -265,9 +265,8 @@ describe('encryption at rest', () => {
     );
     const { space } = await spaces.create({
       name: 'Private',
-      type: 'personal',
       visibility: 'private',
-      owner: 'did:key:zowner',
+      creator: 'did:key:zowner',
     });
 
     const stranger = createSpaceManager(
@@ -296,14 +295,16 @@ describe('encryption at rest', () => {
     await assert.rejects(() => adapter.get('space:planted'));
   });
 
-  test('a shared space\'s write secret is sealed too', async () => {
+  test('an invite secret waiting to be used is sealed too', async () => {
     const inner = createMemoryAdapter();
     const spaces = createSpaceManager(createEncryptedAdapter(inner, await deriveVaultKey(generateSeed())));
-    await spaces.create({ name: 'Team', type: 'shared', visibility: 'private', owner: 'did:key:zowner' });
+    const other = createSpaceManager(createMemoryAdapter());
+    const made = await other.create({ name: 'Team', ...team, visibility: 'private', creator: 'did:key:zowner' });
+    await spaces.join(await other.createInvite(made.space.id, 'did:key:zowner', { secret: crypto.getRandomValues(new Uint8Array(32)), role: 'editor' }));
 
     const entries = await inner.list();
-    const writes = entries.filter((key) => key.startsWith('spacewrite:'));
-    assert.equal(writes.length, 1);
+    const waiting = entries.filter((key) => key.startsWith('spaceinvite:'));
+    assert.equal(waiting.length, 1);
     // Every registry entry underneath is ciphertext, whatever its prefix.
     for (const key of entries.filter((key) => key.startsWith('space'))) {
       const raw = (await inner.get(key))!;

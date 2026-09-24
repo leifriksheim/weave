@@ -3,7 +3,6 @@ import { CryptoGate, GateResult } from './crypto-gate.js';
 import { StructuralGate } from './structural-gate.js';
 import { StatefulGate } from './stateful-gate.js';
 import { CapabilityGate } from './capability-gate.js';
-import { SpaceGate } from './space-gate.js';
 
 export interface ValidationEngineConfig {
   readonly cryptoGate: CryptoGate;
@@ -11,8 +10,6 @@ export interface ValidationEngineConfig {
   readonly statefulGate: StatefulGate;
   /** Optional authorization gate — checks the author's UCAN chain */
   readonly capabilityGate?: CapabilityGate;
-  /** Optional membership gate — a shared space's write key must have countersigned */
-  readonly spaceGate?: SpaceGate;
   readonly resolvePublicKey: (did: string) => Promise<CryptoKey>;
   readonly getExpression: (id: string) => Promise<Expression | null>;
 }
@@ -32,7 +29,7 @@ export interface ValidationEngine {
  * @returns A ValidationEngine instance.
  */
 export function createValidationEngine(config: ValidationEngineConfig): ValidationEngine {
-  const { cryptoGate, structuralGate, statefulGate, capabilityGate, spaceGate, resolvePublicKey, getExpression } = config;
+  const { cryptoGate, structuralGate, statefulGate, capabilityGate, resolvePublicKey, getExpression } = config;
 
   return {
     async validate(expression: Expression): Promise<ValidationResult> {
@@ -47,13 +44,6 @@ export function createValidationEngine(config: ValidationEngineConfig): Validati
       const cryptoRes = await cryptoGate.validate(expression, resolvePublicKey);
       gates.push(cryptoRes);
       if (!cryptoRes.passed) return { valid: false, gates };
-
-      // Then: was it written by someone given this space's write key?
-      if (spaceGate) {
-        const spaceRes = await spaceGate.validate(expression);
-        gates.push(spaceRes);
-        if (!spaceRes.passed) return { valid: false, gates };
-      }
 
       // 3. Capability Gate — who signed it is settled, now: were they allowed to?
       if (capabilityGate) {

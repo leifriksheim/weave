@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNode, useAccount } from 'weave-protocol/react';
+import { useCan, useNode } from 'weave-protocol/react';
 import type { NodeRecord, SpaceSummary } from 'weave-protocol';
 import { tag } from 'weave-protocol/schemas';
 import { palette } from '../../styles';
@@ -14,7 +14,6 @@ export const labelOf = (r: NodeRecord) => (r.body as { label?: string } | null)?
  */
 export function Tags({ space, target, tags }: { space: SpaceSummary; target: string; tags: ReadonlyArray<NodeRecord> }) {
   const node = useNode();
-  const { did: rootDid } = useAccount();
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
   const labels = new Set(tags.map(labelOf));
@@ -30,15 +29,7 @@ export function Tags({ space, target, tags }: { space: SpaceSummary; target: str
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }} aria-label="Tags">
       {tags.map((t) => (
-        <span key={t.key} style={chip}>
-          #{labelOf(t)}
-          {/* Yours to remove — or anyone's, if the space is yours. */}
-          {space.writable && (t.root === rootDid || space.owner === rootDid) && (
-            <button onClick={() => void node.records.delete(space.id, t.key)} aria-label={`Remove tag ${labelOf(t)}`} style={{ border: 'none', background: 'none', padding: 0, color: palette.ink.faint, fontSize: 12 }}>
-              ✕
-            </button>
-          )}
-        </span>
+        <TagChip key={t.key} space={space} tag={t} />
       ))}
       {space.writable &&
         (adding ? (
@@ -79,3 +70,19 @@ export const chip = {
   color: palette.ink.body,
   fontSize: 12,
 };
+
+/** One tag. Yours to remove — or anyone's, if your role here may moderate tags: the rules say, not this. */
+function TagChip({ space, tag: t }: { space: SpaceSummary; tag: NodeRecord }) {
+  const node = useNode();
+  const mayRemove = useCan(space.id, 'delete', t.key);
+  return (
+    <span style={chip}>
+      #{labelOf(t)}
+      {mayRemove && (
+        <button onClick={() => void node.records.delete(space.id, t.key)} aria-label={`Remove tag ${labelOf(t)}`} style={{ border: 'none', background: 'none', padding: 0, color: palette.ink.faint, fontSize: 12 }}>
+          ✕
+        </button>
+      )}
+    </span>
+  );
+}

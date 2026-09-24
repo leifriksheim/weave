@@ -10,23 +10,28 @@
  * next version — same key, `seq` one higher, `prev` naming the one replaced —
  * and deleting it writes a version marked deleted. Which version is current is
  * decided by `seq` and id alone (`records/version.ts`), never by a clock, so
- * every node agrees and nothing replayed can roll a record back. Who may write a
- * version is the space's rule: its owner in a personal space, anyone given the
- * write key in a shared one — so members of a shared list tick and remove each
- * other's items, and a stranger who learns the space's id cannot.
+ * every node agrees and nothing replayed can roll a record back.
+ *
+ * **Who may write is the space's access history** (`space/roles.ts`): roles,
+ * members, invites, revoked notes and collection definitions, as records every
+ * version points into with `seen`. A version stands when its author held what
+ * its collection's rules ask, as of what it saw, and nothing it had not seen
+ * took that away. A version that stops standing — its author was removed, and
+ * the remover never saw it — is passed over when reading, and the version
+ * before it counts again, where the store still has one.
  */
 import type { Expression, CryptoProvider, StorageAdapter } from '../types.js';
 import type { Signer } from '../schema/signer.js';
 import { createSchemaEngine, type SchemaEngine } from '../schema/schema-engine.js';
 import type { SpaceRecord } from '../space/space-manager.js';
 import type { Capability } from '../identity/ucan.js';
-import { resolveDelegationRoot } from '../identity/ucan.js';
+import { parseUCAN, resolveDelegationRoot } from '../identity/ucan.js';
 import { didToPublicKey } from '../identity/did.js';
 import { createExpression } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
 import { newRecordKey, nextVersion, RECORD_KEY_PATTERN } from '../records/version.js';
 import { checkLinks } from '../records/links.js';
-import { allows, changedFixedField, describeWho, onePerKey, type CollectionRules } from '../records/rules.js';
+import { allows, changedFixedField, describeWho, onePerKey, permissionName, type CollectionRules } from '../records/rules.js';
 import type { Link } from '../types.js';
 import { reconcileFolder } from '../storage/folder-reconcile.js';
 import type { FolderAdapter } from '../storage/folder-adapter.js';
@@ -39,8 +44,34 @@ import { encryptExpression, decryptExpression, type EncryptedExpression } from '
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
 import { createWebSocketTransport } from '../network/ws-transport.js';
 import { createClientAuth, createMeshAuth } from '../network/peer-auth.js';
-import { countersign, deriveReadKey, deriveWriteKey } from '../space/space-access.js';
-import { createSpaceGate } from '../validation/space-gate.js';
+import {
+  deriveInviteKey,
+  deriveReadKey,
+  generateInviteSecret,
+  inviteKey as inviteRecordKey,
+  memberKey,
+  revokeKey,
+  roleKey,
+  signInvite,
+  verifyInvite,
+} from '../space/space-access.js';
+import {
+  ACCESS_COLLECTIONS,
+  DEFINITION_COLLECTION,
+  INVITE_COLLECTION,
+  MEMBER_COLLECTION,
+  REVOKE_COLLECTION,
+  ROLE_COLLECTION,
+  checkRole,
+  replayAccess,
+  roleHolds,
+  standing,
+  type AccessEvent,
+  type AccessGenesis,
+  type AccessHistory,
+  type AccessState,
+  type Role,
+} from '../space/roles.js';
 import { createSyncEngine } from '../sync/sync-engine.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { StoreFactory } from './stores.js';
@@ -52,7 +83,8 @@ import {
   type StoredCollection,
 } from '../schema/collection-def.js';
 import { MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
-import { base32Encode, sha256 } from '../utils/hash.js';
+import { base32Encode, cidFromBytes, sha256 } from '../utils/hash.js';
+import { utf8Encode } from '../utils/encoding.js';
 import type {
   ConnectionState,
   DefineCollection,
@@ -61,12 +93,33 @@ import type {
   NodeEvent,
   NodeNetworkConfig,
   NodeRecord,
+  SpaceAccess,
   SpaceProfile,
   SpaceStatus,
 } from './types.js';
 
 /** Collections the node writes itself, through their own calls — never through `put` */
-const MANAGED = new Set([CATALOG_COLLECTION, MEMBERSHIP_COLLECTION, PROFILE_COLLECTION]);
+const MANAGED = new Set([MEMBERSHIP_COLLECTION, PROFILE_COLLECTION, ...ACCESS_COLLECTIONS]);
+
+/**
+ * Access records a peer without the space key must still be able to judge:
+ * who holds which role decides every write. Kept in the clear, even in a
+ * private space. Collection definitions stay sealed — a peer that cannot
+ * read the records has no use for their rules.
+ */
+const IN_THE_CLEAR = new Set([ROLE_COLLECTION, MEMBER_COLLECTION, INVITE_COLLECTION, REVOKE_COLLECTION]);
+
+/** Which collection each access record key belongs to */
+const ACCESS_KEYS: ReadonlyArray<readonly [string, string]> = [
+  ['role:', ROLE_COLLECTION],
+  ['member:', MEMBER_COLLECTION],
+  ['invite:', INVITE_COLLECTION],
+  ['revoke:', REVOKE_COLLECTION],
+  ['collection:', DEFINITION_COLLECTION],
+];
+
+/** How many records a keep list may name */
+const MAX_KEEP = 10_000;
 
 /**
  * The key of a person's profile record in a space: one per identity, named by
@@ -92,6 +145,9 @@ export const writeCapability = (spaceId: string): Capability => ({
   can: 'expression/write',
 });
 
+/** The CID a note is known by — what a revoke names */
+export const noteCid = (encoded: string) => cidFromBytes(utf8Encode(encoded));
+
 /** The key that signs, and the delegation that lets it */
 export interface ActiveSession {
   readonly did: string;
@@ -112,6 +168,10 @@ export interface SpaceRuntimeDeps {
   readonly network?: NodeNetworkConfig;
   readonly watchIntervalMs: number;
   readonly emit: (event: NodeEvent) => void;
+  /** Told the role this account holds whenever the access history says something new */
+  readonly onRole?: (role: string | null) => void;
+  /** Told once an invite's secret has been used, and can be forgotten */
+  readonly onJoined?: () => void;
 }
 
 export interface SpaceRuntime {
@@ -134,6 +194,22 @@ export interface SpaceRuntime {
   publishProfile(profile: { name: string }): Promise<void>;
   collections(): Promise<ReadonlyArray<NodeCollection>>;
   define(definition: DefineCollection): Promise<NodeCollection>;
+  /** Roles, members and invites as the access history says now, and this account's own role */
+  access(): Promise<SpaceAccess>;
+  /** Gives someone a role, changes it, or — with null — takes it away */
+  setMember(did: string, role: string | null): Promise<void>;
+  /** Adds or changes a role */
+  putRole(role: Role): Promise<void>;
+  /** Removes a role; whoever held it holds nothing */
+  removeRole(name: string): Promise<void>;
+  /** Opens an invite for a role. The secret goes in the link, and nowhere else. */
+  openInvite(role: string): Promise<{ readonly secret: Uint8Array; readonly key: string }>;
+  /** Closes an invite; who joined with it and was seen joining stays */
+  closeInvite(inviteDid: string): Promise<void>;
+  /** Revokes a note this account signed: nothing written under it counts from now, except what was seen */
+  revoke(token: string): Promise<void>;
+  /** Uses an invite's secret, once its record has arrived. True when this account is a member. */
+  join(secret: Uint8Array): Promise<boolean>;
   status(): Promise<SpaceStatus>;
   close(): Promise<void>;
 }
@@ -144,6 +220,9 @@ interface Verdict {
   readonly reason?: string;
 }
 
+type Standing = { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly later?: boolean };
+const STANDS: Standing = { ok: true };
+
 function looksEncrypted(body: unknown): boolean {
   const envelope = body as Record<string, unknown> | null;
   return typeof envelope?.ciphertext === 'string' && typeof envelope?.iv === 'string';
@@ -153,15 +232,15 @@ function isFolderAdapter(adapter: StorageAdapter): adapter is FolderAdapter {
   return typeof (adapter as FolderAdapter).reload === 'function';
 }
 
+const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === 'string');
+
 export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRuntime> {
   const { record, provider, signer, schemas, session, emit } = deps;
-  const { space, key, writeSecret } = record;
+  const { space, key } = record;
+  /** An invite waiting to be used — forgotten here once it is, whatever the stored record still says */
+  let waitingInvite = record.invite !== null;
 
   const adapter = await deps.stores(`spaces/${space.id}`);
-  /** Countersigns every record written here — held only by those given a full invite to a shared space */
-  const writeKey = writeSecret ? await deriveWriteKey(writeSecret, provider) : null;
-  /** A personal space takes writes from its owner alone; a shared one from whoever holds its write key. */
-  const writable = space.type === 'personal' ? deps.rootDid === space.owner : writeKey !== null;
   const storage: StorageProvider = createStorageProvider(adapter);
 
   const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
@@ -174,28 +253,22 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     // record is written here, and reported as `conforms` when it is read.
     structuralGate: createStructuralGate(createSchemaEngine(), { allowUnknownCollections: true }),
     statefulGate: createStatefulGate(),
-    // A shared space's records must carry its write key's signature. Checked
-    // against the public half the space names, so no secret is needed here.
-    spaceGate: createSpaceGate({ provider, writeKey: space.type === 'shared' ? (space.writeKey ?? '') : null }),
-    capabilityGate: createCapabilityGate({
-      provider,
-      requiredCapability: () => writeCapability(space.id),
-      // A personal space takes writes from its owner alone. In a shared one,
-      // the space gate above has already asked for the write key.
-      ...(space.type === 'personal' ? { isTrustedRoot: (root: string) => root === space.owner } : {}),
-    }),
+    // The note behind a key must cover this space. Whether its account may
+    // write here is the access history's question, asked below.
+    capabilityGate: createCapabilityGate({ provider, requiredCapability: () => writeCapability(space.id) }),
     resolvePublicKey,
     getExpression: (id) => storage.getExpression(id),
   });
 
-  // A version never changes, so a verdict on it holds forever. Keyed on the id
-  // *and* both signatures: the id covers neither, so a copy with a broken
+  // A signature never changes, so a verdict on one holds forever. Keyed on the
+  // id *and* the signature: the id does not cover it, so a copy with a broken
   // signature shares the genuine one's id. Only passes are kept — a failure
   // remembered by id would let anyone who sends a mangled copy first get the
   // real record refused; and failures are what a stranger can mint for free.
   const verdicts = new Map<string, Verdict>();
-  const verdictKey = (e: Expression) => `${e.id}|${e.signature}|${e.spaceSignature ?? ''}`;
+  const verdictKey = (e: Expression) => `${e.id}|${e.signature}`;
 
+  /** Whether a version is signed, and by a key whose note covers this space — and which account that is */
   async function judge(expression: Expression): Promise<Verdict> {
     const cached = verdicts.get(verdictKey(expression));
     if (cached) return cached;
@@ -256,18 +329,318 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return !genesis || genesis.collection === version.collection;
   }
 
+  // ─── The access history ────────────────────────────────────────────
+  //
+  // Every version in the access collections, kept whole (`retain`), turned
+  // into plain events and replayed. Rebuilt when records change; everything
+  // about who may do what is read from the replay.
+
+  const accessGenesis: AccessGenesis = {
+    id: space.id,
+    creator: space.creator,
+    roles: space.roles,
+    creatorRole: space.creatorRole,
+  };
+
+  /** Events, by version id — building one checks signatures and invites, so they are kept */
+  const events = new Map<string, AccessEvent | null>();
+
+  async function toEvent(version: Expression): Promise<AccessEvent | null> {
+    const cacheKey = `${version.id}|${version.signature}`;
+    if (events.has(cacheKey)) return events.get(cacheKey)!;
+    const event = await buildEvent(version);
+    // A failed signature is what a stranger can mint for free; only settled answers from a valid one are kept.
+    if (event || (await judge(version)).verified) events.set(cacheKey, event);
+    return event;
+  }
+
+  async function buildEvent(version: Expression): Promise<AccessEvent | null> {
+    if (!ACCESS_COLLECTIONS.has(version.collection) || !version.retain) return null;
+    const verdict = await judge(version);
+    if (!verdict.verified || !verdict.root) return null;
+    const seen = version.seen ?? [];
+    const base = { id: version.id, key: version.key, root: verdict.root, seen };
+
+    if (version.collection === DEFINITION_COLLECTION) {
+      if (!version.key.startsWith('collection:')) return null;
+      return { ...base, keep: [], kind: 'definition', name: version.key.slice('collection:'.length), deleted: !!version.deleted };
+    }
+    // Everything else in the history is taken away by a change, never deleted: a delete has no body to carry a keep list.
+    if (version.deleted || looksEncrypted(version.body)) return null;
+    const body = version.body as Record<string, unknown> | null;
+    if (!body || typeof body !== 'object') return null;
+    const keep = isStringList(body.keep) ? body.keep.slice(0, MAX_KEEP) : [];
+
+    switch (version.collection) {
+      case ROLE_COLLECTION: {
+        const name = typeof body.name === 'string' ? body.name : '';
+        if (version.key !== roleKey(name)) return null;
+        if (body.removed === true) return { ...base, keep, kind: 'role', name, role: null };
+        const role: Role = {
+          name,
+          ...(typeof body.title === 'string' ? { title: body.title } : {}),
+          rank: body.rank as number,
+          permissions: body.permissions as string[],
+        };
+        return checkRole(role) ? null : { ...base, keep, kind: 'role', name, role };
+      }
+      case MEMBER_COLLECTION: {
+        const did = body.did;
+        const role = body.role;
+        if (typeof did !== 'string' || !(role === null || typeof role === 'string')) return null;
+        if (version.key !== (await memberKey(did))) return null;
+        const invite = body.invite as { key?: unknown; signature?: unknown } | undefined;
+        let viaInvite: string | undefined;
+        if (invite !== undefined) {
+          if (typeof invite?.key !== 'string' || typeof invite.signature !== 'string') return null;
+          if (!(await verifyInvite(space.id, did, invite.key, invite.signature, provider))) return null;
+          viaInvite = invite.key;
+        }
+        return { ...base, keep, kind: 'member', did, role, ...(viaInvite !== undefined ? { viaInvite } : {}) };
+      }
+      case INVITE_COLLECTION: {
+        const inviteDid = body.key;
+        if (typeof inviteDid !== 'string' || typeof body.role !== 'string' || typeof body.open !== 'boolean') return null;
+        if (version.key !== (await inviteRecordKey(inviteDid))) return null;
+        return { ...base, keep, kind: 'invite', inviteKey: inviteDid, role: body.role, open: body.open };
+      }
+      case REVOKE_COLLECTION: {
+        if (typeof body.note !== 'string') return null;
+        let issuer: string;
+        try {
+          issuer = parseUCAN(body.note).payload.iss;
+        } catch {
+          return null;
+        }
+        const note = await noteCid(body.note);
+        if (version.key !== (await revokeKey(note))) return null;
+        return { ...base, keep, kind: 'revoke', note, issuer };
+      }
+    }
+    return null;
+  }
+
+  interface Access {
+    readonly history: AccessHistory;
+    readonly events: ReadonlyArray<AccessEvent>;
+  }
+  let accessCache: Promise<Access> | null = null;
+  const access = () => (accessCache ??= loadAccess());
+
+  async function loadAccess(): Promise<Access> {
+    const found: AccessEvent[] = [];
+    // By key, not by the current version's collection: whatever sits on top
+    // may be anyone's, and every version of the history counts.
+    for (const version of await storage.listCurrent()) {
+      const kind = ACCESS_KEYS.find(([prefix]) => version.key.startsWith(prefix));
+      if (!kind) continue;
+      for (const held of await storage.history(version.key)) {
+        if (held.collection !== kind[1]) continue;
+        const event = await toEvent(held);
+        if (event) found.push(event);
+      }
+    }
+    const history = replayAccess(accessGenesis, found);
+    reportRole(history.current);
+    return { history, events: found };
+  }
+
+  let reportedRole: string | null | undefined;
+  function reportRole(state: AccessState): void {
+    const role = standing(state, deps.rootDid)?.name ?? null;
+    if (role === reportedRole) return;
+    reportedRole = role;
+    deps.onRole?.(role);
+  }
+
+  /** The note a version was written under, when it was delegated */
+  const noteOf = async (expression: Expression) => (expression.proof ? noteCid(expression.proof) : undefined);
+
+  // ─── Rules ─────────────────────────────────────────────────────────
+  //
+  // A version is judged by the definition in force as of the access changes
+  // it saw — the same on every peer, since everyone replays the same history.
+  // A definition a peer cannot read (a private space, no key) cannot be
+  // judged by; members judge instead.
+
+  type Definition = { readonly definition: StoredCollection } | 'missing' | 'unreadable' | 'invalid';
+  const definitions = new Map<string, Promise<Definition>>();
+
+  /** The definition held in one version of `sys.collection` */
+  function definitionIn(id: string): Promise<Definition> {
+    let found = definitions.get(id);
+    if (!found) {
+      found = (async (): Promise<Definition> => {
+        const version = await storage.getExpression(id);
+        if (!version) return 'missing';
+        if (version.collection !== CATALOG_COLLECTION || version.deleted) return 'invalid';
+        const opened = await openBody(version);
+        if (opened.body === null) return 'unreadable';
+        const definition = opened.body as StoredCollection;
+        if (checkStoredCollection(definition) !== null || version.key !== `collection:${definition.name}`) return 'invalid';
+        return { definition };
+      })();
+      definitions.set(id, found);
+      // Something missing may turn up; only settled answers are worth keeping.
+      void found.then((answer) => answer === 'missing' && definitions.delete(id));
+    }
+    return found;
+  }
+
+  /** The rules in force for a collection in one state of the history — null when there are none to judge by */
+  async function rulesAt(state: AccessState, collection: string): Promise<{ rules: CollectionRules } | null> {
+    if (collection.startsWith('sys.')) return null;
+    const entry = state.definitions.get(collection);
+    if (!entry) return null;
+    const found = await definitionIn(entry.event);
+    return typeof found === 'string' ? null : { rules: found.definition.rules ?? {} };
+  }
+
+  const standings = new Map<string, Promise<Standing>>();
+
+  /**
+   * Whether a version stands: signed, in this space, consistent with its first
+   * version, and — by the access history — written by someone allowed to.
+   * The same verdict for a version from a peer, from a folder, or written
+   * here, and for one read back later.
+   */
+  function standingOf(expression: Expression): Promise<Standing> {
+    const cacheKey = verdictKey(expression);
+    let found = standings.get(cacheKey);
+    if (!found) {
+      found = judgeStanding(expression);
+      standings.set(cacheKey, found);
+    }
+    return found;
+  }
+
+  async function judgeStanding(expression: Expression): Promise<Standing> {
+    // A version may only claim the space it actually sits in.
+    if (expression.space !== space.id) return { ok: false, reason: 'It belongs to a different space' };
+    const verdict = await judge(expression);
+    if (!verdict.verified || !verdict.root) return { ok: false, reason: verdict.reason ?? 'Its signature does not check out' };
+    const { history } = await access();
+
+    if (ACCESS_COLLECTIONS.has(expression.collection)) {
+      const event = await toEvent(expression);
+      if (!event) return { ok: false, reason: 'It is not a well-formed change to who may do what' };
+      const status = history.status(event.id);
+      if (!status || status.status === 'waiting') return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+      return status.status === 'applied' ? STANDS : { ok: false, reason: status.reason };
+    }
+
+    const first = expression.seq === 0 ? expression : expression.genesis ? await storage.getExpression(expression.genesis) : null;
+    if (!first) return { ok: false, reason: 'Its first version has not arrived yet', later: true };
+    if (!firstOf(expression, first)) return { ok: false, reason: 'The first version it names is not this record\'s' };
+
+    const seen = expression.seen ?? [];
+    const state = history.at(seen);
+    if (!state) return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+
+    const root = verdict.root;
+    const found = await rulesAt(state, expression.collection);
+    const rules = found?.rules;
+    const action = expression.seq === 0 ? 'create' : expression.deleted ? 'delete' : 'edit';
+    const who = !rules ? undefined : action === 'create' ? rules.create : action === 'delete' ? (rules.delete ?? rules.edit) : rules.edit;
+    const creator = action !== 'create' && (await judge(first)).root === root;
+    const needs = (role: Role | null) =>
+      role !== null &&
+      (!rules || allows(who, { member: true, creator, can: (permission) => roleHolds(role, permissionName(expression.collection, permission)) }));
+
+    // The two refusals worth telling apart: not a member at all, and not allowed by the rules.
+    const role = standing(state, root);
+    if (!role) return { ok: false, reason: 'Its author was not a member of this space, as of what it had seen' };
+    if (!needs(role)) {
+      return {
+        ok: false,
+        reason:
+          action === 'create'
+            ? `Only ${describeWho(who)} can create ${expression.collection} records`
+            : `Only ${describeWho(who)} can ${action} this ${expression.collection} record`,
+      };
+    }
+    const judged = history.judge({ id: expression.id, root, seen, note: await noteOf(expression) }, needs);
+    if (!judged.ok) return judged;
+
+    if (!rules || expression.deleted) return STANDS;
+    if (expression.seq === 0 && rules.onePer) {
+      const opened = await openBody(expression);
+      if (opened.body === null && opened.encrypted) return STANDS;
+      const expected = await onePerKey(expression.collection, rules.onePer, { root, links: opened.links, body: opened.body });
+      if (expected !== expression.key) {
+        return { ok: false, reason: `${expression.collection} allows one per ${rules.onePer.join(' + ')} — its key must be derived from them` };
+      }
+    }
+    if (expression.seq > 0 && rules.fixed?.length) {
+      const [now, then] = await Promise.all([openBody(expression), openBody(first)]);
+      if (now.body !== null && then.body !== null) {
+        const field = changedFixedField(rules.fixed, then.body, now.body);
+        if (field) return { ok: false, reason: `"${field}" is fixed once a ${expression.collection} record is created` };
+      }
+    }
+    return STANDS;
+  }
+
+  /**
+   * Whether a change to the access history may be stored. Not whether it
+   * counts — that can change as other changes arrive, so every well-formed one
+   * is kept and the replay decides. Only what never changes is asked: that
+   * what it saw is here, and that its author is someone the history has heard
+   * of, or holds an invite it has.
+   */
+  async function admissible(expression: Expression): Promise<Standing> {
+    if (expression.space !== space.id) return { ok: false, reason: 'It belongs to a different space' };
+    if (!expression.retain) return { ok: false, reason: 'A change to who may do what must be kept' };
+    const event = await toEvent(expression);
+    if (!event) return { ok: false, reason: (await judge(expression)).reason ?? 'It is not a well-formed change to who may do what' };
+    const { history } = await access();
+    if (!history.at(event.seen)) return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+    const known =
+      history.named(event.root) ||
+      (event.kind === 'member' && event.viaInvite !== undefined && history.knownInvite(event.viaInvite)) ||
+      (event.kind === 'revoke' && history.named(event.issuer));
+    return known ? STANDS : { ok: false, reason: 'Its author has never been a member of this space' };
+  }
+
+  /** Whether a version from outside — a peer, a folder — may be stored */
+  const admit = (expression: Expression) => (ACCESS_COLLECTIONS.has(expression.collection) ? admissible(expression) : standingOf(expression));
+
+  /**
+   * The version of a record that counts: the current one, unless it no longer
+   * stands — then the newest one before it that does, if the store kept one.
+   */
+  async function currentOf(recordKey: string): Promise<Expression | null> {
+    const current = await storage.getCurrent(recordKey);
+    if (!current || !(await consistent(current))) return null;
+    if ((await standingOf(current)).ok) return current;
+    for (const version of await storage.history(recordKey)) {
+      if (version.id === current.id || !(await consistent(version))) continue;
+      if ((await standingOf(version)).ok) return version;
+    }
+    return null;
+  }
+
+  /** Every record that counts, current version each — deletes included */
+  async function everyCurrent(collection?: string): Promise<Expression[]> {
+    const current = collection ? await storage.queryExpressions(collection) : await storage.listCurrent();
+    const shown: Expression[] = [];
+    for (const version of current) {
+      const counted = (await standingOf(version)).ok && (await consistent(version)) ? version : await currentOf(version.key);
+      if (counted && (!collection || counted.collection === collection)) shown.push(counted);
+    }
+    return shown;
+  }
+
   async function view<T>(expression: Expression): Promise<NodeRecord<T>> {
-    const [{ body, links, encrypted }, verdict, genesis] = await Promise.all([
+    const [{ body, links, encrypted }, verdict, genesis, stands] = await Promise.all([
       openBody(expression),
       judge(expression),
       genesisOf(expression),
+      standingOf(expression),
     ]);
     const creator = genesis ? await judge(genesis) : null;
-    const content = body === null || expression.deleted ? null : await contentIssues(expression.collection, body, links);
-    const issues =
-      content !== null && !expression.deleted && (await withoutRules(expression))
-        ? [...content, { path: '/', message: 'Written without this collection\'s rules, so never judged by them' }]
-        : content;
+    const issues = body === null || expression.deleted ? null : await contentIssues(expression.collection, body, links);
+    const reason = !verdict.verified ? verdict.reason : !stands.ok ? stands.reason : undefined;
     return Object.freeze({
       key: expression.key,
       version: expression.id,
@@ -282,8 +655,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       body: body as T | null,
       links,
       encrypted,
-      verified: verdict.verified,
-      ...(verdict.reason ? { reason: verdict.reason } : {}),
+      verified: verdict.verified && stands.ok,
+      ...(reason ? { reason } : {}),
       ...(expression.deleted ? { deleted: true as const } : {}),
       conforms: issues === null ? null : issues.length === 0,
       ...(issues?.length ? { issues } : {}),
@@ -292,16 +665,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   // ─── The catalogue ─────────────────────────────────────────────────
   //
-  // A definition is a record with key `collection:<name>`, and its versions
-  // are always retained. So the fold can judge each one by who wrote it: the
-  // newest version written by the record's creator or the space owner wins,
-  // and one member cannot redefine another's collection. Every node folds the
-  // same versions the same way.
+  // Which definition is in force for each collection is the access history's
+  // answer: the latest change to `collection:<name>` that counted.
 
   interface CatalogEntry {
     readonly definition: StoredCollection;
-    readonly definedBy: string | null;
-    /** The id of the version that holds this definition — what a new record pins */
+    readonly definedBy: string;
+    /** The id of the version that holds this definition */
     readonly version: string;
   }
   let catalogCache: Promise<Map<string, CatalogEntry>> | null = null;
@@ -309,28 +679,12 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   async function loadCatalog(): Promise<Map<string, CatalogEntry>> {
     const result = new Map<string, CatalogEntry>();
-    // By key, not by the current version's collection or state: whatever sits
-    // on top — a delete, or a version in another collection under the same key
-    // — may be anyone's, and only the definer's and the owner's count.
-    const keys = (await storage.listCurrent()).map((v) => v.key).filter((k) => k.startsWith('collection:'));
-    for (const key of keys) {
-      const versions = (await storage.history(key)).filter((v) => v.collection === CATALOG_COLLECTION); // newest first
-      const genesis = versions.find((v) => v.seq === 0) ?? null;
-      if (!genesis) continue;
-      const definedBy = (await judge(genesis)).root;
-
-      for (const version of versions) {
-        const verdict = await judge(version);
-        if (!verdict.verified || (verdict.root !== definedBy && verdict.root !== space.owner)) continue;
-        // The newest word from someone entitled to it: a delete from them takes the definition down.
-        if (version.deleted) break;
-        const opened = await openBody(version);
-        if (checkStoredCollection(opened.body) !== null) continue;
-        const definition = opened.body as StoredCollection;
-        if (`collection:${definition.name}` !== version.key) continue;
-        result.set(definition.name, { definition, definedBy, version: version.id });
-        break;
-      }
+    const { history } = await access();
+    for (const [name, entry] of history.current.definitions) {
+      const found = await definitionIn(entry.event);
+      if (typeof found === 'string') continue;
+      if (found.definition.name !== name) continue;
+      result.set(name, { definition: found.definition, definedBy: entry.definedBy, version: entry.event });
     }
     return result;
   }
@@ -342,7 +696,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   /** Issues with a body against its collection's schema; null when there is no schema to check against. */
   async function shapeIssues(collection: string, body: unknown): Promise<ReadonlyArray<SchemaIssue> | null> {
-    // The protocol's own bookkeeping — definitions, profiles, memberships — has no user-facing schema.
+    // The protocol's own bookkeeping — definitions, profiles, roles — has no user-facing schema.
     if (collection.startsWith('sys.')) return null;
     const described = await definitionOf(collection);
     if (described) return validateJsonSchema(described.schema, body);
@@ -406,6 +760,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       history: definition?.history ?? 'latest',
       links: definition?.links ?? {},
       definedBy: entry?.definedBy ?? null,
+      permissions: definition?.permissions ?? [],
       rules: definition?.rules ?? {},
       records,
     });
@@ -422,8 +777,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   async function buildLinkIndex(): Promise<Map<string, Array<{ rel: string; from: string }>>> {
     const index = new Map<string, Array<{ rel: string; from: string }>>();
-    for (const version of await storage.listCurrent()) {
-      if (version.deleted || !(await consistent(version))) continue;
+    for (const version of await everyCurrent()) {
+      if (version.deleted) continue;
       const { links } = await openBody(version);
       for (const link of links) {
         const list = index.get(link.to) ?? [];
@@ -434,129 +789,28 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return index;
   }
 
-  // ─── Rules ─────────────────────────────────────────────────────────
-  //
-  // A record's first version names the definition version it was written
-  // under (`def`); its rules are the ones it is judged by, on every peer, for
-  // good. Everything a verdict needs is the record, its first version, that
-  // definition and the space's owner — all immutable, all of which a peer
-  // either has or will get. So a record that breaks a rule can be refused
-  // during sync, and one whose first version or definition has not arrived
-  // yet waits instead of being guessed about.
-
-  type Pinned = { readonly name: string; readonly rules: CollectionRules } | 'missing' | 'unreadable' | 'invalid';
-  const pinned = new Map<string, Promise<Pinned>>();
-
-  /** The rules in one definition version, if it is a genuine one */
-  function definitionAt(id: string): Promise<Pinned> {
-    let found = pinned.get(id);
-    if (!found) {
-      found = (async (): Promise<Pinned> => {
-        const version = await storage.getExpression(id);
-        if (!version) return 'missing';
-        if (version.collection !== CATALOG_COLLECTION || version.deleted) return 'invalid';
-        const verdict = await judge(version);
-        if (!verdict.verified) return 'invalid';
-        // Written by whoever first defined the collection, or the space owner — as the catalogue requires.
-        const first = version.seq === 0 ? version : await storage.getExpression(version.genesis!);
-        if (!first) return 'missing';
-        if (!firstOf(version, first)) return 'invalid';
-        const definer = (await judge(first)).root;
-        if (verdict.root !== definer && verdict.root !== space.owner) return 'invalid';
-        const opened = await openBody(version);
-        if (opened.body === null) return 'unreadable';
-        const definition = opened.body as StoredCollection;
-        if (checkStoredCollection(definition) !== null || version.key !== `collection:${definition.name}`) return 'invalid';
-        return { name: definition.name, rules: definition.rules ?? {} };
-      })();
-      pinned.set(id, found);
-      // Something missing may turn up; only settled answers are worth keeping.
-      void found.then((answer) => answer === 'missing' && pinned.delete(id));
-    }
-    return found;
-  }
-
-  type RuleVerdict = { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly later?: boolean };
-  const OK: RuleVerdict = { ok: true };
-
-  /** Whether a version keeps the rules its record was created under */
-  async function ruleVerdict(expression: Expression): Promise<RuleVerdict> {
-    const first = expression.seq === 0 ? expression : expression.genesis ? await storage.getExpression(expression.genesis) : null;
-    if (!first) return { ok: false, reason: 'Its first version has not arrived yet', later: true };
-    if (!firstOf(expression, first)) return { ok: false, reason: 'The first version it names is not this record\'s' };
-    if (expression.collection.startsWith('sys.')) return OK;
-    if (!first.def) return OK; // written with no rules — see `withoutRules`
-    const definition = await definitionAt(first.def);
-    if (definition === 'missing') return { ok: false, reason: 'The definition it was written under has not arrived yet', later: true };
-    // A peer without the space key cannot read the rules, or the body they talk about; members judge.
-    if (definition === 'unreadable') return OK;
-    if (definition === 'invalid' || definition.name !== expression.collection) return { ok: false, reason: 'It names a definition that is not this collection\'s' };
-    const { rules } = definition;
-    const root = (await judge(expression)).root;
-    const creator = (await judge(first)).root;
-
-    if (expression.seq === 0) {
-      if (!allows(rules.create, root, { owner: space.owner, creator: null })) {
-        return { ok: false, reason: `Only ${describeWho(rules.create)} can create ${expression.collection} records` };
-      }
-      if (rules.onePer) {
-        const opened = await openBody(expression);
-        if (opened.body === null && opened.encrypted) return OK;
-        const expected = await onePerKey(expression.collection, rules.onePer, { root: root ?? '', links: opened.links, body: opened.body });
-        if (expected !== expression.key) {
-          return { ok: false, reason: `${expression.collection} allows one per ${rules.onePer.join(' + ')} — its key must be derived from them` };
-        }
-      }
-      return OK;
-    }
-
-    const action = expression.deleted ? 'delete' : 'edit';
-    const who = action === 'delete' ? (rules.delete ?? rules.edit) : rules.edit;
-    if (!allows(who, root, { owner: space.owner, creator })) {
-      return { ok: false, reason: `Only ${describeWho(who)} can ${action} this ${expression.collection} record` };
-    }
-    if (!expression.deleted && rules.fixed?.length) {
-      const [now, then] = await Promise.all([openBody(expression), openBody(first)]);
-      if (now.body !== null && then.body !== null) {
-        const field = changedFixedField(rules.fixed, then.body, now.body);
-        if (field) return { ok: false, reason: `"${field}" is fixed once a ${expression.collection} record is created` };
-      }
-    }
-    return OK;
-  }
-
-  /**
-   * Written with no definition pinned, in a collection that now has rules — so
-   * never judged by them. Kept (it may predate them), and flagged when read.
-   */
-  async function withoutRules(version: Expression): Promise<boolean> {
-    const rules = (await catalog()).get(version.collection)?.definition.rules;
-    if (!rules || Object.keys(rules).length === 0) return false;
-    const first = await genesisOf(version);
-    return !!first && !first.def;
-  }
-
   // ─── Profiles ──────────────────────────────────────────────────────
   //
   // Each person says who they are in a space with one record, keyed by their
-  // identity (`profileKey`), whose versions are always retained — the same
-  // trick as the catalogue. The fold takes the newest version signed by the
-  // identity the key names, so nobody can rename anyone else: a version
-  // written by someone else under your key is simply never the answer, and it
-  // cannot push yours out, because yours are kept.
+  // identity (`profileKey`), whose versions are always retained. The fold
+  // takes the newest version signed by the identity the key names, so nobody
+  // can rename anyone else: a version written by someone else under your key
+  // is simply never the answer, and it cannot push yours out, because yours
+  // are kept.
 
   let profilesCache: Promise<Map<string, SpaceProfile>> | null = null;
   const profileMap = () => (profilesCache ??= loadProfiles());
 
   async function loadProfiles(): Promise<Map<string, SpaceProfile>> {
     const result = new Map<string, SpaceProfile>();
-    // By key, as the catalogue does: the current version may be anyone's.
+    // By key: the current version may be anyone's.
     const keys = (await storage.listCurrent()).map((v) => v.key).filter((k) => k.startsWith('profile:'));
     for (const key of keys) {
       for (const version of await storage.history(key)) {
         if (version.collection !== PROFILE_COLLECTION) continue;
         const verdict = await judge(version);
         if (!verdict.verified || !verdict.root || (await profileKey(verdict.root)) !== key) continue;
+        if (!(await standingOf(version)).ok) continue;
         if (version.deleted) break; // they took it down
         const name = ((await openBody(version)).body as { name?: unknown } | null)?.name;
         if (typeof name === 'string' && name.trim()) {
@@ -568,11 +822,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return result;
   }
 
-  /** Records changed: the catalogue and the link index may have too. */
+  /** Records changed: everything derived from them may have too. */
   const recordsChanged = () => {
     linkIndexCache = null;
     catalogCache = null;
     profilesCache = null;
+    accessCache = null;
+    standings.clear();
     emit({ type: 'records', space: space.id });
   };
 
@@ -590,12 +846,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       routes.get(peerId)?.send(peerId, { type: 'sync', from: session.did, payload: Array.from(data) });
     },
     validate: async (expression) => {
-      // An expression may only claim the space it actually arrived in.
-      if (expression.space !== space.id) return { valid: false, reason: 'Expression belongs to a different space' };
-      const verdict = await judge(expression);
-      if (!verdict.verified) return { valid: false, ...(verdict.reason ? { reason: verdict.reason } : {}) };
-      const ruled = await ruleVerdict(expression);
-      return ruled.ok ? { valid: true } : { valid: false, reason: ruled.reason, ...(ruled.later ? { later: true } : {}) };
+      const verdict = await admit(expression);
+      return verdict.ok ? { valid: true } : { valid: false, reason: verdict.reason, ...(verdict.later ? { later: true } : {}) };
     },
   });
 
@@ -689,11 +941,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     watchTimer = setInterval(() => {
       if (running) return;
       running = true;
-      // The same verdict as for a version from a peer: this space, a valid
-      // signature and delegation, and the collection's rules.
-      reconcileFolder(storage, adapter, async (expression) =>
-        expression.space === space.id && (await judge(expression)).verified && (await ruleVerdict(expression)).ok,
-      )
+      // The same verdict as for a version from a peer.
+      reconcileFolder(storage, adapter, async (expression) => (await admit(expression)).ok)
         .then((result) => {
           if (result.changed) recordsChanged();
         })
@@ -728,6 +977,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     readonly genesis?: string;
   }
 
+  /** Why this account cannot write here at all, or null when it can */
+  async function cannotWrite(): Promise<string | null> {
+    const { history } = await access();
+    if (standing(history.current, deps.rootDid)) return null;
+    return waitingInvite
+      ? `You've joined "${space.name}", but its invite hasn't reached this device yet — connect to someone in the space first`
+      : `"${space.name}" was shared with you to view — you can't change it`;
+  }
+
   /** Signs and stores one version. A delete carries no body. */
   async function write<T>(
     collection: string,
@@ -735,15 +993,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     version: VersionFields,
     deleted = false,
     links: ReadonlyArray<Link> = [],
+    options: { joining?: boolean } = {},
   ): Promise<Expression> {
-    // Every other copy would reject it, so refuse it here rather than show a
+    // Every other copy would refuse it, so refuse it here rather than show a
     // change that exists on this device alone.
-    if (!writable) {
-      throw new Error(
-        space.type === 'personal'
-          ? `"${space.name}" is a personal space — only its owner can change it`
-          : `"${space.name}" was shared with you to view — you can't change it`,
-      );
+    if (!options.joining) {
+      const problem = await cannotWrite();
+      if (problem) throw new Error(problem);
     }
 
     let payload: unknown = null;
@@ -758,7 +1014,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // Encrypt *before* signing: peers without the key still verify the
       // signature and relay the record, they just cannot read it.
       payload = body;
-      if (space.visibility === 'private') {
+      if (space.visibility === 'private' && !IN_THE_CLEAR.has(collection)) {
         if (!key) throw new Error('This private space has no key on this node');
         // Body and links sealed together: a relay learns neither.
         const content = links.length ? { body, links } : { body };
@@ -772,16 +1028,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     // Whether superseded versions are kept is the writer's decision, carried
     // on the version — never each reader's, or nodes that had seen different
-    // definitions would store different things and never converge.
-    // A first version pins the definition it is written under — its rules are the record's, for good.
-    const def = version.seq === 0 && !collection.startsWith('sys.') ? (await catalog()).get(collection)?.version : undefined;
-
+    // definitions would store different things and never converge. The access
+    // history keeps everything: it is replayed whole.
     const retain =
-      collection === CATALOG_COLLECTION ||
+      ACCESS_COLLECTIONS.has(collection) ||
       collection === PROFILE_COLLECTION ||
       (await catalog()).get(collection)?.definition.history === 'all';
 
-    const authored = await signer.sign(
+    const { history, events: held } = await access();
+    const signed = await signer.sign(
       createExpression({
         author: session.did,
         collection,
@@ -791,35 +1046,30 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         version,
         retain,
         deleted,
-        ...(def ? { def } : {}),
+        seen: history.heads(),
         // In the clear only where the body is: a private space sealed them above.
         ...(space.visibility === 'public' && !deleted && links.length ? { links } : {}),
       }),
       session.key,
     );
-    // In a shared space, the write key vouches for it too — over its id, so
-    // the countersignature cannot be moved to another record.
-    const signed = writeKey
-      ? Object.freeze({ ...authored, spaceSignature: await countersign(authored.id, writeKey, provider) })
-      : authored;
+
     // The same verdict every other peer will reach: refused here, with the reason, rather than there.
-    // A key whose delegation does not cover this space — an app given other
-    // spaces — would otherwise keep a record nobody else accepts.
     const judged = await judge(signed);
     if (!judged.verified) throw new Error(judged.reason ?? 'This key may not write here.');
-    const ruled = await ruleVerdict(signed);
-    if (!ruled.ok) throw new Error(ruled.reason);
+    if (ACCESS_COLLECTIONS.has(collection)) {
+      const event = await toEvent(signed);
+      if (!event) throw new Error('That is not a well-formed change to who may do what');
+      const status = replayAccess(accessGenesis, [...held, event]).status(event.id);
+      if (status?.status !== 'applied') throw new Error(status?.status === 'dropped' ? status.reason : 'That change could not be made');
+    } else {
+      const stands = await standingOf(signed);
+      if (!stands.ok) throw new Error(stands.reason);
+    }
     await storage.addExpression(signed);
     channel?.postMessage('changed');
     sync.onLocalChange(signed);
     recordsChanged();
     return signed;
-  }
-
-  /** The current version of a record this node shows — deletes included, key reuse not. */
-  async function currentOf(recordKey: string): Promise<Expression | null> {
-    const current = await storage.getCurrent(recordKey);
-    return current && (await consistent(current)) ? current : null;
   }
 
   async function get<T>(recordKey: string): Promise<NodeRecord<T> | null> {
@@ -834,21 +1084,26 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return current;
   }
 
+  /** The fields for writing a key again: the version after whatever the store holds, counted or not */
+  async function after(recordKey: string): Promise<VersionFields> {
+    const held = await storage.getCurrent(recordKey);
+    return held ? nextVersion(held) : { key: recordKey, seq: 0 };
+  }
+
   async function writeFirst<T>(collection: string, body: T, recordKey: string, links: ReadonlyArray<Link>): Promise<Expression> {
     const current = await currentOf(recordKey);
     if (current && !current.deleted) throw new Error(`A record ${recordKey} already exists — update it instead`);
     // Writing a key that was deleted brings it back: the next version after the delete.
-    return write(collection, body, current ? nextVersion(current) : { key: recordKey, seq: 0 }, false, links);
+    return write(collection, body, await after(recordKey), false, links);
   }
 
-  async function upsert<T>(collection: string, recordKey: string, body: T): Promise<NodeRecord<T>> {
-    const current = await currentOf(recordKey);
-    return view<T>(await write(collection, body, current ? nextVersion(current) : { key: recordKey, seq: 0 }));
+  async function upsert<T>(collection: string, recordKey: string, body: T, options: { joining?: boolean } = {}): Promise<NodeRecord<T>> {
+    return view<T>(await write(collection, body, await after(recordKey), false, [], options));
   }
 
   async function removeKey(recordKey: string): Promise<void> {
     const current = await requireLive(recordKey);
-    await write(current.collection, null, nextVersion(current), true);
+    await write(current.collection, null, await after(current.key), true);
   }
 
   const guard = (collection: string) => {
@@ -858,16 +1113,39 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   /** Display order: when a record was created, then its key. It decides nothing. */
   const createdAtOf = async (version: Expression) => (await genesisOf(version))?.createdAt ?? version.createdAt;
 
+  /**
+   * What a change taking power from these people keeps: every record of
+   * theirs that counts now — what this node has seen them write.
+   */
+  async function keepFrom(dids: ReadonlySet<string>): Promise<string[]> {
+    const keep: string[] = [];
+    for (const version of await everyCurrent()) {
+      if (ACCESS_COLLECTIONS.has(version.collection)) continue;
+      const root = (await judge(version)).root;
+      if (root && dids.has(root)) keep.push(version.id);
+    }
+    return keep.slice(0, MAX_KEEP);
+  }
+
+  /** The rules and standing that decide whether this account may do something now */
+  async function mayNow(collection: string, action: 'create' | 'edit' | 'delete', first: Expression | null): Promise<boolean> {
+    const { history } = await access();
+    const role = standing(history.current, deps.rootDid);
+    if (!role) return false;
+    const found = await rulesAt(history.current, collection);
+    if (!found) return true;
+    const who = action === 'create' ? found.rules.create : action === 'delete' ? (found.rules.delete ?? found.rules.edit) : found.rules.edit;
+    const creator = !!first && (await judge(first)).root === deps.rootDid;
+    return allows(who, { member: true, creator, can: (permission) => roleHolds(role, permissionName(collection, permission)) });
+  }
+
   return Object.freeze({
     async list<T>(options: ListOptions = {}): Promise<ReadonlyArray<NodeRecord<T>>> {
-      const current = options.collection
-        ? await storage.queryExpressions(options.collection)
-        : (await storage.listCurrent()).filter((e) => !e.collection.startsWith('sys.'));
+      const current = (await everyCurrent(options.collection)).filter((e) => options.collection || !e.collection.startsWith('sys.'));
 
       const shown: Array<{ version: Expression; createdAt: string }> = [];
       for (const version of current) {
         if (version.deleted && !options.includeDeleted) continue;
-        if (!(await consistent(version))) continue;
         shown.push({ version, createdAt: await createdAtOf(version) });
       }
       shown.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.version.key.localeCompare(b.version.key));
@@ -889,36 +1167,27 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (onePer && options.key === undefined) {
         const derived = await onePerKey(collection, onePer, { root: deps.rootDid, links, body });
         if (!derived) throw new Error(`${collection} is one per ${onePer.join(' + ')} — give it every one of those`);
-        const current = await currentOf(derived);
-        return view<T>(await write(collection, body, current ? nextVersion(current) : { key: derived, seq: 0 }, false, links));
+        return view<T>(await write(collection, body, await after(derived), false, links));
       }
       return view<T>(await writeFirst(collection, body, options.key ?? newRecordKey(), links));
     },
 
     async can(action: 'create' | 'edit' | 'delete', target: string): Promise<boolean> {
-      if (!writable) return false;
-      if (action === 'create') {
-        return allows((await catalog()).get(target)?.definition.rules?.create, deps.rootDid, { owner: space.owner, creator: null });
-      }
+      if (action === 'create') return mayNow(target, 'create', null);
       const current = await currentOf(target);
       if (!current || current.deleted) return false;
-      const first = await genesisOf(current);
-      const definition = first?.def ? await definitionAt(first.def) : null;
-      if (!first || !definition || typeof definition === 'string') return true;
-      const creator = (await judge(first)).root;
-      const who = action === 'delete' ? (definition.rules.delete ?? definition.rules.edit) : definition.rules.edit;
-      return allows(who, deps.rootDid, { owner: space.owner, creator });
+      return mayNow(current.collection, action, await genesisOf(current));
     },
 
-    upsertSystem: upsert,
+    upsertSystem: <T>(collection: string, recordKey: string, body: T) => upsert<T>(collection, recordKey, body),
 
     async profiles() {
       return [...(await profileMap()).values()].sort((a, b) => a.name.localeCompare(b.name) || a.did.localeCompare(b.did));
     },
 
     async publishProfile(profile: { name: string }) {
-      // Someone following a personal space cannot write in it, and says nothing.
-      if (!writable) return;
+      // Someone following a space without a role in it cannot write there, and says nothing.
+      if (await cannotWrite()) return;
       const name = profile.name.trim().slice(0, 64);
       if (!name || (await profileMap()).get(deps.rootDid)?.name === name) return;
       await upsert(PROFILE_COLLECTION, await profileKey(deps.rootDid), { name });
@@ -929,7 +1198,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       guard(current.collection);
       // Links carry over unless replaced: ticking a todo should not unhook it from anything.
       const links = options.links ?? (await openBody(current)).links;
-      return view<T>(await write(current.collection, body, nextVersion(current), false, links));
+      return view<T>(await write(current.collection, body, await after(recordKey), false, links));
     },
 
     async linked<T>(recordKey: string, options: { rel?: string; collection?: string } = {}): Promise<ReadonlyArray<NodeRecord<T>>> {
@@ -959,8 +1228,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     async collections(): Promise<ReadonlyArray<NodeCollection>> {
       const counts = new Map<string, number>();
-      for (const version of await storage.listCurrent()) {
-        if (version.deleted || !(await consistent(version))) continue;
+      for (const version of await everyCurrent()) {
+        if (version.deleted) continue;
         // The protocol's own bookkeeping is not one of the space's kinds of thing.
         if (version.collection.startsWith('sys.')) continue;
         counts.set(version.collection, (counts.get(version.collection) ?? 0) + 1);
@@ -982,22 +1251,114 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         version,
         ...(input.history !== undefined ? { history: input.history } : {}),
         ...(input.links !== undefined ? { links: input.links } : {}),
+        ...(input.permissions !== undefined ? { permissions: input.permissions } : {}),
         ...(input.rules !== undefined ? { rules: input.rules } : {}),
       };
       const problem = checkStoredCollection(definition);
       if (problem) throw new Error(problem);
-      if (current) {
-        if (deps.rootDid !== current.definedBy && deps.rootDid !== space.owner) {
-          throw new Error(`${input.name} was defined by ${current.definedBy}; only they or the space owner can change it`);
-        }
-        if (version <= current.definition.version) {
-          throw new Error(`${input.name} is at version ${current.definition.version}; a new definition needs a higher one`);
-        }
+      if (current && version <= current.definition.version) {
+        throw new Error(`${input.name} is at version ${current.definition.version}; a new definition needs a higher one`);
       }
       await upsert(CATALOG_COLLECTION, recordKey, definition);
       const entry = (await catalog()).get(input.name) ?? null;
-      const count = (await storage.queryExpressions(input.name)).filter((e) => !e.deleted).length;
+      const count = (await everyCurrent(input.name)).filter((e) => !e.deleted).length;
       return describe(input.name, entry, count);
+    },
+
+    async access(): Promise<SpaceAccess> {
+      const { history } = await access();
+      const state = history.current;
+      const role = standing(state, deps.rootDid);
+      return Object.freeze({
+        roles: [...state.roles.values()].sort((a, b) => b.rank - a.rank || a.name.localeCompare(b.name)),
+        members: [...state.members]
+          .map(([did, name]) => ({ did, role: name }))
+          .sort((a, b) => (state.roles.get(b.role)?.rank ?? -1) - (state.roles.get(a.role)?.rank ?? -1) || a.did.localeCompare(b.did)),
+        invites: [...state.invites].map(([inviteDid, invite]) => ({ key: inviteDid, role: invite.role, open: invite.open })),
+        role,
+        heads: history.heads(),
+      });
+    },
+
+    async setMember(did: string, role: string | null) {
+      const { history } = await access();
+      const was = standing(history.current, did);
+      const next = role === null ? null : history.current.roles.get(role);
+      if (role !== null && !next) throw new Error(`There is no role "${role}" in "${space.name}"`);
+      // Taking power away keeps what this node has seen them write.
+      const lowers = was && (!next || next.rank < was.rank || was.permissions.some((p) => !next.permissions.includes(p)));
+      const keep = lowers ? await keepFrom(new Set([did])) : [];
+      await upsert(MEMBER_COLLECTION, await memberKey(did), { did, role, ...(keep.length ? { keep } : {}) });
+    },
+
+    async putRole(role: Role) {
+      const problem = checkRole(role);
+      if (problem) throw new Error(problem);
+      const { history } = await access();
+      const was = history.current.roles.get(role.name);
+      const lowers = was && (role.rank < was.rank || was.permissions.some((p) => !role.permissions.includes(p)));
+      const holders = new Set([...history.current.members].filter(([, name]) => name === role.name).map(([did]) => did));
+      const keep = lowers && holders.size ? await keepFrom(holders) : [];
+      await upsert(ROLE_COLLECTION, roleKey(role.name), {
+        name: role.name,
+        ...(role.title !== undefined ? { title: role.title } : {}),
+        rank: role.rank,
+        permissions: [...role.permissions],
+        ...(keep.length ? { keep } : {}),
+      });
+    },
+
+    async removeRole(name: string) {
+      const { history } = await access();
+      if (!history.current.roles.has(name)) throw new Error(`There is no role "${name}" in "${space.name}"`);
+      const holders = new Set([...history.current.members].filter(([, held]) => held === name).map(([did]) => did));
+      const keep = holders.size ? await keepFrom(holders) : [];
+      await upsert(ROLE_COLLECTION, roleKey(name), { name, removed: true, ...(keep.length ? { keep } : {}) });
+    },
+
+    async openInvite(role: string) {
+      const secret = generateInviteSecret();
+      const pair = await deriveInviteKey(secret, provider);
+      await upsert(INVITE_COLLECTION, await inviteRecordKey(pair.did), { key: pair.did, role, open: true });
+      return { secret, key: pair.did };
+    },
+
+    async closeInvite(inviteDid: string) {
+      const { history } = await access();
+      const invite = history.current.invites.get(inviteDid);
+      if (!invite) throw new Error('There is no such invite in this space');
+      // Who joined with it before this node closed it stays: the close names what it saw, and the replay does the rest.
+      await upsert(INVITE_COLLECTION, await inviteRecordKey(inviteDid), { key: inviteDid, role: invite.role, open: false });
+    },
+
+    async revoke(token: string) {
+      const cid = await noteCid(token);
+      const keep: string[] = [];
+      for (const version of await everyCurrent()) {
+        if (version.proof && (await noteCid(version.proof)) === cid) keep.push(version.id);
+      }
+      await upsert(REVOKE_COLLECTION, await revokeKey(cid), { note: token, ...(keep.length ? { keep: keep.slice(0, MAX_KEEP) } : {}) });
+    },
+
+    async join(secret: Uint8Array) {
+      const { history } = await access();
+      if (standing(history.current, deps.rootDid)) {
+        waitingInvite = false;
+        deps.onJoined?.();
+        return true;
+      }
+      const pair = await deriveInviteKey(secret, provider);
+      const invite = history.current.invites.get(pair.did);
+      if (!invite?.open) return false;
+      await upsert(
+        MEMBER_COLLECTION,
+        await memberKey(deps.rootDid),
+        { did: deps.rootDid, role: invite.role, invite: { key: pair.did, signature: await signInvite(space.id, deps.rootDid, pair, provider) } },
+        { joining: true },
+      );
+      waitingInvite = false;
+      deps.onJoined?.();
+      return true;
     },
 
     async status(): Promise<SpaceStatus> {

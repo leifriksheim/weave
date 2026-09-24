@@ -95,7 +95,7 @@ describe('moving and merging an account', () => {
     const folder = memoryStores();
 
     const before = await device(me, browser);
-    const diary = await before.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
+    const diary = await before.spaces.create({ name: 'Diary', visibility: 'private' });
     const kept = await before.records.put(diary.id, 'app.note', { text: 'kept' });
     const gone = await before.records.put(diary.id, 'app.note', { text: 'deleted' });
     await before.records.delete(diary.id, gone.key);
@@ -118,16 +118,16 @@ describe('moving and merging an account', () => {
     const folder = memoryStores();
 
     const inBrowser = await device(me, browser);
-    const shared = await inBrowser.spaces.create({ name: 'Both', type: 'personal', visibility: 'public' });
+    const shared = await inBrowser.spaces.create({ name: 'Both', visibility: 'public' });
     await inBrowser.records.put(shared.id, 'app.note', { text: 'written in the browser' });
-    await inBrowser.spaces.create({ name: 'Browser only', type: 'personal', visibility: 'public' });
+    await inBrowser.spaces.create({ name: 'Browser only', visibility: 'public' });
     const invite = await inBrowser.spaces.invite(shared.id);
     await inBrowser.close();
 
     const inFolder = await device(me, folder);
     await inFolder.spaces.join(invite);
     await inFolder.records.put(shared.id, 'app.note', { text: 'written in the folder' });
-    await inFolder.spaces.create({ name: 'Folder only', type: 'personal', visibility: 'public' });
+    await inFolder.spaces.create({ name: 'Folder only', visibility: 'public' });
     await inFolder.close();
 
     await copyAccountData({ from: browser, to: folder, did: me.did, accountKey: me.accountKey });

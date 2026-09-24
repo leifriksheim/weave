@@ -20,7 +20,7 @@ export type {
   UnsignedExpression,
   Link,
   Space,
-  SpaceType,
+  SpaceRole,
   SpaceVisibility,
   CollectionDef,
   PeerInfo,
@@ -218,15 +218,39 @@ export type { StoredCollection, JsonSchema, SchemaIssue } from './schema/collect
 export type { Membership } from './space/account-registry.js';
 export type { SpaceManager, SpaceRecord, SpaceInvite, InviteOptions, CreateSpaceParams } from './space/space-manager.js';
 export {
-  generateWriteSecret,
-  deriveWriteKey,
+  generateInviteSecret,
+  deriveInviteKey,
   deriveReadKey,
   spaceGenesis,
   spaceIdOf,
   checkSpace,
-  countersign,
-  verifyCountersignature,
+  checkStartingRoles,
+  memberKey,
+  inviteKey,
+  revokeKey,
+  roleKey,
+  signInvite,
+  verifyInvite,
 } from './space/space-access.js';
+export {
+  replayAccess,
+  permissionMatches,
+  roleHolds,
+  holds,
+  standing,
+  checkRole,
+  MANAGE,
+  INVITE,
+  DEFINE,
+  ROLE_COLLECTION,
+  MEMBER_COLLECTION,
+  INVITE_COLLECTION,
+  REVOKE_COLLECTION,
+  ACCESS_COLLECTIONS,
+} from './space/roles.js';
+export type { Role, AccessEvent, AccessGenesis, AccessHistory, AccessState, EventStatus, RecordVerdict } from './space/roles.js';
+export { rolePresets, solo, team, community } from './space/presets.js';
+export type { RolePreset } from './space/presets.js';
 export type { SpaceGenesis, SpaceKeyPair } from './space/space-access.js';
 
 // Phase 4: P2P Networking
@@ -296,8 +320,6 @@ export {
   createCapabilityGate,
 } from './validation/capability-gate.js';
 export type { CapabilityGate, CapabilityGateConfig } from './validation/capability-gate.js';
-export { createSpaceGate } from './validation/space-gate.js';
-export type { SpaceGate, SpaceGateConfig } from './validation/space-gate.js';
 export {
   createValidationEngine,
 } from './validation/validation-engine.js';

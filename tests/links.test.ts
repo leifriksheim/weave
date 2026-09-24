@@ -18,6 +18,8 @@ import { checkLinks } from '../src/records/links.js';
 import { reaction as reactionSchema, comment as commentSchema, useSchemas } from '../src/schemas/index.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { team } from '../src/space/presets.js';
+import { joined } from './helpers/joined.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -48,7 +50,7 @@ async function until(predicate: () => Promise<boolean>, ms = 3000, what = 'condi
 describe('links', () => {
   test('a reaction points at a todo, and stays on it when the todo is ticked', async () => {
     const me = await person();
-    const { id: space } = await me.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
+    const { id: space } = await me.spaces.create({ name: 'Todos', visibility: 'public' });
     const todo = await me.records.put(space, 'app.todo.item', { text: 'milk', done: false });
     const reaction = await me.records.put(space, 'std.reaction', { emoji: '👍' }, { links: [{ rel: 'about', to: todo.key }] });
 
@@ -75,7 +77,7 @@ describe('links', () => {
 
   test('a reaction that arrives before its target is kept, and attaches when the target does', async () => {
     const me = await person();
-    const { id: space } = await me.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
+    const { id: space } = await me.spaces.create({ name: 'Todos', visibility: 'public' });
     await useSchemas(me, space, [reactionSchema]);
     const reaction = await me.records.put(space, 'std.reaction', { emoji: '🎉' }, { links: [{ rel: 'about', to: 'not-here-yet' }] });
     assert.equal(reaction.conforms, true);
@@ -85,7 +87,7 @@ describe('links', () => {
 
   test('a deleted reaction leaves the index', async () => {
     const me = await person();
-    const { id: space } = await me.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
+    const { id: space } = await me.spaces.create({ name: 'Todos', visibility: 'public' });
     const todo = await me.records.put(space, 'app.todo.item', { text: 'milk' });
     const reaction = await me.records.put(space, 'std.reaction', { emoji: '👍' }, { links: [{ rel: 'about', to: todo.key }] });
     await me.records.delete(space, reaction.key);
@@ -105,8 +107,10 @@ describe('declared links', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub);
     const bob = await person(hub);
-    const { id: space } = await alice.spaces.create({ name: 'Polls', type: 'shared', visibility: 'public' });
+    const { id: space } = await alice.spaces.create({ name: 'Polls', ...team, visibility: 'public' });
     await bob.spaces.join(await alice.spaces.invite(space));
+    await alice.spaces.open(space);
+    await joined(bob, space);
 
     // Bob writes a vote before any definition exists — fine where it was written.
     await bob.spaces.open(space);
@@ -147,7 +151,7 @@ describe('private spaces', () => {
   test('seal links with the body — a relay without the key sees neither', async () => {
     const stores = memoryStores();
     const me = await person(undefined, stores);
-    const { id: space } = await me.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
+    const { id: space } = await me.spaces.create({ name: 'Diary', visibility: 'private' });
     const entry = await me.records.put(space, 'app.note', { text: 'secret' });
     const reaction = await me.records.put(space, 'std.reaction', { emoji: '❤️' }, { links: [{ rel: 'about', to: entry.key }] });
 
@@ -167,8 +171,10 @@ describe('an app that knows nothing about todos', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const todoApp = await person(hub);
     const chatApp = await person(hub);
-    const { id: space } = await todoApp.spaces.create({ name: 'Shared', type: 'shared', visibility: 'private' });
+    const { id: space } = await todoApp.spaces.create({ name: 'Shared', ...team, visibility: 'private' });
     await chatApp.spaces.join(await todoApp.spaces.invite(space));
+    await todoApp.spaces.open(space);
+    await joined(chatApp, space);
     const todo = await todoApp.records.put(space, 'app.todo.item', { text: 'book flights' });
     await chatApp.spaces.open(space);
     await until(async () => (await chatApp.records.get(space, todo.key)) !== null, 3000, 'the todo to reach the chat app');
@@ -185,7 +191,7 @@ describe('an app that knows nothing about todos', () => {
 describe('for agents', () => {
   test('a space knows no kinds of record until someone defines them; the schema library is one way to', async () => {
     const me = await person();
-    const { id: space } = await me.spaces.create({ name: 'Trip', type: 'shared', visibility: 'private' });
+    const { id: space } = await me.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
     assert.deepEqual(await runAction(me, 'collections_list', { space }), []);
 
     await useSchemas(me, space, [reactionSchema, commentSchema]);

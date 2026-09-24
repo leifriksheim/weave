@@ -81,6 +81,9 @@ migrate (see the memory note on migrations).
 
 ## 2. Removing someone from a space
 
+> The write half is now BLOCK-15 (member records you can delete, with a keep
+> list). What's left here is the read half: key epochs.
+
 **The problem.** The space id is a hash of the space's genesis, which includes
 the read key and the write key (`space/space-access.ts`). So neither key can
 ever change, and someone invited stays invited. After you "remove" them they
@@ -143,6 +146,10 @@ down" in the README).
 ---
 
 ## 5. Rules that stay in force
+
+> Mostly settled by BLOCK-15: records no longer pick a definition (`def` is
+> gone); each version is judged by the definition in force as of the access
+> history it saw. What is left is the queries part below.
 
 **The problem.** A new record pins the definition it was written under (`def`),
 and the writer chooses it. Pinning an old version without the new `onePer`

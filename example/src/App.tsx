@@ -32,11 +32,11 @@ function Workspace() {
   const [open, setOpen] = useState<SpaceSummary | null>(null);
   const joinLink = (link: string) => join(inviteFrom(link));
 
-  // Keep the opened space in step with the list, so a join that adds a
-  // member does not leave a stale copy on screen.
+  // Keep the opened space in step with the list, so a join that finishes, or
+  // a role that changes, does not leave a stale copy on screen.
   useEffect(() => {
     const fresh = open && spaces.find((space) => space.id === open.id);
-    if (fresh && fresh.members.length !== open.members.length) setOpen(fresh);
+    if (fresh && (fresh.role !== open.role || fresh.writable !== open.writable || fresh.joining !== open.joining)) setOpen(fresh);
   }, [spaces, open]);
 
   const inSpace = open !== null;

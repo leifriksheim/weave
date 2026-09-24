@@ -19,6 +19,8 @@ import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { team } from '../src/space/presets.js';
+import { joined } from './helpers/joined.js';
 
 const expense = {
   type: 'object',
@@ -106,7 +108,7 @@ describe('a space that describes itself', () => {
 
   test('a definition is listed with its schema, and records written against it are checked', async () => {
     const me = await person();
-    const { id: space } = await me.spaces.create({ name: 'Trip', type: 'shared', visibility: 'private' });
+    const { id: space } = await me.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
 
     const defined = await me.collections.define(space, { name: 'app.trip.expense', title: 'Expense', schema: expense });
     assert.equal(defined.version, 1);
@@ -124,16 +126,18 @@ describe('a space that describes itself', () => {
     );
   });
 
-  test('redefining bumps the version, and only the definer or owner may', async () => {
+  test('redefining bumps the version, and only the definer or someone who can manage the space may', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const owner = await person(hub);
     const member = await person(hub);
     const outsider = await person(hub);
-    const { id: space } = await owner.spaces.create({ name: 'Trip', type: 'shared', visibility: 'private' });
+    const { id: space } = await owner.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
     const invite = await owner.spaces.invite(space);
     await member.spaces.join(invite);
     await outsider.spaces.join(invite);
     for (const node of [owner, member, outsider]) await node.spaces.open(space);
+    await joined(member, space);
+    await joined(outsider, space);
 
     await member.collections.define(space, { name: 'app.trip.expense', schema: expense });
     const has = (node: P2PNode, version: number) => async () =>
@@ -141,7 +145,7 @@ describe('a space that describes itself', () => {
     await until(has(outsider, 1), 3000, 'the definition to sync');
 
     // A third member may not redefine someone else's collection...
-    await assert.rejects(outsider.collections.define(space, { name: 'app.trip.expense', schema: { type: 'object' } }), /only they or the space owner/);
+    await assert.rejects(outsider.collections.define(space, { name: 'app.trip.expense', schema: { type: 'object' } }), /Only whoever defined it, or someone who manages the space, may change it/);
     // ...the definer may, and so may the owner.
     const v2 = await member.collections.define(space, { name: 'app.trip.expense', schema: { ...expense, required: ['what'] } });
     assert.equal(v2.version, 2);
@@ -155,8 +159,11 @@ describe('a space that describes itself', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const a = await person(hub);
     const b = await person(hub);
-    const { id: space } = await a.spaces.create({ name: 'Trip', type: 'shared', visibility: 'public' });
+    const { id: space } = await a.spaces.create({ name: 'Trip', ...team, visibility: 'public' });
     await b.spaces.join(await a.spaces.invite(space));
+    await a.spaces.open(space);
+    await joined(b, space);
+    await a.spaces.close(space);
 
     // B writes before it has seen any definition — valid where it was written.
     await b.spaces.open(space);
@@ -174,7 +181,7 @@ describe('a space that describes itself', () => {
 
   test('an agent can discover and define collections through the actions', async () => {
     const me = await person();
-    const space = (await runAction(me, 'spaces_create', { name: 'Friends', type: 'shared', visibility: 'private' })) as { id: string };
+    const space = (await runAction(me, 'spaces_create', { name: 'Friends', roles: 'team', visibility: 'private' })) as { id: string };
     await runAction(me, 'collections_define', {
       space: space.id,
       name: 'app.friends.poll',

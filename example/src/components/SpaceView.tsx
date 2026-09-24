@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { NodeRecord, SpaceProfile, SpaceSummary } from 'weave-protocol';
-import { useCollections, useNode, useOpenSpace, useProfiles, useAccount, useSpaceStatus } from 'weave-protocol/react';
+import { useAccess, useCollections, useNode, useOpenSpace, useProfiles, useAccount, useSpaceStatus } from 'weave-protocol/react';
 import { createInviteLink } from '../spaces';
 import { Choice } from './Modal';
 import { collectionLabel } from '../derive/schema-ui';
@@ -46,6 +46,8 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
   const profiles = useProfiles(space.id);
   const people = peopleFrom(profiles);
   const status = useSpaceStatus(space.id);
+  const access = useAccess(space.id);
+  const roleOf = new Map((access?.members ?? []).map((m) => [m.did, access?.roles.find((r) => r.name === m.role)?.title ?? m.role]));
 
   const kinds = collections.filter((c) => !ANNOTATIONS.has(c.name));
   // Land on the first kind of thing rather than an empty page.
@@ -72,9 +74,9 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
         </div>
         {!space.writable && (
           <p style={{ ...styles.errorHint, marginTop: 0 }}>
-            {space.type === 'personal'
-              ? `You're following this space. It's ${nameOf(space.owner, people)}'s, so only they can change it.`
-              : "You can see this space but not change it. Anyone who can edit it can send you a link that lets you."}
+            {space.joining
+              ? 'Joining — waiting for your invite to arrive from someone in the space. It will, once one of them is online.'
+              : "You're following this space: you can see it but not change it. Someone who runs it can give you a role."}
           </p>
         )}
       </header>
@@ -102,7 +104,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
               </button>
             )}
           </nav>
-          <People profiles={profiles} me={account.did} owner={space.owner} people={people} />
+          <People profiles={profiles} me={account.did} roles={roleOf} people={people} />
           <Share space={space} />
         </aside>
 
@@ -158,7 +160,7 @@ const navItem = {
 const navItemOn = { background: palette.surface.sunken, color: palette.ink.strong, fontWeight: 500 };
 
 /** Who is here: everyone who has said who they are in this space */
-function People({ profiles, me, owner, people }: { profiles: ReadonlyArray<SpaceProfile>; me: string; owner: string; people: ReturnType<typeof peopleFrom> }) {
+function People({ profiles, me, roles, people }: { profiles: ReadonlyArray<SpaceProfile>; me: string; roles: ReadonlyMap<string, string>; people: ReturnType<typeof peopleFrom> }) {
   if (profiles.length === 0) return null;
   return (
     <section style={styles.panelSection} aria-label="People">
@@ -169,7 +171,7 @@ function People({ profiles, me, owner, people }: { profiles: ReadonlyArray<Space
             <Avatar did={p.did} size={22} />
             <span style={{ color: palette.ink.strong }}>{nameOf(p.did, people)}</span>
             {p.did === me && <span style={{ color: palette.ink.faint }}>you</span>}
-            {p.did === owner && p.did !== me && <span style={{ color: palette.ink.faint }}>owner</span>}
+            {roles.has(p.did) && <span style={{ color: palette.ink.faint }}>{roles.get(p.did)?.toLowerCase()}</span>}
           </span>
         ))}
       </div>
@@ -180,33 +182,34 @@ function People({ profiles, me, owner, people }: { profiles: ReadonlyArray<Space
 function Share({ space }: { space: SpaceSummary }) {
   const node = useNode();
   const [invite, setInvite] = useState<string | null>(null);
-  // Only someone who can change a shared space can hand that on.
-  const canOfferEdit = space.type === 'shared' && space.writable;
-  const [access, setAccess] = useState<'edit' | 'view'>(canOfferEdit ? 'edit' : 'view');
+  // A link that gives a role needs a role below yours to give.
+  const access = useAccess(space.id);
+  const below = access?.role ? access.roles.filter((r) => r.rank < access.role!.rank).at(-1) : undefined;
+  const canOfferEdit = space.writable && below !== undefined;
+  const [mode, setMode] = useState<'edit' | 'view'>('edit');
   const share = async () => {
-    const link = await createInviteLink(node, space.id, { viewOnly: access === 'view' });
+    const link = await createInviteLink(node, space.id, { viewOnly: !canOfferEdit || mode === 'view' });
     setInvite(link);
     await globalThis.navigator.clipboard?.writeText(link).catch(() => {});
   };
-  const explanation =
-    space.type === 'personal'
-      ? 'Anyone with the link can follow along; only you write.'
-      : access === 'edit'
-        ? 'Anyone with the link joins and can add and change things.'
-        : 'Anyone with the link can see everything, but change nothing.';
+  const explanation = !canOfferEdit
+    ? 'Anyone with the link can follow along; only you write.'
+    : mode === 'edit'
+      ? `Anyone with the link joins as ${below!.title ?? below!.name} and can add and change things. You can close the link later.`
+      : 'Anyone with the link can see everything, but change nothing.';
   return (
     <section style={{ ...styles.panelSection, gap: 10 }}>
       <h2 style={styles.sectionTitle}>Invite</h2>
       {canOfferEdit && (
         <Choice
           label="People with the link"
-          value={access}
+          value={mode}
           options={[
             { value: 'edit', label: 'Can edit' },
             { value: 'view', label: 'Can view' },
           ]}
           onChange={(next) => {
-            setAccess(next);
+            setMode(next);
             setInvite(null); // a link made for the other choice would say the wrong thing
           }}
         />

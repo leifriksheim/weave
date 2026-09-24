@@ -29,7 +29,7 @@
 import { Validator } from '@cfworker/json-schema';
 import type { StandardSchemaV1 } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
-import { checkRules, type CollectionRules } from '../records/rules.js';
+import { checkRules, PERMISSION_PATTERN, type CollectionRules } from '../records/rules.js';
 
 export type JsonSchema = { readonly [keyword: string]: unknown };
 
@@ -55,9 +55,15 @@ export interface StoredCollection {
    */
   readonly links?: Readonly<Record<string, LinkDeclaration>>;
   /**
+   * The permissions its rules may name, in its own words: `moderate`. A role
+   * holds one as `<collection>/<permission>` — `app.poll/moderate` — so two
+   * apps in one space never clash.
+   */
+  readonly permissions?: ReadonlyArray<string>;
+  /**
    * Who may create, edit and delete its records, what must be unique, which
-   * fields are fixed. A record is judged by the rules of the definition
-   * version it was created under, on every peer.
+   * fields are fixed. A version is judged by the definition in force as of
+   * the access changes it saw, on every peer.
    */
   readonly rules?: CollectionRules;
 }
@@ -193,7 +199,12 @@ export function checkStoredCollection(definition: unknown): string | null {
       if (decl.description !== undefined && typeof decl.description !== 'string') return `links.${rel}.description must be text`;
     }
   }
-  const rules = checkRules(d.rules);
+  if (d.permissions !== undefined) {
+    if (!Array.isArray(d.permissions) || !d.permissions.every((p) => typeof p === 'string' && PERMISSION_PATTERN.test(p))) {
+      return 'permissions must be a list of names in lower camel case, like "moderate"';
+    }
+  }
+  const rules = checkRules(d.rules, 'rules', d.permissions ?? []);
   if (rules) return rules;
   return checkPublishableSchema(d.schema);
 }
