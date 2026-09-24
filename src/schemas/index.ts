@@ -18,10 +18,18 @@
  * use `std.reaction` see each other's reactions. An app that prefers its own
  * shape defines its own collection instead, and loses nothing but that.
  *
- * **Strict nouns, polymorphic annotations.** These attach to anything (their
- * links point at `'*'`); an app's own nouns should say exactly what they point
- * at. Keep this list small — each entry is only worth it if nearly every app
- * would otherwise invent the same thing.
+ * **Two kinds.** Most of these are annotations: they attach to anything
+ * (their links point at `'*'`). A few are common nouns — a chat message, a
+ * task on a board — shared so that two chat apps, or a board and a to-do list,
+ * read the same records. Nouns say exactly what they point at. Keep both lists
+ * small — each entry is only worth it if nearly every app would otherwise
+ * invent the same thing.
+ *
+ * Nouns that keep a hand-made order carry a `position`: a string that sorts
+ * where the record goes. {@link positionBetween} makes one between two others,
+ * so moving a card rewrites only that card, and two people moving cards at
+ * once never renumber each other's. It is optional, so a record made by
+ * something that knows nothing of order still counts: it goes at the end.
  */
 import type { DefineCollection, P2PNode } from '../node/types.js';
 import type { LinkDeclaration } from '../records/links.js';
@@ -113,8 +121,97 @@ export interface Reference {
   readonly note?: string;
 }
 
+/** A chat message. The space is the room; order is by when it was written. */
+export const message = {
+  name: 'std.message',
+  title: 'Message',
+  description: 'A chat message, optionally replying to another.',
+  schema: { type: 'object', properties: { text: { type: 'string', minLength: 1, maxLength: 10000 } }, required: ['text'] },
+  links: { replyTo: { to: ['std.message'], cardinality: 'one', description: 'The message this replies to' } },
+  permissions: ['moderate'],
+  rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
+} as const satisfies DefineCollection;
+export interface Message {
+  readonly text: string;
+}
+
+/** A column on a board — To do, Doing, Done — in the order it sits. */
+export const column = {
+  name: 'std.column',
+  title: 'Column',
+  description: 'A column on a board, holding tasks.',
+  schema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', minLength: 1, maxLength: 200 },
+      position: { type: 'string', minLength: 1, maxLength: 200, description: 'Sorts where the column goes' },
+    },
+    required: ['name'],
+  },
+} as const satisfies DefineCollection;
+export interface Column {
+  readonly name: string;
+  readonly position?: string;
+}
+
+/** A task, in the column it sits in and at a place in it. */
+export const task = {
+  name: 'std.task',
+  title: 'Task',
+  description: 'A task, placed in a column.',
+  schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', minLength: 1, maxLength: 500 },
+      notes: { type: 'string', maxLength: 10000 },
+      position: { type: 'string', minLength: 1, maxLength: 200, description: 'Sorts where the task goes in its column' },
+    },
+    required: ['title'],
+  },
+  links: { column: { to: ['std.column'], cardinality: 'one', description: 'The column it sits in' } },
+} as const satisfies DefineCollection;
+export interface Task {
+  readonly title: string;
+  readonly notes?: string;
+  readonly position?: string;
+}
+
+/** Shapes that attach to anything */
+export const standardAnnotations: ReadonlyArray<DefineCollection> = [reaction, comment, tag, attachment, reference];
+/** Common nouns apps share */
+export const standardNouns: ReadonlyArray<DefineCollection> = [message, column, task];
 /** Everything in the library */
-export const standardSchemas: ReadonlyArray<DefineCollection> = [reaction, comment, tag, attachment, reference];
+export const standardSchemas: ReadonlyArray<DefineCollection> = [...standardAnnotations, ...standardNouns];
+
+const DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz';
+
+/**
+ * A `position` that sorts after `before` and ahead of `after` — either may be
+ * missing, for the ends. Positions compare as plain strings and never end in
+ * `0`, so there is always room for another between any two. Equal positions
+ * (two people dropping in the same spot at once) are fine; sort those by key.
+ */
+export function positionBetween(before?: string | null, after?: string | null): string {
+  const a = before ?? '';
+  let b = after && after > a ? after : null;
+  let out = '';
+  for (let i = 0; ; i++) {
+    const low = i < a.length ? DIGITS.indexOf(a[i]!) : 0;
+    const high = b !== null ? (i < b.length ? DIGITS.indexOf(b[i]!) : 0) : DIGITS.length;
+    if (low === high) {
+      out += DIGITS[low];
+      continue;
+    }
+    // At an open end, step by one rather than halving, so a list that only
+    // ever grows at the end (or the start) keeps short positions.
+    const open = i < a.length ? (b === null ? 'after' : null) : b !== null ? 'before' : null;
+    const mid = open === 'after' ? low + 1 : open === 'before' ? high - 1 : Math.floor((low + high) / 2);
+    if (mid > low && mid < high) return out + DIGITS[mid];
+    // Adjacent digits: keep the lower one, and anything above the rest of `a` will do.
+    out += DIGITS[low];
+    b = null;
+  }
+}
 
 /**
  * Makes sure a space knows these collections: defines the ones it has no

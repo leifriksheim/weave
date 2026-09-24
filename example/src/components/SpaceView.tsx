@@ -9,6 +9,7 @@ import { NewCollection } from './NewCollection';
 import { GraphView } from './GraphView';
 import { QueryPlayground } from './QueryPlayground';
 import { RolesView } from './RolesView';
+import { AppsView } from './apps/AppsView';
 import { spaceBadges } from './SpaceList';
 import { styles, palette } from '../styles';
 import { Avatar } from './Avatar';
@@ -25,9 +26,10 @@ export interface Place {
 /** Defining a new kind of thing, in the main area */
 const NEW = '__new__';
 
-/** The ways of looking at one space: its things, how they connect, asking of them, and who may do what */
+/** The ways of looking at one space: apps made for its data, the data itself, how it connects, asking of it, and who may do what */
 const TABS = [
-  { id: 'things', label: 'Things' },
+  { id: 'apps', label: 'Apps' },
+  { id: 'data', label: 'Data' },
   { id: 'explore', label: 'Explore' },
   { id: 'query', label: 'Query' },
   { id: 'roles', label: 'People & roles' },
@@ -43,7 +45,7 @@ type Tab = (typeof TABS)[number]['id'];
 export function SpaceView({ space }: { space: SpaceSummary }) {
   const account = useAccount();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
-  const [tab, setTab] = useState<Tab>('things');
+  const [tab, setTab] = useState<Tab>('apps');
   // Set when "Invite people" brought us to People & roles, so the invite is already open there.
   const [inviting, setInviting] = useState(false);
 
@@ -115,11 +117,12 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
         </nav>
       </header>
 
+      {tab === 'apps' && <AppsView space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'explore' && <GraphView space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'query' && <QueryPlayground space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'roles' && <RolesView space={space} collections={collections} inviting={inviting} />}
 
-      {tab === 'things' && <div className="space-layout">
+      {tab === 'data' && <div className="space-layout">
         <aside className="space-side">
           <nav aria-label="Kinds of things" className="kinds">
             <span className="kinds-heading" style={sideHeading}>In this space</span>

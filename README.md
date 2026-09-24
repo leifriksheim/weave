@@ -534,8 +534,11 @@ so an agent reading `collections_list` sees how a space's things connect.
 
 **Standard schemas, optional.** The protocol has no built-in kinds of record.
 For the patterns nearly every app needs there is a small library of ordinary
-collection definitions — `reaction`, `comment`, `tag`, `attachment`,
-`reference`, named `std.*` — in `weave-protocol/schemas`:
+collection definitions, named `std.*`, in `weave-protocol/schemas`: things that
+attach to any record (`reaction`, `comment`, `tag`, `attachment`, `reference`)
+and a few common nouns (`message`, `task`, `column`). Nouns kept in a hand-made
+order carry a `position` string; `positionBetween(a, b)` makes one between two
+neighbours, so moving a card rewrites only that card:
 
 ```typescript
 import { reaction, useSchemas } from 'weave-protocol/schemas';
@@ -545,7 +548,9 @@ await node.records.put(space.id, reaction.name, { emoji: '👍' }, { links: [{ r
 ```
 
 Using the same ones is how two apps agree — reactions from one show up in the
-other. An app that wants its own shape defines its own collection instead.
+other. The example app's Apps tab is built on this: a chat and a kanban board
+that appear in a space once it holds `std.message`, or `std.task` and
+`std.column`. An app that wants its own shape defines its own collection instead.
 
 **Rules, enforced by every peer.** A definition can say who may create, edit and
 delete its records, what must be unique, and which fields are fixed:

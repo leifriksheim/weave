@@ -220,7 +220,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     description:
       'What a space holds and how it connects: each collection with its title, description, JSON Schema, declared ' +
       'link roles and record count. Read this before writing, to match the shapes and links others use. Common ' +
-      'shapes — std.reaction, std.comment, std.tag, std.attachment, std.reference — appear only once a space defines them.',
+      'shapes — std.reaction, std.comment, std.tag, std.attachment, std.reference, std.message, std.task, std.column — appear only once a space defines them.',
     input: { type: 'object', properties: { space }, required: ['space'] },
     readOnly: true,
     peerContent: true,

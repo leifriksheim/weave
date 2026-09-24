@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNode } from 'weave-protocol/react';
 import type { NodeCollection, SpaceSummary } from 'weave-protocol';
-import { standardSchemas, useSchemas } from 'weave-protocol/schemas';
+import { standardAnnotations, useSchemas } from 'weave-protocol/schemas';
 import { styles, palette } from '../styles';
 
 const WHAT_IT_ADDS: Record<string, string> = {
@@ -14,7 +14,9 @@ const WHAT_IT_ADDS: Record<string, string> = {
 
 /**
  * The standard schema library, offered rather than assumed: the ones this
- * space has not added yet, each a click away. Nothing is written until
+ * space has not added yet, each a click away. Only the kinds that attach to
+ * anything — the shared nouns (messages, tasks) come in with the apps that
+ * use them, from the Apps tab. Nothing is written until
  * someone picks one — and whoever does becomes its definer here.
  */
 export function Library({
@@ -31,7 +33,7 @@ export function Library({
   const node = useNode();
   const [busy, setBusy] = useState<string | null>(null);
   const defined = new Set(collections.filter((c) => c.version !== null).map((c) => c.name));
-  const missing = standardSchemas.filter((s) => !defined.has(s.name));
+  const missing = standardAnnotations.filter((s) => !defined.has(s.name));
   if (!space.writable || missing.length === 0) return null;
 
   return (
