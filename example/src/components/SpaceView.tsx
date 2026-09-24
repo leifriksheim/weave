@@ -93,7 +93,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
               : "You're following this space: you can see it but not change it. Someone who runs it can give you a role."}
           </p>
         )}
-        <nav role="tablist" aria-label="Views of this space" style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${palette.surface.line}`, marginTop: 12 }}>
+        <nav role="tablist" aria-label="Views of this space" className="scroll-x" style={{ display: 'flex', gap: 4, boxShadow: `inset 0 -1px 0 ${palette.surface.line}`, marginTop: 12 }}>
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -103,7 +103,6 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
               style={{
                 height: 36,
                 padding: '0 12px',
-                marginBottom: -1,
                 border: 'none',
                 borderBottom: `2px solid ${tab === t.id ? palette.ink.strong : 'transparent'}`,
                 background: 'none',
@@ -123,9 +122,9 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
       {tab === 'roles' && <RolesView space={space} collections={collections} />}
 
       {tab === 'things' && <div className="space-layout">
-        <aside style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-          <nav aria-label="Kinds of things" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={sideHeading}>In this space</span>
+        <aside className="space-side">
+          <nav aria-label="Kinds of things" className="kinds">
+            <span className="kinds-heading" style={sideHeading}>In this space</span>
             {kinds.map((c) => (
               <button
                 key={c.name}
@@ -140,7 +139,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
             ))}
             {kinds.length === 0 && <span style={{ fontSize: 13, color: palette.ink.faint, padding: '6px 10px' }}>Nothing yet</span>}
             {space.writable && (
-              <button onClick={() => setPlace({ collection: NEW, key: null })} data-nav style={{ ...navItem, color: palette.ink.muted, ...(selected === NEW ? navItemOn : {}) }}>
+              <button onClick={() => setPlace({ collection: NEW, key: null })} aria-current={selected === NEW ? 'page' : undefined} data-nav style={{ ...navItem, color: palette.ink.muted, ...(selected === NEW ? navItemOn : {}) }}>
                 + New kind of thing
               </button>
             )}

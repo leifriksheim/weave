@@ -48,7 +48,7 @@ export function Info({ label, children }: { label: string; children: ReactNode }
         i
       </button>
       {open && (
-        <span role="note" style={styles.popover}>
+        <span role="note" className="popover" style={styles.popover}>
           {children}
         </span>
       )}

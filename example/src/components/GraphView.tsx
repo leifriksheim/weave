@@ -357,10 +357,11 @@ export function GraphView({
     if (!wrap) return;
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
-      const w = entry.contentRect.width;
+      // The height is set in CSS (shorter on a phone), so it is read here like the width.
+      const { width: w, height: h } = entry.contentRect;
       setSize((old) => {
-        if (old.w === 0) setView({ x: w / 2, y: HEIGHT / 2, k: 1 });
-        return { w, h: HEIGHT };
+        if (old.w === 0) setView({ x: w / 2, y: h / 2, k: 1 });
+        return { w, h };
       });
     });
     observer.observe(wrap);
@@ -598,9 +599,9 @@ export function GraphView({
 
       <div
         ref={wrapRef}
+        className="graph-canvas"
         style={{
           position: 'relative',
-          height: HEIGHT,
           border: `1px solid ${palette.surface.line}`,
           borderRadius: palette.radius.lg,
           background: palette.surface.sunken,
@@ -610,7 +611,7 @@ export function GraphView({
         <svg
           ref={svgRef}
           width="100%"
-          height={HEIGHT}
+          height="100%"
           role="img"
           aria-label={`A map of ${graph.dots.length} things in ${space.name} and how they connect`}
           onPointerDown={onBackgroundDown}
@@ -740,7 +741,7 @@ export function GraphView({
             style={{
               ...tooltip,
               left: clamp(view.x + hoverAt.x * k + 14, 8, Math.max(8, size.w - 240)),
-              top: clamp(view.y + hoverAt.y * k + 14, 8, HEIGHT - 70),
+              top: clamp(view.y + hoverAt.y * k + 14, 8, size.h - 70),
             }}
           >
             <div style={{ fontWeight: 600, color: palette.ink.strong }}>{short(hover.label, 60)}</div>

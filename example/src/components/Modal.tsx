@@ -64,6 +64,7 @@ export function Modal({
 
   return (
     <div
+      className="modal-backdrop"
       style={styles.backdrop}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -75,6 +76,7 @@ export function Modal({
         aria-modal
         aria-label={title}
         tabIndex={-1}
+        className="modal"
         style={styles.modal}
       >
         <h2 style={styles.modalTitle}>{title}</h2>

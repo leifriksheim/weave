@@ -140,14 +140,15 @@ export function CollectionView({
             {collection?.description ?? <code style={{ fontSize: 12 }}>{name}</code>}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="collection-tools">
           {title && (
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search"
               aria-label={`Search ${label}`}
-              style={{ ...styles.input, height: 32, width: 180, fontSize: 13 }}
+              className="collection-search"
+              style={{ ...styles.input, width: undefined, height: 32, fontSize: 13 }}
             />
           )}
           {shownLayout === 'board' && groups.length > 1 && group && (

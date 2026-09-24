@@ -7,7 +7,7 @@ import { RelayNotice } from './components/RelayNotice';
 import { HowItWorks } from './components/HowItWorks';
 import { InviteBanner } from './components/InviteBanner';
 import { SpaceList } from './components/SpaceList';
-import { SpaceRail, RAIL_WIDTH } from './components/SpaceRail';
+import { SpaceRail } from './components/SpaceRail';
 import { SpaceView } from './components/SpaceView';
 import { Wordmark } from './components/Wordmark';
 import { inviteFrom } from './spaces';
@@ -42,7 +42,7 @@ function Workspace() {
   const inSpace = open !== null;
 
   return (
-    <div style={inSpace ? { ...styles.container, paddingLeft: RAIL_WIDTH + 20 } : styles.container}>
+    <div className="page" data-rail={inSpace || undefined}>
       {inSpace && (
         <SpaceRail
           spaces={spaces}

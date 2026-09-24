@@ -42,15 +42,19 @@ const accent = {
 
 const radius = { sm: 6, md: 6, lg: 8, pill: 999 } as const;
 
+/** How wide the column of spaces is, down the left edge while one is open. */
+const RAIL_WIDTH = 68;
+
 const font = '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 const mono = '"Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 
 /**
  * The rules inline styles cannot carry.
  *
- * Called once at startup. Everything here is either a base reset or an
- * interactive state — no layout, so the inline styles stay the single place to
- * look for how something is arranged.
+ * Called once at startup. Everything here is a base reset, an interactive
+ * state, or layout that changes with the screen: inline styles cannot hold a
+ * media query, so anything arranged differently on a phone takes a class here
+ * instead of an inline style. The rest of the layout stays inline.
  */
 export function injectBaseStyles(): void {
   if (globalThis.document.getElementById('weave-base-styles')) return;
@@ -76,19 +80,11 @@ export function injectBaseStyles(): void {
     button:not(:disabled) { cursor: pointer; }
     button:disabled { opacity: .5; cursor: not-allowed; }
 
-    /* Primary actions lift slightly; quiet ones just warm up. */
-    [data-variant="primary"]:not(:disabled):hover { background-color: #383838 !important; }
-    [data-variant="quiet"]:not(:disabled):hover { background-color: ${surface.sunken} !important; color: ${ink.strong} !important; }
-    [data-variant="ghost"]:not(:disabled):hover { color: ${ink.strong} !important; }
-    [data-variant="danger"]:not(:disabled):hover { background-color: ${accent.dangerSoft} !important; color: ${accent.danger} !important; }
-
     input, textarea, select { font-family: inherit; transition: border-color .15s ease, box-shadow .15s ease; }
     input::placeholder, textarea::placeholder { color: ${ink.faint}; }
     input:focus, textarea:focus, select:focus { border-color: ${ink.muted} !important; box-shadow: 0 0 0 3px rgba(0, 0, 0, .06); outline: none; }
     [data-variant="quiet"], [data-variant="secondary"] { border: 1px solid ${surface.line} !important; }
     tbody tr { transition: background-color .12s ease; }
-    tbody tr:hover { background-color: ${surface.sunken}; }
-    button[style*="text-align: left"]:not(:disabled):hover { border-color: ${surface.lineStrong} !important; }
 
     /* Visible only for keyboard users, so a mouse click stays quiet. */
     :focus-visible { outline: 2px solid ${ink.strong}; outline-offset: 2px; }
@@ -98,41 +94,186 @@ export function injectBaseStyles(): void {
     summary::-webkit-details-marker { display: none; }
     summary::after { content: '›'; float: right; transition: transform .15s ease; display: inline-block; }
     details[open] > summary::after { transform: rotate(90deg); }
-    summary:hover { color: ${ink.strong}; }
 
-    /* A list row is a target, not a card: it earns a background on hover
-       rather than carrying a border all the time. */
-    [data-row]:hover { background-color: ${surface.sunken} !important; }
-    [data-menu-item]:not(:disabled):hover { background-color: ${surface.sunken} !important; color: ${ink.strong} !important; }
-    [data-row]:hover [data-row-action] { opacity: 1; }
-    [data-row-action] { opacity: 0; transition: opacity .12s ease; }
-    /* Keyboard users never hover, so the action has to be reachable anyway. */
-    [data-row-action]:focus-visible { opacity: 1; }
+    [data-row-action] { transition: opacity .12s ease; }
 
     @keyframes weave-fade { from { opacity: 0 } to { opacity: 1 } }
     @keyframes weave-slide { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
-    [data-editable]:hover { border-color: ${surface.line} !important; background: ${surface.sunken} !important; }
     [data-editable]:focus { border-color: ${surface.lineStrong} !important; background: ${surface.card} !important; box-shadow: none !important; }
     .inline-field select, .inline-field input { height: 32px !important; border-color: transparent !important; background: none !important; margin-left: -8px; padding-left: 8px !important; width: calc(100% + 8px) !important; }
-    .inline-field select:hover, .inline-field input:hover { border-color: ${surface.line} !important; background: ${surface.sunken} !important; }
     .inline-field select:focus, .inline-field input:focus { border-color: ${surface.lineStrong} !important; background: ${surface.card} !important; box-shadow: none !important; }
-    .space-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; align-items: start; }
-    @media (max-width: 760px) { .space-layout { grid-template-columns: 1fr; gap: 24px; } }
-    [data-nav]:not([aria-current]):hover { background: ${surface.sunken} !important; }
     .space-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
     [data-tile] { transition: border-color .15s ease, box-shadow .15s ease; }
-    [data-tile]:hover { border-color: ${surface.lineStrong} !important; box-shadow: 0 6px 16px -10px rgba(15, 17, 21, .18); }
-    [data-tile]:hover [data-row-action] { opacity: 1; }
-    [data-tile-new]:hover { border-color: ${ink.muted} !important; color: ${ink.strong} !important; background: ${surface.sunken} !important; }
-    [data-rail-item]:not([aria-current]):hover [data-rail-pill] { height: 10px !important; opacity: 1 !important; }
-    [data-rail-add]:hover > span { border-color: ${ink.muted} !important; color: ${ink.strong} !important; background: ${surface.card}; }
     @keyframes weave-rise { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
 
     code { font-family: ${mono}; }
 
-    @media (max-width: 520px) {
-      [data-card] { padding: 28px 20px !important; }
+    /* Hover only where there is a pointer that hovers. On a touchscreen a
+       tap would otherwise leave the hover look stuck on whatever was tapped. */
+    @media (hover: hover) {
+      /* A list row is a target, not a card: it earns a background on hover
+         rather than carrying a border all the time, and its small actions
+         show up with it. Without hover (touch) they simply stay visible. */
+      [data-row-action] { opacity: 0; }
+      /* Keyboard users never hover, so the action has to be reachable anyway. */
+      [data-row-action]:focus-visible { opacity: 1; }
+      /* Primary actions lift slightly; quiet ones just warm up. */
+      [data-variant="primary"]:not(:disabled):hover { background-color: #383838 !important; }
+      [data-variant="quiet"]:not(:disabled):hover { background-color: ${surface.sunken} !important; color: ${ink.strong} !important; }
+      [data-variant="ghost"]:not(:disabled):hover { color: ${ink.strong} !important; }
+      [data-variant="danger"]:not(:disabled):hover { background-color: ${accent.dangerSoft} !important; color: ${accent.danger} !important; }
+
+      tbody tr:hover { background-color: ${surface.sunken}; }
+      button[style*="text-align: left"]:not(:disabled):hover { border-color: ${surface.lineStrong} !important; }
+      summary:hover { color: ${ink.strong}; }
+      [data-row]:hover { background-color: ${surface.sunken} !important; }
+      [data-menu-item]:not(:disabled):hover { background-color: ${surface.sunken} !important; color: ${ink.strong} !important; }
+      [data-row]:hover [data-row-action] { opacity: 1; }
+      [data-editable]:hover { border-color: ${surface.line} !important; background: ${surface.sunken} !important; }
+      .inline-field select:hover, .inline-field input:hover { border-color: ${surface.line} !important; background: ${surface.sunken} !important; }
+      [data-nav]:not([aria-current]):hover { background: ${surface.sunken} !important; }
+      [data-tile]:hover { border-color: ${surface.lineStrong} !important; box-shadow: 0 6px 16px -10px rgba(15, 17, 21, .18); }
+      [data-tile]:hover [data-row-action] { opacity: 1; }
+      [data-tile-new]:hover { border-color: ${ink.muted} !important; color: ${ink.strong} !important; background: ${surface.sunken} !important; }
+      [data-rail-item]:not([aria-current]):hover [data-rail-pill] { height: 10px !important; opacity: 1 !important; }
+      [data-rail-add]:hover > span { border-color: ${ink.muted} !important; color: ${ink.strong} !important; background: ${surface.card}; }
     }
+
+    /* ── Layout that follows the screen ──────────────────────────────────
+       One breakpoint for "phone" (640px) and one for "too narrow for a side
+       column" (760px). Touch is asked about separately, with pointer: coarse,
+       since a small laptop window is not a phone and a tablet is not a mouse. */
+
+    .page {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 56px 20px 80px;
+    }
+    .page[data-rail] { padding-left: ${RAIL_WIDTH + 20}px; }
+
+    /* Every space down the left edge; along the bottom on a phone. */
+    .rail {
+      position: fixed;
+      z-index: 10;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: ${RAIL_WIDTH}px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 16px 0;
+      background: ${surface.sunken};
+      border-right: 1px solid ${surface.line};
+    }
+    .rail-list { display: flex; flex-direction: column; align-items: center; gap: 8px; overflow-y: auto; flex: 0 1 auto; width: 100%; }
+    .rail-divider { flex-shrink: 0; width: 28px; height: 1px; margin: 4px 0; background: ${surface.line}; }
+    .rail-slot { position: relative; flex-shrink: 0; width: 100%; display: flex; justify-content: center; padding: 2px 0; border: none; background: none; }
+
+    /* A row that scrolls sideways instead of wrapping, with no scrollbar in the way. */
+    .scroll-x { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .scroll-x::-webkit-scrollbar { display: none; }
+    .scroll-x > * { flex-shrink: 0; white-space: nowrap; }
+
+    /* A space: its kinds of things down the side, the chosen one beside them. */
+    .space-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; align-items: start; }
+    .space-side { display: flex; flex-direction: column; gap: 28px; }
+    .kinds { display: flex; flex-direction: column; gap: 2px; }
+
+    .graph-canvas { height: 600px; }
+    .collection-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .collection-search { width: 180px; }
+    .modal { max-height: calc(100dvh - 40px); overflow-y: auto; }
+
+    @media (max-width: 760px) {
+      .space-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+      /* The side column comes apart: its kinds of things become a row of
+         tabs above the list, and who is here and the invite go below it,
+         so the thing you opened the space for is on the first screen. */
+      .space-side { display: contents; }
+      .space-side > section { order: 1; }
+      .kinds { flex-direction: row; gap: 6px; margin: 0 -16px; padding: 0 16px; overflow-x: auto; scrollbar-width: none; }
+      .kinds::-webkit-scrollbar { display: none; }
+      .kinds > * { flex-shrink: 0; white-space: nowrap; }
+      .kinds [data-nav] { border: 1px solid ${surface.line} !important; border-radius: ${radius.pill}px !important; padding: 0 12px !important; }
+      .kinds [data-nav][aria-current] { border-color: ${ink.strong} !important; }
+      .kinds-heading { display: none; }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        padding: 20px max(16px, env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+      }
+      .page[data-rail] {
+        padding-left: max(16px, env(safe-area-inset-left));
+        padding-bottom: calc(${RAIL_WIDTH + 48}px + env(safe-area-inset-bottom));
+      }
+
+      .rail {
+        top: auto;
+        right: 0;
+        width: auto;
+        flex-direction: row;
+        gap: 4px;
+        padding: 8px max(8px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+        border-right: none;
+        border-top: 1px solid ${surface.line};
+      }
+      .rail-list { flex-direction: row; flex: 1 1 auto; width: auto; overflow-x: auto; overflow-y: hidden; padding: 4px; scrollbar-width: none; }
+      .rail-list::-webkit-scrollbar { display: none; }
+      .rail-divider { width: 1px; height: 28px; margin: 0 4px; }
+      .rail-slot { width: auto; padding: 0 2px; }
+      .rail [data-rail-pill] { display: none; }
+
+      .space-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .graph-canvas { height: min(600px, 65dvh); }
+      .collection-tools { width: 100%; }
+      .collection-search { flex: 1 1 100%; width: auto; }
+
+      /* A dialog rises from the bottom edge, where a thumb can reach it. */
+      .modal-backdrop { align-items: flex-end !important; padding: 0 !important; }
+      .modal {
+        max-width: none !important;
+        max-height: 92dvh;
+        border-radius: 14px 14px 0 0 !important;
+        padding-bottom: calc(24px + env(safe-area-inset-bottom)) !important;
+        animation: weave-sheet .2s ease !important;
+      }
+
+      /* Floating panels are anchored to what opened them, which on a phone
+         can be near an edge; pinned to the bottom instead, they always fit. */
+      .popover {
+        position: fixed !important;
+        top: auto !important;
+        left: 16px !important;
+        right: 16px;
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        width: auto !important;
+        font-size: 14px !important;
+      }
+
+      /* Two labels beside each other leave too little room for the value. */
+      .property { grid-template-columns: minmax(0, 1fr) !important; gap: 2px !important; }
+      .property > dt { padding-top: 0 !important; }
+    }
+
+    /* Fingers, not a mouse: bigger targets, and no text field under 16px,
+       or iOS zooms the page every time one is tapped. Only the small ones are
+       raised — a field drawn large, like a record's title, keeps its size. */
+    @media (pointer: coarse) {
+      :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select):is(:not([style*="font-size"]), [style*="font-size: 11"], [style*="font-size: 12"], [style*="font-size: 13"], [style*="font-size: 14"], [style*="font-size: 15"]) { font-size: 16px !important; }
+      input:not([type="checkbox"]):not([type="radio"]), select { min-height: 40px; }
+      button[data-variant], [role="tab"], [data-nav], [data-menu-item] { min-height: 40px; }
+      [data-row-action] { min-width: 36px; min-height: 36px; }
+      /* The query editor is a see-through field over its highlighted copy; both change size together or the caret drifts off the text. */
+      .code-layer { font-size: 16px !important; }
+    }
+
+    @keyframes weave-sheet { from { transform: translateY(100%) } to { transform: none } }
   `;
   globalThis.document.head.appendChild(style);
 }
@@ -158,13 +299,6 @@ const quietButton: CSSProperties = {
 
 /** Shared inline styles — kept in one place so the app has a single visual vocabulary. */
 export const styles = {
-  container: {
-    minHeight: '100vh',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    padding: '56px 20px 80px',
-  },
   /** Onboarding is a column on a white page, not a box — Vercel's sign-in, not a dialog. */
   card: {
     padding: '64px 0 0',

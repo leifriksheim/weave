@@ -118,7 +118,7 @@ function Roles({ space, access, collections }: { space: SpaceSummary; access: Sp
 
   return (
     <section style={section} aria-label="Roles">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ ...styles.appTitle, fontSize: 20 }}>Roles</h2>
         <button
           onClick={() => setEditing({ kind: 'new' })}

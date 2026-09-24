@@ -19,7 +19,7 @@ export function ConnectScreen() {
   const home = new URL(state.home).host;
 
   return (
-    <div style={styles.container}>
+    <div className="page">
       <div style={styles.card}>
         <div style={{ marginBottom: 40 }}>
           <Wordmark compact />

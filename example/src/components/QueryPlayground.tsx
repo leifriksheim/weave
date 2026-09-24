@@ -338,11 +338,13 @@ function Editor({ value, onChange }: { value: string; onChange: (next: string) =
       <pre
         ref={under}
         aria-hidden
+        className="code-layer"
         style={{ ...codeText, ...syntax, position: 'absolute', inset: 0, margin: 0, overflow: 'hidden', pointerEvents: 'none', border: '1px solid transparent' }}
         dangerouslySetInnerHTML={{ __html: `${html}\n ` }}
       />
       <textarea
         id="query-editor"
+        className="code-layer"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}

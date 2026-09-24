@@ -326,7 +326,7 @@ export function RecordPanel({
 
 function Property({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, alignItems: 'start', minHeight: 32, padding: '4px 0' }}>
+    <div className="property" style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, alignItems: 'start', minHeight: 32, padding: '4px 0' }}>
       <dt style={{ fontSize: 13, color: palette.ink.muted, paddingTop: 6 }}>{label}</dt>
       <dd style={{ margin: 0, fontSize: 14, minWidth: 0 }}>{children}</dd>
     </div>

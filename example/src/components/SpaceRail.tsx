@@ -4,12 +4,11 @@ import type { NewSpace } from 'weave-protocol';
 import { SpaceDialog, SpaceMark } from './SpaceList';
 import { palette } from '../styles';
 
-export const RAIL_WIDTH = 68;
-
 /**
  * Every space down the left edge while one is open, the way Slack and Discord
  * do it: one click to switch, a home button back to the grid, and a plus to
- * add another.
+ * add another. On a phone it runs along the bottom instead — see `.rail` in
+ * styles.ts.
  */
 export function SpaceRail({
   spaces,
@@ -29,8 +28,8 @@ export function SpaceRail({
   const [adding, setAdding] = useState(false);
 
   return (
-    <nav aria-label="Spaces" style={rail}>
-      <button onClick={onHome} data-rail-item style={slot} title="All spaces" aria-label="All spaces">
+    <nav aria-label="Spaces" className="rail">
+      <button onClick={onHome} data-rail-item className="rail-slot" title="All spaces" aria-label="All spaces">
         <span style={{ ...plain, background: palette.ink.strong, color: '#fff' }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
             <rect x="1" y="1" width="6" height="6" rx="1.5" />
@@ -41,9 +40,9 @@ export function SpaceRail({
         </span>
       </button>
 
-      <span style={{ width: 28, height: 1, background: palette.surface.line, margin: '4px 0' }} />
+      <span className="rail-divider" />
 
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, overflowY: 'auto', flex: '0 1 auto', width: '100%' }}>
+      <div className="rail-list">
         {spaces.map((space) => {
           const on = space.id === current;
           return (
@@ -52,7 +51,7 @@ export function SpaceRail({
               onClick={() => onOpen(space)}
               aria-current={on ? 'page' : undefined}
               data-rail-item
-              style={slot}
+              className="rail-slot"
               title={space.name}
               aria-label={space.name}
             >
@@ -66,7 +65,7 @@ export function SpaceRail({
         })}
       </div>
 
-      <button onClick={() => setAdding(true)} data-rail-item data-rail-add style={slot} title="New space" aria-label="New space">
+      <button onClick={() => setAdding(true)} data-rail-item data-rail-add className="rail-slot" title="New space" aria-label="New space">
         <span style={{ ...plain, border: `1px dashed ${palette.surface.lineStrong}`, color: palette.ink.muted, fontSize: 22, fontWeight: 400 }}>+</span>
       </button>
 
@@ -75,31 +74,6 @@ export function SpaceRail({
   );
 }
 
-const rail = {
-  position: 'fixed' as const,
-  top: 0,
-  bottom: 0,
-  left: 0,
-  zIndex: 10,
-  width: RAIL_WIDTH,
-  display: 'flex',
-  flexDirection: 'column' as const,
-  alignItems: 'center',
-  gap: 8,
-  padding: '16px 0',
-  background: palette.surface.sunken,
-  borderRight: `1px solid ${palette.surface.line}`,
-};
-const slot = {
-  position: 'relative' as const,
-  width: '100%',
-  display: 'flex',
-  justifyContent: 'center',
-  padding: '2px 0',
-  border: 'none',
-  background: 'none',
-  flexShrink: 0,
-};
 const plain = {
   width: 40,
   height: 40,
