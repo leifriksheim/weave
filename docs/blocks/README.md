@@ -16,6 +16,7 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 | [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | S3-compatible and Google Drive blob drivers (after 03) | ~1 week |
 | [BLOCK-07](BLOCK-07-hosting-tier.md) | Hosting: one blind always-on node serving many people's spaces, writing into their own storage (after 03) | ~2 weeks |
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
+| [BLOCK-14](BLOCK-14-security-hardening.md) | Security, round two: checkable version history, removing members, safe pairing, private votes, sync limits | ~3 weeks |
 
 ## Next, not written as blocks yet
 
@@ -42,10 +43,6 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 
 ## Written down
 
-- **Revoking access to a space.** A space has one AES key and one write key,
-  and neither rotates, so somebody invited is invited permanently. Removing
-  someone means new keys handed to everyone who remains; the space could list
-  its keys by epoch.
 - **Full-text search.** `$contains` is a substring scan — honest at browser
   scale, not search. Ranking and prefix matching need an inverted index.
 - **Proof chains that travel.** Delegations deeper than root → session →
