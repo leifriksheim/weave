@@ -387,6 +387,7 @@ export type {
   NodeEvent,
   SpaceSummary,
   SpaceStatus,
+  CarrierSummary,
   SpaceProfile,
   NewSpace,
   InvitePreview,

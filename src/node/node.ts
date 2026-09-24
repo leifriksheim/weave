@@ -184,6 +184,11 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   /** Runtime events pass through; a change to the account registry is also acted on. */
   const fromRuntime = (event: NodeEvent) => {
     emit(event);
+    // Which peers are the account's own is read off the registry's peers, so
+    // a device coming or going there changes every open space's status too.
+    if (event.type === 'status' && event.space === accountSpaceId) {
+      for (const spaceId of runtimes.keys()) if (spaceId !== accountSpaceId) emit({ type: 'status', space: spaceId });
+    }
     if (event.type === 'records') void runtimes.get(event.space)?.then((rt) => checkRevoked(event.space, rt)).catch(() => {});
     // A space joined with an invite whose record had not arrived: perhaps it has now.
     if (event.type === 'records' && event.space !== accountSpaceId) void finishJoining(event.space);
@@ -548,7 +553,18 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     close: closeRuntime,
 
     async status(spaceId: string) {
-      return (await runtime(spaceId)).status();
+      const status = await (await runtime(spaceId)).status();
+      if (!accountSpaceId) return { ...status, own: [], carriers: [] };
+      // A peer's key does not say whose it is. But only this account's devices
+      // and apps can read the account registry, so a peer there is one of ours
+      // — except a carrier, which the registry names by its key.
+      const carrierKeys = new Set((await carrierRecords()).filter(({ record }) => !record.deleted && record.body).map(({ record }) => record.body!.did));
+      const inRegistry = new Set((await (await runtime(accountSpaceId)).status()).peers);
+      return {
+        ...status,
+        own: status.peers.filter((peer) => inRegistry.has(peer) && !carrierKeys.has(peer)),
+        carriers: status.peers.filter((peer) => carrierKeys.has(peer)),
+      };
     },
 
     async profiles(spaceId: string) {

@@ -138,6 +138,9 @@ describe('a carrier', () => {
     await until(carries(node, notes.id), 5000, 'the private space to be carried');
     await until(carries(node, blog.id), 5000, 'the public space to be carried');
     assert.deepEqual((await laptop.carriers.list()).map((c) => c.did), [did]);
+    // Connected in the space, it is named a carrier — not one of the account's devices.
+    await until(async () => (await laptop.spaces.status(notes.id)).carriers.includes(did), 5000, 'the carrier to be named');
+    assert.deepEqual((await laptop.spaces.status(notes.id)).own, []);
     // The carry space is the account's, but not a space it uses.
     assert.equal((await laptop.spaces.list()).some((space) => space.id === added.space), false);
 

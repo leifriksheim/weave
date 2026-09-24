@@ -14,6 +14,7 @@ import { generateSeed } from '../src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { team } from '../src/space/presets.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -142,5 +143,29 @@ describe('moving and merging an account', () => {
     await merged.close();
     const again = await copyAccountData({ from: browser, to: folder, did: me.did, accountKey: me.accountKey });
     assert.deepEqual([again.spacesAdded, again.recordsAdded], [0, 0]);
+  });
+});
+
+describe('who is connected', () => {
+  test("a space tells the account's own devices apart from other people", async () => {
+    const me = await account();
+    const friend = await account();
+    const hub = createFakeHub({ latencyMs: 1 });
+    const laptop = await device(me, memoryStores(), hub);
+    const phone = await device(me, memoryStores(), hub);
+    const theirs = await device(friend, memoryStores(), hub);
+
+    const trip = await laptop.spaces.create({ name: 'Trip', visibility: 'private', ...team });
+    await theirs.spaces.join(await laptop.spaces.invite(trip.id, { role: 'editor' }));
+    // The phone hears about the space through the account, and opens it.
+    await until(async () => (await phone.spaces.list()).some((space) => space.id === trip.id), 3000, 'the space to reach the phone');
+    await phone.spaces.open(trip.id);
+
+    await until(async () => (await laptop.spaces.status(trip.id)).peers.length === 2, 3000, 'both peers to connect');
+    await until(async () => (await laptop.spaces.status(trip.id)).own.length === 1, 3000, 'the phone to count as ours');
+    const status = await laptop.spaces.status(trip.id);
+    assert.deepEqual(status.own, [phone.sessionDid]);
+    assert.deepEqual(status.carriers, []);
+    assert.ok(status.peers.includes(theirs.sessionDid));
   });
 });

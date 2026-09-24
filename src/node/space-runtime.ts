@@ -213,7 +213,8 @@ export interface SpaceRuntime {
   isRevoked(token: string): Promise<boolean>;
   /** Uses an invite's secret, once its record has arrived. True when this account is a member. */
   join(secret: Uint8Array): Promise<boolean>;
-  status(): Promise<SpaceStatus>;
+  /** Who is connected, as this space alone can tell — which of them are the account's own, the node works out */
+  status(): Promise<Omit<SpaceStatus, 'own' | 'carriers'>>;
   close(): Promise<void>;
 }
 
@@ -1390,7 +1391,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return true;
     },
 
-    async status(): Promise<SpaceStatus> {
+    async status() {
       return {
         space: space.id,
         connection,

@@ -240,6 +240,10 @@ export interface SpaceStatus {
   readonly connection: ConnectionState;
   /** Peers currently connected in this space */
   readonly peers: ReadonlyArray<string>;
+  /** Of `peers`, this account's own other devices and apps — the ones following the account registry too */
+  readonly own: ReadonlyArray<string>;
+  /** Of `peers`, carriers the account uses: nodes that keep its spaces online without reading them */
+  readonly carriers: ReadonlyArray<string>;
   /** Root of this space's Merkle tree — equal on two nodes means identical data */
   readonly root: string | null;
   /** Records peers sent that failed validation */
