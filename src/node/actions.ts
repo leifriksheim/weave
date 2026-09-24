@@ -339,7 +339,10 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'space sees the proposal, with what it allows worked out from its rules, and a person who may define collections adds it. ' +
       'Read collections_list first and reuse what the space already has (std.poll, std.task…) rather than inventing a twin. ' +
       'For anything plain lists and forms can\'t show — a game board, a calendar, a whiteboard — give the main collection ' +
-      'a "screen": its own HTML UI, run sealed. Read apps_screen_guide before writing one. ' +
+      'a "screen": its own HTML UI (one document, inline scripts and styles, no network). Inside it, use exactly: ' +
+      'weave.me ({ did, name }), await weave.list("<collection>", { where: { "link:<rel>": key } }), ' +
+      'await weave.put("<collection>", body, { links: [{ rel, to: key }] }), await weave.update(key, body), await weave.remove(key), ' +
+      'weave.onChange(redraw). Records are { key, body, links, createdBy, mine }. Read apps_screen_guide for the rest. ' +
       'Returns what each collection will allow; tell the person that, not your own description.',
     input: {
       type: 'object',

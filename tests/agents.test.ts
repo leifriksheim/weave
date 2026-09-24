@@ -19,7 +19,7 @@ import { createExpression, type CreateExpressionParams } from '../src/schema/exp
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { describeCollection } from '../src/records/describe.js';
 import { checkRules } from '../src/records/rules.js';
-import { addApp, checkApp, copyApp, createScreenBridge, reviewApp, vote, poll, type App } from '../src/schemas/index.js';
+import { addApp, checkApp, copyApp, createScreenBridge, reviewApp, SCREEN_CLIENT, vote, poll, type App } from '../src/schemas/index.js';
 import { createWeaveAuth, type WeaveAuth } from '../src/session/auth.js';
 import { createFolderAccountStore } from '../src/identity/account-store.js';
 import { seenBy } from './helpers/as-member.js';
@@ -381,6 +381,18 @@ describe('screens', () => {
     assert.match(String(await runAction(alice.node, 'apps_screen_guide', {})), /window\.weave/);
   });
 
+  test('the script in front of a screen sets up weave, with me readable both ways', () => {
+    const port = { postMessage: () => {}, onmessage: null as unknown };
+    const window: Record<string, unknown> = { __weave: { port, me: { did: 'did:key:zMe', name: 'Anna' }, collections: ['app.chess.game'] } };
+    new Function('window', 'addEventListener', 'document', SCREEN_CLIENT)(window, () => {}, {});
+    const weave = window.weave as { me: { did: string; name: string } & (() => { did: string; name: string }); collections: string[] };
+    assert.equal(window.__weave, undefined, 'the port is not left lying around');
+    assert.equal(weave.me.did, 'did:key:zMe');
+    assert.equal(weave.me.name, 'Anna');
+    assert.deepEqual(weave.me(), { did: 'did:key:zMe', name: 'Anna' });
+    assert.deepEqual(weave.collections, ['app.chess.game']);
+  });
+
   test('the bridge answers for its app\'s collections only, as the person looking, under the rules', async () => {
     const { alice, bob, space } = await setup();
     await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' }, rules: { edit: 'creator' } });
@@ -419,6 +431,17 @@ describe('screens', () => {
       const refused = await call('update', hers.key, { white: 'bob' });
       assert.equal(refused.ok, false);
       assert.match(refused.error!, /whoever created it/);
+
+      // Written by guessing: one object per call, a where, id and data. It works, and a wrong call says how to call it.
+      const guessed = await call('put', { collection: 'app.chess.game', body: { status: 'open' } });
+      assert.equal(guessed.ok, true);
+      const listed = await call('list', { collection: 'app.chess.game', where: { status: 'open' } });
+      const open = listed.value as Array<{ id: string; key: string; data: { status: string } }>;
+      assert.equal(open.length, 1);
+      assert.equal(open[0]!.id, open[0]!.key);
+      assert.equal(open[0]!.data.status, 'open');
+      const wrong = await call('list', 42);
+      assert.match(wrong.error!, /Name the collection as text, like weave\.list\("app\.chess\.game"\)/);
     } finally {
       bridge.close();
       channel.port2.close();
