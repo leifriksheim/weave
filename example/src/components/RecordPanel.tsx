@@ -24,6 +24,7 @@ import { Avatar } from './Avatar';
 import { Reactions } from './std/Reactions';
 import { Tags } from './std/Tags';
 import { Comments } from './std/Comments';
+import { LinkPicker } from './LinkPicker';
 import { styles, palette } from '../styles';
 
 /**
@@ -55,13 +56,17 @@ export function RecordPanel({
   const node = useNode();
   const [adding, setAdding] = useState<{ collection: NodeCollection; rel: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
     globalThis.addEventListener('keydown', onKey);
     return () => globalThis.removeEventListener('keydown', onKey);
   }, [onClose]);
-  useEffect(() => setAdding(null), [recordKey]);
+  useEffect(() => {
+    setAdding(null);
+    setLinking(false);
+  }, [recordKey]);
 
   const people = peopleFrom(useProfiles(space.id));
   const data = useLive(
@@ -105,7 +110,20 @@ export function RecordPanel({
   const linked = data?.linked ?? [];
   // Reactions, comments and tags appear once the space has added them from the library.
   const uses = (name: string) => collections.some((c) => c.name === name && c.version !== null);
-  const pointing = groupBy(linked.filter((r) => !ANNOTATIONS.has(r.collection)), (r) => r.collection);
+  // Grouped by kind and by how they point here, so "Tasks · blocks" reads apart from "Tasks · about".
+  const relTo = (r: NodeRecord) => r.links.find((l) => l.to === recordKey)?.rel ?? '';
+  const pointing = groupBy(linked.filter((r) => !ANNOTATIONS.has(r.collection)), (r) => `${r.collection}|${relTo(r)}`);
+
+  /** Takes one link off this record: its next version, pointing at one thing less */
+  const unlink = async (index: number) => {
+    if (!record) return;
+    setError(null);
+    try {
+      await node.records.update(space.id, record.key, record.body, { links: record.links.filter((_, i) => i !== index) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return (
     <>
@@ -151,15 +169,22 @@ export function RecordPanel({
                   <Value value={body[name]} />
                 </Property>
               ))}
-              {data.targets.map(({ link, target }) => (
+              {data.targets.map(({ link, target }, i) => (
                 <Property key={`${link.rel}-${link.to}`} label={humanize(link.rel)}>
-                  {target ? (
-                    <button onClick={() => onOpen(target)} style={linkish}>
-                      {recordLabel(target, schemaOf(target.collection))} →
-                    </button>
-                  ) : (
-                    <span style={{ color: palette.ink.faint }}>not here yet</span>
-                  )}
+                  <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    {target ? (
+                      <button onClick={() => onOpen(target)} style={linkish}>
+                        {recordLabel(target, schemaOf(target.collection))} →
+                      </button>
+                    ) : (
+                      <span style={{ color: palette.ink.faint, paddingTop: 6 }}>not here yet</span>
+                    )}
+                    {editable && (
+                      <button onClick={() => void unlink(i)} aria-label={`Remove ${humanize(link.rel).toLowerCase()} link`} title="Remove this link" style={{ ...iconButton, fontSize: 12 }}>
+                        ✕
+                      </button>
+                    )}
+                  </span>
                 </Property>
               ))}
               {uses(tag.name) && (
@@ -169,6 +194,14 @@ export function RecordPanel({
               )}
             </dl>
 
+            {editable && collection?.schema && (linking ? (
+              <LinkPicker space={space} record={record} collection={collection} collections={collections} onDone={() => setLinking(false)} />
+            ) : (
+              <button onClick={() => setLinking(true)} data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start' }}>
+                + Link to…
+              </button>
+            ))}
+
             {record.conforms === false && (
               <p style={{ ...styles.errorHint, color: palette.accent.danger }}>
                 Doesn't fit its definition: {record.issues?.map((i) => i.message).join('; ')}
@@ -176,7 +209,8 @@ export function RecordPanel({
             )}
             {error && <p style={styles.error}>{error}</p>}
 
-            {[...pointing].map(([name, records]) => {
+            {[...pointing].map(([group, records]) => {
+              const [name, rel] = group.split('|') as [string, string];
               const c = collections.find((x) => x.name === name);
               const counted = c ? tally(c, records, record) : null;
               const labelFor = (r: NodeRecord) =>
@@ -184,9 +218,11 @@ export function RecordPanel({
                   ? labelOf(counted.field, (r.body as Record<string, unknown> | null)?.[counted.field.name], { [choicesFrom(counted.field.schema)!.rel]: record })
                   : null) ?? recordLabel(r, schemaOf(r.collection));
               return (
-                <section key={name} aria-label={`${c ? collectionLabel(c) : name} pointing here`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <section key={group} aria-label={`${c ? collectionLabel(c) : name} pointing here`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <h3 style={styles.sectionTitle}>
-                    {c ? collectionLabel(c) : name} <span style={{ color: palette.ink.faint, fontWeight: 400 }}>{records.length}</span>
+                    {c ? collectionLabel(c) : name}
+                    {rel && rel !== 'about' && <span style={{ color: palette.ink.muted, fontWeight: 400 }}> · {humanize(rel).toLowerCase()} this</span>}{' '}
+                    <span style={{ color: palette.ink.faint, fontWeight: 400 }}>{records.length}</span>
                   </h3>
                   {counted && (
                     <div aria-label="Tally" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

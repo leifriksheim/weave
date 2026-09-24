@@ -5,12 +5,17 @@ import { collectionLabel } from '../derive/schema-ui';
 import { styles } from '../styles';
 import { ANNOTATIONS } from './RecordPanel';
 
+/** "To do, Doing, Done" → the three, trimmed, without blanks or repeats */
+const optionsOf = (text = '') => [...new Set(text.split(',').map((o) => o.trim()).filter(Boolean))];
+
 const TYPES = {
   text: { type: 'string' },
   'long text': { type: 'string', maxLength: 10000 },
   number: { type: 'number' },
   'yes/no': { type: 'boolean' },
   'list of text': { type: 'array', items: { type: 'string' } },
+  // Its options are typed in beside it; a field like this is what a board makes columns from.
+  choice: { type: 'string' },
 } as const;
 type TypeName = keyof typeof TYPES;
 
@@ -23,7 +28,7 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
   const node = useNode();
   const existing = useCollections(space.id);
   const [title, setTitle] = useState('');
-  const [fields, setFields] = useState<Array<{ name: string; type: TypeName; required: boolean }>>([{ name: 'title', type: 'text', required: true }]);
+  const [fields, setFields] = useState<Array<{ name: string; type: TypeName; required: boolean; options?: string }>>([{ name: 'title', type: 'text', required: true }]);
   const [pointsAt, setPointsAt] = useState('');
   const [ownOnly, setOwnOnly] = useState(true);
   const [onePerPerson, setOnePerPerson] = useState(false);
@@ -37,9 +42,11 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
     e.preventDefault();
     setError(null);
     const named = fields.filter((f) => f.name.trim());
+    const empty = named.find((f) => f.type === 'choice' && optionsOf(f.options).length === 0);
+    if (empty) return setError(`Give "${empty.name}" some options to choose from, separated by commas`);
     const schema: JsonSchema = {
       type: 'object',
-      properties: Object.fromEntries(named.map((f) => [f.name.trim(), TYPES[f.type]])),
+      properties: Object.fromEntries(named.map((f) => [f.name.trim(), f.type === 'choice' ? { type: 'string', enum: optionsOf(f.options) } : TYPES[f.type]])),
       required: named.filter((f) => f.required).map((f) => f.name.trim()),
     };
     try {
@@ -68,7 +75,7 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
         Stored as <code>{name}</code>
       </span>
       {fields.map((field, i) => (
-        <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
           <input
             aria-label={`Field ${i + 1} name`}
             value={field.name}
@@ -93,6 +100,15 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
           <button type="button" onClick={() => setFields(fields.filter((_, j) => j !== i))} data-variant="ghost" style={styles.linkButton} aria-label={`Remove field ${i + 1}`}>
             ✕
           </button>
+          {field.type === 'choice' && (
+            <input
+              aria-label={`Field ${i + 1} options`}
+              value={field.options ?? ''}
+              onChange={(e) => setFields(fields.map((f, j) => (j === i ? { ...f, options: e.target.value } : f)))}
+              placeholder="Options, separated by commas: To do, Doing, Done"
+              style={{ ...styles.input, flexBasis: '100%' }}
+            />
+          )}
         </div>
       ))}
       <button type="button" onClick={() => setFields([...fields, { name: '', type: 'text', required: false }])} data-variant="ghost" style={{ ...styles.linkButton, alignSelf: 'flex-start' }}>

@@ -9,7 +9,7 @@ import {
   choicesOf,
   collectionLabel,
   columnsOf,
-  groupField,
+  groupFields,
   metaFields,
   quickAddBody,
   recordLabel,
@@ -31,11 +31,19 @@ type Layout = 'list' | 'table' | 'board';
 
 /** Each collection remembers how you last looked at it — on this device only */
 const layoutKey = (space: string, name: string) => `weave.layout:${space}:${name}`;
-function rememberedLayout(space: string, name: string): Layout | null {
+const groupKey = (space: string, name: string) => `weave.board:${space}:${name}`;
+function remembered(key: string): string | null {
   try {
-    return globalThis.localStorage.getItem(layoutKey(space, name)) as Layout | null;
+    return globalThis.localStorage.getItem(key);
   } catch {
     return null;
+  }
+}
+function remember(key: string, value: string): void {
+  try {
+    globalThis.localStorage.setItem(key, value);
+  } catch {
+    /* fine */
   }
 }
 
@@ -64,21 +72,19 @@ export function CollectionView({
   const node = useNode();
   const schema = collection?.schema ?? null;
   const title = titleField(schema);
-  const group = groupField(schema);
-  const [layout, setLayout] = useState<Layout>(() => rememberedLayout(space.id, name) ?? 'list');
+  const groups = groupFields(schema);
+  const [groupName, setGroupName] = useState(() => remembered(groupKey(space.id, name)));
+  const group = groups.find((f) => f.name === groupName) ?? groups[0] ?? null;
+  const [layout, setLayout] = useState<Layout>(() => (remembered(layoutKey(space.id, name)) as Layout | null) ?? 'list');
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
   const people = peopleFrom(useProfiles(space.id));
   const mayCreate = useCan(space.id, 'create', name);
-  const shownLayout = layout === 'board' && !group ? 'list' : layout;
+  const shownLayout = layout;
 
   const choose = (next: Layout) => {
     setLayout(next);
-    try {
-      globalThis.localStorage.setItem(layoutKey(space.id, name), next);
-    } catch {
-      /* fine */
-    }
+    remember(layoutKey(space.id, name), next);
   };
 
   // Choices that live in a linked record (a vote's poll) need that record to show their label.
@@ -133,8 +139,27 @@ export function CollectionView({
               style={{ ...styles.input, height: 32, width: 180, fontSize: 13 }}
             />
           )}
+          {shownLayout === 'board' && groups.length > 1 && group && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: palette.ink.muted }}>
+              Columns by
+              <select
+                value={group.name}
+                onChange={(e) => {
+                  setGroupName(e.target.value);
+                  remember(groupKey(space.id, name), e.target.value);
+                }}
+                style={{ ...styles.input, height: 32, fontSize: 13, width: 'auto' }}
+              >
+                {groups.map((f) => (
+                  <option key={f.name} value={f.name}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div role="tablist" aria-label="Layout" style={segmented}>
-            {(['list', 'table', ...(group ? ['board'] : [])] as Layout[]).map((l) => (
+            {(['list', 'table', 'board'] as Layout[]).map((l) => (
               <button key={l} role="tab" aria-selected={shownLayout === l} onClick={() => choose(l)} style={shownLayout === l ? { ...segment, ...segmentOn } : segment}>
                 {l[0]!.toUpperCase() + l.slice(1)}
               </button>
@@ -156,6 +181,11 @@ export function CollectionView({
 
       {visible.length > 0 && shownLayout === 'list' && <ListLayout rows={visible} schema={schema} people={people} space={space} onOpen={onOpen} />}
       {visible.length > 0 && shownLayout === 'table' && <TableLayout rows={visible} schema={schema} people={people} onOpen={onOpen} />}
+      {shownLayout === 'board' && !group && (
+        <p style={styles.emptyState}>
+          A board makes a column for each option of a choice field — like a status of To do, Doing and Done. {label} has no field like that yet.
+        </p>
+      )}
       {visible.length > 0 && shownLayout === 'board' && group && <BoardLayout rows={visible} schema={schema} field={group} people={people} space={space} onOpen={onOpen} />}
     </section>
   );

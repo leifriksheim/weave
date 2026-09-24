@@ -8,6 +8,9 @@ import { CollectionView } from './CollectionView';
 import { RecordPanel, ANNOTATIONS } from './RecordPanel';
 import { Library } from './Library';
 import { NewCollection } from './NewCollection';
+import { GraphView } from './GraphView';
+import { QueryPlayground } from './QueryPlayground';
+import { RolesView } from './RolesView';
 import { spaceBadges } from './SpaceList';
 import { styles, palette } from '../styles';
 import { Avatar } from './Avatar';
@@ -29,6 +32,15 @@ export interface Place {
 /** Defining a new kind of thing, in the main area */
 const NEW = '__new__';
 
+/** The ways of looking at one space: its things, how they connect, asking of them, and who may do what */
+const TABS = [
+  { id: 'things', label: 'Things' },
+  { id: 'explore', label: 'Explore' },
+  { id: 'query', label: 'Query' },
+  { id: 'roles', label: 'People & roles' },
+] as const;
+type Tab = (typeof TABS)[number]['id'];
+
 /**
  * One space, laid out like an app: its kinds of things down the side, the
  * chosen one in the middle, and a record opening in a panel beside it. All of
@@ -38,6 +50,7 @@ const NEW = '__new__';
 export function SpaceView({ space }: { space: SpaceSummary }) {
   const account = useAccount();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
+  const [tab, setTab] = useState<Tab>('things');
 
   // Syncing while it is on screen. Opening writes nothing: standard schemas
   // are added only when someone picks them from the library.
@@ -79,9 +92,36 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
               : "You're following this space: you can see it but not change it. Someone who runs it can give you a role."}
           </p>
         )}
+        <nav role="tablist" aria-label="Views of this space" style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${palette.surface.line}`, marginTop: 12 }}>
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                height: 36,
+                padding: '0 12px',
+                marginBottom: -1,
+                border: 'none',
+                borderBottom: `2px solid ${tab === t.id ? palette.ink.strong : 'transparent'}`,
+                background: 'none',
+                color: tab === t.id ? palette.ink.strong : palette.ink.muted,
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
       </header>
 
-      <div className="space-layout">
+      {tab === 'explore' && <GraphView space={space} collections={collections} onOpen={openRecord} />}
+      {tab === 'query' && <QueryPlayground space={space} collections={collections} onOpen={openRecord} />}
+      {tab === 'roles' && <RolesView space={space} collections={collections} />}
+
+      {tab === 'things' && <div className="space-layout">
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
           <nav aria-label="Kinds of things" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={sideHeading}>In this space</span>
@@ -133,7 +173,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
             <Library space={space} collections={collections} title="Start with a standard schema" onAdded={(name) => !ANNOTATIONS.has(name) && setPlace({ collection: name, key: null })} />
           )}
         </main>
-      </div>
+      </div>}
 
       {place.key && (
         <RecordPanel space={space} recordKey={place.key} collections={collections} onOpen={openRecord} onClose={() => setPlace({ collection: selected, key: null })} />

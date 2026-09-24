@@ -217,9 +217,9 @@ export function checkField(schema: JsonSchema | null): Field | null {
   return fieldsOf(schema).find((f) => f.kind === 'boolean') ?? null;
 }
 
-/** The field a board groups by: the first one with a fixed set of choices */
-export function groupField(schema: JsonSchema | null): Field | null {
-  return fieldsOf(schema).find((f) => f.kind === 'choice' && !choicesFrom(f.schema)) ?? null;
+/** The fields a board can make columns from: those with a fixed set of choices */
+export function groupFields(schema: JsonSchema | null): ReadonlyArray<Field> {
+  return fieldsOf(schema).filter((f) => f.kind === 'choice' && !choicesFrom(f.schema));
 }
 
 /**
