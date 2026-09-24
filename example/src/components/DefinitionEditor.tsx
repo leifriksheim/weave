@@ -42,7 +42,7 @@ export function useMayRedefine(space: SpaceSummary, collection: NodeCollection |
 }
 
 /**
- * Changes what a kind of thing is: its name, its fields, and the kinds of
+ * Changes what a collection is: its name, its fields, and the kinds of
  * link its records may carry. This is the schema, not any one record — a
  * change here reaches everyone's apps, and applies to records written from
  * then on. Anything this form doesn't understand is kept as it was.
@@ -218,7 +218,7 @@ export function DefinitionEditor({
 
       <section style={section}>
         <h3 style={styles.sectionTitle}>Links</h3>
-        <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: -4 }}>The ways one {collectionLabel(collection).toLowerCase()} can point at other things. Records are linked from their own page.</p>
+        <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: -4 }}>The ways one {collectionLabel(collection).toLowerCase()} can point at other records. Records are linked from their own page.</p>
         {links.map((link, i) => (
           <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, border: `1px solid ${palette.surface.line}`, borderRadius: 10 }}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

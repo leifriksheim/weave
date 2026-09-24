@@ -54,7 +54,7 @@ interface Row {
 }
 
 /**
- * One kind of thing: a list you can search, add to in one line, and look at
+ * One collection: a list you can search, add to in one line, and look at
  * as a list, a table, or — when it has a field with fixed choices — a board.
  * All worked out from the collection's schema; nothing here knows what the
  * records are.
@@ -85,7 +85,7 @@ export function CollectionView({
   const mayCreate = useCan(space.id, 'create', name);
   const [defining, setDefining] = useState(false);
   const redefine = useMayRedefine(space, collection);
-  // Things that can be about anything — comments, reactions, tags — are added on the thing they're about.
+  // Records that can be about anything — comments, reactions, tags — are added on the record they're about.
   const onOthers = Object.values(collection?.links ?? {}).some((l) => l.to === '*');
   const shownLayout = layout;
 
@@ -191,7 +191,7 @@ export function CollectionView({
         </div>
       </header>
 
-      {onOthers && <p style={{ fontSize: 13, color: palette.ink.muted }}>These are added on the thing they're about — open any record to add one.</p>}
+      {onOthers && <p style={{ fontSize: 13, color: palette.ink.muted }}>These are added on the record they're about — open any record to add one.</p>}
 
       {mayCreate && !onOthers &&
         (adding ? (
@@ -216,7 +216,7 @@ export function CollectionView({
   );
 }
 
-/** One line to add a thing by its title; "More fields" when there is more to say */
+/** One line to add a record by its title; "More fields" when there is more to say */
 function QuickAdd({ label, schema, onAdd, onMore }: { label: string; schema: NodeCollection['schema']; onAdd: (body: unknown) => Promise<void>; onMore: (prefill: Record<string, unknown>) => void }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);

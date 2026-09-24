@@ -179,10 +179,10 @@ export function injectBaseStyles(): void {
     .scroll-x::-webkit-scrollbar { display: none; }
     .scroll-x > * { flex-shrink: 0; white-space: nowrap; }
 
-    /* A space: its kinds of things down the side, the chosen one beside them. */
+    /* A space: its collections down the side, the chosen one beside them. */
     .space-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; align-items: start; }
     .space-side { display: flex; flex-direction: column; gap: 28px; }
-    .kinds { display: flex; flex-direction: column; gap: 2px; }
+    .collection-nav { display: flex; flex-direction: column; gap: 2px; }
 
     .graph-canvas { height: 600px; }
     .collection-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -191,17 +191,17 @@ export function injectBaseStyles(): void {
 
     @media (max-width: 760px) {
       .space-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-      /* The side column comes apart: its kinds of things become a row of
+      /* The side column comes apart: its collections become a row of
          tabs above the list, and who is here and the invite go below it,
          so the thing you opened the space for is on the first screen. */
       .space-side { display: contents; }
       .space-side > section { order: 1; }
-      .kinds { flex-direction: row; gap: 6px; margin: 0 -16px; padding: 0 16px; overflow-x: auto; scrollbar-width: none; }
-      .kinds::-webkit-scrollbar { display: none; }
-      .kinds > * { flex-shrink: 0; white-space: nowrap; }
-      .kinds [data-nav] { border: 1px solid ${surface.line} !important; border-radius: ${radius.pill}px !important; padding: 0 12px !important; }
-      .kinds [data-nav][aria-current] { border-color: ${ink.strong} !important; }
-      .kinds-heading { display: none; }
+      .collection-nav { flex-direction: row; gap: 6px; margin: 0 -16px; padding: 0 16px; overflow-x: auto; scrollbar-width: none; }
+      .collection-nav::-webkit-scrollbar { display: none; }
+      .collection-nav > * { flex-shrink: 0; white-space: nowrap; }
+      .collection-nav [data-nav] { border: 1px solid ${surface.line} !important; border-radius: ${radius.pill}px !important; padding: 0 12px !important; }
+      .collection-nav [data-nav][aria-current] { border-color: ${ink.strong} !important; }
+      .collection-nav-heading { display: none; }
     }
 
     @media (max-width: 640px) {

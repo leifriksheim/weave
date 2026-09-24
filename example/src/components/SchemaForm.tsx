@@ -56,7 +56,7 @@ export function SchemaForm({
     <form onSubmit={submit} style={{ ...styles.form, gap: 12 }}>
       {fields.length === 0 ? (
         <label style={labelStyle}>
-          <span>Body (JSON) — this kind of thing has no schema</span>
+          <span>Body (JSON) — this collection has no schema</span>
           <textarea value={json} onChange={(e) => setJson(e.target.value)} rows={6} style={{ ...styles.input, fontFamily: 'monospace' }} />
         </label>
       ) : (

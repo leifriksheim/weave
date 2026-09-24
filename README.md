@@ -988,22 +988,23 @@ space's MST, encrypted first if the space is private, and gossiped to peers over
 WebRTC; a record says *verified* once its signature and its delegation chain
 check out here, and *encrypted* when it arrived encrypted.
 
-**Derived UI.** Open a space and its kinds of things are down the side — its
-catalogue. Each one is a list you can search and add to in one line, or a
+**Derived UI.** A space opens on its **Apps** tab: apps built on the standard
+schemas (a chat, a kanban board) show up once the space holds the collections
+they need, and adding one defines what is missing. The **Collections** tab
+lists every collection down the side — the space's catalogue. Each one is a list you can search and add to in one line, or a
 table, or — when it has a field with fixed choices — a board you drag cards
 across; a yes/no field becomes a checkbox on each row. A record opens in a
 panel beside the list: its fields as properties you edit in place, what it
-points at and what points at it, and reactions, tags and comments — the app
-registers the standard schemas in every space it opens, and gives those three
-a place on every record. And there is a "+ Add …" button for every collection
-that declares a link to this kind of thing: define `app.poll.vote` with
+points at and what points at it, and reactions, tags and comments, which get a place on every record once the
+space has added them from the library. And there is a "+ Add …" button for every collection
+that declares a link to this collection: define `app.poll.vote` with
 `about → app.poll` and every poll gets "+ Add vote". Choices show by their label: `oneOf: [{ const, title }]`
 for fixed ones, and `x-choicesFrom: { rel: 'about', field: 'options' }` for a
 field that picks from a list in the linked record — so a vote stored as `1`
 shows as "Lisbon", its form offers the poll's options, and the poll shows a
 tally. The helpers that work this out are pure functions
 (`example/src/derive/schema-ui.ts`), with nothing DOM-specific in them. An
-empty space offers a small "define a kind of thing" form; an agent can do the
+empty space offers a small "define a collection" form; an agent can do the
 same over WebMCP.
 
 **Agents in the browser (WebMCP).** When `/app` loads, it registers

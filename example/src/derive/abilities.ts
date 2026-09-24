@@ -55,9 +55,9 @@ export const SPACE_PERMISSIONS: ReadonlyArray<PermissionOption & { readonly does
   },
   {
     permission: DEFINE,
-    label: 'Add kinds of things',
-    does: 'add new kinds of things',
-    description: 'Add new kinds of things to the space, and change the ones they added.',
+    label: 'Add collections',
+    does: 'add new collections',
+    description: 'Add new collections to the space, and change the ones they added.',
     group: 'Space',
     collection: null,
   },
@@ -74,8 +74,8 @@ export const WILDCARD_OPTIONS: ReadonlyArray<PermissionOption> = [
   },
   {
     permission: EVERY_COLLECTION_PERMISSION,
-    label: 'Every permission on every kind of thing',
-    description: 'Whatever any kind of thing asks for, now and later — but not running the space, inviting, or adding kinds of things.',
+    label: 'Every permission on every collection',
+    description: 'Whatever any collection asks for, now and later — but not running the space, inviting, or adding collections.',
     group: 'Shortcuts',
     collection: null,
   },
@@ -259,7 +259,7 @@ export function abilitiesOf(role: SpaceRole | null, roles: ReadonlyArray<SpaceRo
         can.push({ key: `${key}:own`, text: `${g.verbs} only what you added to ${label}`, collection: c.name });
         cannot.push({ key: `${key}:others`, text: `${g.verbs} what others added to ${label}`, collection: c.name, reason });
       } else {
-        cannot.push({ key: `${key}:any`, text: `${g.verbs} things in ${label}`, collection: c.name, reason });
+        cannot.push({ key: `${key}:any`, text: `${g.verbs} records in ${label}`, collection: c.name, reason });
       }
     }
   }

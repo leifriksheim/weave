@@ -10,7 +10,7 @@ const TYPES = FIELD_TYPES;
 type TypeName = FieldTypeName;
 
 /**
- * Defines a kind of thing in the space: a name, some fields, and optionally
+ * Defines a collection in the space: a name, some fields, and optionally
  * what it points at. The bare minimum a person needs without an agent —
  * everything else about how it is shown is worked out from this.
  */
@@ -59,7 +59,7 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
   };
 
   return (
-    <form onSubmit={submit} style={{ ...styles.form, gap: 10, marginTop: 12 }} aria-label="Define a kind of thing">
+    <form onSubmit={submit} style={{ ...styles.form, gap: 10, marginTop: 12 }} aria-label="Define a collection">
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What is it called? (e.g. Poll)" style={styles.input} required />
       <span style={styles.todoMeta}>
         Stored as <code>{name}</code>

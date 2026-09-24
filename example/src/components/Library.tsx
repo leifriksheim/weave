@@ -14,8 +14,8 @@ const WHAT_IT_ADDS: Record<string, string> = {
 
 /**
  * The standard schema library, offered rather than assumed: the ones this
- * space has not added yet, each a click away. Only the kinds that attach to
- * anything — the shared nouns (messages, tasks) come in with the apps that
+ * space has not added yet, each a click away. Only the collections that attach
+ * to anything — the shared nouns (messages, tasks) come in with the apps that
  * use them, from the Apps tab. Nothing is written until
  * someone picks one — and whoever does becomes its definer here.
  */

@@ -6,7 +6,7 @@ import { styles, palette } from '../styles';
 
 /**
  * Links this record to another, in one of the ways its collection allows —
- * and only to the kinds of thing each way may point at. What those ways are
+ * and only to the collections each way may point at. What those ways are
  * is part of the collection's definition, changed there, not here.
  */
 export function LinkPicker({

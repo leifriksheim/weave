@@ -17,19 +17,19 @@ import { Icon } from './Icon';
 import { WhoIsHere } from './WhoIsHere';
 import { nameOf, peopleFrom } from '../derive/people';
 
-/** Where in the space we are: which kind of thing, and which record is open beside it */
+/** Where in the space we are: which collection, and which record is open beside it */
 export interface Place {
   readonly collection: string | null;
   readonly key: string | null;
 }
 
-/** Defining a new kind of thing, in the main area */
+/** Defining a new collection, in the main area */
 const NEW = '__new__';
 
-/** The ways of looking at one space: apps made for its data, the data itself, how it connects, asking of it, and who may do what */
+/** The ways of looking at one space: apps made for its collections, the collections themselves, how it connects, asking of it, and who may do what */
 const TABS = [
   { id: 'apps', label: 'Apps' },
-  { id: 'data', label: 'Data' },
+  { id: 'collections', label: 'Collections' },
   { id: 'explore', label: 'Explore' },
   { id: 'query', label: 'Query' },
   { id: 'roles', label: 'People & roles' },
@@ -37,10 +37,10 @@ const TABS = [
 type Tab = (typeof TABS)[number]['id'];
 
 /**
- * One space, laid out like an app: its kinds of things down the side, the
+ * One space, laid out like an app: its collections down the side, the
  * chosen one in the middle, and a record opening in a panel beside it. All of
  * it drawn from what the space says about itself — nothing here knows what
- * any of the things are.
+ * any of the records are.
  */
 export function SpaceView({ space }: { space: SpaceSummary }) {
   const account = useAccount();
@@ -59,12 +59,12 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
   const access = useAccess(space.id);
   const roleOf = new Map((access?.members ?? []).map((m) => [m.did, access?.roles.find((r) => r.name === m.role)?.title ?? m.role]));
 
-  // Every collection is a kind of thing; the space's own come before the standard ones.
-  const kinds = [...collections].sort((a, b) => Number(a.name.startsWith('std.')) - Number(b.name.startsWith('std.')));
-  // Land on the first kind of thing rather than an empty page.
-  const selected = place.collection === NEW ? NEW : kinds.some((c) => c.name === place.collection) ? place.collection : (kinds[0]?.name ?? null);
+  // The space's own collections come before the standard ones.
+  const ordered = [...collections].sort((a, b) => Number(a.name.startsWith('std.')) - Number(b.name.startsWith('std.')));
+  // Land on the first collection rather than an empty page.
+  const selected = place.collection === NEW ? NEW : ordered.some((c) => c.name === place.collection) ? place.collection : (ordered[0]?.name ?? null);
   const current = collections.find((c) => c.name === selected) ?? null;
-  const openRecord = (r: NodeRecord) => setPlace({ collection: kinds.some((c) => c.name === r.collection) ? r.collection : selected, key: r.key });
+  const openRecord = (r: NodeRecord) => setPlace({ collection: ordered.some((c) => c.name === r.collection) ? r.collection : selected, key: r.key });
 
   return (
     <>
@@ -122,11 +122,11 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
       {tab === 'query' && <QueryPlayground space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'roles' && <RolesView space={space} collections={collections} inviting={inviting} />}
 
-      {tab === 'data' && <div className="space-layout">
+      {tab === 'collections' && <div className="space-layout">
         <aside className="space-side">
-          <nav aria-label="Kinds of things" className="kinds">
-            <span className="kinds-heading" style={sideHeading}>In this space</span>
-            {kinds.map((c) => (
+          <nav aria-label="Collections" className="collection-nav">
+            <span className="collection-nav-heading" style={sideHeading}>In this space</span>
+            {ordered.map((c) => (
               <button
                 key={c.name}
                 onClick={() => setPlace({ collection: c.name, key: null })}
@@ -138,10 +138,10 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
                 <span style={{ color: palette.ink.faint, fontSize: 12 }}>{c.records}</span>
               </button>
             ))}
-            {kinds.length === 0 && <span style={{ fontSize: 13, color: palette.ink.faint, padding: '6px 10px' }}>Nothing yet</span>}
+            {ordered.length === 0 && <span style={{ fontSize: 13, color: palette.ink.faint, padding: '6px 10px' }}>Nothing yet</span>}
             {space.writable && (
               <button onClick={() => setPlace({ collection: NEW, key: null })} aria-current={selected === NEW ? 'page' : undefined} data-nav style={{ ...navItem, color: palette.ink.muted, ...(selected === NEW ? navItemOn : {}) }}>
-                + New kind of thing
+                + New collection
               </button>
             )}
           </nav>
@@ -161,7 +161,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
         <main style={{ minWidth: 0 }}>
           {selected === NEW ? (
             <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <h2 style={{ ...styles.appTitle, fontSize: 22 }}>New kind of thing</h2>
+              <h2 style={{ ...styles.appTitle, fontSize: 22 }}>New collection</h2>
               <p style={{ fontSize: 13, color: palette.ink.muted }}>Give it a name and some fields. Everything else — forms, lists, boards — is worked out from this.</p>
               <NewCollection space={space} onDone={(name) => setPlace({ collection: name, key: null })} />
               <Library space={space} collections={collections} title="Or add one from the library" onAdded={(name) => setPlace({ collection: name, key: null })} />
@@ -171,10 +171,10 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
           ) : (
             <div style={{ ...styles.emptyState, padding: '64px 24px', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
               <strong style={{ color: palette.ink.strong, fontSize: 15 }}>This space is empty</strong>
-              <span>Define a kind of thing — or ask an agent: this page offers the space's operations as WebMCP tools.</span>
+              <span>Define a collection — or ask an agent: this page offers the space's operations as WebMCP tools.</span>
               {space.writable && (
                 <button onClick={() => setPlace({ collection: NEW, key: null })} data-variant="primary" style={{ ...styles.addButton, alignSelf: 'center' }}>
-                  New kind of thing
+                  New collection
                 </button>
               )}
             </div>

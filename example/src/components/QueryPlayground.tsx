@@ -26,7 +26,7 @@ interface Example {
 
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 
-/** The first collections worth showing: your own kinds of things before the shared ones, busiest first */
+/** The first collections worth showing: your own collections before the shared ones, busiest first */
 function ownCollections(collections: ReadonlyArray<NodeCollection>): NodeCollection[] {
   const visible = collections.filter((c) => !c.name.startsWith('sys.'));
   const own = visible.filter((c) => !c.name.startsWith('std.'));
@@ -283,7 +283,7 @@ function Header() {
     <header>
       <h2 style={{ ...styles.appTitle, fontSize: 22 }}>Try a query</h2>
       <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 4, lineHeight: 1.6 }}>
-        Ask this space for exactly the things you want, written as plain JSON. It runs as you type, on the data on this device, and nothing you do here changes anything.
+        Ask this space for exactly the records you want, written as plain JSON. It runs as you type, on the data on this device, and nothing you do here changes anything.
       </p>
     </header>
   );
@@ -429,7 +429,7 @@ function ResultTable({
         <thead>
           <tr>
             <th style={th}>What</th>
-            <th style={th}>Kind</th>
+            <th style={th}>Collection</th>
             <th style={th}>By</th>
             <th style={th}>Added</th>
             {anyIncluded && <th style={th}>Pulled in</th>}
@@ -512,7 +512,7 @@ function Cheatsheet() {
 
         <p style={heading}>The parts</p>
         <ul style={list}>
-          {row('collection', 'Which kind of thing to look through, by its name. One per query.')}
+          {row('collection', 'Which collection to look through, by its name. One per query.')}
           {row('where', 'Which ones to keep. Every condition must hold.')}
           {row('sort', '{ "field": "asc" or "desc" }. Several fields sort in order. Without it: oldest first.')}
           {row('limit', 'At most this many.')}
@@ -538,7 +538,7 @@ function Cheatsheet() {
         <p style={heading}>Fields about the record itself</p>
         <ul style={list}>
           {row('@key', 'The record’s id.')}
-          {row('@collection', 'The kind of thing it is.')}
+          {row('@collection', 'The collection it is in.')}
           {row('@createdBy', 'The account that first made it.')}
           {row('@root', 'The account behind this version.')}
           {row('@author', 'The device key that signed this version — not the account.')}
@@ -551,8 +551,8 @@ function Cheatsheet() {
         <p>Give each include a name you choose. It comes back on every record under that name.</p>
         <ul style={list}>
           {row('rel', 'The kind of link to follow, like "about". Required.')}
-          {row('from', 'Only records of this kind.')}
-          {row('direction', '"in" (the default): things pointing at this record. "out": things it points at.')}
+          {row('from', 'Only records in this collection.')}
+          {row('direction', '"in" (the default): records pointing at this one. "out": records it points at.')}
           {row('where', 'Only linked records matching these conditions.')}
           {row('limit', 'At most this many.')}
           {row('count', 'true: just how many, not the records.')}

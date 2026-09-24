@@ -1,6 +1,6 @@
 /**
- * The kinds of field and link a person can pick when defining a kind of
- * thing — shared by the form that makes one and the one that changes it.
+ * The kinds of field and link a person can pick when defining a
+ * collection — shared by the form that makes one and the one that changes it.
  */
 import type { JsonSchema } from 'weave-protocol';
 import { kindOf } from './schema-ui';
@@ -44,11 +44,11 @@ export function fieldTypeOf(schema: JsonSchema): FieldTypeName | null {
   }
 }
 
-/** Kinds of link most things need, each with a word on what it means */
+/** Kinds of link most records need, each with a word on what it means */
 export const SUGGESTED_LINKS: ReadonlyArray<{ rel: string; description: string }> = [
   { rel: 'about', description: 'What this is about' },
   { rel: 'in', description: 'Where this belongs' },
-  { rel: 'partOf', description: 'The bigger thing this is part of' },
+  { rel: 'partOf', description: 'The bigger record this is part of' },
   { rel: 'relatedTo', description: 'Something related' },
   { rel: 'blocks', description: "What can't go ahead until this is done" },
   { rel: 'dependsOn', description: 'What has to happen first' },

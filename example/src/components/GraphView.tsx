@@ -64,7 +64,7 @@ const writerOf = (record: NodeRecord) => record.createdBy ?? record.root ?? reco
 
 /**
  * Collections get a colour each: the standard ones (comments, reactions,
- * tags…) stay grey so they read as notes on things, the space's own ones get
+ * tags…) stay grey so they read as notes on records, the space's own ones get
  * muted hues spaced far enough apart to tell apart.
  */
 function coloursFor(names: ReadonlyArray<string>): Map<string, string> {
@@ -143,9 +143,9 @@ const short = (text: string, max = 28) => (text.length > max ? `${text.slice(0, 
 
 /**
  * Explore: every record in a space as a dot, with a line for each link, laid
- * out so that things that point at each other sit together. Pick a dot to see
+ * out so that records that point at each other sit together. Pick a dot to see
  * what it is, who wrote it, what it points at and what points at it — and
- * follow those to walk from one thing to the next.
+ * follow those to walk from one record to the next.
  */
 export function GraphView({
   space,
@@ -545,7 +545,7 @@ export function GraphView({
     <header>
       <h2 style={{ ...styles.appTitle, fontSize: 22 }}>Explore</h2>
       <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 4, lineHeight: 1.6 }}>
-        Everything in this space, with a line wherever one thing points at another. Drag to move around, scroll to zoom, and click a dot to see what it is and follow
+        Everything in this space, with a line wherever one record points at another. Drag to move around, scroll to zoom, and click a dot to see what it is and follow
         its lines.
       </p>
     </header>
@@ -555,7 +555,7 @@ export function GraphView({
     return (
       <section aria-label="Explore" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
         {header}
-        <div style={styles.emptyState}>Nothing here yet. Once things are added to this space, they show up here — joined by a line wherever one points at another.</div>
+        <div style={styles.emptyState}>Nothing here yet. Once records are added to this space, they show up here — joined by a line wherever one points at another.</div>
       </section>
     );
   }
@@ -613,7 +613,7 @@ export function GraphView({
           width="100%"
           height="100%"
           role="img"
-          aria-label={`A map of ${graph.dots.length} things in ${space.name} and how they connect`}
+          aria-label={`A map of ${graph.dots.length} records in ${space.name} and how they connect`}
           onPointerDown={onBackgroundDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
@@ -770,7 +770,7 @@ export function GraphView({
 
         {!pick && (
           <p style={{ position: 'absolute', left: 12, bottom: 10, fontSize: 12, color: palette.ink.faint, pointerEvents: 'none' }}>
-            {graph.dots.length} {graph.dots.length === 1 ? 'thing' : 'things'} · {graph.lines.length} {graph.lines.length === 1 ? 'line' : 'lines'}
+            {graph.dots.length} {graph.dots.length === 1 ? 'record' : 'records'} · {graph.lines.length} {graph.lines.length === 1 ? 'line' : 'lines'}
           </p>
         )}
       </div>
@@ -848,7 +848,7 @@ function Details({
             <div>
               <h3 style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong, letterSpacing: '-0.02em' }}>{nameOf(did, people)}</h3>
               <p style={{ fontSize: 12, color: palette.ink.faint }}>
-                Wrote {wrote.length} {wrote.length === 1 ? 'thing' : 'things'} here
+                Wrote {wrote.length} {wrote.length === 1 ? 'record' : 'records'} here
               </p>
             </div>
           </div>

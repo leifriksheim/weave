@@ -56,7 +56,7 @@ export function AppsView({ space, collections, onOpen }: { space: SpaceSummary; 
       <section aria-label="Apps in this space" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div>
           <h2 style={styles.sectionTitle}>In this space</h2>
-          <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>Apps show up here once the space holds the kinds of things they understand.</p>
+          <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>Apps show up here once the space holds the collections they understand.</p>
         </div>
         {ready.length === 0 ? (
           <div style={{ ...styles.emptyState, padding: '28px 16px' }}>No apps yet — add one below.</div>
@@ -78,7 +78,7 @@ export function AppsView({ space, collections, onOpen }: { space: SpaceSummary; 
           <div>
             <h2 style={styles.sectionTitle}>Add an app</h2>
             <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>
-              {mayDefine ? 'Adding one adds the kinds of things it needs. They are ordinary records: the Data tab shows them too.' : 'Someone whose role lets them add kinds of things can add these.'}
+              {mayDefine ? 'Adding one adds the collections it needs. They hold ordinary records: the Collections tab shows them too.' : 'Someone whose role lets them add collections can add these.'}
             </p>
           </div>
           <div style={grid}>
