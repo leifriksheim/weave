@@ -4,6 +4,7 @@ import type { NewSpace } from 'weave-protocol';
 import { rolePresets } from 'weave-protocol';
 import { Modal, Choice } from './Modal';
 import { Info } from './Info';
+import { NameField, useMyName } from './NameField';
 import { styles, palette } from '../styles';
 
 /** How a space is described once it exists: who can read it, and what you are in it. */
@@ -198,11 +199,13 @@ export function SpaceDialog({
   const [name, setName] = useState('');
   const [visibility, setVisibility] = useState<SpaceVisibility>('private');
   const [invite, setInvite] = useState('');
+  const me = useMyName();
 
   const create = (event: FormEvent) => {
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
+    void me.save();
     // An Owner and an Editor to start, so inviting someone later needs no setup
     // first. Roles can be renamed, added or removed in People & roles.
     onCreate({ name: trimmed, visibility, ...rolePresets.team });
@@ -212,6 +215,7 @@ export function SpaceDialog({
   const join = (event: FormEvent) => {
     event.preventDefault();
     if (!invite.trim()) return;
+    void me.save();
     onJoin(invite.trim());
     onClose();
   };
@@ -237,6 +241,7 @@ export function SpaceDialog({
               without passing through whatever is hosting the page.
             </Info>
           </p>
+          <NameField value={me.name} onChange={me.setName} />
           <button type="submit" disabled={!invite.trim()} data-variant="primary" style={styles.button}>
             Join
           </button>
@@ -255,10 +260,11 @@ export function SpaceDialog({
           type="text"
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Name this space"
+          placeholder="Notes, Family, Trip…"
           style={styles.input}
           aria-label="Space name"
         />
+        <p style={{ ...styles.errorHint, marginTop: 0 }}>Just for you, until you invite someone.</p>
 
         <Choice
           label="Who can read it"
@@ -273,6 +279,8 @@ export function SpaceDialog({
         <p style={styles.errorHint}>
           {describe(visibility)} This one can't be changed later.
         </p>
+
+        <NameField value={me.name} onChange={me.setName} />
 
         <button type="submit" disabled={!name.trim()} data-variant="primary" style={styles.button}>
           Create space

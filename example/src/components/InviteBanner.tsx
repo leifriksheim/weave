@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { SpaceSummary } from 'weave-protocol';
 import { useNode } from 'weave-protocol/react';
+import { NameField, useMyName } from './NameField';
 import { clearInviteFromUrl, previewInvite, readInviteFromUrl } from '../spaces';
 import { styles } from '../styles';
 
@@ -8,6 +9,7 @@ import { styles } from '../styles';
 export function InviteBanner({ onJoin }: { onJoin: (invite: string) => Promise<SpaceSummary | null> }) {
   const node = useNode();
   const [invite, setInvite] = useState(readInviteFromUrl);
+  const me = useMyName();
   if (!invite) return null;
 
   const done = () => {
@@ -31,8 +33,11 @@ export function InviteBanner({ onJoin }: { onJoin: (invite: string) => Promise<S
     <div style={styles.inviteBanner}>
       <p style={styles.todoText}>You were invited to {description}</p>
       <p style={styles.todoMeta}>{detail}</p>
+      <div style={{ marginTop: 12, maxWidth: 320 }}>
+        <NameField value={me.name} onChange={me.setName} />
+      </div>
       <div style={styles.linkRow}>
-        <button onClick={() => void onJoin(invite).then(done)} data-variant="primary" style={styles.addButton}>
+        <button onClick={() => void me.save().then(() => onJoin(invite)).then(done)} data-variant="primary" style={styles.addButton}>
           Join this space
         </button>
         <button onClick={done} data-variant="ghost" style={styles.linkButton}>
