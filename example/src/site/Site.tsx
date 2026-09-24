@@ -438,7 +438,7 @@ const COMPARISON: ReadonlyArray<readonly [string, string, string, string, string
   ['Private data', 'Encrypted end to end by default', 'Public by design', 'Public, with encrypted direct messages', 'Access control on the server'],
   ['Works offline', 'Yes, local-first', 'No', 'Reading from cache', 'No'],
   ['Several people editing the same data', 'Yes, shared spaces', 'No, each user writes their own', 'No, each user writes their own', 'Yes, through permissions'],
-  ['Account', 'A recovery code the user keeps', 'A DID and a handle, with a server holding the keys', 'A key pair, and losing it is final', 'A login with an identity provider'],
+  ['Account', 'A password or passkey the user keeps', 'A DID and a handle, with a server holding the keys', 'A key pair, and losing it is final', 'A login with an identity provider'],
   ['Who enforces the rules', 'Every device, and they all agree', 'Each app’s servers and moderation services', 'Each relay and client, separately', 'The pod server'],
   ['Public feeds at global scale', 'Not the goal', 'Yes, that’s its strength', 'Yes, across relays', 'No'],
 ];
@@ -545,74 +545,80 @@ export function Developers() {
           <div className="section-head">
             <div className="kicker">The layers</div>
             <h2>What's underneath, top to bottom.</h2>
-            <p>You only touch the top one. Everything below comes with it.</p>
+            <p>
+              Follow one vote down the stack. Your app writes it. It's checked against its schema and the space's rules,
+              encrypted, signed, saved on the device, and synced to everyone else. You only touch the top layer, and
+              you can swap the pieces underneath.
+            </p>
           </div>
           <div className="layers">
             <Layer
               app
               name="Your app"
               {...toggle('Your app')}
-              what='You write the front end. There’s no backend to build, host or pay for.'
+              what="You write the front end. There's no backend to build, host or pay for."
               parts={[
                 { title: 'No backend to build', body: 'Storage, sync, sign-in and permissions come in one object. Put a record, query it, watch it change. That’s the whole server side.' },
-                { title: 'Sign-in you don’t write', body: 'Drop in one element, or use the React hooks. Creating accounts, passkeys and pairing a phone are built in.' },
-                { title: 'Never hold anyone’s keys', body: 'Your app can ask for access to a person’s account instead of signing them in. It gets only what they approve, for as long as they approve it, and there’s no master key in your app to leak.' },
+                { title: 'Bring your own stack', body: 'Plain TypeScript, with React hooks if you want them. Describe your data with Zod, Valibot, ArkType or plain JSON Schema.' },
+                { title: 'Sign-in you don’t write', body: 'One element or one hook. Accounts, passkeys and pairing a phone are built in. Your app gets a limited, expiring pass to someone’s account, never their keys.' },
                 { title: 'Ready for agents', body: 'Every operation is also a CLI command and an MCP tool, so AI agents can work with the same data, with the same permissions as your app.' },
               ]}
             />
             <Layer
               name="Data"
               {...toggle('Data')}
-              what='Structured data your users own, that other apps can read too.'
+              what="A database that ships with the data: schemas, queries, live updates and permissions."
               parts={[
                 { title: 'Start with your users’ data', body: 'When someone lets your app into their spaces, their data is already there. No blank slate, no import step.' },
                 { title: 'The schema travels with the data', body: 'The shape of your data is stored next to it, so another app, or an agent, can make sense of it without your docs.' },
-                { title: 'Collaboration included', body: 'Shared spaces with invite links. Several people edit, and every device lands on the same result, without you writing merge logic.' },
-                { title: 'Roles you design', body: 'Owner, moderator, guest, or whatever your app needs. Say what each role may do, and every device enforces it. There’s nothing to host.' },
+                { title: 'Apps that work together', body: 'Use the standard schemas, and a poll asked in one app can be voted on in another. No integration to build, no partnership to sign.' },
                 { title: 'Queries you already know', body: 'Filters, sorting, paging and related records, in plain JSON. Results update live as changes arrive.' },
-              ]}
-            />
-            <Layer
-              name="Identity & auth"
-              {...toggle('Identity & auth')}
-              what='Accounts your users own. No password database for you to guard.'
-              parts={[
-                { title: 'No user table', body: 'Accounts aren’t stored with you. There’s no password database to protect, and nothing to leak.' },
-                { title: 'One account, every app', body: 'An account comes from a recovery code the person keeps. It works in every Weave app, and no company can shut it off.' },
-                { title: 'Everything is signed', body: 'Every change carries the signature of whoever made it, so you always know who did what, on any device, from any app.' },
-                { title: 'Familiar on the surface', body: 'Password managers, passkeys and QR codes. Your users never see the cryptography.' },
-              ]}
-            />
-            <Layer
-              name="Storage"
-              {...toggle('Storage')}
-              what='Data lives on your users’ devices, so your app is fast and works offline.'
-              parts={[
-                { title: 'Fast, because it’s local', body: 'Reads and writes happen on the device. No round trip to a server, no loading spinners.' },
-                { title: 'Offline by default', body: 'Your app keeps working on a plane, and catches up when it’s back online.' },
-                { title: 'One folder, every app', body: 'People can keep their data in a folder on their own computer. Every app they use, on any website, sees the same data.' },
-                { title: 'No database bill', body: 'You don’t store your users’ data, so more users don’t mean a bigger database.' },
+                { title: 'Rules instead of an API', body: 'Say who may create, edit and delete, what must be unique, and which fields are fixed. Every device enforces it, so there’s no permission server to write.' },
+                { title: 'Collaboration included', body: 'Shared spaces with invite links. Several people edit, and every device lands on the same result, without you writing merge logic.' },
               ]}
             />
             <Layer
               name="Privacy"
               {...toggle('Privacy')}
-              what='End-to-end encrypted by default. You can’t leak what you never had.'
+              what="Encrypted before it's saved or sent. You can't leak what you never had."
               parts={[
-                { title: 'Encrypted on the device', body: 'Private data is encrypted before it leaves the device. Anything in between, relays or hosts, can’t read what’s inside.' },
-                { title: 'Less to be responsible for', body: 'Your users’ private data never sits on your servers, so there’s far less for you to secure.' },
+                { title: 'Encrypted first', body: 'Private data is encrypted on the device before it’s stored or sent. Relays, and always-on nodes that hold no keys, pass it along without being able to read it.' },
+                { title: 'Less to be responsible for', body: 'Your users’ private data never sits readable on your servers, so there’s far less for you to secure.' },
                 { title: 'Sharing that stays private', body: 'An invite link carries its own key, so sharing a private space never goes through a server.' },
+                { title: 'Private or public, per space', body: 'Spaces are private by default. Make one public when anyone with the link should be able to read it.' },
+              ]}
+            />
+            <Layer
+              name="Identity & auth"
+              {...toggle('Identity & auth')}
+              what="Every change is signed by whoever made it. No user table for you to guard."
+              parts={[
+                { title: 'No user table', body: 'Accounts aren’t stored with you. There’s no password database to protect, and nothing to leak.' },
+                { title: 'One account, every app', body: 'People make an account once, kept in their password manager or a passkey, and use it in every Weave app. No company can shut it off.' },
+                { title: 'Everything is signed', body: 'Every change carries the signature of whoever made it, even when it’s encrypted. So any device can check who did what, even ones that can’t read it.' },
+                { title: 'Any signer', body: 'A key in the browser, an account home, or anything else that can sign. Nothing above this layer needs to know which.' },
+              ]}
+            />
+            <Layer
+              name="Storage"
+              {...toggle('Storage')}
+              what="Kept on your users' devices, so your app is fast, works offline, and isn't on your bill."
+              parts={[
+                { title: 'Fast, because it’s local', body: 'Reads and writes happen on the device. No round trip to a server, no loading spinners.' },
+                { title: 'Offline by default', body: 'Your app keeps working on a plane, and catches up when it’s back online.' },
+                { title: 'One folder, every app', body: 'Keep data in the browser, or in a folder on the person’s own computer. Every app they use, on any website, sees the same folder.' },
+                { title: 'No database bill', body: 'You don’t store your users’ data, so more users don’t mean a bigger database.' },
               ]}
             />
             <Layer
               name="Network & sync"
               {...toggle('Network & sync')}
-              what='Devices sync directly. You don’t run the servers in between.'
+              what="Devices sync directly. You don't run the servers in between."
               parts={[
                 { title: 'Live, device to device', body: 'Changes go straight between devices and show up in real time.' },
-                { title: 'No servers to scale', body: 'Relays only help devices find each other, and data never passes through them. Anyone can run one, and apps can use several.' },
+                { title: 'Relays you choose', body: 'Relays help devices find each other, and can’t read what passes through them. Use a public one, run your own, or several at once.' },
                 { title: 'Sends only what changed', body: 'However big a space gets, syncing costs about as much as the change itself.' },
-                { title: 'Online when devices sleep', body: 'An always-on node keeps data available while your users’ devices are off, without taking ownership of it.' },
+                { title: 'Online when devices sleep', body: 'An always-on node keeps data available while your users’ devices are off. It can be one that holds no keys, passing data along without reading it.' },
                 { title: 'Nothing bad gets in', body: 'Every change is checked on arrival: who signed it, its shape, and whether they were allowed. The rest is dropped.' },
               ]}
             />
