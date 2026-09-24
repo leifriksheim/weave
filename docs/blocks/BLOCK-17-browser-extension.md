@@ -232,6 +232,22 @@ app's space key can't (the known "keys never rotate" item). A disconnected
 extension that kept its data still has ciphertext and could still ask peers for
 more. Rotating keys fixes both, later.
 
+### One account at a time, and making that obvious
+
+An extension carries one account. Someone signed in to another account in the
+home, or in an app, could think it carries that one too. So:
+
+- **The extension always shows whose it is**: the account's avatar (drawn
+  exactly as the home draws it), its name, and the home it came through, with
+  **Switch account** beside them. Switching to another account wipes the old
+  one's copy and pod link first.
+- **The home warns before a switch.** Approving the extension for Bob when this
+  home had it connected to Ada says so ("It keeps “Ada” online now"), with a
+  "Use another account" link right there.
+- **The home shows whether each extension is online right now** (it is a peer
+  in its own carry space). One that never is has Chrome closed, or is carrying a
+  different account, and Settings says to open it and see which.
+
 ### Writing into the pod
 
 This works without any account key, because of how the pod is already laid

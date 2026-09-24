@@ -4,7 +4,7 @@
  * as another window takes focus.
  */
 import { ask, type CarrierStatus, type StatusChanged } from './shared';
-import { h, mark, resumePod, spaceList, summary } from './ui';
+import { accountLine, h, mark, resumePod, spaceList, summary } from './ui';
 
 const app = document.getElementById('app')!;
 let status: CarrierStatus | null = null;
@@ -33,7 +33,8 @@ function render(): void {
 
   const parts: Array<Node | null> = [
     mark(),
-    h('section', {}, h('h2', {}, status.account?.name ?? 'Your account'), h('p', { class: 'hint' }, summary(status)), spaceList(status)),
+    status.account ? h('section', {}, accountLine(status.account)) : null,
+    h('section', {}, h('p', { class: 'hint' }, summary(status)), spaceList(status)),
     pod.state === 'none'
       ? null
       : h(

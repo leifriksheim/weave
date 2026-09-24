@@ -259,6 +259,12 @@ export interface WeaveAuth {
   /** Apps this account is connected to from this home, newest first */
   connections(): ReadonlyArray<Connection>;
   /**
+   * Other accounts in this place that `origin` is connected to from this home.
+   * One browser extension carries one account, so connecting it here moves it
+   * off theirs — worth saying before it happens.
+   */
+  connectedElsewhere(origin: string): ReadonlyArray<{ readonly id: string; readonly name: string }>;
+  /**
    * Disconnects an app: revokes its note in every space it could write in —
    * and, for a whole-account app, in the account registry — so nothing it
    * writes from now on counts, and forgets it. What this home had
@@ -1025,6 +1031,21 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       } catch {
         return [];
       }
+    },
+
+    connectedElsewhere(origin) {
+      const current = state.session?.account.id;
+      return state.accounts
+        .filter((account) => account.id !== current)
+        .filter((account) => {
+          try {
+            const known = JSON.parse(get(`${prefix}.connections:${account.id}`) ?? '[]') as Connection[];
+            return known.some((connection) => connection.origin === origin);
+          } catch {
+            return false;
+          }
+        })
+        .map((account) => ({ id: account.id, name: account.name }));
     },
 
     async disconnect(origin) {

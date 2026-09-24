@@ -62,7 +62,9 @@ export type Request =
   /** The grant or the pod changed: start again from what is stored */
   | { readonly to: 'offscreen'; readonly type: 'reload' }
   /** Forget everything */
-  | { readonly to: 'offscreen'; readonly type: 'disconnect' };
+  | { readonly to: 'offscreen'; readonly type: 'disconnect' }
+  /** Moving to another account: forget this one's copy and pod, keep the key */
+  | { readonly to: 'offscreen'; readonly type: 'forget-account' };
 
 /** Messages to the worker */
 export type WorkerMessage =

@@ -36,6 +36,54 @@ export function mark(): HTMLElement {
   return h('div', { class: 'mark' }, svg, 'Weave');
 }
 
+/**
+ * The account's avatar, drawn exactly as the home draws it (`home/src/components/Avatar.tsx`),
+ * so the account here and the account there are recognisably the same one — or
+ * recognisably not.
+ */
+export function avatar(did: string, size = 32): SVGSVGElement {
+  let seed = 2166136261;
+  for (let i = 0; i < did.length; i++) {
+    seed ^= did.charCodeAt(i);
+    seed = Math.imul(seed, 16777619);
+  }
+  seed >>>= 0;
+  const hue = seed % 360;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('viewBox', '0 0 5 5');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Account avatar');
+  svg.style.cssText = `border-radius:${size / 4}px;background:hsl(${hue} 46% 92%);flex-shrink:0;display:block`;
+  for (let x = 0; x < 3; x++) {
+    for (let y = 0; y < 5; y++) {
+      if (((seed >> (x * 5 + y)) & 1) === 0) continue;
+      for (const at of x < 2 ? [x, 4 - x] : [x]) {
+        const cell = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        cell.setAttribute('x', String(at));
+        cell.setAttribute('y', String(y));
+        cell.setAttribute('width', '1');
+        cell.setAttribute('height', '1');
+        cell.setAttribute('fill', `hsl(${hue} 62% 48%)`);
+        svg.append(cell);
+      }
+    }
+  }
+  return svg;
+}
+
+/** Whose spaces these are, and which home connected them — the thing to check when something looks wrong */
+export function accountLine(account: NonNullable<CarrierStatus['account']>, action?: Node): HTMLElement {
+  return h(
+    'div',
+    { class: 'account' },
+    avatar(account.did),
+    h('div', { class: 'who' }, h('strong', {}, account.name), h('span', { class: 'faint' }, `through ${new URL(account.home).host}`)),
+    action ?? null,
+  );
+}
+
 /** What to call a carried space — the account's own list has no name of its own worth showing */
 const nameOf = (space: CarriedSpace) => (space.name === 'Account registry' ? 'Your list of spaces' : space.name);
 

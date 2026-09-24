@@ -125,11 +125,8 @@ async function attachPod(): Promise<void> {
   setPod('writing');
 }
 
-/**
- * Forgets everything: the carrier's copy, its key, the grant, the folder.
- * @param options.byAccount The account removed it, rather than the person here
- */
-async function forget(options: { byAccount: boolean }): Promise<void> {
+/** Stops, and deletes the carried copy of one account's spaces and the pod it wrote to. */
+async function forgetAccount(): Promise<void> {
   generation++;
   const did = grant?.did;
   await stop();
@@ -147,8 +144,16 @@ async function forget(options: { byAccount: boolean }): Promise<void> {
         ),
     );
   }
-  await forgetGrant();
   await forgetDataFolder();
+}
+
+/**
+ * Forgets everything: the carrier's copy, its key, the grant, the folder.
+ * @param options.byAccount The account removed it, rather than the person here
+ */
+async function forget(options: { byAccount: boolean }): Promise<void> {
+  await forgetAccount();
+  await forgetGrant();
   await forgetAppKey(KEY_NAME);
   await setRemoved(options.byAccount);
   grant = null;
@@ -161,6 +166,7 @@ chrome.runtime.onMessage.addListener((message: Request, _sender, respond) => {
   if (message.type === 'status') answer();
   else if (message.type === 'reload') void start().then(answer, answer);
   else if (message.type === 'disconnect') void forget({ byAccount: false }).then(answer, answer);
+  else if (message.type === 'forget-account') void forgetAccount().then(answer, answer);
   return message.type !== 'status';
 });
 

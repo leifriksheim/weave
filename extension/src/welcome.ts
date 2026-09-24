@@ -9,7 +9,7 @@
 import { appKey, connectCarrier, homeAddress, type CarryGrant } from 'weave-protocol/session';
 import { pickDataFolder, rememberDataFolder, type DirectoryHandleLike } from 'weave-protocol/storage';
 import { ask, DEFAULT_HOME, EXTENSION_NAME, KEY_NAME, loadGrant, saveGrant, setRemoved, type CarrierStatus, type StatusChanged } from './shared';
-import { h, mark, resumePod, spaceList, summary } from './ui';
+import { accountLine, h, mark, resumePod, spaceList, summary } from './ui';
 
 const app = document.getElementById('app')!;
 let status: CarrierStatus | null = null;
@@ -80,17 +80,23 @@ function connectView(): Array<Node | null> {
 // ─── Connected ────────────────────────────────────────────────────────
 
 function connectedView(): Array<Node | null> {
-  const account = status?.account;
   const accountHome = grant ? new URL(grant.home).origin : null;
+  const account = status?.account ?? (grant ? { name: grant.name, did: grant.did, home: grant.home } : null);
   return [
     h('h1', {}, 'Keeping your spaces online'),
-    h(
-      'p',
-      { class: 'lead' },
-      'For ',
-      h('strong', {}, account?.name ?? grant?.name ?? 'your account'),
-      '. While Chrome is open, your spaces stay in sync — even with no app open.',
-    ),
+    h('p', { class: 'lead' }, 'While Chrome is open, your spaces stay in sync — even with no app open.'),
+    account
+      ? h(
+          'section',
+          {},
+          accountLine(account, h('button', { class: 'quiet small', disabled: busy, onClick: () => void switchAccount() }, busy ? 'Waiting…' : 'Switch account')),
+          h(
+            'p',
+            { class: 'hint', style: 'margin-top: 10px' },
+            'It keeps one account online at a time. If your apps show a different account or picture, switch to that one.',
+          ),
+        )
+      : null,
     status?.state === 'error' ? h('p', { class: 'note' }, `Something went wrong: ${status.error ?? 'unknown'}. It will try again when Chrome restarts.`) : null,
     h('section', {}, h('h2', {}, 'Spaces'), status ? h('p', { class: 'hint' }, summary(status)) : null, status ? spaceList(status) : null),
     grant?.pod ? podSection(grant.pod) : null,
@@ -145,6 +151,22 @@ async function checkPod(folder: DirectoryHandleLike, dataPath: string, expected:
       throw new Error(`That folder doesn’t hold this account. Choose the folder called “${expected}”.`);
     }
   }
+}
+
+/**
+ * Connects to an account again — another one, or the same one through another
+ * home. Moving to another account forgets the old one's copy first: one
+ * extension carries one account.
+ */
+async function switchAccount(): Promise<void> {
+  const home = grant?.home ?? homeAddress(DEFAULT_HOME);
+  await run(async () => {
+    const key = await appKey(KEY_NAME);
+    const received = await connectCarrier({ home, key, name: EXTENSION_NAME });
+    if (received.did !== grant?.did) await ask({ to: 'offscreen', type: 'forget-account' });
+    await saveGrant(received);
+    await ask({ to: 'offscreen', type: 'reload' });
+  });
 }
 
 async function disconnect(): Promise<void> {

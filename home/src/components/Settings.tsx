@@ -32,13 +32,33 @@ export function Settings() {
   // Carriers are in the account registry, so every device lists them — not
   // only the home that connected one, which is all `connections()` knows.
   const [carriers, setCarriers] = useState<ReadonlyArray<CarrierSummary> | null>(null);
+  // Which carriers are online now: each is a peer in its own carry space. One
+  // that never is may be keeping another account online instead.
+  const [online, setOnline] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
-    const load = () => void session.node.carriers.list().then(setCarriers, () => {});
+    let current: ReadonlyArray<CarrierSummary> = [];
+    const look = async () => {
+      const seen = new Set<string>();
+      for (const carrier of current) {
+        const status = await session.node.spaces.status(carrier.space).catch(() => null);
+        if (status?.peers.includes(carrier.did)) seen.add(carrier.space);
+      }
+      setOnline(seen);
+    };
+    const load = () =>
+      void session.node.carriers.list().then((found) => {
+        current = found;
+        setCarriers(found);
+        void look();
+      }, () => {});
     load();
     return session.node.subscribe((event) => {
       if (event.type === 'records' || event.type === 'account') load();
+      else if (event.type === 'status' && current.some((carrier) => carrier.space === event.space)) void look();
     });
   }, [session]);
+  const presence = (space: string | undefined) => (space && online.has(space) ? 'online now' : 'not online right now');
+  const anyAway = (carriers ?? []).some((carrier) => !online.has(carrier.space));
   // A carrier disconnected on another device is gone here too.
   const connections = auth
     .connections()
@@ -71,19 +91,24 @@ export function Settings() {
       >
         {connections.length === 0 && elsewhere.length === 0 && <Row label="No apps yet.">{null}</Row>}
         {connections.map((app) => (
-          <Row key={app.origin} label={describeConnection(app)}>
+          <Row key={app.origin} label={app.access === 'carry' ? `${describeConnection(app)} · ${presence(app.carrySpace)}` : describeConnection(app)}>
             <button onClick={() => void disconnect(app.origin)} disabled={disconnecting !== null} data-variant="quiet" style={styles.smallButton}>
               {disconnecting === app.origin ? 'Disconnecting…' : 'Disconnect'}
             </button>
           </Row>
         ))}
         {elsewhere.map((carrier) => (
-          <Row key={carrier.space} label={`${carrier.name} · keeps your spaces online · can't read them · connected on another device`}>
+          <Row key={carrier.space} label={`${carrier.name} · keeps your spaces online · connected on another device · ${presence(carrier.space)}`}>
             <button onClick={() => void removeCarrier(carrier.space)} disabled={disconnecting !== null} data-variant="quiet" style={styles.smallButton}>
               {disconnecting === carrier.space ? 'Disconnecting…' : 'Disconnect'}
             </button>
           </Row>
         ))}
+        {anyAway && (
+          <p style={styles.errorHint}>
+            An extension that is not online either has Chrome closed, or is keeping a different account online now — open it to see which.
+          </p>
+        )}
         {connections.length > 0 && (
           <p style={styles.errorHint}>
             Disconnecting stops the app for good the next time it comes online: it signs itself out, and nothing it changes after that

@@ -3,6 +3,7 @@ import type { SpaceSummary } from 'weave-protocol';
 import { receiveConnectRequest, type IncomingRequest } from 'weave-protocol/session';
 import { WeaveAuth, useAuth, useSession, useWeave } from 'weave-protocol/react';
 import { Wordmark } from './Wordmark';
+import { Avatar } from './Avatar';
 import { styles, palette } from '../styles';
 
 /**
@@ -202,6 +203,8 @@ function ApproveCarrier({ incoming }: { incoming: IncomingRequest }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pod = state.place?.kind === 'folder' ? (state.place.directory?.name ?? 'your pod') : null;
+  // One extension carries one account: allowing it here moves it off another one.
+  const elsewhere = auth.connectedElsewhere(origin);
 
   const allow = async () => {
     setBusy(true);
@@ -218,10 +221,31 @@ function ApproveCarrier({ incoming }: { incoming: IncomingRequest }) {
     <Frame>
       <h1 style={styles.title}>Keep your spaces online</h1>
       <p style={styles.subtitle}>
-        {request.name ? <>“{request.name}”</> : asker(origin)} wants to keep the spaces in{' '}
-        <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong> online while your browser is open — even with no app
-        open.
+        {request.name ? <>“{request.name}”</> : asker(origin)} wants to keep your spaces online while your browser is open — even with no
+        app open.
       </p>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <Avatar did={session.did} size={32} />
+        <div style={{ flex: 1 }}>
+          <p style={{ ...styles.todoText, margin: 0 }}>{session.account.name}</p>
+          <p style={{ ...styles.errorHint, margin: 0 }}>The account it will keep online</p>
+        </div>
+        <button onClick={() => void auth.signOut()} disabled={busy} data-variant="ghost" style={{ ...styles.linkButton, fontSize: 13 }}>
+          Use another account
+        </button>
+      </div>
+
+      {elsewhere.length > 0 && (
+        <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 12 }}>
+          <p style={{ ...styles.todoText }}>It keeps {elsewhere.map((account) => `“${account.name}”`).join(' and ')} online now</p>
+          <p style={styles.errorHint}>
+            It keeps one account online at a time. Allowing it here switches it to {session.account.name}, and{' '}
+            {elsewhere.length === 1 ? 'that account stops' : 'those accounts stop'} being kept online. Wanted the other one? Choose “Use another
+            account” above.
+          </p>
+        </div>
+      )}
 
       <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 12, background: palette.surface.sunken }}>
         <p style={{ ...styles.todoText }}>What it can do</p>
