@@ -161,6 +161,8 @@ export interface Connection {
   readonly grantedAt: string;
   /** Unix seconds */
   readonly expiresAt: number;
+  /** The note the app writes under — what disconnecting revokes */
+  readonly token?: string;
 }
 
 /** What the person chose on the approval screen */
@@ -248,10 +250,12 @@ export interface WeaveAuth {
   /** Apps this account is connected to from this home, newest first */
   connections(): ReadonlyArray<Connection>;
   /**
-   * Forgets an app. Its current note still works until it runs out — nothing
-   * revokes a signed note early yet — but the home will not renew it unasked.
+   * Disconnects an app: revokes its note in every space it could write in, so
+   * nothing it writes from now on counts, and forgets it. What this home had
+   * seen it write stays. What it could already read, it keeps — reading is
+   * holding a space's key, and that is not taken back.
    */
-  disconnect(origin: string): void;
+  disconnect(origin: string): Promise<void>;
   readonly staySignedIn: {
     choice(): StaySignedIn;
     setChoice(choice: StaySignedIn): Promise<void>;
@@ -924,7 +928,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       for (const id of ids) {
         const space = await node.spaces.get(id);
         if (!space) throw new Error(`No space ${id} in this account.`);
-        const invite = await node.spaces.invite(id, { write: request.access === 'write' && space.writable });
+        // Read-only: what lets the app write is the note, under this account's own role — never a secret of the space's.
+        const invite = await node.spaces.invite(id, { write: false });
         spaces.push({ id, name: space.name, invite });
       }
 
@@ -946,6 +951,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         spaces: spaces.map(({ id, name }) => ({ id, name })),
         grantedAt: new Date().toISOString(),
         expiresAt,
+        token: token.encoded,
       };
       writeConnections([connection, ...auth.connections().filter((known) => known.origin !== choice.origin)]);
 
@@ -973,7 +979,19 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       }
     },
 
-    disconnect(origin) {
+    async disconnect(origin) {
+      const connection = auth.connections().find((known) => known.origin === origin);
+      const node = state.session?.node;
+      if (connection?.token && connection.access === 'write' && node) {
+        const covered =
+          connection.scope === 'account'
+            ? (await node.spaces.list()).filter((space) => space.writable).map((space) => space.id)
+            : connection.spaces.map((space) => space.id);
+        for (const spaceId of covered) {
+          // A space that is gone, or that this account no longer writes in, has nothing to revoke.
+          await node.spaces.revoke(spaceId, connection.token).catch(() => {});
+        }
+      }
       writeConnections(auth.connections().filter((known) => known.origin !== origin));
     },
 

@@ -3,4 +3,3 @@ export * from './structural-gate.js';
 export * from './stateful-gate.js';
 export * from './validation-engine.js';
 export * from './capability-gate.js';
-export * from './space-gate.js';

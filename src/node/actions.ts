@@ -13,6 +13,7 @@
  * a function.
  */
 import type { P2PNode } from './types.js';
+import { rolePresets } from '../space/presets.js';
 import type { Query } from '../query/types.js';
 
 /** The subset of JSON Schema these inputs use */
@@ -86,35 +87,37 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
   {
     name: 'spaces_create',
     description:
-      'Create a space. "personal" takes writes from its owner only, "shared" from anyone invited. ' +
-      '"private" encrypts every record; "public" signs them in the clear.',
+      'Create a space. "private" encrypts every record; "public" signs them in the clear. Roles decide who may ' +
+      'write: "solo" (the default) is you alone, and invites only let others read; "team" gives everyone invited ' +
+      'the Editor role; "community" has Admin, Moderator and Member.',
     input: {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        type: { type: 'string', enum: ['personal', 'shared'] },
         visibility: { type: 'string', enum: ['private', 'public'] },
+        roles: { type: 'string', enum: ['solo', 'team', 'community'], description: 'The roles it starts with' },
       },
-      required: ['name', 'type', 'visibility'],
+      required: ['name', 'visibility'],
     },
     readOnly: false,
     run: (node, input) =>
       node.spaces.create({
         name: str(input, 'name'),
-        type: input.type as 'personal' | 'shared',
         visibility: input.visibility as 'private' | 'public',
+        ...rolePresets[input.roles === 'team' || input.roles === 'community' ? input.roles : 'solo'],
       }),
   },
   {
     name: 'spaces_invite',
     description:
       'Create an invite someone else can use to join a space. For a private space the invite contains ' +
-      'the space key: anyone holding it can read everything. For a shared space it also lets them write, ' +
-      'unless viewOnly is set. Only share it with the intended person.',
+      'the space key: anyone holding it can read everything. Unless viewOnly is set, it also gives them a role — ' +
+      'the one named, or the lowest below yours. Only share it with the intended person.',
     input: {
       type: 'object',
       properties: {
         space,
+        role: { type: 'string', description: 'The role they will hold — see spaces_access' },
         viewOnly: { type: 'boolean', description: 'They can read the space but not change it' },
       },
       required: ['space'],
@@ -122,7 +125,10 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     readOnly: false,
     sensitive: true,
     run: async (node, input) => ({
-      invite: await node.spaces.invite(str(input, 'space'), input.viewOnly === true ? { write: false } : {}),
+      invite: await node.spaces.invite(
+        str(input, 'space'),
+        input.viewOnly === true ? { write: false } : typeof input.role === 'string' ? { role: input.role } : {},
+      ),
     }),
   },
   {
@@ -149,6 +155,47 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: async (node, input) => {
       await node.spaces.leave(str(input, 'space'));
       return { left: str(input, 'space') };
+    },
+  },
+  {
+    name: 'spaces_access',
+    description:
+      'Who holds what in a space: its roles (highest rank first, each with its permissions), its members by identity ' +
+      '(did) and role, its invites, and your own role. You may change people and roles ranked below you.',
+    input: { type: 'object', properties: { space }, required: ['space'] },
+    readOnly: true,
+    run: (node, input) => node.spaces.access(str(input, 'space')),
+  },
+  {
+    name: 'spaces_set_member',
+    description:
+      'Give someone a role in a space, change it, or take it away (role ""). You may change people ranked below you, ' +
+      'give roles up to your own rank, and always remove yourself. Records they wrote that this node has seen stay.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        did: { type: 'string', description: 'Their identity' },
+        role: { type: 'string', description: 'The role name, or "" to take their role away' },
+      },
+      required: ['space', 'did', 'role'],
+    },
+    readOnly: false,
+    destructive: true,
+    run: async (node, input) => {
+      await node.spaces.setMember(str(input, 'space'), str(input, 'did'), typeof input.role === 'string' && input.role !== '' ? input.role : null);
+      return node.spaces.access(str(input, 'space'));
+    },
+  },
+  {
+    name: 'spaces_close_invite',
+    description: 'Close an invite, by its key from spaces_access. Whoever joined with it before stays.',
+    input: { type: 'object', properties: { space, key: { type: 'string' } }, required: ['space', 'key'] },
+    readOnly: false,
+    destructive: true,
+    run: async (node, input) => {
+      await node.spaces.closeInvite(str(input, 'space'), str(input, 'key'));
+      return node.spaces.access(str(input, 'space'));
     },
   },
   {
@@ -188,7 +235,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'oneOf: [{ "const": "low", "title": "Low" }, …]. When a value picks from a list in a linked record — a vote\'s choice ' +
       'from its poll\'s options — add "x-choicesFrom": { "rel": "about", "field": "options" } to the field (a number is a ' +
       'position in that list; text is the option itself), so apps can show labels and tallies. Name it reverse-DNS, e.g. "app.trip.expense". ' +
-      'Redefining bumps the version; only whoever first defined it, or the space owner, may. Records are then checked against it when written.',
+      'Redefining bumps the version; only whoever first defined it, or someone who can manage the space, may. Records are then checked against it when written.',
     input: {
       type: 'object',
       properties: {
@@ -204,13 +251,19 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
           description:
             'Link roles its records may carry: { "about": { "to": ["app.poll"], "cardinality": "one" } }. "to" is "*" for any collection.',
         },
+        permissions: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Permissions its rules may name, like ["moderate"]. A space\'s roles hold them as "<collection>/<permission>".',
+        },
         rules: {
           type: 'object',
           description:
-            'What its records allow, enforced by every peer: { "create": "member", "edit": "creator", "delete": ["creator", "owner"], ' +
-            '"onePer": ["@author", "link:about"], "fixed": ["options"] }. Who is "member" (anyone who may write here, the default), ' +
-            '"owner" (the space owner) or "creator" (whoever created that record). onePer makes at most one record per author + ' +
-            'linked record (+ body field): writing again changes it. fixed fields keep their first value.',
+            'What its records allow, enforced by every peer: { "create": "member", "edit": "creator", "delete": ["creator", "can:moderate"], ' +
+            '"onePer": ["@author", "link:about"], "fixed": ["options"] }. Who is "member" (anyone holding a role here, the default), ' +
+            '"creator" (whoever created that record) or "can:<permission>" (anyone whose role holds one of the permissions declared ' +
+            'above). onePer makes at most one record per author + linked record (+ body field): writing again changes it. fixed fields ' +
+            'keep their first value.',
         },
       },
       required: ['space', 'name', 'schema'],
@@ -226,6 +279,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         ...(typeof input.version === 'number' ? { version: input.version } : {}),
         ...(input.history === 'all' || input.history === 'latest' ? { history: input.history } : {}),
         ...(typeof input.links === 'object' && input.links !== null ? { links: input.links as Record<string, never> } : {}),
+        ...(Array.isArray(input.permissions) ? { permissions: input.permissions.filter((p): p is string => typeof p === 'string') } : {}),
         ...(typeof input.rules === 'object' && input.rules !== null ? { rules: input.rules as Record<string, never> } : {}),
       }),
   },

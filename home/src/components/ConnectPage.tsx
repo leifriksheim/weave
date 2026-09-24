@@ -132,7 +132,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
                 <input type="checkbox" checked={chosen.has(space.id)} onChange={() => toggle(space.id)} style={{ ...styles.checkbox, marginTop: 0 }} />
                 <span style={{ flex: 1 }}>{space.name}</span>
                 <span style={{ color: palette.ink.faint, fontSize: 12 }}>
-                  {space.visibility} · {space.type}
+                  {space.visibility} · {space.role ?? 'following'}
                 </span>
               </label>
             ))}
@@ -148,7 +148,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
               <div key={index} style={choice}>
                 <span style={{ flex: 1 }}>{space.name}</span>
                 <span style={{ color: palette.ink.faint, fontSize: 12 }}>
-                  {space.visibility} · {space.type}
+                  {space.visibility} · {space.roles ? space.roles.map((role) => role.title ?? role.name).join(', ') : 'just you'}
                 </span>
               </div>
             ))}

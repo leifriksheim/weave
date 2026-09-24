@@ -19,6 +19,7 @@ import { createCapabilityGate } from '../src/validation/capability-gate.js';
 import { createValidationEngine } from '../src/validation/validation-engine.js';
 import { encryptExpression, decryptExpression } from '../src/privacy/space-encryption.js';
 import type { Expression, StandardSchemaV1 } from '../src/types.js';
+import { team } from '../src/space/presets.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -42,13 +43,13 @@ async function makeKey() {
 }
 
 describe('space manager', () => {
-  test('creates the four kinds of list', async () => {
+  test('creates private and public spaces, alone or with roles', async () => {
     const spaces = createSpaceManager(createMemoryAdapter());
 
-    const privatePersonal = await spaces.create({ name: 'Groceries', type: 'personal', visibility: 'private', owner: OWNER });
-    const publicPersonal = await spaces.create({ name: 'Reading', type: 'personal', visibility: 'public', owner: OWNER });
-    const privateShared = await spaces.create({ name: 'Move house', type: 'shared', visibility: 'private', owner: OWNER });
-    const publicShared = await spaces.create({ name: 'Potluck', type: 'shared', visibility: 'public', owner: OWNER });
+    const privatePersonal = await spaces.create({ name: 'Groceries', visibility: 'private', creator: OWNER });
+    const publicPersonal = await spaces.create({ name: 'Reading', visibility: 'public', creator: OWNER });
+    const privateShared = await spaces.create({ name: 'Move house', ...team, visibility: 'private', creator: OWNER });
+    const publicShared = await spaces.create({ name: 'Potluck', ...team, visibility: 'public', creator: OWNER });
 
     // Only private spaces carry a key
     assert.notEqual(privatePersonal.key, null);
@@ -58,7 +59,9 @@ describe('space manager', () => {
 
     assert.equal(privatePersonal.space.encryptionKeyId, privatePersonal.key?.id);
     assert.equal(publicShared.space.encryptionKeyId, undefined);
-    assert.deepEqual(publicPersonal.space.members, [OWNER]);
+    assert.equal(publicPersonal.space.creator, OWNER);
+    assert.equal(publicPersonal.space.creatorRole, 'owner');
+    assert.equal(privateShared.role, 'owner');
 
     const listed = await spaces.list();
     assert.equal(listed.length, 4);
@@ -66,14 +69,14 @@ describe('space manager', () => {
 
   test('gives each space a distinct id, even with one name', async () => {
     const spaces = createSpaceManager(createMemoryAdapter());
-    const first = await spaces.create({ name: 'Todo', type: 'personal', visibility: 'public', owner: OWNER });
-    const second = await spaces.create({ name: 'Todo', type: 'personal', visibility: 'public', owner: OWNER });
+    const first = await spaces.create({ name: 'Todo', visibility: 'public', creator: OWNER });
+    const second = await spaces.create({ name: 'Todo', visibility: 'public', creator: OWNER });
     assert.notEqual(first.space.id, second.space.id);
   });
 
   test('forgets a space and its key', async () => {
     const spaces = createSpaceManager(createMemoryAdapter());
-    const record = await spaces.create({ name: 'Temp', type: 'personal', visibility: 'private', owner: OWNER });
+    const record = await spaces.create({ name: 'Temp', visibility: 'private', creator: OWNER });
 
     await spaces.remove(record.space.id);
     assert.equal(await spaces.get(record.space.id), null);
@@ -86,17 +89,17 @@ describe('invites', () => {
     const mine = createSpaceManager(createMemoryAdapter());
     const theirs = createSpaceManager(createMemoryAdapter());
 
-    const record = await mine.create({ name: 'Move house', type: 'shared', visibility: 'private', owner: OWNER });
+    const record = await mine.create({ name: 'Move house', ...team, visibility: 'private', creator: OWNER });
     const invite = await mine.createInvite(record.space.id, OWNER);
 
     const preview = parseSpaceInvite(invite);
     assert.equal(preview.space.name, 'Move house');
     assert.equal(typeof preview.key, 'string');
 
-    const joined = await theirs.join(invite, 'did:key:zFriend');
+    const joined = await theirs.join(invite);
     assert.equal(joined.space.id, record.space.id);
-    assert.equal(joined.space.members.includes('did:key:zFriend'), true);
     assert.notEqual(joined.key, null);
+    assert.equal(joined.invite, null, 'a view-only invite carries no secret to wait on');
 
     // The key that arrived must open what the owner sealed
     const sealed = await encryptExpression(
@@ -109,20 +112,24 @@ describe('invites', () => {
 
   test('a public space invite carries no key', async () => {
     const spaces = createSpaceManager(createMemoryAdapter());
-    const record = await spaces.create({ name: 'Potluck', type: 'shared', visibility: 'public', owner: OWNER });
+    const record = await spaces.create({ name: 'Potluck', ...team, visibility: 'public', creator: OWNER });
     const invite = await spaces.createInvite(record.space.id, OWNER);
 
     assert.equal(parseSpaceInvite(invite).key, undefined);
   });
 
-  test('joining a personal space keeps it personal, so every copy agrees who may write', async () => {
+  test('joining keeps the roles the space started with, so every copy agrees who may write', async () => {
     const mine = createSpaceManager(createMemoryAdapter());
     const theirs = createSpaceManager(createMemoryAdapter());
 
-    const record = await mine.create({ name: 'Reading', type: 'personal', visibility: 'public', owner: OWNER });
-    const joined = await theirs.join(await mine.createInvite(record.space.id, OWNER), 'did:key:zFriend');
+    const record = await mine.create({ name: 'Reading', visibility: 'public', creator: OWNER, ...team });
+    const secret = crypto.getRandomValues(new Uint8Array(32));
+    const joined = await theirs.join(await mine.createInvite(record.space.id, OWNER, { secret, role: 'editor' }));
 
-    assert.equal(joined.space.type, 'personal');
+    assert.deepEqual(joined.space.roles, record.space.roles);
+    assert.equal(joined.space.creator, OWNER);
+    assert.deepEqual(joined.invite, secret, 'the secret waits until its record arrives');
+    assert.equal(joined.role, null);
   });
 
   test('rejects a corrupted invite', () => {
@@ -134,7 +141,7 @@ describe('private space expressions', () => {
   test('encrypt-then-sign survives validation without the key', async () => {
     const spaces = createSpaceManager(createMemoryAdapter());
     const owner = await makeKey();
-    const record = await spaces.create({ name: 'Secrets', type: 'shared', visibility: 'private', owner: owner.did });
+    const record = await spaces.create({ name: 'Secrets', ...team, visibility: 'private', owner: owner.did });
     const spaceId = record.space.id;
 
     const required: Capability = { with: `space:${spaceId}`, can: 'expression/write' };

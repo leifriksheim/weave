@@ -48,8 +48,10 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
         title: title.trim(),
         schema,
         ...(pointsAt ? { links: { about: { to: [pointsAt], cardinality: 'one' as const } } } : {}),
+        // "Moderate" is the collection's own word; the space decides which roles hold it.
+        ...(ownOnly ? { permissions: ['moderate'] } : {}),
         rules: {
-          ...(ownOnly ? { edit: 'creator' as const, delete: ['creator' as const, 'owner' as const] } : {}),
+          ...(ownOnly ? { edit: 'creator' as const, delete: ['creator' as const, 'can:moderate' as const] } : {}),
           ...(pointsAt && onePerPerson ? { onePer: ['@author', 'link:about'] } : {}),
         },
       });

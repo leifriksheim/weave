@@ -34,7 +34,7 @@ cd cli && npm install && npm link          # or a binary with no Node at all: bu
 weave init --name Leif --passphrase          # prints your recovery code once
 export WEAVE_PASSPHRASE='…'                  # so later commands don't ask
 
-weave spaces create --name Groceries --type shared --visibility private
+weave spaces create --name Groceries --visibility private --roles team
 weave records put --space <id> --collection app.todo.item --body '{"text":"milk","completed":false,"order":1}'
 weave records list --space <id>
 weave spaces invite --space <id>             # a secret: it carries the space key and the write key
@@ -118,9 +118,10 @@ the same answer as for a space the node does not hold, so a web page cannot ask
 your node which spaces you have.
 A **public** space is served to anyone, as its data is public anyway.
 
-Writing is checked separately, record by record: in a shared space every record
-must carry a signature by the space's write key, and the node refuses any that
-doesn't, as every peer does.
+Writing is checked separately, record by record: its author must hold a role in
+the space, as of the access history the record says it saw, and the node
+refuses any that doesn't, as every peer does. Roles and members are kept in the
+clear, so a node holding no key of a private space still judges its writes.
 
 ## Your node follows your account
 

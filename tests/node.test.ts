@@ -15,6 +15,8 @@ import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import type { StandardSchemaV1 } from '../src/types.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { team } from '../src/space/presets.js';
+import { joined } from './helpers/joined.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -70,9 +72,10 @@ async function until(predicate: () => Promise<boolean> | boolean, ms = 3000, wha
 describe('spaces', () => {
   test('create, list, and describe without ever exposing a key', async () => {
     const node = await startNode();
-    const created = await node.spaces.create({ name: 'Groceries', type: 'shared', visibility: 'private' });
+    const created = await node.spaces.create({ name: 'Groceries', ...team, visibility: 'private' });
 
-    assert.equal(created.owner, node.did);
+    assert.equal(created.creator, node.did);
+    assert.equal(created.role, 'owner');
     assert.equal(created.readable, true);
     const listed = await node.spaces.list();
     assert.deepEqual(listed.map((s) => s.name), ['Groceries']);
@@ -82,7 +85,7 @@ describe('spaces', () => {
   test('an invite previews, and joining a private space brings its key', async () => {
     const alice = await startNode();
     const bob = await startNode();
-    const space = await alice.spaces.create({ name: 'Trip', type: 'shared', visibility: 'private' });
+    const space = await alice.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
     const invite = await alice.spaces.invite(space.id);
 
     const preview = bob.spaces.preview(invite);
@@ -98,7 +101,7 @@ describe('spaces', () => {
 describe('records', () => {
   test('put, get and list, oldest first', async () => {
     const node = await startNode();
-    const { id: space } = await node.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
+    const { id: space } = await node.spaces.create({ name: 'Todos', visibility: 'public' });
 
     const first = await node.records.put<Todo>(space, 'app.todo.item', { text: 'milk', done: false });
     const second = await node.records.put<Todo>(space, 'app.todo.item', { text: 'eggs', done: false });
@@ -113,7 +116,7 @@ describe('records', () => {
 
   test('a known collection refuses a malformed body; an unknown one takes anything', async () => {
     const node = await startNode();
-    const { id: space } = await node.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
+    const { id: space } = await node.spaces.create({ name: 'Todos', visibility: 'public' });
 
     await assert.rejects(node.records.put(space, 'app.todo.item', { text: 42 }), /needs text and done/);
     const free = await node.records.put(space, 'app.agent.idea', { anything: ['goes'] });
@@ -122,7 +125,7 @@ describe('records', () => {
 
   test('a private space stores ciphertext and reads back plaintext', async () => {
     const node = await startNode();
-    const { id: space } = await node.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
+    const { id: space } = await node.spaces.create({ name: 'Diary', visibility: 'private' });
 
     const written = await node.records.put<Todo>(space, 'app.todo.item', { text: 'secret', done: false });
     assert.equal(written.encrypted, true);
@@ -131,7 +134,7 @@ describe('records', () => {
 
   test('update writes the next version, delete hides the record', async () => {
     const node = await startNode();
-    const { id: space } = await node.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
+    const { id: space } = await node.spaces.create({ name: 'Todos', visibility: 'public' });
 
     const original = await node.records.put<Todo>(space, 'app.todo.item', { text: 'milk', done: false });
     const updated = await node.records.update<Todo>(space, original.key, { text: 'milk', done: true });
@@ -147,7 +150,7 @@ describe('records', () => {
 
   test('events announce local writes', async () => {
     const node = await startNode();
-    const { id: space } = await node.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
+    const { id: space } = await node.spaces.create({ name: 'Todos', visibility: 'public' });
     const events: string[] = [];
     node.subscribe((event) => events.push(event.type));
 
@@ -161,10 +164,11 @@ describe('two nodes', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await startNode({ hub });
     const bob = await startNode({ hub });
-    const space = await alice.spaces.create({ name: 'Shared', type: 'shared', visibility: 'private' });
+    const space = await alice.spaces.create({ name: 'Shared', ...team, visibility: 'private' });
     await bob.spaces.join(await alice.spaces.invite(space.id));
     await alice.spaces.open(space.id);
     await bob.spaces.open(space.id);
+    await joined(bob, space.id);
     const converged = async () =>
       (await alice.spaces.status(space.id)).root === (await bob.spaces.status(space.id)).root;
     return { alice, bob, space: space.id, converged };
@@ -216,11 +220,11 @@ describe('two nodes', () => {
     await until(async () => (await bob.records.list(space)).length === 0, 3000, 'the delete to reach bob');
   });
 
-  test('someone following a personal space can read it but not change it', async () => {
+  test('someone following a space without a role can read it but not change it', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const owner = await startNode({ hub });
     const follower = await startNode({ hub });
-    const space = await owner.spaces.create({ name: 'Mine', type: 'personal', visibility: 'private' });
+    const space = await owner.spaces.create({ name: 'Mine', visibility: 'private' });
     const written = await owner.records.put<Todo>(space.id, 'app.todo.item', { text: 'only I edit this', done: false });
 
     const joined = await follower.spaces.join(await owner.spaces.invite(space.id));
@@ -230,9 +234,9 @@ describe('two nodes', () => {
     await follower.spaces.open(space.id);
     await until(async () => (await follower.records.get(space.id, written.key)) !== null, 3000, 'the follower to read it');
 
-    await assert.rejects(follower.records.update(space.id, written.key, { text: 'x', done: true }), /only its owner can change it/);
-    await assert.rejects(follower.records.put(space.id, 'app.todo.item', { text: 'y', done: false }), /only its owner/);
-    await assert.rejects(follower.records.delete(space.id, written.key), /only its owner/);
+    await assert.rejects(follower.records.update(space.id, written.key, { text: 'x', done: true }), /shared with you to view/);
+    await assert.rejects(follower.records.put(space.id, 'app.todo.item', { text: 'y', done: false }), /shared with you to view/);
+    await assert.rejects(follower.records.delete(space.id, written.key), /shared with you to view/);
   });
 });
 
@@ -259,7 +263,7 @@ describe('the account registry', () => {
     const laptop = await device(seed, hub);
     const phone = await device(seed, hub);
 
-    const space = await laptop.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
+    const space = await laptop.spaces.create({ name: 'Diary', visibility: 'private' });
     const written = await laptop.records.put(space.id, 'app.note', { text: 'dear diary' });
 
     await until(async () => (await names(phone)).includes('Diary'), 3000, 'the phone to join');
@@ -274,7 +278,7 @@ describe('the account registry', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const laptop = await device(seed, hub);
     const phone = await device(seed, hub);
-    const space = await laptop.spaces.create({ name: 'Old project', type: 'personal', visibility: 'public' });
+    const space = await laptop.spaces.create({ name: 'Old project', visibility: 'public' });
     await until(async () => (await names(phone)).includes('Old project'), 3000, 'the phone to join');
 
     await phone.spaces.leave(space.id);
@@ -285,7 +289,7 @@ describe('the account registry', () => {
     const seed = generateSeed();
     const hub = createFakeHub({ latencyMs: 1 });
     const laptop = await device(seed, hub);
-    await laptop.spaces.create({ name: 'While you were away', type: 'shared', visibility: 'private' });
+    await laptop.spaces.create({ name: 'While you were away', ...team, visibility: 'private' });
 
     const phone = await device(seed, hub);
     await until(async () => (await names(phone)).includes('While you were away'), 3000, 'the phone to catch up');
@@ -299,7 +303,7 @@ describe('the account registry', () => {
     // An older node, with no account key: its space is its own.
     const signer = await rootSigner(seed);
     const before = await createNode({ signer, stores, watchIntervalMs: 0 });
-    await before.spaces.create({ name: 'Legacy', type: 'personal', visibility: 'private' });
+    await before.spaces.create({ name: 'Legacy', visibility: 'private' });
     await before.close();
 
     await device(seed, hub, stores); // the same store, now with the account key
@@ -311,7 +315,7 @@ describe('the account registry', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const mine = await device(generateSeed(), hub);
     const theirs = await device(generateSeed(), hub);
-    await mine.spaces.create({ name: 'Mine', type: 'personal', visibility: 'private' });
+    await mine.spaces.create({ name: 'Mine', visibility: 'private' });
     await new Promise((resolve) => setTimeout(resolve, 150));
     assert.deepEqual(await names(theirs), []);
   });
@@ -323,7 +327,7 @@ describe('session', () => {
     // from now, and its renewal (at 1.5 s) lasts until at least 2.5 s. Writing at
     // 2.2 s is past the first and inside the second, whenever the test starts.
     const node = await startNode({ ttl: 2 });
-    const { id: space } = await node.spaces.create({ name: 'Todos', type: 'personal', visibility: 'public' });
+    const { id: space } = await node.spaces.create({ name: 'Todos', visibility: 'public' });
     await new Promise((resolve) => setTimeout(resolve, 2200));
     const written = await node.records.put(space, 'app.todo.item', { text: 'late', done: false });
     assert.equal(written.verified, true);
@@ -333,7 +337,7 @@ describe('session', () => {
     const signer = await rootSigner();
     const stores = memoryStores();
     const first = await createNode({ signer, stores, sessionTtlSeconds: 1, watchIntervalMs: 0 });
-    const { id: space } = await first.spaces.create({ name: 'Old', type: 'personal', visibility: 'public' });
+    const { id: space } = await first.spaces.create({ name: 'Old', visibility: 'public' });
     const written = await first.records.put(space, 'app.note', { text: 'from an old session' });
     await first.close();
 
@@ -358,13 +362,13 @@ describe('actions', () => {
 
   test('run by name with checked input, returning plain JSON', async () => {
     const node = await startNode();
-    const space = (await runAction(node, 'spaces_create', { name: 'Via actions', type: 'personal', visibility: 'public' })) as { id: string };
+    const space = (await runAction(node, 'spaces_create', { name: 'Via actions', visibility: 'public' })) as { id: string };
     await runAction(node, 'records_put', { space: space.id, collection: 'app.note', body: { text: 'hi' } });
     const records = await runAction(node, 'records_list', { space: space.id });
 
     assert.deepEqual(JSON.parse(JSON.stringify(records)), records);
     await assert.rejects(runAction(node, 'records_put', { space: space.id }), /Missing "collection"/);
-    await assert.rejects(runAction(node, 'spaces_create', { name: 'x', type: 'weird', visibility: 'public' }), /must be one of/);
+    await assert.rejects(runAction(node, 'spaces_create', { name: 'x', roles: 'weird', visibility: 'public' }), /must be one of/);
     await assert.rejects(runAction(node, 'no_such_thing'), /Unknown action/);
   });
 });

@@ -1,54 +1,61 @@
 /**
  * @module space-manager
- * Spaces — the cryptographic containers everything else lives in.
+ * Spaces — the cryptographic containers everything else lives in — as this
+ * node holds them: the space, its key if it is private, and anything waiting
+ * to be done with it.
  *
- * A space is `personal` or `shared` (who writes to it) and independently
- * `public` or `private` (whether bodies are encrypted). Both are fixed at
- * creation and identical for every member: an invite to a personal space lets
- * someone follow it, not write to it. A private one stays readable only to
- * whoever holds its key.
+ * A space is `public` or `private` (whether bodies are encrypted), fixed at
+ * creation. Who may write is not a property of the space but of its access
+ * history: roles and members, as records in it (`space/roles.ts`).
  */
 
-import type { CryptoProvider, Space, SpaceType, SpaceVisibility, StorageAdapter } from '../types.js';
+import type { CryptoProvider, Space, SpaceRole, SpaceVisibility, StorageAdapter } from '../types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
-import {
-  base64UrlEncode,
-  base64UrlDecode,
-  utf8Encode,
-  utf8Decode,
-} from '../utils/encoding.js';
+import { base64UrlEncode, base64UrlDecode, utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { generateSpaceKey, type SpaceKey } from '../privacy/space-encryption.js';
-import { checkSpace, deriveReadKey, deriveWriteKey, generateWriteSecret, spaceGenesis, spaceIdOf } from './space-access.js';
+import { checkSpace, checkStartingRoles, deriveInviteKey, deriveReadKey, spaceGenesis, spaceIdOf } from './space-access.js';
+import { solo } from './presets.js';
 
 /** A space plus the secrets this node holds for it */
 export interface SpaceRecord {
   readonly space: Space;
   /** The AES key that reads a private space */
   readonly key: SpaceKey | null;
-  /** The secret that lets this node write in a shared space. Null for a personal one, or a view-only invite. */
-  readonly writeSecret: Uint8Array | null;
+  /**
+   * An invite link's secret, held until this account's member record is
+   * written with it — which needs the invite's own record to have arrived.
+   * Null once joined, or for a view-only invite.
+   */
+  readonly invite: Uint8Array | null;
+  /** The role this account last held here, as the space's access history said — a hint for listing, not a gate */
+  readonly role: string | null;
 }
 
 export interface CreateSpaceParams {
   readonly name: string;
-  readonly type: SpaceType;
   readonly visibility: SpaceVisibility;
-  readonly owner: string;
+  readonly creator: string;
+  /** The roles it starts with. Default: the creator alone, holding everything (`presets.solo`). */
+  readonly roles?: ReadonlyArray<SpaceRole>;
+  readonly creatorRole?: string;
 }
 
-/** What an invite carries: enough to join, to read if it is private, and to write if it says so */
+/** What an invite carries: enough to find the space, to read it if it is private, and to join it if it says so */
 export interface SpaceInvite {
   readonly space: Space;
   /** Raw AES key material, base64url — present only for private spaces */
   readonly key?: string;
-  /** The write secret, base64url — present in a shared space's full invite, absent in a view-only one */
-  readonly write?: string;
+  /** The invite link's secret, base64url — absent in a view-only invite */
+  readonly invite?: string;
+  /** The role the invite is for, for showing before joining. The space's own record is what counts. */
+  readonly role?: string;
   readonly invitedBy: string;
 }
 
 export interface InviteOptions {
-  /** Include the write secret, when this node has it. Default true; false makes a view-only invite. */
-  readonly write?: boolean;
+  /** The secret behind an invite record already written for a role. Absent: a view-only invite. */
+  readonly secret?: Uint8Array;
+  readonly role?: string;
 }
 
 export interface SpaceManager {
@@ -56,22 +63,24 @@ export interface SpaceManager {
   get(spaceId: string): Promise<SpaceRecord | null>;
   list(): Promise<ReadonlyArray<SpaceRecord>>;
   remove(spaceId: string): Promise<void>;
-  /** Adds a member to a shared space, locally */
-  addMember(spaceId: string, did: string): Promise<SpaceRecord>;
-  /** Encodes a space (and its key, if private, and its write secret, unless asked not to) as a shareable string */
+  /** Encodes a space, its key if private, and an invite's secret if given, as a shareable string */
   createInvite(spaceId: string, invitedBy: string, options?: InviteOptions): Promise<string>;
   /**
    * Stores a space received as an invite, so it can be opened and synced.
    * Refuses a space whose id does not match what it says about itself, and
-   * keys that do not belong to it. Joining again with more (a full invite
-   * after a view-only one) adds it; with less, keeps what is held.
+   * a key that does not belong to it. An invite's secret is held until it is used.
    */
-  join(invite: string, joiner: string): Promise<SpaceRecord>;
+  join(invite: string): Promise<SpaceRecord>;
+  /** Forgets an invite's secret once it has been used */
+  clearInvite(spaceId: string): Promise<void>;
+  /** Remembers the role this account holds, for listing */
+  setRole(spaceId: string, role: string | null): Promise<void>;
 }
 
 const SPACE_PREFIX = 'space:';
 const KEY_PREFIX = 'spacekey:';
-const WRITE_PREFIX = 'spacewrite:';
+const INVITE_PREFIX = 'spaceinvite:';
+const ROLE_PREFIX = 'spacerole:';
 
 /** Stored form of a space key: raw bytes plus the metadata that travels with it. */
 interface StoredKey {
@@ -128,19 +137,21 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
     await adapter.put(`${KEY_PREFIX}${spaceId}`, utf8Encode(JSON.stringify(stored)));
   }
 
-  async function readWriteSecret(spaceId: string): Promise<Uint8Array | null> {
-    const bytes = await adapter.get(`${WRITE_PREFIX}${spaceId}`);
-    return bytes ? base64UrlDecode(utf8Decode(bytes)) : null;
-  }
-
-  async function writeWriteSecret(spaceId: string, secret: Uint8Array): Promise<void> {
-    await adapter.put(`${WRITE_PREFIX}${spaceId}`, utf8Encode(base64UrlEncode(secret)));
+  async function readText(prefix: string, spaceId: string): Promise<string | null> {
+    const bytes = await adapter.get(`${prefix}${spaceId}`);
+    return bytes ? utf8Decode(bytes) : null;
   }
 
   async function load(spaceId: string): Promise<SpaceRecord | null> {
     const space = await readSpace(spaceId);
     if (!space) return null;
-    return { space, key: await readKey(spaceId), writeSecret: await readWriteSecret(spaceId) };
+    const invite = await readText(INVITE_PREFIX, spaceId);
+    return {
+      space,
+      key: await readKey(spaceId),
+      invite: invite ? base64UrlDecode(invite) : null,
+      role: await readText(ROLE_PREFIX, spaceId),
+    };
   }
 
   return Object.freeze({
@@ -148,33 +159,28 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       const createdAt = new Date().toISOString();
       // A nonce keeps two spaces made alike from colliding on one id.
       const nonce = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(12)));
+      const roles = params.roles ?? solo.roles;
+      const creatorRole = params.creatorRole ?? (params.roles ? [...roles].sort((a, b) => b.rank - a.rank)[0]?.name : solo.creatorRole) ?? '';
+      const problem = checkStartingRoles(roles, creatorRole);
+      if (problem) throw new Error(problem);
 
       const key = params.visibility === 'private' ? await generateSpaceKey() : null;
-      const writeSecret = params.type === 'shared' ? generateWriteSecret() : null;
-
       const fixed = {
-        type: params.type,
         visibility: params.visibility,
-        owner: params.owner,
+        creator: params.creator,
+        roles: roles.map((role) => Object.freeze({ ...role, permissions: Object.freeze([...role.permissions]) })),
+        creatorRole,
         createdAt,
         nonce,
-        ...(writeSecret ? { writeKey: (await deriveWriteKey(writeSecret, provider)).did } : {}),
         ...(key ? { readKey: (await deriveReadKey(key, provider)).did, encryptionKeyId: key.id } : {}),
       };
       const id = await spaceIdOf(spaceGenesis(fixed));
-
-      const space: Space = Object.freeze({
-        id,
-        ...fixed,
-        name: params.name,
-        members: Object.freeze([params.owner]),
-      });
+      const space: Space = Object.freeze({ id, ...fixed, name: params.name });
 
       await writeSpace(space);
       if (key) await writeKey(id, key);
-      if (writeSecret) await writeWriteSecret(id, writeSecret);
-
-      return { space, key, writeSecret };
+      await adapter.put(`${ROLE_PREFIX}${id}`, utf8Encode(creatorRole));
+      return { space, key, invite: null, role: creatorRole };
     },
 
     async get(spaceId: string): Promise<SpaceRecord | null> {
@@ -190,22 +196,7 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
     },
 
     async remove(spaceId: string): Promise<void> {
-      await adapter.delete(`${SPACE_PREFIX}${spaceId}`);
-      await adapter.delete(`${KEY_PREFIX}${spaceId}`);
-      await adapter.delete(`${WRITE_PREFIX}${spaceId}`);
-    },
-
-    async addMember(spaceId: string, did: string): Promise<SpaceRecord> {
-      const record = await load(spaceId);
-      if (!record) throw new Error(`Unknown space: ${spaceId}`);
-      if (record.space.members.includes(did)) return record;
-
-      const space: Space = Object.freeze({
-        ...record.space,
-        members: Object.freeze([...record.space.members, did]),
-      });
-      await writeSpace(space);
-      return { ...record, space };
+      for (const prefix of [SPACE_PREFIX, KEY_PREFIX, INVITE_PREFIX, ROLE_PREFIX]) await adapter.delete(`${prefix}${spaceId}`);
     },
 
     async createInvite(spaceId: string, invitedBy: string, options: InviteOptions = {}): Promise<string> {
@@ -218,17 +209,17 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
         space: record.space,
         invitedBy,
         ...(record.key ? { key: (await exportKey(record.key)).raw } : {}),
-        ...(record.writeSecret && options.write !== false ? { write: base64UrlEncode(record.writeSecret) } : {}),
+        ...(options.secret ? { invite: base64UrlEncode(options.secret) } : {}),
+        ...(options.secret && options.role ? { role: options.role } : {}),
       };
-
       return base64UrlEncode(utf8Encode(JSON.stringify(invite)));
     },
 
-    async join(invite: string, joiner: string): Promise<SpaceRecord> {
+    async join(invite: string): Promise<SpaceRecord> {
       const parsed = parseSpaceInvite(invite);
 
       // Whoever made the invite could have edited it. The space must hash to
-      // its id, and each key must be the one the space names.
+      // its id, and its key must be the one the space names.
       const problem = await checkSpace(parsed.space);
       if (problem) throw new Error(`That invite does not describe a real space: ${problem.charAt(0).toLowerCase()}${problem.slice(1)}.`);
       const key = parsed.key
@@ -237,28 +228,28 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       if (key && (await deriveReadKey(key, provider)).did !== parsed.space.readKey) {
         throw new Error('That invite carries a key that does not belong to its space.');
       }
-      const writeSecret = parsed.write ? base64UrlDecode(parsed.write) : null;
-      if (writeSecret && (await deriveWriteKey(writeSecret, provider)).did !== parsed.space.writeKey) {
-        throw new Error('That invite carries a write key that does not belong to its space.');
-      }
+      const secret = parsed.invite ? base64UrlDecode(parsed.invite) : null;
+      // A secret of the wrong length cannot be an invite's; refuse it here rather than wait on it forever.
+      if (secret && secret.length !== 32) throw new Error('That invite carries a secret that is not an invite\'s.');
+      if (secret) await deriveInviteKey(secret, provider);
 
-      const existing = await readSpace(parsed.space.id);
-      const members = new Set([...(existing?.members ?? parsed.space.members), joiner]);
-
-      const space: Space = Object.freeze({
-        ...parsed.space,
-        // The type is part of the space, not of anyone's copy of it. Every
-        // member's gate has to agree on who may write, or one copy keeps a
-        // record another rejects and the two never converge. Joining a
-        // personal space means following it; collaborating needs a shared one.
-        members: Object.freeze([...members]),
-      });
-
+      const space: Space = Object.freeze({ ...parsed.space });
       await writeSpace(space);
       if (key) await writeKey(space.id, key);
-      if (writeSecret) await writeWriteSecret(space.id, writeSecret);
+      // Joining again with a secret while one is waiting keeps the newer one.
+      if (secret) await adapter.put(`${INVITE_PREFIX}${space.id}`, utf8Encode(base64UrlEncode(secret)));
 
       return (await load(space.id))!;
+    },
+
+    async clearInvite(spaceId: string): Promise<void> {
+      await adapter.delete(`${INVITE_PREFIX}${spaceId}`);
+    },
+
+    async setRole(spaceId: string, role: string | null): Promise<void> {
+      if (!(await readSpace(spaceId))) return;
+      if (role === null) await adapter.delete(`${ROLE_PREFIX}${spaceId}`);
+      else await adapter.put(`${ROLE_PREFIX}${spaceId}`, utf8Encode(role));
     },
   });
 }

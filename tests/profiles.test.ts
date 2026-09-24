@@ -18,9 +18,11 @@ import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { PROFILE_COLLECTION } from '../src/space/account-registry.js';
-import { asMember } from './helpers/as-member.js';
+import { seenBy } from './helpers/as-member.js';
+import { joined } from './helpers/joined.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { team } from '../src/space/presets.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -58,7 +60,7 @@ describe('profiles', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub, 'Alice');
     const bob = await person(hub, 'Bob');
-    const { id: space } = await alice.node.spaces.create({ name: 'Chat', type: 'shared', visibility: 'private' });
+    const { id: space } = await alice.node.spaces.create({ name: 'Chat', ...team, visibility: 'private' });
     await bob.node.spaces.join(await alice.node.spaces.invite(space));
     await alice.node.spaces.open(space);
     await bob.node.spaces.open(space);
@@ -71,7 +73,7 @@ describe('profiles', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub, 'Alice');
     const bob = await person(hub, 'Bob');
-    const { id: space } = await alice.node.spaces.create({ name: 'Chat', type: 'shared', visibility: 'public' });
+    const { id: space } = await alice.node.spaces.create({ name: 'Chat', ...team, visibility: 'public' });
     await bob.node.spaces.join(await alice.node.spaces.invite(space));
     await alice.node.spaces.open(space);
     await bob.node.spaces.open(space);
@@ -86,9 +88,10 @@ describe('profiles', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub, 'Alice');
     const mallory = await person(hub, 'Mallory');
-    const { id: space } = await alice.node.spaces.create({ name: 'Chat', type: 'shared', visibility: 'public' });
+    const { id: space } = await alice.node.spaces.create({ name: 'Chat', ...team, visibility: 'public' });
     await mallory.node.spaces.join(await alice.node.spaces.invite(space));
     await alice.node.spaces.open(space);
+    await joined(mallory.node, space);
     await until(async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice', 4000, 'Alice’s own profile');
 
     // Mallory signs a version under Alice's profile key, far ahead in sequence
@@ -113,11 +116,12 @@ describe('profiles', () => {
         proof: ucan.encoded,
         version: { key: aliceKey, seq: 99, prev: aliceFirst.id, genesis: aliceFirst.id },
         retain: true,
+        seen: await seenBy(mallory.node, space),
       }),
       pair.privateKey,
     );
-    // Mallory is a member — she holds the write key — so the profile rule is what must stop her.
-    const forged = await asMember(mallory.stores, space, authored, provider);
+    // Mallory is a member — she may write here — so the profile rule is what must stop her.
+    const forged = authored;
     await createStorageProvider(await mallory.stores(`spaces/${space}`)).addExpression(forged);
     await mallory.node.spaces.open(space);
 
@@ -137,7 +141,7 @@ describe('profiles', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub, 'Alice');
     const carol = await person(hub, 'Carol');
-    const { id: space } = await alice.node.spaces.create({ name: 'Blog', type: 'personal', visibility: 'public' });
+    const { id: space } = await alice.node.spaces.create({ name: 'Blog', visibility: 'public' });
     await carol.node.spaces.join(await alice.node.spaces.invite(space));
     await alice.node.spaces.open(space);
     await carol.node.spaces.open(space);
@@ -148,7 +152,7 @@ describe('profiles', () => {
   test('agents read names through spaces_profiles', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub, 'Alice');
-    const { id: space } = await alice.node.spaces.create({ name: 'Notes', type: 'personal', visibility: 'private' });
+    const { id: space } = await alice.node.spaces.create({ name: 'Notes', visibility: 'private' });
     await alice.node.spaces.open(space);
     await until(async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice', 4000, 'own profile');
     const listed = (await runAction(alice.node, 'spaces_profiles', { space })) as Array<{ did: string; name: string }>;

@@ -11,8 +11,8 @@ devices, and every app is a view onto that data rather than its owner.
 │                        Applications                          │
 ├──────────────┬───────────┬────────────┬──────────┬───────────┤
 │   Accounts   │  Spaces   │ Validation │ Privacy  │   Sync    │
-│ seed, vault, │ personal/ │ crypto →   │ AES-GCM  │ MST anti- │
-│ root signer, │ shared ×  │ structural │ per      │ entropy   │
+│ seed, vault, │ roles,    │ crypto →   │ AES-GCM  │ MST anti- │
+│ root signer, │ members × │ structural │ per      │ entropy   │
 │ UCAN, pairing│ pub/priv  │ → UCAN     │ space    │ gossip    │
 ├──────────────┴───────────┴────────────┴──────────┴───────────┤
 │    Storage: Merkle Search Tree over a StorageAdapter         │
@@ -69,7 +69,7 @@ const ucan = await root.delegate({
 
 // 3. A space to put things in
 const spaces = createSpaceManager(await createIndexedDBAdapter('my-app/registry'));
-const { space } = await spaces.create({ name: 'Notes', type: 'personal', visibility: 'public', owner: me.did });
+const { space } = await spaces.create({ name: 'Notes', visibility: 'public', creator: me.did });
 
 // 4. A signed record, stored in that space's own Merkle tree
 const storage = createStorageProvider(await createIndexedDBAdapter(`my-app/space/${space.id}`));
@@ -97,7 +97,7 @@ identity, its spaces, validation, encryption and sync into one object, and its
 API is plain data in and out:
 
 ```typescript
-import { createNode, createIdentityManager, createLocalRootSigner, indexedDBStores } from 'weave-protocol';
+import { createNode, createIdentityManager, createLocalRootSigner, indexedDBStores, rolePresets } from 'weave-protocol';
 
 const manager = createIdentityManager();
 const me = await manager.fromRecoveryCode(code);
@@ -108,13 +108,14 @@ const node = await createNode({
   network: { relays: ['wss://relay.example'] },
 });
 
-const space = await node.spaces.create({ name: 'Groceries', type: 'shared', visibility: 'private' });
+const space = await node.spaces.create({ name: 'Groceries', visibility: 'private', ...rolePresets.team });
 const milk = await node.records.put(space.id, 'app.todo.item', { text: 'milk', done: false });
 await node.records.update(space.id, milk.key, { text: 'milk', done: true }); // same key, next version
 node.subscribe((event) => { if (event.type === 'records') redraw(); });
 
-const invite = await node.spaces.invite(space.id);  // a friend calls node.spaces.join(invite)
+const invite = await node.spaces.invite(space.id);  // a friend calls node.spaces.join(invite) — and joins as an Editor
 const view = await node.spaces.invite(space.id, { write: false });  // they can read, not change
+await node.spaces.closeInvite(space.id, invite);    // nobody else joins with that link
 ```
 
 What it takes care of:
@@ -236,7 +237,7 @@ const connection = createWeaveConnection({
     name: 'Todo',
     access: 'write',                                                      // or 'read'
     scope: 'spaces',                                                      // or 'account': every space
-    create: [{ name: 'Todos', type: 'personal', visibility: 'private' }], // made by the home, in the account
+    create: [{ name: 'Todos', visibility: 'private' }],                   // made by the home, in the account
   },
   network: { relays },
 });
@@ -416,47 +417,86 @@ Local-first storage with Merkle Search Tree for efficient sync.
 
 ### Spaces
 
-A space is the container everything else lives in, described by two independent
-choices: **who writes** (`personal` — the owner alone; `shared` — anyone given
-its write key) and **who can read** (`public` — signed in the clear; `private` —
-every body encrypted with the space key). That covers the four combinations an
-app usually wants, from a private notebook to an open collaborative list.
+A space is the container everything else lives in. It is **public** (signed in
+the clear) or **private** (every body encrypted with the space key), and who
+may write in it is decided by its **roles** — the space's own, not the
+protocol's. A private notebook is a space whose creator never invited anyone;
+a team list is one where everyone invited holds an Editor role.
 
 | Export | Description |
 |--------|-------------|
 | `createSpaceManager()` | Create, list, join and forget spaces; mint invites |
 | `parseSpaceInvite()` | Read an invite without joining, to show what it offers |
 | `checkSpace()` / `spaceIdOf()` | Whether a space you were handed is the one its id names |
-| `deriveWriteKey()` / `deriveReadKey()` / `countersign()` | A space's access keys |
+| `rolePresets` | Starting roles to use or ignore: `solo`, `team`, `community` |
+| `replayAccess()` | The access history, replayed — who holds what, as of any point |
+| `deriveInviteKey()` / `deriveReadKey()` | An invite link's key, and a private space's read key |
 
 ```typescript
 const spaces = createSpaceManager(adapter);
 
 const { space, key } = await spaces.create({
   name: 'Move house',
-  type: 'shared',
   visibility: 'private',   // key generated, bodies encrypted
-  owner: me.did,
+  creator: me.did,
+  ...rolePresets.team,     // Owner, and Editor for whoever is invited
 });
-
-// Hand this to a friend — for a private space it carries the key, so it belongs
-// in a URL fragment, which browsers never send to a server
-const invite = await spaces.createInvite(space.id, me.did);
-await theirSpaces.join(invite, friend.did);
 ```
 
 Give each space its own storage and its own MST and a peer you share one list
 with learns nothing about the others.
 
-#### Who may write, checked without a secret
+#### Who may write: roles, and a history every peer replays
 
-A shared space has a **write key**: 32 random bytes, made with the space and
-carried by a full invite. Every record written there carries a second signature
-by it (`spaceSignature`), over the record's id. The space names the public half,
-so every peer checks it — and so could a relay, a mirror or a host holding no
-secret of the space's. Someone who learns a space's id, even with a valid
-account, cannot write in it. An invite made with `{ write: false }` leaves the
-write key out: whoever uses it reads the space and changes nothing.
+Three questions decide every write, each with its own mechanism:
+
+1. **Who is really writing?** A note (UCAN): "this key speaks for this account."
+2. **What standing does that account have here?** Its **role** in the space.
+3. **Does this action on this record allow it?** The collection's **rules**.
+
+A **role** is a name, a rank and a list of permissions. Three permissions are
+the protocol's own — `manage` (roles and members), `invite` and `define`
+(collections) — and every other one belongs to a collection (`app.poll/moderate`).
+A `*` matches anything: `*` is every permission, `*/*` every collection's. The
+**rank rule** is the only check rules cannot express: you may change people
+and roles ranked below you, and give out roles up to your own rank. Two people
+at the same rank can never remove each other, only themselves — so the creator
+**hands over** by giving someone their role, then leaving, and the space goes on.
+
+Roles, members, invites, revoked notes and collection definitions are records
+(`sys.role`, `sys.member`, `sys.invite`, `sys.revoke`, `sys.collection`), and
+every record written anywhere names the latest of them its writer knew, as
+`seen`. That makes the **access history** a small graph, which every peer
+replays the same way (`space/roles.ts`): a change comes after what it saw;
+changes that did not see each other go taking-away first — counting everything
+on the way to one — then the higher-ranked author, then the lower id; a change
+counts only if its author had the power both as of what they saw and at its
+turn. A record is judged by its author's role, and the definition in force, as
+of its own `seen`.
+
+**Taking access back.** Removing someone, lowering a role or closing an invite
+carries a **keep list**: the records the remover had seen. A record that relied
+on what was taken away, and had not seen it go, stands only if it is kept — so
+claiming an old point in history, or an old date, gets a removed member
+nothing, while what they wrote before stays. Apps connected through an account
+home write under a note, never a secret of the space's; **Disconnect** writes a
+`sys.revoke` for that note, and nothing under it counts from then on except
+what the home had seen.
+
+**Invites** are one per role. `node.spaces.invite(space)` opens one for the
+lowest role below yours — or makes a view-only one when there is none — and
+the link carries its secret (and a private space's key): shown once, kept
+nowhere. The joiner writes their own member record, signed a second time by
+the invite's key over the space and their identity; it counts once the
+invite's record has reached them, so joining finishes on the first sync.
+`closeInvite` takes the link itself.
+
+Roles, members, invites and revokes stay **in the clear**, even in a private
+space: a relay, a mirror or a host holding no secret of the space's replays the
+same history and reaches the same verdict as a member, so a stranger who knows
+a space's id cannot get a record stored anywhere. That shows who holds which
+role — DIDs are on every signed record anyway. Collection definitions stay
+sealed.
 
 A private space also has a **read key**, derived from the space key, so everyone
 who can read has it. Every connection — to an always-on node, or peer to peer
@@ -466,13 +506,15 @@ connect under someone else's name, and in a private space with the read key
 too, checked against its public half. A stranger who learns a space's id, or a
 relay that sees its room, gets no ciphertext. A peer-to-peer handshake also
 signs both ends' DTLS fingerprints, so a relay that swapped in its own offer to
-sit in the middle is caught.
+sit in the middle is caught. Roles govern writing only: someone removed keeps
+the read key until the space's key changes for everyone (BLOCK-14 §2).
 
-A space's **id is the hash of what is fixed at creation**: owner, type,
-visibility, time, a random nonce and both public keys (the name is left out, so
-it can change). `join` refuses an invite whose space does not hash to its id,
-or whose keys are not the ones the space names — so whoever passes an invite on
-cannot change who owns the space, whether it is shared, or who may write.
+A space's **id is the hash of what is fixed at creation**: creator, visibility,
+starting roles and which one the creator holds, time, a random nonce and the
+read key (the name is left out, so it can change). `join` refuses an invite
+whose space does not hash to its id, or whose key is not the one the space
+names — so whoever passes an invite on cannot change who started the space, or
+with which roles.
 
 **Spaces describe themselves.** A space stores its collections' definitions —
 name, title, description and a JSON Schema — as signed records in
@@ -517,13 +559,18 @@ await node.collections.define(space.id, {
 });
 ```
 
-`create`/`edit`/`delete` take `member`, `owner` or `creator`. `onePer` derives
-the record's key from what must be unique, so voting again *is* changing your
-vote — no peer ever needs to see every vote to stop a second one. `fixed` fields
-keep their first value. Each record's first version pins the definition version
-it was written under, so every peer judges it by the same rules: a forged edit
-or a second vote is refused during sync, and something that arrives before what
-it depends on waits instead of being guessed about. `node.records.can(space,
+`create`/`edit`/`delete` take `member` (anyone holding a role), `creator` — a
+fact about the record, which nobody decides — or `can:<permission>`, naming a
+permission the collection declares in `permissions`. The test for which: did a
+person have to decide it? "The creator edits" follows from the data; "moderators
+delete" needs `can:moderate`, and the space decides which roles hold
+`app.poll/moderate`. `onePer` derives the record's key from what must be
+unique, so voting again *is* changing your vote — no peer ever needs to see every
+vote to stop a second one. `fixed` fields keep their first value. Each version
+is judged by the definition in force as of the access history it saw, so every
+peer judges it by the same rules: a forged edit or a second vote is refused
+during sync, and something that arrives before what it depends on waits instead
+of being guessed about. `node.records.can(space,
 'edit', key)` asks first — for hiding a button rather than showing an error.
 
 **Queries.** `node.records.query(space, { collection, where, include,
@@ -549,7 +596,7 @@ every space it opens, and again on a rename, as a `sys.profile` record keyed by
 a hash of your identity; `node.spaces.profiles(space)` (and the
 `spaces_profiles` action) says who is who. Every version is kept and the one
 shown is the newest signed by the identity the key names, so nobody can rename
-anyone else. A follower of someone's personal space publishes nothing there.
+anyone else. Someone following a space without a role publishes nothing there.
 
 **Moving and merging.** `copyAccountData` copies an account's spaces, keys and
 records from one set of stores to another — out of a browser's own database into
@@ -629,7 +676,6 @@ A pipeline of gates for incoming expressions.
 | `createValidationEngine()` | Full gatekeeper pipeline |
 | `createCryptoGate()` | Expression id + signature verification |
 | `createStructuralGate()` | Schema conformance via Standard Schema |
-| `createSpaceGate()` | In a shared space: was it countersigned by the space's write key? |
 | `createCapabilityGate()` | UCAN authorization: may this key write this? |
 | `createStatefulGate()` | Custom Wasm rules |
 
@@ -764,7 +810,7 @@ await accounts.write(account, withWrap(vault, wrap));
 
 `deviceWrapsFor(vault, rpId)` says which wraps this origin can even attempt; the rest name keys it cannot reach. The gate is enforced in application code rather than by cryptography — see `src/identity/device-key.ts` for what that does and does not protect against. The recovery code needs no wrap, because it *is* the seed in printable form — it opens the folder anywhere, including on a phone or in a browser with no File System Access API, and it is shown once and stored nowhere.
 
-`createEncryptedAdapter` seals `space:` and `spacekey:` values under the vault key, which is what makes a private space genuinely unreadable to someone holding the folder. It is scoped deliberately narrowly: expressions and MST nodes pass through, so what stays legible is each record's author, timestamp and collection, plus anything in a space its owner made public. Sealing those too would mean an opaque blob store, which would cost the property that makes a folder worth having.
+`createEncryptedAdapter` seals `space:`, `spacekey:`, `spaceinvite:` and `spacerole:` values under the vault key, which is what makes a private space genuinely unreadable to someone holding the folder. It is scoped deliberately narrowly: expressions and MST nodes pass through, so what stays legible is each record's author, timestamp and collection, plus anything in a space its owner made public. Sealing those too would mean an opaque blob store, which would cost the property that makes a folder worth having.
 
 ### Where the root key lives
 
@@ -930,7 +976,7 @@ Between them they exercise the stack end to end. At the home: choose where
 your data lives (a pod, or this browser), create an account (a password your
 password manager keeps) or sign in to one, stay signed in, add a passkey, move
 between pods, pair a phone by QR code, and see which apps you connected. In the
-example: make private, public, personal and shared spaces, and share one with a
+example: make private or public spaces, just yours or with people you invite, and share one with a
 friend via an invite link. Everyone in a space is shown by the name
 they gave. Every record is signed by a delegated session key, stored in that
 space's MST, encrypted first if the space is private, and gossiped to peers over

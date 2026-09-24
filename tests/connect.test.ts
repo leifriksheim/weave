@@ -15,6 +15,8 @@ import type { P2PNode } from '../src/node/types.js';
 import { createMemoryDirectory } from './helpers/memory-directory.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
+import { team } from '../src/space/presets.js';
+import { parseSpaceInvite } from '../src/space/space-manager.js';
 
 async function until(check: () => Promise<boolean>, ms: number, what: string): Promise<void> {
   const deadline = Date.now() + ms;
@@ -72,8 +74,8 @@ describe('connecting an app to an account home', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
     const { node } = auth.getState().session!;
-    const groceries = await node.spaces.create({ name: 'Groceries', type: 'personal', visibility: 'private' });
-    await node.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
+    const groceries = await node.spaces.create({ name: 'Groceries', visibility: 'private' });
+    await node.spaces.create({ name: 'Diary', visibility: 'private' });
     const key = await appKey();
 
     const request: ConnectRequest = { v: 1, audience: key.did, name: 'Todo', access: 'write' };
@@ -91,7 +93,7 @@ describe('connecting an app to an account home', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
     const { node: homeNode, did } = auth.getState().session!;
-    const groceries = await homeNode.spaces.create({ name: 'Groceries', type: 'personal', visibility: 'private' });
+    const groceries = await homeNode.spaces.create({ name: 'Groceries', visibility: 'private' });
     const key = await appKey();
 
     const grant = await auth.grant({
@@ -111,7 +113,7 @@ describe('connecting an app to an account home', () => {
     assert.equal(seen?.root, did);
 
     // A space the app makes for itself is outside the note.
-    const own = await todo.spaces.create({ name: 'Mine', type: 'personal', visibility: 'private' }).catch(() => null);
+    const own = await todo.spaces.create({ name: 'Mine', visibility: 'private' }).catch(() => null);
     if (own) await assert.rejects(() => todo.records.put(own.id, 'app.todo.item', { text: 'nope' }));
   });
 
@@ -121,7 +123,7 @@ describe('connecting an app to an account home', () => {
     const key = await appKey();
     const grant = await auth.grant({
       origin: 'https://todo.test',
-      request: { v: 1, audience: key.did, access: 'write', create: [{ name: 'Todos', type: 'personal', visibility: 'private' }] },
+      request: { v: 1, audience: key.did, access: 'write', create: [{ name: 'Todos', visibility: 'private' }] },
       spaceIds: [],
     });
     assert.equal(grant.spaces[0]?.name, 'Todos');
@@ -135,7 +137,7 @@ describe('connecting an app to an account home', () => {
   test('read access carries no write: the app cannot change a thing', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
-    const shared = await auth.getState().session!.node.spaces.create({ name: 'Team', type: 'shared', visibility: 'private' });
+    const shared = await auth.getState().session!.node.spaces.create({ name: 'Team', ...team, visibility: 'private' });
     const key = await appKey();
     const grant = await auth.grant({
       origin: 'https://viewer.test',
@@ -150,7 +152,7 @@ describe('connecting an app to an account home', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
     const { node: homeNode } = auth.getState().session!;
-    const diary = await homeNode.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
+    const diary = await homeNode.spaces.create({ name: 'Diary', visibility: 'private' });
     const key = await appKey();
     const grant = await auth.grant({
       origin: 'https://browser.test',
@@ -165,7 +167,7 @@ describe('connecting an app to an account home', () => {
     await until(async () => (await browser.spaces.list()).some((space) => space.id === diary.id), 3000, 'the account list to reach the app');
     await browser.records.put(diary.id, 'app.note', { text: 'dear diary' });
 
-    const made = await browser.spaces.create({ name: 'Made by the app', type: 'personal', visibility: 'private' });
+    const made = await browser.spaces.create({ name: 'Made by the app', visibility: 'private' });
     await browser.records.put(made.id, 'app.note', { text: 'mine' });
     await until(async () => (await homeNode.spaces.list()).some((space) => space.id === made.id), 3000, 'the new space to reach the home');
     assert.equal(auth.connections()[0]?.scope, 'account');
@@ -176,8 +178,33 @@ describe('connecting an app to an account home', () => {
     const auth = await home(hub);
     const key = await appKey();
     await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'read' }, spaceIds: [] });
-    auth.disconnect('https://todo.test');
+    await auth.disconnect('https://todo.test');
     assert.deepEqual(auth.connections(), []);
+  });
+
+  test('disconnecting revokes the note: the app stops counting at once, and what it wrote before stays', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node: homeNode } = auth.getState().session!;
+    const shared = await homeNode.spaces.create({ name: 'Team', ...team, visibility: 'private' });
+    const key = await appKey();
+    const grant = await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'write' }, spaceIds: [shared.id] });
+    // The app holds no secret of the space's: what lets it write is the note alone.
+    assert.equal(parseSpaceInvite(grant.spaces[0]!.invite).invite, undefined);
+
+    const todo = await app(hub, grant, key);
+    const before = await todo.records.put(shared.id, 'app.todo.item', { text: 'before' });
+    await homeNode.spaces.open(shared.id);
+    await until(async () => (await homeNode.records.get(shared.id, before.key)) !== null, 3000, 'the app’s record to reach the home');
+
+    await auth.disconnect('https://todo.test');
+    assert.deepEqual(auth.connections(), []);
+    await until(
+      async () => todo.records.put(shared.id, 'app.todo.item', { text: 'after' }).then(() => false, (error: Error) => /revoked/.test(error.message)),
+      3000,
+      'the revoke to reach the app',
+    );
+    assert.equal((await homeNode.records.get(shared.id, before.key))?.verified, true);
   });
 });
 

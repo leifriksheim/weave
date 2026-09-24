@@ -74,11 +74,12 @@ export interface Expression<T = unknown> {
   /** Keep this version once it is superseded — set by the writer, from the collection's `history` */
   readonly retain?: true;
   /**
-   * First versions only: the id of the collection definition this record was
-   * written under. Its rules — who may edit or delete, what must be unique —
-   * are the ones every peer judges the record by, forever.
+   * The latest changes to the space's access history — roles, members,
+   * invites, revoked notes, collection definitions — its writer knew of. It
+   * is judged by who held what, and which definition was in force, as of
+   * those (`space/roles.ts`).
    */
-  readonly def?: string;
+  readonly seen?: ReadonlyArray<string>;
   /** This version deletes the record; its body is null */
   readonly deleted?: true;
   /**
@@ -87,12 +88,6 @@ export interface Expression<T = unknown> {
    */
   readonly links?: ReadonlyArray<Link>;
   readonly signature: string;   // Base64URL encoded signature
-  /**
-   * Shared spaces: the space write key's signature over `id` — proof the
-   * writer was given the space's write key. Outside the id and the author's
-   * signature, because it signs the id.
-   */
-  readonly spaceSignature?: string;
 }
 
 export interface UnsignedExpression<T = unknown> {
@@ -115,11 +110,12 @@ export interface UnsignedExpression<T = unknown> {
   /** Keep this version once it is superseded — set by the writer, from the collection's `history` */
   readonly retain?: true;
   /**
-   * First versions only: the id of the collection definition this record was
-   * written under. Its rules — who may edit or delete, what must be unique —
-   * are the ones every peer judges the record by, forever.
+   * The latest changes to the space's access history — roles, members,
+   * invites, revoked notes, collection definitions — its writer knew of. It
+   * is judged by who held what, and which definition was in force, as of
+   * those (`space/roles.ts`).
    */
-  readonly def?: string;
+  readonly seen?: ReadonlyArray<string>;
   /** This version deletes the record; its body is null */
   readonly deleted?: true;
   /**
@@ -129,30 +125,38 @@ export interface UnsignedExpression<T = unknown> {
   readonly links?: ReadonlyArray<Link>;
 }
 
-/** Space types */
-export type SpaceType = 'personal' | 'shared';
-
 /** Whether a space's contents are readable by anyone who has them */
 export type SpaceVisibility = 'public' | 'private';
 
+/** A role, as a space defines it — see `space/roles.ts` */
+export interface SpaceRole {
+  /** Lower case, used as its key: `moderator` */
+  readonly name: string;
+  /** What people see: `Moderator` */
+  readonly title?: string;
+  /** Higher can change lower. Equal ranks are equals. */
+  readonly rank: number;
+  readonly permissions: ReadonlyArray<string>;
+}
+
 /**
- * A space. Its id is the hash of what is fixed at creation — owner, type,
- * visibility, time, nonce and public keys (`space/space-access.ts`) — so
- * whoever hands over a space cannot change who owns it or who may write.
- * `name` and `members` are not part of that: they are descriptions.
+ * A space. Its id is the hash of what is fixed at creation — creator,
+ * visibility, starting roles, time, nonce and read key (`space/space-access.ts`)
+ * — so whoever hands over a space cannot change who started it or with which
+ * roles. `name` is a description, not part of that.
  */
 export interface Space {
   readonly id: string;          // hash of the space's genesis
-  readonly type: SpaceType;     // 'personal' (just the owner) or 'shared'
   readonly visibility: SpaceVisibility; // 'private' means the bodies are encrypted
-  readonly owner: string;       // DID of the creator
+  /** The account that made it, holding `creatorRole` at the start */
+  readonly creator: string;
+  /** The roles it started with — later changed by records in `sys.role` */
+  readonly roles: ReadonlyArray<SpaceRole>;
+  readonly creatorRole: string;
   readonly name: string;
-  readonly members: ReadonlyArray<string>; // DIDs seen joining, for display — no gate reads it
   readonly createdAt: string;
   /** Random, so two spaces made alike still differ */
   readonly nonce: string;
-  /** Shared spaces: the public half of the write key, as a did:key. Every record carries its signature. */
-  readonly writeKey?: string;
   /** Private spaces: the public half of the read key, derived from the space key — what a node checks a reader against */
   readonly readKey?: string;
   readonly encryptionKeyId?: string; // For private spaces

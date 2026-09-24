@@ -1,16 +1,15 @@
 /**
- * Countersigns a hand-made record with the space's write key, as held by the
- * given node's registry — so a test forging a record *as a member* gets past
- * the space gate and reaches the rule it means to test.
+ * What a record forged by hand needs to be judged as a member's: the latest
+ * access changes the member's node holds, named as `seen` — so the forgery
+ * gets past "is this a member?" and reaches the rule a test means to test.
+ *
+ * Reading them opens the space, so it is closed again: a test forging a
+ * record writes it into a closed store, then opens the space to send it.
  */
-import type { CryptoProvider, Expression } from '../../src/types.js';
-import type { StoreFactory } from '../../src/node/stores.js';
-import { createSpaceManager } from '../../src/space/space-manager.js';
-import { countersign, deriveWriteKey } from '../../src/space/space-access.js';
+import type { P2PNode } from '../../src/node/types.js';
 
-export async function asMember(stores: StoreFactory, spaceId: string, expression: Expression, provider: CryptoProvider): Promise<Expression> {
-  const record = await createSpaceManager(await stores('registry'), provider).get(spaceId);
-  if (!record?.writeSecret) return expression;
-  const writeKey = await deriveWriteKey(record.writeSecret, provider);
-  return Object.freeze({ ...expression, spaceSignature: await countersign(expression.id, writeKey, provider) });
+export async function seenBy(node: P2PNode, spaceId: string): Promise<ReadonlyArray<string>> {
+  const { heads } = await node.spaces.access(spaceId);
+  await node.spaces.close(spaceId);
+  return heads;
 }

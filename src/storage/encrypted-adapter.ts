@@ -36,10 +36,10 @@ const IV_BYTES = 12;
  * the write secret of a shared one — and nothing else.
  *
  * A prefix match, so each must end in its colon: `space:` does not cover
- * `spacewrite:`, and a write secret left out here is anyone-with-the-folder
- * writing as you in every shared space.
+ * `spaceinvite:`, and an invite secret left out here is anyone-with-the-folder
+ * joining a space in your place.
  */
-export const DEFAULT_ENCRYPTED_PREFIXES: ReadonlyArray<string> = ['space:', 'spacekey:', 'spacewrite:'];
+export const DEFAULT_ENCRYPTED_PREFIXES: ReadonlyArray<string> = ['space:', 'spacekey:', 'spaceinvite:', 'spacerole:'];
 
 export interface EncryptedAdapterOptions {
   /** Key prefixes whose values are sealed. Defaults to {@link DEFAULT_ENCRYPTED_PREFIXES}. */

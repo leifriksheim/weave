@@ -17,6 +17,7 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 | [BLOCK-07](BLOCK-07-hosting-tier.md) | Hosting: one blind always-on node serving many people's spaces, writing into their own storage (after 03) | ~2 weeks |
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
 | [BLOCK-14](BLOCK-14-security-hardening.md) | Security, round two: checkable version history, removing members, safe pairing, private votes, sync limits | ~3 weeks |
+| [BLOCK-15](BLOCK-15-spaces-and-roles.md) | Spaces and roles: one kind of space, custom roles per space, hand over and leave, access you can take back. Built except the home's role screens | ~3 days left |
 | [BLOCK-16](BLOCK-16-contacts.md) | Contacts: live messages in spaces, a contact list, sealed contact requests | ~1 week |
 
 ## Next, not written as blocks yet

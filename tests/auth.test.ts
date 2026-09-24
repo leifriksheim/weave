@@ -85,7 +85,7 @@ describe('createWeaveAuth', () => {
     const did = auth.getState().session!.did;
     auth.codeSaved();
 
-    const space = await auth.getState().session!.node.spaces.create({ name: 'Notes', type: 'personal', visibility: 'private' });
+    const space = await auth.getState().session!.node.spaces.create({ name: 'Notes', visibility: 'private' });
 
     await auth.signOut();
     assert.equal(auth.getState().session, null);

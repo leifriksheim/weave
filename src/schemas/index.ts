@@ -52,7 +52,8 @@ export const comment = {
     about: about('The record commented on'),
     replyTo: { to: ['std.comment'], cardinality: 'one', description: 'The comment this replies to' },
   },
-  rules: { edit: 'creator', delete: ['creator', 'owner'] },
+  permissions: ['moderate'],
+  rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 } as const satisfies DefineCollection;
 export interface Comment {
   readonly text: string;
@@ -65,7 +66,8 @@ export const tag = {
   description: 'A label on one or more records.',
   schema: { type: 'object', properties: { label: { type: 'string', minLength: 1, maxLength: 100 } }, required: ['label'] },
   links: { about: { to: '*', cardinality: 'many', description: 'The records tagged' } },
-  rules: { edit: 'creator', delete: ['creator', 'owner'] },
+  permissions: ['moderate'],
+  rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 } as const satisfies DefineCollection;
 export interface Tag {
   readonly label: string;
@@ -87,7 +89,8 @@ export const attachment = {
     required: ['name', 'mime'],
   },
   links: { about: about('The record the file is attached to') },
-  rules: { edit: 'creator', delete: ['creator', 'owner'] },
+  permissions: ['moderate'],
+  rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 } as const satisfies DefineCollection;
 export interface Attachment {
   readonly name: string;
@@ -103,7 +106,8 @@ export const reference = {
   description: 'A note that one record refers to another.',
   schema: { type: 'object', properties: { note: { type: 'string' } } },
   links: { about: about('The record doing the referring'), to: about('The record referred to') },
-  rules: { edit: 'creator', delete: ['creator', 'owner'] },
+  permissions: ['moderate'],
+  rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 } as const satisfies DefineCollection;
 export interface Reference {
   readonly note?: string;

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { NodeCollection, NodeRecord, SpaceProfile, SpaceStatus } from '../node/types.js';
+import type { NodeCollection, NodeRecord, SpaceAccess, SpaceProfile, SpaceStatus } from '../node/types.js';
 import { useNode } from './context.js';
 import { useLive } from './use-live.js';
 
@@ -38,6 +38,11 @@ export function useCollections(spaceId: string): ReadonlyArray<NodeCollection> {
 /** Who is who in the space: the name each person gave. */
 export function useProfiles(spaceId: string): ReadonlyArray<SpaceProfile> {
   return useLive(spaceId, (node) => node.spaces.profiles(spaceId), []) ?? [];
+}
+
+/** Who holds what in the space — its roles, members and invites, and your own role. */
+export function useAccess(spaceId: string): SpaceAccess | undefined {
+  return useLive(spaceId, (node) => node.spaces.access(spaceId), []);
 }
 
 /** Connection, peers, and how many records peers sent that failed checks. */

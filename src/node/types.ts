@@ -9,7 +9,7 @@
  */
 import type { Query, QueryResult } from '../query/types.js';
 import type { CollectionRules } from '../records/rules.js';
-import type { CollectionDef, CryptoProvider, Link, SpaceType, SpaceVisibility } from '../types.js';
+import type { CollectionDef, CryptoProvider, Link, SpaceRole, SpaceVisibility } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import type { Capability, UCANToken } from '../identity/ucan.js';
@@ -71,41 +71,69 @@ export interface NodeConfig {
 export interface SpaceSummary {
   readonly id: string;
   readonly name: string;
-  readonly type: SpaceType;
   readonly visibility: SpaceVisibility;
-  readonly owner: string;
-  readonly members: ReadonlyArray<string>;
+  /** The account that made it */
+  readonly creator: string;
   readonly createdAt: string;
   /** Whether this node can read the space: always for public ones, only with the key for private */
   readonly readable: boolean;
   /**
-   * Whether this node's account may change it: in a shared space, when it was
-   * given the write key (a full invite, not a view-only one); in a personal
-   * one, only as its owner. Anyone else follows it and reads.
+   * Whether this node's account holds a role here, and so may write — as far
+   * as this node last heard. A view-only invite, or being removed, means it
+   * follows the space and reads.
    */
   readonly writable: boolean;
+  /** The role this account holds here, by name — null when it holds none */
+  readonly role: string | null;
+  /** Whether an invite is waiting to be used — its record has not reached this device yet */
+  readonly joining: boolean;
 }
 
 export interface NewSpace {
   readonly name: string;
-  /** `personal` accepts writes from the owner alone; `shared` from anyone invited */
-  readonly type: SpaceType;
   /** `private` encrypts every body with the space key */
   readonly visibility: SpaceVisibility;
+  /**
+   * The roles it starts with. Default: the creator alone, holding everything.
+   * `rolePresets` has some to start from — or write your own.
+   */
+  readonly roles?: ReadonlyArray<SpaceRole>;
+  /** Which of them the creator holds. Default: the highest-ranked. */
+  readonly creatorRole?: string;
 }
 
 export interface InvitePreview {
-  readonly space: Omit<SpaceSummary, 'readable' | 'writable'>;
+  readonly space: Pick<SpaceSummary, 'id' | 'name' | 'visibility' | 'creator' | 'createdAt'>;
   readonly invitedBy: string;
   /** Whether the invite carries the key to a private space */
   readonly carriesKey: boolean;
-  /** Whether the invite lets you write — a shared space's full invite. False for a view-only one, and for a personal space. */
+  /** Whether the invite lets you join with a role — false for a view-only one */
   readonly carriesWrite: boolean;
+  /** The role it is for, as the link says. The space's own invite record is what counts. */
+  readonly role: string | null;
 }
 
 export interface InviteOptions {
-  /** Let whoever uses the invite write, when this node can. Default true; false makes a view-only invite. */
+  /**
+   * The role whoever uses it will hold. Default: the lowest role below your
+   * own — or, when there is none, a view-only invite.
+   */
+  readonly role?: string;
+  /** False for a view-only invite: the key to read a private space, and no role */
   readonly write?: boolean;
+}
+
+/** Who holds what in a space, now */
+export interface SpaceAccess {
+  /** Highest rank first */
+  readonly roles: ReadonlyArray<SpaceRole>;
+  readonly members: ReadonlyArray<{ readonly did: string; readonly role: string }>;
+  /** Open and closed invites, by their public key */
+  readonly invites: ReadonlyArray<{ readonly key: string; readonly role: string; readonly open: boolean }>;
+  /** This account's own role — null when it holds none */
+  readonly role: SpaceRole | null;
+  /** The latest access changes held — what a record written now names as `seen` */
+  readonly heads: ReadonlyArray<string>;
 }
 
 /** A record, opened and checked — its current version, unless listed as history */
@@ -161,8 +189,10 @@ export interface NodeCollection {
   readonly history: 'latest' | 'all';
   /** The link roles its records carry, and what each may point at — how the space's things connect */
   readonly links: Readonly<Record<string, LinkDeclaration>>;
-  /** The identity that first defined it — it and the space owner may change it */
+  /** The identity that first defined it — it, and anyone who can manage the space, may change it */
   readonly definedBy: string | null;
+  /** The permissions its rules name — a role holds each as `<collection>/<permission>` */
+  readonly permissions: ReadonlyArray<string>;
   /** Who may create, edit and delete, what must be unique — for records created from now on */
   readonly rules: CollectionRules;
   readonly records: number;
@@ -180,6 +210,8 @@ export interface DefineCollection {
   readonly history?: 'latest' | 'all';
   /** The link roles its records may carry, and what each may point at */
   readonly links?: Readonly<Record<string, LinkDeclaration>>;
+  /** The permissions its rules may name, like `moderate` */
+  readonly permissions?: ReadonlyArray<string>;
   /** Who may create, edit and delete, what must be unique, which fields are fixed */
   readonly rules?: CollectionRules;
 }
@@ -238,14 +270,34 @@ export interface NodeSpaces {
   get(spaceId: string): Promise<SpaceSummary | null>;
   create(params: NewSpace): Promise<SpaceSummary>;
   /**
-   * An invite string. For a private space it carries the key, and for a shared
-   * one the write key unless `write: false` — so treat it as a secret.
+   * An invite string. For a private space it carries the key, and unless it is
+   * view-only, the secret of an invite opened for a role — so treat it as a
+   * secret. It is shown once: nothing keeps it. Closing the invite (`closeInvite`)
+   * stops it working.
    */
   invite(spaceId: string, options?: InviteOptions): Promise<string>;
   preview(invite: string): InvitePreview;
   join(invite: string): Promise<SpaceSummary>;
-  /** Forgets a space on this node, with its key. Other members keep theirs. */
+  /**
+   * Forgets a space on this node, with its key. Other members keep theirs.
+   * Your role stays too — to give it up, `setMember` yourself to null first.
+   */
   leave(spaceId: string): Promise<void>;
+  /** Roles, members and invites, as the space's access history says now */
+  access(spaceId: string): Promise<SpaceAccess>;
+  /** Gives someone a role, changes it, or with null takes it away. You may change people ranked below you, and yourself to null. */
+  setMember(spaceId: string, did: string, role: string | null): Promise<void>;
+  /** Adds or changes a role ranked below yours */
+  putRole(spaceId: string, role: SpaceRole): Promise<void>;
+  /** Removes a role ranked below yours; whoever held it holds nothing */
+  removeRole(spaceId: string, name: string): Promise<void>;
+  /** Closes an invite — by the link itself, or by its key from `access().invites`. Who joined with it before stays. */
+  closeInvite(spaceId: string, keyOrLink: string): Promise<void>;
+  /**
+   * Revokes a note this account signed — an app's, say. Nothing written under
+   * it counts from then on, except what this node had already seen.
+   */
+  revoke(spaceId: string, token: string): Promise<void>;
   /** Starts syncing a space. Reading or writing opens it anyway; this is for nodes that serve. */
   open(spaceId: string): Promise<void>;
   /** Stops syncing a space until it is next used */
