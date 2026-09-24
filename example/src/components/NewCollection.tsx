@@ -4,20 +4,10 @@ import type { JsonSchema, NodeCollection, SpaceSummary } from 'weave-protocol';
 import { collectionLabel } from '../derive/schema-ui';
 import { styles } from '../styles';
 import { ANNOTATIONS } from './RecordPanel';
+import { FIELD_TYPES, fieldSchema, optionsOf, type FieldTypeName } from '../derive/field-types';
 
-/** "To do, Doing, Done" → the three, trimmed, without blanks or repeats */
-const optionsOf = (text = '') => [...new Set(text.split(',').map((o) => o.trim()).filter(Boolean))];
-
-const TYPES = {
-  text: { type: 'string' },
-  'long text': { type: 'string', maxLength: 10000 },
-  number: { type: 'number' },
-  'yes/no': { type: 'boolean' },
-  'list of text': { type: 'array', items: { type: 'string' } },
-  // Its options are typed in beside it; a field like this is what a board makes columns from.
-  choice: { type: 'string' },
-} as const;
-type TypeName = keyof typeof TYPES;
+const TYPES = FIELD_TYPES;
+type TypeName = FieldTypeName;
 
 /**
  * Defines a kind of thing in the space: a name, some fields, and optionally
@@ -46,7 +36,7 @@ export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: 
     if (empty) return setError(`Give "${empty.name}" some options to choose from, separated by commas`);
     const schema: JsonSchema = {
       type: 'object',
-      properties: Object.fromEntries(named.map((f) => [f.name.trim(), f.type === 'choice' ? { type: 'string', enum: optionsOf(f.options) } : TYPES[f.type]])),
+      properties: Object.fromEntries(named.map((f) => [f.name.trim(), fieldSchema(f.type, f.options)])),
       required: named.filter((f) => f.required).map((f) => f.name.trim()),
     };
     try {

@@ -56,7 +56,7 @@ export function RecordPanel({
   const node = useNode();
   const [adding, setAdding] = useState<{ collection: NodeCollection; rel: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [linking, setLinking] = useState(false);
+  const [linking, setLinking] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
@@ -65,7 +65,7 @@ export function RecordPanel({
   }, [onClose]);
   useEffect(() => {
     setAdding(null);
-    setLinking(false);
+    setLinking(null);
   }, [recordKey]);
 
   const people = peopleFrom(useProfiles(space.id));
@@ -169,24 +169,40 @@ export function RecordPanel({
                   <Value value={body[name]} />
                 </Property>
               ))}
-              {data.targets.map(({ link, target }, i) => (
-                <Property key={`${link.rel}-${link.to}`} label={humanize(link.rel)}>
-                  <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    {target ? (
-                      <button onClick={() => onOpen(target)} style={linkish}>
-                        {recordLabel(target, schemaOf(target.collection))} →
-                      </button>
-                    ) : (
-                      <span style={{ color: palette.ink.faint, paddingTop: 6 }}>not here yet</span>
-                    )}
-                    {editable && (
-                      <button onClick={() => void unlink(i)} aria-label={`Remove ${humanize(link.rel).toLowerCase()} link`} title="Remove this link" style={{ ...iconButton, fontSize: 12 }}>
-                        ✕
-                      </button>
-                    )}
-                  </span>
-                </Property>
-              ))}
+              {/* Each kind of link the definition allows, with what this record points at in it */}
+              {[...new Set([...Object.keys(collection?.links ?? {}), ...record.links.map((l) => l.rel)])].map((rel) => {
+                const here = data.targets.map((t, i) => ({ ...t, i })).filter((t) => t.link.rel === rel);
+                const declared = collection?.links[rel];
+                const full = declared?.cardinality === 'one' && here.length > 0;
+                return (
+                  <Property key={rel} label={humanize(rel)}>
+                    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                      {here.map(({ link, target, i }) => (
+                        <span key={link.to} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                          {target ? (
+                            <button onClick={() => onOpen(target)} style={linkish}>
+                              {recordLabel(target, schemaOf(target.collection))} →
+                            </button>
+                          ) : (
+                            <span style={{ color: palette.ink.faint, paddingTop: 6 }}>not here yet</span>
+                          )}
+                          {editable && (
+                            <button onClick={() => void unlink(i)} aria-label={`Remove ${humanize(rel).toLowerCase()} link`} title="Remove this link" style={{ ...iconButton, fontSize: 12 }}>
+                              ✕
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                      {editable && declared && linking !== rel && (
+                        <button onClick={() => setLinking(rel)} title={declared.description} style={{ ...linkish, textDecoration: 'none', color: palette.ink.muted }}>
+                          {full ? 'Change…' : here.length ? '+ Add another' : '+ Add'}
+                        </button>
+                      )}
+                      {!editable && here.length === 0 && <span style={{ color: palette.ink.faint, paddingTop: 6 }}>—</span>}
+                    </span>
+                  </Property>
+                );
+              })}
               {uses(tag.name) && (
                 <Property label="Tags">
                   <Tags space={space} target={record.key} tags={linked.filter((r) => r.collection === tag.name)} />
@@ -194,13 +210,9 @@ export function RecordPanel({
               )}
             </dl>
 
-            {editable && collection?.schema && (linking ? (
-              <LinkPicker space={space} record={record} collection={collection} collections={collections} onDone={() => setLinking(false)} />
-            ) : (
-              <button onClick={() => setLinking(true)} data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start' }}>
-                + Link to…
-              </button>
-            ))}
+            {editable && collection && linking && (
+              <LinkPicker key={linking} space={space} record={record} collection={collection} collections={collections} initialRel={linking} onDone={() => setLinking(null)} />
+            )}
 
             {record.conforms === false && (
               <p style={{ ...styles.errorHint, color: palette.accent.danger }}>

@@ -158,7 +158,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
               <Library space={space} collections={collections} title="Or add one from the library" onAdded={(name) => setPlace({ collection: name, key: null })} />
             </section>
           ) : selected ? (
-            <CollectionView key={selected} space={space} name={selected} collection={current} onOpen={openRecord} />
+            <CollectionView key={selected} space={space} name={selected} collection={current} collections={collections} onOpen={openRecord} />
           ) : (
             <div style={{ ...styles.emptyState, padding: '64px 24px', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
               <strong style={{ color: palette.ink.strong, fontSize: 15 }}>This space is empty</strong>

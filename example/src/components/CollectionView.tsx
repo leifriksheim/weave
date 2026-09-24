@@ -21,6 +21,7 @@ import {
 import { nameOf, peopleFrom, type People } from '../derive/people';
 import { ago } from '../derive/time';
 import { SchemaForm } from './SchemaForm';
+import { DefinitionEditor, useMayRedefine } from './DefinitionEditor';
 import { Value } from './Value';
 import { Avatar } from './Avatar';
 import { reactionSummary } from './std/Reactions';
@@ -62,11 +63,13 @@ export function CollectionView({
   space,
   name,
   collection,
+  collections,
   onOpen,
 }: {
   space: SpaceSummary;
   name: string;
   collection: NodeCollection | null;
+  collections: ReadonlyArray<NodeCollection>;
   onOpen: (record: NodeRecord) => void;
 }) {
   const node = useNode();
@@ -80,6 +83,8 @@ export function CollectionView({
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
   const people = peopleFrom(useProfiles(space.id));
   const mayCreate = useCan(space.id, 'create', name);
+  const [defining, setDefining] = useState(false);
+  const redefine = useMayRedefine(space, collection);
   // Things that can be about anything — comments, reactions, tags — are added on the thing they're about.
   const onOthers = Object.values(collection?.links ?? {}).some((l) => l.to === '*');
   const shownLayout = layout;
@@ -122,6 +127,10 @@ export function CollectionView({
   const label = collection ? collectionLabel(collection) : name;
   const visible = (rows ?? []).filter((r) => r.record.body !== null);
 
+  if (defining && collection) {
+    return <DefinitionEditor space={space} collection={collection} collections={collections} onDone={() => setDefining(false)} />;
+  }
+
   return (
     <section aria-label={label} style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
       <header style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
@@ -160,6 +169,17 @@ export function CollectionView({
               </select>
             </label>
           )}
+          {collection?.schema && (
+            <button
+              onClick={() => setDefining(true)}
+              disabled={!redefine.may}
+              title={redefine.may ? 'Change its fields and the kinds of links it has' : redefine.reason}
+              data-variant="quiet"
+              style={{ ...styles.smallButton, height: 32 }}
+            >
+              Edit definition
+            </button>
+          )}
           <div role="tablist" aria-label="Layout" style={segmented}>
             {(['list', 'table', 'board'] as Layout[]).map((l) => (
               <button key={l} role="tab" aria-selected={shownLayout === l} onClick={() => choose(l)} style={shownLayout === l ? { ...segment, ...segmentOn } : segment}>
@@ -187,7 +207,7 @@ export function CollectionView({
       {visible.length > 0 && shownLayout === 'table' && <TableLayout rows={visible} schema={schema} people={people} onOpen={onOpen} />}
       {shownLayout === 'board' && !group && (
         <p style={styles.emptyState}>
-          A board makes a column for each option of a choice field — like a status of To do, Doing and Done. {label} has no field like that yet.
+          A board makes a column for each option of a choice field — like a status of To do, Doing and Done. {label} has no field like that yet{redefine.may ? ' — add one with Edit definition' : ''}.
         </p>
       )}
       {visible.length > 0 && shownLayout === 'board' && group && <BoardLayout rows={visible} schema={schema} field={group} people={people} space={space} onOpen={onOpen} />}
