@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from 'react';
 import { parse, render } from 'sugar-high/core';
 import * as typescript from 'sugar-high/lang/typescript';
 import * as shell from 'sugar-high/lang/shell';
+import { Walkthrough } from './Walkthrough';
 import './site.css';
 
 /** Syntax highlighting: sugar-high's core and just the two languages used here */
@@ -530,6 +531,17 @@ export function Developers() {
               See the example app
             </a>
           </div>
+        </div>
+      </section>
+
+      <section className="band">
+        <div className="wrap">
+          <div className="section-head">
+            <div className="kicker">How it works</div>
+            <h2>From a password to a shared space.</h2>
+            <p>The whole idea in six steps. Nothing along the way puts a server in charge.</p>
+          </div>
+          <Walkthrough />
         </div>
       </section>
 
