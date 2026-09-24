@@ -13,7 +13,7 @@ import { palette } from '../styles';
  */
 export function AccountMenu() {
   const account = useAccount();
-  const { connection } = useConnection();
+  const { connection, state } = useConnection();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [agents, setAgents] = useState(desktopAgentsEnabled);
@@ -38,7 +38,8 @@ export function AccountMenu() {
 
   const openHome = () => {
     setOpen(false);
-    globalThis.open(new URL('/', connection.home).href, 'weave-home', 'popup,width=720,height=820');
+    // The account page sits beside the connect page, at whichever home the person uses.
+    globalThis.open(new URL('.', state.home).href, 'weave-account', 'popup,width=720,height=820');
   };
 
   return (
@@ -91,7 +92,7 @@ export function AccountMenu() {
           <Divider />
 
           <div style={{ padding: 6 }}>
-            <Item onClick={openHome} hint={new URL(connection.home).host}>
+            <Item onClick={openHome} hint={new URL(state.home).host}>
               Account settings
             </Item>
             <Item

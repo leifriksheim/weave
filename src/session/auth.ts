@@ -958,6 +958,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         scope: whole ? 'account' : 'spaces',
         spaces,
         ...(whole ? { accountKey: base64UrlEncode(await deriveVaultKeyBytes(seed)) } : {}),
+        ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
         expiresAt,
       };
     },

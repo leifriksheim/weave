@@ -5,7 +5,7 @@
  *
  * ```ts
  * const connection = createWeaveConnection({
- *   home: 'https://weave-home.example/connect',
+ *   home: 'https://weave-home.example/connect',   // a default; people can bring their own
  *   request: { name: 'Todo', access: 'write', scope: 'account' },
  *   network: { relays },
  * });
@@ -15,12 +15,17 @@
  *
  * It remembers the grant between visits and starts the node from it; when the
  * grant runs out it says so (`expired`), and connecting again renews it.
+ *
+ * The home is the person's, not the app's: `home` is only a default.
+ * `connect('weave.example.com')` uses theirs, and it is remembered — for
+ * reconnecting, and for linking to their account settings.
  */
 import type { NodeNetworkConfig, P2PNode } from '../node/types.js';
 import type { StoreFactory } from '../node/stores.js';
 import {
   appKey,
   connectToHome,
+  homeAddress,
   forgetAppKey,
   grantStore,
   startConnectedNode,
@@ -30,7 +35,7 @@ import {
 import type { KeyValueStore } from './stay-signed-in.js';
 
 export interface WeaveConnectionConfig {
-  /** The account home's connect page */
+  /** The account home to suggest — the person can use their own instead */
   readonly home: string;
   /** What to ask for */
   readonly request: Omit<ConnectRequest, 'v' | 'audience'>;
@@ -53,6 +58,8 @@ export type ConnectionStatus = 'starting' | 'disconnected' | 'connecting' | 'rea
 
 export interface ConnectionState {
   readonly status: ConnectionStatus;
+  /** The home this app connects to: the person's own, once they chose one, else the default */
+  readonly home: string;
   readonly grant: Grant | null;
   readonly node: P2PNode | null;
   readonly error: string | null;
@@ -63,20 +70,35 @@ export interface WeaveConnection {
   subscribe(listener: (state: ConnectionState) => void): () => void;
   /** Picks up a grant from an earlier visit. Safe to call more than once. */
   start(): Promise<void>;
-  /** Opens the home and asks. Call it from a click. */
-  connect(): Promise<void>;
+  /**
+   * Opens the home and asks. Call it from a click.
+   * @param home The person's own home — `weave.example.com` is enough. Default: the one in `state.home`.
+   */
+  connect(home?: string): Promise<void>;
   /** Forgets the grant and this app's key, and stops the node. The account is untouched. */
   disconnect(): Promise<void>;
-  /** The account home's address, for a "manage your account" link */
-  readonly home: string;
 }
 
 export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConnection {
   const storage =
     config.storage !== undefined ? config.storage : ((globalThis as { localStorage?: KeyValueStore }).localStorage ?? null);
   const grants = grantStore(storage);
+  const HOME = 'weave.home';
+  const rememberedHome = (() => {
+    try {
+      return storage?.getItem(HOME) ?? null;
+    } catch {
+      return null;
+    }
+  })();
 
-  let state: ConnectionState = Object.freeze({ status: 'starting', grant: null, node: null, error: null });
+  let state: ConnectionState = Object.freeze({
+    status: 'starting',
+    home: rememberedHome ?? homeAddress(config.home),
+    grant: null,
+    node: null,
+    error: null,
+  });
   const listeners = new Set<(state: ConnectionState) => void>();
   const update = (patch: Partial<ConnectionState>) => {
     state = Object.freeze({ ...state, ...patch });
@@ -94,7 +116,7 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
       ...(config.network ? { network: config.network } : {}),
       ...(config.stores ? { stores: config.stores(grant) } : {}),
     });
-    update({ status: 'ready', grant, node, error: null });
+    update({ status: 'ready', home: grant.home, grant, node, error: null });
 
     // Writes stop working when the note runs out; say so rather than fail quietly.
     if (expiry) globalThis.clearTimeout(expiry);
@@ -103,7 +125,6 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
   }
 
   const connection: WeaveConnection = {
-    home: config.home,
     getState: () => state,
 
     subscribe(listener) {
@@ -127,12 +148,26 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
       return started;
     },
 
-    async connect() {
+    async connect(home) {
       const was = state.status;
+      let address: string;
+      try {
+        address = home === undefined ? state.home : homeAddress(home);
+      } catch (error) {
+        update({ error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
       update({ status: 'connecting', error: null });
       try {
-        const grant = await connectToHome({ home: config.home, request: config.request });
+        // Nothing awaited before this: the popup must open inside the click.
+        const grant = await connectToHome({ home: address, request: config.request });
         grants.save(grant);
+        try {
+          storage?.setItem(HOME, address);
+        } catch {
+          // Remembering is a convenience.
+        }
+        update({ home: address });
         await open(grant);
       } catch (error) {
         update({

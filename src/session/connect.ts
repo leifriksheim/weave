@@ -92,6 +92,44 @@ export interface Grant {
   readonly expiresAt: number;
   /** The home that granted it, so the app can go back there */
   readonly home: string;
+  /**
+   * Relays the home meets peers on. A home someone runs themselves may use
+   * different ones from the app, and two peers that share no relay never
+   * meet — so the app joins these as well.
+   */
+  readonly relays?: ReadonlyArray<string>;
+}
+
+/**
+ * Turns what a person typed into a home's connect page:
+ * `weave.example.com` → `https://weave.example.com/connect`. Plain `http` only
+ * for this machine, where development happens.
+ * @throws When it is not a web address
+ */
+export function homeAddress(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error('Type the address of your account home.');
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/.test(trimmed);
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `${local ? 'http' : 'https'}://${trimmed}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    throw new Error(`"${trimmed}" is not a web address.`);
+  }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  // Browsers parse more than they should ("not a url" becomes a host), so ask
+  // for a name that could be a real domain.
+  if (!loopback && !/^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(url.hostname)) {
+    throw new Error(`"${trimmed}" is not a web address.`);
+  }
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    throw new Error('An account home must be on https.');
+  }
+  if (url.pathname === '/' || url.pathname === '') url.pathname = '/connect';
+  url.hash = '';
+  url.search = '';
+  return url.href;
 }
 
 /** The capabilities a grant carries, for these spaces */
@@ -249,12 +287,15 @@ export async function startConnectedNode(params: {
   readonly stores?: StoreFactory;
 }): Promise<P2PNode> {
   const key = params.key ?? (await appKey());
+  // The home's relays as well as the app's, so the two always share one.
+  const relays = [...new Set([...(params.network?.relays ?? []), ...(params.grant.relays ?? [])])];
+  const network = params.network || relays.length ? { ...params.network, relays } : undefined;
   const node = await createNode({
     signer: grantSigner(params.grant),
     sessionKey: key.keys,
     stores: params.stores ?? indexedDBStores(`weave-app:${params.grant.did}`),
     ...(params.grant.accountKey ? { accountKey: base64UrlDecode(params.grant.accountKey) } : {}),
-    ...(params.network ? { network: params.network } : {}),
+    ...(network ? { network } : {}),
   });
   const held = new Set((await node.spaces.list()).map((space) => space.id));
   for (const space of params.grant.spaces) {

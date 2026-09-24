@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { createRequire } from 'node:module';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -36,21 +36,15 @@ function webmcpRelayAssets(): Plugin {
 /**
  * Security headers for the deployed site (Netlify's `_headers`).
  *
- * The page holds the account's seed in memory once someone signs in, so a
- * script that should not be there is a stolen account. The policy allows only
- * this site's own scripts, and connections only to the relays and nodes the
- * build was configured with — plus this machine, for a local node and the
- * desktop-agent relay. Anything else a rogue script tried to send the seed to
- * is refused by the browser.
+ * The policy allows only this site's own scripts. Connections may go to any
+ * secure websocket: a person may bring their own account home, and it hands
+ * this app the relays it meets peers on, which nobody knew at build time.
+ * That is safe to allow because this app holds no seed — the most a rogue
+ * script could take is this app's own note, limited and expiring. (The
+ * account home, which does hold the seed, keeps a strict list.)
  */
-function securityHeaders(mode: string): Plugin {
-  const env = loadEnv(mode, process.cwd(), 'VITE_');
-  const configured = [env.VITE_SIGNALING_URL ?? '', env.VITE_WEAVE_NODES ?? '']
-    .flatMap((list) => list.split(','))
-    .map((url) => url.trim())
-    .filter(Boolean)
-    .map((url) => new URL(url).origin.replace(/^http/, 'ws'));
-  const connect = [...new Set(["'self'", ...configured, 'ws://localhost:*', 'ws://127.0.0.1:*'])];
+function securityHeaders(): Plugin {
+  const connect = ["'self'", 'wss:', 'ws://localhost:*', 'ws://127.0.0.1:*'];
   const policy = [
     "default-src 'self'",
     "script-src 'self'",
@@ -89,7 +83,7 @@ function securityHeaders(mode: string): Plugin {
  * The example consumes the protocol straight from source (no build step),
  * so edits in ../src hot-reload here.
  */
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   resolve: {
     alias: [
       // weave-protocol/<entry> → ../src/<entry>/index.ts
@@ -100,6 +94,6 @@ export default defineConfig(({ mode }) => ({
     // this app's copy of React, not look for their own.
     dedupe: ['react', 'react-dom'],
   },
-  plugins: [webmcpRelayAssets(), securityHeaders(mode), react()],
+  plugins: [webmcpRelayAssets(), securityHeaders(), react()],
   server: { port: 5173 },
 }));

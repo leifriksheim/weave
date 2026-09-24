@@ -42,7 +42,9 @@ Settings, as build-time environment variables:
 | `VITE_SIGNALING_URL` | `wss://p2p-web-relay.fly.dev` | Relays, comma separated. Must include one your apps use, or they cannot sync with the home. |
 | `VITE_WEAVE_NODES` | — | Always-on nodes (`weave run`) to keep a socket to |
 
-Then point apps at `https://<your-home>/connect`.
+Then use it from any Weave app: choose **Use your own home** when connecting
+and type its address. The app remembers it, and joins the relays your home
+uses, so the two sync even if they were set up with different ones.
 
 On Vercel, keep "Include files outside the root directory in the Build Step"
 on (the default): the build reads `../src`.

@@ -251,7 +251,13 @@ function App() {
 ```
 
 It remembers the grant between visits, starts the node from it, and says
-`expired` when the note runs out; connecting again renews it. Underneath are
+`expired` when the note runs out; connecting again renews it.
+
+The `home` an app names is only a suggestion. The home belongs to the person:
+`connection.connect('weave.example.com')` uses their own, and the app remembers
+it — for reconnecting and for "account settings". The grant carries the home's
+relays, and the app joins them, so an app and a home configured with different
+relays still meet. Underneath are
 `connectToHome`, `startConnectedNode` and `grantStore`, for apps without React.
 
 1. The app makes its own key, kept in its own site's storage and never

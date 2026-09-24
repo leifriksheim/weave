@@ -6,7 +6,7 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createWeaveAuth, type WeaveAuth } from '../src/session/auth.js';
-import { startConnectedNode, type AppKey, type ConnectRequest, type Grant } from '../src/session/connect.js';
+import { homeAddress, startConnectedNode, type AppKey, type ConnectRequest, type Grant } from '../src/session/connect.js';
 import { createFolderAccountStore } from '../src/identity/account-store.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
@@ -178,5 +178,42 @@ describe('connecting an app to an account home', () => {
     await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'read' }, spaceIds: [] });
     auth.disconnect('https://todo.test');
     assert.deepEqual(auth.connections(), []);
+  });
+});
+
+describe('an account home typed by a person', () => {
+  test('a bare address becomes its https connect page', () => {
+    assert.equal(homeAddress('weave.example.com'), 'https://weave.example.com/connect');
+    assert.equal(homeAddress(' https://weave.example.com/ '), 'https://weave.example.com/connect');
+    assert.equal(homeAddress('https://me.example/weave/connect#x'), 'https://me.example/weave/connect');
+  });
+
+  test('plain http only for this machine', () => {
+    assert.equal(homeAddress('localhost:5174'), 'http://localhost:5174/connect');
+    assert.throws(() => homeAddress('http://weave.example.com'), /https/);
+  });
+
+  test('something that is not an address says so', () => {
+    assert.throws(() => homeAddress(''), /address/);
+    assert.throws(() => homeAddress('not a url at all'), /not a web address/);
+  });
+
+  test('the grant carries the home\'s relays', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const accounts = createFolderAccountStore(createMemoryDirectory().handle);
+    const stores = memoryStores();
+    const values = new Map<string, string>([['weave.stay-signed-in', '"never"']]);
+    const auth = createWeaveAuth({
+      rpId: 'home.test',
+      storage: { getItem: (k) => values.get(k) ?? null, setItem: (k, v) => void values.set(k, v), removeItem: (k) => void values.delete(k) },
+      browser: { accounts: async () => accounts, stores: () => stores },
+      network: { relays: ['wss://relay.of-the-home.test'], transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)] },
+    });
+    await auth.start();
+    await auth.createAccount('Ada');
+    cleanup.push(() => auth.signOut());
+    const key = await appKey();
+    const grant = await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'read' }, spaceIds: [] });
+    assert.deepEqual(grant.relays, ['wss://relay.of-the-home.test']);
   });
 });
