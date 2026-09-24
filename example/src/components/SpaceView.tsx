@@ -12,6 +12,7 @@ import { RolesView } from './RolesView';
 import { spaceBadges } from './SpaceList';
 import { styles, palette } from '../styles';
 import { Avatar } from './Avatar';
+import { Icon } from './Icon';
 import { nameOf, peopleFrom } from '../derive/people';
 
 const CONNECTION_LABEL: Record<string, string> = {
@@ -32,10 +33,10 @@ const NEW = '__new__';
 
 /** The ways of looking at one space: its things, how they connect, asking of them, and who may do what */
 const TABS = [
-  { id: 'things', label: 'Things' },
-  { id: 'explore', label: 'Explore' },
-  { id: 'query', label: 'Query' },
-  { id: 'roles', label: 'People & roles' },
+  { id: 'things', label: 'Things', icon: 'things' },
+  { id: 'explore', label: 'Explore', icon: 'explore' },
+  { id: 'query', label: 'Query', icon: 'query' },
+  { id: 'roles', label: 'People & roles', icon: 'people' },
 ] as const;
 type Tab = (typeof TABS)[number]['id'];
 
@@ -74,7 +75,10 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
       <header style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h1 style={{ ...styles.appTitle, fontSize: 26 }}>{space.name}</h1>
-          <span style={styles.badge}>{spaceBadges(space)}</span>
+          <span style={{ ...styles.badge, display: 'inline-flex', alignItems: 'center', gap: 5 }} title={space.visibility === 'private' ? 'Encrypted end to end: only people in the space hold the key' : 'Not encrypted: anyone with the link can read it'}>
+            <Icon name={space.visibility === 'private' ? 'lock' : 'globe'} size={12} />
+            {spaceBadges(space)}
+          </span>
           {status && (
             <span style={styles.badge} title="Peers connected to this space right now">
               {CONNECTION_LABEL[status.connection]} · {status.peers.length} {status.peers.length === 1 ? 'peer' : 'peers'}
@@ -104,6 +108,10 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
                 setInviting(false);
               }}
               style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                flexShrink: 0,
                 height: 36,
                 padding: '0 12px',
                 border: 'none',
@@ -114,6 +122,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
                 fontWeight: 500,
               }}
             >
+              <Icon name={t.icon} />
               {t.label}
             </button>
           ))}

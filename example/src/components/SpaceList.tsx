@@ -8,7 +8,7 @@ import { styles, palette } from '../styles';
 
 /** How a space is described once it exists: who can read it, and what you are in it. */
 export function spaceBadges(space: Pick<SpaceSummary, 'visibility' | 'role' | 'joining'>): string {
-  return `${space.visibility === 'private' ? 'private' : 'public'} · ${space.joining ? 'joining…' : (space.role ?? 'following')}`;
+  return `${space.visibility === 'private' ? 'encrypted' : 'public'} · ${space.joining ? 'joining…' : (space.role ?? 'following')}`;
 }
 
 /** A small deterministic hash, so a space keeps its colour everywhere it appears. */
@@ -62,8 +62,8 @@ export function SpaceMark({ space, size = 40 }: { space: Pick<SpaceSummary, 'id'
  */
 function describe(visibility: SpaceVisibility): string {
   return visibility === 'private'
-    ? 'Only people you invite can read it. The relay passes it on without being able to read it.'
-    : 'Anyone with the link can read it. Only people you invite can change it.';
+    ? "End-to-end encrypted. Only people you invite get the key, so nobody else can read it — not even the relay that passes it on."
+    : 'Not encrypted: anyone with the link can read it. Only people you invite can change it.';
 }
 
 export function SpaceList({
@@ -265,8 +265,8 @@ export function SpaceDialog({
           value={visibility}
           onChange={setVisibility}
           options={[
-            { value: 'private', label: 'People I invite' },
-            { value: 'public', label: 'Anyone with the link' },
+            { value: 'private', label: 'Encrypted' },
+            { value: 'public', label: 'Public' },
           ]}
         />
 

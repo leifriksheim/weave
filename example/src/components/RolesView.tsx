@@ -579,7 +579,7 @@ function Invite({ space, access, collections }: { space: SpaceSummary; access: S
       <p style={{ fontSize: 13, lineHeight: 1.5, color: palette.ink.muted }}>
         {gives}
         {role && mine && role.rank >= mine.rank && ' That is as much as you have — only pick it for someone you trust to run the space.'}
-        {space.visibility === 'private' && ' The link carries the key, so send it only to the people it is for.'}
+        {space.visibility === 'private' && ' The space is encrypted, and the link carries its key, so send it only to the people it is for.'}
         {role && ' You can close it later.'}
       </p>
       {offered.length === 0 && mine && (
