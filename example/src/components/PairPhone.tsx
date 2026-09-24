@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import type { PairingOffer, PairingStage } from 'weave-protocol/session';
-import { auth } from '../protocol';
+import { useAuth } from 'weave-protocol/react';
 import { servedOverLan, relayProblem, relayOnlyLocal } from '../relay';
 import { Info } from './Info';
 import { styles, palette } from '../styles';
@@ -31,6 +31,7 @@ function describe(stage: PairingStage): string {
  * seed reaches the phone without passing through whatever is hosting this page.
  */
 export function PairPhone() {
+  const { auth } = useAuth();
   const [offer, setOffer] = useState<PairingOffer | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [stage, setStage] = useState<PairingStage | null>(null);

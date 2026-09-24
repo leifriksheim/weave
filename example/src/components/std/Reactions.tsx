@@ -1,7 +1,7 @@
 import { useState } from 'react';
+import { useNode, useSession } from 'weave-protocol/react';
 import type { NodeRecord, SpaceSummary } from 'weave-protocol';
 import { reaction } from 'weave-protocol/schemas';
-import { requireSession } from '../../protocol';
 import { palette } from '../../styles';
 
 const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];
@@ -11,7 +11,8 @@ const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];
  * click to add or take back — and a small picker for the rest.
  */
 export function Reactions({ space, target, reactions }: { space: SpaceSummary; target: string; reactions: ReadonlyArray<NodeRecord> }) {
-  const { node, did: rootDid } = requireSession();
+  const node = useNode();
+  const { did: rootDid } = useSession();
   const [picking, setPicking] = useState(false);
   const byEmoji = new Map<string, NodeRecord[]>();
   for (const r of reactions) {

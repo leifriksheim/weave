@@ -252,8 +252,9 @@ VITE_SIGNALING_URL=wss://your-relay.example npm run dev
 
 ```
 src/
-  main.tsx                 # routes: / and /developers (site/), /app (the app)
-  protocol.ts              # this app's sign-in flow (the protocol's createWeaveAuth) and its config
+  main.tsx                 # routes: / and /developers (site/), /app (the app), /connect (the account home)
+  weave.ts                 # this app's Weave setup: one sign-in flow, and where peers meet
+  App.tsx                  # sign in (<WeaveAuth />), then your spaces
   spaces.ts                # invite links
   webmcp.ts                # node operations as WebMCP tools
   derive/                  # pure helpers: UI from schemas and links, names from profiles

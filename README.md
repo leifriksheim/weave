@@ -171,25 +171,48 @@ its own screens draws it itself. Either way the seed stays inside it.
 
 ```tsx
 import { createWeaveAuth } from 'weave-protocol/session';
-import { WeaveAuth, useWeaveAuth, useQuery, useSpaces } from 'weave-protocol/react';
+import { WeaveProvider, WeaveAuth, useWeave, useNode, useQuery } from 'weave-protocol/react';
 
 const auth = createWeaveAuth({ appName: 'Todo', network: { relays: ['wss://relay.example'] } });
 
+createRoot(root).render(
+  <WeaveProvider auth={auth}>
+    <App />
+  </WeaveProvider>,
+);
+
 function App() {
-  const { stage, session } = useWeaveAuth(auth);
-  if (stage !== 'ready' || !session) return <WeaveAuth auth={auth} />;
-  return <Todos node={session.node} />;
+  const { state } = useWeave();
+  if (state?.stage !== 'ready') return <WeaveAuth />;
+  return <Todos space={…} />;
 }
 
-function Todos({ node, space }) {
-  const { result } = useQuery(node, space, { collection: 'app.todo.item', sort: { '@createdAt': 'asc' } });
-  // re-renders as records change here or arrive from peers
+function Todos({ space }) {
+  // Re-renders as records change here or arrive from peers.
+  const { result } = useQuery(space, { collection: 'app.todo.item', sort: { '@createdAt': 'asc' } });
+  const node = useNode();
+  const add = (text) => node.records.put(space, 'app.todo.item', { text, done: false });
+  …
 }
 ```
 
-`weave-protocol/react` also has `useSpaces(node)` and `useLive(node, space, load,
-deps)` for anything that is not a query. React is an optional peer dependency;
-only that entry point imports it.
+Everything below the provider asks for what it needs:
+
+| Hook | Gives |
+|---|---|
+| `useWeave()` | The flow, its state and the session — or nulls, before sign-in |
+| `useAuth()` / `useSession()` / `useNode()` | The same, for components that only exist once someone is in |
+| `useSpaces()` | The account's spaces, kept current, with `create`, `join`, `leave` |
+| `useQuery(space, query)` | Records matching a query, kept current |
+| `useRecord(space, key)` / `useLinked(space, key)` | One record; what points at it |
+| `useCollections(space)` / `useProfiles(space)` / `useSpaceStatus(space)` | What a space holds, who is in it, whether it is connected |
+| `useCan(space, action, target)` | Whether this account may create, edit or delete — for hiding a button |
+| `useOpenSpace(space)` | Keeps a space syncing while a view is on screen |
+| `useLive(space, load, deps)` | Anything else, reloaded as the space changes |
+
+An app connected to an account home passes its node instead:
+`<WeaveProvider node={node}>`. React is an optional peer dependency; only
+`weave-protocol/react` imports it.
 
 ## Apps without the seed — the account home
 

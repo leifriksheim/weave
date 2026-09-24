@@ -1,8 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useNode, useLive, useProfiles, useCan } from 'weave-protocol/react';
 import type { NodeCollection, NodeRecord, QueryRecord, SpaceSummary } from 'weave-protocol';
 import { reaction, comment, tag } from 'weave-protocol/schemas';
-import { requireSession } from '../protocol';
-import { useLive } from 'weave-protocol/react';
 import {
   byRel,
   checkField,
@@ -62,15 +61,15 @@ export function CollectionView({
   collection: NodeCollection | null;
   onOpen: (record: NodeRecord) => void;
 }) {
-  const { node } = requireSession();
+  const node = useNode();
   const schema = collection?.schema ?? null;
   const title = titleField(schema);
   const group = groupField(schema);
   const [layout, setLayout] = useState<Layout>(() => rememberedLayout(space.id, name) ?? 'list');
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
-  const people = peopleFrom(useLive(node, space.id, () => node.spaces.profiles(space.id), []));
-  const mayCreate = useLive(node, space.id, () => node.records.can(space.id, 'create', name), [name]) ?? false;
+  const people = peopleFrom(useProfiles(space.id));
+  const mayCreate = useCan(space.id, 'create', name);
   const shownLayout = layout === 'board' && !group ? 'list' : layout;
 
   const choose = (next: Layout) => {
@@ -85,7 +84,6 @@ export function CollectionView({
   // Choices that live in a linked record (a vote's poll) need that record to show their label.
   const needsLinked = [...columnsOf(schema), ...metaFields(schema)].some((f) => choicesFrom(f.schema));
   const rows = useLive(
-    node,
     space.id,
     async (): Promise<Row[]> => {
       const { records } = await node.records.query(space.id, {
@@ -207,7 +205,7 @@ function QuickAdd({ label, schema, onAdd, onMore }: { label: string; schema: Nod
 // ─── Layouts ───────────────────────────────────────────────────────
 
 function ListLayout({ rows, schema, people, space, onOpen }: { rows: Row[]; schema: NodeCollection['schema']; people: People; space: SpaceSummary; onOpen: (r: NodeRecord) => void }) {
-  const { node } = requireSession();
+  const node = useNode();
   const check = checkField(schema);
   const meta = metaFields(schema);
   return (
@@ -300,7 +298,7 @@ function TableLayout({ rows, schema, people, onOpen }: { rows: Row[]; schema: No
 
 /** Columns by a fixed-choice field; drag a card to another column to change it */
 function BoardLayout({ rows, schema, field, people, space, onOpen }: { rows: Row[]; schema: NodeCollection['schema']; field: Field; people: People; space: SpaceSummary; onOpen: (r: NodeRecord) => void }) {
-  const { node } = requireSession();
+  const node = useNode();
   const [over, setOver] = useState<string | null>(null);
   const choices = choicesOf(field) ?? [];
   const columns = [...choices.map((c, i) => ({ id: String(i), label: c.label, value: c.value })), { id: 'none', label: `No ${field.label.toLowerCase()}`, value: undefined }];

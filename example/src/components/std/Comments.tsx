@@ -1,7 +1,7 @@
 import { useState } from 'react';
+import { useNode } from 'weave-protocol/react';
 import type { NodeRecord, SpaceSummary } from 'weave-protocol';
 import { comment } from 'weave-protocol/schemas';
-import { requireSession } from '../../protocol';
 import { nameOf, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { Avatar } from '../Avatar';
@@ -9,7 +9,7 @@ import { styles, palette } from '../../styles';
 
 /** `std.comment` on a record: a thread, oldest first, and a box to add to it. */
 export function Comments({ space, target, comments, people }: { space: SpaceSummary; target: string; comments: ReadonlyArray<NodeRecord>; people: People }) {
-  const { node } = requireSession();
+  const node = useNode();
   const [draft, setDraft] = useState('');
   const sorted = [...comments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 

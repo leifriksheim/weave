@@ -376,19 +376,23 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
   // ─── Sessions ──────────────────────────────────────────────────────
 
-  async function endSession(): Promise<void> {
+  /**
+   * Stops the open session's node. The session stays in the state until
+   * something replaces it — a restart swaps one session for the next, and
+   * signing out moves off the signed-in screens in the same change — so a
+   * screen never sees "ready" with no session.
+   */
+  async function stopNode(node = state.session?.node): Promise<void> {
     stopFollowingName?.();
     stopFollowingName = null;
-    const node = state.session?.node;
     seed = null;
     vaultKey = null;
-    update({ session: null });
     await node?.close();
   }
 
   /** Starts the node for an unlocked account. */
   async function startSession(place: Place, account: AccountSummary, unlocked: Uint8Array): Promise<WeaveSession> {
-    await endSession();
+    await stopNode();
 
     const manager = createIdentityManager();
     const identity = await manager.fromSeed(unlocked);
@@ -965,8 +969,9 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
     async signOut() {
       await stay.forget();
-      await endSession();
-      update({ entry: null, freshCode: null, podChoice: null, moved: null });
+      const leaving = state.session?.node;
+      update({ stage: 'starting', session: null, entry: null, freshCode: null, podChoice: null, moved: null });
+      await stopNode(leaving).catch(() => {});
       const place = state.place;
       update({ stage: place ? afterStorage(await refresh(place)) : 'welcome' });
     },

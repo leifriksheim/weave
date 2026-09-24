@@ -1,15 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { NodeRecord, SpaceProfile, SpaceSummary } from 'weave-protocol';
+import { useCollections, useNode, useOpenSpace, useProfiles, useSession, useSpaceStatus } from 'weave-protocol/react';
 import { createInviteLink } from '../spaces';
 import { Choice } from './Modal';
-import { requireSession, type Session } from '../protocol';
-import { useLive } from 'weave-protocol/react';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
 import { RecordPanel, ANNOTATIONS } from './RecordPanel';
 import { Library } from './Library';
 import { NewCollection } from './NewCollection';
-import { DelegationPanel } from './DelegationPanel';
 import { spaceBadges } from './SpaceList';
 import { styles, palette } from '../styles';
 import { Avatar } from './Avatar';
@@ -37,21 +35,17 @@ const NEW = '__new__';
  * it drawn from what the space says about itself — nothing here knows what
  * any of the things are.
  */
-export function SpaceView({ record: space, session }: { record: SpaceSummary; session: Session }) {
-  const { node } = requireSession();
+export function SpaceView({ space }: { space: SpaceSummary }) {
+  const session = useSession();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
 
-  // Opening a space starts syncing it; leaving stops. It writes nothing:
-  // standard schemas are added only when someone picks them from the library.
-  useEffect(() => {
-    void node.spaces.open(space.id).catch(() => {});
-    return () => void node.spaces.close(space.id);
-  }, [node, space.id]);
-
-  const collections = useLive(node, space.id, () => node.collections.list(space.id), []) ?? [];
-  const profiles = useLive(node, space.id, () => node.spaces.profiles(space.id), []);
+  // Syncing while it is on screen. Opening writes nothing: standard schemas
+  // are added only when someone picks them from the library.
+  useOpenSpace(space.id);
+  const collections = useCollections(space.id);
+  const profiles = useProfiles(space.id);
   const people = peopleFrom(profiles);
-  const status = useLive(node, space.id, () => node.spaces.status(space.id), []);
+  const status = useSpaceStatus(space.id);
 
   const kinds = collections.filter((c) => !ANNOTATIONS.has(c.name));
   // Land on the first kind of thing rather than an empty page.
@@ -108,7 +102,7 @@ export function SpaceView({ record: space, session }: { record: SpaceSummary; se
               </button>
             )}
           </nav>
-          <People profiles={profiles ?? []} me={session.did} owner={space.owner} people={people} />
+          <People profiles={profiles} me={session.did} owner={space.owner} people={people} />
           <Share space={space} />
         </aside>
 
@@ -136,9 +130,6 @@ export function SpaceView({ record: space, session }: { record: SpaceSummary; se
           {!selected && (
             <Library space={space} collections={collections} title="Start with a standard schema" onAdded={(name) => !ANNOTATIONS.has(name) && setPlace({ collection: name, key: null })} />
           )}
-          <div style={{ marginTop: 40 }}>
-            <DelegationPanel session={session} spaceId={space.id} />
-          </div>
         </main>
       </div>
 
@@ -187,12 +178,13 @@ function People({ profiles, me, owner, people }: { profiles: ReadonlyArray<Space
 }
 
 function Share({ space }: { space: SpaceSummary }) {
+  const node = useNode();
   const [invite, setInvite] = useState<string | null>(null);
   // Only someone who can change a shared space can hand that on.
   const canOfferEdit = space.type === 'shared' && space.writable;
   const [access, setAccess] = useState<'edit' | 'view'>(canOfferEdit ? 'edit' : 'view');
   const share = async () => {
-    const link = await createInviteLink(space.id, { viewOnly: access === 'view' });
+    const link = await createInviteLink(node, space.id, { viewOnly: access === 'view' });
     setInvite(link);
     await globalThis.navigator.clipboard?.writeText(link).catch(() => {});
   };

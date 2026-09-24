@@ -1,8 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useNode, useLive, useProfiles, useCan } from 'weave-protocol/react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
 import { reaction, comment, tag } from 'weave-protocol/schemas';
-import { requireSession } from '../protocol';
-import { useLive } from 'weave-protocol/react';
 import {
   attachable,
   byRel,
@@ -53,7 +52,7 @@ export function RecordPanel({
   onOpen: (record: NodeRecord) => void;
   onClose: () => void;
 }) {
-  const { node } = requireSession();
+  const node = useNode();
   const [adding, setAdding] = useState<{ collection: NodeCollection; rel: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,9 +63,8 @@ export function RecordPanel({
   }, [onClose]);
   useEffect(() => setAdding(null), [recordKey]);
 
-  const people = peopleFrom(useLive(node, space.id, () => node.spaces.profiles(space.id), []));
+  const people = peopleFrom(useProfiles(space.id));
   const data = useLive(
-    node,
     space.id,
     async () => {
       const record = await node.records.get(space.id, recordKey);
@@ -78,12 +76,7 @@ export function RecordPanel({
   );
 
   // What this account may do here — by the record's rules and the space's.
-  const may = useLive(
-    node,
-    space.id,
-    async () => ({ edit: await node.records.can(space.id, 'edit', recordKey), delete: await node.records.can(space.id, 'delete', recordKey) }),
-    [recordKey],
-  );
+  const may = { edit: useCan(space.id, 'edit', recordKey), delete: useCan(space.id, 'delete', recordKey) };
   const record = data?.record ?? null;
   const schemaOf = (name: string) => collections.find((c) => c.name === name)?.schema ?? null;
   const collection = record ? collections.find((c) => c.name === record.collection) : undefined;

@@ -1,7 +1,7 @@
 import { useState } from 'react';
+import { useNode } from 'weave-protocol/react';
 import type { NodeCollection, SpaceSummary } from 'weave-protocol';
 import { standardSchemas, useSchemas } from 'weave-protocol/schemas';
-import { requireSession } from '../protocol';
 import { styles, palette } from '../styles';
 
 const WHAT_IT_ADDS: Record<string, string> = {
@@ -28,7 +28,7 @@ export function Library({
   title: string;
   onAdded?: (name: string) => void;
 }) {
-  const { node } = requireSession();
+  const node = useNode();
   const [busy, setBusy] = useState<string | null>(null);
   const defined = new Set(collections.filter((c) => c.version !== null).map((c) => c.name));
   const missing = standardSchemas.filter((s) => !defined.has(s.name));

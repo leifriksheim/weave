@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { P2PNode } from '../node/types.js';
 import type { Query, QueryResult } from '../query/types.js';
+import { useNode } from './context.js';
 
 export interface QueryState<T> {
   /** The latest result, or null until the first one arrives */
@@ -13,11 +13,11 @@ export interface QueryState<T> {
  * Runs a query and keeps it current as records change, locally or by sync.
  * The query is plain data, compared by value, so writing it inline is fine.
  *
- * @param node The signed-in node
  * @param spaceId The space to query
  * @param query What to find
  */
-export function useQuery<T = unknown>(node: P2PNode, spaceId: string, query: Query): QueryState<T> {
+export function useQuery<T = unknown>(spaceId: string, query: Query): QueryState<T> {
+  const node = useNode();
   const [state, setState] = useState<QueryState<T>>({ result: null, error: null });
   const key = JSON.stringify(query);
 

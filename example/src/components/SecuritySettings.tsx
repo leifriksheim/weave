@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { STAY_SIGNED_IN_CHOICES, type AuthState, type Connection, type StaySignedIn } from 'weave-protocol/session';
-import { auth, type Session } from '../protocol';
+import { STAY_SIGNED_IN_CHOICES, type Connection, type StaySignedIn } from 'weave-protocol/session';
+import { useAuth } from 'weave-protocol/react';
 import { styles, palette } from '../styles';
 import { connectDesktopAgents, desktopAgentsEnabled } from '../webmcp';
 
@@ -9,7 +9,8 @@ import { connectDesktopAgents, desktopAgentsEnabled } from '../webmcp';
  * whether a passkey unlocks it. Everything here is about this device only —
  * the account itself, and its password, are the same everywhere.
  */
-export function SecuritySettings({ state, session, onBack }: { state: AuthState; session: Session; onBack: () => void }) {
+export function SecuritySettings({ onBack }: { onBack: () => void }) {
+  const { auth, state } = useAuth();
   const [stay, setStay] = useState<StaySignedIn>(auth.staySignedIn.choice);
   const [until, setUntil] = useState<Date | null>(auth.staySignedIn.until);
   const hasPasskey = (state.entry?.shortcuts.length ?? 0) > 0;
@@ -81,7 +82,7 @@ export function SecuritySettings({ state, session, onBack }: { state: AuthState;
         title="Connected apps"
         description="Apps on other addresses that you let use your account from here. Each one got a note, signed by your account, saying which spaces it may use and until when."
       >
-        {state.session && auth.connections().length === 0 && <Row label="No apps yet.">{null}</Row>}
+        {auth.connections().length === 0 && <Row label="No apps yet.">{null}</Row>}
         {auth.connections().map((app) => (
           <Row key={app.origin} label={describeConnection(app)}>
             <button onClick={() => auth.disconnect(app.origin)} data-variant="quiet" style={styles.smallButton}>

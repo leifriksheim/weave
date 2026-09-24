@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { offerToSave, type AuthState } from 'weave-protocol/session';
-import { auth, type Session } from '../protocol';
+import { offerToSave } from 'weave-protocol/session';
+import { useAuth, useSession } from 'weave-protocol/react';
 
 import { Avatar } from './Avatar';
 import { styles, palette } from '../styles';
@@ -13,7 +13,9 @@ import { styles, palette } from '../styles';
  * page. The passkey diagnostics used to live here; they belong somewhere a
  * person goes on purpose, not in the menu they open to sign out.
  */
-export function AccountMenu({ state, session, onSecurity }: { state: AuthState; session: Session; onSecurity: () => void }) {
+export function AccountMenu({ onSecurity }: { onSecurity: () => void }) {
+  const { auth, state } = useAuth();
+  const session = useSession();
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(session.account.name);

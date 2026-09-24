@@ -4,6 +4,8 @@ import { injectBaseStyles } from './styles';
 import { exposeToAgents, desktopAgentsEnabled, connectDesktopAgents } from './webmcp';
 import { Landing, Developers } from './site/Site';
 import { ConnectPage } from './components/ConnectPage';
+import { WeaveProvider } from 'weave-protocol/react';
+import { auth } from './weave';
 
 /**
  * Four pages for now: the landing page for people (`/`), the one for
@@ -35,5 +37,12 @@ if (page === 'app') {
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
 createRoot(root).render(
-  page === 'landing' ? <Landing /> : page === 'developers' ? <Developers /> : page === 'connect' ? <ConnectPage /> : <App />,
+  page === 'landing' ? (
+    <Landing />
+  ) : page === 'developers' ? (
+    <Developers />
+  ) : (
+    // Every component in the app and the account home asks this for Weave.
+    <WeaveProvider auth={auth}>{page === 'connect' ? <ConnectPage /> : <App />}</WeaveProvider>
+  ),
 );

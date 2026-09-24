@@ -1,8 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { SpaceSummary } from 'weave-protocol';
 import { receiveConnectRequest, type IncomingRequest } from 'weave-protocol/session';
-import { WeaveAuth, useWeaveAuth } from 'weave-protocol/react';
-import { auth } from '../protocol';
+import { WeaveAuth, useAuth, useSession, useWeave } from 'weave-protocol/react';
 import { Wordmark } from './Wordmark';
 import { styles, palette } from '../styles';
 
@@ -19,7 +18,7 @@ import { styles, palette } from '../styles';
  */
 export function ConnectPage() {
   const [incoming, setIncoming] = useState<IncomingRequest | null | undefined>(undefined);
-  const state = useWeaveAuth(auth);
+  const { state } = useWeave();
 
   useEffect(() => {
     void receiveConnectRequest().then(setIncoming);
@@ -39,11 +38,11 @@ export function ConnectPage() {
     );
   }
 
-  if (state.stage !== 'ready' || !state.session) {
+  if (state?.stage !== 'ready') {
     return (
       <Frame mark={false}>
         <Asking incoming={incoming} />
-        <WeaveAuth auth={auth} />
+        <WeaveAuth />
       </Frame>
     );
   }
@@ -63,7 +62,8 @@ function Asking({ incoming }: { incoming: IncomingRequest }) {
 
 function Approve({ incoming }: { incoming: IncomingRequest }) {
   const { request, origin } = incoming;
-  const session = auth.getState().session!;
+  const { auth } = useAuth();
+  const session = useSession();
   const host = new URL(origin).host;
   const previous = auth.connections().find((known) => known.origin === origin);
 

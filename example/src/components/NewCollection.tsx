@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
+import { useNode, useCollections } from 'weave-protocol/react';
 import type { JsonSchema, NodeCollection, SpaceSummary } from 'weave-protocol';
-import { requireSession } from '../protocol';
-import { useLive } from 'weave-protocol/react';
 import { collectionLabel } from '../derive/schema-ui';
 import { styles } from '../styles';
 import { ANNOTATIONS } from './RecordPanel';
@@ -21,8 +20,8 @@ type TypeName = keyof typeof TYPES;
  * everything else about how it is shown is worked out from this.
  */
 export function NewCollection({ space, onDone }: { space: SpaceSummary; onDone: (name: string | null) => void }) {
-  const { node } = requireSession();
-  const existing = useLive(node, space.id, () => node.collections.list(space.id), []) ?? [];
+  const node = useNode();
+  const existing = useCollections(space.id);
   const [title, setTitle] = useState('');
   const [fields, setFields] = useState<Array<{ name: string; type: TypeName; required: boolean }>>([{ name: 'title', type: 'text', required: true }]);
   const [pointsAt, setPointsAt] = useState('');

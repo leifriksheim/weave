@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { NewSpace, P2PNode, SpaceSummary } from '../node/types.js';
+import type { NewSpace, SpaceSummary } from '../node/types.js';
+import { useNode } from './context.js';
 
 export interface SpacesState {
   readonly spaces: ReadonlyArray<SpaceSummary>;
@@ -17,16 +18,14 @@ export interface SpacesState {
 /**
  * The account's spaces, kept current — including ones joined on another device
  * of the account, which the account registry brings here.
- *
- * @param node The signed-in node, or null before sign-in
  */
-export function useSpaces(node: P2PNode | null): SpacesState {
+export function useSpaces(): SpacesState {
+  const node = useNode();
   const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!node) return;
     setLoading(true);
     try {
       setSpaces(await node.spaces.list());
@@ -39,7 +38,6 @@ export function useSpaces(node: P2PNode | null): SpacesState {
 
   useEffect(() => {
     void refresh();
-    if (!node) return;
     return node.subscribe((event) => {
       if (event.type === 'spaces') void refresh();
     });
@@ -65,10 +63,10 @@ export function useSpaces(node: P2PNode | null): SpacesState {
     loading,
     error,
     refresh,
-    create: (params) => attempt(() => node!.spaces.create(params), 'Could not create that space'),
-    join: (invite) => attempt(() => node!.spaces.join(invite), 'Could not join that space'),
+    create: (params) => attempt(() => node.spaces.create(params), 'Could not create that space'),
+    join: (invite) => attempt(() => node.spaces.join(invite), 'Could not join that space'),
     leave: async (spaceId) => {
-      await attempt(() => node!.spaces.leave(spaceId), 'Could not leave that space');
+      await attempt(() => node.spaces.leave(spaceId), 'Could not leave that space');
     },
   };
 }

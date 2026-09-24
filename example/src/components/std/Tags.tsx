@@ -1,7 +1,7 @@
 import { useState } from 'react';
+import { useNode, useSession } from 'weave-protocol/react';
 import type { NodeRecord, SpaceSummary } from 'weave-protocol';
 import { tag } from 'weave-protocol/schemas';
-import { requireSession } from '../../protocol';
 import { palette } from '../../styles';
 
 /** A tag's label, if the record is one */
@@ -13,7 +13,8 @@ export const labelOf = (r: NodeRecord) => (r.body as { label?: string } | null)?
  * uses `std.tag` sees the same labels.
  */
 export function Tags({ space, target, tags }: { space: SpaceSummary; target: string; tags: ReadonlyArray<NodeRecord> }) {
-  const { node, did: rootDid } = requireSession();
+  const node = useNode();
+  const { did: rootDid } = useSession();
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
   const labels = new Set(tags.map(labelOf));
