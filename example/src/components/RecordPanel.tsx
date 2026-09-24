@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
 import { reaction, comment, tag } from 'weave-protocol/schemas';
 import { requireSession } from '../protocol';
-import { useLive } from '../hooks/useLive';
+import { useLive } from 'weave-protocol/react';
 import {
   attachable,
   byRel,
@@ -64,8 +64,9 @@ export function RecordPanel({
   }, [onClose]);
   useEffect(() => setAdding(null), [recordKey]);
 
-  const people = peopleFrom(useLive(space.id, () => node.spaces.profiles(space.id), []));
+  const people = peopleFrom(useLive(node, space.id, () => node.spaces.profiles(space.id), []));
   const data = useLive(
+    node,
     space.id,
     async () => {
       const record = await node.records.get(space.id, recordKey);
@@ -78,6 +79,7 @@ export function RecordPanel({
 
   // What this account may do here — by the record's rules and the space's.
   const may = useLive(
+    node,
     space.id,
     async () => ({ edit: await node.records.can(space.id, 'edit', recordKey), delete: await node.records.can(space.id, 'delete', recordKey) }),
     [recordKey],

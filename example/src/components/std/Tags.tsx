@@ -13,7 +13,7 @@ export const labelOf = (r: NodeRecord) => (r.body as { label?: string } | null)?
  * uses `std.tag` sees the same labels.
  */
 export function Tags({ space, target, tags }: { space: SpaceSummary; target: string; tags: ReadonlyArray<NodeRecord> }) {
-  const { node, rootDid } = requireSession();
+  const { node, did: rootDid } = requireSession();
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
   const labels = new Set(tags.map(labelOf));

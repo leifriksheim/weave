@@ -1,13 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import {
-  offerToPhone,
-  servedOverLan,
-  relayProblem,
-  relayOnlyLocal,
-  type PairingOffer,
-  type PairingStage,
-} from '../pairing';
+import type { PairingOffer, PairingStage } from 'weave-protocol/session';
+import { auth } from '../protocol';
+import { servedOverLan, relayProblem, relayOnlyLocal } from '../relay';
 import { Info } from './Info';
 import { styles, palette } from '../styles';
 
@@ -48,7 +43,7 @@ export function PairPhone() {
   const start = async () => {
     setStarting(true);
     try {
-      const started = await offerToPhone(setStage);
+      const started = await auth.offerToPhone(setStage);
       offerRef.current = started;
       setOffer(started);
       setQr(await QRCode.toDataURL(started.url, { width: 260, margin: 1 }));

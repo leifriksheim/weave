@@ -104,7 +104,7 @@ they already downloaded.
 
 ## 3. Pairing without showing the account
 
-**The problem.** The pairing QR (`example/src/pairing.ts`) carries the full
+**The problem.** The pairing QR (`src/session/pairing.ts`) carries the full
 recovery code. A photo of the screen, a screen share or a recording is the
 account, for good. The room id is a hash of the seed, so a relay gets a
 lasting tag for the account. And sealed handovers can be replayed, because the

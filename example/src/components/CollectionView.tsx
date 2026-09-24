@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { NodeCollection, NodeRecord, QueryRecord, SpaceSummary } from 'weave-protocol';
 import { reaction, comment, tag } from 'weave-protocol/schemas';
 import { requireSession } from '../protocol';
-import { useLive } from '../hooks/useLive';
+import { useLive } from 'weave-protocol/react';
 import {
   byRel,
   checkField,
@@ -69,8 +69,8 @@ export function CollectionView({
   const [layout, setLayout] = useState<Layout>(() => rememberedLayout(space.id, name) ?? 'list');
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
-  const people = peopleFrom(useLive(space.id, () => node.spaces.profiles(space.id), []));
-  const mayCreate = useLive(space.id, () => node.records.can(space.id, 'create', name), [name]) ?? false;
+  const people = peopleFrom(useLive(node, space.id, () => node.spaces.profiles(space.id), []));
+  const mayCreate = useLive(node, space.id, () => node.records.can(space.id, 'create', name), [name]) ?? false;
   const shownLayout = layout === 'board' && !group ? 'list' : layout;
 
   const choose = (next: Layout) => {
@@ -85,6 +85,7 @@ export function CollectionView({
   // Choices that live in a linked record (a vote's poll) need that record to show their label.
   const needsLinked = [...columnsOf(schema), ...metaFields(schema)].some((f) => choicesFrom(f.schema));
   const rows = useLive(
+    node,
     space.id,
     async (): Promise<Row[]> => {
       const { records } = await node.records.query(space.id, {

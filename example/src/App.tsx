@@ -1,133 +1,42 @@
 import { useEffect, useState } from 'react';
 import type { SpaceSummary } from 'weave-protocol';
-import { useSession } from './hooks/useProtocol';
-import { useSpaces } from './hooks/useSpaces';
-import { CreateAccount } from './components/CreateAccount';
-import { SignIn } from './components/SignIn';
-import { ChooseStorage } from './components/ChooseStorage';
-import { Welcome } from './components/Welcome';
-import { Wordmark } from './components/ChooseStorage';
+import type { AuthState } from 'weave-protocol/session';
+import { WeaveAuth, useSpaces, useWeaveAuth } from 'weave-protocol/react';
+import { Wordmark } from './components/Wordmark';
 import { AccountMenu } from './components/AccountMenu';
-import { PairArrival } from './components/PairArrival';
 import { PairPhone } from './components/PairPhone';
 import { SpaceList } from './components/SpaceList';
 import { SpaceView } from './components/SpaceView';
 import { SpaceRail, RAIL_WIDTH } from './components/SpaceRail';
 import { SecuritySettings } from './components/SecuritySettings';
 import { PodChoice } from './components/PodChoice';
-import { clearInviteFromUrl, previewInvite, readInviteFromUrl } from './spaces';
+import { clearInviteFromUrl, inviteFrom, previewInvite, readInviteFromUrl } from './spaces';
 import { relayOnlyLocal, relayProblem } from './relay';
-import type { Session } from './protocol';
+import { auth, type Session } from './protocol';
 import { styles } from './styles';
 
 export function App() {
-  const auth = useSession();
+  const state = useWeaveAuth(auth);
 
-  // Opened from a QR code on another device, and not signed in yet. This owns
-  // the screen: everything needed is in the address bar.
-  if (auth.pairing && !auth.session) {
-    return (
-      <PairArrival
-        loading={auth.loading}
-        error={auth.error}
-        stage={auth.pairingStage}
-        onAccept={() => void auth.acceptPairing()}
-        onDismiss={auth.dismissPairing}
-      />
-    );
-  }
-
-  if (auth.stage === 'starting') {
+  // Until someone is in, the protocol's sign-in element owns the screen.
+  if (state.stage !== 'ready' || !state.session) {
     return (
       <div style={styles.container}>
-        <div data-card style={styles.card}>
-          <p style={styles.hint}>Looking for your accounts…</p>
+        <div style={styles.card}>
+          <WeaveAuth auth={auth} />
         </div>
       </div>
     );
   }
 
-  if (auth.stage === 'create') {
-    return (
-      <CreateAccount
-        code={auth.freshCode}
-        loading={auth.loading}
-        error={auth.error}
-        onCreate={auth.create}
-        onSaved={auth.codeSaved}
-        // Always available. An account password works with nothing stored —
-        // that is the whole reason it is the credential — so a browser with
-        // cleared storage must never be a dead end.
-        onBack={auth.backToSignIn}
-      />
-    );
-  }
-
-  if (auth.stage === 'where') {
-    return (
-      <ChooseStorage
-        loading={auth.loading}
-        error={auth.error}
-        onChooseFolder={auth.chooseFolder}
-        onStayLocal={auth.stayLocal}
-      />
-    );
-  }
-
-  if (!auth.home) {
-    return (
-      <div style={styles.container}>
-        <div data-card style={styles.card}>
-          <p style={styles.error}>No account store could be opened in this browser.</p>
-          <p style={styles.errorHint}>
-            Private browsing, or blocked site data, can do this. Allow storage for this site and
-            reload.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (auth.stage === 'welcome' && auth.home) {
-    return (
-      <Welcome
-        home={auth.home}
-        loading={auth.loading}
-        onCreate={auth.startCreating}
-        onHaveAccount={auth.backToSignIn}
-        onChangeStorage={auth.changeStorage}
-      />
-    );
-  }
-
-  if (auth.stage === 'signIn' || !auth.session) {
-    return (
-      <SignIn
-        home={auth.home}
-        accounts={auth.accounts}
-        entry={auth.entry}
-        selectedId={auth.selectedId}
-        loading={auth.loading}
-        error={auth.error}
-        onSelect={auth.select}
-        onWithCode={auth.withCode}
-        onWithPassword={auth.withPassword}
-        onWithPasskey={auth.withPasskey}
-        onCreate={auth.startCreating}
-        onChangeFolder={auth.chooseFolder}
-        onUseBrowser={auth.useBrowserAccounts}
-      />
-    );
-  }
-
-  return <Workspace auth={auth} session={auth.session} />;
+  return <Workspace state={state} session={state.session} />;
 }
 
-type Auth = ReturnType<typeof useSession>;
 
 /** Signed in: the spaces, or one of them opened. */
-function Workspace({ auth, session }: { auth: Auth; session: Session }) {
-  const { spaces, loading, error, create, join, remove } = useSpaces(session);
+function Workspace({ state, session }: { state: AuthState; session: Session }) {
+  const { spaces, loading, error, create, join: joinInvite, leave: remove } = useSpaces(session.node);
+  const join = (invite: string) => joinInvite(inviteFrom(invite));
   const [open, setOpen] = useState<SpaceSummary | null>(null);
   const [page, setPage] = useState<'spaces' | 'security'>('spaces');
   const [pendingInvite, setPendingInvite] = useState<string | null>(() => readInviteFromUrl());
@@ -193,36 +102,36 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
           <p style={{ ...styles.errorHint, marginBottom: 12 }}>{relayOnlyLocal()}</p>
         )}
 
-        {auth.podChoice && (
+        {state.podChoice && (
           <PodChoice
-            pod={auth.podChoice.pod}
-            contents={auth.podChoice.contents}
-            from={auth.podChoice.from}
-            loading={auth.loading}
-            error={auth.error}
-            onConfirm={auth.confirmPod}
-            onCancel={auth.cancelPod}
+            pod={state.podChoice.pod}
+            contents={state.podChoice.contents}
+            from={state.podChoice.from}
+            loading={state.busy}
+            error={state.error}
+            onConfirm={(how) => void auth.confirmPod(how)}
+            onCancel={() => auth.cancelPod()}
           />
         )}
 
-        {!auth.podChoice && auth.error && (
+        {!state.podChoice && state.error && (
           <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 16 }}>
-            <p style={styles.error}>{auth.error.message}</p>
-            {auth.error.hint && <p style={styles.errorHint}>{auth.error.hint}</p>}
+            <p style={styles.error}>{state.error.message}</p>
+            {state.error.hint && <p style={styles.errorHint}>{state.error.hint}</p>}
           </div>
         )}
 
-        {auth.moved && (
+        {state.moved && (
           <div style={{ ...styles.panel, marginTop: 0, marginBottom: 16 }}>
             <div style={{ ...styles.panelBody, paddingTop: 14 }}>
               <p style={{ ...styles.ok, color: '#000' }}>
-                {auth.moved.merged
-                  ? `Combined with the copy in the pod — ${auth.moved.recordsAdded} new records, ${auth.moved.spacesAdded} new spaces.`
-                  : `Moved into the pod — ${auth.moved.spacesAdded} spaces, ${auth.moved.recordsAdded} records.`}
+                {state.moved.merged
+                  ? `Combined with the copy in the pod — ${state.moved.recordsAdded} new records, ${state.moved.spacesAdded} new spaces.`
+                  : `Moved into the pod — ${state.moved.spacesAdded} spaces, ${state.moved.recordsAdded} records.`}
               </p>
-              {auth.moved.from ? (
+              {state.moved.from ? (
                 <p style={styles.errorHint}>
-                  “{auth.moved.from}” still has its own copy. Weave won't use it any more — delete the folder yourself
+                  “{state.moved.from}” still has its own copy. Weave won't use it any more — delete the folder yourself
                   once you're sure you don't need it.
                 </p>
               ) : (
@@ -232,13 +141,13 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
                 </p>
               )}
               <div style={{ ...styles.linkRow, gap: 8 }}>
-                {!auth.moved.from && (
-                  <button onClick={() => void auth.forgetBrowser()} data-variant="quiet" style={styles.smallButton}>
+                {!state.moved.from && (
+                  <button onClick={() => void auth.forgetBrowserCopy()} data-variant="quiet" style={styles.smallButton}>
                     Remove the browser copy
                   </button>
                 )}
-                <button onClick={auth.dismissMoved} data-variant="quiet" style={styles.smallButton}>
-                  {auth.moved.from ? 'Got it' : 'Keep it'}
+                <button onClick={() => auth.dismissMoved()} data-variant="quiet" style={styles.smallButton}>
+                  {state.moved.from ? 'Got it' : 'Keep it'}
                 </button>
               </div>
             </div>
@@ -246,14 +155,14 @@ function Workspace({ auth, session }: { auth: Auth; session: Session }) {
         )}
 
         {page === 'security' ? (
-          <SecuritySettings auth={auth} session={session} onBack={() => setPage('spaces')} />
+          <SecuritySettings state={state} session={session} onBack={() => setPage('spaces')} />
         ) : open ? (
           <SpaceView key={open.id} record={open} session={session} />
         ) : (
           <>
             <header style={styles.headerRow}>
               <Wordmark compact />
-              <AccountMenu auth={auth} session={session} onSecurity={() => setPage('security')} />
+              <AccountMenu state={state} session={session} onSecurity={() => setPage('security')} />
             </header>
             <h1 style={{ ...styles.appTitle, marginBottom: 20 }}>Spaces</h1>
 

@@ -64,8 +64,8 @@ account — no delegation, just another entry in a file.
 There was a third — a short password for one device — and it is gone. Once the
 account password is saved in a password manager it fills itself in, so a second
 password for the same account bought nothing and cost a vault entry people had
-to tell apart from the first. The machinery is still in `accounts.ts` for an app
-that wants it; nothing offers it here.
+to tell apart from the first. One set earlier still unlocks; nothing sets a new
+one.
 
 **Every passkey provider works** — Bitwarden, 1Password, iCloud, Touch ID —
 because the passkey is not asked for key material. Only the PRF extension can
@@ -253,14 +253,11 @@ VITE_SIGNALING_URL=wss://your-relay.example npm run dev
 ```
 src/
   main.tsx                 # routes: / and /developers (site/), /app (the app)
-  protocol.ts              # the session: node, signer, stores, network
-  accounts.ts              # homes (browser or pod), accounts, ways in, moving pods
-  remember.ts              # staying signed in on this device
+  protocol.ts              # this app's sign-in flow (the protocol's createWeaveAuth) and its config
   spaces.ts                # invite links
   webmcp.ts                # node operations as WebMCP tools
   derive/                  # pure helpers: UI from schemas and links, names from profiles
-  hooks/                   # React bindings
-  components/              # onboarding, spaces, collections, records, security
+  components/              # spaces, collections, records, security (sign-in is <weave-auth>)
   site/                    # the landing pages
 ```
 

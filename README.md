@@ -141,6 +141,56 @@ Every operation is also described in `NODE_ACTIONS` — a name, a sentence and a
 JSON Schema for its input — which is what the CLI, MCP and WebMCP front ends are
 generated from. `runAction(node, 'records_put', { … })` runs one by name.
 
+## Signing in — the element, and React
+
+Getting to a node takes a sign-in flow: where the data lives (a pod or this
+browser), which account, the ways into it (its password, a passkey, a device
+password), creating one, staying signed in, arriving from a phone-pairing QR.
+The protocol ships it, so an app does not write it:
+
+```html
+<weave-auth app-name="Todo" relays="wss://relay.example"></weave-auth>
+<script type="module">
+  import 'weave-protocol/elements';
+  document.querySelector('weave-auth').addEventListener('weave-session', (event) => {
+    const session = event.detail.session;      // { account, did, sessionDid, node }, or null
+    if (session) start(session.node);
+  });
+</script>
+```
+
+The element fits whatever it is put in — a page, a modal, a side panel — by
+sizing to its container, and draws nothing once someone is in. It renders into
+the page rather than a shadow root, because password managers fill forms there
+reliably and the account password living in one is the point. Colours, font and
+radius are custom properties (`--weave-accent`, `--weave-font`, …).
+
+Underneath it is `createWeaveAuth` (`weave-protocol/session`): the same flow as
+state and actions, with no framework. The element draws it; an app that wants
+its own screens draws it itself. Either way the seed stays inside it.
+
+```tsx
+import { createWeaveAuth } from 'weave-protocol/session';
+import { WeaveAuth, useWeaveAuth, useQuery, useSpaces } from 'weave-protocol/react';
+
+const auth = createWeaveAuth({ appName: 'Todo', network: { relays: ['wss://relay.example'] } });
+
+function App() {
+  const { stage, session } = useWeaveAuth(auth);
+  if (stage !== 'ready' || !session) return <WeaveAuth auth={auth} />;
+  return <Todos node={session.node} />;
+}
+
+function Todos({ node, space }) {
+  const { result } = useQuery(node, space, { collection: 'app.todo.item', sort: { '@createdAt': 'asc' } });
+  // re-renders as records change here or arrive from peers
+}
+```
+
+`weave-protocol/react` also has `useSpaces(node)` and `useLive(node, space, load,
+deps)` for anything that is not a query. React is an optional peer dependency;
+only that entry point imports it.
+
 ## Modules
 
 ### Identity (`weave-protocol/identity`)

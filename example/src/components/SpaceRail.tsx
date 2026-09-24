@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { SpaceSummary } from 'weave-protocol';
-import type { NewSpace } from '../spaces';
+import type { NewSpace } from 'weave-protocol';
 import { SpaceDialog, SpaceMark } from './SpaceList';
 import { palette } from '../styles';
 

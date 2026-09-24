@@ -91,10 +91,14 @@ function securityHeaders(mode: string): Plugin {
  */
 export default defineConfig(({ mode }) => ({
   resolve: {
-    alias: {
-      'weave-protocol/schemas': fileURLToPath(new URL('../src/schemas/index.ts', import.meta.url)),
-      'weave-protocol': fileURLToPath(new URL('../src/index.ts', import.meta.url)),
-    },
+    alias: [
+      // weave-protocol/<entry> → ../src/<entry>/index.ts
+      { find: /^weave-protocol\/(.+)$/, replacement: fileURLToPath(new URL('../src/$1/index.ts', import.meta.url)) },
+      { find: /^weave-protocol$/, replacement: fileURLToPath(new URL('../src/index.ts', import.meta.url)) },
+    ],
+    // The protocol's React bindings sit outside this folder; they must use
+    // this app's copy of React, not look for their own.
+    dedupe: ['react', 'react-dom'],
   },
   plugins: [webmcpRelayAssets(), securityHeaders(mode), react()],
   server: { port: 5173 },

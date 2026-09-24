@@ -1,14 +1,15 @@
 /**
+ * @module session/credentials
  * Getting a password manager to actually keep something.
  *
  * Managers decide whether to offer saving by guessing, from the shape of a
  * form and from a navigation that usually follows submitting one. A page that
- * submits nothing and never navigates — which is every form in this app — often
- * gets no prompt at all, and a field hidden with `display: none` is generally
- * not counted as a username, so hiding one makes the guess worse rather than
- * better.
+ * submits nothing and never navigates — which is every sign-in form here —
+ * often gets no prompt at all, and a field hidden with `display: none` is
+ * generally not counted as a username, so hiding one makes the guess worse
+ * rather than better.
  *
- * So the form stays honest — a real username field, visible or at least laid
+ * So the forms stay honest — a real username field, visible or at least laid
  * out — and this asks outright as well, where the browser supports being asked.
  */
 
@@ -30,8 +31,7 @@ interface PasswordCredentialConstructor {
  * @returns Whether the browser was asked at all
  */
 export async function offerToSave(id: string, password: string, name?: string): Promise<boolean> {
-  const Ctor = (globalThis as { PasswordCredential?: PasswordCredentialConstructor })
-    .PasswordCredential;
+  const Ctor = (globalThis as { PasswordCredential?: PasswordCredentialConstructor }).PasswordCredential;
   if (!Ctor) return false;
 
   try {
@@ -44,21 +44,23 @@ export async function offerToSave(id: string, password: string, name?: string): 
 }
 
 /**
- * Laid out but not shown.
+ * What a password manager should file the account password under.
  *
- * A username field has to be in the layout for a password manager to count it,
- * and `display: none` takes it out. This keeps it present and off-screen, the
- * way a screen-reader-only label is done — for the places where the account
- * name is already on screen right above and repeating it would be noise.
+ * The account's own name, so the vault entry says which account it opens —
+ * useful the moment there is more than one.
  */
-export const offScreen = {
-  position: 'absolute',
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: 'hidden',
-  clipPath: 'inset(50%)',
-  whiteSpace: 'nowrap',
-  border: 0,
-} as const;
+export function accountCredentialName(name: string): string {
+  return name;
+}
+
+/**
+ * What a password manager should file a device password under.
+ *
+ * Deliberately different from {@link accountCredentialName}. They are two
+ * different secrets on the same origin: one opens the account anywhere, the
+ * other only here. Filed under the same name, a manager would offer whichever
+ * it saw last and quietly fill the wrong one.
+ */
+export function deviceCredentialName(name: string): string {
+  return `${name} (this device)`;
+}

@@ -3,7 +3,7 @@ import type { NodeRecord, SpaceProfile, SpaceSummary } from 'weave-protocol';
 import { createInviteLink } from '../spaces';
 import { Choice } from './Modal';
 import { requireSession, type Session } from '../protocol';
-import { useLive } from '../hooks/useLive';
+import { useLive } from 'weave-protocol/react';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
 import { RecordPanel, ANNOTATIONS } from './RecordPanel';
@@ -48,10 +48,10 @@ export function SpaceView({ record: space, session }: { record: SpaceSummary; se
     return () => void node.spaces.close(space.id);
   }, [node, space.id]);
 
-  const collections = useLive(space.id, () => node.collections.list(space.id), []) ?? [];
-  const profiles = useLive(space.id, () => node.spaces.profiles(space.id), []);
+  const collections = useLive(node, space.id, () => node.collections.list(space.id), []) ?? [];
+  const profiles = useLive(node, space.id, () => node.spaces.profiles(space.id), []);
   const people = peopleFrom(profiles);
-  const status = useLive(space.id, () => node.spaces.status(space.id), []);
+  const status = useLive(node, space.id, () => node.spaces.status(space.id), []);
 
   const kinds = collections.filter((c) => !ANNOTATIONS.has(c.name));
   // Land on the first kind of thing rather than an empty page.
@@ -108,7 +108,7 @@ export function SpaceView({ record: space, session }: { record: SpaceSummary; se
               </button>
             )}
           </nav>
-          <People profiles={profiles ?? []} me={session.rootDid} owner={space.owner} people={people} />
+          <People profiles={profiles ?? []} me={session.did} owner={space.owner} people={people} />
           <Share space={space} />
         </aside>
 

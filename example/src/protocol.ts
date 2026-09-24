@@ -1,169 +1,38 @@
 /**
- * The session: an identity, and the short-lived key that acts for it.
+ * This app's sign-in flow, made once for the page.
  *
- * Nothing here knows how you signed in. Something upstream produced a seed —
- * from a code, a password, a passkey — and hands it over; this turns that into
- * a working session and gets out of the way.
- *
- * The important part is that **the identity key never signs a todo.** Signing in
- * generates a throwaway keypair in memory, and the identity signs one permission
- * note saying that key may write on its behalf for the next hour. Everything
- * after that is signed by the session key. So unlocking happens once, not once
- * per write — which is what makes a passkey or a password prompt tolerable as a
- * way in.
- *
- * All of that is the node's job now (`createNode`): the session key, the
- * hourly renewal, the spaces and their sync. What stays here is which account
- * is open and where its data lives. Accounts and how to open them live in
- * `accounts.ts`; a list as the screens see it in `space-session.ts`.
+ * Everything about accounts — where they live, the ways into them, staying
+ * signed in, the node that does the work once someone is in — is the
+ * protocol's (`createWeaveAuth`). What stays here is this app's configuration,
+ * and a way for code outside React to reach the current session.
  */
 import {
   createIdentityManager,
-  createLocalRootSigner,
-  createNode,
   validateDelegationChain,
   publicKeyToDid,
-  deriveVaultKey,
-  deriveVaultKeyBytes,
   P256_MULTICODEC,
-  inspectPasskeyPrf,
-  type RootSigner,
-  type P2PNode,
   type UCANToken,
-  type PasskeyDiagnostics,
-  type AccountSummary,
-  type DirectoryHandleLike,
 } from 'weave-protocol';
-import { storesFor } from './storage-backend';
+import { createWeaveAuth, type WeaveSession } from 'weave-protocol/session';
 import { CONFIGURED_NODES, relayUrls } from './relay';
 
-/** A session's root key, and what it can do for us. */
-export interface SessionSource {
-  readonly rootDid: string;
-  readonly signer: RootSigner;
-  /** Encrypts this account's registry at rest, when there is a folder */
-  readonly vaultKey: CryptoKey | null;
-  /**
-   * The same key as bytes: what the node derives the account registry from, so
-   * lists joined on one device appear on the others. Null keeps lists local.
-   */
-  readonly accountKey: Uint8Array | null;
-  /** The seed, unlocked in this page */
-  readonly seed: Uint8Array;
-}
+export const auth = createWeaveAuth({
+  appName: 'Weave',
+  network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
+});
 
-/**
- * Builds a source for a seed this page has unlocked.
- * @param seed The account seed
- * @returns A local source, key and all
- */
-export async function localSource(seed: Uint8Array): Promise<SessionSource> {
-  const manager = createIdentityManager();
-  const identity = await manager.fromSeed(seed);
-
-  return {
-    rootDid: identity.did,
-    signer: createLocalRootSigner(identity, manager.getProvider()),
-    vaultKey: await deriveVaultKey(seed),
-    accountKey: await deriveVaultKeyBytes(seed),
-    seed,
-  };
-}
-
-/** An open account: who it is, and the node doing its work */
-export interface Session {
-  readonly rootDid: string;
-  readonly account: AccountSummary;
-  /** The session key's DID — what peers see */
-  readonly sessionDid: string;
-  readonly node: P2PNode;
-}
-
-let _session: Session | null = null;
-
-/**
- * What produced the current session, seed included.
- *
- * Kept in memory so a session can be restarted — moving an account into a
- * folder, say — and so a second way in can be added later: "also unlock with
- * Touch ID here" means encrypting this same seed under a new key. It is never
- * written anywhere, and it goes when the tab does.
- */
-let _source: SessionSource | null = null;
-
-/** The seed behind this session, or null before sign-in. */
-export function getSessionSeed(): Uint8Array | null {
-  return _source?.seed ?? null;
-}
-
-/** What unlocked this session. */
-export function getSessionSource(): SessionSource | null {
-  return _source;
-}
+export type Session = WeaveSession;
 
 /** The current session, or null before sign-in. */
 export function getSession(): Session | null {
-  return _session;
+  return auth.getState().session;
 }
 
 /** The current session, or a thrown error if there is none. */
 export function requireSession(): Session {
-  if (!_session) throw new Error('Not signed in — start a session first');
-  return _session;
-}
-
-/** Ends the session. The account and its data stay where they are. */
-export function endSession(): void {
-  void _session?.node.close();
-  _session = null;
-  _source = null;
-}
-
-/**
- * Brings up a session for an unlocked account.
- *
- * @param account Which account this is
- * @param seed Its seed, already recovered by whatever unlocked it
- * @param folder The data folder, when the account lives in one
- * @returns The live session
- */
-export async function startSession(
-  account: AccountSummary,
-  source: SessionSource,
-  folder?: { directory: DirectoryHandleLike },
-): Promise<Session> {
-  // A restart — moving an account into a folder, say — must not leave the old
-  // node syncing behind the new one.
-  await _session?.node.close();
-
-  const node = await createNode({
-    signer: source.signer,
-    ...(source.accountKey ? { accountKey: source.accountKey } : {}),
-    stores: storesFor(account, folder && source.vaultKey ? { directory: folder.directory, vaultKey: source.vaultKey } : undefined),
-    network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
-  });
-
-  _source = source;
-  _session = Object.freeze({
-    rootDid: source.rootDid,
-    account,
-    sessionDid: node.sessionDid,
-    node,
-  });
-
-  return _session;
-}
-
-/**
- * Asks the browser what it actually does with the PRF extension.
- * @param credentialId Test this credential instead of creating a throwaway one
- */
-export async function diagnosePasskeys(credentialId?: string): Promise<PasskeyDiagnostics> {
-  return inspectPasskeyPrf({
-    rpName: 'Weave',
-    userName: 'PRF diagnostic',
-    ...(credentialId ? { credentialId } : {}),
-  });
+  const session = getSession();
+  if (!session) throw new Error('Not signed in — start a session first');
+  return session;
 }
 
 // ─── Sub-delegation demo ───────────────────────────────────────────────

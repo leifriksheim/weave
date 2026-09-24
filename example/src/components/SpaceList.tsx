@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { SpaceSummary, SpaceType, SpaceVisibility } from 'weave-protocol';
-import type { NewSpace } from '../spaces';
+import type { NewSpace } from 'weave-protocol';
 import { Modal, Choice } from './Modal';
 import { Info } from './Info';
 import { styles, palette } from '../styles';

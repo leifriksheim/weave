@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { useSession } from '../hooks/useProtocol';
-import type { Session } from '../protocol';
+import { offerToSave, type AuthState } from 'weave-protocol/session';
+import { auth, type Session } from '../protocol';
 
 import { Avatar } from './Avatar';
-import { openAccountPassword } from '../accounts';
-import { offerToSave } from '../credentials';
 import { styles, palette } from '../styles';
 
 /**
@@ -15,7 +13,7 @@ import { styles, palette } from '../styles';
  * page. The passkey diagnostics used to live here; they belong somewhere a
  * person goes on purpose, not in the menu they open to sign out.
  */
-export function AccountMenu({ auth, session, onSecurity }: { auth: ReturnType<typeof useSession>; session: Session; onSecurity: () => void }) {
+export function AccountMenu({ state, session, onSecurity }: { state: AuthState; session: Session; onSecurity: () => void }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(session.account.name);
@@ -43,16 +41,16 @@ export function AccountMenu({ auth, session, onSecurity }: { auth: ReturnType<ty
 
   useEffect(() => setName(session.account.name), [session.account.name]);
 
-  const home = auth.home;
-  const hasPasskeyHere = (auth.entry?.shortcuts.length ?? 0) > 0;
-  const did = session.rootDid;
+  const home = state.place;
+  const hasPasskeyHere = (state.entry?.shortcuts.length ?? 0) > 0;
+  const did = session.did;
 
   const rename = () => {
     const was = session.account.name;
     void auth.rename(name).then((ok) => {
       if (!ok) return;
       setRenaming(false);
-      if (was !== name.trim() && openAccountPassword()) setStaleAs(was);
+      if (was !== name.trim() && auth.accountPassword()) setStaleAs(was);
     });
   };
 
@@ -130,7 +128,7 @@ export function AccountMenu({ auth, session, onSecurity }: { auth: ReturnType<ty
               Your password manager still files this account as <strong>{staleAs}</strong>.{' '}
               <button
                 onClick={() => {
-                  const password = openAccountPassword();
+                  const password = auth.accountPassword();
                   if (password) void offerToSave(session.account.name, password, session.account.name).then(() => setStaleAs(null));
                 }}
                 style={inlineLink}
@@ -157,9 +155,9 @@ export function AccountMenu({ auth, session, onSecurity }: { auth: ReturnType<ty
               onClick={() => {
                 // Closed first: what follows is a folder picker, then a dialog.
                 setOpen(false);
-                auth.chooseFolder();
+                void auth.choosePod();
               }}
-              disabled={auth.loading}
+              disabled={state.busy}
               hint={home?.kind === 'folder' ? `Pod · ${home.directory?.name ?? 'folder'}` : 'Stored in this browser'}
             >
               {home?.kind === 'folder' ? 'Change pod' : 'Move to a pod'}
@@ -169,7 +167,7 @@ export function AccountMenu({ auth, session, onSecurity }: { auth: ReturnType<ty
           <Divider />
 
           <div style={{ padding: 6 }}>
-            <Item onClick={auth.leave}>Sign out</Item>
+            <Item onClick={() => void auth.signOut()}>Sign out</Item>
           </div>
         </div>
       )}

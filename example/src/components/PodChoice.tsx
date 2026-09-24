@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import type { Home, PodContents } from '../accounts';
-import type { AuthError } from '../hooks/useProtocol';
+import type { AuthError, Place, PodContents } from 'weave-protocol/session';
 import { Modal } from './Modal';
 import { styles, palette } from '../styles';
 
@@ -27,9 +26,9 @@ export function PodChoice({
   onConfirm,
   onCancel,
 }: {
-  pod: Home;
+  pod: Place;
   contents: PodContents;
-  from: Home;
+  from: Place;
   loading: boolean;
   error: AuthError | null;
   onConfirm: (how: 'combine' | 'switch') => void;

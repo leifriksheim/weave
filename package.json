@@ -2,7 +2,7 @@
   "name": "weave-protocol",
   "version": "0.1.0",
   "type": "module",
-  "description": "Self-sovereign P2P protocol for the browser \u2014 identity, schemas, storage, networking, and gossip sync",
+  "description": "Self-sovereign P2P protocol for the browser — identity, schemas, storage, networking, and gossip sync",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -45,6 +45,18 @@
     "./schemas": {
       "import": "./dist/schemas/index.js",
       "types": "./dist/schemas/index.d.ts"
+    },
+    "./session": {
+      "import": "./dist/session/index.js",
+      "types": "./dist/session/index.d.ts"
+    },
+    "./elements": {
+      "import": "./dist/elements/index.js",
+      "types": "./dist/elements/index.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react/index.js",
+      "types": "./dist/react/index.d.ts"
     }
   },
   "scripts": {
@@ -56,6 +68,7 @@
     "signal": "node server/signaling-server.mjs"
   },
   "devDependencies": {
+    "@types/react": "^19.3.0",
     "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
@@ -69,5 +82,13 @@
     "@cfworker/json-schema": "^4.1.1",
     "@noble/curves": "^2.4.0",
     "@scure/base": "^2.4.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

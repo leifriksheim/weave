@@ -11,7 +11,7 @@ const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];
  * click to add or take back — and a small picker for the rest.
  */
 export function Reactions({ space, target, reactions }: { space: SpaceSummary; target: string; reactions: ReadonlyArray<NodeRecord> }) {
-  const { node, rootDid } = requireSession();
+  const { node, did: rootDid } = requireSession();
   const [picking, setPicking] = useState(false);
   const byEmoji = new Map<string, NodeRecord[]>();
   for (const r of reactions) {

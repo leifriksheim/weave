@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import type { useSession } from '../hooks/useProtocol';
-import type { Session } from '../protocol';
-import { rememberedUntil, setStaySignedIn, staySignedIn, STAY_SIGNED_IN_CHOICES, type StaySignedIn } from '../remember';
+import { STAY_SIGNED_IN_CHOICES, type AuthState, type StaySignedIn } from 'weave-protocol/session';
+import { auth, type Session } from '../protocol';
 import { styles, palette } from '../styles';
 import { connectDesktopAgents, desktopAgentsEnabled } from '../webmcp';
 
@@ -10,16 +9,16 @@ import { connectDesktopAgents, desktopAgentsEnabled } from '../webmcp';
  * whether a passkey unlocks it. Everything here is about this device only —
  * the account itself, and its password, are the same everywhere.
  */
-export function SecuritySettings({ auth, session, onBack }: { auth: ReturnType<typeof useSession>; session: Session; onBack: () => void }) {
-  const [stay, setStay] = useState<StaySignedIn>(staySignedIn);
-  const [until, setUntil] = useState<Date | null>(rememberedUntil);
-  const hasPasskey = (auth.entry?.shortcuts.length ?? 0) > 0;
+export function SecuritySettings({ state, session, onBack }: { state: AuthState; session: Session; onBack: () => void }) {
+  const [stay, setStay] = useState<StaySignedIn>(auth.staySignedIn.choice);
+  const [until, setUntil] = useState<Date | null>(auth.staySignedIn.until);
+  const hasPasskey = (state.entry?.shortcuts.length ?? 0) > 0;
   const [agents, setAgents] = useState(desktopAgentsEnabled);
 
   const choose = async (choice: StaySignedIn) => {
     setStay(choice);
-    await setStaySignedIn(choice);
-    setUntil(rememberedUntil());
+    await auth.staySignedIn.setChoice(choice);
+    setUntil(auth.staySignedIn.until());
   };
 
   return (
@@ -65,14 +64,14 @@ export function SecuritySettings({ auth, session, onBack }: { auth: ReturnType<t
       >
         {hasPasskey ? (
           <Row label="A passkey unlocks this account here.">
-            <button onClick={() => void auth.removeShortcut('passkey')} disabled={auth.loading} data-variant="quiet" style={{ ...styles.smallButton, color: palette.accent.danger }}>
+            <button onClick={() => void auth.removeShortcut('passkey')} disabled={state.busy} data-variant="quiet" style={{ ...styles.smallButton, color: palette.accent.danger }}>
               Remove
             </button>
           </Row>
         ) : (
           <Row label="No passkey on this device.">
-            <button onClick={() => void auth.addPasskey()} disabled={auth.loading} data-variant="primary" style={{ ...styles.smallButton, background: '#000', color: '#fff', borderColor: '#000' }}>
-              {auth.loading ? 'Waiting…' : 'Set up a passkey'}
+            <button onClick={() => void auth.addPasskey()} disabled={state.busy} data-variant="primary" style={{ ...styles.smallButton, background: '#000', color: '#fff', borderColor: '#000' }}>
+              {state.busy ? 'Waiting…' : 'Set up a passkey'}
             </button>
           </Row>
         )}
@@ -98,7 +97,7 @@ export function SecuritySettings({ auth, session, onBack }: { auth: ReturnType<t
 
       <Section title="Sign out of this device" description="Forgets that this device is signed in. Your account and your data stay where they are.">
         <div>
-          <button onClick={auth.leave} data-variant="quiet" style={styles.smallButton}>
+          <button onClick={() => void auth.signOut()} data-variant="quiet" style={styles.smallButton}>
             Sign out
           </button>
         </div>

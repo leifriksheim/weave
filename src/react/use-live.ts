@@ -1,20 +1,29 @@
 import { useEffect, useState } from 'react';
-import { requireSession } from '../protocol';
+import type { P2PNode } from '../node/types.js';
 
 /**
  * Loads something from a space, and loads it again whenever that space's
  * records or connection change — locally or by sync. One load at a time; a
  * change during a load triggers one more, never a queue of stale ones.
  *
+ * For a query, {@link useQuery} is simpler. This is for everything else:
+ * collections, profiles, status, `can()`.
+ *
+ * @param node The signed-in node
  * @param spaceId The space to follow
  * @param load What to read
  * @param deps When these change, start over
+ * @returns The latest value, or undefined until the first load finishes
  */
-export function useLive<T>(spaceId: string, load: () => Promise<T>, deps: ReadonlyArray<unknown>): T | undefined {
+export function useLive<T>(
+  node: P2PNode,
+  spaceId: string,
+  load: () => Promise<T>,
+  deps: ReadonlyArray<unknown>,
+): T | undefined {
   const [value, setValue] = useState<T | undefined>(undefined);
 
   useEffect(() => {
-    const { node } = requireSession();
     let stopped = false;
     let running = false;
     let again = false;
@@ -44,7 +53,7 @@ export function useLive<T>(spaceId: string, load: () => Promise<T>, deps: Readon
       unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spaceId, ...deps]);
+  }, [node, spaceId, ...deps]);
 
   return value;
 }
