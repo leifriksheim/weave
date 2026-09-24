@@ -9,7 +9,10 @@ import { matches, checkQuery } from '../src/query/filter.js';
 import { createNode } from '../src/node/node.js';
 import { runAction } from '../src/node/actions.js';
 import type { NodeRecord, P2PNode } from '../src/node/types.js';
-import type { QueryResult } from '../src/query/types.js';
+import type { QueryResult, Typed } from '../src/query/types.js';
+
+/** The todos these tests write, named with their type */
+const todoItems: Typed<{ text: string; done: boolean; rank: number }> = { name: 'app.todo.item' };
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
@@ -103,12 +106,12 @@ describe('queries on a node', () => {
   test('filter and sort over decrypted bodies in a private space', async () => {
     const me = await person();
     const { space } = await todos(me);
-    const open = await me.records.query<{ text: string }>(space, {
-      collection: 'app.todo.item',
+    const open = await me.records.query(space, {
+      collection: todoItems,
       where: { done: false },
       sort: { rank: 'asc' },
     });
-    assert.deepEqual(open.records.map((r) => r.body?.text), ['tea', 'eggs', 'milk']);
+    assert.deepEqual(open.records.map((r) => r.body.text), ['tea', 'eggs', 'milk']);
     assert.equal(open.cursor, null);
   });
 
@@ -165,12 +168,11 @@ describe('queries on a node', () => {
     const me = await person();
     const { space } = await todos(me, 'public');
     await me.records.put(space, 'std.comment', { text: 'about milk' }, { links: [{ rel: 'about', to: 'todo-0' }] });
-    const result = await me.records.query<{ text: string }>(space, {
+    const result = await me.records.query(space, {
       collection: 'std.comment',
-      include: { target: { rel: 'about', direction: 'out' } },
+      include: { target: { rel: 'about', direction: 'out', from: todoItems } },
     });
-    const target = result.records[0]?.included?.target as Array<{ body: { text: string } }>;
-    assert.deepEqual(target.map((t) => t.body.text), ['milk']);
+    assert.deepEqual(result.records[0]?.included.target.map((t) => t.body.text), ['milk']);
   });
 
   test('watch re-runs when records change, and stops when told', async () => {

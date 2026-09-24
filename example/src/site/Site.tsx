@@ -267,13 +267,14 @@ const invite = await node.spaces.invite(space.id);
 
 const STEP_POLL = `
 import * as z from 'zod'; // or Valibot, ArkType: any Standard Schema
+import { collection } from 'weave-protocol';
 
 const Poll = z.object({
   question: z.string().min(1).max(500),
   options: z.array(z.string().min(1)).min(2).max(10),
 });
 
-await node.collections.define(space.id, {
+const polls = collection({
   name: 'app.poll',
   schema: Poll, // stored in the space as plain JSON Schema
   permissions: ['moderate'],
@@ -283,6 +284,7 @@ await node.collections.define(space.id, {
     fixed: ['options'],                  // votes point at these
   },
 });
+await node.collections.define(space.id, polls);
 `;
 
 const STEP_VOTE = `
@@ -294,7 +296,7 @@ const Vote = z.object({
   }),
 });
 
-await node.collections.define(space.id, {
+const votes = collection({
   name: 'app.poll.vote',
   schema: Vote,
   links: { about: { to: ['app.poll'], cardinality: 'one' } },
@@ -304,44 +306,40 @@ await node.collections.define(space.id, {
     onePer: ['@author', 'link:about'], // one per person per poll
   },
 });
+await node.collections.define(space.id, votes);
 `;
 
 const STEP_USE = `
-const poll = await node.records.put(space.id, 'app.poll', {
+// Typed from the schema: leave out the options, and it won't compile
+const poll = await node.records.put(space.id, polls, {
   question: 'Where should we go in May?',
   options: ['Lisbon', 'Oslo', 'Rome'],
 });
 
 const about = [{ rel: 'about', to: poll.key }];
-const vote = await node.records.put(space.id, 'app.poll.vote',
+const vote = await node.records.put(space.id, votes,
   { choice: 0 }, { links: about });
 
 // Changed your mind? Voting again replaces your vote:
 // its key comes from you + the poll, so it's the same record
-await node.records.put(space.id, 'app.poll.vote',
-  { choice: 2 }, { links: about });
+await node.records.put(space.id, votes, { choice: 2 }, { links: about });
 
 // Or take it back
 await node.records.delete(space.id, vote.key);
 `;
 
 const STEP_COUNT = `
-import type { QueryRecord } from 'weave-protocol';
-type Poll = z.infer<typeof Poll>;
-type Vote = z.infer<typeof Vote>;
-
 // Every poll with its votes, again whenever a peer syncs a change
-const stop = node.records.watch<Poll>(space.id, {
-  collection: 'app.poll',
+const stop = node.records.watch(space.id, {
+  collection: polls,
   sort: { '@createdAt': 'desc' },
-  include: { votes: { rel: 'about', from: 'app.poll.vote' } },
+  include: { votes: { rel: 'about', from: votes } },
 }, ({ records }) => {
+  // Typed all the way down: body is a Poll, each vote a Vote
   for (const { body, included } of records) {
-    if (!body) continue; // encrypted, and this device has no key
-    const votes = included?.votes as QueryRecord<Vote>[];
     const tally = body.options.map((option, i) => ({
       option,
-      count: votes.filter((v) => v.body?.choice === i).length,
+      count: included.votes.filter((v) => v.body.choice === i).length,
     }));
     render(body.question, tally);
   }
@@ -381,7 +379,7 @@ import {
 // The poll above ships ready-made, as std.poll and std.vote
 await useSchemas(node, space.id, [poll, vote, reaction]);
 
-const lunch = await node.records.put(space.id, poll.name, {
+const lunch = await node.records.put(space.id, poll, {
   question: 'Pizza or tacos?', options: ['Pizza', 'Tacos'],
 });
 
@@ -714,7 +712,8 @@ export function Developers() {
               <h3>Count the votes, live</h3>
               <p>
                 Queries are plain JSON: Mongo-style filters, Prisma-style <code>include</code> to pull in the votes
-                that point at each poll. Watch one, and it runs again whenever a vote arrives from anyone.
+                that point at each poll. Name collections by their definitions, and the results are typed from your
+                schemas, votes included. Watch one, and it runs again whenever a vote arrives from anyone.
               </p>
             </div>
             <Code file="results.ts">{STEP_COUNT}</Code>

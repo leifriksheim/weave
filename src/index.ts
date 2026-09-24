@@ -215,6 +215,7 @@ export {
   validateJsonSchema,
   asStandardSchema,
   toJsonSchema,
+  collection,
 } from './schema/collection-def.js';
 export type { StoredCollection, JsonSchema, SchemaIssue } from './schema/collection-def.js';
 export type { Membership } from './space/account-registry.js';
@@ -408,7 +409,8 @@ export type {
 export { runQuery } from './query/engine.js';
 export type { QuerySource } from './query/engine.js';
 export { matches, checkQuery, fieldValue, MAX_INCLUDE_DEPTH } from './query/filter.js';
-export type { Query, Filter, Operators, Include, SortDirection, QueryRecord, QueryResult } from './query/types.js';
+export type { Query, Filter, Operators, Include, SortDirection, QueryRecord, QueryResult, CollectionRef, Typed, BodyOf, IncludedOf, ResultOf } from './query/types.js';
+export { plainQuery } from './query/types.js';
 
 // Rules: who may create, edit and delete a collection's records, what must be unique
 export { checkRules, onePerKey } from './records/rules.js';

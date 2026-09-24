@@ -4,11 +4,12 @@
  *
  * Deliberately no planner. A browser holds a replica, not a warehouse; at that
  * scale an optimiser would be more code than it saves. Filtering happens after
- * records are opened, so in a private space it sees decrypted bodies.
+ * records are opened, so in a private space it sees decrypted bodies — and a
+ * record this device cannot open is left out, here and in every `include`.
  */
 import type { NodeRecord } from '../node/types.js';
 import { checkQuery, fieldValue, matches } from './filter.js';
-import type { Include, Query, QueryRecord, QueryResult } from './types.js';
+import { plainQuery, type Include, type Query, type QueryRecord, type QueryResult } from './types.js';
 
 /** What the engine needs from a space: its current records, one by key, and what links where. */
 export interface QuerySource {
@@ -43,17 +44,21 @@ function sortRecords<T extends NodeRecord>(records: T[], sort: Query['sort']): T
   });
 }
 
+/** Only records whose body this device could open */
+const readable = (r: NodeRecord | null): r is NodeRecord => r !== null && r.body !== null;
+
 async function expand(source: QuerySource, record: NodeRecord, includes: Query['include']): Promise<QueryRecord> {
-  if (!includes) return record;
+  if (!includes) return { ...record, included: {} };
   const included: Record<string, ReadonlyArray<QueryRecord> | number> = {};
   for (const [name, include] of Object.entries(includes) as Array<[string, Include]>) {
     let related: NodeRecord[];
     if (include.direction === 'out') {
       const targets = await Promise.all(record.links.filter((l) => l.rel === include.rel).map((l) => source.get(l.to)));
       // A link to a record not held here is normal; it simply finds nothing.
-      related = targets.filter((r): r is NodeRecord => r !== null && (!include.from || r.collection === include.from));
+      related = targets.filter((r): r is NodeRecord => readable(r) && (!include.from || r.collection === include.from));
     } else {
-      related = [...(await source.linked(record.key, { rel: include.rel, ...(include.from ? { collection: include.from } : {}) }))];
+      const from = include.from as string | undefined; // names only, after plainQuery
+      related = (await source.linked(record.key, { rel: include.rel, ...(from ? { collection: from } : {}) })).filter(readable);
     }
     if (include.where) related = related.filter((r) => matches(r, include.where!));
     if (include.count) {
@@ -70,11 +75,12 @@ async function expand(source: QuerySource, record: NodeRecord, includes: Query['
  * Runs a query against a space.
  * @throws When the query is malformed — with a message saying what to fix
  */
-export async function runQuery<T = unknown>(source: QuerySource, query: Query): Promise<QueryResult<T>> {
+export async function runQuery<T = unknown>(source: QuerySource, given: Query): Promise<QueryResult<T>> {
+  const query = plainQuery(given);
   const problem = checkQuery(query);
   if (problem) throw new Error(`Invalid query: ${problem}`);
 
-  const candidates = [...(await source.list(query.collection))];
+  const candidates = (await source.list(query.collection as string)).filter(readable);
   const filtered = query.where ? candidates.filter((r) => matches(r, query.where!)) : candidates;
   const sorted = sortRecords(filtered, query.sort);
 

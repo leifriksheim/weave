@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from 'weave-protocol/react';
-import type { NodeRecord, QueryRecord } from 'weave-protocol';
+import type { ResultOf } from 'weave-protocol';
 import { message, poll, reaction, vote, type Message, type Poll } from 'weave-protocol/schemas';
 import { nameOf, peopleFrom } from '../../derive/people';
 import { ago } from '../../derive/time';
@@ -8,7 +8,7 @@ import { Avatar } from '../Avatar';
 import { Reactions } from '../std/Reactions';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
-import { Ask, PollView, withVotes } from './Polls';
+import { Ask, PollView, withVotes, type PollWithVotes } from './Polls';
 
 /** Messages from one person this close together share one name line */
 const RUN_MS = 5 * 60 * 1000;
@@ -45,16 +45,9 @@ export function Chat({ space, collections, onOpen }: AppProps) {
     space.id,
     async () =>
       (
-        await node.records.query<Message>(space.id, {
-          collection: message.name,
-          sort: { '@createdAt': 'asc' },
-          include: {
-            ...(reacts ? { reactions: { rel: 'about', from: reaction.name } } : {}),
-            ...(shares ? { shared: { rel: 'shares', direction: 'out', include: withVotes } } : {}),
-          },
-        })
-      ).records.filter((m) => m.body !== null),
-    [reacts, shares],
+        await node.records.query(space.id, CHAT)
+      ).records,
+    [],
   );
 
   // Follow new messages down — unless you have scrolled up to read.
@@ -153,15 +146,24 @@ export function Chat({ space, collections, onOpen }: AppProps) {
   );
 }
 
-const reactionsOf = (m: QueryRecord): ReadonlyArray<NodeRecord> => {
-  const found = m.included?.reactions;
-  return Array.isArray(found) ? found : [];
-};
+/**
+ * Every message, oldest first, with its reactions and whatever it shares —
+ * with a shared poll's votes. Asking for what a space has not defined yet
+ * simply finds nothing.
+ */
+const CHAT = {
+  collection: message,
+  sort: { '@createdAt': 'asc' },
+  include: {
+    reactions: { rel: 'about', from: reaction },
+    shared: { rel: 'shares', direction: 'out', include: withVotes },
+  },
+} as const;
+type ChatMessage = ResultOf<typeof CHAT>['records'][number];
+
+const reactionsOf = (m: ChatMessage) => m.included.reactions;
 /** The record a message shares, when it has one and this device holds it */
-const sharedOf = (m: QueryRecord): QueryRecord | null => {
-  const found = m.included?.shared;
-  return Array.isArray(found) ? (found[0] ?? null) : null;
-};
+const sharedOf = (m: ChatMessage) => m.included.shared[0] ?? null;
 
 function Line({
   record,
@@ -174,7 +176,7 @@ function Line({
   onOpen,
   space,
 }: {
-  record: QueryRecord<Message>;
+  record: ChatMessage;
   startsRun: boolean;
   name: string;
   mine: boolean;
@@ -185,7 +187,8 @@ function Line({
   space: AppProps['space'];
 }) {
   const shared = sharedOf(record);
-  const sharesPoll = shared?.collection === poll.name && shared.body !== null;
+  // It can share anything; a poll is the one this chat knows how to show.
+  const sharesPoll = shared?.collection === poll.name;
   return (
     <div
       data-row
@@ -207,11 +210,11 @@ function Line({
           {sharesPoll ? (
             // The poll says it better than the message's fallback text.
             <div style={{ flex: 1, minWidth: 0, maxWidth: 480, margin: '4px 0' }}>
-              <PollView space={space} record={shared as QueryRecord<Poll>} onOpen={onOpen} />
+              <PollView space={space} record={shared as PollWithVotes} onOpen={onOpen} />
             </div>
           ) : (
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 14, lineHeight: 1.5, color: palette.ink.body, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{record.body?.text}</p>
+              <p style={{ fontSize: 14, lineHeight: 1.5, color: palette.ink.body, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{record.body.text}</p>
               {shared && (
                 <button onClick={() => onOpen(shared)} data-variant="quiet" style={{ ...styles.smallButton, height: 28, marginTop: 4 }}>
                   Open shared record

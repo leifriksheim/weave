@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from 'weave-protocol/react';
-import type { NodeRecord, QueryRecord } from 'weave-protocol';
+import type { IncludedOf, QueryRecord } from 'weave-protocol';
 import { poll, vote, type Poll, type Vote } from 'weave-protocol/schemas';
 import { nameOf, peopleFrom, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
@@ -24,12 +24,12 @@ export function Polls({ space, onOpen }: AppProps) {
     space.id,
     async () =>
       (
-        await node.records.query<Poll>(space.id, {
-          collection: poll.name,
+        await node.records.query(space.id, {
+          collection: poll,
           sort: { '@createdAt': 'desc' },
           include: withVotes,
         })
-      ).records.filter((p) => p.body !== null),
+      ).records,
     [],
   );
 
@@ -56,14 +56,17 @@ export function Polls({ space, onOpen }: AppProps) {
 }
 
 /** Include this with a poll to get what {@link PollView} needs: its votes */
-export const withVotes = { votes: { rel: 'about', from: vote.name } } as const;
+export const withVotes = { votes: { rel: 'about', from: vote } } as const;
+
+/** A poll, as a query with {@link withVotes} gives it */
+export type PollWithVotes = QueryRecord<Poll, IncludedOf<typeof withVotes>>;
 
 /**
  * One poll, ready to vote on — wherever it shows up: in this app's list, or
  * shared into a chat. The record must carry its votes (query it with
  * `include: withVotes`).
  */
-export function PollView({ space, record, onOpen }: { space: AppProps['space']; record: QueryRecord<Poll>; onOpen: AppProps['onOpen'] }) {
+export function PollView({ space, record, onOpen }: { space: AppProps['space']; record: PollWithVotes; onOpen: AppProps['onOpen'] }) {
   const node = useNode();
   const { did: me } = useAccount();
   const people = peopleFrom(useProfiles(space.id));
@@ -93,7 +96,7 @@ function PollCard({
   onClose,
   onDelete,
 }: {
-  record: QueryRecord<Poll>;
+  record: PollWithVotes;
   me: string;
   people: People;
   writable: boolean;
@@ -104,9 +107,8 @@ function PollCard({
   onDelete: () => void;
 }) {
   const { question, options, closed } = record.body!;
-  const found = record.included?.votes;
   // Only votes for an option that exists count — a vote from a buggy app for option 7 of 2 is ignored.
-  const votes = (Array.isArray(found) ? (found as NodeRecord<Vote>[]) : []).filter((v) => typeof v.body?.choice === 'number' && v.body.choice < options.length);
+  const votes = record.included.votes.filter((v) => v.body.choice < options.length);
   const mine = votes.find((v) => v.root === me);
   const asker = record.createdBy === me;
   const open = writable && !closed;

@@ -7,7 +7,7 @@
  * are exposed as actions to a command line, an MCP server and WebMCP, and a
  * value that cannot cross a wire would have to be reshaped at each of them.
  */
-import type { Query, QueryResult } from '../query/types.js';
+import type { BodyOf, Query, ResultOf } from '../query/types.js';
 import type { CollectionRules } from '../records/rules.js';
 import type { CollectionDef, CryptoProvider, Link, SpaceRole, SpaceVisibility, StandardJSONSchemaV1 } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
@@ -347,6 +347,13 @@ export interface NodeRecords {
     body: T,
     options?: { key?: string; links?: ReadonlyArray<Link> },
   ): Promise<NodeRecord<T>>;
+  /** The same, given the collection's definition: the body is checked against its type as you write it */
+  put<C extends { readonly name: string }>(
+    spaceId: string,
+    collection: C,
+    body: BodyOf<C>,
+    options?: { key?: string; links?: ReadonlyArray<Link> },
+  ): Promise<NodeRecord<BodyOf<C>>>;
   /** Writes the record's next version. Same key; `seq` one higher. Links carry over unless given. */
   update<T = unknown>(spaceId: string, key: string, body: T, options?: { links?: ReadonlyArray<Link> }): Promise<NodeRecord<T>>;
   /** The records whose current version points at this one — optionally in one role, or one collection */
@@ -369,15 +376,18 @@ export interface NodeRecords {
   can(spaceId: string, action: 'create' | 'edit' | 'delete', target: string): Promise<boolean>;
   /**
    * Records matching a query — filtered, sorted, paged, with linked records
-   * pulled in. The query is plain data.
+   * pulled in. The query is plain data. Name a collection by its definition
+   * (or a `Typed` name) instead of a string, and the records — and what each
+   * `include` finds — come back typed. Only records this device can read are
+   * returned.
    * @throws When the query is malformed, saying what to fix
    */
-  query<T = unknown>(spaceId: string, query: Query): Promise<QueryResult<T>>;
+  query<const Q extends Query>(spaceId: string, query: Q): Promise<ResultOf<Q>>;
   /**
    * Runs a query now and again whenever the space's records change, calling
    * back with each result. Returns a function that stops it.
    */
-  watch<T = unknown>(spaceId: string, query: Query, onResult: (result: QueryResult<T>) => void, onError?: (error: Error) => void): () => void;
+  watch<const Q extends Query>(spaceId: string, query: Q, onResult: (result: ResultOf<Q>) => void, onError?: (error: Error) => void): () => void;
 }
 
 export interface DelegateParams {

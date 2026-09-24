@@ -9,7 +9,7 @@
  * import { reaction, comment, useSchemas } from 'weave-protocol/schemas';
  *
  * await useSchemas(node, space.id, [reaction, comment]);
- * await node.records.put(space.id, reaction.name, { emoji: '👍' }, {
+ * await node.records.put(space.id, reaction, { emoji: '👍' }, {
  *   links: [{ rel: 'about', to: post.key }],
  * });
  * ```
@@ -32,12 +32,24 @@
  * something that knows nothing of order still counts: it goes at the end.
  */
 import type { DefineCollection, P2PNode } from '../node/types.js';
+import type { Typed } from '../query/types.js';
+
+/**
+ * A definition that also carries its records' type, so querying or writing
+ * with it is typed — `include: { votes: { rel: 'about', from: vote } }` gives
+ * votes as `Vote`. The schemas here are plain JSON Schema, so the type is said
+ * alongside rather than worked out.
+ */
+const typed =
+  <T>() =>
+  <const C extends DefineCollection>(definition: C): C & Typed<T> =>
+    definition;
 import type { LinkDeclaration } from '../records/links.js';
 
 const about = (description: string): LinkDeclaration => ({ to: '*', cardinality: 'one', description });
 
 /** An emoji reaction to any record. Link it: `{ rel: 'about', to: <key> }`. */
-export const reaction = {
+export const reaction = typed<Reaction>()({
   name: 'std.reaction',
   title: 'Reaction',
   description: 'An emoji reaction to any record.',
@@ -45,13 +57,13 @@ export const reaction = {
   links: { about: about('The record reacted to') },
   // One of each emoji per person per record; only yours to take back.
   rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about', 'emoji'] },
-} as const satisfies DefineCollection;
+});
 export interface Reaction {
   readonly emoji: string;
 }
 
 /** A comment on any record, optionally a reply to another comment. */
-export const comment = {
+export const comment = typed<Comment>()({
   name: 'std.comment',
   title: 'Comment',
   description: 'A comment on any record, optionally replying to another comment.',
@@ -62,13 +74,13 @@ export const comment = {
   },
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
-} as const satisfies DefineCollection;
+});
 export interface Comment {
   readonly text: string;
 }
 
 /** A label on one or more records. */
-export const tag = {
+export const tag = typed<Tag>()({
   name: 'std.tag',
   title: 'Tag',
   description: 'A label on one or more records.',
@@ -76,13 +88,13 @@ export const tag = {
   links: { about: { to: '*', cardinality: 'many', description: 'The records tagged' } },
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
-} as const satisfies DefineCollection;
+});
 export interface Tag {
   readonly label: string;
 }
 
 /** A file attached to a record. Describes the file; storing its bytes is separate. */
-export const attachment = {
+export const attachment = typed<Attachment>()({
   name: 'std.attachment',
   title: 'Attachment',
   description: 'A file attached to a record. Describes the file; storing its bytes is not part of this.',
@@ -99,7 +111,7 @@ export const attachment = {
   links: { about: about('The record the file is attached to') },
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
-} as const satisfies DefineCollection;
+});
 export interface Attachment {
   readonly name: string;
   readonly mime: string;
@@ -108,7 +120,7 @@ export interface Attachment {
 }
 
 /** A note that one record refers to another. */
-export const reference = {
+export const reference = typed<Reference>()({
   name: 'std.reference',
   title: 'Reference',
   description: 'A note that one record refers to another.',
@@ -116,7 +128,7 @@ export const reference = {
   links: { about: about('The record doing the referring'), to: about('The record referred to') },
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
-} as const satisfies DefineCollection;
+});
 export interface Reference {
   readonly note?: string;
 }
@@ -127,7 +139,7 @@ export interface Reference {
  * knows the record's kind shows in place. The text should still make sense
  * alone ("Poll: Where to?"), for chats that don't.
  */
-export const message = {
+export const message = typed<Message>()({
   name: 'std.message',
   title: 'Message',
   description: 'A chat message, optionally replying to another, or sharing a record.',
@@ -138,13 +150,13 @@ export const message = {
   },
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
-} as const satisfies DefineCollection;
+});
 export interface Message {
   readonly text: string;
 }
 
 /** A column on a board — To do, Doing, Done — in the order it sits. */
-export const column = {
+export const column = typed<Column>()({
   name: 'std.column',
   title: 'Column',
   description: 'A column on a board, holding tasks.',
@@ -156,14 +168,14 @@ export const column = {
     },
     required: ['name'],
   },
-} as const satisfies DefineCollection;
+});
 export interface Column {
   readonly name: string;
   readonly position?: string;
 }
 
 /** A task, in the column it sits in and at a place in it. */
-export const task = {
+export const task = typed<Task>()({
   name: 'std.task',
   title: 'Task',
   description: 'A task, placed in a column.',
@@ -177,7 +189,7 @@ export const task = {
     required: ['title'],
   },
   links: { column: { to: ['std.column'], cardinality: 'one', description: 'The column it sits in' } },
-} as const satisfies DefineCollection;
+});
 export interface Task {
   readonly title: string;
   readonly notes?: string;
@@ -188,7 +200,7 @@ export interface Task {
  * A question with fixed options. The options cannot change once it is asked —
  * votes point at them by position — but whoever asked can close it.
  */
-export const poll = {
+export const poll = typed<Poll>()({
   name: 'std.poll',
   title: 'Poll',
   description: 'A question with options to vote on.',
@@ -203,7 +215,7 @@ export const poll = {
   },
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'], fixed: ['options'] },
-} as const satisfies DefineCollection;
+});
 export interface Poll {
   readonly question: string;
   readonly options: ReadonlyArray<string>;
@@ -214,7 +226,7 @@ export interface Poll {
  * One person's vote on a poll: the position of their choice in its options.
  * One per person per poll — voting again changes it; deleting takes it back.
  */
-export const vote = {
+export const vote = typed<Vote>()({
   name: 'std.vote',
   title: 'Vote',
   description: "A vote on a poll: one per person, changed by voting again.",
@@ -225,7 +237,7 @@ export const vote = {
   },
   links: { about: { to: ['std.poll'], cardinality: 'one', description: 'The poll voted on' } },
   rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about'] },
-} as const satisfies DefineCollection;
+});
 export interface Vote {
   readonly choice: number;
 }

@@ -584,7 +584,31 @@ amount: { $gt: 10 } }`; `@author`, `@createdAt` and friends for the record
 itself) and pulls in what links to them — `include: { likes: { rel: 'about',
 from: 'std.reaction', count: true } }`. A query is plain JSON, so an agent
 sends the same thing over `records_query`; `node.records.watch` re-runs one as
-records sync in.
+records sync in. Only records this device can read come back, so `body` is
+never null.
+
+**Typed queries.** Name a collection by its definition instead of a string, and
+the results are typed from its schema — including everything `include` pulls
+in, and `number` for a `count`. `collection()` keeps a definition's types; the
+standard schemas already carry theirs; `Typed<T>` names a collection whose
+schema is plain JSON Schema. Before a query runs, every reference becomes its
+name, so the query is still plain data.
+
+```typescript
+import { collection } from 'weave-protocol';
+
+const polls = collection({ name: 'app.poll', schema: Poll });    // Poll is a Zod object
+const votes = collection({ name: 'app.poll.vote', schema: Vote });
+
+await node.records.put(space.id, polls, { question: 'Where?', options: ['Oslo', 'Lisbon'] }); // checked against Poll
+
+const { records } = await node.records.query(space.id, {
+  collection: polls,
+  include: { votes: { rel: 'about', from: votes } },
+});
+records[0].body.question;                  // string
+records[0].included.votes[0].body.choice;  // number
+```
 
 **The account registry.** Which spaces an account belongs to is itself kept in
 a space: a private one whose id and key are derived from the account's vault

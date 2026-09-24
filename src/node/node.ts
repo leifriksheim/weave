@@ -15,7 +15,7 @@
  * for one signature an hour, never one per write.
  */
 import { runQuery } from '../query/engine.js';
-import type { Query, QueryResult } from '../query/types.js';
+import { nameOf, type CollectionRef, type Query, type ResultOf } from '../query/types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 import type { Link, SpaceRole } from '../types.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
@@ -697,8 +697,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async get<T>(spaceId: string, key: string) {
       return (await runtime(spaceId)).get<T>(key);
     },
-    async put<T>(spaceId: string, collection: string, body: T, options?: { key?: string; links?: ReadonlyArray<Link> }) {
-      return (await runtime(spaceId)).put<T>(collection, body, options);
+    async put<T>(spaceId: string, collection: CollectionRef, body: T, options?: { key?: string; links?: ReadonlyArray<Link> }) {
+      return (await runtime(spaceId)).put<T>(nameOf(collection), body, options);
     },
     async update<T>(spaceId: string, key: string, body: T, options?: { links?: ReadonlyArray<Link> }) {
       return (await runtime(spaceId)).update<T>(key, body, options);
@@ -715,18 +715,18 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async can(spaceId: string, action: 'create' | 'edit' | 'delete', target: string) {
       return (await runtime(spaceId)).can(action, target);
     },
-    async query<T>(spaceId: string, query: Query) {
+    async query<Q extends Query>(spaceId: string, query: Q): Promise<ResultOf<Q>> {
       const space = await runtime(spaceId);
-      return runQuery<T>(
+      return runQuery(
         {
           list: (collection) => space.list({ collection }),
           get: (key) => space.get(key),
           linked: (key, options) => space.linked(key, options),
         },
         query,
-      );
+      ) as Promise<ResultOf<Q>>;
     },
-    watch<T>(spaceId: string, query: Query, onResult: (result: QueryResult<T>) => void, onError?: (error: Error) => void) {
+    watch<Q extends Query>(spaceId: string, query: Q, onResult: (result: ResultOf<Q>) => void, onError?: (error: Error) => void) {
       // Changes arrive in bursts during sync; one run at a time, and one more
       // after it if anything changed meanwhile — never a queue of stale runs.
       let stopped = false;
@@ -741,7 +741,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         do {
           again = false;
           try {
-            const result = await records.query<T>(spaceId, query);
+            const result = await records.query(spaceId, query);
             if (!stopped) onResult(result);
           } catch (error) {
             if (!stopped) onError?.(error instanceof Error ? error : new Error(String(error)));

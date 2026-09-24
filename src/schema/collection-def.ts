@@ -33,9 +33,25 @@
 import { Validator } from '@cfworker/json-schema';
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
+import type { DefineCollection } from '../node/types.js';
 import { checkRules, PERMISSION_PATTERN, type CollectionRules } from '../records/rules.js';
 
 export type JsonSchema = { readonly [keyword: string]: unknown };
+
+/**
+ * A collection definition, kept exactly as written: its validator's type
+ * comes along, so querying or writing with it is typed, and its rules stay
+ * the literals `define` expects.
+ *
+ * ```ts
+ * const polls = collection({ name: 'app.poll', schema: Poll, rules: { edit: 'creator' } });
+ * await node.collections.define(space.id, polls);
+ * const { records } = await node.records.query(space.id, { collection: polls }); // bodies are z.infer<typeof Poll>
+ * ```
+ */
+export function collection<const C extends DefineCollection>(definition: C): C {
+  return definition;
+}
 
 /**
  * The JSON Schema to store for a definition's schema: plain JSON Schema as
