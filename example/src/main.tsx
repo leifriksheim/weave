@@ -7,14 +7,16 @@ import { WeaveProvider } from 'weave-protocol/react';
 import { connection } from './weave';
 
 /**
- * Three pages: the landing page for people (`/`), the one for developers
- * (`/developers`), and the app (`/app`). A link made before the app
+ * Three pages: the landing page, for developers (`/`, and `/developers` for
+ * older links), why Weave, for people (`/why`), and the app (`/app`). People
+ * mostly meet Weave inside an app, so the front page speaks to whoever builds
+ * one. A link made before the app
  * moved — an invite, or a phone-pairing code, both in the fragment — still
  * opens the app wherever it lands.
  */
 const path = globalThis.location.pathname.replace(/\/+$/, '') || '/';
 const carriesAppLink = /[#&]invite=/.test(globalThis.location.hash);
-const page = carriesAppLink ? 'app' : path === '/' ? 'landing' : path === '/developers' ? 'developers' : 'app';
+const page = carriesAppLink ? 'app' : path === '/' || path === '/developers' ? 'developers' : path === '/why' ? 'why' : 'app';
 
 // Hover, focus and placeholder states, plus the page background — the things
 // inline styles cannot express.
@@ -34,7 +36,7 @@ if (page === 'app') {
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
 createRoot(root).render(
-  page === 'landing' ? (
+  page === 'why' ? (
     <Landing />
   ) : page === 'developers' ? (
     <Developers />
