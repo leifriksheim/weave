@@ -166,9 +166,18 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     return record;
   }
 
+  // Said once per space: the note this node writes under was revoked there.
+  const revokedIn = new Set<string>();
+  async function checkRevoked(spaceId: string, open: SpaceRuntime): Promise<void> {
+    if (revokedIn.has(spaceId) || !(await open.isRevoked(session.proof()))) return;
+    revokedIn.add(spaceId);
+    emit({ type: 'revoked', space: spaceId });
+  }
+
   /** Runtime events pass through; a change to the account registry is also acted on. */
   const fromRuntime = (event: NodeEvent) => {
     emit(event);
+    if (event.type === 'records') void runtimes.get(event.space)?.then((rt) => checkRevoked(event.space, rt)).catch(() => {});
     // A space joined with an invite whose record had not arrived: perhaps it has now.
     if (event.type === 'records' && event.space !== accountSpaceId) void finishJoining(event.space);
     if (event.type === 'records' && event.space === accountSpaceId) {
@@ -235,6 +244,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       // A failed open must not be cached, or the space stays broken until restart.
       open.catch(() => runtimes.delete(spaceId));
       void open.then((rt) => publishProfile(spaceId, rt)).catch(() => {});
+      // A revoke that arrived on an earlier visit.
+      void open.then((rt) => checkRevoked(spaceId, rt)).catch(() => {});
       runtimes.set(spaceId, open);
     }
     return open;
@@ -517,6 +528,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       emit({ type: 'account' });
       await publishProfileToOpenSpaces();
       return { name: trimmed, updatedAt: written.updatedAt };
+    },
+    async revoke(token: string) {
+      if (!accountSpaceId) throw new Error('Revoking in the account registry needs the account key');
+      await (await runtime(accountSpaceId)).revoke(token);
     },
   });
 

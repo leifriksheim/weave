@@ -208,6 +208,8 @@ export interface SpaceRuntime {
   closeInvite(inviteDid: string): Promise<void>;
   /** Revokes a note this account signed: nothing written under it counts from now, except what was seen */
   revoke(token: string): Promise<void>;
+  /** Whether a note has been revoked here */
+  isRevoked(token: string): Promise<boolean>;
   /** Uses an invite's secret, once its record has arrived. True when this account is a member. */
   join(secret: Uint8Array): Promise<boolean>;
   status(): Promise<SpaceStatus>;
@@ -1338,6 +1340,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         if (version.proof && (await noteCid(version.proof)) === cid) keep.push(version.id);
       }
       await upsert(REVOKE_COLLECTION, await revokeKey(cid), { note: token, ...(keep.length ? { keep: keep.slice(0, MAX_KEEP) } : {}) });
+    },
+
+    async isRevoked(token: string) {
+      return (await access()).history.revoked(await noteCid(token)) !== null;
     },
 
     async join(secret: Uint8Array) {

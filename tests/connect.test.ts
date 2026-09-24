@@ -193,6 +193,8 @@ describe('connecting an app to an account home', () => {
     assert.equal(parseSpaceInvite(grant.spaces[0]!.invite).invite, undefined);
 
     const todo = await app(hub, grant, key);
+    const told: string[] = [];
+    todo.subscribe((event) => event.type === 'revoked' && told.push(event.space));
     const before = await todo.records.put(shared.id, 'app.todo.item', { text: 'before' });
     await homeNode.spaces.open(shared.id);
     await until(async () => (await homeNode.records.get(shared.id, before.key)) !== null, 3000, 'the app’s record to reach the home');
@@ -205,6 +207,31 @@ describe('connecting an app to an account home', () => {
       'the revoke to reach the app',
     );
     assert.equal((await homeNode.records.get(shared.id, before.key))?.verified, true);
+    // The app is told, so it can sign itself out rather than keep writing into nothing.
+    await until(async () => told.includes(shared.id), 3000, 'the app to hear it was revoked');
+  });
+
+  test('disconnecting a whole-account app revokes it in the account registry too: it can no longer rename the account', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node: homeNode } = auth.getState().session!;
+    const key = await appKey();
+    const grant = await auth.grant({
+      origin: 'https://browser.test',
+      request: { v: 1, audience: key.did, access: 'write', scope: 'account' },
+      spaceIds: [],
+    });
+    const browser = await app(hub, grant, key);
+    await until(async () => (await browser.account.profile())?.name === 'Ada', 3000, 'the account to reach the app');
+    await browser.account.setName('Ada L');
+    await until(async () => (await homeNode.account.profile())?.name === 'Ada L', 3000, 'the rename to reach the home');
+
+    await auth.disconnect('https://browser.test');
+    await until(
+      async () => browser.account.setName('Not Ada').then(() => false, (error: Error) => /revoked/.test(error.message)),
+      3000,
+      'the revoke to reach the app',
+    );
   });
 });
 

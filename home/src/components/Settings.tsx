@@ -53,8 +53,8 @@ export function Settings() {
         ))}
         {connections.length > 0 && (
           <p style={styles.errorHint}>
-            Disconnecting stops the app's changes counting from now on, in every space, as soon as the people there hear of it. What it
-            already wrote stays. It can still read a private space it was given, since that space's key cannot be changed yet.
+            Disconnecting stops the app for good the next time it comes online: it signs itself out, and nothing it changes after that
+            counts. What it already wrote stays. It keeps what it could already read, since a space's key cannot be changed yet.
           </p>
         )}
       </Section>
@@ -119,7 +119,7 @@ export function Settings() {
         <PairPhone />
       </div>
 
-      <Section title="Sign out of this device" description="Forgets that this device is signed in. Your account and your data stay where they are.">
+      <Section title="Sign out of this device" description="Signs this account home out on this device. Apps you connected stay connected — disconnect them under Connected apps. Your account and your data stay where they are.">
         <div>
           <button onClick={() => void auth.signOut()} data-variant="quiet" style={styles.smallButton}>
             Sign out

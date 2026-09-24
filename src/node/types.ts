@@ -255,7 +255,9 @@ export type NodeEvent =
   | { readonly type: 'spaces' }
   /** The account's profile may have changed, here or on another device */
   | { readonly type: 'account' }
-  | { readonly type: 'rejected'; readonly space: string; readonly peer: string; readonly reason: string };
+  | { readonly type: 'rejected'; readonly space: string; readonly peer: string; readonly reason: string }
+  /** The note this node writes under was revoked in a space — an app disconnected from its account home, say */
+  | { readonly type: 'revoked'; readonly space: string };
 
 /** Who someone is in a space: the name they gave there, by their identity */
 export interface SpaceProfile {
@@ -391,6 +393,11 @@ export interface NodeAccount {
   profile(): Promise<AccountProfileView | null>;
   /** Renames the account on every device and app that opens it. Needs an account key. */
   setName(name: string): Promise<AccountProfileView>;
+  /**
+   * Revokes a note this account signed in the account registry, so a
+   * whole-account app can no longer add spaces or rename it. Needs an account key.
+   */
+  revoke(token: string): Promise<void>;
 }
 
 export interface P2PNode {

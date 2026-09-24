@@ -250,8 +250,9 @@ export interface WeaveAuth {
   /** Apps this account is connected to from this home, newest first */
   connections(): ReadonlyArray<Connection>;
   /**
-   * Disconnects an app: revokes its note in every space it could write in, so
-   * nothing it writes from now on counts, and forgets it. What this home had
+   * Disconnects an app: revokes its note in every space it could write in —
+   * and, for a whole-account app, in the account registry — so nothing it
+   * writes from now on counts, and forgets it. What this home had
    * seen it write stays. What it could already read, it keeps — reading is
    * holding a space's key, and that is not taken back.
    */
@@ -991,6 +992,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           // A space that is gone, or that this account no longer writes in, has nothing to revoke.
           await node.spaces.revoke(spaceId, connection.token).catch(() => {});
         }
+        // A whole-account app could also add spaces to the account's list, and rename it.
+        if (connection.scope === 'account') await node.account.revoke(connection.token).catch(() => {});
       }
       writeConnections(auth.connections().filter((known) => known.origin !== origin));
     },
