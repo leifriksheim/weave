@@ -14,7 +14,8 @@
  * ```
  *
  * It remembers the grant between visits and starts the node from it; when the
- * grant runs out it says so (`expired`), and connecting again renews it.
+ * grant runs out it says so (`expired`), and connecting again renews it. When
+ * the home disconnects the app, it forgets the grant and says so.
  *
  * The home is the person's, not the app's: `home` is only a default.
  * `connect('weave.example.com')` uses theirs, and it is remembered — for
@@ -49,7 +50,7 @@ export interface WeaveConnectionConfig {
 
 /**
  * `starting` — looking for a grant from an earlier visit.
- * `disconnected` — none; show a way to connect.
+ * `disconnected` — none; show a way to connect. `error` says why, when the home disconnected the app.
  * `connecting` — the home is open, waiting on the person.
  * `ready` — `node` acts for the account.
  * `expired` — the grant ran out; connecting again renews it.
@@ -107,8 +108,22 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
 
   let started: Promise<void> | null = null;
   let expiry: ReturnType<typeof setTimeout> | null = null;
+  let unwatch: (() => void) | null = null;
+
+  /** Forgets the grant and this app's key, and stops the node */
+  async function end(error: string | null): Promise<void> {
+    if (expiry) globalThis.clearTimeout(expiry);
+    unwatch?.();
+    unwatch = null;
+    grants.forget();
+    const node = state.node;
+    update({ status: 'disconnected', grant: null, node: null, error });
+    await node?.close();
+    await forgetAppKey().catch(() => {});
+  }
 
   async function open(grant: Grant): Promise<void> {
+    unwatch?.();
     await state.node?.close();
     const node = await startConnectedNode({
       grant,
@@ -117,6 +132,11 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
       ...(config.stores ? { stores: config.stores(grant) } : {}),
     });
     update({ status: 'ready', home: grant.home, grant, node, error: null });
+
+    // The home disconnected this app: nothing it writes counts any more, so stop.
+    unwatch = node.subscribe((event) => {
+      if (event.type === 'revoked' && state.node === node) void end('Your account home disconnected this app.');
+    });
 
     // Writes stop working when the note runs out; say so rather than fail quietly.
     if (expiry) globalThis.clearTimeout(expiry);
@@ -177,14 +197,7 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
       }
     },
 
-    async disconnect() {
-      if (expiry) globalThis.clearTimeout(expiry);
-      grants.forget();
-      const node = state.node;
-      update({ status: 'disconnected', grant: null, node: null, error: null });
-      await node?.close();
-      await forgetAppKey().catch(() => {});
-    },
+    disconnect: () => end(null),
   };
 
   return connection;

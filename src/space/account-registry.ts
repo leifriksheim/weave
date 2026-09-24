@@ -49,6 +49,26 @@ export interface Membership {
   readonly invite: string;
 }
 
+/**
+ * Carriers the account uses — a browser extension keeping its spaces online,
+ * say — one record each, key `carrier:<carry space id hash>`. Every device of
+ * the account reads them and keeps each carrier's passes current (`space/pass.ts`).
+ */
+export const CARRIER_COLLECTION = 'sys.carrier';
+
+/** A carrier record's body */
+export interface Carrier {
+  /** The carry space shared with it */
+  readonly space: string;
+  /** A view-only invite to the carry space — how other devices of the account open it */
+  readonly invite: string;
+  /** The carrier's own key, as it appears to peers */
+  readonly did: string;
+  /** What it called itself */
+  readonly name: string;
+  readonly since: string;
+}
+
 async function expand(accountKey: Uint8Array, info: string): Promise<Uint8Array> {
   const material = await globalThis.crypto.subtle.importKey('raw', accountKey as BufferSource, 'HKDF', false, ['deriveBits']);
   const bits = await globalThis.crypto.subtle.deriveBits(

@@ -193,6 +193,8 @@ describe('connecting an app to an account home', () => {
     assert.equal(parseSpaceInvite(grant.spaces[0]!.invite).invite, undefined);
 
     const todo = await app(hub, grant, key);
+    const told: string[] = [];
+    todo.subscribe((event) => event.type === 'revoked' && told.push(event.space));
     const before = await todo.records.put(shared.id, 'app.todo.item', { text: 'before' });
     await homeNode.spaces.open(shared.id);
     await until(async () => (await homeNode.records.get(shared.id, before.key)) !== null, 3000, 'the app’s record to reach the home');
@@ -205,6 +207,31 @@ describe('connecting an app to an account home', () => {
       'the revoke to reach the app',
     );
     assert.equal((await homeNode.records.get(shared.id, before.key))?.verified, true);
+    // The app is told, so it can sign itself out rather than keep writing into nothing.
+    await until(async () => told.includes(shared.id), 3000, 'the app to hear it was revoked');
+  });
+
+  test('disconnecting a whole-account app revokes it in the account registry too: it can no longer rename the account', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node: homeNode } = auth.getState().session!;
+    const key = await appKey();
+    const grant = await auth.grant({
+      origin: 'https://browser.test',
+      request: { v: 1, audience: key.did, access: 'write', scope: 'account' },
+      spaceIds: [],
+    });
+    const browser = await app(hub, grant, key);
+    await until(async () => (await browser.account.profile())?.name === 'Ada', 3000, 'the account to reach the app');
+    await browser.account.setName('Ada L');
+    await until(async () => (await homeNode.account.profile())?.name === 'Ada L', 3000, 'the rename to reach the home');
+
+    await auth.disconnect('https://browser.test');
+    await until(
+      async () => browser.account.setName('Not Ada').then(() => false, (error: Error) => /revoked/.test(error.message)),
+      3000,
+      'the revoke to reach the app',
+    );
   });
 });
 
@@ -242,5 +269,88 @@ describe('an account home typed by a person', () => {
     const key = await appKey();
     const grant = await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'read' }, spaceIds: [] });
     assert.deepEqual(grant.relays, ['wss://relay.of-the-home.test']);
+  });
+});
+
+describe('connecting a carrier to an account home', () => {
+  test('it gets an invite to a carry space and no note; disconnecting removes it', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node, did } = auth.getState().session!;
+    await node.spaces.create({ name: 'Notes', visibility: 'private' });
+    const key = await appKey();
+
+    const request: ConnectRequest = { v: 1, audience: key.did, name: 'Weave for Chrome', access: 'carry' };
+    const grant = await auth.grantCarry({ origin: 'chrome-extension://abcdef', request });
+
+    assert.equal(grant.kind, 'carry');
+    assert.equal(grant.did, did);
+    assert.equal('token' in grant, false, 'no note: a carrier never writes');
+    const carry = parseSpaceInvite(grant.carry.invite);
+    assert.equal(carry.space.id, grant.carry.space);
+    assert.equal(carry.space.creator, did);
+    assert.equal(carry.invite, undefined, 'view-only');
+    assert.equal(grant.pod, null, 'this account lives in the browser');
+
+    assert.deepEqual((await node.carriers.list()).map((carrier) => carrier.did), [key.did]);
+    assert.equal(auth.connections()[0]?.access, 'carry');
+    await assert.rejects(() => auth.grant({ origin: 'chrome-extension://abcdef', request, spaceIds: [] }), /grantCarry/);
+
+    await auth.disconnect('chrome-extension://abcdef');
+    assert.deepEqual(await node.carriers.list(), []);
+    assert.deepEqual(auth.connections(), []);
+  });
+});
+
+describe('the home receiving a request', () => {
+  /** Stands in for the popup's window: an opener, and the page's message events. */
+  function popupWindow() {
+    const sent: Array<{ message: unknown; origin: string }> = [];
+    const listeners = new Set<(event: MessageEvent) => void>();
+    const opener = { postMessage: (message: unknown, origin: string) => sent.push({ message, origin }) };
+    const g = globalThis as Record<string, unknown>;
+    const saved = { opener: g.opener, add: g.addEventListener, remove: g.removeEventListener, close: g.close };
+    g.opener = opener;
+    g.addEventListener = (_type: string, listener: (event: MessageEvent) => void) => listeners.add(listener);
+    g.removeEventListener = (_type: string, listener: (event: MessageEvent) => void) => listeners.delete(listener);
+    g.close = () => {};
+    return {
+      sent,
+      send: (data: unknown, origin = 'https://app.test') => {
+        for (const listener of [...listeners]) listener({ source: opener, data, origin } as unknown as MessageEvent);
+      },
+      restore: () => Object.assign(g, { opener: saved.opener, addEventListener: saved.add, removeEventListener: saved.remove, close: saved.close }),
+    };
+  }
+
+  test('a request it cannot read is refused out loud, not left waiting', async () => {
+    const popup = popupWindow();
+    try {
+      const { receiveConnectRequest } = await import('../src/session/connect.js');
+      const received = receiveConnectRequest(1000);
+      popup.send({ type: 'weave:request', request: { v: 1, audience: 'did:key:zApp', access: 'something-new' } });
+      assert.equal(await received, null);
+      const denied = popup.sent.find((m) => (m.message as { type?: string }).type === 'weave:denied');
+      assert.ok(denied, 'the app is told');
+      assert.equal(denied.origin, 'https://app.test', 'and only the app that asked');
+      assert.match((denied.message as { reason: string }).reason, /did not understand/);
+      await new Promise((resolve) => setTimeout(resolve, 150)); // the window closes itself a moment later
+    } finally {
+      popup.restore();
+    }
+  });
+
+  test('a carry request is read', async () => {
+    const popup = popupWindow();
+    try {
+      const { receiveConnectRequest } = await import('../src/session/connect.js');
+      const received = receiveConnectRequest(1000);
+      popup.send({ type: 'weave:request', request: { v: 1, audience: 'did:key:zCarrier', access: 'carry', name: 'Weave for Chrome' } }, 'chrome-extension://abc');
+      const incoming = await received;
+      assert.equal(incoming?.request.access, 'carry');
+      assert.equal(incoming?.origin, 'chrome-extension://abc');
+    } finally {
+      popup.restore();
+    }
   });
 });

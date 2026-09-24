@@ -13,7 +13,7 @@ import type { CryptoProvider, Space, SpaceRole, SpaceVisibility, StorageAdapter 
 import { createP256Provider } from '../identity/crypto-p256.js';
 import { base64UrlEncode, base64UrlDecode, utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { generateSpaceKey, type SpaceKey } from '../privacy/space-encryption.js';
-import { checkSpace, checkStartingRoles, deriveInviteKey, deriveReadKey, spaceGenesis, spaceIdOf } from './space-access.js';
+import { checkSpace, checkStartingRoles, deriveInviteKey, deriveReadKey, spaceGenesis, spaceIdOf, type SpaceKeyPair } from './space-access.js';
 import { solo } from './presets.js';
 
 /** A space plus the secrets this node holds for it */
@@ -29,6 +29,11 @@ export interface SpaceRecord {
   readonly invite: Uint8Array | null;
   /** The role this account last held here, as the space's access history said — a hint for listing, not a gate */
   readonly role: string | null;
+  /**
+   * The read key pair, for a node that carries a private space without its
+   * key (`space/pass.ts`). With the key it is derived from that instead.
+   */
+  readonly read?: SpaceKeyPair | null;
 }
 
 export interface CreateSpaceParams {

@@ -159,7 +159,8 @@ period, and the app says so plainly before it happens.
 ## Steps
 
 1. **Blind mode.** A node started with a list of spaces and no account syncs,
-   checks and mirrors them. Test: two browsers that are never online together
+   checks and mirrors them. BLOCK-17 builds this for the browser (a node
+   that carries spaces from passes); reuse it here. Test: two browsers that are never online together
    converge through it, and it can't read a private record.
 2. **Measure whether TURN is needed at all.** Browsers dial the host over WSS
    directly. Try home, mobile and a corporate VPN before paying for any relay.

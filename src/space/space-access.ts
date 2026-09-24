@@ -84,8 +84,24 @@ export function deriveInviteKey(secret: Uint8Array, provider: CryptoProvider): P
 
 /** The read key pair of a private space, from its AES key */
 export async function deriveReadKey(spaceKey: SpaceKey, provider: CryptoProvider): Promise<SpaceKeyPair> {
+  return readKeyFromSeed(await deriveReadSeed(spaceKey), provider);
+}
+
+/**
+ * What the read key pair is made from — one way from the space key, so
+ * holding it proves you may read without letting you decrypt anything. It is
+ * what a pass hands a node that carries a space it cannot read (`space/pass.ts`).
+ */
+export async function deriveReadSeed(spaceKey: SpaceKey): Promise<Uint8Array> {
   const raw = new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', spaceKey.key));
-  return derivePair(raw, READ_INFO, provider);
+  return expand(raw, READ_INFO);
+}
+
+/** The read key pair, from its seed */
+export async function readKeyFromSeed(seed: Uint8Array, provider: CryptoProvider): Promise<SpaceKeyPair> {
+  const pair = await provider.deriveKeyPairFromSeed(seed);
+  const did = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
+  return Object.freeze({ did, privateKey: pair.privateKey });
 }
 
 /** The fields of a space its id is made from */

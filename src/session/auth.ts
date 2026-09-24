@@ -59,7 +59,7 @@ import {
   type PodContents,
 } from './places.js';
 import { createStaySignedIn, type KeyValueStore, type StaySignedIn } from './stay-signed-in.js';
-import { grantCapabilities, type ConnectRequest, type Grant, type GrantedSpace } from './connect.js';
+import { grantCapabilities, type CarryGrant, type ConnectRequest, type Grant, type GrantedSpace } from './connect.js';
 import {
   clearPairingTicket,
   collectFromDesktop,
@@ -154,9 +154,12 @@ export interface Connection {
   readonly name: string | null;
   /** The app's key */
   readonly audience: string;
-  readonly access: 'read' | 'write';
+  /** `carry` for a carrier, which holds passes and no keys */
+  readonly access: 'read' | 'write' | 'carry';
   /** `account` when the app was given the whole account, not chosen spaces */
   readonly scope: 'spaces' | 'account';
+  /** A carrier's carry space — what disconnecting takes away */
+  readonly carrySpace?: string;
   readonly spaces: ReadonlyArray<{ readonly id: string; readonly name: string }>;
   readonly grantedAt: string;
   /** Unix seconds */
@@ -247,11 +250,18 @@ export interface WeaveAuth {
    * remembers the app as connected. The seed signs here and goes nowhere.
    */
   grant(choice: GrantChoice): Promise<Omit<Grant, 'home'>>;
+  /**
+   * Starts using a carrier, as the account home: makes its carry space, fills
+   * it with a pass for every space, and remembers it as connected. The
+   * carrier gets no key that reads or writes a space.
+   */
+  grantCarry(choice: { readonly origin: string; readonly request: ConnectRequest }): Promise<Omit<CarryGrant, 'home'>>;
   /** Apps this account is connected to from this home, newest first */
   connections(): ReadonlyArray<Connection>;
   /**
-   * Disconnects an app: revokes its note in every space it could write in, so
-   * nothing it writes from now on counts, and forgets it. What this home had
+   * Disconnects an app: revokes its note in every space it could write in —
+   * and, for a whole-account app, in the account registry — so nothing it
+   * writes from now on counts, and forgets it. What this home had
    * seen it write stays. What it could already read, it keeps — reading is
    * holding a space's key, and that is not taken back.
    */
@@ -919,6 +929,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const { node } = session;
       const { request } = choice;
 
+      if (request.access === 'carry') throw new Error('A carrier is given passes, not a note — use grantCarry.');
+      const access = request.access;
       const whole = request.scope === 'account';
       const created = [];
       for (const params of request.create ?? []) created.push(await node.spaces.create(params));
@@ -938,7 +950,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const root = createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider());
       const token = await root.delegate({
         audience: request.audience,
-        capabilities: grantCapabilities(request.access, whole ? 'all' : ids),
+        capabilities: grantCapabilities(access, whole ? 'all' : ids),
         expiration: expiresAt,
       });
 
@@ -946,7 +958,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         origin: choice.origin,
         name: request.name?.slice(0, 80) ?? null,
         audience: request.audience,
-        access: request.access,
+        access,
         scope: whole ? 'account' : 'spaces',
         spaces: spaces.map(({ id, name }) => ({ id, name })),
         grantedAt: new Date().toISOString(),
@@ -960,12 +972,48 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         did: session.did,
         name: session.account.name,
         token: token.encoded,
-        access: request.access,
+        access,
         scope: whole ? 'account' : 'spaces',
         spaces,
         ...(whole ? { accountKey: base64UrlEncode(await deriveVaultKeyBytes(seed)) } : {}),
         ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
         expiresAt,
+      };
+    },
+
+    async grantCarry({ origin, request }) {
+      const session = state.session;
+      if (!session || !seed) throw new Error('Sign in first.');
+      const { node } = session;
+      // Connecting again replaces the old one: one carrier per origin.
+      const previous = auth.connections().find((known) => known.origin === origin);
+      if (previous?.carrySpace) await node.carriers.remove(previous.carrySpace).catch(() => {});
+
+      const name = request.name?.slice(0, 80) || 'Browser extension';
+      const carry = await node.carriers.add({ did: request.audience, name });
+      const connection: Connection = {
+        origin,
+        name,
+        audience: request.audience,
+        access: 'carry',
+        scope: 'account',
+        spaces: [],
+        grantedAt: new Date().toISOString(),
+        // Carrying has no end date: a pass reads nothing, and the carrier writes nothing.
+        expiresAt: 0,
+        carrySpace: carry.space,
+      };
+      writeConnections([connection, ...auth.connections().filter((known) => known.origin !== origin)]);
+
+      const place = state.place;
+      return {
+        v: 1,
+        kind: 'carry',
+        did: session.did,
+        name: session.account.name,
+        carry,
+        pod: place?.kind === 'folder' ? { dataPath: session.account.dataPath, folder: place.directory?.name ?? 'your pod' } : null,
+        ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
       };
     },
 
@@ -982,6 +1030,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     async disconnect(origin) {
       const connection = auth.connections().find((known) => known.origin === origin);
       const node = state.session?.node;
+      if (connection?.carrySpace && node) await node.carriers.remove(connection.carrySpace);
       if (connection?.token && connection.access === 'write' && node) {
         const covered =
           connection.scope === 'account'
@@ -991,6 +1040,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           // A space that is gone, or that this account no longer writes in, has nothing to revoke.
           await node.spaces.revoke(spaceId, connection.token).catch(() => {});
         }
+        // A whole-account app could also add spaces to the account's list, and rename it.
+        if (connection.scope === 'account') await node.account.revoke(connection.token).catch(() => {});
       }
       writeConnections(auth.connections().filter((known) => known.origin !== origin));
     },

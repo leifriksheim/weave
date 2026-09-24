@@ -46,14 +46,20 @@ export function ConnectPage() {
     );
   }
 
-  return <Approve incoming={incoming} />;
+  return incoming.request.access === 'carry' ? <ApproveCarrier incoming={incoming} /> : <Approve incoming={incoming} />;
+}
+
+/** Who is asking, by the address the browser reports — an extension has no host name worth showing */
+function asker(origin: string): string {
+  const url = new URL(origin);
+  return url.protocol === 'chrome-extension:' || url.protocol === 'moz-extension:' ? 'A browser extension' : url.host;
 }
 
 /** A small line above sign-in, so it is clear why this window opened */
 function Asking({ incoming }: { incoming: IncomingRequest }) {
   return (
     <p style={{ ...styles.errorHint, marginTop: 0, marginBottom: 24, padding: '10px 12px', background: palette.surface.sunken, borderRadius: 8 }}>
-      <strong style={{ color: palette.ink.strong }}>{new URL(incoming.origin).host}</strong> wants to use your Weave account. Sign in to
+      <strong style={{ color: palette.ink.strong }}>{asker(incoming.origin)}</strong> wants to use your Weave account. Sign in to
       decide what it gets.
     </p>
   );
@@ -180,6 +186,75 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
       <p style={{ ...styles.errorHint, marginTop: 20 }}>
         The app gets a note signed by your account, for its own key. It never sees your password.
       </p>
+    </Frame>
+  );
+}
+
+/**
+ * A carrier — the browser extension — asking to keep the spaces online. It
+ * gets a pass for each space, never a key: it can hold and pass on what it
+ * cannot read.
+ */
+function ApproveCarrier({ incoming }: { incoming: IncomingRequest }) {
+  const { request, origin } = incoming;
+  const { auth, state } = useAuth();
+  const session = useSession();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pod = state.place?.kind === 'folder' ? (state.place.directory?.name ?? 'your pod') : null;
+
+  const allow = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      incoming.approve(await auth.grantCarry({ origin, request }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not connect it');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Frame>
+      <h1 style={styles.title}>Keep your spaces online</h1>
+      <p style={styles.subtitle}>
+        {request.name ? <>“{request.name}”</> : asker(origin)} wants to keep the spaces in{' '}
+        <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong> online while your browser is open — even with no app
+        open.
+      </p>
+
+      <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 12, background: palette.surface.sunken }}>
+        <p style={{ ...styles.todoText }}>What it can do</p>
+        <p style={styles.errorHint}>
+          Hold your spaces as they travel, with private ones still locked, and pass them on to your other devices and the people you
+          share with.{pod ? ` Keep your pod, “${pod}”, up to date — it asks you to pick the folder next.` : ''}
+        </p>
+      </div>
+      <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
+        <p style={{ ...styles.todoText }}>What it can't do</p>
+        <p style={styles.errorHint}>
+          Read your private spaces, change anything in them, or sign in as you. It never gets your password or a space's key.
+        </p>
+      </div>
+
+      <p style={{ ...styles.errorHint, marginBottom: 20 }}>
+        Like a relay, it can see who wrote something and when, but not what it says. You can disconnect it any time in your account.
+      </p>
+
+      {error && (
+        <div style={{ ...styles.errorBox, marginBottom: 16 }}>
+          <p style={styles.error}>{error}</p>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button onClick={() => void allow()} disabled={busy} data-variant="primary" style={styles.button}>
+          {busy ? 'Connecting…' : 'Allow'}
+        </button>
+        <button onClick={() => incoming.deny()} disabled={busy} data-variant="quiet" style={{ ...styles.button, background: palette.surface.card, color: palette.ink.body, borderColor: palette.surface.lineStrong }}>
+          Don't allow
+        </button>
+      </div>
     </Frame>
   );
 }
