@@ -35,15 +35,17 @@ unpacked** → choose `extension/dist`. A welcome tab opens; connect it to your
 account home. With `npm run dev`, press the reload button on the extension's
 card after a change (and after a change to `static/`, restart `npm run dev`).
 
-Settings are read at build time:
+Settings are read at build time, from `extension/.env.local` (not committed;
+copy `.env.example` to start). A variable set in the shell wins over the file.
 
 | Variable | Default | What |
 |---|---|---|
 | `WEAVE_HOME` | `http://localhost:5174` | The account home offered first. People can type their own. |
-| `WEAVE_RELAYS` | `ws://localhost:8787` | Relays, comma separated. The home's relays arrive with the grant and are used too. |
+| `WEAVE_RELAYS` | `ws://localhost:8787,wss://p2p-web-relay.fly.dev` | Relays, comma separated. The home's relays arrive with the grant and are used too. |
 
-For local development run the relay (`npm run signal` at the root) and the home
-(`cd home && npm run dev`).
+For local development run the home (`cd home && npm run dev`). The relay on
+this machine (`npm run signal` at the root) is optional: the deployed one is in
+the defaults too, so you only need the local one to work offline.
 
 ## How it's put together
 
