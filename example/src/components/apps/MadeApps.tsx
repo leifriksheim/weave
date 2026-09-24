@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
 import { useLive, useNode, useProfiles, useSpaces } from 'weave-protocol/react';
-import { addApp, app as appSchema, copyApp, reviewApp, type App, type AppReview } from 'weave-protocol/schemas';
-import { CollectionView } from '../CollectionView';
+import { addApp, app as appSchema, appScreen, copyApp, reviewApp, type App, type AppReview } from 'weave-protocol/schemas';
+import { AppBoard } from './AppBoard';
+import { ScreenFrame } from './ScreenFrame';
 import { nameOf, peopleFrom, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { styles, palette } from '../../styles';
@@ -164,6 +165,8 @@ function Proposal({
 
       {review?.problem && <p style={styles.error}>This can't be added: {review.problem}</p>}
 
+      {body && appScreen(body) && <ScreenNote screen={appScreen(body)!.screen} />}
+
       {review && !review.problem && (
         <>
           {changes.length > 0 && (
@@ -209,6 +212,34 @@ function Proposal({
   );
 }
 
+/**
+ * An app that brings its own screen. Code can't be summed up the way rules
+ * can, so this says what the screen is able to do at all — which the frame
+ * enforces — and shows the code for anyone who wants to read it.
+ */
+function ScreenNote({ screen }: { screen: string }) {
+  const [open, setOpen] = useState(false);
+  const kb = Math.max(1, Math.round(new TextEncoder().encode(screen).length / 1024));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', background: palette.surface.sunken, borderRadius: 8 }}>
+      <p style={{ fontSize: 13, color: palette.ink.body, lineHeight: 1.5 }}>
+        <strong style={{ color: palette.ink.strong }}>It brings its own screen</strong> ({kb} KB of code). It runs sealed: it can read and
+        change only this app's records, in this space, as whoever is looking — under the rules below. It can't reach the internet or
+        anything else in the app. The rules below can't vouch for what the screen shows, so add it only if you trust whoever
+        proposed it.
+      </p>
+      <button onClick={() => setOpen((was) => !was)} data-variant="ghost" style={{ ...styles.linkButton, alignSelf: 'flex-start', padding: 0, fontSize: 13 }}>
+        {open ? 'Hide the code' : 'Show the code'}
+      </button>
+      {open && (
+        <pre style={{ maxHeight: 280, overflow: 'auto', margin: 0, padding: 10, fontSize: 11, lineHeight: 1.45, background: palette.surface.card, border: `1px solid ${palette.surface.line}`, borderRadius: 6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {screen}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 /** "via agent", beside a name */
 function AgentBadge() {
   return (
@@ -221,7 +252,11 @@ function AgentBadge() {
   );
 }
 
-/** An added app, drawn from its definitions: the thing others point at first, then the rest */
+/**
+ * An added app. Its own screen when one of its collections, as the space
+ * defines it, carries one — what the person who added it approved, not what
+ * the proposal says now. Otherwise drawn from its definitions.
+ */
 export function MadeAppScreen({
   space,
   record,
@@ -237,10 +272,8 @@ export function MadeAppScreen({
 }) {
   const body = record.body!;
   const names = body.needs.map((need) => need.name);
-  // What nothing else in the app points at comes first: a trip before its seats, a poll before its votes.
-  const pointsIntoApp = (name: string) =>
-    Object.values(collections.find((c) => c.name === name)?.links ?? {}).some((link) => link.to !== '*' && link.to.some((to) => names.includes(to)));
-  const ordered = [...names].sort((a, b) => Number(pointsIntoApp(a)) - Number(pointsIntoApp(b)));
+  const withScreen = names.map((name) => collections.find((c) => c.name === name)).find((c) => c?.screen);
+  const [plain, setPlain] = useState(false);
 
   return (
     <section aria-label={body.title} style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
@@ -249,12 +282,19 @@ export function MadeAppScreen({
           ← Apps
         </button>
         <h2 style={{ ...styles.appTitle, fontSize: 22 }}>{body.title}</h2>
+        {withScreen && (
+          <button onClick={() => setPlain((was) => !was)} data-variant="ghost" style={{ ...styles.linkButton, fontSize: 13 }}>
+            {plain ? 'Show its screen' : 'Show the records'}
+          </button>
+        )}
         <CopyTo space={space} record={record} />
       </header>
       {body.description && <p style={{ fontSize: 14, color: palette.ink.muted, marginTop: -8 }}>{body.description}</p>}
-      {ordered.map((name) => (
-        <CollectionView key={name} space={space} name={name} collection={collections.find((c) => c.name === name) ?? null} collections={collections} onOpen={onOpen} />
-      ))}
+      {withScreen?.screen && !plain ? (
+        <ScreenFrame spaceId={space.id} collections={names} screen={withScreen.screen} title={body.title} />
+      ) : (
+        <AppBoard space={space} names={names} collections={collections} onOpen={onOpen} />
+      )}
     </section>
   );
 }

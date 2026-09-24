@@ -34,14 +34,22 @@ function webmcpRelayAssets(): Plugin {
 }
 
 /**
- * Security headers for the deployed site (Netlify's `_headers`).
+ * Security policy for the deployed site.
  *
- * The policy allows only this site's own scripts. Connections may go to any
- * secure websocket: a person may bring their own account home, and it hands
- * this app the relays it meets peers on, which nobody knew at build time.
- * That is safe to allow because this app holds no seed — the most a rogue
- * script could take is this app's own note, limited and expiring. (The
- * account home, which does hold the seed, keeps a strict list.)
+ * The app's pages carry their policy in a `<meta>` tag, added at build: only
+ * this site's own scripts. Connections may go to any secure websocket: a
+ * person may bring their own account home, and it hands this app the relays
+ * it meets peers on, which nobody knew at build time. That is safe to allow
+ * because this app holds no seed — the most a rogue script could take is this
+ * app's own note, limited and expiring. (The account home, which does hold
+ * the seed, keeps a strict list.)
+ *
+ * Not a site-wide header, because one page needs a different one:
+ * `/screen.html`, where an app's own screen runs, allows its inline scripts
+ * and takes the network away entirely (its own `<meta>`). Two policies on one
+ * page both apply, so a site-wide one would block the screen. What only a
+ * header can say — who may frame the site — is the one site-wide line: only
+ * this site, which frames its own screen page.
  */
 function securityHeaders(): Plugin {
   const connect = ["'self'", 'wss:', 'ws://localhost:*', 'ws://127.0.0.1:*'];
@@ -53,9 +61,8 @@ function securityHeaders(): Plugin {
     'font-src https://fonts.gstatic.com',
     "img-src 'self' data: blob:",
     `connect-src ${connect.join(' ')}`,
-    // The desktop-agent relay's widget, served from this site.
+    // The desktop-agent relay's widget, and apps' own screens — both served from this site.
     "frame-src 'self'",
-    "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -63,13 +70,16 @@ function securityHeaders(): Plugin {
   return {
     name: 'security-headers',
     apply: 'build',
+    transformIndexHtml(html) {
+      return html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${policy}" />`);
+    },
     generateBundle() {
       this.emitFile({
         type: 'asset',
         fileName: '_headers',
         source: [
           '/*',
-          `  Content-Security-Policy: ${policy}`,
+          "  Content-Security-Policy: frame-ancestors 'self'",
           '  Referrer-Policy: no-referrer',
           '  X-Content-Type-Options: nosniff',
           '',

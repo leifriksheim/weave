@@ -1057,7 +1057,11 @@ note for a separate agent key, marked as an agent's, for the spaces they pick;
 the note stays in the tab, and each tool call is signed with that key
 (`node.asAgent`). What it writes shows "via agent", and every peer ignores an
 agent changing collections or who may do what: it proposes apps
-(`apps_propose`) and a person adds them. Anything that changes a space's
+(`apps_propose`) and a person adds them. An app may bring its own screen: a
+collection definition's `screen`, one HTML document, which the example runs
+in a sandboxed frame with no network, talking to the space only through a
+message port (`createScreenBridge`, `apps_screen_guide`).
+`docs/screens/chess.html` is one an agent wrote. Anything that changes a space's
 people, or hands out its key, asks the person first and is done as them. Desktop MCP clients
 reach the same tools through `npx @mcp-b/webmcp-local-relay`, whose browser
 side is served at `/webmcp/embed.js`.

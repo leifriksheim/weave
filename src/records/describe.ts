@@ -112,7 +112,17 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
     const per = rules.onePer.map((part) =>
       part === '@author' ? 'person' : part.startsWith('link:') ? linkTarget(definition, part.slice(5)) : fieldLabel(definition.schema, part),
     );
-    sentences.push(`One ${noun} per ${per.join(' per ')} — adding another changes the first.`);
+    const perText = `One ${noun} per ${per.join(' per ')}`;
+    if (rules.onePer.includes('@author')) sentences.push(`${perText} — adding another changes the first.`);
+    else {
+      // Not per person: a second one is a change to the first, so the edit rule decides who may.
+      const editors = listOf(rules.edit);
+      sentences.push(
+        editors.includes('member')
+          ? `${perText} — anyone adding another replaces the first.`
+          : `${perText} — whoever adds it first holds it.`,
+      );
+    }
   }
 
   // Fixed fields

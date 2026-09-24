@@ -283,6 +283,12 @@ describe('what a collection allows, in words', () => {
     ]);
   });
 
+  test('one per something that isn\'t per person: the first one holds it, unless anyone may change it', () => {
+    const seat = { name: 'app.chess.seat', title: 'Seat', rules: { edit: 'creator' as const, onePer: ['color'] } };
+    assert.ok(describeCollection(seat).includes('One seat per color — whoever adds it first holds it.'));
+    assert.ok(describeCollection({ ...seat, rules: { onePer: ['color'] } }).includes('One seat per color — anyone adding another replaces the first.'));
+  });
+
   test('no rules still says something: the defaults', () => {
     assert.deepEqual(describeCollection({ name: 'app.note' }), [
       'Anyone in the space can add a note.',
