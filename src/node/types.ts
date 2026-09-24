@@ -201,6 +201,8 @@ export interface NodeCollection {
   readonly permissions: ReadonlyArray<string>;
   /** Who may create, edit and delete, what must be unique — for records created from now on */
   readonly rules: CollectionRules;
+  /** A screen for its records, when its definer gave one: one HTML document, run sealed */
+  readonly screen?: string;
   readonly records: number;
 }
 
@@ -224,6 +226,8 @@ export interface DefineCollection {
   readonly permissions?: ReadonlyArray<string>;
   /** Who may create, edit and delete, what must be unique, which fields are fixed */
   readonly rules?: CollectionRules;
+  /** A screen for its records — one HTML document an app may run in a sealed frame (`StoredCollection.screen`) */
+  readonly screen?: string;
 }
 
 export interface NodeCollections {

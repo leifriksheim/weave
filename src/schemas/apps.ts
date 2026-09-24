@@ -31,6 +31,8 @@ export interface AppDefinition {
   readonly links?: Readonly<Record<string, LinkDeclaration>>;
   readonly permissions?: ReadonlyArray<string>;
   readonly rules?: CollectionRules;
+  /** Its own screen: one HTML document, run sealed (see `schemas/screens.ts`) */
+  readonly screen?: string;
 }
 
 export interface App {
@@ -122,6 +124,7 @@ function essence(definition: {
   links?: unknown;
   permissions?: ReadonlyArray<string> | undefined;
   rules?: unknown;
+  screen?: string | undefined;
 }) {
   return {
     title: definition.title ?? '',
@@ -131,6 +134,7 @@ function essence(definition: {
     links: canonicalize(definition.links ?? {}),
     permissions: canonicalize([...(definition.permissions ?? [])].sort()),
     rules: canonicalize(definition.rules ?? {}),
+    screen: definition.screen ?? '',
   };
 }
 
@@ -151,8 +155,15 @@ function differences(held: NodeCollection, wanted: AppDefinition): string[] {
   if (a.rules !== b.rules || a.permissions !== b.permissions) out.push('changes who may do what');
   if (a.links !== b.links) out.push('changes what it points at');
   if (a.history !== b.history) out.push(b.history === 'all' ? 'starts keeping every version' : 'stops keeping old versions');
+  if (a.screen !== b.screen) out.push(!b.screen ? 'takes its screen away' : !a.screen ? 'gives it a screen' : 'changes its screen');
   if (a.title !== b.title || a.description !== b.description) out.push('renames or redescribes it');
   return out;
+}
+
+/** The screen an app brings, if any: the first of its collections that carries one */
+export function appScreen(body: App): { readonly collection: string; readonly screen: string } | null {
+  const found = body.needs.find((need) => typeof need.screen === 'string' && need.screen.trim());
+  return found ? { collection: found.name, screen: found.screen! } : null;
 }
 
 /**

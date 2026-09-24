@@ -106,7 +106,19 @@ export interface StoredCollection {
    * the access changes it saw, on every peer.
    */
   readonly rules?: CollectionRules;
+  /**
+   * A screen for its records: one HTML document, scripts and styles inline,
+   * that an app may run in a sealed frame instead of drawing the records
+   * itself. It reaches the records only through what the app hands it, as
+   * whoever is looking, under these rules. Kept on the definition, so only
+   * someone allowed to define collections — never an agent — puts one in a
+   * space, and what they approved is exactly what runs.
+   */
+  readonly screen?: string;
 }
+
+/** The largest screen a definition may carry, in bytes of UTF-8 — it travels with every copy of the definition */
+export const MAX_SCREEN_BYTES = 48 * 1024;
 
 /** The reserved collection that collection definitions live in. */
 export const CATALOG_COLLECTION = 'sys.collection';
@@ -250,6 +262,11 @@ export function checkStoredCollection(definition: unknown): string | null {
   }
   const rules = checkRules(d.rules, 'rules', d.permissions ?? []);
   if (rules) return rules;
+  if (d.screen !== undefined) {
+    if (typeof d.screen !== 'string' || !d.screen.trim()) return 'screen must be an HTML document, as text';
+    const bytes = new TextEncoder().encode(d.screen).length;
+    if (bytes > MAX_SCREEN_BYTES) return `screen is ${Math.ceil(bytes / 1024)} KB; at most ${MAX_SCREEN_BYTES / 1024} KB`;
+  }
   return checkPublishableSchema(d.schema);
 }
 

@@ -773,6 +773,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       definedBy: entry?.definedBy ?? null,
       permissions: definition?.permissions ?? [],
       rules: definition?.rules ?? {},
+      ...(definition?.screen !== undefined ? { screen: definition.screen } : {}),
       records,
     });
   }
@@ -1295,6 +1296,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         ...(input.links !== undefined ? { links: input.links } : {}),
         ...(input.permissions !== undefined ? { permissions: input.permissions } : {}),
         ...(input.rules !== undefined ? { rules: input.rules } : {}),
+        ...(input.screen !== undefined ? { screen: input.screen } : {}),
       };
       const problem = checkStoredCollection(definition);
       if (problem) throw new Error(problem);

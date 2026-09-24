@@ -19,7 +19,7 @@ import { createExpression, type CreateExpressionParams } from '../src/schema/exp
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { describeCollection } from '../src/records/describe.js';
 import { checkRules } from '../src/records/rules.js';
-import { addApp, checkApp, copyApp, reviewApp, vote, poll, type App } from '../src/schemas/index.js';
+import { addApp, checkApp, copyApp, createScreenBridge, reviewApp, vote, poll, type App } from '../src/schemas/index.js';
 import { createWeaveAuth, type WeaveAuth } from '../src/session/auth.js';
 import { createFolderAccountStore } from '../src/identity/account-store.js';
 import { seenBy } from './helpers/as-member.js';
@@ -350,3 +350,72 @@ describe('an agent connected through the account home', () => {
 });
 
 void (null as unknown as P2PNode);
+
+describe('screens', () => {
+  const board = '<!doctype html><div id="board"></div><script>weave.list("app.chess.game")</script>';
+
+  test('a definition carries its screen to every peer; one too large is refused', async () => {
+    const { alice, bob, space } = await setup();
+    await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' }, screen: board });
+    await until(async () => (await bob.node.collections.list(space)).some((c) => c.name === 'app.chess.game' && c.screen === board), 4000, 'the screen to reach Bob');
+    await assert.rejects(
+      () => alice.node.collections.define(space, { name: 'app.big', schema: { type: 'object' }, screen: 'x'.repeat(49 * 1024) }),
+      /at most 48 KB/,
+    );
+  });
+
+  test('a proposal that adds a screen says so, and apps_list names it', async () => {
+    const { alice, space } = await setup();
+    const chess: App = { title: 'Chess', needs: [{ name: 'app.chess.game', schema: { type: 'object' }, screen: board }] };
+    const proposed = await alice.node.records.put(space, 'std.app', chess);
+    const listed = (await runAction(alice.node, 'apps_list', { space })) as Array<{ key: string; screen?: string }>;
+    assert.equal(listed.find((a) => a.key === proposed.key)?.screen, 'app.chess.game');
+    await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' } });
+    assert.deepEqual(reviewApp(chess, await alice.node.collections.list(space)).needs[0]?.changes, ['gives it a screen']);
+    assert.match(String(await runAction(alice.node, 'apps_screen_guide', {})), /window\.weave/);
+  });
+
+  test('the bridge answers for its app\'s collections only, as the person looking, under the rules', async () => {
+    const { alice, bob, space } = await setup();
+    await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' }, rules: { edit: 'creator' } });
+    await alice.node.records.put(space, 'app.secret', { pin: 1234 });
+    await until(async () => (await bob.node.collections.list(space)).some((c) => c.name === 'app.chess.game' && c.version !== null), 4000, 'the definition');
+
+    const channel = new MessageChannel();
+    const bridge = createScreenBridge({ node: bob.node, spaceId: space, collections: ['app.chess.game'], port: channel.port1 });
+    let next = 0;
+    const call = (method: string, ...args: unknown[]) =>
+      new Promise<{ ok: boolean; value?: unknown; error?: string }>((resolve) => {
+        const id = ++next;
+        const listen = (event: MessageEvent) => {
+          if (event.data?.id !== id) return;
+          channel.port2.removeEventListener('message', listen);
+          resolve(event.data);
+        };
+        channel.port2.addEventListener('message', listen);
+        channel.port2.start();
+        channel.port2.postMessage({ id, method, args });
+      });
+    try {
+      const secret = await call('list', 'app.secret');
+      assert.equal(secret.ok, false);
+      assert.match(secret.error!, /can't use/);
+
+      const game = await call('put', 'app.chess.game', { white: 'bob' });
+      assert.equal(game.ok, true);
+      assert.equal((game.value as { mine: boolean }).mine, true);
+      const created = await bob.node.records.get(space, (game.value as { key: string }).key);
+      assert.equal(created?.root, bob.node.did, 'written as the person looking');
+
+      // Alice's game: Bob may not change it, and the screen hears why.
+      const hers = await alice.node.records.put(space, 'app.chess.game', { white: 'alice' });
+      await until(async () => (await bob.node.records.get(space, hers.key)) !== null, 4000, 'Alice\'s game');
+      const refused = await call('update', hers.key, { white: 'bob' });
+      assert.equal(refused.ok, false);
+      assert.match(refused.error!, /whoever created it/);
+    } finally {
+      bridge.close();
+      channel.port2.close();
+    }
+  });
+});
