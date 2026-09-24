@@ -6,6 +6,8 @@ export { createNode, SESSION_CAPABILITY } from './node.js';
 export { writeCapability, relayRoom } from './space-runtime.js';
 export { indexedDBStores, folderStores } from './stores.js';
 export { copyAccountData } from './copy.js';
+export { createCarrierNode } from './carrier.js';
+export type { CarrierConfig, CarrierNode, CarriedSpace, CarrierEvent } from './carrier.js';
 export type { CopyAccountParams, CopyResult } from './copy.js';
 export type { StoreFactory, StoreOptions } from './stores.js';
 export { NODE_ACTIONS, runAction, checkActionInput } from './actions.js';
@@ -31,5 +33,7 @@ export type {
   NodeCollections,
   DefineCollection,
   NodeAccount,
+  NodeCarriers,
+  CarrierSummary,
   AccountProfileView,
 } from './types.js';

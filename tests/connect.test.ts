@@ -271,3 +271,33 @@ describe('an account home typed by a person', () => {
     assert.deepEqual(grant.relays, ['wss://relay.of-the-home.test']);
   });
 });
+
+describe('connecting a carrier to an account home', () => {
+  test('it gets an invite to a carry space and no note; disconnecting removes it', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node, did } = auth.getState().session!;
+    await node.spaces.create({ name: 'Notes', visibility: 'private' });
+    const key = await appKey();
+
+    const request: ConnectRequest = { v: 1, audience: key.did, name: 'Weave for Chrome', access: 'carry' };
+    const grant = await auth.grantCarry({ origin: 'chrome-extension://abcdef', request });
+
+    assert.equal(grant.kind, 'carry');
+    assert.equal(grant.did, did);
+    assert.equal('token' in grant, false, 'no note: a carrier never writes');
+    const carry = parseSpaceInvite(grant.carry.invite);
+    assert.equal(carry.space.id, grant.carry.space);
+    assert.equal(carry.space.creator, did);
+    assert.equal(carry.invite, undefined, 'view-only');
+    assert.equal(grant.pod, null, 'this account lives in the browser');
+
+    assert.deepEqual((await node.carriers.list()).map((carrier) => carrier.did), [key.did]);
+    assert.equal(auth.connections()[0]?.access, 'carry');
+    await assert.rejects(() => auth.grant({ origin: 'chrome-extension://abcdef', request, spaceIds: [] }), /grantCarry/);
+
+    await auth.disconnect('chrome-extension://abcdef');
+    assert.deepEqual(await node.carriers.list(), []);
+    assert.deepEqual(auth.connections(), []);
+  });
+});

@@ -82,7 +82,8 @@ import {
   type SchemaIssue,
   type StoredCollection,
 } from '../schema/collection-def.js';
-import { MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
+import { CARRIER_COLLECTION, MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
+import { PASS_COLLECTION } from '../space/pass.js';
 import { base32Encode, cidFromBytes, sha256 } from '../utils/hash.js';
 import { utf8Encode } from '../utils/encoding.js';
 import type {
@@ -99,7 +100,7 @@ import type {
 } from './types.js';
 
 /** Collections the node writes itself, through their own calls — never through `put` */
-const MANAGED = new Set([MEMBERSHIP_COLLECTION, PROFILE_COLLECTION, ...ACCESS_COLLECTIONS]);
+const MANAGED = new Set([MEMBERSHIP_COLLECTION, PROFILE_COLLECTION, CARRIER_COLLECTION, PASS_COLLECTION, ...ACCESS_COLLECTIONS]);
 
 /**
  * Access records a peer without the space key must still be able to judge:
@@ -853,7 +854,26 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     },
   });
 
-  sync.on('expression-received', () => recordsChanged());
+  /**
+   * Tells every connected peer this node's root, soon after it took in
+   * something new — from a peer or from a folder. Without it, a record passed
+   * along waits for the next heartbeat at every hop: a carrier would sit on a
+   * friend's write for half a minute before the pod, or your phone, heard of
+   * it. A peer already level answers and nothing moves.
+   */
+  let announceTimer: ReturnType<typeof setTimeout> | null = null;
+  const announceSoon = () => {
+    if (announceTimer) return;
+    announceTimer = setTimeout(() => {
+      announceTimer = null;
+      sync.notifyPeers(connectedPeers());
+    }, 100);
+  };
+
+  sync.on('expression-received', () => {
+    recordsChanged();
+    announceSoon();
+  });
   sync.on('rejected', (peer: string, _expression: Expression, reason: string) => {
     rejected += 1;
     emit({ type: 'rejected', space: space.id, peer, reason });
@@ -862,7 +882,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   const net = deps.network;
   if (net) {
     const room = encodeURIComponent(space.id);
-    const readKey = space.visibility === 'private' && key ? await deriveReadKey(key, provider) : null;
+    // A carrier holds the read key pair without the key it comes from: it may be served the space, and cannot open it.
+    const readKey = space.visibility === 'private' ? (key ? await deriveReadKey(key, provider) : (record.read ?? null)) : null;
     if (net.relays?.length) {
       const hashedRoom = await relayRoom(space.id);
       networks.push(
@@ -946,7 +967,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // The same verdict as for a version from a peer.
       reconcileFolder(storage, adapter, async (expression) => (await admit(expression)).ok)
         .then((result) => {
-          if (result.changed) recordsChanged();
+          if (!result.changed) return;
+          recordsChanged();
+          announceSoon();
         })
         .catch(() => {
           // A revoked permission or a folder that went away; the next pass will tell.
@@ -1379,6 +1402,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     async close(): Promise<void> {
       if (watchTimer) clearInterval(watchTimer);
+      if (announceTimer) clearTimeout(announceTimer);
       channel?.close();
       sync.stop();
       for (const network of networks) network.disconnect();

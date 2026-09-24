@@ -19,3 +19,6 @@ export type { PeerDiscovery, PeerDiscoveryEvents } from './peer-discovery.js';
 
 export { createNetworkManager } from './network-manager.js';
 export type { NetworkManager, NetworkManagerConfig, NetworkEvents } from './network-manager.js';
+
+export { createLocalHub } from './local-transport.js';
+export type { LocalHub } from './local-transport.js';

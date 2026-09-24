@@ -388,6 +388,36 @@ export interface AccountProfileView {
   readonly updatedAt: string;
 }
 
+/** A carrier the account uses, as the account registry lists it */
+export interface CarrierSummary {
+  /** The carry space shared with it */
+  readonly space: string;
+  /** Its key, as peers see it */
+  readonly did: string;
+  readonly name: string;
+  readonly since: string;
+}
+
+/**
+ * Carriers: nodes that keep the account's spaces online without being able to
+ * read them — a browser extension, say (`space/pass.ts`). Needs the account key.
+ */
+export interface NodeCarriers {
+  list(): Promise<ReadonlyArray<CarrierSummary>>;
+  /**
+   * Starts using a carrier: makes a carry space for it, puts a pass for every
+   * space of the account in it, and lists it in the account registry so every
+   * device keeps those passes current.
+   * @returns The carry space, and the view-only invite the carrier joins it with
+   */
+  add(carrier: { readonly did: string; readonly name: string }): Promise<{ readonly space: string; readonly invite: string }>;
+  /**
+   * Stops using a carrier: takes its passes away and tells it to forget what it
+   * held. What it already downloaded, it keeps — encrypted, as it always was.
+   */
+  remove(space: string): Promise<void>;
+}
+
 export interface NodeAccount {
   /** The account's profile as its devices last set it. Null without an account key, or before any is set. */
   profile(): Promise<AccountProfileView | null>;
@@ -410,6 +440,8 @@ export interface P2PNode {
   readonly collections: NodeCollections;
   /** The account itself — its name, synced through the account registry */
   readonly account: NodeAccount;
+  /** Nodes that keep the account's spaces online without reading them */
+  readonly carriers: NodeCarriers;
   /** The delegation the session key currently writes under (root → session) */
   delegation(): UCANToken;
   /** Passes a narrower delegation from the session key on to another key */

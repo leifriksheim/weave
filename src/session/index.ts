@@ -24,6 +24,7 @@ export { createWeaveConnection } from './connection.js';
 export type { WeaveConnection, WeaveConnectionConfig, ConnectionState, ConnectionStatus } from './connection.js';
 export {
   connectToHome,
+  connectCarrier,
   homeAddress,
   receiveConnectRequest,
   startConnectedNode,
@@ -33,7 +34,7 @@ export {
   appKey,
   forgetAppKey,
 } from './connect.js';
-export type { ConnectRequest, ConnectOptions, Grant, GrantedSpace, IncomingRequest, AppKey } from './connect.js';
+export type { ConnectRequest, ConnectOptions, Grant, CarryGrant, GrantedSpace, IncomingRequest, AppKey } from './connect.js';
 export {
   browserPlace,
   folderPlace,

@@ -32,6 +32,7 @@ import { createNode } from '../node/node.js';
 import { indexedDBStores, type StoreFactory } from '../node/stores.js';
 import type { NewSpace, NodeNetworkConfig, P2PNode } from '../node/types.js';
 import { checkStartingRoles } from '../space/space-access.js';
+import { parseSpaceInvite } from '../space/space-manager.js';
 import type { KeyValueStore } from './stay-signed-in.js';
 
 /** Messages between an app and the home it opened */
@@ -47,8 +48,12 @@ export interface ConnectRequest {
   readonly audience: string;
   /** What the app calls itself. Shown, but never trusted: the home shows the origin too. */
   readonly name?: string;
-  /** `write` to change the spaces it is given, `read` only to look */
-  readonly access: 'read' | 'write';
+  /**
+   * `write` to change the spaces it is given, `read` only to look. `carry` is
+   * for a carrier — a browser extension keeping the spaces online — which gets
+   * passes and no keys (`connectCarrier`).
+   */
+  readonly access: 'read' | 'write' | 'carry';
   /**
    * `spaces` (the default): only the spaces the person picks, and any made for
    * the app. `account`: every space, the account's space list, and making and
@@ -99,6 +104,31 @@ export interface Grant {
    * meet — so the app joins these as well.
    */
   readonly relays?: ReadonlyArray<string>;
+}
+
+/**
+ * What the home hands a carrier: a way into its carry space, which holds a
+ * pass for each of the account's spaces — and nothing that reads or writes
+ * them (`space/pass.ts`).
+ */
+export interface CarryGrant {
+  readonly v: 1;
+  readonly kind: 'carry';
+  /** The account it carries for */
+  readonly did: string;
+  /** The account's name, for showing whose spaces these are */
+  readonly name: string;
+  /** The carry space, and the view-only invite to it */
+  readonly carry: { readonly space: string; readonly invite: string };
+  /**
+   * Where the account keeps its data, when it lives in a pod: the path inside
+   * the pod folder, and the folder's name to help the person find it. Null
+   * when the account lives in the home's browser storage.
+   */
+  readonly pod: { readonly dataPath: string; readonly folder: string } | null;
+  readonly relays?: ReadonlyArray<string>;
+  /** The home that granted it */
+  readonly home: string;
 }
 
 /**
@@ -212,15 +242,60 @@ export interface ConnectOptions {
  */
 export async function connectToHome(options: ConnectOptions): Promise<Grant> {
   const homeUrl = new URL(options.home, globalThis.location.href);
-  const homeOrigin = homeUrl.origin;
   // Opened before anything is awaited, so it still counts as the click's.
+  const popup = openHome(homeUrl);
+  const key = options.key ?? (await appKey());
+  const grant = (await askHome(popup, homeUrl.origin, { v: 1, audience: key.did, ...options.request }, options.timeoutMs)) as Grant;
+  await checkGrant(grant, key.did);
+  return { ...grant, home: homeUrl.href };
+}
+
+/**
+ * Asks a home to use this carrier — a browser extension, say — for the
+ * account. Call it from a click, in a page that stays open until the answer
+ * comes: an extension's toolbar popup closes the moment the home's window
+ * takes focus, and the answer would have nowhere to go.
+ *
+ * @param options.key The carrier's own key; it becomes its name to peers
+ * @returns The grant, checked: an invite to a private carry space the account made
+ */
+export async function connectCarrier(options: {
+  readonly home: string;
+  readonly key: AppKey;
+  readonly name?: string;
+  readonly timeoutMs?: number;
+}): Promise<CarryGrant> {
+  const homeUrl = new URL(options.home, globalThis.location.href);
+  const popup = openHome(homeUrl);
+  const request: ConnectRequest = { v: 1, audience: options.key.did, access: 'carry', ...(options.name ? { name: options.name } : {}) };
+  const grant = (await askHome(popup, homeUrl.origin, request, options.timeoutMs)) as CarryGrant;
+  checkCarryGrant(grant);
+  return { ...grant, home: homeUrl.href };
+}
+
+/** Refuses a carry grant that is not an invite to a private space the account made. */
+function checkCarryGrant(grant: CarryGrant): void {
+  if (grant?.kind !== 'carry' || typeof grant.did !== 'string' || typeof grant.carry?.invite !== 'string') {
+    throw new Error('The home did not answer with a way to carry your spaces.');
+  }
+  const invite = parseSpaceInvite(grant.carry.invite);
+  if (invite.space.id !== grant.carry.space || invite.space.creator !== grant.did || invite.space.visibility !== 'private' || !invite.key) {
+    throw new Error('The carry space the home named does not check out.');
+  }
+  if (grant.pod !== null && (typeof grant.pod?.dataPath !== 'string' || grant.pod.dataPath.split('/').some((part) => !part || part === '..'))) {
+    throw new Error('The pod the home named does not check out.');
+  }
+}
+
+function openHome(homeUrl: URL): Window {
   const popup = globalThis.open(homeUrl.href, 'weave-home', 'popup,width=460,height=720');
   if (!popup) throw new Error('The browser blocked the window. Allow pop-ups for this site and try again.');
+  return popup;
+}
 
-  const key = options.key ?? (await appKey());
-  const request: ConnectRequest = { v: 1, audience: key.did, ...options.request };
-
-  const grant = await new Promise<Grant>((resolve, reject) => {
+/** Sends the request once the home says hello, and waits for its answer. */
+function askHome(popup: Window, homeOrigin: string, request: ConnectRequest, timeoutMs = 10 * 60_000): Promise<unknown> {
+  return new Promise<unknown>((resolve, reject) => {
     const done = (finish: () => void) => {
       globalThis.removeEventListener('message', onMessage);
       globalThis.clearInterval(watch);
@@ -230,7 +305,7 @@ export async function connectToHome(options: ConnectOptions): Promise<Grant> {
     const onMessage = (event: MessageEvent) => {
       // Only the popup we opened, at the address we opened it on.
       if (event.source !== popup || event.origin !== homeOrigin) return;
-      const data = event.data as { type?: string; grant?: Grant; reason?: string } | null;
+      const data = event.data as { type?: string; grant?: unknown; reason?: string } | null;
       if (data?.type === HELLO) popup.postMessage({ type: REQUEST, request }, homeOrigin);
       else if (data?.type === GRANT && data.grant) done(() => resolve(data.grant!));
       else if (data?.type === DENIED) done(() => reject(new Error(data.reason ?? 'Access was not given.')));
@@ -238,15 +313,9 @@ export async function connectToHome(options: ConnectOptions): Promise<Grant> {
     const watch = globalThis.setInterval(() => {
       if (popup.closed) done(() => reject(new Error('The window was closed before access was given.')));
     }, 500);
-    const timer = globalThis.setTimeout(
-      () => done(() => reject(new Error('No answer from your account home.'))),
-      options.timeoutMs ?? 10 * 60_000,
-    );
+    const timer = globalThis.setTimeout(() => done(() => reject(new Error('No answer from your account home.'))), timeoutMs);
     globalThis.addEventListener('message', onMessage);
   });
-
-  await checkGrant(grant, key.did);
-  return { ...grant, home: homeUrl.href };
 }
 
 /** Refuses a grant that is not a valid note from the account to this key. */
@@ -333,7 +402,7 @@ export interface IncomingRequest {
   /** Where it came from, as the browser reports it — the only name to trust */
   readonly origin: string;
   /** Sends the grant back to that origin, and closes the window */
-  approve(grant: Omit<Grant, 'home'>): void;
+  approve(grant: Omit<Grant, 'home'> | Omit<CarryGrant, 'home'>): void;
   /** Says no, and closes the window */
   deny(reason?: string): void;
 }
@@ -385,7 +454,7 @@ function isRequest(value: unknown): value is ConnectRequest {
     request.v === 1 &&
     typeof request.audience === 'string' &&
     request.audience.startsWith('did:key:') &&
-    (request.access === 'read' || request.access === 'write') &&
+    (request.access === 'read' || request.access === 'write' || request.access === 'carry') &&
     (request.scope === undefined || request.scope === 'spaces' || request.scope === 'account') &&
     (request.name === undefined || (typeof request.name === 'string' && request.name.length <= 80)) &&
     (request.create === undefined || isNewSpaces(request.create))

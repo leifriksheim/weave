@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import type { CarrierSummary } from 'weave-protocol/node';
 import { STAY_SIGNED_IN_CHOICES, type Connection, type StaySignedIn } from 'weave-protocol/session';
 import { useAuth, useSession } from 'weave-protocol/react';
 import { Avatar } from './Avatar';
@@ -17,13 +18,38 @@ export function Settings() {
   const [stay, setStay] = useState<StaySignedIn>(auth.staySignedIn.choice);
   const [until, setUntil] = useState<Date | null>(auth.staySignedIn.until);
   const hasPasskey = (state.entry?.shortcuts.length ?? 0) > 0;
-  const connections = auth.connections();
   const place = state.place;
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const disconnect = async (origin: string) => {
     setDisconnecting(origin);
     try {
       await auth.disconnect(origin);
+    } finally {
+      setDisconnecting(null);
+    }
+  };
+
+  // Carriers are in the account registry, so every device lists them — not
+  // only the home that connected one, which is all `connections()` knows.
+  const [carriers, setCarriers] = useState<ReadonlyArray<CarrierSummary> | null>(null);
+  useEffect(() => {
+    const load = () => void session.node.carriers.list().then(setCarriers, () => {});
+    load();
+    return session.node.subscribe((event) => {
+      if (event.type === 'records' || event.type === 'account') load();
+    });
+  }, [session]);
+  // A carrier disconnected on another device is gone here too.
+  const connections = auth
+    .connections()
+    .filter((app) => app.access !== 'carry' || carriers === null || carriers.some((carrier) => carrier.space === app.carrySpace));
+  const known = new Set(connections.map((app) => app.carrySpace).filter(Boolean));
+  const elsewhere = (carriers ?? []).filter((carrier) => !known.has(carrier.space));
+  const removeCarrier = async (space: string) => {
+    setDisconnecting(space);
+    try {
+      await session.node.carriers.remove(space);
+      setCarriers(await session.node.carriers.list());
     } finally {
       setDisconnecting(null);
     }
@@ -43,11 +69,18 @@ export function Settings() {
         title="Connected apps"
         description="Apps that you let use your account. Each got a note, signed by your account, saying what it may use and until when. None of them has your password."
       >
-        {connections.length === 0 && <Row label="No apps yet.">{null}</Row>}
+        {connections.length === 0 && elsewhere.length === 0 && <Row label="No apps yet.">{null}</Row>}
         {connections.map((app) => (
           <Row key={app.origin} label={describeConnection(app)}>
             <button onClick={() => void disconnect(app.origin)} disabled={disconnecting !== null} data-variant="quiet" style={styles.smallButton}>
               {disconnecting === app.origin ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </Row>
+        ))}
+        {elsewhere.map((carrier) => (
+          <Row key={carrier.space} label={`${carrier.name} · keeps your spaces online · can't read them · connected on another device`}>
+            <button onClick={() => void removeCarrier(carrier.space)} disabled={disconnecting !== null} data-variant="quiet" style={styles.smallButton}>
+              {disconnecting === carrier.space ? 'Disconnecting…' : 'Disconnect'}
             </button>
           </Row>
         ))}
@@ -167,7 +200,10 @@ function AccountHeader({ name, did, onRename }: { name: string; did: string; onR
 
 /** "Todo (todo.example) · read and change Groceries · until 3 October" */
 function describeConnection(app: Connection): string {
-  const host = new URL(app.origin).host;
+  const url = new URL(app.origin);
+  const extension = url.protocol === 'chrome-extension:' || url.protocol === 'moz-extension:';
+  if (app.access === 'carry') return `${app.name ?? 'Browser extension'} · keeps your spaces online · can't read them`;
+  const host = extension ? 'browser extension' : url.host;
   const who = app.name ? `${app.name} (${host})` : host;
   const what = app.scope === 'account' ? 'your whole account' : app.spaces.length ? app.spaces.map((space) => space.name).join(', ') : 'no spaces';
   const until = new Date(app.expiresAt * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
