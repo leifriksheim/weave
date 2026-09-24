@@ -221,6 +221,11 @@ export interface NodeCollections {
   list(spaceId: string): Promise<ReadonlyArray<NodeCollection>>;
   /** Publishes a definition into the space, as a signed record that syncs like any other */
   define(spaceId: string, definition: DefineCollection): Promise<NodeCollection>;
+  /**
+   * Takes a definition out of the space. Refused while the collection still
+   * has records; the same people who may change a definition may remove it.
+   */
+  delete(spaceId: string, name: string): Promise<void>;
 }
 
 export interface ListOptions {

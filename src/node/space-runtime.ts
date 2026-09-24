@@ -195,6 +195,8 @@ export interface SpaceRuntime {
   publishProfile(profile: { name: string }): Promise<void>;
   collections(): Promise<ReadonlyArray<NodeCollection>>;
   define(definition: DefineCollection): Promise<NodeCollection>;
+  /** Takes a definition out of the space — only once nothing is left in it */
+  undefine(name: string): Promise<void>;
   /** Roles, members and invites as the access history says now, and this account's own role */
   access(): Promise<SpaceAccess>;
   /** Gives someone a role, changes it, or — with null — takes it away */
@@ -1289,6 +1291,14 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const entry = (await catalog()).get(input.name) ?? null;
       const count = (await everyCurrent(input.name)).filter((e) => !e.deleted).length;
       return describe(input.name, entry, count);
+    },
+
+    async undefine(name: string): Promise<void> {
+      if (!(await catalog()).has(name)) throw new Error(`${name} is not defined in this space`);
+      // Records left behind would lose their shape and their rules, so they go first.
+      const left = (await everyCurrent(name)).filter((e) => !e.deleted).length;
+      if (left) throw new Error(`${name} still has ${left} record${left === 1 ? '' : 's'}; delete them first`);
+      await removeKey(`collection:${name}`);
     },
 
     async access(): Promise<SpaceAccess> {

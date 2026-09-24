@@ -155,6 +155,36 @@ describe('a space that describes itself', () => {
     await assert.rejects(owner.collections.define(space, { name: 'app.trip.expense', schema: expense, version: 3 }), /higher/);
   });
 
+  test('a definition can be removed once its collection is empty, by whoever may change it', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const owner = await person(hub);
+    const member = await person(hub);
+    const { id: space } = await owner.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
+    await member.spaces.join(await owner.spaces.invite(space));
+    for (const node of [owner, member]) await node.spaces.open(space);
+    await joined(member, space);
+
+    await owner.collections.define(space, { name: 'app.trip.expense', schema: expense });
+    const named = (node: P2PNode) => async () => (await node.collections.list(space)).some((c) => c.name === 'app.trip.expense');
+    await until(named(member), 3000, 'the definition to sync');
+
+    const train = await owner.records.put(space, 'app.trip.expense', { what: 'train', amount: 12 });
+    await assert.rejects(owner.collections.delete(space, 'app.trip.expense'), /still has 1 record; delete them first/);
+    await owner.records.delete(space, train.key);
+    await until(async () => (await member.records.get(space, train.key)) === null, 3000, 'the delete to sync');
+
+    // Someone else's definition is not a member's to remove.
+    await assert.rejects(member.collections.delete(space, 'app.trip.expense'), /Only whoever defined it, or someone who manages the space, may change it/);
+    await owner.collections.delete(space, 'app.trip.expense');
+    assert.equal(await named(owner)(), false);
+    await until(async () => !(await named(member)()), 3000, 'the removal to sync');
+    await assert.rejects(owner.collections.delete(space, 'app.trip.expense'), /not defined in this space/);
+
+    // The name is free again, and whoever defines it next is its definer.
+    const again = await member.collections.define(space, { name: 'app.trip.expense', schema: expense });
+    assert.equal(again.definedBy, member.did);
+  });
+
   test('a record that does not fit is kept and flagged when it arrives, never rejected', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const a = await person(hub);

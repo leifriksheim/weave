@@ -140,6 +140,24 @@ export function DefinitionEditor({
     }
   };
 
+  // Only an empty collection: records left without a definition would lose their shape and rules.
+  const label = collectionLabel(collection);
+  const cannotDelete = collection.records
+    ? `Delete its ${collection.records === 1 ? 'one record' : `${collection.records} records`} first. A definition can only be deleted once nothing uses it.`
+    : null;
+  const remove = async () => {
+    if (!globalThis.confirm(`Delete the definition of ${label}? It's removed for everyone in the space.`)) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await node.collections.delete(space.id, collection.name);
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+
   return (
     <form onSubmit={submit} aria-label={`Edit what ${collectionLabel(collection)} is`} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <header style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -261,7 +279,18 @@ export function DefinitionEditor({
         <button type="button" onClick={onDone} data-variant="ghost" style={styles.linkButton}>
           Cancel
         </button>
+        <button
+          type="button"
+          onClick={() => void remove()}
+          disabled={busy || !!cannotDelete}
+          title={cannotDelete ?? undefined}
+          data-variant="danger"
+          style={{ ...styles.smallButton, color: palette.accent.danger, marginLeft: 'auto' }}
+        >
+          Delete definition
+        </button>
       </div>
+      {cannotDelete && <p style={{ fontSize: 12, color: palette.ink.faint, marginTop: -16 }}>{cannotDelete}</p>}
     </form>
   );
 }

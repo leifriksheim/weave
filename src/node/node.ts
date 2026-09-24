@@ -661,6 +661,9 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async define(spaceId: string, definition: DefineCollection) {
       return (await runtime(spaceId)).define(definition);
     },
+    async delete(spaceId: string, name: string) {
+      return (await runtime(spaceId)).undefine(name);
+    },
   });
 
   const accountApi: NodeAccount = Object.freeze({

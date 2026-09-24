@@ -284,6 +284,20 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       }),
   },
   {
+    name: 'collections_delete',
+    description:
+      'Remove a collection\'s definition from a space. Refused while it still has records — delete those first. ' +
+      'Only whoever first defined it, or someone who can manage the space, may.',
+    input: {
+      type: 'object',
+      properties: { space, name: { type: 'string' } },
+      required: ['space', 'name'],
+    },
+    readOnly: false,
+    destructive: true,
+    run: (node, input) => node.collections.delete(str(input, 'space'), str(input, 'name')),
+  },
+  {
     name: 'records_list',
     description: 'List records in a space, oldest first unless newestFirst is set.',
     input: {
