@@ -91,9 +91,25 @@ function Feature({ icon, title, children }: { icon: string; title: string; child
   );
 }
 
+/**
+ * The highlighter calls `define` in `node.collections.define(…)` a property,
+ * like `records`. A name right before `(` is a call; mark it as one, so calls
+ * stand out the way they do in an editor.
+ */
+function markCalls<P extends ReturnType<typeof parse>>(parsed: P): P {
+  for (const line of parsed.lines) {
+    const tokens = line.tokens as Array<{ type: string; value: string }>;
+    tokens.forEach((token, i) => {
+      const next = tokens[i + 1];
+      if ((token.type === 'identifier' || token.type === 'property') && next?.type === 'sign' && next.value.startsWith('(')) token.type = 'entity';
+    });
+  }
+  return parsed;
+}
+
 function Code({ file, lang = 'typescript', children }: { file: string; lang?: keyof typeof LANGUAGES; children: string }) {
   // Our own code snippets, not user input — safe to render as HTML.
-  const html = render(parse(children.trim(), LANGUAGES[lang]));
+  const html = render(markCalls(parse(children.trim(), LANGUAGES[lang])));
   return (
     <div className="code">
       <div className="bar">

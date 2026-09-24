@@ -7,9 +7,10 @@
   --faint: #8f8f8f;
   --line: #eaeaea;
   --sunken: #fafafa;
-  --code-bg: #0a0a0a;
-  --code-ink: #ededed;
-  --code-dim: #8f8f8f;
+  --code-bg: #111827;
+  --code-ink: #d6deeb;
+  --code-dim: #7f8aa3;
+  --code-line: #1e293b;
   --radius: 8px;
   --max: 1080px;
 }
@@ -87,25 +88,26 @@
 .site .step p { font-size: 15px; color: var(--muted); }
 
 /* Code */
-.site .code { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; overflow: hidden; border: 1px solid #1f1f1f; }
-.site .code .bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #1f1f1f; font-size: 12px; color: var(--code-dim); font-family: 'Geist Mono', monospace; }
+.site .code { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; overflow: hidden; border: 1px solid var(--code-line); }
+.site .code .bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--code-line); font-size: 12px; color: var(--code-dim); font-family: 'Geist Mono', monospace; }
 .site .code pre { margin: 0; padding: 20px; overflow-x: auto; font-size: 13.5px; line-height: 1.7; }
-/* Syntax colours: soft pastels on black, so the code reads at a glance
-   without breaking the black-and-white page. Plain text stays near-white;
-   colour marks what kind of thing each word is. sugar-high reads these. */
+/* Syntax colours: a calm night theme on deep navy. Plain text stays light;
+   keywords recede a little, calls lean blue and italic, and what you'd
+   change — strings and numbers — is warm. sugar-high reads these. */
 .site .code {
-  --sh-keyword: #c4b5fd;     /* lavender: import, const, await */
-  --sh-entity: #ffc799;      /* peach: functions being called */
-  --sh-class: #ffc799;
-  --sh-identifier: #ececec;
-  --sh-property: #a5d6ff;    /* pale blue: keys and properties */
-  --sh-string: #8ee5c8;      /* mint: strings */
-  --sh-jsxliterals: #8ee5c8;
-  --sh-sign: #8a8a8a;
-  --sh-comment: #7d7d7d;
-  --sh-break: #ececec;
-  --sh-space: #ececec;
+  --sh-keyword: #8f93d6;     /* periwinkle: import, const, await */
+  --sh-entity: #82aaff;      /* blue, italic: functions being called */
+  --sh-class: #f5a97f;       /* warm orange: numbers and Types */
+  --sh-identifier: #d6deeb;
+  --sh-property: #c3cde8;
+  --sh-string: #ecc48d;      /* amber: strings */
+  --sh-jsxliterals: #ecc48d;
+  --sh-sign: #7f8aa3;
+  --sh-comment: #5f6b86;
+  --sh-break: #d6deeb;
+  --sh-space: #d6deeb;
 }
+.site .code .sh__token--entity { font-style: italic; }
 .site .code .sh__token--comment { font-style: italic; }
 .site .code pre code { background: none; border: none; padding: 0; font-size: inherit; color: inherit; }
 
