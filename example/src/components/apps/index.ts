@@ -1,8 +1,9 @@
 import type { ComponentType } from 'react';
 import type { DefineCollection, NodeCollection, NodeRecord, P2PNode, SpaceSummary } from 'weave-protocol';
-import { column, message, reaction, task, positionBetween } from 'weave-protocol/schemas';
+import { column, message, poll, reaction, task, vote, positionBetween } from 'weave-protocol/schemas';
 import { Chat } from './Chat';
 import { Kanban } from './Kanban';
+import { Polls } from './Polls';
 
 export interface AppProps {
   readonly space: SpaceSummary;
@@ -53,6 +54,13 @@ export const APPS: ReadonlyArray<WeaveApp> = [
       }
     },
     View: Kanban,
+  },
+  {
+    id: 'polls',
+    title: 'Polls',
+    description: 'Ask the space a question. Everyone picks one option, and can change their mind.',
+    needs: [poll, vote],
+    View: Polls,
   },
 ];
 

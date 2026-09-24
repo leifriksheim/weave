@@ -20,7 +20,7 @@
  *
  * **Two kinds.** Most of these are annotations: they attach to anything
  * (their links point at `'*'`). A few are common nouns — a chat message, a
- * task on a board — shared so that two chat apps, or a board and a to-do list,
+ * task on a board, a poll — shared so that two chat apps, or a board and a to-do list,
  * read the same records. Nouns say exactly what they point at. Keep both lists
  * small — each entry is only worth it if nearly every app would otherwise
  * invent the same thing.
@@ -176,10 +176,56 @@ export interface Task {
   readonly position?: string;
 }
 
+/**
+ * A question with fixed options. The options cannot change once it is asked —
+ * votes point at them by position — but whoever asked can close it.
+ */
+export const poll = {
+  name: 'std.poll',
+  title: 'Poll',
+  description: 'A question with options to vote on.',
+  schema: {
+    type: 'object',
+    properties: {
+      question: { type: 'string', minLength: 1, maxLength: 500 },
+      options: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 200 } },
+      closed: { type: 'boolean', description: 'No more votes, as the asker sees it' },
+    },
+    required: ['question', 'options'],
+  },
+  permissions: ['moderate'],
+  rules: { edit: 'creator', delete: ['creator', 'can:moderate'], fixed: ['options'] },
+} as const satisfies DefineCollection;
+export interface Poll {
+  readonly question: string;
+  readonly options: ReadonlyArray<string>;
+  readonly closed?: boolean;
+}
+
+/**
+ * One person's vote on a poll: the position of their choice in its options.
+ * One per person per poll — voting again changes it; deleting takes it back.
+ */
+export const vote = {
+  name: 'std.vote',
+  title: 'Vote',
+  description: "A vote on a poll: one per person, changed by voting again.",
+  schema: {
+    type: 'object',
+    properties: { choice: { type: 'integer', minimum: 0, 'x-choicesFrom': { rel: 'about', field: 'options' } } },
+    required: ['choice'],
+  },
+  links: { about: { to: ['std.poll'], cardinality: 'one', description: 'The poll voted on' } },
+  rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about'] },
+} as const satisfies DefineCollection;
+export interface Vote {
+  readonly choice: number;
+}
+
 /** Shapes that attach to anything */
 export const standardAnnotations: ReadonlyArray<DefineCollection> = [reaction, comment, tag, attachment, reference];
 /** Common nouns apps share */
-export const standardNouns: ReadonlyArray<DefineCollection> = [message, column, task];
+export const standardNouns: ReadonlyArray<DefineCollection> = [message, column, task, poll, vote];
 /** Everything in the library */
 export const standardSchemas: ReadonlyArray<DefineCollection> = [...standardAnnotations, ...standardNouns];
 

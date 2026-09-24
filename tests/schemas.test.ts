@@ -9,7 +9,7 @@ import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
-import { column, task, message, standardNouns, positionBetween, useSchemas } from '../src/schemas/index.js';
+import { column, task, message, poll, vote, standardNouns, positionBetween, useSchemas } from '../src/schemas/index.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 
@@ -76,5 +76,22 @@ describe('standard nouns', () => {
 
     await me.records.put(space, task.name, { title: 'Made elsewhere, no position' });
     await assert.rejects(me.records.put(space, task.name, { position: 'i' }));
+  });
+
+  test('a poll: one vote per person, changed by voting again; options stay as asked', async () => {
+    const me = await person();
+    const { id: space } = await me.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
+    await useSchemas(me, space, [poll, vote]);
+    const where = await me.records.put(space, poll.name, { question: 'Where?', options: ['Oslo', 'Lisbon'] });
+    const on = [{ rel: 'about', to: where.key }];
+
+    const first = await me.records.put(space, vote.name, { choice: 0 }, { links: on });
+    const again = await me.records.put(space, vote.name, { choice: 1 }, { links: on });
+    assert.equal(again.key, first.key);
+    const votes = await me.records.linked<{ choice: number }>(space, where.key, { collection: vote.name });
+    assert.deepEqual(votes.map((v) => v.body?.choice), [1]);
+
+    await me.records.update(space, where.key, { question: 'Where?', options: ['Oslo', 'Lisbon'], closed: true });
+    await assert.rejects(me.records.update(space, where.key, { question: 'Where?', options: ['Rome', 'Lisbon'] }));
   });
 });
