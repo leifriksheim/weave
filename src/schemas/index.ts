@@ -121,13 +121,21 @@ export interface Reference {
   readonly note?: string;
 }
 
-/** A chat message. The space is the room; order is by when it was written. */
+/**
+ * A chat message. The space is the room; order is by when it was written.
+ * It can share one record — a poll to vote on, a task — which a chat that
+ * knows the record's kind shows in place. The text should still make sense
+ * alone ("Poll: Where to?"), for chats that don't.
+ */
 export const message = {
   name: 'std.message',
   title: 'Message',
-  description: 'A chat message, optionally replying to another.',
+  description: 'A chat message, optionally replying to another, or sharing a record.',
   schema: { type: 'object', properties: { text: { type: 'string', minLength: 1, maxLength: 10000 } }, required: ['text'] },
-  links: { replyTo: { to: ['std.message'], cardinality: 'one', description: 'The message this replies to' } },
+  links: {
+    replyTo: { to: ['std.message'], cardinality: 'one', description: 'The message this replies to' },
+    shares: { to: '*', cardinality: 'one', description: 'A record this message shares, like a poll' },
+  },
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 } as const satisfies DefineCollection;

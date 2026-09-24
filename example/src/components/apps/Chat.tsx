@@ -1,30 +1,44 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from 'weave-protocol/react';
 import type { NodeRecord, QueryRecord } from 'weave-protocol';
-import { message, reaction, type Message } from 'weave-protocol/schemas';
+import { message, poll, reaction, vote, type Message, type Poll } from 'weave-protocol/schemas';
 import { nameOf, peopleFrom } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { Avatar } from '../Avatar';
 import { Reactions } from '../std/Reactions';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
+import { Ask, PollView, withVotes } from './Polls';
 
 /** Messages from one person this close together share one name line */
 const RUN_MS = 5 * 60 * 1000;
 
+/** Typing this sends a poll instead of a message, when the space has polls */
+const POLL_COMMAND = /^\/poll(?:\s+(.*))?$/s;
+
 /**
  * `std.message` as a chat: the whole space is one room, oldest at the top,
  * a box at the bottom. Reactions appear when the space has `std.reaction`.
+ *
+ * A message can share a record. When the space also has polls, `/poll` asks
+ * the room one: the poll is an ordinary `std.poll`, and the message shares it,
+ * so it can be voted on right here, in the Polls app, or anywhere else.
  */
-export function Chat({ space, collections }: AppProps) {
+export function Chat({ space, collections, onOpen }: AppProps) {
   const node = useNode();
   const { did: me } = useAccount();
   const people = peopleFrom(useProfiles(space.id));
   const mayWrite = useCan(space.id, 'create', message.name);
-  const reacts = collections.some((c) => c.name === reaction.name && c.version !== null);
+  const defined = (name: string) => collections.find((c) => c.name === name && c.version !== null);
+  const reacts = !!defined(reaction.name);
+  // A space that defined messages before they could share records has no such link to write.
+  const shares = !!defined(message.name)?.links?.shares;
+  const polls = shares && !!defined(poll.name) && !!defined(vote.name);
   const [draft, setDraft] = useState('');
+  const [asking, setAsking] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
   const stuck = useRef(true);
 
   const messages = useLive(
@@ -34,10 +48,13 @@ export function Chat({ space, collections }: AppProps) {
         await node.records.query<Message>(space.id, {
           collection: message.name,
           sort: { '@createdAt': 'asc' },
-          ...(reacts ? { include: { reactions: { rel: 'about', from: reaction.name } } } : {}),
+          include: {
+            ...(reacts ? { reactions: { rel: 'about', from: reaction.name } } : {}),
+            ...(shares ? { shared: { rel: 'shares', direction: 'out', include: withVotes } } : {}),
+          },
         })
       ).records.filter((m) => m.body !== null),
-    [reacts],
+    [reacts, shares],
   );
 
   // Follow new messages down — unless you have scrolled up to read.
@@ -50,8 +67,17 @@ export function Chat({ space, collections }: AppProps) {
     const text = draft.trim();
     if (!text) return;
     setDraft('');
+    const command = polls ? POLL_COMMAND.exec(text) : null;
+    if (command) return setAsking(command[1]?.trim() ?? '');
     stuck.current = true;
     void node.records.put(space.id, message.name, { text });
+  };
+
+  const sendPoll = async (question: string, options: string[]) => {
+    const asked = await node.records.put(space.id, poll.name, { question, options });
+    stuck.current = true;
+    await node.records.put(space.id, message.name, { text: `Poll: ${question}` }, { links: [{ rel: 'shares', to: asked.key }] });
+    setAsking(null);
   };
 
   return (
@@ -78,11 +104,35 @@ export function Chat({ space, collections }: AppProps) {
               showReactions={reacts && (hover === m.key || reactionsOf(m).length > 0)}
               onHover={(on) => setHover(on ? m.key : (h) => (h === m.key ? null : h))}
               onDelete={() => void node.records.delete(space.id, m.key)}
+              onOpen={onOpen}
               space={space}
             />
           );
         })}
       </div>
+      {asking !== null && (
+        <div style={{ padding: 12, borderTop: `1px solid ${palette.surface.line}` }}>
+          <Ask initialQuestion={asking} onAsk={sendPoll} onCancel={() => setAsking(null)} />
+        </div>
+      )}
+      {mayWrite && polls && asking === null && draft.startsWith('/') && !POLL_COMMAND.test(draft.trim()) && '/poll'.startsWith(draft.trim()) && (
+        <button
+          type="button"
+          // Keep the cursor in the box, at the end, ready for the question.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            setDraft('/poll ');
+            requestAnimationFrame(() => {
+              const el = input.current;
+              el?.focus();
+              el?.setSelectionRange(el.value.length, el.value.length);
+            });
+          }}
+          data-menu-item style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '8px 12px', border: 'none', borderTop: `1px solid ${palette.surface.line}`, background: palette.surface.card, font: 'inherit', fontSize: 13, textAlign: 'left' }}>
+          <code style={{ color: palette.ink.strong }}>/poll</code>
+          <span style={{ color: palette.ink.muted }}>Ask the room a question</span>
+        </button>
+      )}
       {mayWrite ? (
         <form
           onSubmit={(e) => {
@@ -91,7 +141,7 @@ export function Chat({ space, collections }: AppProps) {
           }}
           style={{ display: 'flex', gap: 8, padding: 12, borderTop: `1px solid ${palette.surface.line}`, background: palette.surface.sunken }}
         >
-          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={`Message ${space.name}`} aria-label="Write a message" style={{ ...styles.input, flex: 1 }} />
+          <input ref={input} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={`Message ${space.name}`} aria-label="Write a message" style={{ ...styles.input, flex: 1 }} />
           <button type="submit" disabled={!draft.trim()} data-variant="primary" style={styles.addButton}>
             Send
           </button>
@@ -107,6 +157,11 @@ const reactionsOf = (m: QueryRecord): ReadonlyArray<NodeRecord> => {
   const found = m.included?.reactions;
   return Array.isArray(found) ? found : [];
 };
+/** The record a message shares, when it has one and this device holds it */
+const sharedOf = (m: QueryRecord): QueryRecord | null => {
+  const found = m.included?.shared;
+  return Array.isArray(found) ? (found[0] ?? null) : null;
+};
 
 function Line({
   record,
@@ -116,6 +171,7 @@ function Line({
   showReactions,
   onHover,
   onDelete,
+  onOpen,
   space,
 }: {
   record: QueryRecord<Message>;
@@ -125,8 +181,11 @@ function Line({
   showReactions: boolean;
   onHover: (on: boolean) => void;
   onDelete: () => void;
+  onOpen: AppProps['onOpen'];
   space: AppProps['space'];
 }) {
+  const shared = sharedOf(record);
+  const sharesPoll = shared?.collection === poll.name && shared.body !== null;
   return (
     <div
       data-row
@@ -145,8 +204,23 @@ function Line({
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-          <p style={{ flex: 1, fontSize: 14, lineHeight: 1.5, color: palette.ink.body, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{record.body?.text}</p>
-          {mine && space.writable && (
+          {sharesPoll ? (
+            // The poll says it better than the message's fallback text.
+            <div style={{ flex: 1, minWidth: 0, maxWidth: 480, margin: '4px 0' }}>
+              <PollView space={space} record={shared as QueryRecord<Poll>} onOpen={onOpen} />
+            </div>
+          ) : (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 14, lineHeight: 1.5, color: palette.ink.body, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{record.body?.text}</p>
+              {shared && (
+                <button onClick={() => onOpen(shared)} data-variant="quiet" style={{ ...styles.smallButton, height: 28, marginTop: 4 }}>
+                  Open shared record
+                </button>
+              )}
+            </div>
+          )}
+          {/* A shared poll has its own Delete; two would be confusing. */}
+          {mine && space.writable && !sharesPoll && (
             <button onClick={onDelete} data-row-action data-variant="ghost" aria-label="Delete message" style={{ border: 'none', background: 'none', fontSize: 12, color: palette.ink.faint, padding: '2px 4px' }}>
               Delete
             </button>

@@ -17,8 +17,6 @@ const MAX_OPTIONS = 10;
  */
 export function Polls({ space, onOpen }: AppProps) {
   const node = useNode();
-  const { did: me } = useAccount();
-  const people = peopleFrom(useProfiles(space.id));
   const mayAsk = useCan(space.id, 'create', poll.name);
   const [asking, setAsking] = useState(false);
 
@@ -29,7 +27,7 @@ export function Polls({ space, onOpen }: AppProps) {
         await node.records.query<Poll>(space.id, {
           collection: poll.name,
           sort: { '@createdAt': 'desc' },
-          include: { votes: { rel: 'about', from: vote.name } },
+          include: withVotes,
         })
       ).records.filter((p) => p.body !== null),
     [],
@@ -52,21 +50,35 @@ export function Polls({ space, onOpen }: AppProps) {
           </button>
         ))}
       {polls?.length === 0 && !asking && <div style={styles.emptyState}>No polls yet.{mayAsk ? ' Ask the space something.' : ''}</div>}
-      {polls?.map((p) => (
-        <PollCard
-          key={p.key}
-          record={p}
-          me={me}
-          people={people}
-          writable={space.writable}
-          onOpen={() => onOpen(p)}
-          onVote={(choice) => void node.records.put(space.id, vote.name, { choice }, { links: [{ rel: 'about', to: p.key }] })}
-          onUnvote={(key) => void node.records.delete(space.id, key)}
-          onClose={(closed) => void node.records.update(space.id, p.key, { ...p.body!, closed })}
-          onDelete={() => void node.records.delete(space.id, p.key)}
-        />
-      ))}
+      {polls?.map((p) => <PollView key={p.key} space={space} record={p} onOpen={onOpen} />)}
     </div>
+  );
+}
+
+/** Include this with a poll to get what {@link PollView} needs: its votes */
+export const withVotes = { votes: { rel: 'about', from: vote.name } } as const;
+
+/**
+ * One poll, ready to vote on — wherever it shows up: in this app's list, or
+ * shared into a chat. The record must carry its votes (query it with
+ * `include: withVotes`).
+ */
+export function PollView({ space, record, onOpen }: { space: AppProps['space']; record: QueryRecord<Poll>; onOpen: AppProps['onOpen'] }) {
+  const node = useNode();
+  const { did: me } = useAccount();
+  const people = peopleFrom(useProfiles(space.id));
+  return (
+    <PollCard
+      record={record}
+      me={me}
+      people={people}
+      writable={space.writable}
+      onOpen={() => onOpen(record)}
+      onVote={(choice) => void node.records.put(space.id, vote.name, { choice }, { links: [{ rel: 'about', to: record.key }] })}
+      onUnvote={(key) => void node.records.delete(space.id, key)}
+      onClose={(closed) => void node.records.update(space.id, record.key, { ...record.body!, closed })}
+      onDelete={() => void node.records.delete(space.id, record.key)}
+    />
   );
 }
 
@@ -178,8 +190,8 @@ function PollCard({
 }
 
 /** A question and its options — two to start, more on demand, blanks dropped */
-function Ask({ onAsk, onCancel }: { onAsk: (question: string, options: string[]) => Promise<void>; onCancel: () => void }) {
-  const [question, setQuestion] = useState('');
+export function Ask({ onAsk, onCancel, initialQuestion = '' }: { onAsk: (question: string, options: string[]) => Promise<void>; onCancel: () => void; initialQuestion?: string }) {
+  const [question, setQuestion] = useState(initialQuestion);
   const [options, setOptions] = useState(['', '']);
   const [busy, setBusy] = useState(false);
   const filled = options.map((o) => o.trim()).filter(Boolean);
