@@ -20,6 +20,7 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 | [BLOCK-15](BLOCK-15-spaces-and-roles.md) | Spaces and roles: one kind of space, custom roles per space, hand over and leave, access you can take back. Built except the home's role screens | ~3 days left |
 | [BLOCK-16](BLOCK-16-contacts.md) | Contacts: live messages in spaces, a contact list, sealed contact requests | ~1 week |
 | [BLOCK-17](BLOCK-17-browser-extension.md) | A Chrome extension that keeps your node in the gossip and your pod up to date while the browser is open, without being able to read your spaces | ~2 weeks |
+| [BLOCK-18](BLOCK-18-agent-made-apps.md) | Apps an agent makes: its own labelled key, proposals a person adds, a summary worked out from the rules, apps as records in the Apps tab | ~1 week |
 
 ## Next, not written as blocks yet
 
@@ -33,9 +34,6 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
   rules and the types in one, and typed handles (`node.use(space, Poll)`) —
   replaces BLOCK-12.
 
-- **Agent sessions.** An agent is not its own identity: it signs for you with a
-  session key, like any device, given a narrower, labelled delegation (which
-  spaces, which collections, read or write).
 - **Profiles, round two.** A per-space name ("in this space, call me…"), avatars
   once there is blob storage (BLOCK-03), and private nicknames for others.
 - **An account home.** One address that holds your passkey and hands apps a
