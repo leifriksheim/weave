@@ -1,0 +1,15 @@
+{
+  "name": "p2p-web-relay",
+  "private": true,
+  "type": "module",
+  "description": "Signaling relay for Weave: introduces peers, never sees their data.",
+  "scripts": {
+    "start": "node signaling-server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "8.21.3"
+  }
+}

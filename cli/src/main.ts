@@ -17,7 +17,8 @@
  * unlocks with WEAVE_RECOVERY_CODE or WEAVE_PASSPHRASE, a file named by
  * --code-file / --passphrase-file, or a prompt.
  */
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { parseArgs } from 'node:util';
 import { createNode, isValidRecoveryCode, NODE_ACTIONS, runAction, type NodeAction } from '../../src/index.js';
@@ -34,7 +35,7 @@ Usage:
   weave whoami
   weave spaces  list | create | invite | join | leave | status   [--flags]
   weave records list | get | put | update | delete               [--flags]
-  weave run [--port 8787] [--host 0.0.0.0] [--node wss://…/peer] [--create]
+  weave run [--port 8787] [--host 127.0.0.1] [--node wss://…/peer] [--create]
   weave mcp
   weave actions
 
@@ -181,7 +182,19 @@ async function createIfEmpty(globals: Globals): Promise<void> {
   if (!passphrase) throw new Error('--create needs WEAVE_PASSPHRASE, to lock the new account with');
   const { account, code } = await createAccount(home, { name: 'Node', passphrase });
   stderr(`Created account "${account.name}" (${account.did}) in ${home.path}`);
-  if (code) stderr(`Recovery code: ${code}`);
+  if (!code) return;
+
+  // On a server stderr is a log — journald, Fly, a file someone tails — and a
+  // code there is a code anyone who reads the logs holds. Only a person at a
+  // terminal is shown it; otherwise it goes in a file only this user can read.
+  if (process.stderr.isTTY) {
+    stderr(`Recovery code: ${code}`);
+    return;
+  }
+  const file = path.join(home.path, `recovery-code-${account.id}.txt`);
+  await writeFile(file, `${code}\n`, { mode: 0o600, flag: 'wx' });
+  stderr(`The recovery code was not printed, because this output is not a terminal. It is in ${file}`);
+  stderr('Copy it somewhere safe — a password manager — and then delete that file.');
 }
 
 async function main(argv: ReadonlyArray<string>): Promise<number> {

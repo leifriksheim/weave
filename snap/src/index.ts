@@ -68,7 +68,7 @@ interface SnapState {
   readonly imported?: Record<string, { readonly code: string; readonly addedAt: string }>;
   /** Which account is being acted as. Absent means the derived one. */
   readonly selected?: string;
-  /** Origins that have been granted a session before, for the dialog wording */
+  /** Sites the user let act as an account, keyed `origin did` (`consentKey`) */
   readonly known?: Record<string, string>;
 }
 
@@ -189,6 +189,9 @@ async function identity() {
   };
 }
 
+/** Where a site's consent to act as one account is remembered */
+const consentKey = (origin: string, did: string) => `${origin} ${did}`;
+
 /**
  * Handles a call from a site.
  *
@@ -281,19 +284,22 @@ export async function onRpcRequest({ origin, request }: OnRpcRequestArgs): Promi
       // year gets an hour.
       const expiration = Math.min(params.expiration ?? now + MAX_SESSION_SECONDS, now + MAX_SESSION_SECONDS);
 
+      // Consent is per site *and* per account: approving a site for one
+      // account says nothing about another it can switch to.
+      const me = await identity();
       const state = await readState();
-      if (!state.known?.[origin]) {
+      const consent = consentKey(origin, me.did);
+      if (!state.known?.[consent]) {
         const granted = await confirm(
           'Let this site act as you?',
-          `${origin} is asking to sign as your identity for up to one hour at a time.\n\n` +
+          `${origin} is asking to sign as ${me.did} for up to one hour at a time.\n\n` +
             `It is asking for: ${params.capabilities.map((c) => `${c.can} on ${c.with}`).join(', ')}\n\n` +
             'Your key stays in MetaMask. The site only ever gets a note that expires.',
         );
         if (!granted) throw new Error('The user declined.');
-        await writeState({ ...state, known: { ...state.known, [origin]: new Date().toISOString() } });
+        await writeState({ ...state, known: { ...state.known, [consent]: new Date().toISOString() } });
       }
 
-      const me = await identity();
       const token = await issueUCAN(
         {
           issuer: { did: me.did, privateKey: me.privateKey },
@@ -310,12 +316,15 @@ export async function onRpcRequest({ origin, request }: OnRpcRequestArgs): Promi
     /**
      * The key that encrypts this account's data at rest.
      *
-     * Not the seed, and useless without the data it belongs to — but a site
-     * cannot read its own folder without it, so there is no point withholding
-     * it from a site already trusted to act as this identity.
+     * Not the seed, but it opens the account's list of spaces and their keys,
+     * so only a site already trusted to act as this identity gets it — the
+     * user said yes to that site, for this account, in `signDelegation`.
      */
     case 'getVaultKey': {
       const me = await identity();
+      if (!(await readState()).known?.[consentKey(origin, me.did)]) {
+        throw new Error('Sign in with this account first: the site has not been allowed to act as it.');
+      }
       // Derived as bytes rather than exported from a key: the key the protocol
       // hands a page is deliberately not extractable.
       return { key: base64UrlEncode(await deriveVaultKeyBytes(me.seed)) };

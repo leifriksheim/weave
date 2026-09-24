@@ -199,7 +199,7 @@ describe('capability gate', () => {
     const session = await makeKey();
     const now = Math.floor(Date.now() / 1000);
     const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL], expiration: now - 3600 },
+      { issuer: root, audience: session.did, capabilities: [ALL], notBefore: now - 10_800, expiration: now - 3600 },
       provider,
     );
 
@@ -214,6 +214,24 @@ describe('capability gate', () => {
     const expression = (await signer.sign(unsigned, session.privateKey)) as Expression;
     const result = await gate.validate(expression);
     assert.equal(result.passed, true, result.reason);
+  });
+
+  test('rejects a record dated before its delegation began', async () => {
+    // A leaked session key must not be able to write "last year".
+    const root = await makeKey();
+    const session = await makeKey();
+    const now = Math.floor(Date.now() / 1000);
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
+
+    const unsigned = createExpression({
+      author: session.did,
+      collection: COLLECTION,
+      body: { text: 'backdated' },
+      proof: ucan.encoded,
+      createdAt: new Date((now - 86_400 * 365) * 1000).toISOString(),
+    });
+    const expression = (await signer.sign(unsigned, session.privateKey)) as Expression;
+    assert.equal((await gate.validate(expression)).passed, false);
   });
 
   test('rejects a record dated in the future', async () => {

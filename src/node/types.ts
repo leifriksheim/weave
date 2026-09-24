@@ -247,9 +247,9 @@ export interface NodeSpaces {
   close(spaceId: string): Promise<void>;
   status(spaceId: string): Promise<SpaceStatus>;
   /**
-   * What a node serving this space uses to check a connecting peer may read
-   * it, and to sign its welcome. Needs no key of the space's. Null for a
-   * public space, or one this node does not hold.
+   * What a node serving this space uses to check a connecting peer is who it
+   * says — and, in a private space, may read it — and to sign its welcome.
+   * Needs no key of the space's. Null for a space this node does not hold.
    */
   authenticator(spaceId: string): Promise<ServerAuth | null>;
   /**

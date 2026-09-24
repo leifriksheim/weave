@@ -91,8 +91,11 @@ describe('profiles', () => {
     await alice.node.spaces.open(space);
     await until(async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice', 4000, 'Alice’s own profile');
 
-    // Mallory signs a version under Alice's profile key, far ahead in sequence,
-    // and slips it into her own copy of the space before it syncs.
+    // Mallory signs a version under Alice's profile key, far ahead in sequence
+    // and naming Alice's real first version, and slips it into her own copy of
+    // the space before it syncs.
+    const aliceKey = await profileKey(alice.node.did);
+    const aliceFirst = (await createStorageProvider(await alice.stores(`spaces/${space}`)).history(aliceKey)).find((v) => v.seq === 0)!;
     const provider = mallory.manager.getProvider();
     const pair = await provider.generateKeyPair();
     const keyDid = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
@@ -108,7 +111,7 @@ describe('profiles', () => {
         space,
         body: { name: 'Evil Alice' },
         proof: ucan.encoded,
-        version: { key: await profileKey(alice.node.did), seq: 99, prev: 'bafyforged', genesis: 'bafyforged' },
+        version: { key: aliceKey, seq: 99, prev: aliceFirst.id, genesis: aliceFirst.id },
         retain: true,
       }),
       pair.privateKey,

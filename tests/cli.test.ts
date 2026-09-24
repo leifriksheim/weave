@@ -129,10 +129,9 @@ describe('the daemon', () => {
     await daemon.close();
   });
 
-  test('answers /health', async () => {
-    const health = (await (await fetch(`http://127.0.0.1:${daemon.port}/health`)).json()) as { ok: boolean; did: string };
-    assert.equal(health.ok, true);
-    assert.equal(health.did, daemon.node.did);
+  test('answers /health, and says nothing about whose node it is', async () => {
+    const health = (await (await fetch(`http://127.0.0.1:${daemon.port}/health`)).json()) as Record<string, unknown>;
+    assert.deepEqual(health, { ok: true });
   });
 
   test('two devices that are never online together converge through it', async () => {
@@ -204,11 +203,17 @@ describe('the daemon', () => {
     assert.equal(frames.length, 1); // the challenge, and nothing of the space
   });
 
-  test('refuses a peer for a space it does not hold', async () => {
+  test('refuses a peer for a space it does not hold — exactly as it refuses a stranger', async () => {
+    // Challenged first either way, then the same close: a page cannot ask which spaces it holds.
     const socket = new WebSocket(`${peerUrl}?space=nope`);
+    let challenged = false;
     const closed = new Promise<number>((resolve) => socket.addEventListener('close', (event) => resolve(event.code)));
-    socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger' })));
-    assert.equal(await closed, 4004);
+    socket.addEventListener('message', (event) => {
+      challenged ||= JSON.parse(String(event.data)).type === 'challenge';
+      socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger', nonce: 'n' }));
+    });
+    assert.equal(await closed, 4003);
+    assert.equal(challenged, true);
   });
 });
 

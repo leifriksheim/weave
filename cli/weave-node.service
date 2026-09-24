@@ -7,6 +7,9 @@
 #   sudo cp weave-node.service /etc/systemd/system/ && sudo systemctl enable --now weave-node
 #
 # The passphrase lives in a root-only file, never on the command line.
+#
+# The node listens on 127.0.0.1: put a TLS proxy in front of it (browsers need
+# wss://), e.g. Caddy with `reverse_proxy 127.0.0.1:8787`.
 
 [Unit]
 Description=Weave always-on node

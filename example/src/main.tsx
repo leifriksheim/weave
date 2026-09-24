@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { injectBaseStyles } from './styles';
 import { discoverWallets } from './snap';
-import { exposeToAgents } from './webmcp';
+import { exposeToAgents, desktopAgentsEnabled, connectDesktopAgents } from './webmcp';
 import { Landing, Developers } from './site/Site';
 
 /**
@@ -28,13 +28,10 @@ if (page === 'app') {
   // extensions read the list on load. They act for whoever signs in.
   exposeToAgents();
 
-  // Bridges those tools to desktop MCP clients through a local relay
-  // (npx @mcp-b/webmcp-local-relay). Only in the app: the landing pages have
-  // no tools, and would just knock on the relay's ports.
-  const relay = document.createElement('script');
-  relay.src = '/webmcp/embed.js';
-  relay.defer = true;
-  document.body.appendChild(relay);
+  // Bridges those tools to desktop MCP clients through a local relay — only
+  // when the person turned it on (Security settings): whatever listens on the
+  // relay's port gets every tool.
+  if (desktopAgentsEnabled()) connectDesktopAgents(true);
 }
 
 const root = document.getElementById('root');

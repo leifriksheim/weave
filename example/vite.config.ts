@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { createRequire } from 'node:module';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -34,16 +34,68 @@ function webmcpRelayAssets(): Plugin {
 }
 
 /**
+ * Security headers for the deployed site (Netlify's `_headers`).
+ *
+ * The page holds the account's seed in memory once someone signs in, so a
+ * script that should not be there is a stolen account. The policy allows only
+ * this site's own scripts, and connections only to the relays and nodes the
+ * build was configured with — plus this machine, for a local node and the
+ * desktop-agent relay. Anything else a rogue script tried to send the seed to
+ * is refused by the browser.
+ */
+function securityHeaders(mode: string): Plugin {
+  const env = loadEnv(mode, process.cwd(), 'VITE_');
+  const configured = [env.VITE_SIGNALING_URL ?? '', env.VITE_WEAVE_NODES ?? '']
+    .flatMap((list) => list.split(','))
+    .map((url) => url.trim())
+    .filter(Boolean)
+    .map((url) => new URL(url).origin.replace(/^http/, 'ws'));
+  const connect = [...new Set(["'self'", ...configured, 'ws://localhost:*', 'ws://127.0.0.1:*'])];
+  const policy = [
+    "default-src 'self'",
+    "script-src 'self'",
+    // React sets inline style attributes; the base styles are one <style> tag.
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    'font-src https://fonts.gstatic.com',
+    "img-src 'self' data: blob:",
+    `connect-src ${connect.join(' ')}`,
+    // The desktop-agent relay's widget, served from this site.
+    "frame-src 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+  ].join('; ');
+  return {
+    name: 'security-headers',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: '_headers',
+        source: [
+          '/*',
+          `  Content-Security-Policy: ${policy}`,
+          '  Referrer-Policy: no-referrer',
+          '  X-Content-Type-Options: nosniff',
+          '',
+        ].join('\n'),
+      });
+    },
+  };
+}
+
+/**
  * The example consumes the protocol straight from source (no build step),
  * so edits in ../src hot-reload here.
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       'weave-protocol/schemas': fileURLToPath(new URL('../src/schemas/index.ts', import.meta.url)),
       'weave-protocol': fileURLToPath(new URL('../src/index.ts', import.meta.url)),
     },
   },
-  plugins: [webmcpRelayAssets(), react()],
+  plugins: [webmcpRelayAssets(), securityHeaders(mode), react()],
   server: { port: 5173 },
-});
+}));

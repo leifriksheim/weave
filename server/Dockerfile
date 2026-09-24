@@ -1,8 +1,10 @@
-# The relay is one file with no dependencies, so the image is the runtime plus
-# that file. Nothing is installed, and there is nothing to keep up to date.
+# The relay is one file and one dependency (`ws`, pinned in the lockfile), so
+# the image is the runtime, that package and that file.
 FROM node:22-alpine
 
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 COPY signaling-server.mjs ./
 
 ENV PORT=8080

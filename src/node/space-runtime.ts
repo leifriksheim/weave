@@ -38,7 +38,7 @@ import { createValidationEngine } from '../validation/validation-engine.js';
 import { encryptExpression, decryptExpression, type EncryptedExpression } from '../privacy/space-encryption.js';
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
 import { createWebSocketTransport } from '../network/ws-transport.js';
-import { createClientAuth } from '../network/peer-auth.js';
+import { createClientAuth, createMeshAuth } from '../network/peer-auth.js';
 import { countersign, deriveReadKey, deriveWriteKey } from '../space/space-access.js';
 import { createSpaceGate } from '../validation/space-gate.js';
 import { createSyncEngine } from '../sync/sync-engine.js';
@@ -52,7 +52,7 @@ import {
   type StoredCollection,
 } from '../schema/collection-def.js';
 import { MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
-import { sha256 } from '../utils/hash.js';
+import { base32Encode, sha256 } from '../utils/hash.js';
 import type {
   ConnectionState,
   DefineCollection,
@@ -75,6 +75,15 @@ const MANAGED = new Set([CATALOG_COLLECTION, MEMBERSHIP_COLLECTION, PROFILE_COLL
 export async function profileKey(did: string): Promise<string> {
   const digest = await sha256(new TextEncoder().encode(did));
   return `profile:${Array.from(digest.subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * The room a space's peers meet in on a relay. A hash of the space's id, so a
+ * relay learns which connections belong together but not which space they are
+ * — it cannot match the room to an invite, or to the same space elsewhere.
+ */
+export async function relayRoom(spaceId: string): Promise<string> {
+  return base32Encode((await sha256(new TextEncoder().encode(`weave-room/v1|${spaceId}`))).subarray(0, 20));
 }
 
 /** The capability a record in a space requires */
@@ -179,11 +188,16 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     getExpression: (id) => storage.getExpression(id),
   });
 
-  // Versions never change — an id is a content hash — so a verdict holds forever.
+  // A version never changes, so a verdict on it holds forever. Keyed on the id
+  // *and* both signatures: the id covers neither, so a copy with a broken
+  // signature shares the genuine one's id. Only passes are kept — a failure
+  // remembered by id would let anyone who sends a mangled copy first get the
+  // real record refused; and failures are what a stranger can mint for free.
   const verdicts = new Map<string, Verdict>();
+  const verdictKey = (e: Expression) => `${e.id}|${e.signature}|${e.spaceSignature ?? ''}`;
 
   async function judge(expression: Expression): Promise<Verdict> {
-    const cached = verdicts.get(expression.id);
+    const cached = verdicts.get(verdictKey(expression));
     if (cached) return cached;
 
     const result = await validation.validate(expression);
@@ -195,8 +209,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const at = Math.floor(Date.parse(expression.createdAt) / 1000);
       const chain = expression.proof ? await resolveDelegationRoot(expression.proof, () => null, provider, { at }) : null;
       verdict = { verified: true, root: chain?.valid ? chain.rootDid : expression.author };
+      verdicts.set(verdictKey(expression), verdict);
     }
-    verdicts.set(expression.id, verdict);
     return verdict;
   }
 
@@ -216,6 +230,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return { body: null, links: [], encrypted: true };
     }
   }
+
+  /**
+   * Whether `first` can be the first version of the record `version` belongs
+   * to. A later version names its first version itself, and a check that took
+   * that on trust would let anyone point at a record with no rules — or in
+   * another collection — and be judged by that instead.
+   */
+  const firstOf = (version: Expression, first: Expression | null): first is Expression =>
+    !!first && first.seq === 0 && first.key === version.key && first.collection === version.collection;
 
   /** A record's first version: the version itself at seq 0, else the one kept apart. */
   async function genesisOf(version: Expression): Promise<Expression | null> {
@@ -286,16 +309,23 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   async function loadCatalog(): Promise<Map<string, CatalogEntry>> {
     const result = new Map<string, CatalogEntry>();
-    for (const current of await storage.queryExpressions(CATALOG_COLLECTION)) {
-      if (current.deleted) continue;
-      const versions = await storage.history(current.key); // newest first
+    // By key, not by the current version's collection or state: whatever sits
+    // on top — a delete, or a version in another collection under the same key
+    // — may be anyone's, and only the definer's and the owner's count.
+    const keys = (await storage.listCurrent()).map((v) => v.key).filter((k) => k.startsWith('collection:'));
+    for (const key of keys) {
+      const versions = (await storage.history(key)).filter((v) => v.collection === CATALOG_COLLECTION); // newest first
       const genesis = versions.find((v) => v.seq === 0) ?? null;
-      const definedBy = genesis ? (await judge(genesis)).root : null;
+      if (!genesis) continue;
+      const definedBy = (await judge(genesis)).root;
 
       for (const version of versions) {
-        const [opened, verdict] = await Promise.all([openBody(version), judge(version)]);
-        if (!verdict.verified || version.deleted || checkStoredCollection(opened.body) !== null) continue;
-        if (verdict.root !== definedBy && verdict.root !== space.owner) continue;
+        const verdict = await judge(version);
+        if (!verdict.verified || (verdict.root !== definedBy && verdict.root !== space.owner)) continue;
+        // The newest word from someone entitled to it: a delete from them takes the definition down.
+        if (version.deleted) break;
+        const opened = await openBody(version);
+        if (checkStoredCollection(opened.body) !== null) continue;
         const definition = opened.body as StoredCollection;
         if (`collection:${definition.name}` !== version.key) continue;
         result.set(definition.name, { definition, definedBy, version: version.id });
@@ -430,6 +460,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         // Written by whoever first defined the collection, or the space owner — as the catalogue requires.
         const first = version.seq === 0 ? version : await storage.getExpression(version.genesis!);
         if (!first) return 'missing';
+        if (!firstOf(version, first)) return 'invalid';
         const definer = (await judge(first)).root;
         if (verdict.root !== definer && verdict.root !== space.owner) return 'invalid';
         const opened = await openBody(version);
@@ -450,9 +481,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   /** Whether a version keeps the rules its record was created under */
   async function ruleVerdict(expression: Expression): Promise<RuleVerdict> {
-    if (expression.collection.startsWith('sys.')) return OK;
     const first = expression.seq === 0 ? expression : expression.genesis ? await storage.getExpression(expression.genesis) : null;
     if (!first) return { ok: false, reason: 'Its first version has not arrived yet', later: true };
+    if (!firstOf(expression, first)) return { ok: false, reason: 'The first version it names is not this record\'s' };
+    if (expression.collection.startsWith('sys.')) return OK;
     if (!first.def) return OK; // written with no rules — see `withoutRules`
     const definition = await definitionAt(first.def);
     if (definition === 'missing') return { ok: false, reason: 'The definition it was written under has not arrived yet', later: true };
@@ -518,11 +550,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   async function loadProfiles(): Promise<Map<string, SpaceProfile>> {
     const result = new Map<string, SpaceProfile>();
-    for (const current of await storage.queryExpressions(PROFILE_COLLECTION)) {
-      if (!current.key.startsWith('profile:')) continue;
-      for (const version of await storage.history(current.key)) {
+    // By key, as the catalogue does: the current version may be anyone's.
+    const keys = (await storage.listCurrent()).map((v) => v.key).filter((k) => k.startsWith('profile:'));
+    for (const key of keys) {
+      for (const version of await storage.history(key)) {
+        if (version.collection !== PROFILE_COLLECTION) continue;
         const verdict = await judge(version);
-        if (!verdict.verified || !verdict.root || (await profileKey(verdict.root)) !== current.key) continue;
+        if (!verdict.verified || !verdict.root || (await profileKey(verdict.root)) !== key) continue;
         if (version.deleted) break; // they took it down
         const name = ((await openBody(version)).body as { name?: unknown } | null)?.name;
         if (typeof name === 'string' && name.trim()) {
@@ -574,19 +608,26 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   const net = deps.network;
   if (net) {
     const room = encodeURIComponent(space.id);
+    const readKey = space.visibility === 'private' && key ? await deriveReadKey(key, provider) : null;
     if (net.relays?.length) {
+      const hashedRoom = await relayRoom(space.id);
       networks.push(
         createNetworkManager({
           did: session.did,
-          signalingUrls: net.relays.map((relay) => `${relay}?room=${room}`),
+          signalingUrls: net.relays.map((relay) => `${relay}?room=${hashedRoom}`),
           ...(net.iceServers ? { iceServers: net.iceServers } : {}),
+          // Every peer met through a relay proves who it is, and in a private space that it may read.
+          auth: createMeshAuth(
+            space.id,
+            session,
+            space.visibility === 'private' ? { key: readKey, publicDid: space.readKey ?? '' } : null,
+            provider,
+          ),
         }),
       );
     }
-    // A private space proves to the node that this side may read it, before anything moves.
-    const authenticator = net.nodes?.length && space.visibility === 'private' && key
-      ? createClientAuth(space.id, await deriveReadKey(key, provider), provider)
-      : null;
+    // Both sides of a socket to a node prove who they are; in a private space the client also proves it may read.
+    const authenticator = net.nodes?.length ? createClientAuth(space.id, session, readKey, provider) : null;
     for (const node of net.nodes ?? []) {
       const url = `${node}${node.includes('?') ? '&' : '?'}space=${room}`;
       networks.push(
@@ -648,7 +689,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     watchTimer = setInterval(() => {
       if (running) return;
       running = true;
-      reconcileFolder(storage, adapter)
+      // The same verdict as for a version from a peer: this space, a valid
+      // signature and delegation, and the collection's rules.
+      reconcileFolder(storage, adapter, async (expression) =>
+        expression.space === space.id && (await judge(expression)).verified && (await ruleVerdict(expression)).ok,
+      )
         .then((result) => {
           if (result.changed) recordsChanged();
         })

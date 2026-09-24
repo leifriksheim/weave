@@ -70,7 +70,11 @@ weave run --port 8787
   reach it with `network: { nodes: ['wss://host/peer'] }` (the example app reads
   `VITE_WEAVE_NODES`). No relay, no TURN.
 - `ws://host:8787?room=<id>` — the signaling relay, so one process bootstraps a space.
-- `GET /health`
+- `GET /health` — `{"ok":true}`, nothing more
+
+It listens on this machine only (`127.0.0.1`). On a server, put it behind
+whatever terminates TLS — browsers need `wss://` anyway — or pass
+`--host 0.0.0.0` to listen on every interface.
 
 It opens every space the account holds and notices new ones within five
 seconds, whoever added them: `weave spaces join` in another terminal, a browser
@@ -99,13 +103,19 @@ whatever the agent writes is synced within seconds.
 
 ## Who gets served
 
-For a **private** space, the client proves it may read before anything moves:
-the node sends a random challenge, and the client signs it with the space's
-read key, which comes from the space key. The node checks that against the
+Every peer first proves the DID it gives is its own: the node sends a random
+challenge, and the client signs it with the key that DID names. So nobody can
+connect under someone else's name and knock them off the node.
+
+For a **private** space, the client also proves it may read before anything
+moves: it signs the same challenge with the space's read key, which comes from
+the space key. The node checks that against the
 public read key the space names, so it needs no secret of the space's to do it.
 The node then signs the client's challenge with its own key, so the client
 knows the welcome comes from the node that sent the challenge. A stranger who
-knows the space id gets a challenge and a closed socket, never the ciphertext.
+knows the space id gets a challenge and a closed socket, never the ciphertext —
+the same answer as for a space the node does not hold, so a web page cannot ask
+your node which spaces you have.
 A **public** space is served to anyone, as its data is public anyway.
 
 Writing is checked separately, record by record: in a shared space every record

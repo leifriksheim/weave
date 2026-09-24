@@ -77,6 +77,8 @@ export interface AccountStore {
 const LIST_FILE = 'accounts.json';
 const ACCOUNTS_DIR = 'accounts';
 const VAULT_FILE = 'account.json';
+/** Where a single-account folder kept its spaces, before there was a list. */
+const LEGACY_DATA_PATH = 'stores';
 
 /** Where a brand new account keeps its spaces. */
 export function accountDataPath(id: string): string {
@@ -89,6 +91,38 @@ export function newAccountId(): string {
     .replace(/[^a-z0-9]/gi, '')
     .toLowerCase()
     .slice(0, 12);
+}
+
+/**
+ * Whether an id has the shape {@link newAccountId} gives one.
+ *
+ * An id names a directory, and `remove` deletes that directory with everything
+ * in it. The list it comes from is a plain file in a folder that may be synced
+ * or shared, so an id is checked before it is trusted with a path.
+ */
+export function isAccountId(id: unknown): id is string {
+  return typeof id === 'string' && /^[a-z0-9]{1,12}$/.test(id);
+}
+
+/**
+ * Whether a row points somewhere this store could have put it.
+ *
+ * `dataPath` is carried, not computed, but there are only two shapes it can
+ * honestly have: an account subtree, or the folder's root store from before
+ * there was a list. Usually the subtree is the row's own — though a row filed
+ * again under a fresh id keeps the one its data already lives in. Anything
+ * else, `../../elsewhere` above all, is someone editing the list to aim an
+ * account at files outside the folder.
+ */
+function isTrustworthy(account: AccountSummary): boolean {
+  if (!isAccountId(account?.id) || typeof account.dataPath !== 'string') return false;
+  if (account.dataPath === LEGACY_DATA_PATH) return true;
+  const [accounts, id, stores, ...more] = account.dataPath.split('/');
+  return accounts === ACCOUNTS_DIR && isAccountId(id) && stores === 'stores' && more.length === 0;
+}
+
+function checkId(id: string): void {
+  if (!isAccountId(id)) throw new TypeError(`Not an account id: ${JSON.stringify(id)}`);
 }
 
 /** Most recently used first, so the picker opens on the likely one. */
@@ -119,7 +153,9 @@ function parseList(bytes: Uint8Array | null): AccountSummary[] {
   if (!bytes) return [];
   try {
     const parsed = JSON.parse(utf8Decode(bytes)) as { accounts?: AccountSummary[] };
-    return Array.isArray(parsed?.accounts) ? parsed.accounts : [];
+    // A row that fails the check is skipped, not repaired: it was not written
+    // by this store, so there is no telling what it was meant to be.
+    return Array.isArray(parsed?.accounts) ? parsed.accounts.filter(isTrustworthy) : [];
   } catch {
     throw protocolError(
       'FOLDER_ACCOUNT_UNREADABLE',
@@ -168,6 +204,7 @@ export function createFolderAccountStore(dir: DirectoryHandleLike): AccountStore
     },
 
     async read(id: string): Promise<AccountVault | null> {
+      if (!isAccountId(id)) return null;
       const home = await accountDir(id, false);
       if (!home) return null;
 
@@ -186,6 +223,9 @@ export function createFolderAccountStore(dir: DirectoryHandleLike): AccountStore
     },
 
     async write(summary: AccountSummary, vault: AccountVault): Promise<void> {
+      if (!isTrustworthy(summary)) {
+        throw new TypeError(`Account ${JSON.stringify(summary.id)} does not have a valid id and data path`);
+      }
       const home = await accountDir(summary.id, true);
       if (!home) throw new Error(`Could not open a home for account ${summary.id}`);
 
@@ -200,6 +240,7 @@ export function createFolderAccountStore(dir: DirectoryHandleLike): AccountStore
     },
 
     async remove(id: string): Promise<void> {
+      checkId(id);
       await writeList((await readList()).filter((account) => account.id !== id));
 
       try {
@@ -301,9 +342,6 @@ export async function createBrowserAccountStore(dbName: string = DB_NAME): Promi
 }
 
 // ─── Folders written before they could hold more than one account ──────
-
-/** Where a single-account folder kept its spaces. */
-const LEGACY_DATA_PATH = 'stores';
 
 /**
  * Finds the account in a folder that predates the list, so it can join it.

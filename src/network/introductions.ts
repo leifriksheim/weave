@@ -20,10 +20,21 @@
 /** Message types reserved for the mesh itself, never handed to the application */
 export const PEERS_MESSAGE = '__peers';
 export const SIGNAL_MESSAGE = '__signal';
+/** The peer handshake (`peer-auth.ts`): a nonce each way, then a proof each way */
+export const AUTH_HELLO_MESSAGE = '__auth-hello';
+export const AUTH_PROOF_MESSAGE = '__auth-proof';
 
 /** Whether a message belongs to the mesh rather than the application above it */
 export function isControlMessage(type: string): boolean {
-  return type === PEERS_MESSAGE || type === SIGNAL_MESSAGE;
+  return type === PEERS_MESSAGE || type === SIGNAL_MESSAGE || type === AUTH_HELLO_MESSAGE || type === AUTH_PROOF_MESSAGE;
+}
+
+/** The most peers one introduction may name — more is someone trying to make us dial the world */
+export const MAX_INTRODUCED = 64;
+
+/** Whether a string could be a peer's name: a did:key of sane length */
+export function isPeerDid(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 256 && /^did:key:z[1-9A-HJ-NP-Za-km-z]+$/.test(value);
 }
 
 /** Somebody else's signaling, travelling over a data channel */

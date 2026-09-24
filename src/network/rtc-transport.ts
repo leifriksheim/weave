@@ -18,6 +18,12 @@ interface PeerConnectionData {
   channel: RTCDataChannel | null;
 }
 
+/** The DTLS certificate fingerprint a session description commits to */
+function fingerprintOf(description: RTCSessionDescription | null): string | null {
+  const match = description?.sdp?.match(/^a=fingerprint:\s*(\S+)\s+(\S+)/im);
+  return match ? `${match[1]!.toLowerCase()} ${match[2]!.toUpperCase()}` : null;
+}
+
 const DEFAULT_ICE_SERVERS: ReadonlyArray<RTCIceServer> = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' }
@@ -189,6 +195,13 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     }
   };
 
+  const binding = (peerId: string) => {
+    const connection = connections.get(peerId)?.connection;
+    const local = fingerprintOf(connection?.localDescription ?? null);
+    const remote = fingerprintOf(connection?.remoteDescription ?? null);
+    return local && remote ? { local, remote } : null;
+  };
+
   return Object.freeze({
     createOffer,
     handleOffer,
@@ -197,6 +210,7 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     send,
     close,
     closeAll,
+    binding,
     on,
     off
   });

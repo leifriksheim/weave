@@ -252,7 +252,7 @@ export {
 export { createWebSocketTransport } from './network/ws-transport.js';
 export type { WebSocketTransportConfig } from './network/ws-transport.js';
 export { isSignalledTransport } from './network/transport.js';
-export { createClientAuth, createServerAuth, peerNonce } from './network/peer-auth.js';
+export { createClientAuth, createServerAuth, createMeshAuth, peerNonce } from './network/peer-auth.js';
 export type { ClientAuth, ServerAuth } from './network/peer-auth.js';
 export type { PeerTransport, PeerTransportEvents, SignalledTransport, CandidateSink } from './network/transport.js';
 export {
@@ -341,6 +341,7 @@ export {
   createNode,
   SESSION_CAPABILITY,
   writeCapability,
+  relayRoom,
   indexedDBStores,
   folderStores,
   copyAccountData,

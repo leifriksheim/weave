@@ -28,11 +28,18 @@ import { concatBytes } from '../utils/encoding.js';
  * folder had a lock, and "try to decrypt, fall back to raw on failure" turns
  * every genuine key mismatch into silently wrong data.
  */
-const MAGIC = new Uint8Array([0x77, 0x65, 0x61, 0x76, 0x65, 0x65, 0x01, 0x00]); // "weavee\x01\x00" — Weave, encrypted, v1
+const MAGIC = new Uint8Array([0x77, 0x65, 0x61, 0x76, 0x65, 0x65, 0x02, 0x00]); // "weavee\x02\x00" — Weave, encrypted, v2
 const IV_BYTES = 12;
 
-/** What gets sealed by default: the space registry, and nothing else. */
-export const DEFAULT_ENCRYPTED_PREFIXES: ReadonlyArray<string> = ['space:', 'spacekey:'];
+/**
+ * What gets sealed by default: the space registry — each space, its key, and
+ * the write secret of a shared one — and nothing else.
+ *
+ * A prefix match, so each must end in its colon: `space:` does not cover
+ * `spacewrite:`, and a write secret left out here is anyone-with-the-folder
+ * writing as you in every shared space.
+ */
+export const DEFAULT_ENCRYPTED_PREFIXES: ReadonlyArray<string> = ['space:', 'spacekey:', 'spacewrite:'];
 
 export interface EncryptedAdapterOptions {
   /** Key prefixes whose values are sealed. Defaults to {@link DEFAULT_ENCRYPTED_PREFIXES}. */
@@ -49,8 +56,10 @@ function isSealed(bytes: Uint8Array): boolean {
  * Wraps a storage adapter so that selected values are encrypted on the way in
  * and decrypted on the way out.
  *
- * Values written before the folder had a lock are returned as they are, so an
- * existing store keeps working and re-seals itself as each entry is rewritten.
+ * Each value is bound to its storage key (it is the AES-GCM additional data),
+ * so sealed values cannot be swapped between entries. A value under a sealed
+ * prefix that was not sealed is refused, not trusted: anyone who can write the
+ * folder could otherwise plant a space, or a key, in the clear.
  *
  * @param inner The adapter doing the actual storing
  * @param key An AES-GCM key, from `deriveVaultKey`
@@ -67,25 +76,25 @@ export function createEncryptedAdapter(
   const shouldSeal = (storageKey: string): boolean =>
     prefixes.some((prefix) => storageKey.startsWith(prefix));
 
-  async function seal(value: Uint8Array): Promise<Uint8Array> {
+  const bound = (storageKey: string) => new TextEncoder().encode(storageKey) as BufferSource;
+
+  async function seal(storageKey: string, value: Uint8Array): Promise<Uint8Array> {
     const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
     const ciphertext = await globalThis.crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv: iv as BufferSource },
+      { name: 'AES-GCM', iv: iv as BufferSource, additionalData: bound(storageKey) },
       key,
       value as BufferSource,
     );
     return concatBytes(MAGIC, iv, new Uint8Array(ciphertext));
   }
 
-  async function unseal(bytes: Uint8Array): Promise<Uint8Array> {
-    // Written before this folder had a lock: hand it back and let the next
-    // write seal it.
-    if (!isSealed(bytes)) return bytes;
+  async function unseal(storageKey: string, bytes: Uint8Array): Promise<Uint8Array> {
+    if (!isSealed(bytes)) throw new Error(`${storageKey} should be sealed, and is not — refusing it`);
 
     const iv = bytes.slice(MAGIC.length, MAGIC.length + IV_BYTES);
     const ciphertext = bytes.slice(MAGIC.length + IV_BYTES);
     const plain = await globalThis.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv as BufferSource },
+      { name: 'AES-GCM', iv: iv as BufferSource, additionalData: bound(storageKey) },
       key,
       ciphertext as BufferSource,
     );
@@ -96,18 +105,18 @@ export function createEncryptedAdapter(
     async get(storageKey: string): Promise<Uint8Array | null> {
       const bytes = await inner.get(storageKey);
       if (!bytes || !shouldSeal(storageKey)) return bytes;
-      return unseal(bytes);
+      return unseal(storageKey, bytes);
     },
 
     async put(storageKey: string, value: Uint8Array): Promise<void> {
-      return inner.put(storageKey, shouldSeal(storageKey) ? await seal(value) : value);
+      return inner.put(storageKey, shouldSeal(storageKey) ? await seal(storageKey, value) : value);
     },
 
     async batch(ops: ReadonlyArray<BatchOp>): Promise<void> {
       const prepared = await Promise.all(
         ops.map(async (op): Promise<BatchOp> =>
           op.type === 'put' && shouldSeal(op.key)
-            ? { type: 'put', key: op.key, value: await seal(op.value) }
+            ? { type: 'put', key: op.key, value: await seal(op.key, op.value) }
             : op,
         ),
       );

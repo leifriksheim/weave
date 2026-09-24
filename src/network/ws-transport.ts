@@ -13,10 +13,9 @@
  * 3. node → `{"type":"welcome","did":…,"sig"?:…}`
  * 4. binary frames either way, passed through untouched.
  *
- * For a private space both signatures are required: the client's proves it
- * may read the space, the node's that the welcome comes from the node that
- * sent the challenge (see `peer-auth.ts`). A public space needs no proof —
- * anyone may read it anyway.
+ * With an authenticator both sides sign: the client proves the DID it gives
+ * is its own — and, for a private space, that it may read — and the node that
+ * the welcome comes from the node that sent the challenge (see `peer-auth.ts`).
  */
 
 import type { PeerTransport, PeerTransportEvents } from './transport.js';
@@ -31,7 +30,7 @@ export interface WebSocketTransportConfig {
   readonly reconnect?: boolean;
   /** Ceiling for the redial backoff. Default 30 s. */
   readonly maxBackoffMs?: number;
-  /** Proves this side may read a private space, and checks the node's welcome. Omit for a public space. */
+  /** Proves who this side is (and that it may read a private space), and checks the node's welcome. */
   readonly authenticator?: ClientAuth | null;
 }
 
@@ -148,8 +147,8 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
           const challenge = parseFrame(event.data, 'challenge');
           if (!challenge || typeof challenge.nonce !== 'string') return refuse('Expected a challenge from the node');
           nodeDid = challenge.did as string;
-          const sig = authenticator ? await authenticator.hello(config.did, nodeDid, challenge.nonce) : undefined;
-          socket.send(JSON.stringify({ type: 'hello', did: config.did, nonce: ourNonce, ...(sig ? { sig } : {}) }));
+          const proof = authenticator ? await authenticator.hello(config.did, nodeDid, challenge.nonce) : {};
+          socket.send(JSON.stringify({ type: 'hello', did: config.did, nonce: ourNonce, ...proof }));
           stage = 'welcome';
           return;
         }

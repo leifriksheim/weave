@@ -16,6 +16,7 @@
 
 import type { StorageProvider } from './storage-provider.js';
 import type { FolderAdapter } from './folder-adapter.js';
+import type { Expression } from '../types.js';
 
 /** What a pass over the folder found */
 export interface FolderReconciliation {
@@ -45,11 +46,16 @@ export interface FolderReconciliation {
  *
  * @param storage The provider whose tree should be brought up to date
  * @param adapter The folder adapter underneath it
+ * @param accept Whether a version found on disk may be placed. Anyone who can
+ *   write the folder can drop a file in it — another site given the folder, a
+ *   sync service — so what turns up there is checked like anything arriving
+ *   from a peer. A version refused now stays on disk and is asked about again.
  * @returns What moved
  */
 export async function reconcileFolder(
   storage: StorageProvider,
   adapter: FolderAdapter,
+  accept: (expression: Expression) => Promise<boolean> = async () => true,
 ): Promise<FolderReconciliation> {
   const disk = await adapter.reload();
   const onDisk = new Set(await adapter.listExpressionIds());
@@ -60,11 +66,15 @@ export async function reconcileFolder(
   // writer reached, so both converge on the same tree.
   const indexed = new Set((await storage.entries()).map((entry) => entry.value));
   const missing = [...onDisk].filter((id) => !indexed.has(id));
+  const placed: string[] = [];
   for (const id of missing) {
     const expression = await adapter.getExpression(id);
     // A file can vanish between the listing and the read — another writer
     // dropping a superseded version. Nothing to add, and the next pass agrees.
-    if (expression) await storage.addExpression(expression);
+    if (expression && (await accept(expression))) {
+      await storage.addExpression(expression);
+      placed.push(id);
+    }
   }
 
   // Entries whose file is gone: another writer superseded and dropped it, and
@@ -74,7 +84,8 @@ export async function reconcileFolder(
     if (!(await adapter.getExpression(id))) await storage.removeExpression(id);
   }
 
-  const repaired = [...missing, ...stale];
+  // A refused file is not a change: it would otherwise redraw every pass.
+  const repaired = [...placed, ...stale];
   return {
     added: disk.added,
     removed: disk.removed,

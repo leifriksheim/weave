@@ -20,6 +20,9 @@ import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { createCryptoGate } from '../src/validation/crypto-gate.js';
 import { createSyncEngine } from '../src/sync/sync-engine.js';
 import type { NetworkMessage, PeerInfo } from '../src/types.js';
+import { createMeshAuth } from '../src/network/peer-auth.js';
+import { generateSpaceKey } from '../src/privacy/space-encryption.js';
+import { deriveReadKey } from '../src/space/space-access.js';
 
 /** Resolves when `predicate` holds, polling; fails the test after `ms`. */
 async function until(predicate: () => boolean, ms = 3000, what = 'condition'): Promise<void> {
@@ -237,5 +240,70 @@ describe('over a signalled transport, through a real relay', () => {
     await until(() => seenC.messages.some((m) => m.payload === 'via the mesh'), 2000, 'message over introduced link');
 
     for (const manager of [a, b, c]) manager.disconnect();
+  });
+
+  describe('every peer proves who it is', () => {
+    const provider = createP256Provider();
+    const identity = async () => {
+      const pair = await provider.generateKeyPair();
+      return { did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC), key: pair.privateKey };
+    };
+    type Read = Parameters<typeof createMeshAuth>[2];
+    const hub = createFakeHub({ latencyMs: 1 });
+    /** A peer in `room`, which signs its proofs with `signWith` — its own key, unless it is lying */
+    const peer = (room: string, who: { did: string; key: CryptoKey }, read: Read = null, signWith = who.key) =>
+      createNetworkManager({
+        did: who.did,
+        signalingUrls: [`${relay}?room=${room}`],
+        createTransport: () => hub.signalled(who.did, room),
+        auth: createMeshAuth('space-1', { did: who.did, key: signWith }, read, provider),
+        authTimeoutMs: 1000,
+      });
+
+    test('two peers who can prove their names meet and talk', async () => {
+      const [alice, bob] = [await identity(), await identity()];
+      const a = peer('proved', alice);
+      const b = peer('proved', bob);
+      const seenB = collect(b);
+      await a.connect();
+      await b.connect();
+      await until(() => seenB.connected.includes(alice.did), 5000, 'Bob to meet Alice');
+      a.send(bob.did, { type: 'hello', from: alice.did, payload: 'proved' });
+      await until(() => seenB.messages.some((m) => m.payload === 'proved'), 2000, 'the message');
+      a.disconnect();
+      b.disconnect();
+    });
+
+    test('a peer using someone else\'s name never becomes a peer', async () => {
+      const [alice, victim, impostor] = [await identity(), await identity(), await identity()];
+      const a = peer('impostor', alice);
+      const liar = peer('impostor', victim, null, impostor.key);
+      const seenA = collect(a);
+      await a.connect();
+      await liar.connect();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      assert.deepEqual(seenA.connected, []);
+      a.disconnect();
+      liar.disconnect();
+    });
+
+    test('in a private space, a peer without its key never becomes a peer', async () => {
+      const key = await generateSpaceKey();
+      const readKey = await deriveReadKey(key, provider);
+      const read: Read = { key: readKey, publicDid: readKey.did };
+      const stranger: Read = { key: await deriveReadKey(await generateSpaceKey(), provider), publicDid: readKey.did };
+      const [alice, bob, eve] = [await identity(), await identity(), await identity()];
+      const a = peer('private', alice, read);
+      const b = peer('private', bob, read);
+      const e = peer('private', eve, stranger);
+      const seenA = collect(a);
+      await a.connect();
+      await e.connect();
+      await b.connect();
+      await until(() => seenA.connected.includes(bob.did), 5000, 'Alice to meet Bob');
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      assert.deepEqual(seenA.connected, [bob.did]);
+      for (const manager of [a, b, e]) manager.disconnect();
+    });
   });
 });

@@ -9,10 +9,15 @@ import { createMultiSignalingClient } from './multi-signaling.js';
 import { createRTCTransport } from './rtc-transport.js';
 import { isSignalledTransport, type PeerTransport, type SignalledTransport } from './transport.js';
 import { createPeerDiscovery } from './peer-discovery.js';
+import { peerNonce, type MeshAuth } from './peer-auth.js';
 import {
   PEERS_MESSAGE,
   SIGNAL_MESSAGE,
+  AUTH_HELLO_MESSAGE,
+  AUTH_PROOF_MESSAGE,
   MAX_HOPS,
+  MAX_INTRODUCED,
+  isPeerDid,
   isControlMessage,
   shouldInitiate,
   createSeenSignals,
@@ -48,6 +53,15 @@ export interface NetworkManagerConfig {
    * which is exactly the behaviour before this option existed.
    */
   readonly createTransport?: () => PeerTransport;
+  /**
+   * Makes every connection prove who is at the other end — and, in a private
+   * space, that they may read it — before it counts as a peer
+   * (`peer-auth.ts`). Without it, a peer is whoever it says it is: fine for a
+   * transport that authenticates on its own, like the socket to a node.
+   */
+  readonly auth?: MeshAuth;
+  /** How long a new connection has to finish the handshake. Default 10 s. */
+  readonly authTimeoutMs?: number;
 }
 
 export type NetworkEvents = {
@@ -203,8 +217,8 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
   const handlePeerList = (peers: unknown): void => {
     if (!rtc || !introduce || !Array.isArray(peers)) return;
 
-    for (const peer of peers) {
-      if (typeof peer !== 'string' || peer === config.did || attempted.has(peer)) continue;
+    for (const peer of peers.slice(0, MAX_INTRODUCED)) {
+      if (!isPeerDid(peer) || peer === config.did || attempted.has(peer)) continue;
 
       // Both sides are told about each other at the same moment, so without a
       // rule both would offer and there would be two half-open connections to
@@ -220,6 +234,9 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
   const handleRelayedSignal = async (rtc: SignalledTransport, signal: RelayedSignal): Promise<void> => {
     const deliver = throughMesh(signal.origin);
 
+    // A connection that has proved itself is not replaced by an offer that has
+    // not: anyone can put someone else's name on one.
+    if (isPeer(signal.origin)) return;
     try {
       if (signal.kind === 'offer') {
         attempted.add(signal.origin);
@@ -243,13 +260,13 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
     });
 
     relay.on('offer', async (msg: SignalingMessage) => {
-      if (!msg.payload || typeof msg.payload !== 'object') return;
+      if (!msg.payload || typeof msg.payload !== 'object' || isPeer(msg.from)) return;
       attempted.add(msg.from);
       await answerTo(rtc, msg.from, msg.payload as RTCSessionDescriptionInit, throughRelay(relay, msg.from));
     });
 
     relay.on('answer', async (msg: SignalingMessage) => {
-      if (!msg.payload || typeof msg.payload !== 'object') return;
+      if (!msg.payload || typeof msg.payload !== 'object' || isPeer(msg.from)) return;
       try {
         await rtc.handleAnswer(msg.from, msg.payload as RTCSessionDescriptionInit);
       } catch (err) {
@@ -258,7 +275,7 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
     });
 
     relay.on('candidate', async (msg: SignalingMessage) => {
-      if (!msg.payload || typeof msg.payload !== 'object') return;
+      if (!msg.payload || typeof msg.payload !== 'object' || isPeer(msg.from)) return;
       try {
         await rtc.addIceCandidate(msg.from, msg.payload as RTCIceCandidateInit);
       } catch (err) {
@@ -268,9 +285,73 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
   };
   if (signaling && rtc) wireRelay(signaling, rtc);
 
+  // ─── Who is at the other end ─────────────────────────────────────────
+  //
+  // With `auth`, a connection is only a peer once it has proved itself; until
+  // then nothing but the handshake crosses it, in either direction.
+
+  interface Handshake {
+    readonly nonce: string;
+    theirNonce: string | null;
+    proved: boolean;
+    verified: boolean;
+    readonly timer: ReturnType<typeof setTimeout>;
+  }
+  const handshakes = new Map<string, Handshake>();
+  const isPeer = (did: string) => discovery.listPeers().some((peer) => peer.did === did);
+
+  const refuse = (peerId: string) => {
+    const handshake = handshakes.get(peerId);
+    if (handshake) clearTimeout(handshake.timer);
+    handshakes.delete(peerId);
+    transport.close(peerId);
+  };
+
+  const handshakeWith = (peerId: string): Handshake => {
+    let handshake = handshakes.get(peerId);
+    if (!handshake) {
+      handshake = {
+        nonce: peerNonce(),
+        theirNonce: null,
+        proved: false,
+        verified: false,
+        timer: setTimeout(() => refuse(peerId), config.authTimeoutMs ?? 10_000),
+      };
+      handshakes.set(peerId, handshake);
+      sendControl(peerId, AUTH_HELLO_MESSAGE, { nonce: handshake.nonce });
+    }
+    return handshake;
+  };
+
+  const onHandshake = async (auth: MeshAuth, peerId: string, type: string, payload: unknown): Promise<void> => {
+    const handshake = handshakeWith(peerId);
+    const binding = transport.binding?.(peerId) ?? null;
+    if (type === AUTH_HELLO_MESSAGE) {
+      const nonce = (payload as { nonce?: unknown } | null)?.nonce;
+      if (typeof nonce !== 'string' || handshake.theirNonce !== null) return;
+      handshake.theirNonce = nonce;
+      sendControl(peerId, AUTH_PROOF_MESSAGE, await auth.prove(peerId, nonce, binding));
+      handshake.proved = true;
+    } else if (!handshake.verified) {
+      if (!(await auth.check(peerId, handshake.nonce, binding, payload))) return refuse(peerId);
+      handshake.verified = true;
+    }
+    if (handshake.proved && handshake.verified && handshakes.get(peerId) === handshake) {
+      clearTimeout(handshake.timer);
+      handshakes.delete(peerId);
+      admit(peerId);
+    }
+  };
+
   // Wire transport -> Discovery & Events
   transport.on('connected', (peerId: string) => {
     attempted.add(peerId);
+    if (config.auth) handshakeWith(peerId);
+    else admit(peerId);
+  });
+
+  /** A connection becomes a peer: announced, and introduced to the others. */
+  const admit = (peerId: string): void => {
     discovery.addPeer({
       did: peerId,
       connectionId: peerId, // using did as connectionId for simplicity
@@ -286,9 +367,12 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
 
     sendControl(peerId, PEERS_MESSAGE, others);
     for (const other of others) sendControl(other, PEERS_MESSAGE, [peerId]);
-  });
+  };
 
   transport.on('disconnected', (peerId: string) => {
+    const handshake = handshakes.get(peerId);
+    if (handshake) clearTimeout(handshake.timer);
+    handshakes.delete(peerId);
     attempted.delete(peerId);
     discovery.removePeer(peerId);
   });
@@ -296,6 +380,14 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
   transport.on('data', (peerId: string, data: Uint8Array) => {
     try {
       const message = JSON.parse(utf8Decode(data)) as NetworkMessage;
+
+      // Before the handshake is done, the handshake is all there is.
+      if (config.auth && !isPeer(peerId)) {
+        if (message.type === AUTH_HELLO_MESSAGE || message.type === AUTH_PROOF_MESSAGE) {
+          void onHandshake(config.auth, peerId, message.type, message.payload).catch(() => refuse(peerId));
+        }
+        return;
+      }
 
       // Mesh housekeeping never reaches the application above. The sender is
       // the connection it arrived on, not whatever the message claims.
@@ -311,15 +403,19 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
         handlePeerList(message.payload);
         return;
       }
+      if (message.type !== SIGNAL_MESSAGE) return;
 
       const signal = message.payload as RelayedSignal;
       // Flooding means the same signal can arrive by several routes; act once.
-      if (typeof signal?.id !== 'string' || !seenSignals.accept(signal.id)) return;
+      if (typeof signal?.id !== 'string' || signal.id.length > 64 || !seenSignals.accept(signal.id)) return;
+      if (!isPeerDid(signal.origin) || !isPeerDid(signal.target) || !['offer', 'answer', 'candidate'].includes(signal.kind)) return;
+      if (!signal.data || typeof signal.data !== 'object') return;
 
       if (signal.target === config.did) {
         void handleRelayedSignal(rtc, signal);
-      } else if (signal.hops > 0) {
-        floodSignal({ ...signal, hops: signal.hops - 1 }, peerId);
+      } else if (typeof signal.hops === 'number' && signal.hops > 0) {
+        // The sender says how far it may go; never further than we would send it.
+        floodSignal({ ...signal, hops: Math.min(signal.hops, MAX_HOPS) - 1 }, peerId);
       }
     } catch (err) {
       emit('error', err instanceof Error ? err : new Error('Failed to parse incoming message'));
@@ -344,6 +440,8 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
   };
 
   const disconnect = (): void => {
+    for (const handshake of handshakes.values()) clearTimeout(handshake.timer);
+    handshakes.clear();
     signaling?.disconnect();
     transport.closeAll();
     attempted.clear();

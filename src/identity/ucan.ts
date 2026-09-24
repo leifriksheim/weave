@@ -73,6 +73,9 @@ export interface DelegateOptions {
   readonly expiration?: number;      // Must be <= parent expiration
 }
 
+/** How far a token's start is set back for clocks that disagree — the allowance peers give a record's date. */
+export const UCAN_CLOCK_SKEW_SECONDS = 300;
+
 /**
  * Creates and signs a UCAN token.
  * 
@@ -85,6 +88,10 @@ export async function issueUCAN(options: IssueUCANOptions, provider: CryptoProvi
   
   const now = Math.floor(Date.now() / 1000);
   const exp = options.expiration ?? (now + 3600);
+  // Records are judged at the time they claim to have been signed, so a token
+  // with no start would let a leaked key write "last year" for as long as the
+  // token lives. Set back by the clock skew peers already allow for.
+  const nbf = options.notBefore ?? now - UCAN_CLOCK_SKEW_SECONDS;
   
   let nnc = options.nonce;
   if (!nnc) {
@@ -97,7 +104,7 @@ export async function issueUCAN(options: IssueUCANOptions, provider: CryptoProvi
     iss: options.issuer.did,
     aud: options.audience,
     exp,
-    nbf: options.notBefore,
+    nbf,
     nnc,
     att: options.capabilities,
     prf: options.proofs ?? [],
@@ -183,11 +190,18 @@ export async function verifyUCAN(encoded: string, provider: CryptoProvider, opti
     
     const now = options.at ?? Math.floor(Date.now() / 1000);
     
+    // Both bounds are required: a token without `exp` would never expire
+    // (`undefined <= now` is false), and one without `nbf` could vouch for
+    // records dated any time before it was issued.
+    if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp) || typeof payload.nbf !== 'number' || !Number.isFinite(payload.nbf)) {
+      return { valid: false, issuer: payload.iss, audience: payload.aud, capabilities: payload.att, reason: 'Token must say when it starts and ends' };
+    }
+
     if (payload.exp <= now) {
       return { valid: false, issuer: payload.iss, audience: payload.aud, capabilities: payload.att, reason: 'Token has expired' };
     }
     
-    if (payload.nbf !== undefined && payload.nbf > now) {
+    if (payload.nbf > now) {
       return { valid: false, issuer: payload.iss, audience: payload.aud, capabilities: payload.att, reason: 'Token not yet valid' };
     }
     

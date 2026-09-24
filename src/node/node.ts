@@ -394,10 +394,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
     async authenticator(spaceId: string) {
       const record = await findRecord(spaceId);
-      if (!record || record.space.visibility !== 'private' || !record.space.readKey) return null;
-      // Readers are checked against the space's public read key; the welcome
-      // is signed by the key this node introduces itself with.
-      return createServerAuth(spaceId, record.space.readKey, sessionKeys.privateKey, provider);
+      if (!record) return null;
+      // Every peer proves its own DID; in a private space, readers are also
+      // checked against the space's public read key. The welcome is signed by
+      // the key this node introduces itself with.
+      const readKey = record.space.visibility === 'private' ? (record.space.readKey ?? '') : null;
+      return createServerAuth(spaceId, readKey, sessionKeys.privateKey, provider);
     },
   });
 

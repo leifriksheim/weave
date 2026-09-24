@@ -38,6 +38,17 @@ export interface NodeAction {
    * the result to anyone.
    */
   readonly sensitive?: boolean;
+  /**
+   * Removes or overwrites something, or brings in someone else's space. A
+   * front end should ask a person before an agent runs it: an agent reads
+   * records other people wrote, and one of them may be telling it what to do.
+   */
+  readonly destructive?: boolean;
+  /**
+   * Returns what other people wrote — record bodies, names, collection
+   * descriptions. Data for an agent to read, never instructions to follow.
+   */
+  readonly peerContent?: boolean;
   readonly run: (node: P2PNode, input: Record<string, unknown>) => Promise<unknown>;
 }
 
@@ -126,6 +137,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     description: 'Join a space from an invite or an invite link, storing it (and its key, if private) on this node.',
     input: { type: 'object', properties: { invite: { type: 'string' } }, required: ['invite'] },
     readOnly: false,
+    destructive: true,
     run: (node, input) => node.spaces.join(str(input, 'invite')),
   },
   {
@@ -133,6 +145,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     description: 'Forget a space on this node, with its key. Other members keep their copies.',
     input: { type: 'object', properties: { space }, required: ['space'] },
     readOnly: false,
+    destructive: true,
     run: async (node, input) => {
       await node.spaces.leave(str(input, 'space'));
       return { left: str(input, 'space') };
@@ -152,6 +165,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'did in "root" and "createdBy" — look the name up here. Only each person can set their own.',
     input: { type: 'object', properties: { space }, required: ['space'] },
     readOnly: true,
+    peerContent: true,
     run: (node, input) => node.spaces.profiles(str(input, 'space')),
   },
   {
@@ -162,6 +176,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'shapes — std.reaction, std.comment, std.tag, std.attachment, std.reference — appear only once a space defines them.',
     input: { type: 'object', properties: { space }, required: ['space'] },
     readOnly: true,
+    peerContent: true,
     run: (node, input) => node.collections.list(str(input, 'space')),
   },
   {
@@ -201,6 +216,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       required: ['space', 'name', 'schema'],
     },
     readOnly: false,
+    destructive: true,
     run: (node, input) =>
       node.collections.define(str(input, 'space'), {
         name: str(input, 'name'),
@@ -227,6 +243,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       required: ['space'],
     },
     readOnly: true,
+    peerContent: true,
     run: (node, input) =>
       node.records.list(str(input, 'space'), {
         ...(typeof input.collection === 'string' ? { collection: input.collection } : {}),
@@ -258,6 +275,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       required: ['space', 'collection'],
     },
     readOnly: true,
+    peerContent: true,
     run: (node, input) => {
       const { space: spaceId, ...query } = input;
       return node.records.query(spaceId as string, query as unknown as Query);
@@ -268,6 +286,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     description: 'Read one record.',
     input: { type: 'object', properties: { space, key }, required: ['space', 'key'] },
     readOnly: true,
+    peerContent: true,
     run: (node, input) => node.records.get(str(input, 'space'), str(input, 'key')),
   },
   {
@@ -277,6 +296,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'each linked to the one before by hash; otherwise only the current and first versions are kept.',
     input: { type: 'object', properties: { space, key }, required: ['space', 'key'] },
     readOnly: true,
+    peerContent: true,
     run: (node, input) => node.records.history(str(input, 'space'), str(input, 'key')),
   },
   {
@@ -313,6 +333,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       required: ['space', 'key'],
     },
     readOnly: true,
+    peerContent: true,
     run: (node, input) =>
       node.records.linked(str(input, 'space'), str(input, 'key'), {
         ...(typeof input.rel === 'string' ? { rel: input.rel } : {}),
@@ -341,6 +362,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       required: ['space', 'key', 'body'],
     },
     readOnly: false,
+    destructive: true,
     run: (node, input) => node.records.update(str(input, 'space'), str(input, 'key'), input.body, linksOf(input)),
   },
   {
@@ -348,6 +370,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     description: 'Delete a record for every member of the space. Anyone who may write in the space may delete in it.',
     input: { type: 'object', properties: { space, key }, required: ['space', 'key'] },
     readOnly: false,
+    destructive: true,
     run: async (node, input) => {
       await node.records.delete(str(input, 'space'), str(input, 'key'));
       return { deleted: str(input, 'key') };

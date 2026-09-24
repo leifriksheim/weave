@@ -52,8 +52,8 @@ function startNode(
     const nonce = peerNonce();
     socket.once('message', async (data, isBinary) => {
       if (isBinary) return;
-      const hello = JSON.parse(String(data)) as { did: string; nonce: string; sig?: string };
-      if (options.authenticator && !(await options.authenticator.checkHello(hello.did, did, nonce, hello.sig))) {
+      const hello = JSON.parse(String(data)) as { did: string; nonce: string; sig?: string; read?: string };
+      if (options.authenticator && !(await options.authenticator.checkHello(hello.did, did, nonce, hello))) {
         refused.push(hello.did);
         socket.close(4003, 'not a reader');
         return;
@@ -154,8 +154,51 @@ describe('WebSocket transport', () => {
     await node.stop();
   });
 
+  describe('a public space', () => {
+    test('a peer proves the DID it gives is its own', async () => {
+      const me = await nodeIdentity();
+      const member = await nodeIdentity();
+      const node = startNode(0, { did: me.did, authenticator: createServerAuth('space-1', null, me.privateKey, provider) });
+      const port = await node.ready;
+      const transport = createWebSocketTransport({
+        url: `ws://127.0.0.1:${port}`,
+        did: member.did,
+        reconnect: false,
+        authenticator: createClientAuth('space-1', { did: member.did, key: member.privateKey }, null, provider),
+      });
+      await transport.connect!();
+      assert.deepEqual(node.greetedBy, [member.did]);
+      transport.closeAll();
+      await node.stop();
+    });
+
+    test('the node refuses a peer that gives someone else\'s DID', async () => {
+      const me = await nodeIdentity();
+      const victim = await nodeIdentity();
+      const impostor = await nodeIdentity();
+      const node = startNode(0, { did: me.did, authenticator: createServerAuth('space-1', null, me.privateKey, provider) });
+      const port = await node.ready;
+      const transport = createWebSocketTransport({
+        url: `ws://127.0.0.1:${port}`,
+        did: victim.did,
+        reconnect: false,
+        // Signs with its own key while claiming the victim's name.
+        authenticator: createClientAuth('space-1', { did: victim.did, key: impostor.privateKey }, null, provider),
+      });
+      await assert.rejects(transport.connect!());
+      assert.deepEqual(node.refused, [victim.did]);
+      await node.stop();
+    });
+  });
+
   describe('a private space', () => {
     /** A node for space-1 that holds only its public read key, as a blind host would */
+    /** A client for space-1: its own identity, and a read key */
+    async function reader(key: Awaited<ReturnType<typeof generateSpaceKey>>, spaceId = 'space-1') {
+      const who = await nodeIdentity();
+      return { did: who.did, auth: createClientAuth(spaceId, { did: who.did, key: who.privateKey }, await deriveReadKey(key, provider), provider) };
+    }
+
     async function privateNode(key: Awaited<ReturnType<typeof generateSpaceKey>>, spaceId = 'space-1') {
       const me = await nodeIdentity();
       const readKey = (await deriveReadKey(key, provider)).did;
@@ -166,11 +209,12 @@ describe('WebSocket transport', () => {
       const key = await generateSpaceKey();
       const { me, node } = await privateNode(key);
       const port = await node.ready;
+      const member = await reader(key);
       const transport = createWebSocketTransport({
         url: `ws://127.0.0.1:${port}`,
-        did: 'did:key:zMember',
+        did: member.did,
         reconnect: false,
-        authenticator: createClientAuth('space-1', await deriveReadKey(key, provider), provider),
+        authenticator: member.auth,
       });
       const seen = watch(transport);
       await transport.connect!();
@@ -182,14 +226,15 @@ describe('WebSocket transport', () => {
     test('the node refuses a client without the key', async () => {
       const { node } = await privateNode(await generateSpaceKey());
       const port = await node.ready;
+      const outsider = await reader(await generateSpaceKey());
       const transport = createWebSocketTransport({
         url: `ws://127.0.0.1:${port}`,
-        did: 'did:key:zOutsider',
+        did: outsider.did,
         reconnect: false,
-        authenticator: createClientAuth('space-1', await deriveReadKey(await generateSpaceKey(), provider), provider),
+        authenticator: outsider.auth,
       });
       await assert.rejects(transport.connect!());
-      assert.deepEqual(node.refused, ['did:key:zOutsider']);
+      assert.deepEqual(node.refused, [outsider.did]);
       await node.stop();
     });
 
@@ -203,11 +248,12 @@ describe('WebSocket transport', () => {
         authenticator: createServerAuth('space-1', (await deriveReadKey(key, provider)).did, other.privateKey, provider),
       });
       const port = await node.ready;
+      const member = await reader(key);
       const transport = createWebSocketTransport({
         url: `ws://127.0.0.1:${port}`,
-        did: 'did:key:zMember',
+        did: member.did,
         reconnect: false,
-        authenticator: createClientAuth('space-1', await deriveReadKey(key, provider), provider),
+        authenticator: member.auth,
       });
       const seen = watch(transport);
       await assert.rejects(transport.connect!(), /could not prove/);
@@ -219,11 +265,12 @@ describe('WebSocket transport', () => {
       const key = await generateSpaceKey();
       const node = startNode(0);
       const port = await node.ready;
+      const member = await reader(key);
       const transport = createWebSocketTransport({
         url: `ws://127.0.0.1:${port}`,
-        did: 'did:key:zMember',
+        did: member.did,
         reconnect: false,
-        authenticator: createClientAuth('space-1', await deriveReadKey(key, provider), provider),
+        authenticator: member.auth,
       });
       await assert.rejects(transport.connect!(), /could not prove/);
       await node.stop();
@@ -234,11 +281,12 @@ describe('WebSocket transport', () => {
       const readKey = await deriveReadKey(key, provider);
       const a = await nodeIdentity();
       const b = await nodeIdentity();
-      const client = createClientAuth('space-1', readKey, provider);
-      const sig = await client.hello('did:key:zX', a.did, 'nonce');
-      assert.equal(await createServerAuth('space-1', readKey.did, a.privateKey, provider).checkHello('did:key:zX', a.did, 'nonce', sig), true);
-      assert.equal(await createServerAuth('space-2', readKey.did, a.privateKey, provider).checkHello('did:key:zX', a.did, 'nonce', sig), false);
-      assert.equal(await createServerAuth('space-1', readKey.did, b.privateKey, provider).checkHello('did:key:zX', b.did, 'nonce', sig), false);
+      const x = await nodeIdentity();
+      const client = createClientAuth('space-1', { did: x.did, key: x.privateKey }, readKey, provider);
+      const proof = await client.hello(x.did, a.did, 'nonce');
+      assert.equal(await createServerAuth('space-1', readKey.did, a.privateKey, provider).checkHello(x.did, a.did, 'nonce', proof), true);
+      assert.equal(await createServerAuth('space-2', readKey.did, a.privateKey, provider).checkHello(x.did, a.did, 'nonce', proof), false);
+      assert.equal(await createServerAuth('space-1', readKey.did, b.privateKey, provider).checkHello(x.did, b.did, 'nonce', proof), false);
     });
   });
 });

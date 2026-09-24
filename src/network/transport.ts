@@ -30,6 +30,11 @@ export interface PeerTransport {
   readonly closeAll: () => void;
   readonly on: <K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]) => void;
   readonly off: <K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]) => void;
+  /**
+   * The certificates of one open connection's two ends, for binding the peer
+   * handshake to it (`peer-auth.ts`). Absent where the connection has none.
+   */
+  readonly binding?: (peerId: string) => { readonly local: string; readonly remote: string } | null;
 }
 
 /** Receives the ICE candidates a connection discovers, to be carried to the other side. */

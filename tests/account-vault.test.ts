@@ -287,16 +287,36 @@ describe('encryption at rest', () => {
     assert.equal(utf8Decode((await adapter.get('bafyexamplenode'))!), 'node bytes');
   });
 
-  test('values written before the folder had a lock still read', async () => {
+  test('a value under a sealed prefix that was not sealed is refused', async () => {
     const inner = createMemoryAdapter();
-    await inner.put('space:legacy', utf8Encode('{"name":"written in the clear"}'));
+    // Planted by someone who can write the folder but does not hold the seed.
+    await inner.put('space:planted', utf8Encode('{"name":"written in the clear"}'));
 
     const adapter = createEncryptedAdapter(inner, await deriveVaultKey(generateSeed()));
-    assert.equal(utf8Decode((await adapter.get('space:legacy'))!), '{"name":"written in the clear"}');
+    await assert.rejects(() => adapter.get('space:planted'));
+  });
 
-    // Rewriting it seals it.
-    await adapter.put('space:legacy', utf8Encode('{"name":"now sealed"}'));
-    assert.ok(!utf8Decode((await inner.get('space:legacy'))!).includes('now sealed'));
+  test('a shared space\'s write secret is sealed too', async () => {
+    const inner = createMemoryAdapter();
+    const spaces = createSpaceManager(createEncryptedAdapter(inner, await deriveVaultKey(generateSeed())));
+    await spaces.create({ name: 'Team', type: 'shared', visibility: 'private', owner: 'did:key:zowner' });
+
+    const entries = await inner.list();
+    const writes = entries.filter((key) => key.startsWith('spacewrite:'));
+    assert.equal(writes.length, 1);
+    // Every registry entry underneath is ciphertext, whatever its prefix.
+    for (const key of entries.filter((key) => key.startsWith('space'))) {
+      const raw = (await inner.get(key))!;
+      assert.deepEqual([...raw.subarray(0, 5)], [...utf8Encode('weave')], `${key} is stored in the clear`);
+    }
+  });
+
+  test('a sealed value moved to another entry does not open', async () => {
+    const inner = createMemoryAdapter();
+    const adapter = createEncryptedAdapter(inner, await deriveVaultKey(generateSeed()));
+    await adapter.put('spacekey:a', utf8Encode('key of a'));
+    await inner.put('spacekey:b', (await inner.get('spacekey:a'))!);
+    await assert.rejects(() => adapter.get('spacekey:b'));
   });
 
   test('a custodian deriving the key as bytes gets the same key', async () => {

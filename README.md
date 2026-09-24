@@ -313,8 +313,14 @@ account, cannot write in it. An invite made with `{ write: false }` leaves the
 write key out: whoever uses it reads the space and changes nothing.
 
 A private space also has a **read key**, derived from the space key, so everyone
-who can read has it. An always-on node checks a connecting reader against its
-public half, before serving any ciphertext, without holding the space key.
+who can read has it. Every connection — to an always-on node, or peer to peer
+through a relay — starts with a handshake before anything else crosses it:
+each side signs a fresh challenge with the key its DID names, so nobody can
+connect under someone else's name, and in a private space with the read key
+too, checked against its public half. A stranger who learns a space's id, or a
+relay that sees its room, gets no ciphertext. A peer-to-peer handshake also
+signs both ends' DTLS fingerprints, so a relay that swapped in its own offer to
+sit in the middle is caught.
 
 A space's **id is the hash of what is fixed at creation**: owner, type,
 visibility, time, a random nonce and both public keys (the name is left out, so
@@ -425,18 +431,25 @@ Browser-to-browser communication via WebRTC.
 | `createMultiSignalingClient()` | Several relays used at once, de-duplicated |
 | `createRTCTransport()` | WebRTC data channel management (the default transport) |
 | `createWebSocketTransport()` | A socket to one always-on node — no relay, no TURN |
-| `createClientAuth()` / `createServerAuth()` | The handshake for a private space: the reader signs with the read key, the node with its own |
+| `createMeshAuth()` | The peer-to-peer handshake: each side proves its DID, and in a private space that it may read |
+| `createClientAuth()` / `createServerAuth()` | The handshake with a node: the client proves its DID (and the read key, if private), the node signs with its own |
 
 #### Signaling relay
 
 `server/signaling-server.mjs` is a dumb relay in a couple hundred lines of
-dependency-free Node: it speaks WebSocket by hand, groups peers by
-`?room=<spaceId>`, and passes join notices and WebRTC offers, answers and
-candidates between them. Expression data never touches it — that flows peer to
-peer — and it cannot read a private space.
+Node on the `ws` library: it groups peers by `?room=`, and passes join notices
+and WebRTC offers, answers and candidates between them. The room is a hash of
+the space's id (`relayRoom`), so the relay cannot tell which space a room is.
+Expression data never touches it — that flows peer to peer — and it cannot
+read a private space.
+
+It is open to anyone, so it keeps to limits: small messages, a cap on
+connections per address and peers per room, a message rate per socket, and one
+`join` per socket, whose DID cannot be claimed twice in a room. Every message
+it forwards carries the sender's DID as it joined, whatever the message says.
 
 ```bash
-npm run signal          # ws://localhost:8787, /health reports rooms and peers
+npm run signal          # ws://localhost:8787; /health says {"ok":true}
 ```
 
 Only peers already in a room hear about a newcomer, so exactly one side creates

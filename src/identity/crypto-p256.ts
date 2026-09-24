@@ -33,7 +33,10 @@ export function createP256Provider(): CryptoProvider {
           name: 'ECDSA',
           namedCurve: 'P-256'
         },
-        true,
+        // Not extractable: a script that gets into the page can sign with the
+        // key while it is there, but cannot carry it off and keep signing.
+        // The public half exports regardless.
+        false,
         ['sign', 'verify']
       );
 
@@ -60,9 +63,9 @@ export function createP256Provider(): CryptoProvider {
 
       const privateKey = await globalThis.crypto.subtle.importKey(
         'jwk',
-        { kty: 'EC', crv: 'P-256', x, y, d, ext: true, key_ops: ['sign'] },
+        { kty: 'EC', crv: 'P-256', x, y, d, ext: false, key_ops: ['sign'] },
         algorithm,
-        true,
+        false,
         ['sign']
       );
 
@@ -130,7 +133,7 @@ export function createP256Provider(): CryptoProvider {
           name: 'ECDSA',
           namedCurve: 'P-256'
         },
-        true,
+        false,
         ['sign']
       );
     }

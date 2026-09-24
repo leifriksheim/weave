@@ -3,6 +3,7 @@ import type { useSession } from '../hooks/useProtocol';
 import type { Session } from '../protocol';
 import { rememberedUntil, setStaySignedIn, staySignedIn, STAY_SIGNED_IN_CHOICES, type StaySignedIn } from '../remember';
 import { styles, palette } from '../styles';
+import { connectDesktopAgents, desktopAgentsEnabled } from '../webmcp';
 
 /**
  * How this device gets into the account: whether it stays signed in, and
@@ -14,6 +15,7 @@ export function SecuritySettings({ auth, session, onBack }: { auth: ReturnType<t
   const [until, setUntil] = useState<Date | null>(rememberedUntil);
   const hasPasskey = (auth.entry?.shortcuts.length ?? 0) > 0;
   const local = session.custody === 'local';
+  const [agents, setAgents] = useState(desktopAgentsEnabled);
 
   const choose = async (choice: StaySignedIn) => {
     setStay(choice);
@@ -78,6 +80,24 @@ export function SecuritySettings({ auth, session, onBack }: { auth: ReturnType<t
           )}
         </Section>
       )}
+
+      <Section
+        title="Desktop agents"
+        description="Let AI apps on this computer — Claude Desktop and others — use your spaces through a local relay. Any program on this computer that listens where the relay does gets the same access, so leave it off unless you use it."
+      >
+        <Row label={agents ? 'Agents on this computer can use your spaces.' : 'Off.'}>
+          <button
+            onClick={() => {
+              connectDesktopAgents(!agents);
+              setAgents(!agents);
+            }}
+            data-variant="quiet"
+            style={styles.smallButton}
+          >
+            {agents ? 'Turn off' : 'Turn on'}
+          </button>
+        </Row>
+      </Section>
 
       <Section title="Sign out of this device" description="Forgets that this device is signed in. Your account and your data stay where they are.">
         <div>
