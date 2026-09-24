@@ -196,10 +196,6 @@ Smaller, and each one on its own:
 - **Leftover password derivation** in the public API (`keys.ts`,
   `identity-manager.fromPassword`) uses 100k PBKDF2 rounds and a fixed salt.
   Nothing calls it. Remove it.
-- **The Snap**, before MetaMask is turned back on:
-  - consent lasts forever, with no way for a site to be forgotten;
-  - consent does not widen with the capabilities asked for;
-  - `importAccount` also switches the selected account.
 - **Account copy** (`node/copy.ts`) stores records without validating them, as
   folder reconcile used to.
 - **Socket to a node over `ws://`.** A client can pin the node's DID in the URL,

@@ -446,7 +446,7 @@ export function Developers() {
                   <code>network</code>: relays to meet peers; an always-on node for availability
                 </li>
                 <li>
-                  <code>signer</code>: a local key, or anything that can sign — a wallet, a hardware key
+                  <code>signer</code>: a local key, or anything that can sign — an account home, a hardware key
                 </li>
               </ul>
             </div>

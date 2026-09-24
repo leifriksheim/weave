@@ -4,9 +4,7 @@ import { Info } from './Info';
 import { Wordmark } from './ChooseStorage';
 import { accountCredentialName } from '../accounts';
 import { offerToSave } from '../credentials';
-import { styles, variants } from '../styles';
-
-const quietButton = variants.quiet;
+import { styles } from '../styles';
 
 /**
  * Making an account.
@@ -23,8 +21,6 @@ export function CreateAccount({
   error,
   onCreate,
   onSaved,
-  walletHere,
-  onWallet,
   onBack,
 }: {
   /** Shown once the account exists, so the manager has something to save */
@@ -34,9 +30,6 @@ export function CreateAccount({
   onCreate: (name: string) => void;
   /** The code has been saved; move on to where the data should live */
   onSaved: () => void;
-  /** Whether a wallet that might hold an identity is installed */
-  walletHere: boolean;
-  onWallet: () => void;
   /** Go to sign-in. Never absent: an account password needs nothing stored. */
   onBack: () => void;
 }) {
@@ -159,25 +152,6 @@ export function CreateAccount({
             has never seen you — and nobody can reissue it.
           </Info>
         </p>
-
-        {/* MetaMask is parked for now.
-        {walletHere && (
-          <section style={{ ...styles.panelSection, marginTop: 20 }}>
-            <p style={styles.sectionTitle}>Or keep your key in MetaMask</p>
-            <p style={styles.errorHint}>
-              An add-on holds your identity in the wallet, so no app needs your password.
-              <Info label="How the wallet holds an account">
-                MetaMask runs it inside the extension rather than inside a website, so it answers on
-                any app — including ones that have never seen you — and follows your recovery phrase
-                onto new devices. Your key never reaches this page: apps ask it to sign a note that
-                expires in an hour.
-              </Info>
-            </p>
-            <button onClick={onWallet} disabled={loading} data-variant="quiet" style={quietButton}>
-              {loading ? 'Waiting for MetaMask…' : 'Continue with MetaMask'}
-            </button>
-          </section>
-        )} */}
 
         {error && (
           <div style={styles.errorBox}>

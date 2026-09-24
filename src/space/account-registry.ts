@@ -56,7 +56,7 @@ async function expand(accountKey: Uint8Array, info: string): Promise<Uint8Array>
 
 /**
  * The account's registry space, derived — the same on every device.
- * @param accountKey The account's vault key bytes (`deriveVaultKeyBytes(seed)`, or a Snap's `getVaultKey`)
+ * @param accountKey The account's vault key bytes (`deriveVaultKeyBytes(seed)`)
  * @param owner The account's DID
  */
 export async function deriveAccountRegistry(

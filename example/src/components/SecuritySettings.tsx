@@ -14,7 +14,6 @@ export function SecuritySettings({ auth, session, onBack }: { auth: ReturnType<t
   const [stay, setStay] = useState<StaySignedIn>(staySignedIn);
   const [until, setUntil] = useState<Date | null>(rememberedUntil);
   const hasPasskey = (auth.entry?.shortcuts.length ?? 0) > 0;
-  const local = session.custody === 'local';
   const [agents, setAgents] = useState(desktopAgentsEnabled);
 
   const choose = async (choice: StaySignedIn) => {
@@ -60,26 +59,24 @@ export function SecuritySettings({ auth, session, onBack }: { auth: ReturnType<t
         </p>
       </Section>
 
-      {local && (
-        <Section
-          title="Passkey"
-          description="Unlock with Touch ID, Windows Hello or your password manager instead of typing your account password. Only for this app, on this device."
-        >
-          {hasPasskey ? (
-            <Row label="A passkey unlocks this account here.">
-              <button onClick={() => void auth.removeShortcut('passkey')} disabled={auth.loading} data-variant="quiet" style={{ ...styles.smallButton, color: palette.accent.danger }}>
-                Remove
-              </button>
-            </Row>
-          ) : (
-            <Row label="No passkey on this device.">
-              <button onClick={() => void auth.addPasskey()} disabled={auth.loading} data-variant="primary" style={{ ...styles.smallButton, background: '#000', color: '#fff', borderColor: '#000' }}>
-                {auth.loading ? 'Waiting…' : 'Set up a passkey'}
-              </button>
-            </Row>
-          )}
-        </Section>
-      )}
+      <Section
+        title="Passkey"
+        description="Unlock with Touch ID, Windows Hello or your password manager instead of typing your account password. Only for this app, on this device."
+      >
+        {hasPasskey ? (
+          <Row label="A passkey unlocks this account here.">
+            <button onClick={() => void auth.removeShortcut('passkey')} disabled={auth.loading} data-variant="quiet" style={{ ...styles.smallButton, color: palette.accent.danger }}>
+              Remove
+            </button>
+          </Row>
+        ) : (
+          <Row label="No passkey on this device.">
+            <button onClick={() => void auth.addPasskey()} disabled={auth.loading} data-variant="primary" style={{ ...styles.smallButton, background: '#000', color: '#fff', borderColor: '#000' }}>
+              {auth.loading ? 'Waiting…' : 'Set up a passkey'}
+            </button>
+          </Row>
+        )}
+      </Section>
 
       <Section
         title="Desktop agents"

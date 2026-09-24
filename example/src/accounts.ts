@@ -64,15 +64,6 @@ import {
   type Session,
   type SessionSource,
 } from './protocol';
-import {
-  connectSnap,
-  snapSource,
-  importIntoSnap,
-  listSnapAccounts,
-  selectSnapAccount,
-  walletPresent,
-  type SnapAccount,
-} from './snap';
 import { storesFor } from './storage-backend';
 import { forgetRemembered, recallSeed, rememberSeed } from './remember';
 
@@ -707,10 +698,7 @@ export async function forgetBrowserCopy(account: AccountSummary): Promise<void> 
   );
 }
 
-// ─── The wallet ────────────────────────────────────────────────────────
-
-/** Names the custodian in an account summary. */
-export const SNAP_CUSTODIAN = 'metamask-snap';
+// ─── Names ─────────────────────────────────────────────────────────────
 
 /**
  * What a password manager should file the account password under.
@@ -732,74 +720,6 @@ export function accountCredentialName(name: string): string {
  */
 export function deviceCredentialName(name: string): string {
   return `${name} (this device)`;
-}
-
-/** Whether a wallet that might hold an identity is present. */
-export const walletAvailable = walletPresent;
-
-/**
- * Signs in with the identity Snap.
- *
- * The one way in that needs nothing stored and no handoff: the Snap lives in
- * the extension rather than in this origin, so it answers on a domain that has
- * never seen this account. The seed stays inside it — this page gets a
- * delegation and never the key.
- *
- * @param home Where this account's data should live
- * @param did Which of the wallet's accounts to act as. Omitted, whichever it
- *   is already acting as — which is only ever the right answer when it holds
- *   one, so a picker should say which.
- * @returns The session
- */
-export async function signInWithSnap(home: Home, did?: string): Promise<Session> {
-  await connectSnap();
-
-  // Tell the wallet which account before asking who it is, or it answers with
-  // whichever it was last acting as and signs you in as someone else.
-  const account: SnapAccount = did ? await selectSnapAccount(did) : await connectSnap();
-
-  const known = (await listAccounts(home)).find((entry) => entry.did === account.did);
-  const summary: AccountSummary =
-    known ??
-    (() => {
-      const id = newAccountId();
-      return {
-        id,
-        // A placeholder until the user says otherwise — which the account
-        // menu lets them do, because nobody wants to be called this.
-        name: 'My account',
-        did: account.did,
-        createdAt: new Date().toISOString(),
-        dataPath: accountDataPath(id),
-        custodian: SNAP_CUSTODIAN,
-      };
-    })();
-
-  if (!known) {
-    // No wraps: there is nothing here to unlock, and nothing here worth
-    // stealing. The wallet is the way in.
-    await home.store.write(summary, createVault({ did: account.did, label: summary.name, wraps: [] }));
-  }
-
-  const used: AccountSummary = {
-    ...summary,
-    custodian: SNAP_CUSTODIAN,
-    lastUsedAt: new Date().toISOString(),
-  };
-
-  try {
-    const vault = await home.store.read(summary.id);
-    if (vault) await home.store.write(used, vault);
-  } catch {
-    // The order the picker opens in is not worth failing a sign-in over.
-  }
-
-  rememberLastAccount(used.id);
-  return startSession(
-    used,
-    await snapSource(account),
-    home.directory ? { directory: home.directory } : undefined,
-  );
 }
 
 /**
@@ -847,59 +767,11 @@ export async function adoptAccountName(home: Home, session: Session, name: strin
 }
 
 /**
- * Hands the open account to the wallet, so it works on apps that have never
- * seen it.
+ * The open account's password.
  *
- * The seed goes to the Snap, not to any page — and MetaMask confirms, naming
- * the identity it would hold. Afterwards the account is portable: a domain with
- * nothing stored can still open it.
+ * Only for handing back to a password manager — nothing else should need it.
  *
- * @param home Where the account lives
- * @param session The open session
- * @param seed Its seed, which this app is holding
- * @returns The summary, now marked as held by the wallet
- */
-export async function linkAccountToSnap(
-  home: Home,
-  session: Session,
-  seed: Uint8Array,
-): Promise<AccountSummary> {
-  await connectSnap();
-  const held = await importIntoSnap(seedToRecoveryCode(seed));
-
-  if (held.did !== session.account.did) {
-    throw protocolError(
-      'VAULT_UNLOCK_FAILED',
-      'The wallet ended up holding a different account than this one.',
-    );
-  }
-
-  const linked: AccountSummary = { ...session.account, custodian: SNAP_CUSTODIAN };
-  const vault = await home.store.read(session.account.id);
-  if (vault) await home.store.write(linked, vault);
-
-  return linked;
-}
-
-/**
- * Every account the wallet holds, for offering a choice.
- * @returns What it holds, or an empty list when there is no wallet or no Snap
- */
-export async function walletAccounts(): Promise<ReadonlyArray<SnapAccount>> {
-  try {
-    return (await listSnapAccounts()).accounts;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * The open account's password, when this page is the one holding the seed.
- *
- * Only for handing back to a password manager — nothing else should need it,
- * and a wallet-held account returns null because the seed is not here to give.
- *
- * @returns The account password, or null
+ * @returns The account password, or null before sign-in
  */
 export function openAccountPassword(): string | null {
   const seed = getSessionSeed();

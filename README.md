@@ -103,7 +103,7 @@ const manager = createIdentityManager();
 const me = await manager.fromRecoveryCode(code);
 
 const node = await createNode({
-  signer: createLocalRootSigner(me, manager.getProvider()), // or a Snap, or anything that signs
+  signer: createLocalRootSigner(me, manager.getProvider()), // or anything that signs
   stores: indexedDBStores('my-app'),                       // or folderStores(directory, …)
   network: { relays: ['wss://relay.example'] },
 });
@@ -635,9 +635,9 @@ export interface RootSigner {
 }
 ```
 
-`createLocalRootSigner` signs in the page, for a seed unlocked here. A MetaMask
-Snap implements the same interface and signs inside the extension, so the seed
-never crosses into the page — see `snap/`. Nothing downstream changes either
+`createLocalRootSigner` signs in the page, for a seed unlocked here. Anything
+else that holds the key can implement the same interface and sign where it is,
+so the seed never crosses into the page. Nothing downstream changes either
 way, because DIDs, expressions, validation and sync never see the root key
 under any arrangement.
 
@@ -784,8 +784,7 @@ one with a friend via an invite link. Everyone in a space is shown by the name
 they gave. Every record is signed by a delegated session key, stored in that
 space's MST, encrypted first if the space is private, and gossiped to peers over
 WebRTC; a record says *verified* once its signature and its delegation chain
-check out here, and *encrypted* when it arrived encrypted. (Sign-in through the
-MetaMask Snap in `snap/` is parked for now.)
+check out here, and *encrypted* when it arrived encrypted.
 
 **Derived UI.** Open a space and its kinds of things are down the side — its
 catalogue. Each one is a list you can search and add to in one line, or a

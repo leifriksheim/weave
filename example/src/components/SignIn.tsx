@@ -7,9 +7,8 @@ import { Avatar } from './Avatar';
 import { Wordmark } from './ChooseStorage';
 import { Info } from './Info';
 import { offScreen } from '../credentials';
-import { styles, variants } from '../styles';
+import { styles } from '../styles';
 
-const quiet = variants.quiet;
 
 /**
  * Choosing an account, and getting into it.
@@ -34,8 +33,6 @@ export function SignIn({
   onWithCode,
   onWithPassword,
   onWithPasskey,
-  walletHere,
-  onWithWallet,
   onCreate,
   onChangeFolder,
   onUseBrowser,
@@ -51,9 +48,6 @@ export function SignIn({
   onWithCode: (code: string) => void;
   onWithPassword: (password: string) => void;
   onWithPasskey: () => void;
-  walletHere: boolean;
-  /** @param did Which of the wallet's accounts to act as, when one is known */
-  onWithWallet: (did?: string) => void;
   onCreate: () => void;
   onChangeFolder: () => void;
   onUseBrowser: () => void;
@@ -174,26 +168,12 @@ export function SignIn({
 
               {isSelected && entry && (
                 <div style={{ marginTop: 10 }}>
-                  {/* MetaMask is parked for now.
-                  {account.custodian && !showCode && (
-                    <button
-                      onClick={() => onWithWallet(account.did)}
-                      disabled={loading}
-                      style={styles.button}
-                    >
-                      {loading ? 'Waiting for MetaMask…' : 'Unlock with MetaMask'}
-                    </button>
-                  )} */}
-
                   {entry.shortcuts.length > 0 && !showCode && (
                     <button
                       onClick={onWithPasskey}
                       disabled={loading}
-                      data-variant={account.custodian ? 'quiet' : 'primary'}
-                      style={{
-                        ...(account.custodian ? quiet : styles.button),
-                        ...(account.custodian ? { marginTop: 8 } : {}),
-                      }}
+                      data-variant="primary"
+                      style={styles.button}
                     >
                       {loading ? 'Waiting…' : 'Unlock with passkey'}
                     </button>
@@ -233,7 +213,7 @@ export function SignIn({
                   )}
 
                   {(showCode ||
-                    (entry.shortcuts.length === 0 && !entry.hasPassword && !account.custodian)) && (
+                    (entry.shortcuts.length === 0 && !entry.hasPassword)) && (
                     <>
                       {entry.shortcuts.length === 0 && !entry.hasPassword && (
                         <p style={styles.errorHint}>
@@ -249,7 +229,7 @@ export function SignIn({
                     </>
                   )}
 
-                  {!showCode && (entry.shortcuts.length > 0 || entry.hasPassword || account.custodian) && (
+                  {!showCode && (entry.shortcuts.length > 0 || entry.hasPassword) && (
                     <div style={styles.linkRow}>
                       <button
                         onClick={() => {
@@ -300,15 +280,6 @@ export function SignIn({
             {error.hint && <p style={styles.errorHint}>{error.hint}</p>}
           </div>
         )}
-
-        {/* MetaMask is parked for now.
-        {walletHere && (
-          <div style={styles.linkRow}>
-            <button onClick={() => onWithWallet()} disabled={loading} data-variant="ghost" style={styles.linkButton}>
-              Use MetaMask
-            </button>
-          </div>
-        )} */}
 
         <div style={styles.linkRow}>
           <button onClick={onCreate} disabled={loading} data-variant="ghost" style={styles.linkButton}>

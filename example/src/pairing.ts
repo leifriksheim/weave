@@ -52,11 +52,6 @@ export type PairingStage =
   | { readonly kind: 'received'; readonly spaces: number }
   | { readonly kind: 'failed'; readonly reason: string };
 
-/** Whether this session can be handed to a phone at all. */
-export function canPairPhone(): boolean {
-  return getSessionSeed() !== null;
-}
-
 /** A pairing offer the desktop is currently making */
 export interface PairingOffer {
   /** The link the QR code encodes */

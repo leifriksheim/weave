@@ -275,13 +275,13 @@ export async function unwrapSeedWithPassphrase(
  * The vault key as raw bytes.
  *
  * {@link deriveVaultKey} returns a key that cannot be exported, which is right
- * for a page — it should not be able to leak what it was given. A custodian
- * holding the seed elsewhere has to hand the key across somehow, so it derives
- * the bytes directly rather than the protocol relaxing that for everyone.
+ * for a page — it should not be able to leak what it was given. A node derives
+ * the account registry from the key, so it is handed the bytes directly
+ * rather than the protocol relaxing that for everyone.
  *
  * Identical material to `deriveVaultKey`: same input, same info, same length.
- * If those ever drift, a Snap and a page would encrypt the same folder
- * differently and neither could read the other.
+ * If those ever drift, the registry and the folder would be sealed under two
+ * different keys.
  *
  * @param seed The account seed
  * @returns 32 bytes, ready to import as AES-GCM

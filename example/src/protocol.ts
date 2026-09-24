@@ -9,8 +9,8 @@
  * generates a throwaway keypair in memory, and the identity signs one permission
  * note saying that key may write on its behalf for the next hour. Everything
  * after that is signed by the session key. So unlocking happens once, not once
- * per write — which is what makes a wallet, a passkey or a password prompt
- * tolerable as a way in.
+ * per write — which is what makes a passkey or a password prompt tolerable as a
+ * way in.
  *
  * All of that is the node's job now (`createNode`): the session key, the
  * hourly renewal, the spaces and their sync. What stays here is which account
@@ -37,14 +37,7 @@ import {
 import { storesFor } from './storage-backend';
 import { CONFIGURED_NODES, relayUrls } from './relay';
 
-/**
- * Where a session's root key is, and what it can do for us.
- *
- * The seed is present when this page unlocked it, and absent when something
- * else holds it — a Snap, an extension. Everything that needs the seed rather
- * than a signature has to cope with `null`, which is the point: it makes the
- * places that reach for the raw key obvious.
- */
+/** A session's root key, and what it can do for us. */
 export interface SessionSource {
   readonly rootDid: string;
   readonly signer: RootSigner;
@@ -55,8 +48,8 @@ export interface SessionSource {
    * lists joined on one device appear on the others. Null keeps lists local.
    */
   readonly accountKey: Uint8Array | null;
-  /** The seed, when this page is the one holding it */
-  readonly seed: Uint8Array | null;
+  /** The seed, unlocked in this page */
+  readonly seed: Uint8Array;
 }
 
 /**
@@ -80,8 +73,6 @@ export async function localSource(seed: Uint8Array): Promise<SessionSource> {
 /** An open account: who it is, and the node doing its work */
 export interface Session {
   readonly rootDid: string;
-  /** Whether the root key is in this tab or somewhere that will not hand it over */
-  readonly custody: 'local' | 'remote';
   readonly account: AccountSummary;
   /** The session key's DID — what peers see */
   readonly sessionDid: string;
@@ -91,34 +82,21 @@ export interface Session {
 let _session: Session | null = null;
 
 /**
- * The seed behind the current session, when this page holds it.
+ * What produced the current session, seed included.
  *
- * Kept in memory so a second way in can be added later — "also unlock with
+ * Kept in memory so a session can be restarted — moving an account into a
+ * folder, say — and so a second way in can be added later: "also unlock with
  * Touch ID here" means encrypting this same seed under a new key. It is never
  * written anywhere, and it goes when the tab does.
- *
- * Null when something else has custody. A Snap will sign for you but will not
- * hand the seed over, so anything that wants the raw bytes has to ask it and
- * accept being refused.
- */
-let _seed: Uint8Array | null = null;
-
-/**
- * What produced the current session.
- *
- * Kept so a session can be restarted — moving an account into a folder, say —
- * without knowing how it was unlocked. Reaching for the seed instead only works
- * for accounts this page holds the key to, which is exactly the coupling that
- * broke wallet accounts.
  */
 let _source: SessionSource | null = null;
 
 /** The seed behind this session, or null before sign-in. */
 export function getSessionSeed(): Uint8Array | null {
-  return _seed;
+  return _source?.seed ?? null;
 }
 
-/** What unlocked this session, whoever holds the key. */
+/** What unlocked this session. */
 export function getSessionSource(): SessionSource | null {
   return _source;
 }
@@ -138,7 +116,6 @@ export function requireSession(): Session {
 export function endSession(): void {
   void _session?.node.close();
   _session = null;
-  _seed = null;
   _source = null;
 }
 
@@ -166,11 +143,9 @@ export async function startSession(
     network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
   });
 
-  _seed = source.seed;
   _source = source;
   _session = Object.freeze({
     rootDid: source.rootDid,
-    custody: source.signer.custody,
     account,
     sessionDid: node.sessionDid,
     node,

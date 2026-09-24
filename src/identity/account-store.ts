@@ -46,14 +46,6 @@ export interface AccountSummary {
    */
   readonly dataPath: string;
   readonly lastUsedAt?: string;
-  /**
-   * Who holds this account's key, when it is not this app.
-   *
-   * An account kept in a wallet or an extension has no wraps here to unlock —
-   * the custodian is asked to sign instead. Recording it means the picker can
-   * offer the right way in rather than demanding a code it will never need.
-   */
-  readonly custodian?: string;
 }
 
 export interface AccountStore {

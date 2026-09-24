@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import {
   offerToPhone,
-  canPairPhone,
   servedOverLan,
   relayProblem,
   relayOnlyLocal,
@@ -67,24 +66,6 @@ export function PairPhone() {
     setQr(null);
     setStage(null);
   };
-
-  if (!canPairPhone()) {
-    return (
-      <details style={styles.panel}>
-        <summary data-variant="ghost" style={styles.panelSummary}>Add your phone</summary>
-        <div style={styles.panelBody}>
-          <p style={styles.errorHint}>
-            This sign-in has nothing to hand over.
-            <Info label="Why not">
-              Handing an account to a phone means handing over its password, and this session does
-              not hold one — a wallet will sign for you but will not give the key up. Sign in with
-              your account password and this will work.
-            </Info>
-          </p>
-        </div>
-      </details>
-    );
-  }
 
   return (
     <details style={styles.panel}>

@@ -36,8 +36,7 @@ export interface NodeConfig {
   /** Who this node acts for. The root key only ever signs session delegations. */
   readonly signer: RootSigner;
   /**
-   * The account's vault key bytes (`deriveVaultKeyBytes(seed)`, or a Snap's
-   * `getVaultKey`). With it, the node keeps the account's space list in the
+   * The account's vault key bytes (`deriveVaultKeyBytes(seed)`). With it, the node keeps the account's space list in the
    * account registry space: spaces joined on any device or node of the account
    * are joined here too, and leaving one leaves it everywhere. Without it,
    * spaces are this node's alone.

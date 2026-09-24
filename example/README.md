@@ -50,53 +50,11 @@ last is expanded already.
 The list of names and DIDs is readable without unlocking anything — you cannot
 offer a choice without knowing what to call it. The keys are not.
 
-### Or keep the key in MetaMask
-
-> **Parked for now.** The sign-in buttons are commented out; the Snap and its
-> code stay in the repo.
-
-With MetaMask installed, **Continue with MetaMask** offers a fourth way in: a
-Snap that holds the identity inside the extension. Because a Snap is not scoped
-to an origin, it answers on a domain that has never seen this account — no code
-to paste, no folder to pick. And it follows your recovery phrase onto new
-devices, so a new laptop is signed in as soon as the wallet is restored.
-
-The page never sees the key. It generates a session key as always and asks the
-Snap to sign a note for it; MetaMask shows what the site is asking for the first
-time, and the note expires in an hour whatever the site requested.
-
-It is offered, never forced. A wallet-derived account cannot be rotated, so
-opting someone in silently would be a decision they could not undo — and the
-account still has a password, which still opens it without the wallet.
-
-The Snap is not published to npm, and does not need to be. To try it:
-
-```bash
-cd snap && npm run dev                                    # serves on :8080
-VITE_SNAP_ID=local:http://localhost:8080 npm run dev      # in example/
-```
-
-This needs [MetaMask Flask](https://metamask.io/flask/). Release MetaMask only
-installs Snaps on MetaMask's allowlist — being correctly published to npm is not
-enough, and there is no setting that changes it. Flask installs any Snap,
-including the published one:
-
-```
-npm:weave-identity-snap
-```
-
-With both MetaMask and Flask installed they overwrite each other's
-`window.ethereum`, so the app picks between them with EIP-6963 and prefers Flask
-when the Snap id is `local:`.
-
-See `snap/README.md`, including what has not been verified.
-
-### The three ways in
+### The two ways in
 
 | | Works where | For |
 |---|---|---|
 | Account password | Anywhere, including a domain that has never seen you | The real credential |
-| MetaMask Snap | Anywhere, and onto new devices with your recovery phrase | Never pasting anything |
 | A passkey | This browser only | Not reaching for the password every time |
 
 The second is a shortcut holding the same seed encrypted another way. Adding one

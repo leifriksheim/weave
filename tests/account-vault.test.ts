@@ -319,10 +319,10 @@ describe('encryption at rest', () => {
     await assert.rejects(() => adapter.get('spacekey:b'));
   });
 
-  test('a custodian deriving the key as bytes gets the same key', async () => {
-    // A Snap holds the seed and hands the page a key; the page derives its own
-    // when it holds the seed itself. If these two ever drift, a folder written
-    // through one is unreadable through the other.
+  test('the vault key as bytes is the same key', async () => {
+    // A node is handed the bytes; the folder is sealed with the CryptoKey. If
+    // these two ever drift, a folder written through one is unreadable through
+    // the other.
     const seed = generateSeed();
     const inner = createMemoryAdapter();
 

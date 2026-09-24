@@ -11,7 +11,7 @@
  * **The root key signs once.** Starting a node generates a session key and asks
  * the root signer for a note saying that key may write for the next hour. The
  * note is renewed before it runs out. Every record is signed by the session
- * key, so the root — a seed in this page, a Snap, whatever holds it — is asked
+ * key, so the root — a seed in this page, an account home, whatever holds it — is asked
  * for one signature an hour, never one per write.
  */
 import { runQuery } from '../query/engine.js';

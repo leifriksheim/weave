@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "dev:snap": "VITE_SNAP_ID=local:http://localhost:8080 vite"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@mcp-b/webmcp-polyfill": "^4.0.0",

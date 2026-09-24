@@ -55,8 +55,6 @@ export function App() {
         error={auth.error}
         onCreate={auth.create}
         onSaved={auth.codeSaved}
-        walletHere={auth.walletHere}
-        onWallet={auth.withWallet}
         // Always available. An account password works with nothing stored —
         // that is the whole reason it is the credential — so a browser with
         // cleared storage must never be a dead end.
@@ -115,8 +113,6 @@ export function App() {
         onWithCode={auth.withCode}
         onWithPassword={auth.withPassword}
         onWithPasskey={auth.withPasskey}
-        walletHere={auth.walletHere}
-        onWithWallet={auth.withWallet}
         onCreate={auth.startCreating}
         onChangeFolder={auth.chooseFolder}
         onUseBrowser={auth.useBrowserAccounts}

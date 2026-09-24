@@ -12,9 +12,8 @@ import { styles, palette } from '../styles';
  * few things you can do to the account, and the way out.
  *
  * Deliberately small: passkeys and staying signed in are on the Security
- * page. The passkey diagnostics and the MetaMask hand-off (parked) used to
- * live here; they belong somewhere a person goes on
- * purpose, not in the menu they open to sign out.
+ * page. The passkey diagnostics used to live here; they belong somewhere a
+ * person goes on purpose, not in the menu they open to sign out.
  */
 export function AccountMenu({ auth, session, onSecurity }: { auth: ReturnType<typeof useSession>; session: Session; onSecurity: () => void }) {
   const [open, setOpen] = useState(false);
@@ -150,7 +149,7 @@ export function AccountMenu({ auth, session, onSecurity }: { auth: ReturnType<ty
                 setOpen(false);
                 onSecurity();
               }}
-              hint={session.custody === 'local' && !hasPasskeyHere ? 'Passkey, stay signed in' : undefined}
+              hint={!hasPasskeyHere ? 'Passkey, stay signed in' : undefined}
             >
               Security
             </Item>

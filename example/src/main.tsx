@@ -1,7 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { injectBaseStyles } from './styles';
-import { discoverWallets } from './snap';
 import { exposeToAgents, desktopAgentsEnabled, connectDesktopAgents } from './webmcp';
 import { Landing, Developers } from './site/Site';
 
@@ -20,10 +19,6 @@ const page = carriesAppLink ? 'app' : path === '/' ? 'landing' : path === '/deve
 injectBaseStyles();
 
 if (page === 'app') {
-  // Wallets announce themselves once, on request — so ask before anything has a
-  // chance to look for one.
-  discoverWallets();
-
   // The node's operations as WebMCP tools, from the start — agents and
   // extensions read the list on load. They act for whoever signs in.
   exposeToAgents();

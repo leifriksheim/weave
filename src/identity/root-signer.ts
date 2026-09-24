@@ -8,8 +8,8 @@
  * it is the only thing that has to be abstracted for the key to live somewhere
  * other than the page.
  *
- * Somewhere else means a MetaMask Snap, or an extension, or anything that will
- * hold a secret and answer questions about it. The page asks for a delegation
+ * Somewhere else means an account home in another window, or anything that
+ * will hold a secret and answer questions about it. The page asks for a delegation
  * and gets back a token; the seed never crosses the boundary.
  *
  * Everything downstream — DIDs, expressions, validation, sync — is unchanged by
@@ -25,8 +25,8 @@ export interface RootSigner {
   /** The identity being acted for */
   readonly did: string;
   /**
-   * Where the key lives. Worth showing: "your key is in MetaMask" and "your key
-   * is in this tab" are different promises to make to someone.
+   * Where the key lives. Worth showing: "your key is in your account home" and
+   * "your key is in this tab" are different promises to make to someone.
    */
   readonly custody: 'local' | 'remote';
   /**

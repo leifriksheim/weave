@@ -16,13 +16,10 @@ import {
   signInWithCode,
   signInWithPassword,
   signInWithPasskey,
-  signInWithSnap,
   resumeSession,
-  walletAvailable,
   addPasskeyHere,
   removeShortcut,
   renameAccount,
-  linkAccountToSnap,
   bringAccountToFolder,
   forgetBrowserCopy,
   adoptAccountName,
@@ -111,11 +108,6 @@ export function useSession() {
   const [pairingStage, setPairingStage] = useState<PairingStage | null>(null);
 
   const folderAvailable = folderStorageAvailable();
-  // MetaMask sign-in is parked for now; the Snap and its code stay in place.
-  // const walletHere = walletAvailable();
-  const walletHere = false;
-  void walletAvailable;
-
   /** Re-reads the accounts in a home and picks one to expand. */
   const refresh = useCallback(async (next: Home): Promise<ReadonlyArray<AccountSummary>> => {
     const listed = await listAccountsIn(next);
@@ -204,34 +196,6 @@ export function useSession() {
     if (home && entry) void run(() => signInWithPasskey(home, entry));
   }, [home, entry, run]);
 
-  /**
-   * Connects the wallet's Snap, installing it if this is the first time.
-   *
-   * A wallet account that is new here still has to be told where its lists
-   * live, the same as one created by hand — it was skipping that and silently
-   * landing in browser storage.
-   */
-  const withWallet = useCallback((did?: string) => {
-    if (!home) return;
-
-    setLoading(true);
-    setError(null);
-    void (async () => {
-      try {
-        const before = (await listAccountsIn(home)).length;
-        const started = await signInWithSnap(home, did);
-        setSession(started);
-
-        void before;
-        setStage('ready');
-      } catch (e) {
-        setError(describeAuthError(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [home]);
-
   /** Renames the open account. */
   const rename = useCallback(
     async (name: string): Promise<boolean> => {
@@ -249,26 +213,6 @@ export function useSession() {
     },
     [home, session],
   );
-
-  /** Hands the open account to the wallet, making it portable. */
-  const linkToWallet = useCallback(async (): Promise<boolean> => {
-    const seed = getSessionSeed();
-    if (!home || !session || !seed) return false;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const linked = await linkAccountToSnap(home, session, seed);
-      setSession({ ...session, account: linked });
-      setAccounts(await listAccountsIn(home));
-      return true;
-    } catch (e) {
-      setError(describeAuthError(e));
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [home, session]);
 
   // ─── Making one ──────────────────────────────────────────────────────
 
@@ -468,14 +412,7 @@ export function useSession() {
   const changeShortcut = useCallback(
     async (apply: (seed: Uint8Array) => Promise<void>): Promise<boolean> => {
       const seed = getSessionSeed();
-      if (!home || !session) return false;
-      if (!seed) {
-        setError({
-          message: 'This account\u2019s key is held in your wallet.',
-          hint: 'Shortcuts are stored beside the key, so they are managed where the key lives.',
-        });
-        return false;
-      }
+      if (!home || !session || !seed) return false;
 
       setLoading(true);
       setError(null);
@@ -553,7 +490,6 @@ export function useSession() {
     stage,
     freshCode,
     folderAvailable,
-    walletHere,
     loading,
     error,
     pairing,
@@ -562,7 +498,6 @@ export function useSession() {
     withCode,
     withPassword,
     withPasskey,
-    withWallet,
     create,
     codeSaved,
     chooseFolder,
@@ -581,7 +516,6 @@ export function useSession() {
     addPasskey,
     removeShortcut: removeShortcutHere,
     rename,
-    linkToWallet,
     leave,
     acceptPairing,
     dismissPairing,
