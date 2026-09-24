@@ -25,7 +25,7 @@
 import { createP256Provider } from '../identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
 import { cidFromBytes } from '../utils/hash.js';
-import { utf8Encode } from '../utils/encoding.js';
+import { base64UrlDecode, utf8Encode } from '../utils/encoding.js';
 import { verifyUCAN, parseUCAN, type Capability, type UCANToken } from '../identity/ucan.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import { createNode } from '../node/node.js';
@@ -48,6 +48,13 @@ export interface ConnectRequest {
   readonly name?: string;
   /** `write` to change the spaces it is given, `read` only to look */
   readonly access: 'read' | 'write';
+  /**
+   * `spaces` (the default): only the spaces the person picks, and any made for
+   * the app. `account`: every space, the account's space list, and making and
+   * joining spaces itself — for an app that is a view onto the whole account.
+   * Either way the app never gets the seed.
+   */
+  readonly scope?: 'spaces' | 'account';
   /** Spaces the home should make for the app, and give it */
   readonly create?: ReadonlyArray<NewSpace>;
   /** Whether to offer the person's existing spaces to pick from. Default true. */
@@ -72,7 +79,15 @@ export interface Grant {
   /** The signed note: the account → the app's key, for these spaces, until `expiresAt` */
   readonly token: string;
   readonly access: 'read' | 'write';
+  readonly scope: 'spaces' | 'account';
   readonly spaces: ReadonlyArray<GrantedSpace>;
+  /**
+   * With `account` scope: the key the account's space list is derived from
+   * (base64url), so the app sees every space and adds the ones it makes or
+   * joins. It opens every private space in the account — which is what whole
+   * account access means — but it cannot sign as the account.
+   */
+  readonly accountKey?: string;
   /** Unix seconds */
   readonly expiresAt: number;
   /** The home that granted it, so the app can go back there */
@@ -80,8 +95,9 @@ export interface Grant {
 }
 
 /** The capabilities a grant carries, for these spaces */
-export function grantCapabilities(access: 'read' | 'write', spaceIds: ReadonlyArray<string>): Capability[] {
-  return spaceIds.map((id) => ({ with: `space:${id}`, can: access === 'write' ? 'expression/*' : 'expression/read' }));
+export function grantCapabilities(access: 'read' | 'write', spaceIds: ReadonlyArray<string> | 'all'): Capability[] {
+  const can = access === 'write' ? 'expression/*' : 'expression/read';
+  return spaceIds === 'all' ? [{ with: '*', can }] : spaceIds.map((id) => ({ with: `space:${id}`, can }));
 }
 
 // ─── The app's side ──────────────────────────────────────────────────
@@ -237,6 +253,7 @@ export async function startConnectedNode(params: {
     signer: grantSigner(params.grant),
     sessionKey: key.keys,
     stores: params.stores ?? indexedDBStores(`weave-app:${params.grant.did}`),
+    ...(params.grant.accountKey ? { accountKey: base64UrlDecode(params.grant.accountKey) } : {}),
     ...(params.network ? { network: params.network } : {}),
   });
   const held = new Set((await node.spaces.list()).map((space) => space.id));
@@ -326,6 +343,7 @@ function isRequest(value: unknown): value is ConnectRequest {
     request.v === 1 &&
     typeof request.audience === 'string' &&
     request.audience.startsWith('did:key:') &&
-    (request.access === 'read' || request.access === 'write')
+    (request.access === 'read' || request.access === 'write') &&
+    (request.scope === undefined || request.scope === 'spaces' || request.scope === 'account')
   );
 }

@@ -218,23 +218,41 @@ An app connected to an account home passes its node instead:
 
 An app does not have to sign anyone in at all. It can ask an **account home** —
 a page, at an address the person chose, that holds their account — for access,
-and never see the seed:
+and never see the seed. `home/` is one, ready to deploy as your own:
 
-```typescript
-import { connectToHome, startConnectedNode, grantStore } from 'weave-protocol/session';
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/leifriksheim/weave&base=home)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/leifriksheim/weave&root-directory=home)
 
-// From a click: browsers only allow popups a person asked for.
-const grant = await connectToHome({
-  home: 'https://weave.example/connect',
+An app connects with `createWeaveConnection` — the twin of `createWeaveAuth`,
+for apps:
+
+```tsx
+import { createWeaveConnection } from 'weave-protocol/session';
+import { WeaveProvider, useConnection } from 'weave-protocol/react';
+
+const connection = createWeaveConnection({
+  home: 'https://weave-home.netlify.app/connect',
   request: {
     name: 'Todo',
-    access: 'write',                                                   // or 'read'
+    access: 'write',                                                      // or 'read'
+    scope: 'spaces',                                                      // or 'account': every space
     create: [{ name: 'Todos', type: 'personal', visibility: 'private' }], // made by the home, in the account
   },
+  network: { relays },
 });
-grantStore().save(grant);                                              // for the next visit
-const node = await startConnectedNode({ grant, network: { relays } });
+
+<WeaveProvider connection={connection}><App /></WeaveProvider>;
+
+function App() {
+  const { connection, state } = useConnection();
+  if (state.status !== 'ready') return <button onClick={() => connection.connect()}>Connect with Weave</button>;
+  return <Todos />;   // useNode(), useQuery(…) — the same hooks as anywhere
+}
 ```
+
+It remembers the grant between visits, starts the node from it, and says
+`expired` when the note runs out; connecting again renews it. Underneath are
+`connectToHome`, `startConnectedNode` and `grantStore`, for apps without React.
 
 1. The app makes its own key, kept in its own site's storage and never
    exportable (`appKey()`).
@@ -254,8 +272,14 @@ key can read all of it, and that key does not change yet. Spaces an app wants
 for itself are created by the home, as part of the approval, so they land in
 the account's list on every device.
 
-The home side is `receiveConnectRequest()` and `auth.grant(…)`; the example's
-`/connect` page is a home, and its Security page lists connected apps.
+An app that is a view onto *everything* — like the example — asks for
+`scope: 'account'`: a note for every space, plus the key the account's space
+list is derived from, so it sees every space and can make and join them. It
+still never holds the seed: it cannot sign in anywhere as the account, change
+its password or passkeys, or keep access past the note's date.
+
+The home side is `receiveConnectRequest()` and `auth.grant(…)`; see
+[home/README.md](home/README.md).
 
 ## Modules
 
@@ -871,14 +895,19 @@ the protocol straight from `src/`. It knows no kinds of data in advance: every
 screen is worked out from what a space says about itself (see *Derived UI* below):
 
 ```bash
-npm install && (cd example && npm install) && (cd cli && npm install)
+npm install && (cd example && npm install) && (cd home && npm install) && (cd cli && npm install)
 npm run dev
 ```
 
-That starts two things: the example app, and an always-on node on port 8787
-that is also the relay. The node gets a throwaway identity on first run
-(`cli/.env.dev`, data in `.weave-dev/`), and `example/.env.development` points
-the app at it. Override either in a `.env.local`.
+That starts three things: the example app on 5173, the account home it
+connects to on 5174, and an always-on node on port 8787 that is also the relay.
+The node gets a throwaway identity on first run (`cli/.env.dev`, data in
+`.weave-dev/`), and `example/.env.development` points the app at the other two.
+Override either in a `.env.local`.
+
+The example never signs anyone in: "Connect with Weave" opens the home, where
+you make an account or sign in, and allow the example your whole account. Its
+avatar menu opens the home for account settings.
 
 To give the node a space, create an invite link in the app and:
 
@@ -891,12 +920,12 @@ Close every browser holding the space, open the link somewhere else, and the
 records come from the node. Or make the node your own account's — see
 [cli/README.md](cli/README.md) — and it serves every space you make, unasked.
 
-It exercises the stack end to end: choose where your data lives (a pod, or
-this browser), create an account (a password your password manager keeps) or
-sign in to one, stay signed in on this device for as long as the Security page
-says, add a passkey, move to a pod or between pods (combining or not), pair a
-phone by QR code, make private, public, personal and shared spaces, and share
-one with a friend via an invite link. Everyone in a space is shown by the name
+Between them they exercise the stack end to end. At the home: choose where
+your data lives (a pod, or this browser), create an account (a password your
+password manager keeps) or sign in to one, stay signed in, add a passkey, move
+between pods, pair a phone by QR code, and see which apps you connected. In the
+example: make private, public, personal and shared spaces, and share one with a
+friend via an invite link. Everyone in a space is shown by the name
 they gave. Every record is signed by a delegated session key, stored in that
 space's MST, encrypted first if the space is private, and gossiped to peers over
 WebRTC; a record says *verified* once its signature and its delegation chain

@@ -20,6 +20,8 @@ export type {
   Connection,
   GrantChoice,
 } from './auth.js';
+export { createWeaveConnection } from './connection.js';
+export type { WeaveConnection, WeaveConnectionConfig, ConnectionState, ConnectionStatus } from './connection.js';
 export {
   connectToHome,
   receiveConnectRequest,

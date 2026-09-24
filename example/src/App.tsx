@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { SpaceSummary } from 'weave-protocol';
-import { WeaveAuth, useSpaces, useWeave } from 'weave-protocol/react';
+import { useConnection, useSpaces } from 'weave-protocol/react';
 import { AccountMenu } from './components/AccountMenu';
-import { AccountNotices } from './components/AccountNotices';
+import { ConnectScreen } from './components/ConnectScreen';
+import { RelayNotice } from './components/RelayNotice';
 import { HowItWorks } from './components/HowItWorks';
 import { InviteBanner } from './components/InviteBanner';
-import { PairPhone } from './components/PairPhone';
-import { SecuritySettings } from './components/SecuritySettings';
 import { SpaceList } from './components/SpaceList';
 import { SpaceRail, RAIL_WIDTH } from './components/SpaceRail';
 import { SpaceView } from './components/SpaceView';
@@ -15,33 +14,22 @@ import { inviteFrom } from './spaces';
 import { styles } from './styles';
 
 /**
- * The app: sign in, then your spaces.
+ * The app: connect to your account home, then your spaces.
  *
- * Sign-in is the protocol's `<WeaveAuth>` — where the data lives, which
- * account, a passkey or the account password. Once someone is in, every
- * component below asks the `WeaveProvider` (main.tsx) for what it needs.
+ * This app never signs anyone in. "Connect with Weave" opens the account home
+ * in a popup; the person approves there, and the home hands this app a signed
+ * note for its own key. Every component below asks the `WeaveProvider`
+ * (main.tsx) for what it needs.
  */
 export function App() {
-  const { state } = useWeave();
-
-  if (state?.stage !== 'ready') {
-    return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <WeaveAuth />
-        </div>
-      </div>
-    );
-  }
-
-  return <Workspace />;
+  const { state } = useConnection();
+  return state.status === 'ready' ? <Workspace /> : <ConnectScreen />;
 }
 
-/** Signed in: the list of spaces, one space opened, or the security page. */
+/** Connected: the list of spaces, or one space opened. */
 function Workspace() {
   const { spaces, loading, error, create, join, leave } = useSpaces();
   const [open, setOpen] = useState<SpaceSummary | null>(null);
-  const [page, setPage] = useState<'spaces' | 'security'>('spaces');
   const joinLink = (link: string) => join(inviteFrom(link));
 
   // Keep the opened space in step with the list, so a join that adds a
@@ -51,7 +39,7 @@ function Workspace() {
     if (fresh && fresh.members.length !== open.members.length) setOpen(fresh);
   }, [spaces, open]);
 
-  const inSpace = open !== null && page === 'spaces';
+  const inSpace = open !== null;
 
   return (
     <div style={inSpace ? { ...styles.container, paddingLeft: RAIL_WIDTH + 20 } : styles.container}>
@@ -72,17 +60,15 @@ function Workspace() {
           </div>
         )}
         <InviteBanner onJoin={(link) => joinLink(link).then((space) => (space && setOpen(space), space))} />
-        <AccountNotices />
+        <RelayNotice />
 
-        {page === 'security' ? (
-          <SecuritySettings onBack={() => setPage('spaces')} />
-        ) : open ? (
+        {open ? (
           <SpaceView key={open.id} space={open} />
         ) : (
           <>
             <header style={styles.headerRow}>
               <Wordmark compact />
-              <AccountMenu onSecurity={() => setPage('security')} />
+              <AccountMenu />
             </header>
             <h1 style={{ ...styles.appTitle, marginBottom: 20 }}>Spaces</h1>
             <SpaceList
@@ -94,7 +80,6 @@ function Workspace() {
               onJoin={(link) => void joinLink(link)}
               onRemove={(id) => void leave(id)}
             />
-            <PairPhone />
             <HowItWorks />
           </>
         )}

@@ -146,6 +146,31 @@ describe('connecting an app to an account home', () => {
     await assert.rejects(() => viewer.records.put(shared.id, 'app.note', { text: 'hi' }));
   });
 
+  test('whole-account access: the app sees every space, and a space it makes lands in the account', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node: homeNode } = auth.getState().session!;
+    const diary = await homeNode.spaces.create({ name: 'Diary', type: 'personal', visibility: 'private' });
+    const key = await appKey();
+    const grant = await auth.grant({
+      origin: 'https://browser.test',
+      request: { v: 1, audience: key.did, access: 'write', scope: 'account' },
+      spaceIds: [],
+    });
+    assert.equal(grant.scope, 'account');
+    assert.ok(grant.accountKey);
+    assert.deepEqual(parseUCAN(grant.token).payload.att, [{ with: '*', can: 'expression/*' }]);
+
+    const browser = await app(hub, grant, key);
+    await until(async () => (await browser.spaces.list()).some((space) => space.id === diary.id), 3000, 'the account list to reach the app');
+    await browser.records.put(diary.id, 'app.note', { text: 'dear diary' });
+
+    const made = await browser.spaces.create({ name: 'Made by the app', type: 'personal', visibility: 'private' });
+    await browser.records.put(made.id, 'app.note', { text: 'mine' });
+    await until(async () => (await homeNode.spaces.list()).some((space) => space.id === made.id), 3000, 'the new space to reach the home');
+    assert.equal(auth.connections()[0]?.scope, 'account');
+  });
+
   test('disconnecting forgets the app', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);

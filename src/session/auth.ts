@@ -40,6 +40,7 @@ import { registerPasskey, authenticatePasskey, hasPlatformAuthenticator, renameP
 import { generateSeed, seedToRecoveryCode, recoveryCodeToSeed, isValidRecoveryCode } from '../identity/recovery-code.js';
 import type { PairingTicket } from '../identity/pairing.js';
 import { isFolderStorageAvailable } from '../storage/directory-access.js';
+import { base64UrlEncode } from '../utils/encoding.js';
 import { createNode } from '../node/node.js';
 import { copyAccountData } from '../node/copy.js';
 import type { StoreFactory } from '../node/stores.js';
@@ -154,6 +155,8 @@ export interface Connection {
   /** The app's key */
   readonly audience: string;
   readonly access: 'read' | 'write';
+  /** `account` when the app was given the whole account, not chosen spaces */
+  readonly scope: 'spaces' | 'account';
   readonly spaces: ReadonlyArray<{ readonly id: string; readonly name: string }>;
   readonly grantedAt: string;
   /** Unix seconds */
@@ -912,6 +915,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const { node } = session;
       const { request } = choice;
 
+      const whole = request.scope === 'account';
       const created = [];
       for (const params of request.create ?? []) created.push(await node.spaces.create(params));
       const ids = [...new Set([...choice.spaceIds, ...created.map((space) => space.id)])];
@@ -929,7 +933,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const root = createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider());
       const token = await root.delegate({
         audience: request.audience,
-        capabilities: grantCapabilities(request.access, ids),
+        capabilities: grantCapabilities(request.access, whole ? 'all' : ids),
         expiration: expiresAt,
       });
 
@@ -938,13 +942,24 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         name: request.name?.slice(0, 80) ?? null,
         audience: request.audience,
         access: request.access,
+        scope: whole ? 'account' : 'spaces',
         spaces: spaces.map(({ id, name }) => ({ id, name })),
         grantedAt: new Date().toISOString(),
         expiresAt,
       };
       writeConnections([connection, ...auth.connections().filter((known) => known.origin !== choice.origin)]);
 
-      return { v: 1, did: session.did, name: session.account.name, token: token.encoded, access: request.access, spaces, expiresAt };
+      return {
+        v: 1,
+        did: session.did,
+        name: session.account.name,
+        token: token.encoded,
+        access: request.access,
+        scope: whole ? 'account' : 'spaces',
+        spaces,
+        ...(whole ? { accountKey: base64UrlEncode(await deriveVaultKeyBytes(seed)) } : {}),
+        expiresAt,
+      };
     },
 
     connections() {

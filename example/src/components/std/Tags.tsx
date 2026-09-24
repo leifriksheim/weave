@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNode, useSession } from 'weave-protocol/react';
+import { useNode, useAccount } from 'weave-protocol/react';
 import type { NodeRecord, SpaceSummary } from 'weave-protocol';
 import { tag } from 'weave-protocol/schemas';
 import { palette } from '../../styles';
@@ -14,7 +14,7 @@ export const labelOf = (r: NodeRecord) => (r.body as { label?: string } | null)?
  */
 export function Tags({ space, target, tags }: { space: SpaceSummary; target: string; tags: ReadonlyArray<NodeRecord> }) {
   const node = useNode();
-  const { did: rootDid } = useSession();
+  const { did: rootDid } = useAccount();
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
   const labels = new Set(tags.map(labelOf));

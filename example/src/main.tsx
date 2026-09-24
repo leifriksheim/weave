@@ -3,21 +3,18 @@ import { App } from './App';
 import { injectBaseStyles } from './styles';
 import { exposeToAgents, desktopAgentsEnabled, connectDesktopAgents } from './webmcp';
 import { Landing, Developers } from './site/Site';
-import { ConnectPage } from './components/ConnectPage';
 import { WeaveProvider } from 'weave-protocol/react';
-import { auth } from './weave';
+import { connection } from './weave';
 
 /**
- * Four pages for now: the landing page for people (`/`), the one for
- * developers (`/developers`), the app (`/app`), and the account home's
- * connect page (`/connect`), which other apps open in a popup. A link made before the app
+ * Three pages: the landing page for people (`/`), the one for developers
+ * (`/developers`), and the app (`/app`). A link made before the app
  * moved — an invite, or a phone-pairing code, both in the fragment — still
  * opens the app wherever it lands.
  */
 const path = globalThis.location.pathname.replace(/\/+$/, '') || '/';
-const carriesAppLink = /[#&](invite|pair)=/.test(globalThis.location.hash);
-const page =
-  path === '/connect' ? 'connect' : carriesAppLink ? 'app' : path === '/' ? 'landing' : path === '/developers' ? 'developers' : 'app';
+const carriesAppLink = /[#&]invite=/.test(globalThis.location.hash);
+const page = carriesAppLink ? 'app' : path === '/' ? 'landing' : path === '/developers' ? 'developers' : 'app';
 
 // Hover, focus and placeholder states, plus the page background — the things
 // inline styles cannot express.
@@ -42,7 +39,9 @@ createRoot(root).render(
   ) : page === 'developers' ? (
     <Developers />
   ) : (
-    // Every component in the app and the account home asks this for Weave.
-    <WeaveProvider auth={auth}>{page === 'connect' ? <ConnectPage /> : <App />}</WeaveProvider>
+    // Every component in the app asks this for Weave.
+    <WeaveProvider connection={connection}>
+      <App />
+    </WeaveProvider>
   ),
 );

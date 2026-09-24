@@ -1,27 +1,22 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { offerToSave } from 'weave-protocol/session';
-import { useAuth, useSession } from 'weave-protocol/react';
-
+import { useAccount, useConnection } from 'weave-protocol/react';
 import { Avatar } from './Avatar';
-import { styles, palette } from '../styles';
+import { connectDesktopAgents, desktopAgentsEnabled } from '../webmcp';
+import { palette } from '../styles';
 
 /**
- * The avatar in the corner, and a short menu hanging off it: who you are, a
- * few things you can do to the account, and the way out.
+ * The avatar in the corner: who this app acts for, and a short menu.
  *
- * Deliberately small: passkeys and staying signed in are on the Security
- * page. The passkey diagnostics used to live here; they belong somewhere a
- * person goes on purpose, not in the menu they open to sign out.
+ * Everything about the account itself — its name, passkeys, staying signed
+ * in, connected apps — lives in the account home, so "Account settings" opens
+ * it. This app only knows how to disconnect itself.
  */
-export function AccountMenu({ onSecurity }: { onSecurity: () => void }) {
-  const { auth, state } = useAuth();
-  const session = useSession();
+export function AccountMenu() {
+  const account = useAccount();
+  const { connection } = useConnection();
   const [open, setOpen] = useState(false);
-  const [renaming, setRenaming] = useState(false);
-  const [name, setName] = useState(session.account.name);
   const [copied, setCopied] = useState(false);
-  // The name a password manager still files this account under, after a rename.
-  const [staleAs, setStaleAs] = useState<string | null>(null);
+  const [agents, setAgents] = useState(desktopAgentsEnabled);
   const root = useRef<HTMLDivElement>(null);
 
   // A menu that stays open after you have clicked past it feels stuck.
@@ -41,19 +36,9 @@ export function AccountMenu({ onSecurity }: { onSecurity: () => void }) {
     };
   }, [open]);
 
-  useEffect(() => setName(session.account.name), [session.account.name]);
-
-  const home = state.place;
-  const hasPasskeyHere = (state.entry?.shortcuts.length ?? 0) > 0;
-  const did = session.did;
-
-  const rename = () => {
-    const was = session.account.name;
-    void auth.rename(name).then((ok) => {
-      if (!ok) return;
-      setRenaming(false);
-      if (was !== name.trim() && auth.accountPassword()) setStaleAs(was);
-    });
+  const openHome = () => {
+    setOpen(false);
+    globalThis.open(new URL('/', connection.home).href, 'weave-home', 'popup,width=720,height=820');
   };
 
   return (
@@ -76,100 +61,56 @@ export function AccountMenu({ onSecurity }: { onSecurity: () => void }) {
           fontWeight: 500,
         }}
       >
-        <Avatar did={did} size={28} />
-        <span>{session.account.name}</span>
+        <Avatar did={account.did} size={28} />
+        <span>{account.name}</span>
       </button>
 
       {open && (
         <div role="menu" style={menu}>
-          {/* Who */}
           <div style={{ padding: '14px 14px 12px', display: 'flex', gap: 10, alignItems: 'center' }}>
-            <Avatar did={did} size={36} />
+            <Avatar did={account.did} size={36} />
             <div style={{ minWidth: 0, flex: 1 }}>
-              {renaming ? (
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    rename();
-                  }}
-                  style={{ display: 'flex', gap: 6 }}
-                >
-                  <input
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    aria-label="Account name"
-                    autoFocus
-                    style={{ ...styles.input, height: 30, fontSize: 13, padding: '0 8px' }}
-                  />
-                  <button type="submit" data-variant="primary" disabled={!name.trim()} style={{ ...styles.smallButton, height: 30, background: '#000', color: '#fff', borderColor: '#000' }}>
-                    Save
-                  </button>
-                </form>
-              ) : (
-                <div style={{ fontWeight: 600, fontSize: 14, color: palette.ink.strong, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {session.account.name}
-                </div>
-              )}
+              <div style={{ fontWeight: 600, fontSize: 14, color: palette.ink.strong, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {account.name}
+              </div>
               <button
                 onClick={() => {
-                  void globalThis.navigator.clipboard?.writeText(did).then(() => {
+                  void globalThis.navigator.clipboard?.writeText(account.did).then(() => {
                     setCopied(true);
                     globalThis.setTimeout(() => setCopied(false), 1500);
                   });
                 }}
-                title={`${did} — click to copy`}
+                title={`${account.did} — click to copy`}
                 style={{ border: 'none', background: 'none', padding: 0, marginTop: 2, fontFamily: palette.mono, fontSize: 11.5, color: palette.ink.faint }}
               >
-                {copied ? 'Copied' : `${did.slice(8, 16)}…${did.slice(-6)}`}
+                {copied ? 'Copied' : `${account.did.slice(8, 16)}…${account.did.slice(-6)}`}
               </button>
             </div>
           </div>
 
-          {staleAs && (
-            <div style={{ ...notice, margin: '0 10px 10px' }}>
-              Your password manager still files this account as <strong>{staleAs}</strong>.{' '}
-              <button
-                onClick={() => {
-                  const password = auth.accountPassword();
-                  if (password) void offerToSave(session.account.name, password, session.account.name).then(() => setStaleAs(null));
-                }}
-                style={inlineLink}
-              >
-                Save it under the new name
-              </button>
-            </div>
-          )}
-
           <Divider />
 
           <div style={{ padding: 6 }}>
-            <Item onClick={() => setRenaming((was) => !was)}>{renaming ? 'Cancel rename' : 'Rename'}</Item>
-            <Item
-              onClick={() => {
-                setOpen(false);
-                onSecurity();
-              }}
-              hint={!hasPasskeyHere ? 'Passkey, stay signed in' : undefined}
-            >
-              Security
+            <Item onClick={openHome} hint={new URL(connection.home).host}>
+              Account settings
             </Item>
             <Item
               onClick={() => {
-                // Closed first: what follows is a folder picker, then a dialog.
-                setOpen(false);
-                void auth.choosePod();
+                connectDesktopAgents(!agents);
+                setAgents(!agents);
               }}
-              disabled={state.busy}
-              hint={home?.kind === 'folder' ? `Pod · ${home.directory?.name ?? 'folder'}` : 'Stored in this browser'}
+              hint={agents ? 'On' : 'Off'}
             >
-              {home?.kind === 'folder' ? 'Change pod' : 'Move to a pod'}
+              Desktop agents
             </Item>
           </div>
 
           <Divider />
 
           <div style={{ padding: 6 }}>
-            <Item onClick={() => void auth.signOut()}>Sign out</Item>
+            <Item onClick={() => void connection.disconnect()} hint="Your account is untouched">
+              Disconnect this app
+            </Item>
           </div>
         </div>
       )}
@@ -219,23 +160,4 @@ const item = {
   color: palette.ink.body,
   fontSize: 14,
   textAlign: 'left' as const,
-};
-
-const notice = {
-  padding: '10px 12px',
-  borderRadius: 8,
-  background: palette.surface.sunken,
-  border: `1px solid ${palette.surface.line}`,
-  fontSize: 12.5,
-  lineHeight: 1.5,
-  color: palette.ink.muted,
-};
-
-const inlineLink = {
-  border: 'none',
-  background: 'none',
-  padding: 0,
-  color: palette.ink.strong,
-  textDecoration: 'underline',
-  fontSize: 12.5,
 };

@@ -1,15 +1,16 @@
 /**
- * `npm run dev`: the always-on node and the example app, together.
+ * `npm run dev`: the always-on node, the account home and the example app.
  *
  * The node runs with the throwaway identity in cli/.env.dev (created on first
- * run) and serves the relay and /peer on port 8787, which is where
- * example/.env.development points the app. Ctrl-C stops both.
+ * run) and serves the relay and /peer on port 8787. The home runs on 5174 and
+ * the example on 5173; example/.env.development points the example at both.
+ * Ctrl-C stops all three.
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const colour = { node: '\x1b[35m', app: '\x1b[36m', reset: '\x1b[0m' };
+const colour = { node: '\x1b[35m', home: '\x1b[33m', app: '\x1b[36m', reset: '\x1b[0m' };
 
 function start(name, command, args, cwd) {
   const child = spawn(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
@@ -34,6 +35,7 @@ function start(name, command, args, cwd) {
 
 const children = [
   start('node', process.execPath, ['--env-file=cli/.env.dev', '--import', 'tsx', 'cli/src/main.ts', 'run', '--create'], root),
+  start('home', 'npm', ['run', 'dev'], `${root}home`),
   start('app', 'npm', ['run', 'dev'], `${root}example`),
 ];
 

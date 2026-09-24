@@ -6,8 +6,7 @@ import { Wordmark } from './Wordmark';
 import { styles, palette } from '../styles';
 
 /**
- * This site as an account home: another app opened it in a popup to ask for
- * access to the account.
+ * An app opened this in a popup to ask for access to the account.
  *
  * Sign in first, with `<weave-auth>` as anywhere else. Then say what the app
  * gets: which spaces, read or change, for how long. The account signs a note
@@ -33,7 +32,7 @@ export function ConnectPage() {
         <p style={styles.hint}>
           Apps open this page to ask for access to your Weave account. Nothing has asked right now.
         </p>
-        <a href="/app" style={{ ...styles.linkButton, paddingLeft: 0 }}>Open your spaces</a>
+        <a href="/" style={{ ...styles.linkButton, paddingLeft: 0 }}>Your account</a>
       </Frame>
     );
   }
@@ -76,13 +75,14 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
     void session.node.spaces.list().then(setSpaces);
   }, [session]);
 
-  const choosing = request.chooseSpaces !== false;
+  const whole = request.scope === 'account';
+  const choosing = !whole && request.chooseSpaces !== false;
   const writes = request.access === 'write';
   // Spaces the app can use as asked: to change one, the account must be able to.
   const offered = spaces.filter((space) => !writes || space.writable);
   const privateChosen = offered.some((space) => chosen.has(space.id) && space.visibility === 'private');
   const creating = request.create ?? [];
-  const nothing = chosen.size === 0 && creating.length === 0;
+  const nothing = !whole && chosen.size === 0 && creating.length === 0;
 
   const toggle = (id: string) =>
     setChosen((was) => {
@@ -108,9 +108,19 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
     <Frame>
       <h1 style={styles.title}>Connect to {host}</h1>
       <p style={styles.subtitle}>
-        {request.name ? <>It calls itself “{request.name}”. </> : null}It wants to {writes ? 'read and change' : 'read'} spaces in your
-        account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>.
+        {request.name ? <>It calls itself “{request.name}”. </> : null}It wants to {writes ? 'read and change' : 'read'}{' '}
+        {whole ? 'everything in' : 'spaces in'} your account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>.
       </p>
+
+      {whole && (
+        <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
+          <p style={{ ...styles.todoText }}>Your whole account</p>
+          <p style={styles.errorHint}>
+            Every space, including private ones, and the list of them. It can make and join spaces for you. It cannot sign in
+            anywhere as you, change your password or passkeys, or keep access past the date below unless you allow it again.
+          </p>
+        </div>
+      )}
 
       {choosing && (
         <section style={{ marginBottom: 20 }}>
@@ -149,7 +159,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
 
       <p style={{ ...styles.errorHint, marginBottom: 20 }}>
         Access lasts 7 days; after that it asks again.
-        {privateChosen && ' It can read the private spaces you give it from now on — that cannot be taken back yet.'}
+        {(whole || privateChosen) && ' It can read the private spaces it gets from now on — that cannot be taken back yet.'}
       </p>
 
       {error && (

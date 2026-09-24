@@ -1,0 +1,8 @@
+# For a Netlify site whose base directory is `home`. The home compiles the
+# protocol from ../src, so the repository root is installed too.
+[build]
+  command = "npm ci --prefix .. && npm ci && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"

@@ -22,7 +22,7 @@
  */
 import { initializeWebMCPPolyfill } from '@mcp-b/webmcp-polyfill';
 import { NODE_ACTIONS, checkActionInput } from 'weave-protocol';
-import { getSession } from './weave';
+import { getNode } from './weave';
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
@@ -84,9 +84,9 @@ export function exposeToAgents(): void {
         inputSchema: action.input as never,
         annotations: { readOnlyHint: action.readOnly },
         async execute(input: Record<string, unknown>) {
-          // Whoever is signed in right now — the tools outlive any one session.
-          const session = getSession();
-          if (!session) return text('Nobody is signed in to this tab. Ask the person to sign in, then try again.', true);
+          // Whoever is connected right now — the tools outlive any one connection.
+          const node = getNode();
+          if (!node) return text('This tab is not connected to an account. Ask the person to connect, then try again.', true);
           const args = input ?? {};
           const problem = checkActionInput(action, args);
           if (problem) return text(`${action.name}: ${problem}`, true);
@@ -97,7 +97,7 @@ export function exposeToAgents(): void {
             return text('The person declined.', true);
           }
           try {
-            const result = await action.run(session.node, args);
+            const result = await action.run(node, args);
             return action.peerContent ? { content: [text(PEER_CONTENT_NOTE).content[0]!, text(result).content[0]!] } : text(result);
           } catch (error) {
             return text(error instanceof Error ? error.message : String(error), true);

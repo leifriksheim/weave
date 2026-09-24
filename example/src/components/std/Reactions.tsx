@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNode, useSession } from 'weave-protocol/react';
+import { useNode, useAccount } from 'weave-protocol/react';
 import type { NodeRecord, SpaceSummary } from 'weave-protocol';
 import { reaction } from 'weave-protocol/schemas';
 import { palette } from '../../styles';
@@ -12,7 +12,7 @@ const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];
  */
 export function Reactions({ space, target, reactions }: { space: SpaceSummary; target: string; reactions: ReadonlyArray<NodeRecord> }) {
   const node = useNode();
-  const { did: rootDid } = useSession();
+  const { did: rootDid } = useAccount();
   const [picking, setPicking] = useState(false);
   const byEmoji = new Map<string, NodeRecord[]>();
   for (const r of reactions) {

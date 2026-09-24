@@ -26,7 +26,7 @@
  * `react` is a peer dependency: this entry point is the only part of the
  * protocol that imports it.
  */
-export { WeaveProvider, useWeave, useAuth, useSession, useNode } from './context.js';
+export { WeaveProvider, useWeave, useAuth, useSession, useConnection, useAccount, useNode } from './context.js';
 export type { WeaveProviderProps } from './context.js';
 export { useWeaveAuth } from './use-weave-auth.js';
 export { WeaveAuth } from './weave-auth.js';

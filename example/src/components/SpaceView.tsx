@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { NodeRecord, SpaceProfile, SpaceSummary } from 'weave-protocol';
-import { useCollections, useNode, useOpenSpace, useProfiles, useSession, useSpaceStatus } from 'weave-protocol/react';
+import { useCollections, useNode, useOpenSpace, useProfiles, useAccount, useSpaceStatus } from 'weave-protocol/react';
 import { createInviteLink } from '../spaces';
 import { Choice } from './Modal';
 import { collectionLabel } from '../derive/schema-ui';
@@ -36,7 +36,7 @@ const NEW = '__new__';
  * any of the things are.
  */
 export function SpaceView({ space }: { space: SpaceSummary }) {
-  const session = useSession();
+  const account = useAccount();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
 
   // Syncing while it is on screen. Opening writes nothing: standard schemas
@@ -102,7 +102,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
               </button>
             )}
           </nav>
-          <People profiles={profiles} me={session.did} owner={space.owner} people={people} />
+          <People profiles={profiles} me={account.did} owner={space.owner} people={people} />
           <Share space={space} />
         </aside>
 
