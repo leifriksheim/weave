@@ -11,9 +11,6 @@ export function spaceBadges(space: Pick<SpaceSummary, 'visibility' | 'role' | 'j
   return `${space.visibility === 'private' ? 'private' : 'public'} · ${space.joining ? 'joining…' : (space.role ?? 'following')}`;
 }
 
-/** Who can write, as the new-space dialog offers it: presets, not protocol */
-type Writers = 'solo' | 'team';
-
 /** A small deterministic hash, so a space keeps its colour everywhere it appears. */
 function hue(text: string): number {
   let value = 2166136261;
@@ -57,21 +54,16 @@ export function SpaceMark({ space, size = 40 }: { space: Pick<SpaceSummary, 'id'
 }
 
 /**
- * What a space is, in a sentence, given the two choices behind it.
+ * What choosing who can read it means, in a sentence.
  *
- * Shown live in the dialog: four combinations is more than anyone will hold in
- * their head from labels alone, and the consequences are worth being sure of
- * before there is data in one.
+ * Who can write is not asked here: every space is one kind of thing, and it
+ * becomes shared by inviting someone. That is decided later, per person, in
+ * People & roles.
  */
-function describe(type: Writers, visibility: SpaceVisibility): string {
-  if (type === 'solo') {
-    return visibility === 'private'
-      ? 'Encrypted, and only your key can write to it.'
-      : 'Anyone you hand it to can read it. Only you can write.';
-  }
+function describe(visibility: SpaceVisibility): string {
   return visibility === 'private'
-    ? 'Encrypted for the people you invite. The relay never sees what is in it.'
-    : 'Anyone with the link can read and write.';
+    ? 'Only people you invite can read it. The relay passes it on without being able to read it.'
+    : 'Anyone with the link can read it. Only people you invite can change it.';
 }
 
 export function SpaceList({
@@ -204,7 +196,6 @@ export function SpaceDialog({
 }) {
   const [mode, setMode] = useState(initial);
   const [name, setName] = useState('');
-  const [type, setType] = useState<Writers>('solo');
   const [visibility, setVisibility] = useState<SpaceVisibility>('private');
   const [invite, setInvite] = useState('');
 
@@ -212,7 +203,9 @@ export function SpaceDialog({
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    onCreate({ name: trimmed, visibility, ...rolePresets[type] });
+    // An Owner and an Editor to start, so inviting someone later needs no setup
+    // first. Roles can be renamed, added or removed in People & roles.
+    onCreate({ name: trimmed, visibility, ...rolePresets.team });
     onClose();
   };
 
@@ -272,22 +265,14 @@ export function SpaceDialog({
           value={visibility}
           onChange={setVisibility}
           options={[
-            { value: 'private', label: 'Encrypted' },
-            { value: 'public', label: 'Anyone' },
+            { value: 'private', label: 'People I invite' },
+            { value: 'public', label: 'Anyone with the link' },
           ]}
         />
 
-        <Choice
-          label="Who can write to it"
-          value={type}
-          onChange={setType}
-          options={[
-            { value: 'solo', label: 'Just me' },
-            { value: 'team', label: 'People I invite' },
-          ]}
-        />
-
-        <p style={styles.errorHint}>{describe(type, visibility)}</p>
+        <p style={styles.errorHint}>
+          {describe(visibility)} This one can't be changed later.
+        </p>
 
         <button type="submit" disabled={!name.trim()} data-variant="primary" style={styles.button}>
           Create space

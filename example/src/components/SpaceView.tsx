@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import type { NodeRecord, SpaceProfile, SpaceSummary } from 'weave-protocol';
 import { useAccess, useCollections, useNode, useOpenSpace, useProfiles, useAccount, useSpaceStatus } from 'weave-protocol/react';
-import { createInviteLink } from '../spaces';
-import { Choice } from './Modal';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
 import { RecordPanel } from './RecordPanel';
@@ -51,6 +49,8 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
   const account = useAccount();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
   const [tab, setTab] = useState<Tab>('things');
+  // Set when "Invite people" brought us to People & roles, so the invite is already open there.
+  const [inviting, setInviting] = useState(false);
 
   // Syncing while it is on screen. Opening writes nothing: standard schemas
   // are added only when someone picks them from the library.
@@ -99,7 +99,10 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
               key={t.id}
               role="tab"
               aria-selected={tab === t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                setTab(t.id);
+                setInviting(false);
+              }}
               style={{
                 height: 36,
                 padding: '0 12px',
@@ -119,7 +122,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
 
       {tab === 'explore' && <GraphView space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'query' && <QueryPlayground space={space} collections={collections} onOpen={openRecord} />}
-      {tab === 'roles' && <RolesView space={space} collections={collections} />}
+      {tab === 'roles' && <RolesView space={space} collections={collections} inviting={inviting} />}
 
       {tab === 'things' && <div className="space-layout">
         <aside className="space-side">
@@ -145,7 +148,16 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
             )}
           </nav>
           <People profiles={profiles} me={account.did} roles={roleOf} people={people} />
-          <Share space={space} />
+          <section style={{ ...styles.panelSection, gap: 10 }}>
+            <button
+              onClick={() => {
+                setInviting(true);
+                setTab('roles');
+              }}
+              data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start' }}>
+              Invite people
+            </button>
+          </section>
         </aside>
 
         <main style={{ minWidth: 0 }}>
@@ -215,53 +227,6 @@ function People({ profiles, me, roles, people }: { profiles: ReadonlyArray<Space
           </span>
         ))}
       </div>
-    </section>
-  );
-}
-
-function Share({ space }: { space: SpaceSummary }) {
-  const node = useNode();
-  const [invite, setInvite] = useState<string | null>(null);
-  // A link that gives a role needs a role below yours to give.
-  const access = useAccess(space.id);
-  const below = access?.role ? access.roles.filter((r) => r.rank < access.role!.rank).at(-1) : undefined;
-  const canOfferEdit = space.writable && below !== undefined;
-  const [mode, setMode] = useState<'edit' | 'view'>('edit');
-  const share = async () => {
-    const link = await createInviteLink(node, space.id, { viewOnly: !canOfferEdit || mode === 'view' });
-    setInvite(link);
-    await globalThis.navigator.clipboard?.writeText(link).catch(() => {});
-  };
-  const explanation = !canOfferEdit
-    ? 'Anyone with the link can follow along; only you write.'
-    : mode === 'edit'
-      ? `Anyone with the link joins as ${below!.title ?? below!.name} and can add and change things. You can close the link later.`
-      : 'Anyone with the link can see everything, but change nothing.';
-  return (
-    <section style={{ ...styles.panelSection, gap: 10 }}>
-      <h2 style={styles.sectionTitle}>Invite</h2>
-      {canOfferEdit && (
-        <Choice
-          label="People with the link"
-          value={mode}
-          options={[
-            { value: 'edit', label: 'Can edit' },
-            { value: 'view', label: 'Can view' },
-          ]}
-          onChange={(next) => {
-            setMode(next);
-            setInvite(null); // a link made for the other choice would say the wrong thing
-          }}
-        />
-      )}
-      <p style={{ fontSize: 13, lineHeight: 1.5, color: palette.ink.muted }}>
-        {explanation}
-        {space.visibility === 'private' && ' The link carries the key — treat it as a secret.'}
-      </p>
-      <button onClick={() => void share()} data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start' }}>
-        {invite ? 'Copied — new link' : 'Create invite link'}
-      </button>
-      {invite && <code style={styles.token}>{invite}</code>}
     </section>
   );
 }

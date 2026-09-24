@@ -15,6 +15,7 @@ import {
 } from '../derive/abilities';
 import { nameOf, peopleFrom, type People } from '../derive/people';
 import { Avatar } from './Avatar';
+import { createInviteLink } from '../spaces';
 import { styles, palette, variants } from '../styles';
 
 /** Who holds what in the space, as the node reports it */
@@ -25,16 +26,16 @@ type SpaceAccess = NonNullable<ReturnType<typeof useAccess>>;
  * holds them. Everything is worked out from the roles and each collection's
  * rules — and anything you cannot do is shown switched off, with why.
  */
-export function RolesView({ space, collections }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection> }) {
+export function RolesView({ space, collections, inviting = false }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection>; inviting?: boolean }) {
   const access = useAccess(space.id);
   const account = useAccount();
   const people = peopleFrom(useProfiles(space.id));
   if (!access) return <p style={{ fontSize: 13, color: palette.ink.faint }}>Loading who's who…</p>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
-      <WhatYouCanDo access={access} collections={collections} />
+      <Members space={space} access={access} me={account.did} people={people} collections={collections} inviting={inviting} />
       <Roles space={space} access={access} collections={collections} />
-      <Members space={space} access={access} me={account.did} people={people} />
+      <WhatYouCanDo access={access} collections={collections} />
     </div>
   );
 }
@@ -357,9 +358,24 @@ const holdersNote = (
 
 // ─── Members ──────────────────────────────────────────────────────────
 
-function Members({ space, access, me, people }: { space: SpaceSummary; access: SpaceAccess; me: string; people: People }) {
+function Members({
+  space,
+  access,
+  me,
+  people,
+  collections,
+  inviting,
+}: {
+  space: SpaceSummary;
+  access: SpaceAccess;
+  me: string;
+  people: People;
+  collections: ReadonlyArray<NodeCollection>;
+  inviting: boolean;
+}) {
   const node = useNode();
   const [error, setError] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(inviting);
   const mine = access.role;
   const roleNamed = (name: string) => access.roles.find((r) => r.name === name) ?? null;
   const giveable = assignableRoles(mine, access.roles);
@@ -450,7 +466,13 @@ function Members({ space, access, me, people }: { space: SpaceSummary; access: S
   const invites = access.invites.filter((i) => i.open);
   return (
     <section style={section} aria-label="Members">
-      <h2 style={{ ...styles.appTitle, fontSize: 20 }}>People ({access.members.length})</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <h2 style={{ ...styles.appTitle, fontSize: 20 }}>People ({access.members.length})</h2>
+        <button onClick={() => setInviteOpen(!inviteOpen)} data-variant={inviteOpen ? 'quiet' : 'primary'} style={styles.smallButton}>
+          {inviteOpen ? 'Close' : 'Invite people'}
+        </button>
+      </div>
+      {inviteOpen && <Invite space={space} access={access} collections={collections} />}
       {error && <p style={styles.error}>{error}</p>}
       <ul style={{ ...list, gap: 0 }}>{access.members.map((m) => row(m.did, roleNamed(m.role)))}</ul>
 
@@ -489,6 +511,91 @@ function Members({ space, access, me, people }: { space: SpaceSummary; access: S
         </div>
       )}
     </section>
+  );
+}
+
+/** What an invite gives, as the link-maker picks it: a role, or only a view */
+const VIEW_ONLY = '';
+
+/**
+ * Making an invite link: pick what the person joins as, and get a link to send.
+ *
+ * Anyone in the space can hand out a link to view it. Joining with a role takes
+ * “Invite people”, and only for roles up to your own — it lands on the lowest
+ * one below yours, so the easy choice never gives away more than it should.
+ */
+function Invite({ space, access, collections }: { space: SpaceSummary; access: SpaceAccess; collections: ReadonlyArray<NodeCollection> }) {
+  const node = useNode();
+  const mine = access.role;
+  const offered = mine && roleHolds(mine, 'invite') ? [...access.roles].filter((r) => r.rank <= mine.rank).sort((a, b) => b.rank - a.rank) : [];
+  const fallback = [...offered].reverse().find((r) => mine && r.rank < mine.rank)?.name ?? VIEW_ONLY;
+  const [choice, setChoice] = useState(fallback);
+  const [link, setLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const role = offered.find((r) => r.name === choice) ?? null;
+
+  const gives = role
+    ? (() => {
+        const { can } = abilitiesOf(role, access.roles, collections);
+        const shown = can.slice(0, 3).map((a) => a.text);
+        return can.length === 0
+          ? 'They can see everything, and do only what every role can.'
+          : `They can ${shown.join(', ')}${can.length > shown.length ? `, and ${can.length - shown.length} more` : ''}.`;
+      })()
+    : 'They can see everything, but change nothing.';
+
+  const make = async () => {
+    setError(null);
+    try {
+      const next = await createInviteLink(node, space.id, role?.name ?? null);
+      setLink(next);
+      setCopied(await globalThis.navigator.clipboard?.writeText(next).then(() => true, () => false) ?? false);
+    } catch (e) {
+      setError(plainError(e));
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, borderRadius: palette.radius.md, background: palette.surface.sunken, border: `1px solid ${palette.surface.line}` }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 14, color: palette.ink.strong }}>People with the link join as</span>
+        <select
+          value={choice}
+          onChange={(e) => {
+            setChoice(e.target.value);
+            setLink(null); // a link made for the other choice would say the wrong thing
+          }}
+          style={{ ...styles.input, width: 'auto', height: 32, fontSize: 13 }}
+        >
+          {offered.map((r) => (
+            <option key={r.name} value={r.name}>
+              {titleOf(r)}
+            </option>
+          ))}
+          <option value={VIEW_ONLY}>Viewer — can't change anything</option>
+        </select>
+      </label>
+      <p style={{ fontSize: 13, lineHeight: 1.5, color: palette.ink.muted }}>
+        {gives}
+        {role && mine && role.rank >= mine.rank && ' That is as much as you have — only pick it for someone you trust to run the space.'}
+        {space.visibility === 'private' && ' The link carries the key, so send it only to the people it is for.'}
+        {role && ' You can close it later.'}
+      </p>
+      {offered.length === 0 && mine && (
+        <p style={{ fontSize: 12, color: palette.ink.faint }}>Inviting with a role takes “Invite people”, so you can only share it to view.</p>
+      )}
+      {error && <p style={styles.error}>{error}</p>}
+      <button onClick={() => void make()} data-variant="primary" style={{ ...styles.addButton, height: 34, alignSelf: 'flex-start' }}>
+        {link ? 'Make another link' : 'Create link'}
+      </button>
+      {link && (
+        <div>
+          <p style={{ fontSize: 12, color: palette.ink.muted }}>{copied ? 'Copied. Send it to them however you like.' : 'Copy this and send it to them however you like.'}</p>
+          <code style={styles.token}>{link}</code>
+        </div>
+      )}
+    </div>
   );
 }
 

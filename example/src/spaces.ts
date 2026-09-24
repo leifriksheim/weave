@@ -4,9 +4,9 @@
  */
 import type { InvitePreview, P2PNode } from 'weave-protocol';
 
-/** A link that lets someone else open this space — to change it too, or with `viewOnly`, only to read it. */
-export async function createInviteLink(node: P2PNode, spaceId: string, options: { viewOnly?: boolean } = {}): Promise<string> {
-  const invite = await node.spaces.invite(spaceId, options.viewOnly ? { write: false } : {});
+/** A link that lets someone else open this space — joining with `role`, or with none, only to read it. */
+export async function createInviteLink(node: P2PNode, spaceId: string, role: string | null): Promise<string> {
+  const invite = await node.spaces.invite(spaceId, role ? { role } : { write: false });
   const { origin, pathname } = globalThis.location;
   return `${origin}${pathname}#invite=${invite}`;
 }

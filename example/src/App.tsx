@@ -76,8 +76,8 @@ function Workspace() {
               loading={loading}
               error={error}
               onOpen={setOpen}
-              onCreate={(params) => void create(params)}
-              onJoin={(link) => void joinLink(link)}
+              onCreate={(params) => void create(params).then((space) => space && setOpen(space))}
+              onJoin={(link) => void joinLink(link).then((space) => space && setOpen(space))}
               onRemove={(id) => void leave(id)}
             />
             <HowItWorks />
