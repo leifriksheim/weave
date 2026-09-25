@@ -29,7 +29,7 @@ import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
 import { carriedRecord, CARRY_CLOSED_KEY, openPass, PASS_COLLECTION } from '../space/pass.js';
 import { createLocalHub, type LocalHub } from '../network/local-transport.js';
-import { openSpaceRuntime, type SpaceRuntime } from './space-runtime.js';
+import { meshFor, openSpaceRuntime, type SpaceRuntime } from './space-runtime.js';
 import type { StoreFactory } from './stores.js';
 import type { ConnectionState, NodeEvent, NodeNetworkConfig } from './types.js';
 
@@ -128,8 +128,11 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
   let podStores: StoreFactory | null = null;
   const carried = new Map<string, Carried>();
 
+  const mesh = meshFor(config.network, did);
   const open = (record: SpaceRecord, stores: StoreFactory, as: typeof session, network: NodeNetworkConfig, onEvent: (event: NodeEvent) => void) =>
     openSpaceRuntime({
+      // The carrier's own spaces meet through relays; its copy in the pod only over the local link.
+      ...(as === session && mesh ? { mesh } : {}),
       record,
       stores,
       provider,

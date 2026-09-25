@@ -408,12 +408,12 @@ Local-first storage with Merkle Search Tree for efficient sync.
 
 | Export | Description |
 |--------|-------------|
-| `createStorageProvider()` | MST-backed expression storage |
+| `createStorageProvider()` | MST-backed expression storage; `compact()` deletes tree nodes the root no longer reaches |
 | `createIndexedDBAdapter()` | IndexedDB storage adapter, scoped to this origin |
 | `createFolderAdapter()` | A user-picked directory, shared by every origin given access |
 | `createEncryptedAdapter()` | Seals chosen keys (space records, space keys) at rest |
 | `reconcileFolder()` | Rebuilds the tree after another writer touched a folder |
-| `insertIntoMST()` / `diffMST()` | Direct MST operations |
+| `insertIntoMST()` / `listMSTEntries()` | Direct MST operations; a listing can stop at a key prefix |
 
 ### Spaces
 
@@ -648,7 +648,8 @@ Browser-to-browser communication via WebRTC.
 
 | Export | Description |
 |--------|-------------|
-| `createNetworkManager()` | Full P2P networking (signaling + RTC + discovery + introductions) |
+| `createMesh()` | One node's WebRTC connections through relays, shared by every space: `mesh.join(room, auth)` gives a space its peers |
+| `createNetworkManager()` | Peers over a transport that dials on its own — a node's socket, a local link |
 | `createSignalingClient()` | WebSocket signaling for ICE/SDP exchange |
 | `createMultiSignalingClient()` | Several relays used at once, de-duplicated |
 | `createRTCTransport()` | WebRTC data channel management (the default transport) |
@@ -659,15 +660,17 @@ Browser-to-browser communication via WebRTC.
 #### Signaling relay
 
 `server/signaling-server.mjs` is a dumb relay in a couple hundred lines of
-Node on the `ws` library: it groups peers by `?room=`, and passes join notices
-and WebRTC offers, answers and candidates between them. The room is a hash of
+Node on the `ws` library: a peer holds one socket and joins a room on it for
+each space, and the relay passes join notices and WebRTC offers, answers and
+candidates between peers that share a room. (A socket opened with `?room=` is
+the older one-room form, still served.) The room is a hash of
 the space's id (`relayRoom`), so the relay cannot tell which space a room is.
 Expression data never touches it — that flows peer to peer — and it cannot
 read a private space.
 
 It is open to anyone, so it keeps to limits: small messages, a cap on
-connections per address and peers per room, a message rate per socket, and one
-`join` per socket, whose DID cannot be claimed twice in a room. Every message
+connections per address, peers per room and rooms per socket, a message rate
+per socket, and one DID per socket, which cannot be claimed twice in a room. Every message
 it forwards carries the sender's DID as it joined, whatever the message says.
 
 ```bash
@@ -684,13 +687,13 @@ Anti-entropy gossip protocol for eventual consistency.
 | Export | Description |
 |--------|-------------|
 | `createSyncEngine()` | Automatic MST reconciliation with heartbeat |
-| `compareRoots()` | Quick root CID comparison |
 | `verifyNode()` / `unknownChildren()` | The pieces of a tree walk |
 
 Two peers compare roots — equal means identical, one round trip. Otherwise each
 walks the other's tree from the root, skipping every subtree already in its own,
 so cost follows the size of the difference: one changed entry in 10,000 costs
-about 25 KB, where sending every key cost 508 KB.
+about 37 KB on the wire, where sending every key cost 508 KB. Whether a subtree
+is already here is one lookup in the store, not a read of the whole local tree.
 
 The engine's `validate` hook is the seam where the validation engine sits.
 Expressions a peer sends are only committed if it accepts them; the rest are
@@ -873,14 +876,20 @@ the moment two peers are talking.
 Two things keep it from being an authority:
 
 ```typescript
-const network = createNetworkManager({
+const mesh = createMesh({
   // Used all at once, not as failover: two people who picked different relays
   // would otherwise never meet.
-  signalingUrls: ['wss://relay-a.example', 'wss://relay-b.example'],
+  relays: ['wss://relay-a.example', 'wss://relay-b.example'],
   did: sessionDid,
   introductions: true, // the default
 });
+const peers = mesh.join(await relayRoom(spaceId), createMeshAuth(spaceId, session, read, provider));
 ```
+
+**One connection per pair of devices**, however many spaces they share: one
+socket per relay, one WebRTC connection per peer, and each space proves itself
+on it separately before any of its data crosses — so a peer you share one
+space with is a peer in that one only.
 
 **Several relays**, so there is no single phone book — a peer announced by two
 of them is announced upward once, and replies go back the way they arrived.

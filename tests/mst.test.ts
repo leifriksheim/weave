@@ -14,14 +14,15 @@ import {
   insertIntoMST,
   deleteFromMST,
   lookupInMST,
-  listMSTKeys,
-  diffMST,
+  listMSTEntries,
   loadNode,
   nodeHeight,
   createEmptyNode,
   type MSTNode,
 } from '../src/storage/mst.js';
 import type { StorageAdapter } from '../src/types.js';
+
+const listMSTKeys = async (adapter: StorageAdapter, root: string | null) => (await listMSTEntries(adapter, root)).map((e) => e.key);
 
 /** Builds a tree from entries in the order given, returning the root. */
 async function build(adapter: StorageAdapter, keys: ReadonlyArray<string>): Promise<string | null> {
@@ -254,38 +255,20 @@ describe('MST cost', () => {
   });
 });
 
-describe('MST diff', () => {
-  test('identical trees diff to nothing', async () => {
+describe('MST listing under a prefix', () => {
+  test('lists exactly the keys that start with it, in order', async () => {
     const adapter = createMemoryAdapter();
-    const root = await build(adapter, keyRange(300));
-    const diff = await diffMST(adapter, root, adapter, root);
-    assert.deepEqual(diff, { added: [], removed: [], modified: [] });
+    const keys = [...keyRange(500), 'a', 'key', 'key-', 'kez', 'zzz'];
+    const root = await build(adapter, keys);
+    for (const prefix of ['', 'key-001', 'key-0049', 'key', 'kez', 'nothing', 'a', 'z']) {
+      const listed = (await listMSTEntries(adapter, root, prefix)).map((e) => e.key);
+      assert.deepEqual(listed, keys.filter((k) => k.startsWith(prefix)).sort(), `prefix "${prefix}"`);
+    }
   });
 
-  test('reports added, removed and modified entries', async () => {
-    const local = createMemoryAdapter();
-    const remote = createMemoryAdapter();
-    const shared = keyRange(300);
-
-    const localRoot = await build(local, [...shared, 'key-only-local']);
-
-    let remoteRoot = await build(remote, [...shared, 'key-only-remote']);
-    remoteRoot = await insertIntoMST(remote, remoteRoot, shared[10]!, 'changed');
-
-    const diff = await diffMST(local, localRoot, remote, remoteRoot);
-
-    assert.deepEqual(diff.added.map((e) => e.key), ['key-only-remote']);
-    assert.deepEqual(diff.removed.map((e) => e.key), ['key-only-local']);
-    assert.deepEqual(diff.modified, [
-      { key: shared[10]!, oldValue: `v:${shared[10]}`, newValue: 'changed' },
-    ]);
-  });
-
-  test('skips subtrees both sides already share', async () => {
+  test('reads only the nodes that can hold them', async () => {
     const adapter = createMemoryAdapter();
-    const base = await build(adapter, keyRange(2000));
-    const changed = await insertIntoMST(adapter, base, 'key-00500', 'changed');
-
+    const root = await build(adapter, keyRange(4000));
     let loads = 0;
     const counting: StorageAdapter = {
       ...adapter,
@@ -294,13 +277,8 @@ describe('MST diff', () => {
         return adapter.get(key);
       },
     };
-
-    const diff = await diffMST(counting, base, counting, changed);
-    assert.deepEqual(diff.modified, [
-      { key: 'key-00500', oldValue: 'v:key-00500', newValue: 'changed' },
-    ]);
-
-    // Two 2000-entry trees differing by one entry must not be walked in full.
-    assert.ok(loads < 2000, `diff loaded ${loads} nodes for a one-key difference`);
+    const listed = await listMSTEntries(counting, root, 'key-0200');
+    assert.equal(listed.length, 10);
+    assert.ok(loads < 40, `${loads} nodes read to list 10 of 4,000 entries`);
   });
 });

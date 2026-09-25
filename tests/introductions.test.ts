@@ -164,15 +164,17 @@ describe('several relays at once', () => {
   test('a peer on two relays is announced once', async () => {
     const client = makeClient(['ws://a.example', 'ws://b.example']);
     const joined: string[] = [];
-    client.on('peer-joined', (did) => void joined.push(did));
+    client.on('peer-joined', (did, room) => void joined.push(`${room} ${did}`));
     await client.connect();
 
     // The same person, seen through both phone books. Announcing twice would
     // have both sides opening a second connection to each other.
-    deliver(sockets[0]!, { type: 'join', from: 'did:key:zAlice' });
-    deliver(sockets[1]!, { type: 'join', from: 'did:key:zAlice' });
+    deliver(sockets[0]!, { type: 'join', from: 'did:key:zAlice', room: 'r1' });
+    deliver(sockets[1]!, { type: 'join', from: 'did:key:zAlice', room: 'r1' });
+    // The same person in another room is news, though.
+    deliver(sockets[1]!, { type: 'join', from: 'did:key:zAlice', room: 'r2' });
 
-    assert.deepEqual(joined, ['did:key:zAlice']);
+    assert.deepEqual(joined, ['r1 did:key:zAlice', 'r2 did:key:zAlice']);
   });
 
   test('a peer is only gone once every relay says so', async () => {
@@ -181,13 +183,13 @@ describe('several relays at once', () => {
     client.on('peer-left', (did) => void left.push(did));
     await client.connect();
 
-    deliver(sockets[0]!, { type: 'join', from: 'did:key:zAlice' });
-    deliver(sockets[1]!, { type: 'join', from: 'did:key:zAlice' });
+    deliver(sockets[0]!, { type: 'join', from: 'did:key:zAlice', room: 'r1' });
+    deliver(sockets[1]!, { type: 'join', from: 'did:key:zAlice', room: 'r1' });
 
-    deliver(sockets[0]!, { type: 'leave', from: 'did:key:zAlice' });
+    deliver(sockets[0]!, { type: 'leave', from: 'did:key:zAlice', room: 'r1' });
     assert.deepEqual(left, [], 'still reachable through the other relay');
 
-    deliver(sockets[1]!, { type: 'leave', from: 'did:key:zAlice' });
+    deliver(sockets[1]!, { type: 'leave', from: 'did:key:zAlice', room: 'r1' });
     assert.deepEqual(left, ['did:key:zAlice']);
   });
 
@@ -195,8 +197,8 @@ describe('several relays at once', () => {
     const client = makeClient(['ws://a.example', 'ws://b.example']);
     await client.connect();
 
-    deliver(sockets[1]!, { type: 'join', from: 'did:key:zAlice' });
-    client.sendOffer('did:key:zAlice', { type: 'offer', sdp: 'x' });
+    deliver(sockets[1]!, { type: 'join', from: 'did:key:zAlice', room: 'r1' });
+    client.signal('offer', 'did:key:zAlice', { type: 'offer', sdp: 'x' });
 
     assert.equal(sockets[0]!.sent.filter((m) => m.includes('offer')).length, 0);
     assert.equal(sockets[1]!.sent.filter((m) => m.includes('offer')).length, 1);
@@ -207,7 +209,7 @@ describe('several relays at once', () => {
     await client.connect();
 
     // An answer to an offer that arrived before this client saw them join.
-    client.sendAnswer('did:key:zStranger', { type: 'answer', sdp: 'y' });
+    client.signal('answer', 'did:key:zStranger', { type: 'answer', sdp: 'y' });
 
     for (const socket of sockets) {
       assert.equal(socket.sent.filter((m) => m.includes('answer')).length, 1);
@@ -221,8 +223,20 @@ describe('several relays at once', () => {
     sockets[0]!.close();
 
     assert.equal(client.isConnected(), true, 'the other relay is still up');
-    client.sendOffer('did:key:zAlice', { type: 'offer', sdp: 'x' });
+    client.signal('offer', 'did:key:zAlice', { type: 'offer', sdp: 'x' });
     assert.equal(sockets[1]!.sent.filter((m) => m.includes('offer')).length, 1);
+  });
+
+  test('rooms are joined on every relay, before or after connecting', async () => {
+    const client = makeClient(['ws://a.example', 'ws://b.example']);
+    client.join('r1');
+    await client.connect();
+    client.join('r2');
+    const joins = (socket: FakeSocket) => socket.sent.map((m) => JSON.parse(m)).filter((m) => m.type === 'join').map((m) => m.room);
+    for (const socket of sockets) assert.deepEqual(joins(socket), ['r1', 'r2']);
+
+    client.leave('r1');
+    assert.ok(sockets[0]!.sent.some((m) => JSON.parse(m).type === 'leave'));
   });
 
   test('configuring no relay at all is refused', () => {

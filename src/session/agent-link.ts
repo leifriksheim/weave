@@ -25,6 +25,7 @@
  * the app is showing it.
  */
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
+import { createMesh } from '../network/mesh.js';
 import type { PeerTransport } from '../network/transport.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
@@ -119,12 +120,8 @@ interface LinkNetwork {
 }
 
 function meet(network: LinkNetwork, room: string, did: string): NetworkManager {
-  return createNetworkManager({
-    signalingUrls: network.relays.map((relay) => `${relay}?room=${room}`),
-    did,
-    introductions: false,
-    ...(network.transport ? { createTransport: () => network.transport!(did) } : {}),
-  });
+  if (network.transport) return createNetworkManager({ did, createTransport: () => network.transport!(did) });
+  return createMesh({ relays: network.relays, did, introductions: false }).join(room);
 }
 
 // ─── The app's side ──────────────────────────────────────────────────

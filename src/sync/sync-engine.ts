@@ -18,6 +18,7 @@ import type { Expression } from '../types.js';
 import type { StorageProvider } from '../storage/storage-provider.js';
 import { deserializeNode } from '../storage/mst.js';
 import { cidFromBytes } from '../utils/hash.js';
+import { createEmitter } from '../utils/events.js';
 import { parseSyncMessage, SYNC_PROTOCOL_VERSION, type SyncMessage, type SyncMessageBody } from './sync-messages.js';
 import { differingEntries, unknownChildren, verifyNode } from './anti-entropy.js';
 
@@ -109,22 +110,10 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
   const { storageProvider, sendToPeer, heartbeatInterval = 30000, validate } = config;
   const peers = new Set<string>();
   const walks = new Map<string, Walk>();
-  const eventHandlers = new Map<SyncEvent, Set<EventHandler>>();
   let intervalId: ReturnType<typeof setInterval> | null = null;
   let nextRequestId = 1;
 
-  const emit = (event: SyncEvent, ...args: any[]) => {
-    const handlers = eventHandlers.get(event);
-    if (handlers) {
-      for (const handler of handlers) {
-        try {
-          handler(...args);
-        } catch (err) {
-          console.error(`Error in event handler for ${event}`, err);
-        }
-      }
-    }
-  };
+  const { on, off, emit } = createEmitter<Record<SyncEvent, EventHandler>>();
 
   const stamp = (msg: SyncMessageBody) => ({ v: SYNC_PROTOCOL_VERSION, ...msg }) as SyncMessage;
   const send = (peerId: string, msg: SyncMessageBody) => sendToPeer(peerId, stamp(msg));
@@ -399,20 +388,7 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       walks.delete(peerId);
     },
 
-    on(event: SyncEvent, callback: EventHandler) {
-      let handlers = eventHandlers.get(event);
-      if (!handlers) {
-        handlers = new Set();
-        eventHandlers.set(event, handlers);
-      }
-      handlers.add(callback);
-    },
-
-    off(event: SyncEvent, callback: EventHandler) {
-      const handlers = eventHandlers.get(event);
-      if (handlers) {
-        handlers.delete(callback);
-      }
-    }
+    on,
+    off,
   };
 }

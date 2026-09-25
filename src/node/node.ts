@@ -24,7 +24,7 @@ import { isAgentNote } from '../identity/agent-note.js';
 import { createSigner } from '../schema/signer.js';
 import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
-import { noteCid, openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
+import { meshFor, noteCid, openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
 import { createServerAuth } from '../network/peer-auth.js';
 import { deriveInviteKey } from '../space/space-access.js';
 import { base64UrlDecode } from '../utils/encoding.js';
@@ -139,6 +139,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   scheduleRenewal(ttl * 0.75);
 
   const session: ActiveSession = { did: sessionDid, key: sessionKeys.privateKey, proof: () => current.encoded };
+  const mesh = meshFor(config.network, sessionDid);
   /**
    * A node that writes under an agent's note — an agent on someone's computer
    * running a node of its own. It follows the account, but never writes for
@@ -245,6 +246,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           session,
           rootDid: config.signer.did,
           ...(config.network ? { network: config.network } : {}),
+          ...(mesh ? { mesh } : {}),
           peopleOnly: spaceId === accountSpaceId || carrySpaces.has(spaceId),
           watchIntervalMs: config.watchIntervalMs ?? 2000,
           emit: fromRuntime,

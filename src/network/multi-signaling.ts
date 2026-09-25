@@ -14,16 +14,12 @@
  * cost is a handful of websockets, which is what a torrent client has always
  * done with its tracker list.
  *
- * Peers are announced once however many relays mention them, because a duplicate
- * announcement would have both sides opening a second connection to each other.
+ * Peers are announced once per room however many relays mention them, because a
+ * duplicate announcement would have both sides opening a second connection.
  */
 
-import {
-  createSignalingClient,
-  type SignalingClient,
-  type SignalingEvents,
-  type SignalingMessage,
-} from './signaling.js';
+import { createEmitter } from '../utils/events.js';
+import { createSignalingClient, type SignalingClient, type SignalingEvents, type SignalKind } from './signaling.js';
 
 /**
  * Creates a signaling client spanning several relays.
@@ -41,36 +37,12 @@ export function createMultiSignalingClient(
   }
 
   const clients = urls.map((url) => createSignalingClient(url, did));
+  const { on, off, emit } = createEmitter<SignalingEvents>();
 
   /** Which relays a peer has been seen on, so replies go back the same way. */
   const routes = new Map<string, Set<SignalingClient>>();
-  /** Peers already announced upward, so a second relay does not re-announce. */
-  const announced = new Set<string>();
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const listeners: { [K in keyof SignalingEvents]?: Set<any> } = {};
-
-  const emit = <K extends keyof SignalingEvents>(
-    event: K,
-    ...args: Parameters<SignalingEvents[K]>
-  ): void => {
-    for (const callback of listeners[event] ?? []) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (callback as any)(...args);
-      } catch (error) {
-        console.error(`Error in signaling event listener for ${event}:`, error);
-      }
-    }
-  };
-
-  const on = <K extends keyof SignalingEvents>(event: K, callback: SignalingEvents[K]): void => {
-    (listeners[event] ??= new Set()).add(callback);
-  };
-
-  const off = <K extends keyof SignalingEvents>(event: K, callback: SignalingEvents[K]): void => {
-    listeners[event]?.delete(callback);
-  };
+  /** Relays that have said a peer is in a room, by `room did` — announced upward once, gone once none do. */
+  const presence = new Map<string, Set<SignalingClient>>();
 
   const connectedCount = (): number => clients.filter((client) => client.isConnected()).length;
 
@@ -88,29 +60,28 @@ export function createMultiSignalingClient(
   };
 
   for (const client of clients) {
-    client.on('peer-joined', (peer: string) => {
+    client.on('peer-joined', (peer, room) => {
       remember(peer, client);
-      if (peer === did || announced.has(peer)) return;
-      announced.add(peer);
-      emit('peer-joined', peer);
+      if (peer === did) return;
+      const where = `${room} ${peer}`;
+      const seenBy = presence.get(where) ?? presence.set(where, new Set()).get(where)!;
+      seenBy.add(client);
+      if (seenBy.size === 1) emit('peer-joined', peer, room);
     });
 
-    client.on('peer-left', (peer: string) => {
-      routes.get(peer)?.delete(client);
-
-      // Still reachable through another relay: not gone, just quieter.
-      if ((routes.get(peer)?.size ?? 0) > 0) return;
-
-      routes.delete(peer);
-      if (announced.delete(peer)) emit('peer-left', peer);
+    client.on('peer-left', (peer, room) => {
+      const where = `${room} ${peer}`;
+      const seenBy = presence.get(where);
+      // Still in the room through another relay: not gone, just quieter.
+      if (!seenBy?.delete(client) || seenBy.size > 0) return;
+      presence.delete(where);
+      emit('peer-left', peer, room);
     });
 
-    for (const kind of ['offer', 'answer', 'candidate'] as const) {
-      client.on(kind, (message: SignalingMessage) => {
-        remember(message.from, client);
-        emit(kind, message);
-      });
-    }
+    client.on('signal', (message) => {
+      remember(message.from, client);
+      emit('signal', message);
+    });
 
     client.on('connected', () => {
       if (connectedCount() === 1) emit('connected');
@@ -138,30 +109,27 @@ export function createMultiSignalingClient(
     );
   };
 
-  const sendVia = (
-    peer: string,
-    send: (client: SignalingClient) => void,
-  ): void => {
-    for (const client of routesFor(peer)) send(client);
-  };
-
   return Object.freeze({
     connect,
 
     disconnect: (): void => {
       for (const client of clients) client.disconnect();
       routes.clear();
-      announced.clear();
+      presence.clear();
     },
 
-    sendOffer: (target: string, offer: RTCSessionDescriptionInit): void =>
-      sendVia(target, (client) => client.sendOffer(target, offer)),
+    join: (room: string) => {
+      for (const client of clients) client.join(room);
+    },
 
-    sendAnswer: (target: string, answer: RTCSessionDescriptionInit): void =>
-      sendVia(target, (client) => client.sendAnswer(target, answer)),
+    leave: (room: string) => {
+      for (const client of clients) client.leave(room);
+      for (const where of presence.keys()) if (where.startsWith(`${room} `)) presence.delete(where);
+    },
 
-    sendCandidate: (target: string, candidate: RTCIceCandidateInit): void =>
-      sendVia(target, (client) => client.sendCandidate(target, candidate)),
+    signal: (kind: SignalKind, target: string, payload: unknown) => {
+      for (const client of routesFor(target)) client.signal(kind, target, payload);
+    },
 
     on,
     off,

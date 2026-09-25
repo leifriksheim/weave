@@ -18,6 +18,7 @@ import type {
   PeerTransportEvents,
   SignalledTransport,
 } from '../../src/network/transport.js';
+import { createEmitter } from '../../src/utils/events.js';
 
 export interface FakeHubOptions {
   /** Milliseconds per delivery. 0 still defers to a later task. */
@@ -43,22 +44,6 @@ interface Endpoint {
   readonly did: string;
   readonly links: Set<string>;
   emit<K extends keyof PeerTransportEvents>(event: K, ...args: Parameters<PeerTransportEvents[K]>): void;
-}
-
-function createEmitter() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const listeners: { [K in keyof PeerTransportEvents]?: Set<any> } = {};
-  return {
-    on<K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]) {
-      (listeners[event] ??= new Set()).add(callback);
-    },
-    off<K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]) {
-      listeners[event]?.delete(callback);
-    },
-    emit<K extends keyof PeerTransportEvents>(event: K, ...args: Parameters<PeerTransportEvents[K]>) {
-      for (const callback of listeners[event] ?? []) callback(...args);
-    },
-  };
 }
 
 export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
@@ -99,7 +84,7 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
   };
 
   const base = (did: string, room: string) => {
-    const emitter = createEmitter();
+    const emitter = createEmitter<PeerTransportEvents>();
     const endpoint: Endpoint = { did, links: new Set(), emit: emitter.emit };
     endpoints.set(at(room, did), endpoint);
 

@@ -43,6 +43,7 @@ import { createCapabilityGate } from '../validation/capability-gate.js';
 import { createValidationEngine } from '../validation/validation-engine.js';
 import { encryptExpression, decryptExpression, type EncryptedExpression } from '../privacy/space-encryption.js';
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
+import { createMesh, type Mesh } from '../network/mesh.js';
 import { createWebSocketTransport } from '../network/ws-transport.js';
 import { createClientAuth, createMeshAuth } from '../network/peer-auth.js';
 import {
@@ -142,6 +143,12 @@ export async function relayRoom(spaceId: string): Promise<string> {
   return base32Encode((await sha256(new TextEncoder().encode(`weave-room/v1|${spaceId}`))).subarray(0, 20));
 }
 
+/** The one mesh a node's spaces share, when it has relays to meet on */
+export function meshFor(network: NodeNetworkConfig | undefined, did: string): Mesh | undefined {
+  if (!network?.relays?.length) return undefined;
+  return createMesh({ did, relays: network.relays, ...(network.iceServers ? { iceServers: network.iceServers } : {}) });
+}
+
 /** The capability a record in a space requires */
 export const writeCapability = (spaceId: string): Capability => ({
   with: `space:${spaceId}`,
@@ -169,6 +176,8 @@ export interface SpaceRuntimeDeps {
   /** The identity the node acts for — names the cross-tab channel */
   readonly rootDid: string;
   readonly network?: NodeNetworkConfig;
+  /** The node's connections through relays, which this space joins by its room */
+  readonly mesh?: Mesh;
   readonly watchIntervalMs: number;
   readonly emit: (event: NodeEvent) => void;
   /** Told the role this account holds whenever the access history says something new */
@@ -452,13 +461,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const found: AccessEvent[] = [];
     // By key, not by the current version's collection: whatever sits on top
     // may be anyone's, and every version of the history counts.
-    for (const version of await storage.listCurrent()) {
-      const kind = ACCESS_KEYS.find(([prefix]) => version.key.startsWith(prefix));
-      if (!kind) continue;
-      for (const held of await storage.history(version.key)) {
-        if (held.collection !== kind[1]) continue;
-        const event = await toEvent(held);
-        if (event) found.push(event);
+    for (const [prefix, collection] of ACCESS_KEYS) {
+      for (const versions of (await storage.histories(prefix)).values()) {
+        for (const held of versions) {
+          if (held.collection !== collection) continue;
+          const event = await toEvent(held);
+          if (event) found.push(event);
+        }
       }
     }
     const history = replayAccess(accessGenesis, found);
@@ -828,9 +837,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   async function loadProfiles(): Promise<Map<string, SpaceProfile>> {
     const result = new Map<string, SpaceProfile>();
     // By key: the current version may be anyone's.
-    const keys = (await storage.listCurrent()).map((v) => v.key).filter((k) => k.startsWith('profile:'));
-    for (const key of keys) {
-      for (const version of await storage.history(key)) {
+    for (const [key, versions] of await storage.histories('profile:')) {
+      for (const version of versions) {
         if (version.collection !== PROFILE_COLLECTION) continue;
         const verdict = await judge(version);
         if (!verdict.verified || !verdict.root || (await profileKey(verdict.root)) !== key) continue;
@@ -905,22 +913,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const room = encodeURIComponent(space.id);
     // A carrier holds the read key pair without the key it comes from: it may be served the space, and cannot open it.
     const readKey = space.visibility === 'private' ? (key ? await deriveReadKey(key, provider) : (record.read ?? null)) : null;
-    if (net.relays?.length) {
-      const hashedRoom = await relayRoom(space.id);
-      networks.push(
-        createNetworkManager({
-          did: session.did,
-          signalingUrls: net.relays.map((relay) => `${relay}?room=${hashedRoom}`),
-          ...(net.iceServers ? { iceServers: net.iceServers } : {}),
-          // Every peer met through a relay proves who it is, and in a private space that it may read.
-          auth: createMeshAuth(
-            space.id,
-            session,
-            space.visibility === 'private' ? { key: readKey, publicDid: space.readKey ?? '' } : null,
-            provider,
-          ),
-        }),
+    if (deps.mesh) {
+      // Every peer met through a relay proves who it is, and in a private space that it may read.
+      const auth = createMeshAuth(
+        space.id,
+        session,
+        space.visibility === 'private' ? { key: readKey, publicDid: space.readKey ?? '' } : null,
+        provider,
       );
+      networks.push(deps.mesh.join(await relayRoom(space.id), auth));
     }
     // Both sides of a socket to a node prove who they are; in a private space the client also proves it may read.
     const authenticator = net.nodes?.length ? createClientAuth(space.id, session, readKey, provider) : null;

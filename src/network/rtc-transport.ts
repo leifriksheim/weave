@@ -3,6 +3,7 @@
  */
 
 import type { CandidateSink, PeerTransportEvents, SignalledTransport } from './transport.js';
+import { createEmitter } from '../utils/events.js';
 
 export interface RTCTransportConfig {
   readonly iceServers?: ReadonlyArray<RTCIceServer>;
@@ -39,35 +40,7 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
   const iceServers = config?.iceServers ?? DEFAULT_ICE_SERVERS;
   const connections = new Map<string, PeerConnectionData>();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const listeners: { [K in keyof RTCTransportEvents]?: Set<any> } = {};
-
-  const emit = <K extends keyof RTCTransportEvents>(event: K, ...args: Parameters<RTCTransportEvents[K]>) => {
-    const eventListeners = listeners[event];
-    if (eventListeners) {
-      eventListeners.forEach(callback => {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (callback as any)(...args);
-        } catch (e) {
-          console.error(`Error in RTC transport event listener for ${event}:`, e);
-        }
-      });
-    }
-  };
-
-  const on = <K extends keyof RTCTransportEvents>(event: K, callback: RTCTransportEvents[K]): void => {
-    if (!listeners[event]) {
-      listeners[event] = new Set();
-    }
-    listeners[event]!.add(callback);
-  };
-
-  const off = <K extends keyof RTCTransportEvents>(event: K, callback: RTCTransportEvents[K]): void => {
-    if (listeners[event]) {
-      listeners[event]!.delete(callback);
-    }
-  };
+  const { on, off, emit } = createEmitter<RTCTransportEvents>();
 
   const setupDataChannel = (peerId: string, channel: RTCDataChannel) => {
     channel.binaryType = 'arraybuffer';

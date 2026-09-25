@@ -191,8 +191,10 @@ describe('an agent acting for a person', () => {
 
   test('taking someone out of the space, signed by an agent, is ignored too', async () => {
     const { alice, bob, space } = await setup();
-    const held = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(await memberKey(bob.node.did));
-    assert.ok(held, 'Alice holds Bob\'s member record');
+    const aliceStore = createStorageProvider(await alice.stores(`spaces/${space}`));
+    // Bob knowing he joined is not Alice having heard it yet.
+    await until(async () => (await aliceStore.getCurrent(await memberKey(bob.node.did))) !== null, 4000, 'Alice to hold Bob\'s member record');
+    const held = await aliceStore.getCurrent(await memberKey(bob.node.did));
     await alice.node.spaces.close(space);
     await forgeAsAgent(alice, space, {
       collection: 'sys.member',

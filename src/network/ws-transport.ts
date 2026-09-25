@@ -20,6 +20,7 @@
 
 import type { PeerTransport, PeerTransportEvents } from './transport.js';
 import { peerNonce, type ClientAuth } from './peer-auth.js';
+import { createEmitter } from '../utils/events.js';
 
 export interface WebSocketTransportConfig {
   /** `wss://node.example.com/peer` */
@@ -70,27 +71,7 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
   let retryCount = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const listeners: { [K in keyof PeerTransportEvents]?: Set<any> } = {};
-
-  const emit = <K extends keyof PeerTransportEvents>(event: K, ...args: Parameters<PeerTransportEvents[K]>) => {
-    listeners[event]?.forEach((callback) => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (callback as any)(...args);
-      } catch (e) {
-        console.error(`Error in WebSocket transport event listener for ${event}:`, e);
-      }
-    });
-  };
-
-  const on = <K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]): void => {
-    (listeners[event] ??= new Set()).add(callback);
-  };
-
-  const off = <K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]): void => {
-    listeners[event]?.delete(callback);
-  };
+  const { on, off, emit } = createEmitter<PeerTransportEvents>();
 
   const scheduleRedial = () => {
     if (stopped || !reconnect || reconnectTimer) return;

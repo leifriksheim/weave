@@ -14,6 +14,7 @@
  * on a real wire.
  */
 import type { PeerTransport, PeerTransportEvents } from './transport.js';
+import { createEmitter } from '../utils/events.js';
 
 export interface LocalHub {
   /** A transport for `did`. It links to the others once `connect()` is called, and leaves on `closeAll()`. */
@@ -40,14 +41,8 @@ export function createLocalHub(): LocalHub {
 
   return {
     transport(did: string): PeerTransport {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const listeners: { [K in keyof PeerTransportEvents]?: Set<any> } = {};
-      const endpoint: Endpoint = {
-        links: new Set(),
-        emit(event, ...args) {
-          for (const callback of listeners[event] ?? []) callback(...args);
-        },
-      };
+      const { on, off, emit } = createEmitter<PeerTransportEvents>();
+      const endpoint: Endpoint = { links: new Set(), emit };
 
       return Object.freeze({
         async connect() {
@@ -75,12 +70,8 @@ export function createLocalHub(): LocalHub {
           for (const peer of [...endpoint.links]) unlink(did, peer);
           if (connected.get(did) === endpoint) connected.delete(did);
         },
-        on<K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]) {
-          (listeners[event] ??= new Set()).add(callback);
-        },
-        off<K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]) {
-          listeners[event]?.delete(callback);
-        },
+        on,
+        off,
       });
     },
   };

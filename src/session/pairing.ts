@@ -17,7 +17,7 @@
  * difference between this and the phone-is-the-real-device pairing that
  * messaging apps do.
  */
-import { createNetworkManager } from '../network/network-manager.js';
+import { createMesh } from '../network/mesh.js';
 import {
   pairingRoomId,
   derivePairingKey,
@@ -75,11 +75,7 @@ export async function offerToPhone(
 
   const url = `${params.link}#pair=${encodePairingTicket({ v: 1, code: seedToRecoveryCode(seed), relay })}`;
   const key = await derivePairingKey(seed);
-  const room = encodeURIComponent(await pairingRoomId(seed));
-  const network = createNetworkManager({
-    signalingUrls: relays.map((address) => `${address}?room=${room}`),
-    did: node.sessionDid,
-  });
+  const network = createMesh({ relays, did: node.sessionDid }).join(await pairingRoomId(seed));
 
   network.on('peer-connected', (peer: PeerInfo) => {
     onStage({ kind: 'connected' });
@@ -153,10 +149,7 @@ export async function collectFromDesktop(
 
   // The phone uses the relay named in the ticket: it is the one the computer
   // showing the code is definitely on, and the phone has no configuration.
-  const network = createNetworkManager({
-    signalingUrl: `${ticket.relay}?room=${encodeURIComponent(await pairingRoomId(seed))}`,
-    did: node.sessionDid,
-  });
+  const network = createMesh({ relays: [ticket.relay], did: node.sessionDid }).join(await pairingRoomId(seed));
 
   return new Promise<number>((resolve) => {
     let settled = false;

@@ -23,10 +23,14 @@ export const SIGNAL_MESSAGE = '__signal';
 /** The peer handshake (`peer-auth.ts`): a nonce each way, then a proof each way */
 export const AUTH_HELLO_MESSAGE = '__auth-hello';
 export const AUTH_PROOF_MESSAGE = '__auth-proof';
+/** A peer is leaving a room, though the connection may go on for others */
+export const LEAVE_MESSAGE = '__leave';
+
+const CONTROL = new Set([PEERS_MESSAGE, SIGNAL_MESSAGE, AUTH_HELLO_MESSAGE, AUTH_PROOF_MESSAGE, LEAVE_MESSAGE]);
 
 /** Whether a message belongs to the mesh rather than the application above it */
 export function isControlMessage(type: string): boolean {
-  return type === PEERS_MESSAGE || type === SIGNAL_MESSAGE || type === AUTH_HELLO_MESSAGE || type === AUTH_PROOF_MESSAGE;
+  return CONTROL.has(type);
 }
 
 /** The most peers one introduction may name — more is someone trying to make us dial the world */

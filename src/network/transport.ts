@@ -1,13 +1,13 @@
 /**
- * @fileoverview What the network manager needs from any way of moving bytes
+ * @fileoverview What the mesh and network managers need from any way of moving bytes
  * between peers.
  *
  * Two kinds exist. A **signalled** transport (WebRTC) cannot open a connection
  * on its own: an offer and an answer have to be carried to the other side by
  * something else — a relay, or a peer already connected to both. An
  * **unsignalled** one (a WebSocket to an always-on node, an in-memory fake in
- * tests) just dials. The network manager sets up relays and introductions only
- * for the first kind.
+ * tests) just dials. The first kind is the mesh's (`mesh.ts`); the second, a
+ * network manager's (`network-manager.ts`).
  */
 
 export type PeerTransportEvents = {
@@ -47,9 +47,4 @@ export interface SignalledTransport extends PeerTransport {
   readonly handleOffer: (peerId: string, offer: RTCSessionDescriptionInit, onCandidate: CandidateSink) => Promise<RTCSessionDescriptionInit>;
   readonly handleAnswer: (peerId: string, answer: RTCSessionDescriptionInit) => Promise<void>;
   readonly addIceCandidate: (peerId: string, candidate: RTCIceCandidateInit) => Promise<void>;
-}
-
-/** Whether a transport needs offers carried for it. */
-export function isSignalledTransport(transport: PeerTransport): transport is SignalledTransport {
-  return typeof (transport as Partial<SignalledTransport>).createOffer === 'function';
 }

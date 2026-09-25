@@ -20,7 +20,7 @@
 
 import type { StorageAdapter, Expression, BatchOp } from '../types.js';
 import { insertIntoMST, deleteFromMST, lookupInMST, listMSTEntries, collectReachableCids } from './mst.js';
-import { supersedes } from '../records/version.js';
+import { byVersion, supersedes } from '../records/version.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 
 export interface StorageProvider {
@@ -40,9 +40,11 @@ export interface StorageProvider {
   getGenesis(key: string): Promise<Expression | null>;
   /** Every version of a record this store keeps: current, first, and retained. Newest first. */
   history(key: string): Promise<Expression[]>;
+  /** {@link history} for every record whose key starts with `prefix`, reading only that part of the tree. */
+  histories(prefix: string): Promise<Map<string, Expression[]>>;
   /** Current versions of every record, deletes included. */
   listCurrent(): Promise<Expression[]>;
-  /** Current versions in one collection, deletes included. */
+  /** Current versions in one collection, deletes included — found through the store's collection index. */
   queryExpressions(collection: string): Promise<Expression[]>;
   /** Every tree entry, for sync and copying: `r/…`, `g/…`, `h/…` keys and the version ids under them. */
   entries(): Promise<Array<{ key: string; value: string }>>;
@@ -96,17 +98,9 @@ const historyKey = (e: Expression) => `${HISTORY_PREFIX}${e.key}/${String(e.seq)
  * @returns The StorageProvider orchestrator.
  */
 export function createStorageProvider(adapter: StorageAdapter, options: StorageProviderOptions = {}): StorageProvider {
-  async function getRootCid(): Promise<string | null> {
-    const bytes = await adapter.get(ROOT_KEY);
+  async function getRootCid(store: StorageAdapter = adapter): Promise<string | null> {
+    const bytes = await store.get(ROOT_KEY);
     return bytes ? utf8Decode(bytes) : null;
-  }
-
-  async function setRootCid(cid: string | null): Promise<void> {
-    if (cid) {
-      await adapter.put(ROOT_KEY, utf8Encode(cid));
-    } else {
-      await adapter.delete(ROOT_KEY);
-    }
   }
 
   // Every change reads the root, rewrites the path to one entry, and writes a
@@ -118,6 +112,33 @@ export function createStorageProvider(adapter: StorageAdapter, options: StorageP
     tail = run.catch(() => {});
     return run;
   };
+
+  /**
+   * Runs one change of the tree. Its node writes are held and made in one
+   * batch with the new root, so a change lands whole or not at all, in one
+   * transaction rather than one per node. Versions it drops are deleted only
+   * after, so the tree never names a record that is gone.
+   */
+  const change = (run: (tree: StorageAdapter, root: string | null, drop: (id: string) => void) => Promise<string | null>) =>
+    exclusively(async () => {
+      const writes = new Map<string, Uint8Array | null>();
+      const tree: StorageAdapter = {
+        ...adapter,
+        get: async (key) => (writes.has(key) ? writes.get(key)! : adapter.get(key)),
+        has: async (key) => (writes.has(key) ? writes.get(key) !== null : adapter.has(key)),
+        put: async (key, value) => void writes.set(key, value),
+        delete: async (key) => void writes.set(key, null),
+      };
+      const dropped: string[] = [];
+      const before = await getRootCid();
+      const root = await run(tree, before, (id) => dropped.push(id));
+      if (root === before && writes.size === 0 && dropped.length === 0) return root;
+      writes.set(ROOT_KEY, root ? utf8Encode(root) : null);
+      await adapter.batch([...writes].map(([key, value]): BatchOp => (value ? { type: 'put', key, value } : { type: 'delete', key })));
+      for (const id of dropped) await adapter.deleteExpression(id);
+      changed();
+      return root;
+    });
 
   const graceMs = options.graceMs ?? 60_000;
   const compact = (): Promise<number> =>
@@ -152,78 +173,75 @@ export function createStorageProvider(adapter: StorageAdapter, options: StorageP
    * Places a version that is not current: the record's first version if it is
    * the lowest-id one seen, history if retained, otherwise gone.
    */
-  async function demote(root: string | null, version: Expression, current: Expression): Promise<string | null> {
+  async function demote(tree: StorageAdapter, root: string | null, version: Expression, current: Expression, drop: (id: string) => void): Promise<string | null> {
     // A first version is kept as proof of who created the record — the one
     // with the lowest id, if several devices each created the same chosen key.
     // Not while the record is still at seq 0: then the current version is it.
     if (version.seq === 0 && current.seq > 0) {
-      const heldId = await lookupInMST(adapter, root, genesisKey(version.key));
+      const heldId = await lookupInMST(tree, root, genesisKey(version.key));
       if (heldId === version.id) return root;
       if (heldId === null || version.id < heldId) {
         await adapter.putExpression(version);
-        root = await insertIntoMST(adapter, root, genesisKey(version.key), version.id);
+        root = await insertIntoMST(tree, root, genesisKey(version.key), version.id);
         const displaced = heldId ? await adapter.getExpression(heldId) : null;
-        return displaced ? keepOrDrop(root, displaced) : root;
+        return displaced ? keepOrDrop(tree, root, displaced, drop) : root;
       }
     }
-    return keepOrDrop(root, version);
+    return keepOrDrop(tree, root, version, drop);
   }
 
-  async function keepOrDrop(root: string | null, version: Expression): Promise<string | null> {
+  async function keepOrDrop(tree: StorageAdapter, root: string | null, version: Expression, drop: (id: string) => void): Promise<string | null> {
     if (version.retain) {
       await adapter.putExpression(version);
-      return insertIntoMST(adapter, root, historyKey(version), version.id);
+      return insertIntoMST(tree, root, historyKey(version), version.id);
     }
-    await adapter.deleteExpression(version.id);
+    drop(version.id);
     return root;
   }
 
-  async function listCurrent(): Promise<Expression[]> {
-    const ids = (await listMSTEntries(adapter, await getRootCid()))
-      .filter((e) => e.key.startsWith(CURRENT_PREFIX))
-      .map((e) => e.value);
-    const versions = await Promise.all(ids.map((id) => adapter.getExpression(id)));
-    return versions.filter((v): v is Expression => v !== null);
+  const load = async (ids: Iterable<string>): Promise<Expression[]> =>
+    (await Promise.all([...ids].map((id) => adapter.getExpression(id)))).filter((v): v is Expression => v !== null);
+
+  async function histories(prefix: string): Promise<Map<string, Expression[]>> {
+    const root = await getRootCid();
+    const ids = new Map<string, Set<string>>();
+    for (const tree of [CURRENT_PREFIX, GENESIS_PREFIX, HISTORY_PREFIX]) {
+      for (const entry of await listMSTEntries(adapter, root, `${tree}${prefix}`)) {
+        // `r/<key>`, `g/<key>`, `h/<key>/<seq>/<id>` — a record key holds no `/`.
+        const key = entry.key.split('/')[1]!;
+        (ids.get(key) ?? ids.set(key, new Set()).get(key)!).add(entry.value);
+      }
+    }
+    const result = new Map<string, Expression[]>();
+    for (const [key, held] of ids) result.set(key, (await load(held)).sort(byVersion));
+    return result;
   }
 
-  async function currentOf(root: string | null, key: string): Promise<Expression | null> {
-    const id = await lookupInMST(adapter, root, currentKey(key));
+  async function currentOf(tree: StorageAdapter, root: string | null, key: string): Promise<Expression | null> {
+    const id = await lookupInMST(tree, root, currentKey(key));
     return id ? adapter.getExpression(id) : null;
   }
 
   return Object.freeze({
     addExpression(incoming: Expression): Promise<string | null> {
-      return exclusively(async () => {
-        let root = await getRootCid();
-        const current = await currentOf(root, incoming.key);
-
+      return change(async (tree, root, drop) => {
+        const current = await currentOf(tree, root, incoming.key);
         if (current?.id === incoming.id) return root;
+        if (current && !supersedes(incoming, current)) return demote(tree, root, incoming, current, drop);
 
-        if (!current) {
-          await adapter.putExpression(incoming);
-          root = await insertIntoMST(adapter, root, currentKey(incoming.key), incoming.id);
-        } else if (supersedes(incoming, current)) {
-          await adapter.putExpression(incoming);
-          root = await insertIntoMST(adapter, root, currentKey(incoming.key), incoming.id);
-          root = await demote(root, current, incoming);
-        } else {
-          root = await demote(root, incoming, current);
-        }
-
-        await setRootCid(root);
-        changed();
-        return root;
+        await adapter.putExpression(incoming);
+        root = await insertIntoMST(tree, root, currentKey(incoming.key), incoming.id);
+        return current ? demote(tree, root, current, incoming, drop) : root;
       });
     },
 
     removeExpression(id: string): Promise<string | null> {
-      return exclusively(async () => {
-        let root = await getRootCid();
-        for (const entry of await listMSTEntries(adapter, root)) {
-          if (entry.value === id) root = await deleteFromMST(adapter, root, entry.key);
+      return change(async (tree, root, drop) => {
+        const version = await adapter.getExpression(id);
+        for (const key of version ? [currentKey(version.key), genesisKey(version.key), historyKey(version)] : []) {
+          if ((await lookupInMST(tree, root, key)) === id) root = await deleteFromMST(tree, root, key);
         }
-        await adapter.deleteExpression(id);
-        await setRootCid(root);
+        drop(id);
         return root;
       });
     },
@@ -233,7 +251,7 @@ export function createStorageProvider(adapter: StorageAdapter, options: StorageP
     },
 
     async getCurrent(key: string): Promise<Expression | null> {
-      return currentOf(await getRootCid(), key);
+      return currentOf(adapter, await getRootCid(), key);
     },
 
     async getGenesis(key: string): Promise<Expression | null> {
@@ -242,20 +260,21 @@ export function createStorageProvider(adapter: StorageAdapter, options: StorageP
     },
 
     async history(key: string): Promise<Expression[]> {
-      const root = await getRootCid();
-      const ids = (await listMSTEntries(adapter, root))
-        .filter((e) => e.key === currentKey(key) || e.key === genesisKey(key) || e.key.startsWith(`${HISTORY_PREFIX}${key}/`))
-        .map((e) => e.value);
-      const versions = await Promise.all([...new Set(ids)].map((id) => adapter.getExpression(id)));
-      return versions
-        .filter((v): v is Expression => v !== null)
-        .sort((a, b) => (supersedes(a, b) ? -1 : supersedes(b, a) ? 1 : 0));
+      return (await histories(key)).get(key) ?? [];
     },
 
-    listCurrent,
+    histories,
+
+    async listCurrent(): Promise<Expression[]> {
+      return load((await listMSTEntries(adapter, await getRootCid(), CURRENT_PREFIX)).map((e) => e.value));
+    },
 
     async queryExpressions(collection: string): Promise<Expression[]> {
-      return (await listCurrent()).filter((version) => version.collection === collection);
+      // The index holds every version kept, not only current ones; the tree says which is current.
+      const root = await getRootCid();
+      const held = await adapter.queryExpressions(collection, Infinity);
+      const current = await Promise.all(held.map(async (v) => (await lookupInMST(adapter, root, currentKey(v.key))) === v.id));
+      return held.filter((_, i) => current[i]);
     },
 
     async entries() {

@@ -1,11 +1,18 @@
 /**
  * A dumb signaling relay: one small dependency, no state worth stealing.
  *
- * Peers connect with `?room=<id>` — a hash of a space's id, so the relay
- * cannot tell which space a room is — and the relay passes join/leave notices
- * and WebRTC offers, answers and ICE candidates between members of that room.
- * It never sees expression data — that flows peer to peer over WebRTC — and it
- * cannot read a private space even if it wanted to.
+ * A peer holds one socket and joins rooms on it — each a hash of a space's id,
+ * so the relay cannot tell which space a room is — and the relay passes
+ * join/leave notices and WebRTC offers, answers and ICE candidates between
+ * peers that share a room. It never sees expression data — that flows peer to
+ * peer over WebRTC — and it cannot read a private space even if it wanted to.
+ *
+ *   client → { type: 'join', from: did, room }     client → { type: 'leave', room }
+ *   relay  → { type: 'join' | 'leave', from: did, room }, to the others in the room
+ *   either → { type: 'offer' | 'answer' | 'candidate', to: did, payload }
+ *
+ * A socket opened with `?room=<id>` is the older, one-room form: its `join`
+ * names no room and means that one. Both kinds meet in the same rooms.
  *
  * It is public, so it assumes nobody is polite: every socket gets a size cap,
  * a message budget and a heartbeat, and each IP, room and the process as a
@@ -25,6 +32,7 @@ const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_CONNECTIONS = 5_000;
 const MAX_CONNECTIONS_PER_IP = 32;
 const MAX_ROOMS = 10_000;
+const MAX_ROOMS_PER_SOCKET = 256;
 const MAX_PEERS_PER_ROOM = 64;
 const MAX_ROOM_LENGTH = 128;
 const MAX_DID_LENGTH = 256;
@@ -43,11 +51,12 @@ const DID_PATTERN = /^did:key:z[1-9A-HJ-NP-Za-km-z]+$/;
 /** A close code a client can tell apart from a network drop. */
 const CLOSE_DID_TAKEN = 4009;
 
-/** room id -> Set of clients */
+/** room id -> Set of named clients in it */
 const rooms = new Map();
+/** Every open socket, named or not */
+const clients = new Set();
 /** ip -> number of open sockets */
 const perIp = new Map();
-let connections = 0;
 
 const server = createServer((req, res) => {
   if (req.url === '/health') {
@@ -70,38 +79,39 @@ const wss = new WebSocketServer({
 server.on('upgrade', (req, socket, head) => {
   socket.on('error', () => socket.destroy());
 
-  const url = new URL(req.url ?? '/', 'http://relay');
-  const room = url.searchParams.get('room') ?? 'default';
+  const legacyRoom = new URL(req.url ?? '/', 'http://relay').searchParams.get('room');
   const ip = clientIp(req);
 
   // Everything that can be refused is refused here, before a socket is opened.
   const refusal =
-    room.length === 0 || room.length > MAX_ROOM_LENGTH ? [400, 'Bad room'] :
-    connections >= MAX_CONNECTIONS ? [503, 'Relay full'] :
+    legacyRoom !== null && !canEnter(legacyRoom) ? [503, 'Room full'] :
+    clients.size >= MAX_CONNECTIONS ? [503, 'Relay full'] :
     (perIp.get(ip) ?? 0) >= MAX_CONNECTIONS_PER_IP ? [429, 'Too many connections'] :
-    !rooms.has(room) && rooms.size >= MAX_ROOMS ? [503, 'Too many rooms'] :
-    (rooms.get(room)?.size ?? 0) >= MAX_PEERS_PER_ROOM ? [503, 'Room full'] :
     null;
   if (refusal) {
     socket.end(`HTTP/1.1 ${refusal[0]} ${refusal[1]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
     return;
   }
 
-  wss.handleUpgrade(req, socket, head, (ws) => accept(ws, room, ip));
+  wss.handleUpgrade(req, socket, head, (ws) => accept(ws, legacyRoom, ip));
 });
 
-/**
- * Admits one socket to its room. It is a nameless member until it sends
- * `join`, which fixes its DID for the life of the socket.
- */
-function accept(ws, room, ip) {
-  const client = { ws, room, ip, did: null, alive: true, tokens: RATE_BURST, refilled: Date.now() };
+/** Whether a room could take one more peer */
+function canEnter(room) {
+  if (typeof room !== 'string' || room.length === 0 || room.length > MAX_ROOM_LENGTH) return false;
+  const peers = rooms.get(room);
+  return peers ? peers.size < MAX_PEERS_PER_ROOM : rooms.size < MAX_ROOMS;
+}
 
-  connections++;
+/**
+ * Admits one socket. It is nameless until its first `join`, which fixes its
+ * DID for the life of the socket.
+ */
+function accept(ws, legacyRoom, ip) {
+  const client = { ws, legacyRoom, ip, did: null, rooms: new Set(), alive: true, tokens: RATE_BURST, refilled: Date.now() };
+
+  clients.add(client);
   perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
-  if (!rooms.has(room)) rooms.set(room, new Set());
-  rooms.get(room).add(client);
-  log(`peer joined room ${short(room)} (${rooms.get(room).size} present)`);
 
   ws.on('pong', () => (client.alive = true));
   ws.on('message', (data, isBinary) => {
@@ -116,18 +126,11 @@ function accept(ws, room, ip) {
   const drop = () => {
     if (dropped) return;
     dropped = true;
-    connections--;
+    clients.delete(client);
     const left = (perIp.get(ip) ?? 1) - 1;
     if (left > 0) perIp.set(ip, left);
     else perIp.delete(ip);
-
-    const peers = rooms.get(room);
-    peers?.delete(client);
-    if (peers?.size === 0) rooms.delete(room);
-    if (client.did) {
-      relay(client, { type: 'leave', from: client.did });
-    }
-    log(`peer left room ${short(room)}`);
+    for (const room of [...client.rooms]) leave(client, room);
   };
 
   // `ws` closes the socket itself on an oversized or malformed frame
@@ -137,8 +140,9 @@ function accept(ws, room, ip) {
 }
 
 /**
- * Routes one signaling message: `join` is announced to everyone already in the
- * room, and everything else is delivered to the single peer it names.
+ * Routes one signaling message: `join` and `leave` are announced to the others
+ * in that room, and everything else is delivered to the single peer it names —
+ * if it shares a room with the sender.
  *
  * Only existing peers hear about a newcomer, so exactly one side creates the
  * offer and the two never collide.
@@ -154,42 +158,60 @@ function handleMessage(client, raw) {
     return;
   }
   if (!message || typeof message.type !== 'string') return;
+  const room = message.room ?? client.legacyRoom;
 
   if (message.type === 'join') {
-    // One join per socket: a repeat would make every peer open a fresh
-    // connection to us, and a changed DID would let a socket wear two names.
-    if (client.did) return;
-    if (!isDid(message.from)) return;
+    // A socket wears one name: a changed DID would let it wear two.
+    if (client.did ? message.from !== client.did : !isDid(message.from)) return;
+    if (client.rooms.has(room) || client.rooms.size >= MAX_ROOMS_PER_SOCKET || !canEnter(room)) return;
 
     // The first socket to claim a DID in a room keeps it. Taking it over
     // would let anyone who learns a DID receive the offers meant for it.
     // A peer that reconnects after a silent drop is refused until the
     // heartbeat reaps its old socket, and its client retries.
-    if (findPeer(client.room, message.from)) {
+    if (findPeer(room, message.from)) {
       client.ws.close(CLOSE_DID_TAKEN, 'DID already in room');
       return;
     }
 
     client.did = message.from;
-    relay(client, { type: 'join', from: client.did });
+    client.rooms.add(room);
+    if (!rooms.has(room)) rooms.set(room, new Set());
+    rooms.get(room).add(client);
+    announce(client, room, 'join');
+    log(`peer joined room ${short(room)} (${rooms.get(room).size} present)`);
     return;
   }
 
-  // Nameless sockets have nobody to speak for.
-  if (!client.did) return;
-  if (!ROUTED.has(message.type) || typeof message.to !== 'string') return;
+  if (message.type === 'leave') {
+    if (client.rooms.has(room)) leave(client, room);
+    return;
+  }
 
-  const target = findPeer(client.room, message.to);
-  if (target && target !== client) {
-    send(target, JSON.stringify({ type: message.type, from: client.did, to: message.to, payload: message.payload }));
+  if (!client.did || !ROUTED.has(message.type) || typeof message.to !== 'string') return;
+  for (const shared of client.rooms) {
+    const target = findPeer(shared, message.to);
+    if (target && target !== client) {
+      send(target, JSON.stringify({ type: message.type, from: client.did, to: message.to, payload: message.payload }));
+      return;
+    }
   }
 }
 
-/** Sends a message to every other named peer in the sender's room. */
-function relay(sender, message) {
-  const payload = JSON.stringify(message);
-  for (const peer of rooms.get(sender.room) ?? []) {
-    if (peer !== sender && peer.did) send(peer, payload);
+function leave(client, room) {
+  client.rooms.delete(room);
+  const peers = rooms.get(room);
+  peers?.delete(client);
+  if (peers?.size === 0) rooms.delete(room);
+  announce(client, room, 'leave');
+  log(`peer left room ${short(room)}`);
+}
+
+/** Tells every other peer in a room that someone came or went. */
+function announce(sender, room, type) {
+  const payload = JSON.stringify({ type, from: sender.did, room });
+  for (const peer of rooms.get(room) ?? []) {
+    if (peer !== sender) send(peer, payload);
   }
 }
 
@@ -235,15 +257,13 @@ function clientIp(req) {
 // Heartbeat: ping everyone, and drop whoever did not answer the last ping.
 // This also frees rooms and DIDs held by sockets that died without a close.
 const heartbeat = setInterval(() => {
-  for (const peers of rooms.values()) {
-    for (const client of peers) {
-      if (!client.alive) {
-        client.ws.terminate();
-        continue;
-      }
-      client.alive = false;
-      client.ws.ping();
+  for (const client of clients) {
+    if (!client.alive) {
+      client.ws.terminate();
+      continue;
     }
+    client.alive = false;
+    client.ws.ping();
   }
 }, HEARTBEAT_MS);
 heartbeat.unref();

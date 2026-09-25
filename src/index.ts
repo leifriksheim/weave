@@ -167,12 +167,10 @@ export {
   insertIntoMST,
   deleteFromMST,
   lookupInMST,
-  diffMST,
-  listMSTKeys,
   listMSTEntries,
   collectReachableCids,
 } from './storage/mst.js';
-export type { MSTNode, MSTDiff } from './storage/mst.js';
+export type { MSTNode } from './storage/mst.js';
 export {
   createStorageProvider,
 } from './storage/storage-provider.js';
@@ -279,18 +277,16 @@ export {
 } from './network/rtc-transport.js';
 export { createWebSocketTransport } from './network/ws-transport.js';
 export type { WebSocketTransportConfig } from './network/ws-transport.js';
-export { isSignalledTransport } from './network/transport.js';
 export { createClientAuth, createServerAuth, createMeshAuth, peerNonce } from './network/peer-auth.js';
 export type { ClientAuth, ServerAuth } from './network/peer-auth.js';
 export type { PeerTransport, PeerTransportEvents, SignalledTransport, CandidateSink } from './network/transport.js';
-export {
-  createPeerDiscovery,
-} from './network/peer-discovery.js';
+export { createMesh } from './network/mesh.js';
+export type { Mesh, MeshConfig } from './network/mesh.js';
 export {
   createNetworkManager,
 } from './network/network-manager.js';
 export type { NetworkManager, NetworkManagerConfig, NetworkEvents } from './network/network-manager.js';
-export type { SignalingClient, SignalingMessage } from './network/signaling.js';
+export type { SignalingClient, SignalingMessage, SignalKind } from './network/signaling.js';
 
 // Phase 5: Gossip/Sync Protocol
 export {
@@ -358,7 +354,8 @@ export {
 export { sha256, cidFromBytes } from './utils/hash.js';
 export { protocolError, isProtocolError } from './utils/errors.js';
 export type { ProtocolError, ProtocolErrorCode } from './utils/errors.js';
-export { TypedEventTarget } from './utils/events.js';
+export { createEmitter } from './utils/events.js';
+export type { Emitter } from './utils/events.js';
 
 // Node: identity + spaces + sync, behind one API
 export {

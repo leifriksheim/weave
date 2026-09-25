@@ -33,15 +33,6 @@ export interface MSTNode {
 }
 
 /**
- * Differences between two Merkle Search Trees.
- */
-export interface MSTDiff {
-  readonly added: ReadonlyArray<{key: string, value: string}>;
-  readonly removed: ReadonlyArray<{key: string, value: string}>;
-  readonly modified: ReadonlyArray<{key: string, oldValue: string, newValue: string}>;
-}
-
-/**
  * Creates an empty MST node at the given height.
  * @param height The height the node sits at.
  * @returns An empty node.
@@ -357,21 +348,30 @@ async function deleteFrom(
   return saveOrPrune(adapter, { ...node, children });
 }
 
-/** Walks entries in key order, skipping any subtree whose CID is in `prune`. */
+/**
+ * Walks the entries whose keys start with `prefix`, in key order, skipping
+ * every subtree that lies wholly outside that range.
+ */
 async function walkEntries(
   adapter: StorageAdapter,
   cid: string | null,
-  prune: ReadonlySet<string> | null,
+  prefix: string,
   visit: (key: string, value: string) => void
 ): Promise<void> {
-  if (cid === null || prune?.has(cid)) return;
+  if (cid === null) return;
 
   const node = await loadNode(adapter, cid);
-  for (let i = 0; i < node.keys.length; i++) {
-    await walkEntries(adapter, node.children[i] ?? null, prune, visit);
-    visit(node.keys[i]!, node.values[i]!);
+  const { keys } = node;
+  // Child i holds the keys between keys[i - 1] and keys[i].
+  for (let i = 0; i <= keys.length; i++) {
+    const below = keys[i - 1];
+    const above = keys[i];
+    const afterRange = below !== undefined && below > prefix && !below.startsWith(prefix);
+    if (afterRange) return;
+    const beforeRange = above !== undefined && above < prefix;
+    if (!beforeRange) await walkEntries(adapter, node.children[i] ?? null, prefix, visit);
+    if (above !== undefined && above.startsWith(prefix)) visit(above, node.values[i]!);
   }
-  await walkEntries(adapter, node.children[node.keys.length] ?? null, prune, visit);
 }
 
 /** Collects the CID of every node reachable from `cid`. */
@@ -492,87 +492,18 @@ export async function lookupInMST(
 }
 
 /**
- * List all keys in order.
- * @param adapter The storage adapter.
- * @param rootCid The root to walk.
- * @returns Every key, sorted.
- */
-export async function listMSTKeys(adapter: StorageAdapter, rootCid: string | null): Promise<string[]> {
-  const keys: string[] = [];
-  await walkEntries(adapter, rootCid, null, (key) => { keys.push(key); });
-  return keys;
-}
-
-/**
- * List all entries — keys with their values — in key order.
+ * Lists entries — keys with their values — in key order: all of them, or
+ * those under a prefix, reading only the nodes that can hold them.
  * @param adapter The storage adapter.
  * @param rootCid The root, or null for an empty tree.
+ * @param prefix Only keys starting with this
  */
 export async function listMSTEntries(
   adapter: StorageAdapter,
   rootCid: string | null,
+  prefix = '',
 ): Promise<Array<{ key: string; value: string }>> {
   const entries: Array<{ key: string; value: string }> = [];
-  await walkEntries(adapter, rootCid, null, (key, value) => { entries.push({ key, value }); });
+  await walkEntries(adapter, rootCid, prefix, (key, value) => { entries.push({ key, value }); });
   return entries;
-}
-
-/**
- * Compute differences between two MSTs.
- *
- * Any subtree both sides already share has the same CID, so it is skipped
- * whole — the walk only descends into what actually differs.
- *
- * @param localAdapter Adapter holding the local tree.
- * @param localRoot The local root CID.
- * @param remoteAdapter Adapter holding the remote tree.
- * @param remoteRoot The remote root CID.
- * @returns What the remote has that the local does not, and vice versa.
- */
-export async function diffMST(
-  localAdapter: StorageAdapter,
-  localRoot: string | null,
-  remoteAdapter: StorageAdapter,
-  remoteRoot: string | null
-): Promise<MSTDiff> {
-  const added: {key: string, value: string}[] = [];
-  const removed: {key: string, value: string}[] = [];
-  const modified: {key: string, oldValue: string, newValue: string}[] = [];
-
-  // Equal roots mean equal trees, all the way down.
-  if (localRoot === remoteRoot) {
-    return Object.freeze({
-      added: Object.freeze(added),
-      removed: Object.freeze(removed),
-      modified: Object.freeze(modified)
-    });
-  }
-
-  const localCids = await collectCids(localAdapter, localRoot);
-  const remoteCids = await collectCids(remoteAdapter, remoteRoot);
-
-  const localOnly = new Map<string, string>();
-  await walkEntries(localAdapter, localRoot, remoteCids, (key, value) => { localOnly.set(key, value); });
-
-  const remoteOnly = new Map<string, string>();
-  await walkEntries(remoteAdapter, remoteRoot, localCids, (key, value) => { remoteOnly.set(key, value); });
-
-  for (const [key, remoteValue] of remoteOnly) {
-    const localValue = localOnly.get(key);
-    if (localValue === undefined) {
-      added.push({ key, value: remoteValue });
-    } else if (localValue !== remoteValue) {
-      modified.push({ key, oldValue: localValue, newValue: remoteValue });
-    }
-  }
-
-  for (const [key, localValue] of localOnly) {
-    if (!remoteOnly.has(key)) removed.push({ key, value: localValue });
-  }
-
-  return Object.freeze({
-    added: Object.freeze(added),
-    removed: Object.freeze(removed),
-    modified: Object.freeze(modified)
-  });
 }
