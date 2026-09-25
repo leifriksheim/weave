@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
-import { useConnection, useSpaces } from '@weaveprotocol/core/react';
+import { CallsProvider, useConnection, useSpaces } from '@weaveprotocol/core/react';
 import { AccountMenu } from './components/AccountMenu';
 import { ConnectScreen } from './components/ConnectScreen';
 import { RelayNotice } from './components/RelayNotice';
@@ -9,6 +9,7 @@ import { InviteBanner } from './components/InviteBanner';
 import { SpaceList } from './components/SpaceList';
 import { SpaceRail } from './components/SpaceRail';
 import { SpaceView } from './components/SpaceView';
+import { CallLayer } from './components/calls/Calls';
 import { Wordmark } from './components/Wordmark';
 import { inviteFrom } from './spaces';
 import { styles } from './styles';
@@ -23,7 +24,14 @@ import { styles } from './styles';
  */
 export function App() {
   const { state } = useConnection();
-  return state.status === 'ready' ? <Workspace /> : <ConnectScreen />;
+  // Calls sit above the workspace, so moving between spaces never touches one.
+  return state.status === 'ready' ? (
+    <CallsProvider>
+      <Workspace />
+    </CallsProvider>
+  ) : (
+    <ConnectScreen />
+  );
 }
 
 /** Connected: the list of spaces, or one space opened. */
@@ -84,6 +92,7 @@ function Workspace() {
           </>
         )}
       </div>
+      <CallLayer spaces={spaces} onGoTo={setOpen} />
     </div>
   );
 }

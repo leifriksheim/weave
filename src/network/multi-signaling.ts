@@ -44,6 +44,9 @@ export function createMultiSignalingClient(
   /** Relays that have said a peer is in a room, by `room did` — announced upward once, gone once none do. */
   const presence = new Map<string, Set<SignalingClient>>();
 
+  /** TURN servers each relay offered, and when their passwords stop working */
+  const turn = new Map<SignalingClient, { servers: ReadonlyArray<RTCIceServer>; expiresAt: number }>();
+
   const connectedCount = (): number => clients.filter((client) => client.isConnected()).length;
 
   /** Remembers that a peer is reachable through this relay. */
@@ -83,6 +86,12 @@ export function createMultiSignalingClient(
       emit('signal', message);
     });
 
+    client.on('ice', (servers, expiresAt) => {
+      turn.set(client, { servers, expiresAt });
+      const offers = [...turn.values()];
+      emit('ice', offers.flatMap((offer) => offer.servers), Math.min(...offers.map((offer) => offer.expiresAt)));
+    });
+
     client.on('connected', () => {
       if (connectedCount() === 1) emit('connected');
     });
@@ -116,6 +125,7 @@ export function createMultiSignalingClient(
       for (const client of clients) client.disconnect();
       routes.clear();
       presence.clear();
+      turn.clear();
     },
 
     join: (room: string) => {
@@ -129,6 +139,10 @@ export function createMultiSignalingClient(
 
     signal: (kind: SignalKind, target: string, payload: unknown) => {
       for (const client of routesFor(target)) client.signal(kind, target, payload);
+    },
+
+    requestIce: () => {
+      for (const client of clients) if (client.isConnected()) client.requestIce();
     },
 
     on,

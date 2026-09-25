@@ -142,6 +142,78 @@ Every operation is also described in `NODE_ACTIONS` — a name, a sentence and a
 JSON Schema for its input — which is what the CLI, MCP and WebMCP front ends are
 generated from. `runAction(node, 'records_put', { … })` runs one by name.
 
+### Live messages, and spaces kept open
+
+Some things should reach whoever is connected right now and be kept nowhere:
+typing, presence, setting up a call. `spaces.send` is for those:
+
+```typescript
+await node.spaces.send(space.id, { type: 'typing' });            // everyone connected in the space
+await node.spaces.send(space.id, { type: 'nudge' }, anna);        // only Anna's devices (her account DID)
+await node.spaces.send(space.id, { type: 'hi' }, annasLaptop);    // one device (its session DID)
+
+node.subscribe((event) => {
+  if (event.type === 'message') event.from; event.peer; event.message;  // account, device, what was sent
+});
+```
+
+A live message is never signed as a record, never written and never synced;
+a peer who isn't connected misses it. It travels over the space's own peer
+connections, so in a private space only people holding its read key can
+receive one. At most 64 KB each, and each peer gets a burst of 60 and 20 a
+second after that.
+
+`event.from` is the **account**, not just a key. When two peers connect in a
+space, each sends the other its note — the delegation from its account to its
+session key, the same one its records carry. The note names the key it was
+made out to, and that has to be the key the connection proved, so a note
+copied off someone's record is no use to anyone else. `spaces.status(id).accounts`
+lists who is connected, by account. A peer that shows no note (a carrier, a
+node serving sockets) is `from: null`.
+
+`spaces.open` and `spaces.close` are **counted**: every `open` needs its own
+`close`, and a space stops syncing only when the last one is closed. A screen
+and a call can both have a space open, and the screen going away doesn't cut
+the call off. `useOpenSpace` lets go a few seconds late, so clicking away and
+straight back doesn't rebuild the space's sync.
+
+### Calls (`@weaveprotocol/core/calls`)
+
+Voice and video between the members of a space, built only from live
+messages and the browser's WebRTC:
+
+```typescript
+import { createCalls } from '@weaveprotocol/core/calls';
+
+const calls = createCalls(node);
+await calls.start(space.id, { video: true });   // join the call going on in the space, or start one
+await calls.ring(space.id, anna);               // start one, and ring Anna's devices
+calls.subscribe(() => draw(calls.getState()));  // { current, ringing, around, rejoin }
+await calls.answer(ringing.id);  calls.setMuted(true);  await calls.shareScreen();  await calls.leave();
+```
+
+- **A call belongs to a space, not to a screen.** It keeps its space open for
+  as long as it runs, so people can move between spaces and keep talking. One
+  call at a time. In React, `<CallsProvider>` above whatever changes as people
+  move around, and `useCalls()` below it.
+- **Only members take part.** Someone with no role in the space (a view-only
+  reader) is never rung by, counted in or connected to a call.
+- **Group calls don't ring.** A call going on shows in `around` for everyone
+  with the space open; only `ring`, aimed at one person, rings. One account
+  can ring you three times a minute.
+- **Everyone connects to everyone**, each pair on a WebRTC connection of its
+  own, apart from the one sync uses. Good up to about six people with video.
+  The setup goes over the space's peer connection, whose handshake proved who
+  is at the other end, so a relay can't put itself in the middle of a call.
+- **History, if the space wants it.** Where the space defines `std.call`, a
+  ring nobody answered leaves a `missed` record, and the last one out of a
+  call writes who was in it. Nothing else about a call is stored.
+- **TURN.** `node.iceServers()` gives the configured ICE servers plus TURN
+  servers a relay hands out (see the relay, below), with passwords fresh for
+  a while. A call asks for them when it starts.
+
+The messages, and the reasoning, are at the top of `src/calls/calls.ts`.
+
 ## Signing in — the element, and React
 
 Getting to a node takes a sign-in flow: where the data lives (a pod or this
@@ -677,6 +749,21 @@ it forwards carries the sender's DID as it joined, whatever the message says.
 npm run signal          # ws://localhost:8787; /health says {"ok":true}
 ```
 
+It can also hand out **TURN** passwords, for calls between people on networks
+that won't let two browsers connect directly. Run coturn with
+`use-auth-secret`, and give the relay the same secret:
+
+```bash
+TURN_SECRET=… TURN_URLS=turn:turn.example.com:3478,turns:turn.example.com:5349 npm run signal
+```
+
+Each socket that joins a room gets servers and a password that stops working
+after `TURN_TTL_SECONDS` (4 hours by default). The password is an HMAC of when
+it expires (the "TURN REST API" scheme), so nothing is stored. The relay can't
+tell a Weave peer from anyone else, so set coturn's own quotas (`user-quota`,
+`total-quota`, `max-bps`). TURN only forwards encrypted packets; it can't
+see or hear a call.
+
 Only peers already in a room hear about a newcomer, so exactly one side creates
 the offer and the two never collide.
 
@@ -1054,6 +1141,17 @@ tally. The helpers that work this out are pure functions
 (`example/src/derive/schema-ui.ts`), with nothing DOM-specific in them. An
 empty space offers a small "define a collection" form; an agent can do the
 same over WebMCP.
+
+**Calls.** Every space you have a role in has "Start a call" at the top, or
+"Join call · 3" while one is going on, and People & roles has "Call" beside
+each member, which rings them. The call sits in a panel in the corner, over
+whatever page you're on: open other spaces, go back to the list, and you keep
+talking. The sidebar marks the space a call is in. The panel grows to fill the
+screen, or moves into a picture-in-picture window where the browser has one,
+so it stays in view when you switch tabs. Someone ringing you shows as a card
+on any page. The **Calls** app keeps a log of a space's calls (`std.call`).
+The calls themselves are `createCalls` (above), made once in `App.tsx`,
+above everything that changes as you move around.
 
 **Agents in the browser (WebMCP).** When `/app` loads, it registers
 every node operation as a WebMCP tool on `document.modelContext`

@@ -263,10 +263,27 @@ export interface SpaceStatus {
   readonly own: ReadonlyArray<string>;
   /** Of `peers`, carriers the account uses: nodes that keep its spaces online without reading them */
   readonly carriers: ReadonlyArray<string>;
+  /** The account each peer showed it acts for, by the peer's session DID — only peers that showed one */
+  readonly accounts: Readonly<Record<string, string>>;
   /** Root of this space's Merkle tree — equal on two nodes means identical data */
   readonly root: string | null;
   /** Records peers sent that failed validation */
   readonly rejected: number;
+}
+
+/** A live message as it arrives: what was sent, and who sent it */
+export interface LiveMessage {
+  /**
+   * The account behind the sender — proven by the note its session carries,
+   * made out to the very key the connection proved. Null for a peer that
+   * showed no note: a carrier, a node serving sockets.
+   */
+  readonly from: string | null;
+  /** The sending device: its session DID, which is also where a reply to that device goes */
+  readonly peer: string;
+  /** Whether the sender is an agent acting for the account, not the person */
+  readonly agent: boolean;
+  readonly message: unknown;
 }
 
 export type NodeEvent =
@@ -279,6 +296,8 @@ export type NodeEvent =
   /** The account's profile may have changed, here or on another device */
   | { readonly type: 'account' }
   | { readonly type: 'rejected'; readonly space: string; readonly peer: string; readonly reason: string }
+  /** A live message from a peer in a space (`spaces.send`) */
+  | ({ readonly type: 'message'; readonly space: string } & LiveMessage)
   /** The note this node writes under was revoked in a space — an app disconnected from its account home, say */
   | { readonly type: 'revoked'; readonly space: string };
 
@@ -323,10 +342,23 @@ export interface NodeSpaces {
    * it counts from then on, except what this node had already seen.
    */
   revoke(spaceId: string, token: string): Promise<void>;
-  /** Starts syncing a space. Reading or writing opens it anyway; this is for nodes that serve. */
+  /**
+   * Starts syncing a space, and keeps it syncing until the same caller closes
+   * it. Opens are counted: a screen and a call can both have a space open, and
+   * it stops only when the last of them closes it. Reading or writing opens a
+   * space too, uncounted.
+   */
   open(spaceId: string): Promise<void>;
-  /** Stops syncing a space until it is next used */
+  /** Undoes one `open`. The space stops syncing, until it is next used, once nothing has it open. */
   close(spaceId: string): Promise<void>;
+  /**
+   * Sends a live message to the peers connected in a space right now: kept
+   * nowhere, signed as nothing, missed by anyone not connected. For presence,
+   * typing, call setup. `to` narrows it to one account's devices, or to one
+   * device by its session DID. At most 64 KB once encoded as JSON.
+   * Receivers get it as a `message` event.
+   */
+  send(spaceId: string, message: unknown, to?: string): Promise<void>;
   status(spaceId: string): Promise<SpaceStatus>;
   /**
    * What a node serving this space uses to check a connecting peer is who it
@@ -477,6 +509,12 @@ export interface P2PNode {
   readonly carriers: NodeCarriers;
   /** The delegation the session key currently writes under (root → session) */
   delegation(): UCANToken;
+  /**
+   * ICE servers for a WebRTC connection of the app's own, like a call's: the
+   * configured ones, plus TURN servers a relay offers, with short-lived
+   * passwords (fetched fresh when the ones held are about to run out).
+   */
+  iceServers(): Promise<ReadonlyArray<RTCIceServer>>;
   /** Passes a narrower delegation from the session key on to another key */
   delegate(params: DelegateParams): Promise<Delegated>;
   /**

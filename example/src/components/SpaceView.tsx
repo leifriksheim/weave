@@ -15,6 +15,7 @@ import { styles, palette } from '../styles';
 import { Avatar } from './Avatar';
 import { Icon } from './Icon';
 import { WhoIsHere } from './WhoIsHere';
+import { CallButton } from './calls/Calls';
 import { nameOf, peopleFrom } from '../derive/people';
 
 /** Where in the space we are: which collection, and which record is open beside it */
@@ -76,6 +77,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
             {spaceBadges(space)}
           </span>
           {status && <WhoIsHere status={status} />}
+          <CallButton space={space} />
           {status && status.rejected > 0 && (
             <span style={{ ...styles.badge, color: palette.accent.danger }} title="Records peers sent that failed validation">
               {status.rejected} rejected

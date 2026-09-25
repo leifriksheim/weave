@@ -189,6 +189,49 @@ export function injectBaseStyles(): void {
     .collection-search { width: 180px; }
     .modal { max-height: calc(100dvh - 40px); overflow-y: auto; }
 
+    /* Calls: over every page, never part of one (components/calls). */
+    .call-panel {
+      position: fixed; z-index: 30; right: 20px; bottom: 20px; width: 340px;
+      display: flex; flex-direction: column; gap: 12px; padding: 14px;
+      background: ${surface.card}; border: 1px solid ${surface.lineStrong}; border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0,0,0,.12);
+    }
+    .call-stage {
+      top: 20px; left: ${RAIL_WIDTH + 20}px; width: auto;
+      background: #0a0a0a; border-color: #222; color: #eee;
+    }
+    .call-stage .call-tiles { flex: 1; }
+    .call-tiles { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); min-height: 0; }
+    .call-tiles[data-count="1"] { grid-template-columns: minmax(0, 1fr); }
+    .call-tiles[data-large][data-count="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .call-tiles[data-large]:is([data-count="3"], [data-count="4"]) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .call-tiles[data-large]:is([data-count="5"], [data-count="6"]) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .call-tile {
+      position: relative; margin: 0; aspect-ratio: 4 / 3; overflow: hidden; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; background: #161616;
+    }
+    .call-stage .call-tile { aspect-ratio: auto; min-height: 120px; }
+    .call-name {
+      position: absolute; left: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px;
+      max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      padding: 2px 6px; border-radius: 4px; font-size: 12px; color: #fff; background: rgba(0,0,0,.55);
+    }
+    .call-pip { display: flex; height: 100vh; padding: 6px; box-sizing: border-box; }
+    .call-pip .call-tiles { flex: 1; }
+    .call-pip .call-tile { aspect-ratio: auto; }
+    .call-stack {
+      position: fixed; z-index: 31; top: 16px; right: 20px; width: 320px;
+      display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+    }
+    .call-card {
+      pointer-events: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px;
+      background: ${surface.card}; border: 1px solid ${surface.lineStrong}; border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0,0,0,.12); font-size: 14px;
+    }
+    .call-ringing { display: inline-flex; border-radius: 50%; animation: call-ring 1.2s ease-out infinite; }
+    @keyframes call-ring { 0% { box-shadow: 0 0 0 0 rgba(26,127,55,.45); } 100% { box-shadow: 0 0 0 12px rgba(26,127,55,0); } }
+    @media (prefers-reduced-motion: reduce) { .call-ringing { animation: none; } }
+
     @media (max-width: 760px) {
       .space-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
       /* The side column comes apart: its collections become a row of
@@ -230,6 +273,9 @@ export function injectBaseStyles(): void {
       .rail [data-rail-pill] { display: none; }
 
       .space-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .call-panel { left: 12px; right: 12px; width: auto; bottom: calc(${RAIL_WIDTH + 12}px + env(safe-area-inset-bottom)); }
+      .call-stage { top: 12px; left: 12px; }
+      .call-stack { left: 12px; right: 12px; width: auto; top: 12px; }
       .graph-canvas { height: min(600px, 65dvh); }
       .collection-tools { width: 100%; }
       .collection-search { flex: 1 1 100%; width: auto; }

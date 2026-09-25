@@ -1,5 +1,14 @@
 # BLOCK-16 — Contacts and direct messages
 
+> **Status (2026-09-25):** part 1, live messages, is built (on branch
+> `calls`, for BLOCK-21) and described in the main README. It differs from
+> the plan below in one way: the account behind a peer isn't added to the
+> mesh handshake. Each side sends its note as the first message after the
+> handshake instead, and the receiver checks the note was made out to the key
+> the handshake proved. That works the same over every transport (the mesh, a
+> node's socket, a test's), not only the mesh. `to` also takes one device's
+> session DID. Parts 2–6 are still to do.
+
 ## What this delivers
 
 A way to keep people, not only spaces. When this block is done:

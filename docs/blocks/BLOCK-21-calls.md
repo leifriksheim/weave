@@ -1,5 +1,14 @@
 # BLOCK-21 — Calls that follow you around
 
+> **Status (2026-09-25):** built on branch `calls` and described in the main
+> README (live messages, counted `open`/`close`, `@weaveprotocol/core/calls`,
+> the relay's TURN passwords, and the example's calls). Checked in a real
+> Chrome with its fake camera: two accounts signed in through the account
+> home, a call started, joined, rung and answered, video arriving both ways,
+> and the call kept up while one person moved to another space and back to
+> the list. What's left is under **Still open** at the end. Where the build
+> differs from the plan below, that section says so.
+
 ## What this delivers
 
 Voice and video calls between people who share a space. When this block is
@@ -87,21 +96,22 @@ down whatever else is using it (`closeRuntime` in `src/node/node.ts`). So
 navigating away from the space your call is in would cut the connection the
 call's setup and hang-up messages travel over.
 
-**The change.** Opening becomes a hold that you let go of, counted per space,
-like a file handle:
+**The change.** `open` and `close` keep their names but are **counted**, the
+way file handles are: every `open` needs its own `close`, and the space only
+shuts down when the last one is closed.
 
 ```ts
-const release = await node.spaces.hold(spaceId);  // opens it if needed
-release();                                         // closes it when nothing else holds it
+await node.spaces.open(spaceId);   // screen: 1
+await node.spaces.open(spaceId);   // call:   2
+node.spaces.close(spaceId);        // screen goes away: 1, still open
+node.spaces.close(spaceId);        // call ends: 0, shuts down
 ```
 
-`useOpenSpace` uses `hold`. The call holds its space for as long as it runs.
-Contacts (later) hold the spaces you want to be reachable in. `spaces.open`
-and `spaces.close` are removed; there are no migrations to worry about before
-release.
+`useOpenSpace` doesn't change. The call opens its space for as long as it
+runs. Contacts (later) open the spaces you want to be reachable in.
 
-A space closes a few seconds after its last hold is released, not at once, so
-quickly clicking back and forth doesn't tear down and rebuild connections.
+A space shuts down a few seconds after its last `close`, not at once, so
+quickly clicking back and forth doesn't tear down and rebuild its sync.
 
 ## 2. Live messages to one device
 
@@ -127,9 +137,10 @@ connect.
 
 - Run **coturn** next to the signalling server (another Fly app), set up with
   a shared secret (`use-auth-secret`).
-- The relay hands a connected, authenticated socket a **TURN username and
+- The relay hands any socket that has joined a room a **TURN username and
   password that expire after a few hours**, computed from that secret. That's
-  the TURN REST API; nothing is stored.
+  the TURN REST API; nothing is stored. The relay doesn't check who a socket
+  is, so coturn's own quotas are what stop freeloaders.
 - The node passes them into `iceServers` for **call** connections. Sync
   connections can use them too, but that's not required for this block.
 
@@ -140,7 +151,7 @@ direct connection fails.
 ## 4. The call module: `weave-protocol/calls`
 
 The call logic lives in the library, not the example app, so any Weave app
-can have calls. It's built only from `spaces.hold`, `spaces.send`,
+can have calls. It's built only from `spaces.open`, `spaces.send`,
 `spaces.access` and the browser's WebRTC. It adds nothing to the protocol.
 
 ```ts
@@ -154,7 +165,7 @@ calls.setMuted(true);  calls.setCamera(false);  calls.shareScreen();
 
 calls.current      // the call you're in: space, people, their streams, your mute state
 calls.ringing      // calls ringing you now, from any held space
-calls.around       // calls going on in spaces you hold, that you're not in
+calls.around       // calls going on in spaces you have open, that you're not in
 calls.subscribe(listener)
 ```
 
@@ -164,8 +175,8 @@ React gets `useCalls()` from `weave-protocol/react`.
 
 - **One call at a time per app.** Joining another call asks first:
   "Leave the call in Book club and join this one?" (Discord does the same.)
-- **The call belongs to the space, not to the screen.** It holds the space
-  (part 1), and it's created once per node, above all navigation.
+- **The call belongs to the space, not to the screen.** It keeps the space
+  open (part 1), and it's created once per node, above all navigation.
 - **Only people who may write in the space can join its call.** Before
   answering someone's offer, the module checks their role (`spaces.access`).
   View-only readers of a public space can't join, or listen. A public space's
@@ -283,13 +294,24 @@ connected in this block:
 
 - the space you're looking at;
 - the space your call is in;
-- with contacts built (BLOCK-16): your contacts' spaces for two. The app holds
-  them while it's open.
+- with contacts built (BLOCK-16): your contacts' spaces for two. The app keeps
+  them open while it runs.
 
-That's BLOCK-16's open question about one relay socket per space. It's fine
-for a few dozen contacts. The real fix is the relay carrying many spaces over
-one socket, which changes only the relay. Ringing with the app closed needs
-Web Push and a server that can wake a phone, and that isn't in this block.
+Keeping many spaces open is cheap on the network now: the mesh
+(`src/network/mesh.ts`) uses one socket per relay and one WebRTC connection
+per pair of devices for every space they share, and a space is only a room on
+them. What each open space still costs is its own store and sync. That's fine
+for a few dozen contacts. Ringing with the app closed needs Web Push and a
+server that can wake a phone, and that isn't in this block.
+
+### Why the call gets its own connection
+
+Two devices already share one WebRTC connection for all their spaces. Video
+could ride on it, but adding video means renegotiating that connection, which
+every space's sync depends on, and hanging up would mean renegotiating it
+again. So a call opens **its own connection per pair of people**, set up by
+live messages that travel in the space's room on the shared connection. Sync
+never notices a call starting or ending.
 
 ---
 
@@ -305,8 +327,8 @@ Add to `tests/attacks.test.ts`, failing before and passing after:
 - A `call.ring` from an account the recipient has blocked doesn't ring.
 - Rings are rate-limited per sender (say, 3 a minute), so nobody can ring you
   endlessly.
-- A space released by the last screen showing it stays open while a call
-  holds it. Once the call ends and nothing else holds it, it closes.
+- A space closed by the screen showing it stays open while a call
+  has it open. Once the call ends and nothing else has it open, it closes.
 
 ## Done when
 
@@ -325,7 +347,7 @@ Add to `tests/attacks.test.ts`, failing before and passing after:
   the call still connects.
 - An unanswered ring leaves a `std.call` "missed" that the other person sees
   later.
-- The README describes calls, `spaces.hold` and `std.call`, and this block is
+- The README describes calls, counted `spaces.open` and `std.call`, and this block is
   removed.
 
 ## Rough size
@@ -334,7 +356,7 @@ Add to `tests/attacks.test.ts`, failing before and passing after:
 
 | Part | Size |
 |---|---|
-| `spaces.hold` (part 1) | ½ day |
+| Counted `spaces.open` (part 1) | ½ day |
 | Device addressing on live messages (part 2) | ½ day |
 | coturn + credentials from the relay (part 3) | 1 day |
 | `weave-protocol/calls` (part 4) | 4 days |
@@ -367,3 +389,35 @@ Add to `tests/attacks.test.ts`, failing before and passing after:
 - **Phones.** Mobile browsers may pause a page that isn't on screen, which
   drops the call when you switch apps. A PWA helps a bit; a native wrapper is
   the real answer. Tested on desktop first.
+
+---
+
+## Still open
+
+- **Run coturn.** The relay hands out TURN passwords once `TURN_SECRET` and
+  `TURN_URLS` are set, but no TURN server is running yet. It needs a coturn
+  deployment (a Fly app next to the relay works: UDP 3478, TLS 5349) with
+  `use-auth-secret` and quotas, and the two secrets set on both. It's the
+  one part with a running cost.
+- **Test across real networks and on phones.** Tested so far: one machine,
+  Chrome's fake camera, a local relay. Still to try: two devices on different
+  networks, one behind a strict NAT (to see TURN used), Safari, and a phone
+  switching apps mid-call.
+
+### Where the build differs from the plan
+
+- **Knowing who a peer is** is a message each side sends right after the
+  handshake (its note), not an addition to the handshake. See BLOCK-16's
+  status note.
+- **No call bar in the sidebar.** The sidebar is too narrow for controls, so
+  the call bar and the floating video are one panel in the corner, which can
+  grow to fill the screen. The sidebar only marks the space the call is in.
+- **The Calls app is a call log** (it defines `std.call`), not the only place
+  to start a call: "Start a call" / "Join call" sits at the top of every space.
+- **No renegotiation.** Every call connection is made with an audio and a
+  video slot from the start. Turning the camera on or sharing the screen
+  swaps the track in the slot, so the "perfect negotiation" pattern isn't
+  needed; the lower session DID always makes the offer.
+- **`useOpenSpace` closes 3 seconds late** rather than the node waiting, so a
+  script that closes a space and writes to its store (as some tests do) still
+  sees it closed at once.

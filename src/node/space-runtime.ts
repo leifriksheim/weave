@@ -234,8 +234,27 @@ export interface SpaceRuntime {
   join(secret: Uint8Array): Promise<boolean>;
   /** Who is connected, as this space alone can tell — which of them are the account's own, the node works out */
   status(): Promise<Omit<SpaceStatus, 'own' | 'carriers'>>;
+  /** A live message to the peers connected now — all of them, one account's devices, or one device */
+  send(message: unknown, to?: string): Promise<void>;
   close(): Promise<void>;
 }
+
+/** Which account a connected peer showed it acts for */
+interface PeerAccount {
+  readonly account: string | null;
+  readonly agent: boolean;
+}
+const NO_ACCOUNT: PeerAccount = Object.freeze({ account: null, agent: false });
+
+/** A peer's note, sent once when it connects (see "Live messages") */
+const WHO_MESSAGE = 'who';
+/** A live message: `spaces.send` */
+const LIVE_MESSAGE = 'live';
+const MAX_LIVE_BYTES = 64 * 1024;
+const MAX_NOTE_LENGTH = 16 * 1024;
+/** Live messages a peer may send at once, and per second after that */
+const LIVE_BURST = 60;
+const LIVE_PER_SECOND = 20;
 
 interface Verdict {
   readonly verified: boolean;
@@ -941,11 +960,60 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   const connectedPeers = () => [...new Set(networks.flatMap((network) => network.getPeers().map((peer) => peer.did)))];
 
+  // ─── Live messages ─────────────────────────────────────────────────
+  //
+  // A connection proves which session key is at the other end — not whose it
+  // is. So the first thing each side sends is its note, the delegation from
+  // its account to that key: the same note its records carry. It names the
+  // key it was made out to, and that must be the key the connection proved,
+  // so a note copied off someone's record is no use to anyone else.
+
+  const peerAccounts = new Map<string, Promise<PeerAccount>>();
+  const knownAccounts = new Map<string, PeerAccount>();
+  const liveAllowance = new Map<string, { tokens: number; at: number }>();
+
+  async function accountOf(peer: string, note: unknown): Promise<PeerAccount> {
+    if (typeof note !== 'string' || note.length > MAX_NOTE_LENGTH) return NO_ACCOUNT;
+    const chain = await resolveDelegationRoot(note, () => null, provider).catch(() => null);
+    if (!chain?.valid || chain.audience !== peer || !chain.rootDid) return NO_ACCOUNT;
+    return { account: chain.rootDid, agent: isAgentNote(note) };
+  }
+
+  /** A peer's share of live messages: a burst, then a steady rate — as the relay limits them */
+  function withinAllowance(peer: string): boolean {
+    const now = Date.now();
+    const held = liveAllowance.get(peer) ?? { tokens: LIVE_BURST, at: now };
+    const tokens = Math.min(LIVE_BURST, held.tokens + ((now - held.at) / 1000) * LIVE_PER_SECOND);
+    liveAllowance.set(peer, { tokens: Math.max(0, tokens - 1), at: now });
+    return tokens >= 1;
+  }
+
+  async function onLive(peer: string, payload: unknown): Promise<void> {
+    if (!withinAllowance(peer)) return;
+    if ((JSON.stringify(payload ?? null)?.length ?? 0) > MAX_LIVE_BYTES) return;
+    const { account, agent } = (await peerAccounts.get(peer)) ?? NO_ACCOUNT;
+    // Gone while its note was being checked.
+    if (!routes.has(peer)) return;
+    emit({ type: 'message', space: space.id, from: account, peer, agent, message: payload });
+  }
+
   for (const network of networks) {
     network.on('message', (message: NetworkMessage) => {
       if (message.type === 'sync') void sync.handleMessage(message.from, message.payload);
+      else if (message.type === WHO_MESSAGE) {
+        const note = (message.payload as { note?: unknown } | null)?.note;
+        const checked = accountOf(message.from, note);
+        peerAccounts.set(message.from, checked);
+        void checked.then((known) => {
+          if (peerAccounts.get(message.from) !== checked) return;
+          knownAccounts.set(message.from, known);
+          emit({ type: 'status', space: space.id });
+        });
+      } else if (message.type === LIVE_MESSAGE) void onLive(message.from, message.payload);
     });
     network.on('peer-connected', (info: PeerInfo) => {
+      // Said first, so it reaches them before any live message from here.
+      network.send(info.did, { type: WHO_MESSAGE, from: session.did, payload: { note: session.proof() } });
       routes.set(info.did, network);
       sync.addPeer(info.did);
       // Reconcile at once rather than waiting for the heartbeat.
@@ -956,6 +1024,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (routes.get(info.did) === network) {
         routes.delete(info.did);
         sync.removePeer(info.did);
+        peerAccounts.delete(info.did);
+        knownAccounts.delete(info.did);
+        liveAllowance.delete(info.did);
       }
       emit({ type: 'status', space: space.id });
     });
@@ -1435,9 +1506,19 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         space: space.id,
         connection,
         peers: connectedPeers(),
+        accounts: Object.fromEntries([...knownAccounts].flatMap(([peer, known]) => (known.account && routes.has(peer) ? [[peer, known.account]] : []))),
         root: await storage.getRootCid(),
         rejected,
       };
+    },
+
+    async send(message: unknown, to?: string) {
+      const encoded = JSON.stringify(message ?? null);
+      if (encoded.length > MAX_LIVE_BYTES) throw new Error('A live message can be at most 64 KB');
+      for (const peer of connectedPeers()) {
+        if (to && to !== peer && (await peerAccounts.get(peer))?.account !== to) continue;
+        routes.get(peer)?.send(peer, { type: LIVE_MESSAGE, from: session.did, payload: message ?? null });
+      }
     },
 
     async close(): Promise<void> {

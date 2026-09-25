@@ -11,10 +11,19 @@ import { useLive } from './use-live.js';
 export function useOpenSpace(spaceId: string): void {
   const node = useNode();
   useEffect(() => {
-    void node.spaces.open(spaceId).catch(() => {});
-    return () => void node.spaces.close(spaceId);
+    const opened = node.spaces.open(spaceId).then(
+      () => true,
+      () => false,
+    );
+    // Let go a moment late: clicking away and straight back keeps the space syncing.
+    return () => {
+      setTimeout(() => void opened.then((ok) => (ok ? node.spaces.close(spaceId) : undefined)), CLOSE_LATE_MS);
+    };
   }, [node, spaceId]);
 }
+
+/** How long a space stays open after the screen showing it goes */
+const CLOSE_LATE_MS = 3000;
 
 /** A record's current version: undefined while loading, null when there is none. */
 export function useRecord<T = unknown>(spaceId: string, key: string): NodeRecord<T> | null | undefined {

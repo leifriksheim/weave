@@ -15,6 +15,7 @@ import {
 } from '../derive/abilities';
 import { nameOf, peopleFrom, type People } from '../derive/people';
 import { Avatar } from './Avatar';
+import { RingButton } from './calls/Calls';
 import { createInviteLink } from '../spaces';
 import { styles, palette, variants } from '../styles';
 
@@ -417,6 +418,7 @@ function Members({
           </span>
           {cannotChange && !self && mine && roleHolds(mine, 'manage') && <span style={{ fontSize: 12, color: palette.ink.faint }}>{cannotChange}</span>}
         </div>
+        {!self && current && <RingButton space={space} did={did} name={name} />}
         {cannotChange ? (
           <span style={{ fontSize: 13, color: palette.ink.muted }} title={cannotChange}>
             {current ? titleOf(current) : 'Following'}

@@ -65,6 +65,10 @@
     "./react": {
       "import": "./dist/react/index.js",
       "types": "./dist/react/index.d.ts"
+    },
+    "./calls": {
+      "import": "./dist/calls/index.js",
+      "types": "./dist/calls/index.d.ts"
     }
   },
   "scripts": {

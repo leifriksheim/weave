@@ -10,7 +10,7 @@ import { createEmitter } from '../utils/events.js';
 export type SignalKind = 'offer' | 'answer' | 'candidate';
 
 export interface SignalingMessage {
-  readonly type: SignalKind | 'join' | 'leave';
+  readonly type: SignalKind | 'join' | 'leave' | 'ice';
   readonly from: string;
   readonly to?: string;
   readonly room?: string;
@@ -22,6 +22,11 @@ export type SignalingEvents = {
   signal: (message: SignalingMessage & { readonly type: SignalKind }) => void;
   'peer-joined': (did: string, room: string) => void;
   'peer-left': (did: string, room: string) => void;
+  /**
+   * TURN servers the relay offers, with passwords that stop working at
+   * `expiresAt` (ms). For connections that cannot be made directly.
+   */
+  ice: (servers: ReadonlyArray<RTCIceServer>, expiresAt: number) => void;
   connected: () => void;
   disconnected: () => void;
   error: (error: Error) => void;
@@ -34,12 +39,29 @@ export interface SignalingClient {
   readonly join: (room: string) => void;
   readonly leave: (room: string) => void;
   readonly signal: (kind: SignalKind, targetDid: string, payload: unknown) => void;
+  /** Asks the relay for fresh TURN passwords; they arrive as an `ice` event, from relays that have TURN */
+  readonly requestIce: () => void;
   readonly on: <K extends keyof SignalingEvents>(event: K, callback: SignalingEvents[K]) => void;
   readonly off: <K extends keyof SignalingEvents>(event: K, callback: SignalingEvents[K]) => void;
   readonly isConnected: () => boolean;
 }
 
 const SIGNAL_KINDS: ReadonlySet<string> = new Set(['offer', 'answer', 'candidate']);
+
+/** A relay's TURN offer, kept only if it has the shape of one: `turn:`/`turns:` URLs, a username and a password */
+function iceFrom(payload: unknown): { servers: ReadonlyArray<RTCIceServer>; expiresAt: number } | null {
+  const { servers, expiresAt } = (payload ?? {}) as { servers?: unknown; expiresAt?: unknown };
+  if (!Array.isArray(servers) || typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null;
+  const kept: RTCIceServer[] = [];
+  for (const server of servers.slice(0, 4) as Array<Record<string, unknown>>) {
+    const urls = (Array.isArray(server?.urls) ? server.urls : [server?.urls]).filter(
+      (url): url is string => typeof url === 'string' && url.length < 256 && /^turns?:/.test(url),
+    );
+    if (urls.length === 0 || typeof server.username !== 'string' || typeof server.credential !== 'string') continue;
+    kept.push({ urls, username: server.username, credential: server.credential });
+  }
+  return kept.length > 0 ? { servers: kept, expiresAt } : null;
+}
 
 /**
  * Creates a new signaling client.
@@ -89,6 +111,10 @@ export function createSignalingClient(url: string, did: string): SignalingClient
         try {
           const msg = JSON.parse(event.data) as SignalingMessage;
           if (SIGNAL_KINDS.has(msg.type)) emit('signal', msg as SignalingMessage & { type: SignalKind });
+          else if (msg.type === 'ice') {
+            const offered = iceFrom(msg.payload);
+            if (offered) emit('ice', offered.servers, offered.expiresAt);
+          }
           else if (typeof msg.room !== 'string') return;
           else if (msg.type === 'join') emit('peer-joined', msg.from, msg.room);
           else if (msg.type === 'leave') emit('peer-left', msg.from, msg.room);
@@ -151,6 +177,7 @@ export function createSignalingClient(url: string, did: string): SignalingClient
       if (rooms.delete(room)) sendMessage({ type: 'leave', room });
     },
     signal: (kind: SignalKind, targetDid: string, payload: unknown) => sendMessage({ type: kind, to: targetDid, payload }),
+    requestIce: () => sendMessage({ type: 'ice' }),
     on,
     off,
     isConnected: () => connected,

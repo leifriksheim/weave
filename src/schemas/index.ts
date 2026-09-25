@@ -242,10 +242,40 @@ export interface Vote {
   readonly choice: number;
 }
 
+/**
+ * A call worth remembering, in the space it happened in. Calls themselves are
+ * live and kept nowhere (`weave-protocol/calls`); this is only the history —
+ * a ring nobody answered, or a call that ended and who was in it.
+ */
+export const call = typed<Call>()({
+  name: 'std.call',
+  title: 'Call',
+  description: 'A missed call, or one that ended and who was in it.',
+  schema: {
+    type: 'object',
+    properties: {
+      status: { enum: ['missed', 'ended'] },
+      to: { type: 'string', maxLength: 256, description: 'Who was rung, for a missed call' },
+      startedAt: { type: 'string', maxLength: 64 },
+      endedAt: { type: 'string', maxLength: 64 },
+      people: { type: 'array', items: { type: 'string', maxLength: 256 }, maxItems: 64, description: 'Everyone who was in it' },
+    },
+    required: ['status', 'startedAt'],
+  },
+  rules: { edit: 'creator', delete: 'creator' },
+});
+export interface Call {
+  readonly status: 'missed' | 'ended';
+  readonly to?: string;
+  readonly startedAt: string;
+  readonly endedAt?: string;
+  readonly people?: ReadonlyArray<string>;
+}
+
 /** Shapes that attach to anything */
 export const standardAnnotations: ReadonlyArray<DefineCollection> = [reaction, comment, tag, attachment, reference];
 /** Common nouns apps share */
-export const standardNouns: ReadonlyArray<DefineCollection> = [message, column, task, poll, vote];
+export const standardNouns: ReadonlyArray<DefineCollection> = [message, column, task, poll, vote, call];
 /** Everything in the library */
 export const standardSchemas: ReadonlyArray<DefineCollection> = [...standardAnnotations, ...standardNouns];
 

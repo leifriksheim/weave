@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { DefineCollection, NodeCollection, NodeRecord, P2PNode, SpaceSummary } from '@weaveprotocol/core';
-import { column, message, poll, reaction, task, vote, positionBetween } from '@weaveprotocol/core/schemas';
+import { call, column, message, poll, reaction, task, vote, positionBetween } from '@weaveprotocol/core/schemas';
+import { CallHistory } from './CallHistory';
 import { Chat } from './Chat';
 import { Kanban } from './Kanban';
 import { Polls } from './Polls';
@@ -61,6 +62,13 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     description: 'Ask the space a question. Everyone picks one option, and can change their mind.',
     needs: [poll, vote],
     View: Polls,
+  },
+  {
+    id: 'calls',
+    title: 'Calls',
+    description: 'Keeps a log of the calls in this space: who was in each, and calls nobody answered.',
+    needs: [call],
+    View: CallHistory,
   },
 ];
 
