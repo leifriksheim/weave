@@ -36,6 +36,8 @@ export type {
   DefineCollection,
   NodeAccount,
   NodeCarriers,
+  NodeHosting,
+  HostingView,
   CarrierSummary,
   AccountProfileView,
   NodeContacts,

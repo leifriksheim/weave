@@ -263,3 +263,91 @@ describe('Stripe signatures', () => {
     assert.equal(verifyStripeSignature(body, undefined, 'whsec', t), false);
   });
 });
+
+describe('an account using a host, end to end over sockets', () => {
+  async function onSockets(me: Account, port: number): Promise<P2PNode> {
+    const node = await createNode({
+      signer: me.signer,
+      stores: memoryStores(),
+      accountKey: me.accountKey,
+      watchIntervalMs: 0,
+      network: { nodes: [`ws://127.0.0.1:${port}/peer`] },
+    });
+    open.push(node);
+    return node;
+  }
+
+  test('a paying host: plans, a checkout page, and the spaces handed over once the webhook says paid', async () => {
+    let paidFor: string | null = null;
+    const periodEnd = nowSeconds() + 365 * 24 * 3600;
+    const billing = createStripeBilling({
+      secretKey: 'sk_test_x',
+      webhookSecret: 'whsec_test',
+      yearlyPrice: 'price_year',
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        const target = String(input);
+        if (target.endsWith('/v1/checkout/sessions')) {
+          paidFor = new URLSearchParams(String(init?.body)).get('client_reference_id');
+          return Response.json({ url: 'https://checkout.stripe.test/c/2' });
+        }
+        return Response.json({ id: 'sub_2', customer: 'cus_2', metadata: { weave_subscription: paidFor }, items: { data: [{ current_period_end: periodEnd }] } });
+      }) as typeof fetch,
+    });
+    const served = await startHost({ key: await provider.generateKeyPair(), stores: memoryStores(), port: 0, billing });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const me = await account();
+    const laptop = await onSockets(me, served.port);
+    await laptop.spaces.create({ name: 'Notes', visibility: 'private' });
+
+    const before = await laptop.hosting.use(url);
+    assert.deepEqual(before.plans, [{ id: 'yearly', label: 'Yearly' }]);
+    assert.equal(before.status?.carrying, false);
+    assert.equal(await laptop.hosting.checkout(url, 'yearly', 'https://home.test/settings'), 'https://checkout.stripe.test/c/2');
+    assert.equal(paidFor, before.subscription);
+
+    const body = JSON.stringify({ type: 'checkout.session.completed', data: { object: { subscription: 'sub_2' } } });
+    const t = nowSeconds();
+    const v1 = createHmac('sha256', 'whsec_test').update(`${t}.${body}`).digest('hex');
+    await fetch(`${url}/host/billing/webhook`, { method: 'POST', headers: { 'stripe-signature': `t=${t},v1=${v1}` }, body });
+
+    // Back from the payment page, the app asks again: the host is paid for now, and takes the spaces.
+    const after = await laptop.hosting.use(url);
+    assert.equal(after.status?.state, 'active');
+    assert.equal(after.status?.carrying, true);
+    assert.equal(after.status?.paidUntil, periodEnd);
+  });
+
+  test('one call on the laptop; with the laptop gone, a new phone gets everything from the host', async () => {
+    const served = await startHost({ key: await provider.generateKeyPair(), stores: memoryStores(), port: 0, free: true });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const me = await account();
+
+    const laptop = await onSockets(me, served.port);
+    const notes = await laptop.spaces.create({ name: 'Notes', visibility: 'private' });
+    await laptop.records.put(notes.id, 'note', { text: 'safe with the host' });
+    const view = await laptop.hosting.use(url);
+    assert.equal(view.status?.carrying, true);
+    assert.equal(view.host, served.node.did);
+    await until(carries(served.node, notes.id), 5000, 'the host to carry the space');
+    // Sockets the host refused before it carried a space come back on their own, after a backoff.
+    await until(
+      async () => {
+        const reached = (await served.node.spaces()).filter((space) => space.peers > 0).map((space) => space.name);
+        return reached.includes('Account registry') && reached.includes('Notes');
+      },
+      15_000,
+      'the laptop to reach the host in its registry and its space',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await laptop.close();
+
+    const phone = await onSockets(me, served.port);
+    await until(async () => (await phone.spaces.list()).some((space) => space.id === notes.id), 8000, 'the phone to learn of the space');
+    await until(async () => (await phone.records.list(notes.id)).length === 1, 8000, 'the note to reach the phone');
+    assert.deepEqual((await phone.records.list(notes.id))[0]?.body, { text: 'safe with the host' });
+    // Every device knows the host from the registry, with nothing set up.
+    assert.deepEqual((await phone.hosting.list()).map((known) => known.url), [url]);
+  });
+});

@@ -533,6 +533,46 @@ export interface NodeCarriers {
   remove(space: string): Promise<void>;
 }
 
+/** A host the account uses, and what it says now */
+export interface HostingView {
+  /** The host's address */
+  readonly url: string;
+  /** The host's own key, as it appears to peers */
+  readonly host: string;
+  /** The subscription — the key the account made for this host */
+  readonly subscription: string;
+  readonly since: string;
+  /** What the host said just now; null when it could not be reached */
+  readonly status: import('../session/hosting.js').HostStatus | null;
+  /** Why it could not be reached */
+  readonly error?: string;
+  /** The payment plans it offers; none for a host that takes no payments */
+  readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+}
+
+/**
+ * Hosts: nodes that never sleep, keeping the account's spaces online and
+ * backed up when every device is off — without being able to read them. A
+ * host is a carrier (`carriers`) the account pays for; every device of the
+ * account hands it the spaces, with nothing to set up.
+ */
+export interface NodeHosting {
+  /** The hosts the account uses, each asked how it stands. Hands a host the spaces if it was paid since. */
+  list(): Promise<ReadonlyArray<HostingView>>;
+  /**
+   * Starts using a host: makes a subscription key, keeps it in the account
+   * registry so every device signs as it, and — once it is paid, or at once
+   * for a free host — hands the host the account's spaces.
+   */
+  use(url: string): Promise<HostingView>;
+  /** A payment page for a host's plan; coming back to `returnUrl` after paying, call `list` */
+  checkout(url: string, plan: string, returnUrl: string): Promise<string>;
+  /** The payment provider's page for changing the card, cancelling, receipts */
+  manage(url: string, returnUrl: string): Promise<string>;
+  /** Stops using a host: it forgets the spaces, and the subscription is let go. Paying stops in `manage`. */
+  stop(url: string): Promise<void>;
+}
+
 export interface NodeAccount {
   /** The account's profile as its devices last set it. Null without an account key, or before any is set. */
   profile(): Promise<AccountProfileView | null>;
@@ -627,6 +667,8 @@ export interface P2PNode {
   readonly account: NodeAccount;
   /** Nodes that keep the account's spaces online without reading them */
   readonly carriers: NodeCarriers;
+  /** Hosts the account pays to keep its spaces online */
+  readonly hosting: NodeHosting;
   /** People: the account's contact list, and asking to be added */
   readonly contacts: NodeContacts;
   /** The delegation the session key currently writes under (root → session) */

@@ -412,6 +412,8 @@ export type {
   CarrierEvent,
   HostConfig,
   HostNode,
+  NodeHosting,
+  HostingView,
   Subscription,
   SubscriptionState,
 } from './node/index.js';
