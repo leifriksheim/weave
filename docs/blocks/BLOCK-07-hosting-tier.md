@@ -28,6 +28,27 @@ writes there too, so switching host means handing another one the same folder.
 
 ---
 
+## Status (2026-09-25, branch `spaces-relays-and-removal`)
+
+**Built:** the host as a carrier for many accounts (`src/node/host.ts`,
+`weave host`), subscriptions with paid-until and a grace period, the signed
+API, Stripe Checkout / Portal / webhook, `node.hosting` so every device hands
+the host its spaces, mirrors into R2 (BLOCK-03's core and BLOCK-04's S3
+driver), a restart from the bucket alone, and **Keep my spaces online** in the
+home's Settings. Removing members (BLOCK-14 §2) is done too.
+
+**Decided while building:** the host is the extension's carrier with many carry
+spaces, not a second kind of node — so it learns which account asked for which
+space (through its carry space), besides the space ids. The subscription key is
+separate from the account's, so the host can't tie a payment to an account
+except through that carry space.
+
+**Left:** metering bytes and requests per subscription, quotas, the 1,000-space
+load test, TURN measured, user storage as a second mirror (Dropbox, Drive),
+BTCPay, and a real Stripe test-mode run end to end in a browser.
+
+---
+
 ## Before you start
 
 Paste this. It must print `READY`.

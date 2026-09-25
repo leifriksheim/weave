@@ -550,6 +550,17 @@ Local-first storage with Merkle Search Tree for efficient sync.
 | `createEncryptedAdapter()` | Seals chosen keys (space records, space keys) at rest |
 | `reconcileFolder()` | Rebuilds the tree after another writer touched a folder |
 | `insertIntoMST()` / `listMSTEntries()` | Direct MST operations; a listing can stop at a key prefix |
+| `createMirror()` | Keeps a space in a dumb file store too, synced like a peer that never runs code |
+| `createS3BlobStore()` / `createMemoryBlobStore()` | File stores a mirror can use: any S3-compatible bucket (R2, B2, MinIO, AWS), or memory |
+
+**Mirrors.** A bucket or an app folder can hold a space: each writer (one store
+on one device, with a random id) only ever adds immutable segments in its own
+folder, named by a counter and the hash of their bytes — so nothing is written
+twice and nothing needs a lock. A segment holds versions exactly as they travel,
+private bodies still sealed, and everything read back passes the same gates as a
+peer's records: the store can hide things, not forge them. What a writer knows
+the store holds, it never uploads again; a writer compacts its own segments
+into fewer. Merging is the protocol's own — a set of versions that only grows.
 
 ### Spaces
 
@@ -1177,6 +1188,21 @@ account's spaces syncing on a server (browsers connect to it over WebSocket, and
 it doubles as a relay), and `weave mcp` to hand the same operations to an agent.
 It reads and writes the same data folder layout a browser does. See
 [cli/README.md](cli/README.md).
+
+**Hosting.** `weave host` keeps many accounts' spaces online without being able
+to read them: it is the extension's carrier (`createCarrierNode`) with one carry
+space per paying account (`createHostNode`), each space held once however many
+members pay for it. A subscription is a key the account makes and keeps in its
+registry (`sys.hosting`), so every device signs as it; `node.hosting.use(url)`
+starts one, and whichever device notices it is paid hands the host the carry
+space. Every call to the host is signed over method, path, time and body.
+Stripe Checkout and the Customer Portal take payments (card, Apple Pay, Google
+Pay, stablecoins where enabled); the webhook only moves a paid-until date, taken
+from Stripe's own billing period. Past it: a grace period, then the host drops
+the spaces and deletes its copy. With a bucket (`WEAVE_S3_*`) the host's disk
+is only a cache — every carried space and the subscription list live in the
+bucket, sealed, and a new machine starts from it. The account home's Settings
+has **Keep my spaces online**.
 
 ## Example app
 

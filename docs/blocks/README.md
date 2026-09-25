@@ -12,9 +12,9 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 
 | Block | Delivers | Rough size |
 |---|---|---|
-| [BLOCK-03](BLOCK-03-mirrors.md) | Mirrors: a space kept in any dumb file store, synced like a peer; tree garbage collection | ~2 weeks |
-| [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | S3-compatible and Google Drive blob drivers; S3 first, since hosting needs it (after 03) | ~1 week |
-| [BLOCK-07](BLOCK-07-hosting-tier.md) | Hosting: one blind always-on node on one server carrying many people's spaces, backed up to R2; paid-until plans by card, Apple Pay or crypto, and pricing (after 03 and S3 from 04) | ~3 weeks |
+| [BLOCK-03](BLOCK-03-mirrors.md) | Mirrors: a space kept in any dumb file store, synced like a peer. Built: segments, push, pull, compaction. Left: absorbing quiet writers, a directory driver, mirrors in `NodeConfig`, tree garbage collection | ~1 week left |
+| [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | Blob drivers. S3 built; Google Drive and Dropbox left | ~4 days left |
+| [BLOCK-07](BLOCK-07-hosting-tier.md) | Hosting: one blind always-on node carrying many people's spaces, backed up to R2, paid through Stripe. Built; metering, quotas, load test and BTCPay left | ~1 week left |
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
 | [BLOCK-14](BLOCK-14-security-hardening.md) | Security, round two: checkable version history, safe pairing, private votes, sync limits (removing members is done) | ~2½ weeks |
 | [BLOCK-15](BLOCK-15-spaces-and-roles.md) | Spaces and roles: one kind of space, custom roles per space, hand over and leave, access you can take back. Built except the home's role screens | ~3 days left |

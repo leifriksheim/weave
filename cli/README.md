@@ -87,6 +87,34 @@ gates as any peer. It is an **anchor, not a host** — uptime, no authority.
 For a server, `bun build.ts` makes single-file binaries for this machine,
 `linux-x64` and `linux-arm64`; `weave-node.service` is a systemd unit.
 
+## Hosting other people's spaces
+
+`weave host` is a hosting service in one process. It carries every paying
+account's spaces — sealed, as they travel — and serves them over sockets and a
+relay, like `weave run`. It holds no account and no space key.
+
+```bash
+# Try it, or host only yourself: every subscription counts as paid
+weave host --free --port 8787
+
+# As a service: Stripe for payments, R2 (or any S3) for storage
+STRIPE_SECRET_KEY=sk_live_… STRIPE_WEBHOOK_SECRET=whsec_… \
+STRIPE_PRICE_MONTHLY=price_… STRIPE_PRICE_YEARLY=price_… \
+WEAVE_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com WEAVE_S3_BUCKET=weave-host \
+WEAVE_S3_ACCESS_KEY_ID=… WEAVE_S3_SECRET_ACCESS_KEY=… \
+weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
+```
+
+- The host's key is made once, in `--data` (`host-key`, readable by you alone).
+  A new key is a new host: every account would hand its spaces over again.
+- Point Stripe's webhook at `https://<host>/host/billing/webhook`, sending
+  `checkout.session.completed` and `invoice.paid`.
+- With a bucket, the disk is only a cache: lose it, start on the same key and
+  bucket, and every subscription and space comes back.
+- Put it behind something that terminates TLS (Caddy does it in two lines).
+  The account home offers it under **Keep my spaces online** when built with
+  `VITE_WEAVE_HOST=https://<host>`.
+
 ## Agents
 
 In an app, choose **Connect an agent** in the account menu. It shows one
