@@ -17,6 +17,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { team } from '../src/space/presets.js';
 import { parseSpaceInvite } from '../src/space/space-manager.js';
+import { hold } from './helpers/hold.js';
 
 async function until(check: () => Promise<boolean>, ms: number, what: string): Promise<void> {
   const deadline = Date.now() + ms;
@@ -106,7 +107,7 @@ describe('connecting an app to an account home', () => {
     assert.equal(todo.sessionDid, key.did, 'with its own key');
 
     const milk = await todo.records.put(groceries.id, 'app.todo.item', { text: 'milk' });
-    await homeNode.spaces.open(groceries.id);
+    await hold(homeNode, groceries.id);
     await until(async () => (await homeNode.records.get(groceries.id, milk.key)) !== null, 3000, 'the record to reach the home');
     const seen = await homeNode.records.get(groceries.id, milk.key);
     assert.equal(seen?.verified, true);
@@ -196,7 +197,7 @@ describe('connecting an app to an account home', () => {
     const told: string[] = [];
     todo.subscribe((event) => event.type === 'revoked' && told.push(event.space));
     const before = await todo.records.put(shared.id, 'app.todo.item', { text: 'before' });
-    await homeNode.spaces.open(shared.id);
+    await hold(homeNode, shared.id);
     await until(async () => (await homeNode.records.get(shared.id, before.key)) !== null, 3000, 'the app’s record to reach the home');
 
     await auth.disconnect('https://todo.test');

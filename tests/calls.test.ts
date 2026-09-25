@@ -19,6 +19,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { fakeConnection, fakeStream, fakeUserMedia, FakeTrack } from './helpers/fake-rtc.js';
 import { team } from '../src/space/presets.js';
+import { hold, letGo } from './helpers/hold.js';
 
 const nodes: P2PNode[] = [];
 const allCalls: Calls[] = [];
@@ -81,7 +82,7 @@ async function space(options: { reader?: boolean } = {}) {
   }
   const everyone = [alice, bob, ...(carol ? [carol] : [])];
   // Their screens have the space open.
-  for (const who of everyone) await who.node.spaces.open(id);
+  for (const who of everyone) await hold(who.node, id);
   for (const who of everyone) {
     await until(async () => Object.keys((await who.node.spaces.status(id)).accounts).length === everyone.length - 1, 4000, 'everyone to connect');
   }
@@ -167,8 +168,8 @@ describe('calls', () => {
     await until(() => connected(bob.calls).length === 1, 4000, 'both to connect');
 
     // Both move to another space: their screens close this one.
-    await alice.node.spaces.close(id);
-    await bob.node.spaces.close(id);
+    await letGo(alice.node, id);
+    await letGo(bob.node, id);
     await settle(600);
     assert.equal(connected(alice.calls).length, 1, 'still hearing Bob after he would have gone quiet');
     assert.equal(connected(bob.calls).length, 1);

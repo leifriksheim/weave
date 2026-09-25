@@ -1,7 +1,7 @@
 # BLOCK-21 — Calls that follow you around
 
 > **Status (2026-09-25):** built on branch `calls` and described in the main
-> README (live messages, counted `open`/`close`, `@weaveprotocol/core/calls`,
+> README (live messages, `spaces.hold`, `@weaveprotocol/core/calls`,
 > the relay's TURN passwords, and the example's calls). Checked in a real
 > Chrome with its fake camera: two accounts signed in through the account
 > home, a call started, joined, rung and answered, video arriving both ways,
@@ -90,28 +90,28 @@ call.
 
 ## 1. Spaces stay open while anything needs them
 
-**The problem today.** `useOpenSpace` opens a space when a screen shows it and
-calls `node.spaces.close` when the screen goes away. `close` shuts the space
+**The problem.** The hook for a space's screen opened the space when the
+screen showed it and called `node.spaces.close` when the screen went away. `close` shuts the space
 down whatever else is using it (`closeRuntime` in `src/node/node.ts`). So
 navigating away from the space your call is in would cut the connection the
 call's setup and hang-up messages travel over.
 
-**The change.** `open` and `close` keep their names but are **counted**, the
-way file handles are: every `open` needs its own `close`, and the space only
-shuts down when the last one is closed.
+**The change.** `open` and `close` are replaced by `hold`, which hands back
+a function that lets go of that one hold:
 
 ```ts
-await node.spaces.open(spaceId);   // screen: 1
-await node.spaces.open(spaceId);   // call:   2
-node.spaces.close(spaceId);        // screen goes away: 1, still open
-node.spaces.close(spaceId);        // call ends: 0, shuts down
+const screen = await node.spaces.hold(spaceId);
+const call = await node.spaces.hold(spaceId);
+await screen();   // the screen goes away: the call still holds it
+await call();     // the call ends: nothing holds it, it stops syncing
 ```
 
-`useOpenSpace` doesn't change. The call opens its space for as long as it
-runs. Contacts (later) open the spaces you want to be reachable in.
+A hold can only let go of itself, and letting go twice does nothing, so no
+screen can close a space out from under a call. The hook is now
+`useHoldSpace`. Contacts (later) hold the spaces you want to be reachable in.
 
-A space shuts down a few seconds after its last `close`, not at once, so
-quickly clicking back and forth doesn't tear down and rebuild its sync.
+The hook lets go a few seconds late, so quickly clicking back and forth
+doesn't tear down and rebuild the space's sync.
 
 ## 2. Live messages to one device
 
@@ -151,7 +151,7 @@ direct connection fails.
 ## 4. The call module: `weave-protocol/calls`
 
 The call logic lives in the library, not the example app, so any Weave app
-can have calls. It's built only from `spaces.open`, `spaces.send`,
+can have calls. It's built only from `spaces.hold`, `spaces.send`,
 `spaces.access` and the browser's WebRTC. It adds nothing to the protocol.
 
 ```ts
@@ -347,7 +347,7 @@ Add to `tests/attacks.test.ts`, failing before and passing after:
   the call still connects.
 - An unanswered ring leaves a `std.call` "missed" that the other person sees
   later.
-- The README describes calls, counted `spaces.open` and `std.call`, and this block is
+- The README describes calls, `spaces.hold` and `std.call`, and this block is
   removed.
 
 ## Rough size
@@ -356,7 +356,7 @@ Add to `tests/attacks.test.ts`, failing before and passing after:
 
 | Part | Size |
 |---|---|
-| Counted `spaces.open` (part 1) | ½ day |
+| `spaces.hold` (part 1) | ½ day |
 | Device addressing on live messages (part 2) | ½ day |
 | coturn + credentials from the relay (part 3) | 1 day |
 | `weave-protocol/calls` (part 4) | 4 days |
@@ -418,6 +418,6 @@ Add to `tests/attacks.test.ts`, failing before and passing after:
   video slot from the start. Turning the camera on or sharing the screen
   swaps the track in the slot, so the "perfect negotiation" pattern isn't
   needed; the lower session DID always makes the offer.
-- **`useOpenSpace` closes 3 seconds late** rather than the node waiting, so a
-  script that closes a space and writes to its store (as some tests do) still
-  sees it closed at once.
+- **`useHoldSpace` lets go 3 seconds late** rather than the node waiting, so
+  letting go of the last hold closes a space at once, which tests that take
+  a node offline rely on.

@@ -240,6 +240,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
     res.end('This endpoint speaks WebSocket only.\n');
   });
 
+  /** Spaces a peer has asked for: held from then on, for as long as this node serves */
+  const served = new Set<string>();
   const onPeer = async (socket: WebSocket, url: URL) => {
     const spaceId = url.searchParams.get('space');
     if (!spaceId) {
@@ -266,7 +268,10 @@ export async function serve(options: ServeOptions): Promise<Served> {
           socket.close(4003, 'not a reader of this space');
           return;
         }
-        await node.spaces.open(spaceId);
+        if (!served.has(spaceId)) {
+          await node.spaces.hold(spaceId);
+          served.add(spaceId);
+        }
         const sig = await authenticator.welcome(node.sessionDid, hello.nonce);
         socket.send(JSON.stringify({ type: 'welcome', did: node.sessionDid, sig }));
         inbound.accept(spaceId, socket, hello.did);

@@ -21,6 +21,7 @@ import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createFakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
+import { hold } from './helpers/hold.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -214,7 +215,7 @@ describe('versioned records through the node', () => {
     const { id: space } = await alice.spaces.create({ name: 'Shared', ...team, visibility: 'private' });
     await bob.spaces.join(await alice.spaces.invite(space));
     const made = await alice.records.put(space, 'app.todo.item', { text: 'milk', done: false });
-    await bob.spaces.open(space);
+    await hold(bob, space);
     await until(async () => (await bob.records.get(space, made.key)) !== null, 3000, 'bob to see it');
 
     // Both edit before hearing from each other.
@@ -241,7 +242,7 @@ describe('versioned records through the node', () => {
     assert.deepEqual((await alice.records.history<{ amount: number }>(space, made.key)).map((r) => r.body?.amount), [5, 4, 3, 2, 1]);
 
     await bob.spaces.join(await alice.spaces.invite(space));
-    await bob.spaces.open(space);
+    await hold(bob, space);
     await until(async () => (await alice.spaces.status(space)).root === (await bob.spaces.status(space)).root, 3000, 'the trees to match');
     assert.equal((await bob.records.history(space, made.key)).length, 5);
   });

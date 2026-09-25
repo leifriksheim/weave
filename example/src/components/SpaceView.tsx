@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { NodeRecord, SpaceProfile, SpaceSummary } from '@weaveprotocol/core';
-import { useAccess, useCollections, useNode, useOpenSpace, useProfiles, useAccount, useSpaceStatus } from '@weaveprotocol/core/react';
+import { useAccess, useCollections, useNode, useHoldSpace, useProfiles, useAccount, useSpaceStatus } from '@weaveprotocol/core/react';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
 import { RecordPanel } from './RecordPanel';
@@ -52,7 +52,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
 
   // Syncing while it is on screen. Opening writes nothing: standard schemas
   // are added only when someone picks them from the library.
-  useOpenSpace(space.id);
+  useHoldSpace(space.id);
   const collections = useCollections(space.id);
   const profiles = useProfiles(space.id);
   const people = peopleFrom(profiles);

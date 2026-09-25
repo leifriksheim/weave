@@ -343,14 +343,19 @@ export interface NodeSpaces {
    */
   revoke(spaceId: string, token: string): Promise<void>;
   /**
-   * Starts syncing a space, and keeps it syncing until the same caller closes
-   * it. Opens are counted: a screen and a call can both have a space open, and
-   * it stops only when the last of them closes it. Reading or writing opens a
-   * space too, uncounted.
+   * Keeps a space syncing until you let go: call the function it returns.
+   * Anything that needs a space live holds it — a screen showing it, a call
+   * in it — and it stops syncing once nothing does. Letting go twice does
+   * nothing, and can never let go of someone else's hold.
+   *
+   * ```ts
+   * const release = await node.spaces.hold(spaceId);
+   * await release();
+   * ```
+   *
+   * Reading or writing works without a hold: it opens the space too.
    */
-  open(spaceId: string): Promise<void>;
-  /** Undoes one `open`. The space stops syncing, until it is next used, once nothing has it open. */
-  close(spaceId: string): Promise<void>;
+  hold(spaceId: string): Promise<() => Promise<void>>;
   /**
    * Sends a live message to the peers connected in a space right now: kept
    * nowhere, signed as nothing, missed by anyone not connected. For presence,

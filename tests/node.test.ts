@@ -17,6 +17,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { joined } from './helpers/joined.js';
+import { hold, letGo } from './helpers/hold.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -166,8 +167,8 @@ describe('two nodes', () => {
     const bob = await startNode({ hub });
     const space = await alice.spaces.create({ name: 'Shared', ...team, visibility: 'private' });
     await bob.spaces.join(await alice.spaces.invite(space.id));
-    await alice.spaces.open(space.id);
-    await bob.spaces.open(space.id);
+    await hold(alice, space.id);
+    await hold(bob, space.id);
     await joined(bob, space.id);
     const converged = async () =>
       (await alice.spaces.status(space.id)).root === (await bob.spaces.status(space.id)).root;
@@ -196,8 +197,8 @@ describe('two nodes', () => {
     await until(converged, 3000, 'roots to match');
 
     // Reconcile again: the record must not be resurrected on either side.
-    await alice.spaces.close(space);
-    await alice.spaces.open(space);
+    await letGo(alice, space);
+    await hold(alice, space);
     await until(converged, 3000, 'roots to match after reopening');
     assert.equal(await alice.records.get(space, written.key), null);
     assert.equal(await bob.records.get(space, written.key), null);
@@ -230,8 +231,8 @@ describe('two nodes', () => {
     const joined = await follower.spaces.join(await owner.spaces.invite(space.id));
     assert.equal(joined.writable, false);
     assert.equal((await owner.spaces.get(space.id))?.writable, true);
-    await owner.spaces.open(space.id);
-    await follower.spaces.open(space.id);
+    await hold(owner, space.id);
+    await hold(follower, space.id);
     await until(async () => (await follower.records.get(space.id, written.key)) !== null, 3000, 'the follower to read it');
 
     await assert.rejects(follower.records.update(space.id, written.key, { text: 'x', done: true }), /shared with you to view/);

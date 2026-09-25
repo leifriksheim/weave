@@ -29,6 +29,7 @@ import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { NODE_ACTIONS } from '../src/node/actions.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
+import { hold } from './helpers/hold.js';
 
 const run = promisify(execFile);
 const temporary: string[] = [];
@@ -148,7 +149,7 @@ describe('the daemon', () => {
     await until(async () => (await daemon.node.spaces.status(space.id)).connection !== 'offline', 3000, 'daemon to open the space');
 
     // 1. A writes ten, and goes away.
-    await a.spaces.open(space.id);
+    await hold(a, space.id);
     for (let i = 0; i < 10; i++) await a.records.put(space.id, 'app.todo.item', { text: `from A ${i}` });
     await until(async () => (await daemon.node.records.list(space.id)).length === 10, 5000, 'daemon to hold A’s ten');
     await a.close();
@@ -156,7 +157,7 @@ describe('the daemon', () => {
     // 2. B turns up with A long gone, and gets all ten.
     const b = await device(deviceStores.b);
     await b.spaces.join(invite);
-    await b.spaces.open(space.id);
+    await hold(b, space.id);
     await until(async () => (await b.records.list(space.id)).length === 10, 5000, 'B to receive A’s ten');
 
     // 3. B writes five, and goes away.
@@ -166,7 +167,7 @@ describe('the daemon', () => {
 
     // 4. A comes back and receives B's five.
     a = await device(deviceStores.a);
-    await a.spaces.open(space.id);
+    await hold(a, space.id);
     await until(async () => (await a.records.list(space.id)).length === 15, 5000, 'A to receive B’s five');
     const texts = (await a.records.list<{ text: string }>(space.id)).map((r) => r.body?.text);
     assert.ok(texts.includes('from B 4'));

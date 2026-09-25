@@ -26,6 +26,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { joined } from './helpers/joined.js';
+import { hold, letGo } from './helpers/hold.js';
 
 const provider = createP256Provider();
 
@@ -83,7 +84,7 @@ async function sharedWithBob() {
   const bob = await person(hub);
   const { id: space } = await alice.node.spaces.create({ name: 'Plans', ...team, visibility: 'public' });
   await bob.node.spaces.join(await alice.node.spaces.invite(space));
-  await alice.node.spaces.open(space);
+  await hold(alice.node, space);
   await joined(bob.node, space);
   return { hub, alice, bob, space };
 }
@@ -155,7 +156,7 @@ describe('space access: who may write', () => {
     await assert.rejects(mallory.node.records.put(space, 'app.note', { text: 'spam' }), /shared with you to view/);
 
     // She forges a record anyway: valid account, valid session, no role.
-    await mallory.node.spaces.close(space);
+    await letGo(mallory.node, space);
     const forged = await forge(mallory, space, { text: 'spam' });
     await createStorageProvider(await mallory.stores(`spaces/${space}`)).addExpression(forged);
 
@@ -163,7 +164,7 @@ describe('space access: who may write', () => {
     alice.node.subscribe((event) => {
       if (event.type === 'rejected') reasons.push(event.reason);
     });
-    await mallory.node.spaces.open(space);
+    await hold(mallory.node, space);
     await until(async () => reasons.length >= 1, 4000, 'Alice to refuse it');
     assert.ok(reasons.some((r) => /not a member/.test(r)));
     assert.equal(await createStorageProvider(await alice.stores(`spaces/${space}`)).getExpression(forged.id), null);
@@ -185,19 +186,19 @@ describe('space access: who may write', () => {
 
     // The blind node holds the space as anyone could be handed it: no key, no role.
     await blind.node.spaces.join(tamper(await alice.node.spaces.invite(space, { write: false }), (p) => delete p.key));
-    await blind.node.spaces.open(space);
+    await hold(blind.node, space);
     await until(async () => (await createStorageProvider(await blind.stores(`spaces/${space}`)).getExpression(written.version)) !== null, 4000, 'the note');
 
     // A stranger's record, sealed-looking, reaches it — and is refused, as the member refuses it.
     await mallory.node.spaces.join(tamper(await alice.node.spaces.invite(space, { write: false }), (p) => delete p.key));
-    await mallory.node.spaces.close(space);
+    await letGo(mallory.node, space);
     const stranger = await forge(mallory, space, { ciphertext: 'x', iv: 'y' });
     await createStorageProvider(await mallory.stores(`spaces/${space}`)).addExpression(stranger);
     const refused: string[] = [];
     blind.node.subscribe((event) => {
       if (event.type === 'rejected') refused.push(event.reason);
     });
-    await mallory.node.spaces.open(space);
+    await hold(mallory.node, space);
     await until(async () => refused.length > 0, 4000, 'the blind node to refuse it');
     assert.equal(await createStorageProvider(await blind.stores(`spaces/${space}`)).getExpression(stranger.id), null);
     assert.equal((await blind.node.records.get(space, written.key))?.verified, true, 'the member’s record stands, unread');
@@ -235,7 +236,7 @@ describe('space access: invites', () => {
     const bob = await person(hub);
     const { id: space } = await alice.node.spaces.create({ name: 'Club', ...community, visibility: 'public' });
     await bob.node.spaces.join(await alice.node.spaces.invite(space, { role: 'moderator' }));
-    await alice.node.spaces.open(space);
+    await hold(alice.node, space);
     await joined(bob.node, space);
     assert.equal((await bob.node.spaces.access(space)).role?.name, 'moderator');
     await assert.rejects(bob.node.spaces.invite(space, { role: 'admin' }), /up to their own rank/);
@@ -249,7 +250,7 @@ describe('space access: invites', () => {
 
     const carol = await person(hub);
     await carol.node.spaces.join(invite);
-    await carol.node.spaces.open(space);
+    await hold(carol.node, space);
     await until(async () => (await carol.node.spaces.access(space)).invites.some((i) => i.key === key && !i.open), 4000, 'the close to reach Carol');
     // Whether she used it before the close reached her or not, the close came first: she holds nothing.
     await until(async () => (await carol.node.spaces.access(space)).role === null, 4000, 'Carol to hold no role');
@@ -300,9 +301,9 @@ describe('space access: taking it back', () => {
     alice.node.subscribe((event) => {
       if (event.type === 'rejected') refused.push(event.reason);
     });
-    await bob.node.spaces.close(space);
+    await letGo(bob.node, space);
     await createStorageProvider(await bob.stores(`spaces/${space}`)).addExpression(backdated);
-    await bob.node.spaces.open(space);
+    await hold(bob.node, space);
     await until(async () => refused.some((r) => /taken away/.test(r)), 4000, 'Alice to refuse the backdated note');
 
     // What Alice had seen him write before stays.
@@ -317,7 +318,7 @@ describe('space access: taking it back', () => {
 
     const carol = await person(hub);
     await carol.node.spaces.join(await bob.node.spaces.invite(space));
-    await carol.node.spaces.open(space);
+    await hold(carol.node, space);
     await joined(carol.node, space);
     assert.equal((await carol.node.spaces.access(space)).role?.name, 'editor');
     await assert.rejects(alice.node.records.put(space, 'app.note', { text: 'still here?' }), /shared with you to view/);
@@ -345,9 +346,9 @@ describe('space access: taking it back', () => {
     const sign = (text: string) =>
       createSigner(provider).sign(createExpression({ author: appDid, collection: 'app.note', space, body: { text }, proof: note.encoded, seen: heads }), pair.privateKey);
     const early = await sign('early');
-    await bob.node.spaces.close(space);
+    await letGo(bob.node, space);
     await store.addExpression(early);
-    await bob.node.spaces.open(space);
+    await hold(bob.node, space);
     await until(async () => (await alice.node.records.get(space, early.key)) !== null, 4000, 'the app’s note');
 
     await bob.node.spaces.revoke(space, note.encoded);
@@ -356,9 +357,9 @@ describe('space access: taking it back', () => {
     alice.node.subscribe((event) => {
       if (event.type === 'rejected') refused.push(event.reason);
     });
-    await bob.node.spaces.close(space);
+    await letGo(bob.node, space);
     await createStorageProvider(await bob.stores(`spaces/${space}`)).addExpression(late);
-    await bob.node.spaces.open(space);
+    await hold(bob.node, space);
     // Refused on arrival if the revoke got there first; stored, and then not counted, if not.
     const aliceStore = createStorageProvider(await alice.stores(`spaces/${space}`));
     await until(async () => refused.some((r) => /revoked/.test(r)) || (await aliceStore.getExpression(late.id)) !== null, 4000, 'the late note to reach Alice');

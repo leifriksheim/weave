@@ -15,6 +15,7 @@ import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
+import { hold } from './helpers/hold.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -159,7 +160,7 @@ describe('who is connected', () => {
     await theirs.spaces.join(await laptop.spaces.invite(trip.id, { role: 'editor' }));
     // The phone hears about the space through the account, and opens it.
     await until(async () => (await phone.spaces.list()).some((space) => space.id === trip.id), 3000, 'the space to reach the phone');
-    await phone.spaces.open(trip.id);
+    await hold(phone, trip.id);
 
     await until(async () => (await laptop.spaces.status(trip.id)).peers.length === 2, 3000, 'both peers to connect');
     await until(async () => (await laptop.spaces.status(trip.id)).own.length === 1, 3000, 'the phone to count as ours');

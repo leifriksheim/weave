@@ -20,6 +20,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { joined } from './helpers/joined.js';
+import { hold } from './helpers/hold.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -109,11 +110,11 @@ describe('declared links', () => {
     const bob = await person(hub);
     const { id: space } = await alice.spaces.create({ name: 'Polls', ...team, visibility: 'public' });
     await bob.spaces.join(await alice.spaces.invite(space));
-    await alice.spaces.open(space);
+    await hold(alice, space);
     await joined(bob, space);
 
     // Bob writes a vote before any definition exists — fine where it was written.
-    await bob.spaces.open(space);
+    await hold(bob, space);
     const note = await bob.records.put(space, 'app.note', { text: 'not a poll' });
     const vote = await bob.records.put(space, 'app.poll.vote', { choice: 1 }, { links: [{ rel: 'about', to: note.key }] });
 
@@ -173,10 +174,10 @@ describe('an app that knows nothing about todos', () => {
     const chatApp = await person(hub);
     const { id: space } = await todoApp.spaces.create({ name: 'Shared', ...team, visibility: 'private' });
     await chatApp.spaces.join(await todoApp.spaces.invite(space));
-    await todoApp.spaces.open(space);
+    await hold(todoApp, space);
     await joined(chatApp, space);
     const todo = await todoApp.records.put(space, 'app.todo.item', { text: 'book flights' });
-    await chatApp.spaces.open(space);
+    await hold(chatApp, space);
     await until(async () => (await chatApp.records.get(space, todo.key)) !== null, 3000, 'the todo to reach the chat app');
 
     // The chat app reacts to something it has no schema for, using the library.

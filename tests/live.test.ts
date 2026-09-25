@@ -69,7 +69,7 @@ async function threeInASpace() {
     await other.node.spaces.join(await alice.node.spaces.invite(space, { role: 'editor' }));
     await joined(other.node, space);
   }
-  for (const who of [alice, bob, carol]) await who.node.spaces.open(space);
+  for (const who of [alice, bob, carol]) await who.node.spaces.hold(space);
   for (const who of [alice, bob, carol]) {
     await until(async () => Object.keys((await who.node.spaces.status(space)).accounts).length === 2, 4000, 'everyone to know everyone');
   }
@@ -123,7 +123,7 @@ describe('live messages', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub);
     const { id: space } = await alice.node.spaces.create({ name: 'Open', ...team, visibility: 'public' });
-    await alice.node.spaces.open(space);
+    await alice.node.spaces.hold(space);
     const heard = inbox(alice.node);
 
     // Mallory holds a session key of her own, and a note she copied off one of Alice's records.
@@ -147,7 +147,7 @@ describe('live messages', () => {
     const hub = createFakeHub({ latencyMs: 0 });
     const alice = await person(hub);
     const { id: space } = await alice.node.spaces.create({ name: 'Open', ...team, visibility: 'public' });
-    await alice.node.spaces.open(space);
+    await alice.node.spaces.hold(space);
     const heard = inbox(alice.node);
     const manager = createIdentityManager();
     const mallory = await manager.fromSeed(generateSeed());
@@ -161,28 +161,59 @@ describe('live messages', () => {
   });
 });
 
-describe('opening a space twice', () => {
-  test('it stays open until both callers close it', async () => {
+describe('holding a space', () => {
+  /** Alice and Bob in a private space, Alice holding it */
+  async function pair() {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub);
     const bob = await person(hub);
     const { id: space } = await alice.node.spaces.create({ name: 'Call', ...team, visibility: 'private' });
     await bob.node.spaces.join(await alice.node.spaces.invite(space, { role: 'editor' }));
     await joined(bob.node, space);
-    await alice.node.spaces.open(space);
+    await alice.node.spaces.hold(space);
+    const connected = async () => (await alice.node.spaces.status(space)).peers.length === 1;
+    return { alice, bob, space, connected };
+  }
 
+  test('it keeps syncing until everyone holding it lets go', async () => {
+    const { alice, bob, space, connected } = await pair();
     // A screen and a call.
-    await bob.node.spaces.open(space);
-    await bob.node.spaces.open(space);
-    await until(async () => (await alice.node.spaces.status(space)).peers.length === 1, 4000, 'Bob to connect');
+    const screen = await bob.node.spaces.hold(space);
+    const call = await bob.node.spaces.hold(space);
+    await until(connected, 4000, 'Bob to connect');
 
-    await bob.node.spaces.close(space);
+    await screen();
     await settle(100);
-    assert.equal((await alice.node.spaces.status(space)).peers.length, 1, 'one close leaves it open');
+    assert.equal(await connected(), true, 'the call still holds it');
     const note = await alice.node.records.put(space, 'app.note', { text: 'still here' });
     await until(async () => (await createStorageProvider(await bob.stores(`spaces/${space}`)).getExpression(note.version)) !== null, 4000, 'the write to reach Bob');
 
-    await bob.node.spaces.close(space);
-    await until(async () => (await alice.node.spaces.status(space)).peers.length === 0, 4000, 'Bob to go');
+    await call();
+    await until(async () => !(await connected()), 4000, 'Bob to go');
+  });
+
+  test('letting go twice lets go once — never of someone else’s hold', async () => {
+    const { bob, space, connected } = await pair();
+    const screen = await bob.node.spaces.hold(space);
+    await bob.node.spaces.hold(space);
+    await until(connected, 4000, 'Bob to connect');
+    await screen();
+    await screen();
+    await settle(100);
+    assert.equal(await connected(), true);
+  });
+
+  test('a hold from before leaving does nothing to a hold made after rejoining', async () => {
+    const { alice, bob, space, connected } = await pair();
+    const old = await bob.node.spaces.hold(space);
+    await until(connected, 4000, 'Bob to connect');
+    await bob.node.spaces.leave(space);
+    await bob.node.spaces.join(await alice.node.spaces.invite(space, { role: 'editor' }));
+    await joined(bob.node, space);
+    await bob.node.spaces.hold(space);
+    await until(connected, 4000, 'Bob to connect again');
+    await old();
+    await settle(100);
+    assert.equal(await connected(), true);
   });
 });

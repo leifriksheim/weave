@@ -166,8 +166,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   const registryStore = await config.stores('registry', { seal: true });
   const registry = createSpaceManager(registryStore, provider);
   const runtimes = new Map<string, Promise<SpaceRuntime>>();
-  /** How many callers have a space open — it shuts only when the last one closes it */
-  const openCounts = new Map<string, number>();
+  /**
+   * Who is holding each space open. One object per stretch of being held:
+   * when the space closes for another reason (leaving it), the object goes,
+   * and a release from before does nothing to whoever holds it next.
+   */
+  const holds = new Map<string, { count: number }>();
 
   // The account's own space list, kept in a space every device of the account
   // derives for itself. Hidden from `list`; everything else treats it as a space.
@@ -307,7 +311,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   }
 
   async function closeRuntime(spaceId: string): Promise<void> {
-    openCounts.delete(spaceId);
+    holds.delete(spaceId);
     const open = runtimes.get(spaceId);
     if (!open) return;
     runtimes.delete(spaceId);
@@ -560,28 +564,24 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       emit({ type: 'spaces' });
     },
 
-    async open(spaceId: string) {
-      openCounts.set(spaceId, (openCounts.get(spaceId) ?? 0) + 1);
+    async hold(spaceId: string) {
+      const held = holds.get(spaceId) ?? holds.set(spaceId, { count: 0 }).get(spaceId)!;
+      held.count += 1;
+      let released = false;
+      const release = async () => {
+        if (released) return;
+        released = true;
+        if (holds.get(spaceId) !== held) return;
+        held.count -= 1;
+        if (held.count === 0) await closeRuntime(spaceId);
+      };
       try {
         await runtime(spaceId);
       } catch (error) {
-        const left = (openCounts.get(spaceId) ?? 1) - 1;
-        if (left > 0) openCounts.set(spaceId, left);
-        else openCounts.delete(spaceId);
+        await release();
         throw error;
       }
-    },
-
-    // Counted: a screen closing a space must not cut off a call still in it.
-    // A close with nothing counted (the space was opened by reading it) shuts
-    // it at once, as it always did.
-    async close(spaceId: string) {
-      const left = (openCounts.get(spaceId) ?? 0) - 1;
-      if (left > 0) {
-        openCounts.set(spaceId, left);
-        return;
-      }
-      await closeRuntime(spaceId);
+      return release;
     },
 
     async send(spaceId: string, message: unknown, to?: string) {
@@ -834,7 +834,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       closeInvite: person('close invites'),
       revoke: person('revoke notes'),
       access: async (spaceId: string) => (inside(spaceId), spaces.access(spaceId)),
-      open: async (spaceId: string) => (inside(spaceId), spaces.open(spaceId)),
+      hold: async (spaceId: string) => (inside(spaceId), spaces.hold(spaceId)),
       status: async (spaceId: string) => (inside(spaceId), spaces.status(spaceId)),
       profiles: async (spaceId: string) => (inside(spaceId), spaces.profiles(spaceId)),
       // It would arrive as the person: a live message carries no note of its own to say "via agent".

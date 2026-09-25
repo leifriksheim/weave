@@ -171,11 +171,19 @@ copied off someone's record is no use to anyone else. `spaces.status(id).account
 lists who is connected, by account. A peer that shows no note (a carrier, a
 node serving sockets) is `from: null`.
 
-`spaces.open` and `spaces.close` are **counted**: every `open` needs its own
-`close`, and a space stops syncing only when the last one is closed. A screen
-and a call can both have a space open, and the screen going away doesn't cut
-the call off. `useOpenSpace` lets go a few seconds late, so clicking away and
-straight back doesn't rebuild the space's sync.
+To keep a space syncing, **hold** it, and let go when you're done:
+
+```typescript
+const release = await node.spaces.hold(space.id);
+await release();
+```
+
+Anything that needs a space live holds it: a screen showing it, a call in it.
+It stops syncing once nothing does, so a screen going away never cuts off a
+call. Each hold lets go only of itself, and letting go twice does nothing.
+Reading or writing needs no hold. In React, `useHoldSpace(space)` holds a
+space while a view is on screen, and lets go a few seconds late so that
+clicking away and straight back doesn't rebuild the space's sync.
 
 ### Calls (`@weaveprotocol/core/calls`)
 
@@ -280,7 +288,7 @@ Everything below the provider asks for what it needs:
 | `useRecord(space, key)` / `useLinked(space, key)` | One record; what points at it |
 | `useCollections(space)` / `useProfiles(space)` / `useSpaceStatus(space)` | What a space holds, who is in it, whether it is connected |
 | `useCan(space, action, target)` | Whether this account may create, edit or delete — for hiding a button |
-| `useOpenSpace(space)` | Keeps a space syncing while a view is on screen |
+| `useHoldSpace(space)` | Keeps a space syncing while a view is on screen |
 | `useLive(space, load, deps)` | Anything else, reloaded as the space changes |
 
 An app connected to an account home passes its node instead:

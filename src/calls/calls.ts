@@ -25,7 +25,7 @@
  * connected to a call; a view-only reader of a public space is not.
  *
  * A call belongs to the space, not to a screen: it keeps the space open
- * (`spaces.open` is counted) for as long as it runs, so moving between spaces
+ * (`spaces.hold`) for as long as it runs, so moving between spaces
  * never interrupts it. One call at a time.
  *
  * Each connection is made with an audio and a video transceiver from the
@@ -198,6 +198,8 @@ interface Active {
   id: string;
   readonly space: string;
   readonly joinedAt: number;
+  /** Lets go of the space, once the call is over */
+  readonly release: () => Promise<void>;
   /** When the first person in it joined, as far as anyone said */
   startedAt: number;
   audio: MediaStreamTrack | null;
@@ -240,13 +242,12 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
   let closed = false;
 
   let remembered = readRejoin();
-  let rejoinOpen = false;
+  /** The space of the call from before a reload, held while it might still be going on — to hear it, and offer rejoining */
+  let rejoinHold: Promise<(() => Promise<void>) | null> | null = null;
   if (remembered) {
-    // Kept open while the call might still be going on, to hear it and offer rejoining.
-    rejoinOpen = true;
-    void node.spaces.open(remembered.space).catch(() => (rejoinOpen = false));
+    rejoinHold = node.spaces.hold(remembered.space).catch(() => null);
     const check = () => {
-      if (!rejoinOpen || !remembered) return;
+      if (!rejoinHold || !remembered) return;
       if (inCall(remembered.space, remembered.call)?.size) later(check, goneMs);
       else forgetRejoin();
     };
@@ -274,8 +275,8 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
   function forgetRejoin() {
     const was = remembered;
     remembered = null;
-    if (rejoinOpen && was) void node.spaces.close(was.space).catch(() => {});
-    rejoinOpen = false;
+    void rejoinHold?.then((release) => release?.());
+    rejoinHold = null;
     if (was) changed();
   }
 
@@ -657,7 +658,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     if (active && active.space === space && (!opts.call || opts.call === active.id)) return;
     starting = (async () => {
       if (active) await leave();
-      await node.spaces.open(space);
+      const release = await node.spaces.hold(space);
       try {
         const { stream, problem } = await media(opts.video === true);
         const going = [...(around.get(space) ?? new Map<string, Map<string, Presence>>())].sort(([a], [b]) => (a < b ? -1 : 1))[0]?.[0];
@@ -665,6 +666,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
           id: opts.call ?? going ?? randomId(),
           space,
           joinedAt: Date.now(),
+          release,
           startedAt: Date.now(),
           audio: stream?.getAudioTracks()[0] ?? null,
           camera: stream?.getVideoTracks()[0] ?? null,
@@ -697,7 +699,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
         }
         changed();
       } catch (error) {
-        await node.spaces.close(space).catch(() => {});
+        await release().catch(() => {});
         throw error;
       }
     })();
@@ -741,7 +743,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
       });
     }
     // A moment late, so the goodbye leaves before the connection it travels on closes.
-    later(() => void node.spaces.close(call.space).catch(() => {}), LEAVE_LINGER_MS);
+    later(() => void call.release().catch(() => {}), LEAVE_LINGER_MS);
   }
 
   function snapshot(): CallsState {
