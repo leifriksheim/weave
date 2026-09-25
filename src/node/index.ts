@@ -36,4 +36,7 @@ export type {
   NodeCarriers,
   CarrierSummary,
   AccountProfileView,
+  NodeContacts,
+  ContactView,
+  ContactRequest,
 } from './types.js';

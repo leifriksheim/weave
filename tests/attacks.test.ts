@@ -23,6 +23,10 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { hold, letGo } from './helpers/hold.js';
+import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
+import { contactPublicKey, deriveContactKeyBytes } from '../src/identity/contact-key.js';
+import { profileKey } from '../src/node/space-runtime.js';
+import { contactRequest } from '../src/schemas/contacts.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -151,5 +155,87 @@ describe('attacks on a shared space', () => {
 
     await hold(alice.node, space);
     await until(async () => (await bob.node.records.get(space, second.key)) !== null, 4000, 'the real record');
+  });
+});
+
+describe('attacks on contacts', () => {
+  /** Someone with a name, a contacts space and a contact key, in `space` as an editor */
+  async function contactPerson(hub: FakeHub, name: string) {
+    const seed = generateSeed();
+    const manager = createIdentityManager();
+    const me = await manager.fromSeed(seed);
+    const stores = memoryStores();
+    const node = await createNode({
+      signer: createLocalRootSigner(me, manager.getProvider()),
+      stores,
+      accountKey: await deriveVaultKeyBytes(seed),
+      contactKey: await deriveContactKeyBytes(seed),
+      watchIntervalMs: 0,
+      network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
+    });
+    open.push(node);
+    await node.account.setName(name);
+    return { node, me, manager, stores, seed };
+  }
+
+  /** Leif, Anna and Carol in a space Leif made, each seeing the others' contact keys */
+  async function threeIn(visibility: 'public' | 'private') {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const leif = await contactPerson(hub, 'Leif');
+    const anna = await contactPerson(hub, 'Anna');
+    const carol = await contactPerson(hub, 'Carol');
+    const { id: space } = await leif.node.spaces.create({ name: 'Book club', ...team, visibility });
+    for (const other of [anna, carol]) {
+      await other.node.spaces.join(await leif.node.spaces.invite(space, { role: 'editor' }));
+      await joined(other.node, space);
+    }
+    for (const who of [leif, anna, carol]) await hold(who.node, space);
+    for (const who of [leif, anna, carol]) {
+      await until(async () => (await who.node.spaces.profiles(space)).filter((p) => p.contactKey).length === 3, 5000, 'everyone’s contact key');
+    }
+    return { hub, leif, anna, carol, space };
+  }
+
+  test('a contact key on a profile signed by another account is ignored', async () => {
+    const { leif, anna, carol, space } = await threeIn('public');
+    const annasKey = contactPublicKey(await deriveContactKeyBytes(anna.seed));
+    const current = await createStorageProvider(await carol.stores(`spaces/${space}`)).getCurrent(await profileKey(anna.node.did));
+    await letGo(carol.node, space);
+    // Carol writes "Anna's" profile, carrying Carol's own contact key.
+    await forge(carol, space, {
+      collection: 'sys.profile',
+      body: { name: 'Anna', contactKey: contactPublicKey(await deriveContactKeyBytes(carol.seed)) },
+      retain: true,
+      version: { key: current!.key, seq: current!.seq + 1, prev: current!.id, genesis: current!.id },
+    });
+    await hold(carol.node, space);
+    const leifStore = createStorageProvider(await leif.stores(`spaces/${space}`));
+    await until(async () => (await leifStore.getCurrent(await profileKey(anna.node.did)))?.seq === current!.seq + 1, 4000, 'the forgery to arrive');
+    const seen = (await leif.node.spaces.profiles(space)).find((profile) => profile.did === anna.node.did);
+    assert.equal(seen?.contactKey, annasKey);
+  });
+
+  test('a request re-posted by someone else, or copied into another space, does not open', async () => {
+    const { leif, anna, carol, space } = await threeIn('private');
+    await leif.node.contacts.ask(space, anna.node.did);
+    await until(async () => (await carol.node.records.list(space, { collection: 'std.contact-request' })).length === 1, 5000, 'the request');
+    const [original] = await carol.node.records.list<{ to: string; sealed: string }>(space, { collection: 'std.contact-request' });
+
+    // Carol posts Leif's sealed invite as her own.
+    await carol.node.records.put(space, 'std.contact-request', original!.body!);
+    // Leif posts the same sealed invite in another space Anna is in.
+    const { id: other } = await leif.node.spaces.create({ name: 'Other', ...team, visibility: 'private' });
+    await anna.node.spaces.join(await leif.node.spaces.invite(other, { role: 'editor' }));
+    await joined(anna.node, other);
+    await leif.node.collections.define(other, contactRequest);
+    await leif.node.records.put(other, 'std.contact-request', original!.body!);
+    await hold(anna.node, other);
+    await hold(leif.node, other);
+
+    await until(async () => (await anna.node.records.list(space, { collection: 'std.contact-request' })).length === 2, 5000, 'Carol’s copy');
+    await until(async () => (await anna.node.records.list(other, { collection: 'std.contact-request' })).length === 1, 5000, 'Leif’s copy');
+    const here = await anna.node.contacts.requests(space);
+    assert.deepEqual(here.map((request) => request.from), [leif.node.did], 'only the original, from Leif');
+    assert.deepEqual(await anna.node.contacts.requests(other), []);
   });
 });

@@ -20,6 +20,7 @@
  * the remover never saw it — is passed over when reading, and the version
  * before it counts again, where the store still has one.
  */
+import { isContactPublicKey } from '../identity/contact-key.js';
 import type { Expression, CryptoProvider, StorageAdapter } from '../types.js';
 import type { Signer } from '../schema/signer.js';
 import { createSchemaEngine, type SchemaEngine } from '../schema/schema-engine.js';
@@ -209,7 +210,8 @@ export interface SpaceRuntime {
   /** The name each person in the space gave, by identity */
   profiles(): Promise<ReadonlyArray<SpaceProfile>>;
   /** For the node itself: says who this account is, here — when that changed and the space takes its writes */
-  publishProfile(profile: { name: string }): Promise<void>;
+  /** Without a contact key, the one this account's profile here already carries is kept */
+  publishProfile(profile: { name: string; contactKey?: string }): Promise<void>;
   collections(): Promise<ReadonlyArray<NodeCollection>>;
   define(definition: DefineCollection): Promise<NodeCollection>;
   /** Takes a definition out of the space — only once nothing is left in it */
@@ -857,18 +859,27 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const result = new Map<string, SpaceProfile>();
     // By key: the current version may be anyone's.
     for (const [key, versions] of await storage.histories('profile:')) {
+      let found: SpaceProfile | null = null;
       for (const version of versions) {
         if (version.collection !== PROFILE_COLLECTION) continue;
         const verdict = await judge(version);
         if (!verdict.verified || !verdict.root || (await profileKey(verdict.root)) !== key) continue;
         if (!(await standingOf(version)).ok) continue;
         if (version.deleted) break; // they took it down
-        const name = ((await openBody(version)).body as { name?: unknown } | null)?.name;
-        if (typeof name === 'string' && name.trim()) {
-          result.set(verdict.root, { did: verdict.root, name: name.trim().slice(0, 64), updatedAt: version.createdAt });
+        const body = (await openBody(version)).body as { name?: unknown; contactKey?: unknown } | null;
+        if (!found) {
+          const name = body?.name;
+          if (typeof name !== 'string' || !name.trim()) break;
+          found = { did: verdict.root, name: name.trim().slice(0, 64), updatedAt: version.createdAt };
         }
-        break;
+        // The contact key from the newest version that has one: it never changes, and an app
+        // without it that wrote a newer version first must not hide it.
+        if (isContactPublicKey(body?.contactKey)) {
+          found = { ...found, contactKey: body.contactKey };
+          break;
+        }
       }
+      if (found) result.set(found.did, found);
     }
     return result;
   }
@@ -1320,12 +1331,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return [...(await profileMap()).values()].sort((a, b) => a.name.localeCompare(b.name) || a.did.localeCompare(b.did));
     },
 
-    async publishProfile(profile: { name: string }) {
+    async publishProfile(profile: { name: string; contactKey?: string }) {
       // Someone following a space without a role in it cannot write there, and says nothing.
       if (await cannotWrite()) return;
       const name = profile.name.trim().slice(0, 64);
-      if (!name || (await profileMap()).get(deps.rootDid)?.name === name) return;
-      await upsert(PROFILE_COLLECTION, await profileKey(deps.rootDid), { name });
+      const mine = (await profileMap()).get(deps.rootDid);
+      // An app without the contact key must not take away the one another device published.
+      const contactKey = profile.contactKey ?? mine?.contactKey;
+      if (!name || (mine?.name === name && mine.contactKey === contactKey)) return;
+      await upsert(PROFILE_COLLECTION, await profileKey(deps.rootDid), { name, ...(contactKey ? { contactKey } : {}) });
     },
 
     async update<T>(recordKey: string, body: T, options: { links?: ReadonlyArray<Link>; as?: ActiveSession } = {}): Promise<NodeRecord<T>> {

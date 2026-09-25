@@ -18,7 +18,6 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
 | [BLOCK-14](BLOCK-14-security-hardening.md) | Security, round two: checkable version history, removing members, safe pairing, private votes, sync limits | ~3 weeks |
 | [BLOCK-15](BLOCK-15-spaces-and-roles.md) | Spaces and roles: one kind of space, custom roles per space, hand over and leave, access you can take back. Built except the home's role screens | ~3 days left |
-| [BLOCK-16](BLOCK-16-contacts.md) | Contacts: a contact list and sealed contact requests. Live messages (part 1) are built | ~4 days left |
 | [BLOCK-17](BLOCK-17-browser-extension.md) | A Chrome extension that keeps your node in the gossip and your pod up to date while the browser is open, without being able to read your spaces | ~2 weeks |
 | [BLOCK-18](BLOCK-18-agent-made-apps.md) | Apps an agent makes: its own labelled key, proposals a person adds, a summary worked out from the rules, apps as records in the Apps tab | ~1 week |
 | [BLOCK-19](BLOCK-19-compatible-definitions.md) | Compatible definitions: apps check what a collection promises (fields, links, rules) instead of its name; harmless updates apply themselves (after 18) | ~1 week |
@@ -37,6 +36,15 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
   rules and the types in one, and typed handles (`node.use(space, Poll)`) —
   replaces BLOCK-12.
 
+- **Contacts in the example app.** A contacts screen over `node.contacts`:
+  requests waiting in a space, "Add as a contact" on someone's name, and, when
+  someone new turns up in a conversation, the choice between starting a group
+  and inviting them anyway. The library side is built (see Contacts in the
+  main README).
+- **One relay socket per room.** Each space is its own room, and so its own
+  WebSocket per relay; with hundreds of contacts, staying connected to all of
+  them isn't practical. For now, hold a contact's space only while the
+  conversation is open. Later, the relay carries many rooms over one socket.
 - **Profiles, round two.** A per-space name ("in this space, call me…"), avatars
   once there is blob storage (BLOCK-03), and private nicknames for others.
 - **An account home.** One address that holds your passkey and hands apps a

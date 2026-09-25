@@ -315,7 +315,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   if (command === 'mcp') {
     // Offline: the MCP process writes to the folder; a running daemon syncs it.
-    const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, accountKey: unlocked.accountKey });
+    const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, accountKey: unlocked.accountKey, contactKey: unlocked.contactKey });
     stderr(`weave mcp: serving ${NODE_ACTIONS.length} tools for ${node.did}`);
     await runMcpStdio(node, { name: 'weave', version: VERSION });
     await node.close();
@@ -330,7 +330,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   // One-shot commands run offline against the folder. With a daemon running on
   // the same folder, it picks the change up and syncs it.
-  const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, accountKey: unlocked.accountKey, watchIntervalMs: 0 });
+  const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, accountKey: unlocked.accountKey, contactKey: unlocked.contactKey, watchIntervalMs: 0 });
   try {
     const result = await runAction(node, found.action.name, inputFromFlags(found.action, found.rest));
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

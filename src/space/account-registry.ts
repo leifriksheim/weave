@@ -84,13 +84,37 @@ async function expand(accountKey: Uint8Array, info: string): Promise<Uint8Array>
  * @param accountKey The account's vault key bytes (`deriveVaultKeyBytes(seed)`)
  * @param owner The account's DID
  */
-export async function deriveAccountRegistry(
+export function deriveAccountRegistry(
   accountKey: Uint8Array,
   owner: string,
   provider: CryptoProvider = createP256Provider(),
 ): Promise<SpaceRecord> {
-  const nonce = base64UrlEncode((await expand(accountKey, 'weave/account-registry/nonce/v1')).subarray(0, 12));
-  const keyBytes = await expand(accountKey, 'weave/account-registry/key/v1');
+  return deriveAccountSpace(accountKey, owner, 'weave/account-registry', 'Account registry', provider);
+}
+
+/**
+ * The account's contacts space, derived the same way: one `std.contact` per
+ * person (`schemas/contacts.ts`). Its own space, not part of the registry, so
+ * an app can be given the contacts without the whole account.
+ */
+export function deriveContactsSpace(
+  accountKey: Uint8Array,
+  owner: string,
+  provider: CryptoProvider = createP256Provider(),
+): Promise<SpaceRecord> {
+  return deriveAccountSpace(accountKey, owner, 'weave/contacts', 'Contacts', provider);
+}
+
+/** A private space only the account can find: its key and nonce derived from the vault key under `label`. */
+async function deriveAccountSpace(
+  accountKey: Uint8Array,
+  owner: string,
+  label: string,
+  name: string,
+  provider: CryptoProvider,
+): Promise<SpaceRecord> {
+  const nonce = base64UrlEncode((await expand(accountKey, `${label}/nonce/v1`)).subarray(0, 12));
+  const keyBytes = await expand(accountKey, `${label}/key/v1`);
   const cryptoKey = await globalThis.crypto.subtle.importKey('raw', keyBytes as BufferSource, { name: 'AES-GCM', length: 256 }, true, [
     'encrypt',
     'decrypt',
@@ -115,7 +139,7 @@ export async function deriveAccountRegistry(
   const space: Space = Object.freeze({
     id: await spaceIdOf(spaceGenesis(fixed)),
     ...fixed,
-    name: 'Account registry',
+    name,
   });
   return { space, key, invite: null, role: solo.creatorRole };
 }
