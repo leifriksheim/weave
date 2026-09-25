@@ -1,6 +1,6 @@
 {
   "name": "@weaveprotocol/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Self-sovereign P2P protocol for the browser — identity, schemas, storage, networking, and gossip sync",
   "repository": {
