@@ -38,6 +38,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     // Following the account registry is what makes this *your* node: every
     // space the account joins, on any device, is served here too.
     accountKey: options.unlocked.accountKey,
+    contactKey: options.unlocked.contactKey,
     // No relays: WebRTC needs a browser. Peers reach this node over sockets.
     network: {
       transports: inbound.transports,

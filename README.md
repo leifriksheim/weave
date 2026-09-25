@@ -222,6 +222,61 @@ await calls.answer(ringing.id);  calls.setMuted(true);  await calls.shareScreen(
 
 The messages, and the reasoning, are at the top of `src/calls/calls.ts`.
 
+### Contacts
+
+A DID is a **name, not an address**: it's on everything you sign, so knowing
+it must not be enough to reach you. What lets two people reach each other is a
+space they share. So **a contact is a private space for two**: records you
+write there wait for the other person, and live messages reach them when
+they're online. There's no directory to look people up in, and no inbox
+strangers can knock on.
+
+```typescript
+// In a space you share with Anna — the book club — ask her to add you.
+const { space } = await node.contacts.ask(club.id, anna, { note: "it's Leif from book club" });
+
+// On Anna's side:
+const [request] = await node.contacts.requests(club.id);   // { from, name, note, pairSpace, … }
+await node.contacts.accept(club.id, request.key);           // joins the space for two, adds Leif
+
+await node.contacts.list();          // [{ did, name, space, note, blocked }]
+await node.contacts.put({ did, name: 'Anna K' });   // what you call them — only you see it
+await node.contacts.remove(anna);    // off the list, and out of your space with her
+await node.contacts.block(anna);     // and her requests are hidden in every space
+await node.contacts.others(anna);    // anyone else in your space with her: [] unless someone was let in
+```
+
+- **The list** is one `std.contact` per person, in a **contacts space**
+  derived from the account key the way the account registry is: every device
+  of the account has it, nobody else can find it, and it's hidden from
+  `spaces.list`. `contacts.space()` gives its id. A carrier carries it, so a
+  restore brings the list back.
+- **Asking** (`ask`) makes a private space for the two of you, puts them on
+  your list with it, and posts a `std.contact-request` in the shared space:
+  the new space's invite, **sealed with their contact key**. The other members
+  can see that you asked, not what. The seal is bound to the space it was
+  posted in and to who asked whom, so a request copied into another space, or
+  re-posted by someone else, doesn't open. Joining is the answer: there's no
+  reply record.
+- **The contact key** is a P-256 key for encryption, derived from the seed
+  under its own label (`deriveContactKeyBytes`), so it's the same on every
+  device and comes back with the recovery code. Its public half goes on your
+  profile in every space you write in (`spaces.profiles(id)[n].contactKey`),
+  and only counts on a profile signed by your own account. An app without the
+  key never takes it off: a profile keeps the newest key it was given.
+- **Conversation or group** is decided by how the space was made, not by how
+  many people are in it: a space is your conversation with Anna because your
+  list says so. A space made with "New space" and shared with one person is
+  never one. If a third account turns up in a space for two, `others` says so,
+  and an app can offer to start a new space with just the two of you, or a new
+  group with everyone.
+
+**What an app gets.** A home gives the contacts to an app that asks with
+`contacts: true`: the contacts space as one more space in its grant, and the
+contact key, which opens requests sent to you. Asking someone and accepting
+also make or join a space, so those need `scope: 'account'`, which includes
+the contacts. Agents never get them.
+
 ## Signing in — the element, and React
 
 Getting to a node takes a sign-in flow: where the data lives (a pod or this
@@ -362,6 +417,7 @@ the account's list on every device.
 An app that is a view onto *everything* — like the example — asks for
 `scope: 'account'`: a note for every space, plus the key the account's space
 list is derived from, so it sees every space and can make and join them. It
+gets the contacts too (see Contacts, above). It
 still never holds the seed: it cannot sign in anywhere as the account, change
 its password or passkeys, or keep access past the note's date.
 

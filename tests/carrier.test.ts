@@ -244,7 +244,8 @@ describe('a carrier', () => {
     await home.spaces.create({ name: 'Notes', visibility: 'private' });
     const added = await home.carriers.add({ did: (await carrierKey()).did, name: 'Chrome' });
     const node = await carrier(me, added.invite, hub);
-    await until(async () => (await node.spaces()).length === 3, 5000, 'the spaces to be carried');
+    // Its own carry space, the registry, the contacts, and Notes.
+    await until(async () => (await node.spaces()).length === 4, 5000, 'the spaces to be carried');
 
     let closed = false;
     node.subscribe((event) => {

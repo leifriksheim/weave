@@ -207,17 +207,7 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
     async createInvite(spaceId: string, invitedBy: string, options: InviteOptions = {}): Promise<string> {
       const record = await load(spaceId);
       if (!record) throw new Error(`Unknown space: ${spaceId}`);
-
-      // The key rides along for private spaces — which is why an invite is a
-      // secret, and why it belongs in a URL fragment rather than a path.
-      const invite: SpaceInvite = {
-        space: record.space,
-        invitedBy,
-        ...(record.key ? { key: (await exportKey(record.key)).raw } : {}),
-        ...(options.secret ? { invite: base64UrlEncode(options.secret) } : {}),
-        ...(options.secret && options.role ? { role: options.role } : {}),
-      };
-      return base64UrlEncode(utf8Encode(JSON.stringify(invite)));
+      return encodeSpaceInvite(record, invitedBy, options);
     },
 
     async join(invite: string): Promise<SpaceRecord> {
@@ -257,6 +247,23 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       else await adapter.put(`${ROLE_PREFIX}${spaceId}`, utf8Encode(role));
     },
   });
+}
+
+/**
+ * Encodes a space, its key if private, and an invite's secret if given, as a
+ * shareable string — for a space this node holds, or one it derived.
+ */
+export async function encodeSpaceInvite(record: SpaceRecord, invitedBy: string, options: InviteOptions = {}): Promise<string> {
+  // The key rides along for private spaces — which is why an invite is a
+  // secret, and why it belongs in a URL fragment rather than a path.
+  const invite: SpaceInvite = {
+    space: record.space,
+    invitedBy,
+    ...(record.key ? { key: (await exportKey(record.key)).raw } : {}),
+    ...(options.secret ? { invite: base64UrlEncode(options.secret) } : {}),
+    ...(options.secret && options.role ? { role: options.role } : {}),
+  };
+  return base64UrlEncode(utf8Encode(JSON.stringify(invite)));
 }
 
 /**

@@ -106,7 +106,9 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
   const offered = spaces.filter((space) => !writes || space.writable);
   const privateChosen = offered.some((space) => chosen.has(space.id) && space.visibility === 'private');
   const creating = request.create ?? [];
-  const nothing = !whole && chosen.size === 0 && creating.length === 0;
+  // A whole-account app gets the contacts anyway; the box below is for one that asks for them alone.
+  const contacts = request.contacts === true && !agent && !whole;
+  const nothing = !whole && !contacts && chosen.size === 0 && creating.length === 0;
 
   const toggle = (id: string) =>
     setChosen((was) => {
@@ -167,8 +169,19 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
         <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
           <p style={{ ...styles.todoText }}>Your whole account</p>
           <p style={styles.errorHint}>
-            Every space, including private ones, and the list of them. It can make and join spaces for you. It cannot sign in
+            Every space, including private ones, the list of them, your contacts, and contact requests sent to you. It can make and join
+            spaces for you. It cannot sign in
             anywhere as you, change your password or passkeys, or keep access past the date below unless you allow it again.
+          </p>
+        </div>
+      )}
+
+      {contacts && (
+        <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
+          <p style={{ ...styles.todoText }}>Your contacts</p>
+          <p style={styles.errorHint}>
+            Who is on your contact list, and contact requests sent to you in the spaces it gets. It can change the list. Asking someone, or
+            saying yes to a request, also needs your whole account.
           </p>
         </div>
       )}

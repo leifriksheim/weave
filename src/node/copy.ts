@@ -13,7 +13,7 @@
  */
 import type { StoreFactory } from './stores.js';
 import { createSpaceManager } from '../space/space-manager.js';
-import { deriveAccountRegistry } from '../space/account-registry.js';
+import { deriveAccountRegistry, deriveContactsSpace } from '../space/account-registry.js';
 import { createStorageProvider } from '../storage/storage-provider.js';
 
 export interface CopyAccountParams {
@@ -46,6 +46,8 @@ export async function copyAccountData(params: CopyAccountParams): Promise<CopyRe
   const fromRegistry = createSpaceManager(fromRegistryStore);
   const toRegistry = createSpaceManager(toRegistryStore);
 
+  // The contacts space is copied like any other, but it is not one the person counts as theirs.
+  const contacts = params.accountKey ? (await deriveContactsSpace(params.accountKey, params.did)).space.id : null;
   let spacesAdded = 0;
   const spaceIds: string[] = [];
   for (const { space } of await fromRegistry.list()) {
@@ -53,7 +55,7 @@ export async function copyAccountData(params: CopyAccountParams): Promise<CopyRe
     if (await toRegistry.get(space.id)) continue;
     // An invite carries exactly what a registry needs: the space, and its key.
     await toRegistry.join(await fromRegistry.createInvite(space.id, params.did));
-    spacesAdded++;
+    if (space.id !== contacts) spacesAdded++;
   }
   if (params.accountKey) spaceIds.push((await deriveAccountRegistry(params.accountKey, params.did)).space.id);
 
