@@ -324,6 +324,8 @@ export async function useSchemas(node: P2PNode, spaceId: string, schemas: Readon
   }
 }
 
+export { contact, contactRequest } from './contacts.js';
+export type { Contact, ContactRequestRecord } from './contacts.js';
 export { app, appScreen, checkApp, reviewApp, proposeApp, addApp, copyApp, MAX_APP_COLLECTIONS } from './apps.js';
 export { SCREEN_GUIDE, SCREEN_CLIENT, screenDocument, createScreenBridge } from './screens.js';
 export type { ScreenBridge, ScreenRecord, ScreenViewer } from './screens.js';

@@ -64,6 +64,12 @@ export interface ConnectRequest {
   readonly scope?: 'spaces' | 'account';
   /** Spaces the home should make for the app, and give it */
   readonly create?: ReadonlyArray<NewSpace>;
+  /**
+   * The account's contacts: the contacts space, and the contact key that opens
+   * contact requests sent to the account. Asking someone, or accepting, also
+   * needs `account` scope — both make or join a space for two.
+   */
+  readonly contacts?: boolean;
   /** Whether to offer the person's existing spaces to pick from. Default true. */
   readonly chooseSpaces?: boolean;
   /**
@@ -109,6 +115,14 @@ export interface Grant {
    * account access means — but it cannot sign as the account.
    */
   readonly accountKey?: string;
+  /**
+   * With `contacts`, or `account` scope: the contact key's private scalar
+   * (base64url), which opens contact requests sent to the account
+   * (`deriveContactKeyBytes`). It cannot sign as the account.
+   */
+  readonly contactKey?: string;
+  /** With `contacts`: which of `spaces` is the account's contacts space */
+  readonly contactsSpace?: string;
   /** Unix seconds */
   readonly expiresAt: number;
   /** Present, and true, when the note is an agent's */
@@ -391,6 +405,8 @@ export async function startConnectedNode(params: {
     sessionKey: key.keys,
     stores: params.stores ?? indexedDBStores(`weave-app:${params.grant.did}`),
     ...(params.grant.accountKey ? { accountKey: base64UrlDecode(params.grant.accountKey) } : {}),
+    ...(params.grant.contactKey ? { contactKey: base64UrlDecode(params.grant.contactKey) } : {}),
+    ...(params.grant.contactsSpace ? { contactsSpace: params.grant.contactsSpace } : {}),
     ...(network ? { network } : {}),
   });
   const held = new Set((await node.spaces.list()).map((space) => space.id));
@@ -495,12 +511,13 @@ function isRequest(value: unknown): value is ConnectRequest {
     (request.access === 'read' || request.access === 'write' || request.access === 'carry') &&
     (request.scope === undefined || request.scope === 'spaces' || request.scope === 'account') &&
     (request.name === undefined || (typeof request.name === 'string' && request.name.length <= 80)) &&
+    (request.contacts === undefined || typeof request.contacts === 'boolean') &&
     (request.create === undefined || isNewSpaces(request.create)) &&
     (request.days === undefined || (Number.isInteger(request.days) && request.days >= 1 && request.days <= MAX_GRANT_DAYS)) &&
     // An agent works in spaces that exist: none made for it, and no carrying.
     (request.agent === undefined ||
       request.agent === false ||
-      (request.agent === true && request.access !== 'carry' && request.create === undefined))
+      (request.agent === true && request.access !== 'carry' && request.create === undefined && !request.contacts))
   );
 }
 

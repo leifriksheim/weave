@@ -42,6 +42,19 @@ export interface NodeConfig {
    * spaces are this node's alone.
    */
   readonly accountKey?: Uint8Array;
+  /**
+   * The account's contact key (`deriveContactKeyBytes(seed)`), for a node
+   * allowed to handle contacts: it opens contact requests sent to the account,
+   * and its public half goes on the account's profile in every space this
+   * node writes in. Without it, a profile keeps the key another device put there.
+   */
+  readonly contactKey?: Uint8Array;
+  /**
+   * The id of the account's contacts space, for a node given it without the
+   * account key — an app an account home let see the contacts. With the
+   * account key it is derived, and this is not needed.
+   */
+  readonly contactsSpace?: string;
   /** Where the registry and each space's store live */
   readonly stores: StoreFactory;
   readonly provider?: CryptoProvider;
@@ -307,6 +320,12 @@ export interface SpaceProfile {
   readonly did: string;
   readonly name: string;
   readonly updatedAt: string;
+  /**
+   * The public half of their contact key, when they published one — what a
+   * contact request to them is sealed with (`contacts.ask`). It counts only
+   * on a profile signed under their own account, like the name.
+   */
+  readonly contactKey?: string;
 }
 
 export interface NodeSpaces {
@@ -500,6 +519,76 @@ export interface NodeAccount {
   revoke(token: string): Promise<void>;
 }
 
+/** Someone in the account's contact list */
+export interface ContactView {
+  /** Their account */
+  readonly did: string;
+  /** What you call them — yours to change; they never see it */
+  readonly name: string;
+  /** The id of your space for two, where records wait and live messages reach them. Null when there is none. */
+  readonly space: string | null;
+  readonly note?: string;
+  /** Their contact requests are hidden, in every space */
+  readonly blocked: boolean;
+  readonly updatedAt: string;
+}
+
+/** A contact request sent to this account, opened */
+export interface ContactRequest {
+  /** The space it was posted in */
+  readonly space: string;
+  /** Its record there — what `accept` takes */
+  readonly key: string;
+  /** The account asking */
+  readonly from: string;
+  /** The name they go by in that space, when they gave one */
+  readonly name: string | null;
+  readonly note?: string;
+  /** The space for two it invites you to */
+  readonly pairSpace: string;
+  readonly createdAt: string;
+}
+
+/**
+ * The account's contacts. Each is a private space for two, recorded as a
+ * `std.contact` in the account's contacts space — a space derived from the
+ * account key, so every device of the account has the same list and nobody
+ * else can find it. There is no directory and no inbox: knowing someone's DID
+ * reaches nothing. You add someone by asking inside a space you share
+ * (`ask`), or by giving them an invite to a space for two some other way, and
+ * `put`ting them.
+ */
+export interface NodeContacts {
+  /** The contacts space's id — null for a node not given it */
+  space(): Promise<string | null>;
+  /** Everyone in the list, blocked people too, by name */
+  list(): Promise<ReadonlyArray<ContactView>>;
+  get(did: string): Promise<ContactView | null>;
+  /** Adds someone, or changes what the list says about them */
+  put(contact: { readonly did: string; readonly name: string; readonly space?: string | null; readonly note?: string }): Promise<ContactView>;
+  /** Takes them off the list and leaves your space for two. Nobody else's space is touched. */
+  remove(did: string): Promise<void>;
+  /** Leaves your space for two, and hides their contact requests from now on */
+  block(did: string): Promise<void>;
+  /**
+   * Asks someone in a space you share to add you: makes a private space for
+   * the two of you, puts them on your list with it, and posts the space's
+   * invite in `spaceId` sealed with their contact key — the other members see
+   * that you asked, not what. Needs their profile there to carry a contact key.
+   * @returns The space for two, and the request's record key (delete it to take the request back)
+   */
+  ask(spaceId: string, did: string, options?: { readonly note?: string }): Promise<{ readonly space: string; readonly request: string }>;
+  /** Contact requests sent to this account in a space, opened — not from people blocked, and not ones already accepted */
+  requests(spaceId: string): Promise<ReadonlyArray<ContactRequest>>;
+  /** Joins the space for two a request invites you to, and puts whoever asked on your list */
+  accept(spaceId: string, requestKey: string): Promise<ContactView>;
+  /**
+   * Accounts in your space with someone other than the two of you — someone
+   * the invite was passed on to. Opens that space. Empty when there is none.
+   */
+  others(did: string): Promise<ReadonlyArray<string>>;
+}
+
 export interface P2PNode {
   /** The identity this node acts for */
   readonly did: string;
@@ -512,6 +601,8 @@ export interface P2PNode {
   readonly account: NodeAccount;
   /** Nodes that keep the account's spaces online without reading them */
   readonly carriers: NodeCarriers;
+  /** People: the account's contact list, and asking to be added */
+  readonly contacts: NodeContacts;
   /** The delegation the session key currently writes under (root → session) */
   delegation(): UCANToken;
   /**

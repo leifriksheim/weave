@@ -97,6 +97,8 @@ export {
   withoutWrap,
   PASSPHRASE_ITERATIONS,
 } from './identity/account-vault.js';
+export { deriveContactKeyBytes, contactKeyPair, contactPublicKey, isContactPublicKey, sealFor, openSealed } from './identity/contact-key.js';
+export type { ContactKeyPair } from './identity/contact-key.js';
 export type {
   AccountVault,
   SeedWrap,
@@ -206,7 +208,7 @@ export type { FolderAccessMode } from './storage/directory-access.js';
 
 // Spaces
 export { createSpaceManager, parseSpaceInvite } from './space/space-manager.js';
-export { deriveAccountRegistry, MEMBERSHIP_COLLECTION } from './space/account-registry.js';
+export { deriveAccountRegistry, deriveContactsSpace, MEMBERSHIP_COLLECTION } from './space/account-registry.js';
 export {
   CATALOG_COLLECTION,
   checkStoredCollection,
@@ -399,6 +401,9 @@ export type {
   DefineCollection,
   NodeAccount,
   AccountProfileView,
+  NodeContacts,
+  ContactView,
+  ContactRequest,
 } from './node/index.js';
 
 // Queries: plain-data filters, sorting, paging and includes over a space

@@ -18,6 +18,13 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { team } from '../src/space/presets.js';
 import { parseSpaceInvite } from '../src/space/space-manager.js';
 import { hold } from './helpers/hold.js';
+import { joined } from './helpers/joined.js';
+import { createNode } from '../src/node/node.js';
+import { createIdentityManager } from '../src/identity/identity-manager.js';
+import { createLocalRootSigner } from '../src/identity/root-signer.js';
+import { generateSeed } from '../src/identity/recovery-code.js';
+import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
+import { deriveContactKeyBytes } from '../src/identity/contact-key.js';
 
 async function until(check: () => Promise<boolean>, ms: number, what: string): Promise<void> {
   const deadline = Date.now() + ms;
@@ -233,6 +240,76 @@ describe('connecting an app to an account home', () => {
       3000,
       'the revoke to reach the app',
     );
+  });
+});
+
+describe('giving an app the contacts', () => {
+  test('it lists them and opens requests sent to the account, and sees no other space', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node: homeNode } = auth.getState().session!;
+    const club = await homeNode.spaces.create({ name: 'Book club', ...team, visibility: 'private' });
+    await homeNode.spaces.create({ name: 'Diary', visibility: 'private' });
+
+    // Bob, in the book club, asks the account to add him.
+    const seed = generateSeed();
+    const manager = createIdentityManager();
+    const bob = await createNode({
+      signer: createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider()),
+      stores: memoryStores(),
+      accountKey: await deriveVaultKeyBytes(seed),
+      contactKey: await deriveContactKeyBytes(seed),
+      watchIntervalMs: 0,
+      network: { transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)] },
+    });
+    cleanup.push(() => bob.close());
+    await bob.account.setName('Bob');
+    await bob.spaces.join(await homeNode.spaces.invite(club.id, { role: 'editor' }));
+    await hold(homeNode, club.id);
+    await joined(bob, club.id);
+    await hold(bob, club.id);
+    await until(async () => (await bob.spaces.profiles(club.id)).some((p) => p.did === homeNode.did && p.contactKey), 5000, 'the account’s contact key');
+    await bob.contacts.ask(club.id, homeNode.did);
+    await homeNode.contacts.put({ did: bob.did, name: 'Bob from book club' });
+
+    const key = await appKey();
+    const grant = await auth.grant({
+      origin: 'https://people.test',
+      request: { v: 1, audience: key.did, access: 'write', contacts: true },
+      spaceIds: [club.id],
+    });
+    const contactsSpace = await homeNode.contacts.space();
+    assert.equal(grant.contactsSpace, contactsSpace);
+    assert.ok(grant.contactKey);
+    assert.equal(grant.accountKey, undefined);
+
+    const people = await app(hub, grant, key);
+    assert.equal(await people.contacts.space(), contactsSpace);
+    assert.deepEqual((await people.spaces.list()).map((space) => space.name), ['Book club']);
+    assert.equal(await people.account.profile(), null, 'no account registry');
+
+    await hold(homeNode, contactsSpace!);
+    await hold(people, contactsSpace!);
+    await until(async () => (await people.contacts.list()).length === 1, 5000, 'the contact list');
+    await hold(people, club.id);
+    await until(async () => (await people.contacts.requests(club.id)).length === 1, 5000, 'Bob’s request');
+    assert.equal((await people.contacts.requests(club.id))[0]!.from, bob.did);
+    // Accepting joins a new space, which needs the whole account.
+    await assert.rejects(people.contacts.accept(club.id, (await people.contacts.requests(club.id))[0]!.key), /whole account/);
+  });
+
+  test('an app not given them has no contact key, and cannot open requests', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node: homeNode } = auth.getState().session!;
+    const club = await homeNode.spaces.create({ name: 'Book club', visibility: 'private' });
+    const key = await appKey();
+    const grant = await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'write' }, spaceIds: [club.id] });
+    assert.equal(grant.contactKey, undefined);
+    assert.equal(grant.contactsSpace, undefined);
+    const todo = await app(hub, grant, key);
+    assert.equal(await todo.contacts.space(), null);
+    await assert.rejects(todo.contacts.requests(club.id), /can't read contact requests/);
   });
 });
 

@@ -17,6 +17,7 @@ import {
   createVault,
   deriveVaultKey,
   deriveVaultKeyBytes,
+  deriveContactKeyBytes,
   folderStores,
   generateSeed,
   newAccountId,
@@ -109,6 +110,8 @@ export interface Unlocked {
   readonly stores: StoreFactory;
   /** Lets the node follow the account registry, so it joins every space the account does */
   readonly accountKey: Uint8Array;
+  /** Opens contact requests sent to the account, and goes on its profile in every space */
+  readonly contactKey: Uint8Array;
 }
 
 /**
@@ -150,5 +153,6 @@ export async function unlock(
     signer: createLocalRootSigner(identity, manager.getProvider()),
     stores: folderStores(home.directory, { basePath: account.dataPath, vaultKey: await deriveVaultKey(seed) }),
     accountKey: await deriveVaultKeyBytes(seed),
+    contactKey: await deriveContactKeyBytes(seed),
   };
 }

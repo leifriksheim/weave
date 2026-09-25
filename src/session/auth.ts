@@ -36,6 +36,7 @@ import {
   type AccountVault,
   type DeviceWrap,
 } from '../identity/account-vault.js';
+import { deriveContactKeyBytes } from '../identity/contact-key.js';
 import { createDeviceKey, getDeviceKey, deleteDeviceKey } from '../identity/device-key.js';
 import { registerPasskey, authenticatePasskey, hasPlatformAuthenticator, renamePasskey } from '../identity/webauthn.js';
 import { generateSeed, seedToRecoveryCode, recoveryCodeToSeed, isValidRecoveryCode } from '../identity/recovery-code.js';
@@ -430,6 +431,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     const node = await createNode({
       signer: createLocalRootSigner(identity, manager.getProvider()),
       accountKey: await deriveVaultKeyBytes(unlocked),
+      contactKey: await deriveContactKeyBytes(unlocked),
       stores: storesOf(place, account, key),
       ...(config.network ? { network: config.network } : {}),
     });
@@ -946,10 +948,13 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const access = request.access;
       const agent = request.agent === true;
       if (agent && request.create?.length) throw new Error('An agent works in spaces that exist — none are made for it.');
+      if (agent && request.contacts) throw new Error('An agent is not given your contacts.');
       const whole = request.scope === 'account';
       const created = [];
       for (const params of request.create ?? []) created.push(await node.spaces.create(params));
-      const ids = [...new Set([...choice.spaceIds, ...created.map((space) => space.id)])];
+      // With the whole account the app derives the contacts space itself; otherwise it is one more space it is given.
+      const contactsSpace = request.contacts && !whole ? await node.contacts.space() : null;
+      const ids = [...new Set([...choice.spaceIds, ...created.map((space) => space.id), ...(contactsSpace ? [contactsSpace] : [])])];
 
       const spaces: GrantedSpace[] = [];
       for (const id of ids) {
@@ -996,6 +1001,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         scope: whole ? 'account' : 'spaces',
         spaces,
         ...(whole ? { accountKey: base64UrlEncode(await deriveVaultKeyBytes(seed)) } : {}),
+        ...(whole || request.contacts ? { contactKey: base64UrlEncode(await deriveContactKeyBytes(seed)) } : {}),
+        ...(contactsSpace ? { contactsSpace } : {}),
         ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
         expiresAt,
         ...(agent ? { agent: true as const } : {}),
@@ -1074,9 +1081,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       for (const connection of going) {
         if (connection.carrySpace && node) await node.carriers.remove(connection.carrySpace);
         if (connection.token && connection.access === 'write' && node) {
+          const contactsSpace = await node.contacts.space();
           const covered =
             connection.scope === 'account'
-              ? (await node.spaces.list()).filter((space) => space.writable).map((space) => space.id)
+              ? [...(await node.spaces.list()).filter((space) => space.writable).map((space) => space.id), ...(contactsSpace ? [contactsSpace] : [])]
               : connection.spaces.map((space) => space.id);
           for (const spaceId of covered) {
             // A space that is gone, or that this account no longer writes in, has nothing to revoke.
