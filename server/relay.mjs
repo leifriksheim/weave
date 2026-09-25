@@ -23,8 +23,11 @@
  * password is an HMAC of when it expires, so nothing is stored and nothing
  * needs revoking. They go to any socket that has joined a room, unprompted on
  * its first join and on request after, and last TURN_TTL_SECONDS (default 4
- * hours). The relay can't tell a Weave peer from anyone else, so cap what
- * TURN may carry in coturn itself (`user-quota`, `total-quota`, `max-bps`).
+ * hours). The relay can't tell a Weave peer from anyone else, so every socket
+ * from one address (one IPv6 /64) gets the same username, and a new one only
+ * once half of its time is gone: asking again is free, and coturn's
+ * `user-quota` caps each address instead of each second. What TURN may carry
+ * in all is capped in coturn itself (`bps-capacity`, `max-bps`).
  *
  * It is public, so it assumes nobody is polite: every socket gets a size cap,
  * a message budget and a heartbeat, and each IP, room and the process as a
@@ -32,7 +35,7 @@
  * — this file has no dependencies, so whatever runs it needs nothing else.
  */
 
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 
 // Limits. Signaling messages are an SDP blob at most (a few KB), so these are
 // generous for real peers and tight for anyone trying to fill a 256 MB VM.
@@ -52,6 +55,8 @@ const RATE_BURST = 100;
 const HEARTBEAT_MS = 15_000;
 /** A peer that cannot keep up with what it is sent is dropped, not buffered for. */
 const MAX_BUFFERED_BYTES = 1024 * 1024;
+/** Addresses holding a TURN password at once; past this, new ones get none until old ones expire. */
+const MAX_TURN_ADDRESSES = 20_000;
 
 /** Only these are passed from one peer to another; join and leave come from us. */
 const ROUTED = new Set(['offer', 'answer', 'candidate']);
@@ -91,6 +96,8 @@ export function createRelay(options = {}) {
   const clients = new Set();
   /** ip -> number of open sockets */
   const perIp = new Map();
+  /** network -> the TURN password its sockets share: { username, credential, expires } */
+  const turnByNetwork = new Map();
 
   /** Whether a room could take one more peer */
   function canEnter(room) {
@@ -201,12 +208,25 @@ export function createRelay(options = {}) {
     }
   }
 
-  /** Sends a socket TURN servers with a password good for the configured time, when there is TURN */
+  /**
+   * Sends a socket TURN servers, with the password its address already holds
+   * while that has more than half its time left, and a new one otherwise.
+   */
   function offerTurn(client) {
     if (!turn) return;
-    const expires = Math.floor(Date.now() / 1000) + turn.ttlSeconds;
-    const username = String(expires);
-    const credential = createHmac('sha1', turn.secret).update(username).digest('base64');
+    const network = networkOf(client.ip);
+    const now = Math.floor(Date.now() / 1000);
+    let held = turnByNetwork.get(network);
+    if (!held || held.expires - now < turn.ttlSeconds / 2) {
+      if (!held && turnByNetwork.size >= MAX_TURN_ADDRESSES) return;
+      const expires = now + turn.ttlSeconds;
+      // coturn reads the part before the colon as the expiry; the rest names the holder, not who they are.
+      const username = `${expires}:${randomBytes(9).toString('base64url')}`;
+      const credential = createHmac('sha1', turn.secret).update(username).digest('base64');
+      held = { username, credential, expires };
+      turnByNetwork.set(network, held);
+    }
+    const { username, credential, expires } = held;
     send(client, JSON.stringify({ type: 'ice', payload: { servers: [{ urls: turn.urls, username, credential }], expiresAt: expires * 1000 } }));
   }
 
@@ -256,6 +276,10 @@ export function createRelay(options = {}) {
   // Heartbeat: ping everyone, and drop whoever did not answer the last ping.
   // This also frees rooms and DIDs held by sockets that died without a close.
   const heartbeat = setInterval(() => {
+    const now = Date.now() / 1000;
+    for (const [network, held] of turnByNetwork) {
+      if (held.expires <= now) turnByNetwork.delete(network);
+    }
     for (const client of clients) {
       if (!client.alive) {
         client.ws.terminate();
@@ -309,6 +333,21 @@ const isDid = (value) =>
 function clientIp(req) {
   const forwarded = process.env.FLY_APP_NAME ? req.headers['fly-client-ip'] : undefined;
   return (typeof forwarded === 'string' && forwarded) || req.socket.remoteAddress || 'unknown';
+}
+
+/**
+ * What one household or phone holds: an IPv4 address, or an IPv6 /64, since
+ * one IPv6 connection is usually handed a whole /64 to pick addresses from.
+ */
+function networkOf(ip) {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) return mapped[1];
+  if (!ip.includes(':')) return ip;
+  const [head, tail = ''] = ip.split('%')[0].toLowerCase().split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const groups = ip.includes('::') ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right] : left;
+  return `${groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, '')).join(':')}::/64`;
 }
 
 const short = (room) => (room.length > 12 ? `${room.slice(0, 12)}…` : room);
