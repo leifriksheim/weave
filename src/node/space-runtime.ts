@@ -255,7 +255,12 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   let waitingInvite = record.invite !== null;
 
   const adapter = await deps.stores(`spaces/${space.id}`);
-  const storage: StorageProvider = createStorageProvider(adapter);
+  // Tabs sharing this browser's store are covered by compaction's grace period.
+  // A folder's other writers — a sync service bringing another device's tree
+  // back hours later — are not, so a folder keeps its old nodes.
+  const shared = isFolderAdapter(adapter);
+  const storage: StorageProvider = createStorageProvider(adapter, shared ? {} : { compactEvery: 256 });
+  if (!shared) void storage.compact().catch(() => {});
 
   const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
 

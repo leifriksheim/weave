@@ -18,8 +18,8 @@
  * converge.
  */
 
-import type { StorageAdapter, Expression } from '../types.js';
-import { insertIntoMST, deleteFromMST, lookupInMST, listMSTEntries } from './mst.js';
+import type { StorageAdapter, Expression, BatchOp } from '../types.js';
+import { insertIntoMST, deleteFromMST, lookupInMST, listMSTEntries, collectReachableCids } from './mst.js';
 import { supersedes } from '../records/version.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 
@@ -48,6 +48,20 @@ export interface StorageProvider {
   entries(): Promise<Array<{ key: string; value: string }>>;
   /** Get the current MST root CID. */
   getRootCid(): Promise<string | null>;
+  /**
+   * Deletes the tree nodes the root no longer reaches. Every change rewrites
+   * the path to one entry and leaves the old path behind, so without this a
+   * store grows with every edit ever made rather than with its records.
+   *
+   * Tabs share a browser's store, and a change another tab has in flight may
+   * build on nodes this one's root has left. So a node is deleted only once it
+   * was already unreachable at a compaction at least `graceMs` earlier —
+   * remembered in the store, so it holds across sessions. A store whose other
+   * writers can lag by more than that — a folder behind a sync service — must
+   * not be compacted at all.
+   * @returns How many nodes were deleted
+   */
+  compact(): Promise<number>;
   /** Get the underlying storage adapter. */
   getAdapter(): StorageAdapter;
   /** Close the storage adapter. */
@@ -55,6 +69,17 @@ export interface StorageProvider {
 }
 
 const ROOT_KEY = '__mst_root';
+/** Unreachable nodes found by the last compaction, and when */
+const CONDEMNED_KEY = '__condemned';
+/** A tree node's key in the store: its CID, `b` and 52 base32 characters */
+const NODE_KEY = /^b[a-z2-7]{52}$/;
+
+export interface StorageProviderOptions {
+  /** Compact on its own after this many changes (see `compact`). Off by default. */
+  readonly compactEvery?: number;
+  /** How long a node stays unreachable before `compact` deletes it. Default a minute. */
+  readonly graceMs?: number;
+}
 
 export const CURRENT_PREFIX = 'r/';
 export const GENESIS_PREFIX = 'g/';
@@ -70,7 +95,7 @@ const historyKey = (e: Expression) => `${HISTORY_PREFIX}${e.key}/${String(e.seq)
  * @param adapter The initialized storage adapter.
  * @returns The StorageProvider orchestrator.
  */
-export function createStorageProvider(adapter: StorageAdapter): StorageProvider {
+export function createStorageProvider(adapter: StorageAdapter, options: StorageProviderOptions = {}): StorageProvider {
   async function getRootCid(): Promise<string | null> {
     const bytes = await adapter.get(ROOT_KEY);
     return bytes ? utf8Decode(bytes) : null;
@@ -92,6 +117,35 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     const run = tail.then(change, change);
     tail = run.catch(() => {});
     return run;
+  };
+
+  const graceMs = options.graceMs ?? 60_000;
+  const compact = (): Promise<number> =>
+    exclusively(async () => {
+      const reachable = await collectReachableCids(adapter, await getRootCid());
+      const dead = (await adapter.list('b')).filter((key) => NODE_KEY.test(key) && !reachable.has(key));
+      const saved = await adapter.get(CONDEMNED_KEY);
+      const earlier = saved ? (JSON.parse(utf8Decode(saved)) as { at: number; cids: string[] }) : null;
+      const ripe = graceMs === 0 ? dead : earlier && Date.now() - earlier.at >= graceMs ? earlier.cids : null;
+      const condemn = (cids: string[]): BatchOp => ({ type: 'put', key: CONDEMNED_KEY, value: utf8Encode(JSON.stringify({ at: Date.now(), cids })) });
+      // Too soon to delete anything: remember what is dead now, unless an earlier list is already waiting.
+      if (ripe === null) {
+        if (!earlier) await adapter.batch([condemn(dead)]);
+        return 0;
+      }
+      const doomed = new Set(ripe);
+      const deleting = dead.filter((key) => doomed.has(key));
+      await adapter.batch([...deleting.map((key): BatchOp => ({ type: 'delete', key })), condemn(dead.filter((key) => !doomed.has(key)))]);
+      return deleting.length;
+    });
+
+  let changes = 0;
+  /** Counts a change, and compacts once enough have piled up */
+  const changed = () => {
+    if (options.compactEvery && ++changes >= options.compactEvery) {
+      changes = 0;
+      void compact().catch(() => {});
+    }
   };
 
   /**
@@ -157,6 +211,7 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
         }
 
         await setRootCid(root);
+        changed();
         return root;
       });
     },
@@ -210,6 +265,8 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     async getRootCid(): Promise<string | null> {
       return getRootCid();
     },
+
+    compact,
 
     getAdapter(): StorageAdapter {
       return adapter;

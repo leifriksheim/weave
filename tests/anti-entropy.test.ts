@@ -5,7 +5,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createStorageProvider, type StorageProvider } from '../src/storage/storage-provider.js';
+import { createStorageProvider, type StorageProvider, type StorageProviderOptions } from '../src/storage/storage-provider.js';
 import { createSyncEngine, type SyncEngine } from '../src/sync/sync-engine.js';
 import { SYNC_PROTOCOL_VERSION, type SyncMessage } from '../src/sync/sync-messages.js';
 import { utf8Encode } from '../src/utils/encoding.js';
@@ -208,5 +208,63 @@ describe('the store under concurrent writes', () => {
     await Promise.all(range(0, 300).map((i) => concurrent.addExpression(note(i))));
     const sequential = await filled(range(0, 300));
     assert.equal(await concurrent.getRootCid(), await sequential.getRootCid());
+  });
+});
+
+describe('compaction', () => {
+  const nodeKeys = async (storage: StorageProvider) => (await storage.getAdapter().list('b')).length;
+  /** The next version of a note: one more change to the same record */
+  const edited = (i: number, seq: number): Expression => ({ ...note(i), id: `b${i.toString(36).padStart(8, '0')}${seq}${'e'.repeat(39)}`, seq, prev: note(i).id, genesis: note(i).id });
+
+  const compacting = (options: StorageProviderOptions = { graceMs: 0 }) => createStorageProvider(createMemoryAdapter(), options);
+
+  test('drops the nodes old versions of the tree left behind, and nothing the tree still uses', async () => {
+    const storage = compacting();
+    for (const i of range(0, 300)) await storage.addExpression(note(i));
+    for (let i = 0; i < 300; i++) await storage.addExpression(edited(i, 1));
+    const root = await storage.getRootCid();
+    const entries = await storage.entries();
+    const before = await nodeKeys(storage);
+
+    const dropped = await storage.compact();
+
+    assert.ok(dropped > 0 && before - dropped === (await nodeKeys(storage)));
+    assert.equal(await storage.getRootCid(), root);
+    assert.deepEqual(await storage.entries(), entries);
+    // The key that is not a node is left alone.
+    await storage.getAdapter().put('bnot-a-node', utf8Encode('x'));
+    await storage.compact();
+    assert.notEqual(await storage.getAdapter().get('bnot-a-node'), null);
+  });
+
+  test('a compacted store syncs like any other', async () => {
+    const a = compacting();
+    for (const i of range(0, 400)) await a.addExpression(note(i));
+    for (let i = 0; i < 400; i += 3) await a.addExpression(edited(i, 1));
+    await a.compact();
+    const b = await filled(range(0, 200));
+    const { engineB, settle } = wire(a, b);
+    engineB.notifyPeers(['a']);
+    await settle();
+    assert.equal(await sameRoot(a, b), true);
+  });
+
+  test('compacts on its own when asked to', async () => {
+    const storage = compacting({ compactEvery: 50, graceMs: 0 });
+    for (const i of range(0, 200)) await storage.addExpression(note(i));
+    // The 200th change started one; this waits its turn behind it and finds nothing left.
+    assert.equal(await storage.compact(), 0);
+  });
+
+  test('a node is deleted only once it has stayed unreachable for the grace period', async () => {
+    // Another tab sharing the store may have a change in flight built on it.
+    const storage = compacting({ graceMs: 40 });
+    for (const i of range(0, 100)) await storage.addExpression(note(i));
+    const before = await nodeKeys(storage);
+    assert.equal(await storage.compact(), 0);
+    assert.equal(await storage.compact(), 0);
+    assert.equal(await nodeKeys(storage), before);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok((await storage.compact()) > 0);
   });
 });
