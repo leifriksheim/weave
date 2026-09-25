@@ -212,6 +212,44 @@ const navItem = {
 const navItemOn = { background: palette.surface.sunken, color: palette.ink.strong, fontWeight: 500 };
 
 /** Who is here: everyone who has said who they are in this space */
+const chip = { display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 4px', border: `1px solid ${palette.surface.line}`, borderRadius: 999, fontSize: 13 } as const;
+
+/**
+ * Your own name, renamed in place. It goes on the account, and the node
+ * republishes it into every space you are in — not just this one.
+ */
+function MyName({ name }: { name: string }) {
+  const node = useNode();
+  const [draft, setDraft] = useState<string | null>(null);
+  const save = async () => {
+    const trimmed = draft?.trim();
+    setDraft(null);
+    if (trimmed && trimmed !== name) await node.account.setName(trimmed).catch(() => {});
+  };
+  if (draft === null) {
+    return (
+      <button onClick={() => setDraft(name)} data-variant="ghost" title="Rename — everyone in your spaces sees this name" style={{ ...styles.linkButton, fontSize: 13, color: palette.ink.strong }}>
+        {name}
+      </button>
+    );
+  }
+  return (
+    <input
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => void save()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') void save();
+        if (event.key === 'Escape') setDraft(null);
+      }}
+      autoFocus
+      maxLength={64}
+      aria-label="Your name"
+      style={{ ...styles.input, height: 24, minHeight: 24, width: 140, padding: '0 6px', fontSize: 13 }}
+    />
+  );
+}
+
 function People({ profiles, me, roles, people }: { profiles: ReadonlyArray<SpaceProfile>; me: string; roles: ReadonlyMap<string, string>; people: ReturnType<typeof peopleFrom> }) {
   if (profiles.length === 0) return null;
   return (
@@ -219,9 +257,9 @@ function People({ profiles, me, roles, people }: { profiles: ReadonlyArray<Space
       <h2 style={styles.sectionTitle}>People ({profiles.length})</h2>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {profiles.map((p) => (
-          <span key={p.did} title={p.did} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 4px', border: `1px solid ${palette.surface.line}`, borderRadius: 999, fontSize: 13 }}>
+          <span key={p.did} title={p.did} style={chip}>
             <Avatar did={p.did} size={22} />
-            <span style={{ color: palette.ink.strong }}>{nameOf(p.did, people)}</span>
+            {p.did === me ? <MyName name={p.name} /> : <span style={{ color: palette.ink.strong }}>{nameOf(p.did, people)}</span>}
             {p.did === me && <span style={{ color: palette.ink.faint }}>you</span>}
             {roles.has(p.did) && <span style={{ color: palette.ink.faint }}>{roles.get(p.did)?.toLowerCase()}</span>}
           </span>
