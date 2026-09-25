@@ -60,7 +60,7 @@ import {
   type PodContents,
 } from './places.js';
 import { createStaySignedIn, type KeyValueStore, type StaySignedIn } from './stay-signed-in.js';
-import { grantCapabilities, type CarryGrant, type ConnectRequest, type Grant, type GrantedSpace } from './connect.js';
+import { grantCapabilities, MAX_GRANT_DAYS, type CarryGrant, type ConnectRequest, type Grant, type GrantedSpace } from './connect.js';
 import {
   clearPairingTicket,
   collectFromDesktop,
@@ -167,7 +167,7 @@ export interface Connection {
   readonly expiresAt: number;
   /** The note the app writes under — what disconnecting revokes */
   readonly token?: string;
-  /** Present, and true, for an agent acting inside the app at `origin` — kept apart from the app's own connection */
+  /** Present, and true, for an agent connected through the app at `origin` — its own key, kept apart from the app's own connection */
   readonly agent?: true;
 }
 
@@ -177,7 +177,7 @@ export interface GrantChoice {
   readonly request: ConnectRequest;
   /** Existing spaces to give the app */
   readonly spaceIds: ReadonlyArray<string>;
-  /** How long the note lasts. Default 7. */
+  /** How long the note lasts, overriding what the request asked for. Default: the request's `days`, or 7. */
   readonly days?: number;
 }
 
@@ -274,10 +274,11 @@ export interface WeaveAuth {
    * seen it write stays. What it could already read, it keeps — reading is
    * holding a space's key, and that is not taken back.
    *
-   * Disconnecting an app disconnects its agent too. `{ agent: true }`
-   * disconnects only the agent, and leaves the app connected.
+   * Disconnecting an app disconnects the agents connected through it too.
+   * `{ agent: true }` disconnects only those agents; `{ audience }` only the
+   * one with that key.
    */
-  disconnect(origin: string, options?: { readonly agent?: boolean }): Promise<void>;
+  disconnect(origin: string, options?: { readonly agent?: boolean; readonly audience?: string }): Promise<void>;
   readonly staySignedIn: {
     choice(): StaySignedIn;
     setChoice(choice: StaySignedIn): Promise<void>;
@@ -944,9 +945,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       if (request.access === 'carry') throw new Error('A carrier is given passes, not a note — use grantCarry.');
       const access = request.access;
       const agent = request.agent === true;
-      if (agent && (request.scope === 'account' || request.create?.length)) {
-        throw new Error('An agent gets chosen spaces only — not the whole account, and no new spaces.');
-      }
+      if (agent && request.create?.length) throw new Error('An agent works in spaces that exist — none are made for it.');
       const whole = request.scope === 'account';
       const created = [];
       for (const params of request.create ?? []) created.push(await node.spaces.create(params));
@@ -961,7 +960,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         spaces.push({ id, name: space.name, invite });
       }
 
-      const expiresAt = Math.floor(Date.now() / 1000) + Math.round((choice.days ?? 7) * 24 * 3600);
+      const days = Math.min(Math.max(choice.days ?? request.days ?? 7, 1 / 24), MAX_GRANT_DAYS);
+      const expiresAt = Math.floor(Date.now() / 1000) + Math.round(days * 24 * 3600);
       const manager = createIdentityManager();
       const root = createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider());
       const token = await root.delegate({
@@ -983,8 +983,9 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         token: token.encoded,
         ...(agent ? { agent: true as const } : {}),
       };
-      // Connecting again replaces the old note — the app's, or its agent's, not the other.
-      writeConnections([connection, ...auth.connections().filter((known) => known.origin !== choice.origin || !!known.agent !== agent)]);
+      // Connecting again replaces the old note. An agent is its own key: connecting one replaces only that one.
+      const replaced = (known: Connection) => (agent ? known.audience === request.audience : known.origin === choice.origin && !known.agent);
+      writeConnections([connection, ...auth.connections().filter((known) => !replaced(known))]);
 
       return {
         v: 1,
@@ -1063,8 +1064,11 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     },
 
     async disconnect(origin, options = {}) {
-      // The app goes with its agent; the agent can go alone.
-      const goes = (known: Connection) => known.origin === origin && (!options.agent || !!known.agent);
+      // The app goes with the agents connected through it; an agent can go alone.
+      const goes = (known: Connection) =>
+        options.audience !== undefined
+          ? known.audience === options.audience
+          : known.origin === origin && (!options.agent || !!known.agent);
       const going = auth.connections().filter(goes);
       const node = state.session?.node;
       for (const connection of going) {

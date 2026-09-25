@@ -139,6 +139,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   scheduleRenewal(ttl * 0.75);
 
   const session: ActiveSession = { did: sessionDid, key: sessionKeys.privateKey, proof: () => current.encoded };
+  /**
+   * A node that writes under an agent's note — an agent on someone's computer
+   * running a node of its own. It follows the account, but never writes for
+   * it: no list of spaces, no passes, no name. Every peer would ignore those.
+   */
+  const agentSession = isAgentNote(current.encoded);
 
   // ─── Events ────────────────────────────────────────────────────────
 
@@ -214,7 +220,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
    * all; a space not open now hears on its next open.
    */
   async function publishProfile(spaceId: string, open: SpaceRuntime): Promise<void> {
-    if (spaceId === accountSpaceId) return;
+    if (spaceId === accountSpaceId || agentSession) return;
     const name = await ownName();
     if (name) await open.publishProfile({ name });
   }
@@ -239,6 +245,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           session,
           rootDid: config.signer.did,
           ...(config.network ? { network: config.network } : {}),
+          peopleOnly: spaceId === accountSpaceId || carrySpaces.has(spaceId),
           watchIntervalMs: config.watchIntervalMs ?? 2000,
           emit: fromRuntime,
           onRole: (role) => {
@@ -323,7 +330,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   }
 
   async function remember(spaceId: string): Promise<void> {
-    if (!accountSpaceId) return;
+    if (!accountSpaceId || agentSession) return;
     const open = await runtime(accountSpaceId);
     if (await open.get<Membership>(membershipKey(spaceId))) return;
     // A view-only invite: what lets the account write is its role in the
@@ -372,7 +379,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   /** Puts a pass in a carrier's space for each of the account's spaces, and takes away the rest. */
   async function syncPasses(carrier: Carrier): Promise<void> {
-    if (!account) return;
+    if (!account || agentSession) return;
     const wanted = new Map<string, SpacePass>();
     // The registry too, so a restore can come through the carrier.
     wanted.set(await passKey(account.space.id), await makePass(account));

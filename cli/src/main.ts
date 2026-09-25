@@ -6,6 +6,7 @@
  *   weave spaces list | create | invite | join | leave | status
  *   weave records list | get | put | update | delete
  *   weave run                          stay up: sync every space, serve sockets and a relay
+ *   weave connect <code>               connect this computer's agent, with the code from an app
  *   weave mcp                          serve the same operations to an agent over MCP (stdio)
  *   weave actions                      every operation, with its input schema
  *
@@ -22,9 +23,11 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { parseArgs } from 'node:util';
 import { createNode, isValidRecoveryCode, NODE_ACTIONS, runAction, type NodeAction } from '../../src/index.js';
-import { chooseAccount, createAccount, openHome, unlock, type Home } from './home.js';
+import { chooseAccount, createAccount, homePath, openHome, unlock, type Home } from './home.js';
 import { startDaemon } from './daemon.js';
 import { runMcpStdio } from './mcp.js';
+import { configuredRelays, connectAgent, daysLeft, defaultAgentName, forgetAgent, startAgentNode } from './agent.js';
+import { configSnippet, configureClients, serverCommand } from './clients.js';
 
 const VERSION = '0.1.0';
 
@@ -36,8 +39,17 @@ Usage:
   weave spaces  list | create | invite | join | leave | status   [--flags]
   weave records list | get | put | update | delete               [--flags]
   weave run [--port 8787] [--host 127.0.0.1] [--node wss://…/peer] [--create]
-  weave mcp
+  weave connect <code> [--name NAME] [--relay wss://…] [--no-configure]
+  weave disconnect
+  weave mcp [--account]
   weave actions
+
+Agents (Claude Code, Claude Desktop, Cursor):
+  In the app, choose "Connect an agent" and run the command it shows. It
+  connects this computer's agent to your account, and adds "weave" to the
+  agents it finds. From then on they start "weave mcp" themselves: a node of
+  its own, working with every tab closed. "weave mcp --account" serves the
+  unlocked account instead, as you rather than as an agent.
 
 Common flags:
   --home DIR          data folder (default $WEAVE_HOME or ~/.weave) — can be the folder a browser uses
@@ -246,6 +258,57 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     process.once('SIGTERM', stop);
     await new Promise(() => {}); // until a signal
     return 0;
+  }
+
+  if (command === 'connect') {
+    const { values, positionals } = parseArgs({
+      args,
+      allowPositionals: true,
+      options: { name: { type: 'string' }, relay: { type: 'string', multiple: true }, 'no-configure': { type: 'boolean' } },
+    });
+    const code = positionals.join(' ');
+    if (!code) throw new Error('weave connect needs the code from the app: in the app, choose "Connect an agent".');
+    const home = homePath(globals.home);
+    const grant = await connectAgent({
+      home,
+      code,
+      name: values.name ?? defaultAgentName(),
+      relays: [...new Set([...(values.relay ?? []), ...configuredRelays()])],
+      log: stderr,
+    });
+    stderr('');
+    stderr(`Connected to ${grant.name}'s account, for ${daysLeft(grant)} days. What the agent writes shows "via agent".`);
+    const server = serverCommand(home);
+    if (values['no-configure']) {
+      stderr('Add this to your agent\'s MCP settings:');
+      process.stdout.write(`${configSnippet(server)}\n`);
+      return 0;
+    }
+    const configured = await configureClients(server);
+    for (const { client, result } of configured) stderr(`  ${client}: ${result}`);
+    if (!configured.some((entry) => entry.ok)) {
+      stderr('No agent found on this computer to add it to. Add this to your agent\'s MCP settings:');
+      process.stdout.write(`${configSnippet(server)}\n`);
+    }
+    return 0;
+  }
+
+  if (command === 'disconnect') {
+    await forgetAgent(homePath(globals.home));
+    stderr('This computer\'s agent is forgotten here. To stop its note working everywhere, disconnect it in your account home.');
+    return 0;
+  }
+
+  if (command === 'mcp' && !args.includes('--account')) {
+    // The connected agent: a node of its own, online, acting as the agent.
+    const agent = await startAgentNode(homePath(globals.home), {
+      nodes: (process.env.WEAVE_NODES ?? '').split(',').map((node) => node.trim()).filter(Boolean),
+    });
+    stderr(`weave mcp: an agent for ${agent.grant.name} (${agent.grant.did}), ${daysLeft(agent.grant)} days left`);
+    await runMcpStdio(agent.node, { name: 'weave', version: VERSION }, { agent: true });
+    await agent.close();
+    // WebRTC keeps the process alive; the agent closed stdin, so it's done.
+    process.exit(0);
   }
 
   const unlocked = await openAccount(globals);

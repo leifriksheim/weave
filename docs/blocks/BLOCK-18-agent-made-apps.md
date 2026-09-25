@@ -325,9 +325,8 @@ are mostly the example.
 
 ## Still open
 
-- **The desktop path signs as the person.** `cli/src/mcp.ts` runs the tools on
-  the CLI's own node, so Claude Desktop writes without "via agent" and could
-  define collections. It should start `asAgent` from a note, like the example.
-- **An app still in the tab after its agent is disconnected** only finds out
-  when a write is refused; the tools then say the access doesn't work.
+- ~~**The desktop path signs as the person.**~~ Done in BLOCK-20: `weave
+  connect` gives the terminal an agent's note, and `weave mcp` runs `asAgent`.
+  The agent in the browser now works as the person, with no note (BLOCK-20
+  says why).
 - **Coded app wins** (part 4) isn't built.

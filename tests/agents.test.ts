@@ -21,6 +21,10 @@ import { describeCollection } from '../src/records/describe.js';
 import { checkRules } from '../src/records/rules.js';
 import { addApp, checkApp, copyApp, createScreenBridge, reviewApp, SCREEN_CLIENT, vote, poll, type App } from '../src/schemas/index.js';
 import { createWeaveAuth, type WeaveAuth } from '../src/session/auth.js';
+import { grantSigner, type Grant } from '../src/session/connect.js';
+import { acceptAgentLink, newAgentCode, offerAgentLink, readAgentCode } from '../src/session/agent-link.js';
+import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
+import { base64UrlDecode, base64UrlEncode } from '../src/utils/encoding.js';
 import { createFolderAccountStore } from '../src/identity/account-store.js';
 import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
@@ -328,7 +332,7 @@ describe('an agent connected through the account home', () => {
     return auth;
   }
 
-  test('the home signs an agent note, kept apart from the app\'s own; the app going takes its agent too', async () => {
+  test('the home signs an agent note, kept apart from the app\'s own; the app going takes its agents too', async () => {
     const auth = await home(createFakeHub({ latencyMs: 1 }));
     const { node } = auth.getState().session!;
     const gym = await node.spaces.create({ name: 'Gym', visibility: 'private' });
@@ -343,8 +347,8 @@ describe('an agent connected through the account home', () => {
     assert.equal(auth.connections().length, 2, 'the agent does not replace the app');
 
     await assert.rejects(
-      () => auth.grant({ origin, request: { v: 1, audience: 'did:key:zAgent', access: 'write', agent: true, scope: 'account' }, spaceIds: [] }),
-      /chosen spaces only/,
+      () => auth.grant({ origin, request: { v: 1, audience: 'did:key:zAgent', access: 'write', agent: true, create: [{ name: 'Mine', visibility: 'private' }] }, spaceIds: [] }),
+      /spaces that exist/,
     );
 
     await auth.disconnect(origin, { agent: true });
@@ -352,6 +356,160 @@ describe('an agent connected through the account home', () => {
     await auth.grant({ origin, request: { v: 1, audience: 'did:key:zAgent2', access: 'write', agent: true }, spaceIds: [gym.id] });
     await auth.disconnect(origin);
     assert.equal(auth.connections().length, 0);
+  });
+
+  test('an agent on a computer gets the whole account, for as long as asked; each is its own connection', async () => {
+    const auth = await home(createFakeHub({ latencyMs: 1 }));
+    const origin = 'https://app.test';
+    const whole = { v: 1, access: 'write', agent: true, scope: 'account', chooseSpaces: false } as const;
+
+    const laptop = await auth.grant({ origin, request: { ...whole, audience: 'did:key:zLaptop', name: 'Agent on laptop', days: 30 }, spaceIds: [] });
+    const desk = await auth.grant({ origin, request: { ...whole, audience: 'did:key:zDesk', name: 'Agent on desk', days: 1 }, spaceIds: [] });
+    assert.ok(laptop.accountKey, 'it follows the account, so spaces made later reach it');
+    assert.ok(isAgentNote(laptop.token));
+    const day = 24 * 3600;
+    const now = Math.floor(Date.now() / 1000);
+    assert.ok(Math.abs(laptop.expiresAt - (now + 30 * day)) < 60);
+    assert.ok(Math.abs(desk.expiresAt - (now + day)) < 60);
+    assert.equal(auth.connections().length, 2, 'a second agent does not replace the first');
+
+    await auth.disconnect(origin, { audience: 'did:key:zLaptop' });
+    assert.deepEqual(auth.connections().map((c) => c.name), ['Agent on desk']);
+  });
+});
+
+describe('an agent running a node of its own', () => {
+  /** What `weave connect` ends up with: its own key, and the home's grant for the whole account */
+  async function agentNode(who: { me: Person['me']; manager: Person['manager']; seed: Uint8Array }, hub: FakeHub) {
+    const provider = who.manager.getProvider();
+    const keys = await provider.generateKeyPair();
+    const did = publicKeyToDid(await provider.exportPublicKey(keys.publicKey), P256_MULTICODEC);
+    const note = await createLocalRootSigner(who.me, provider).delegate({
+      audience: did,
+      capabilities: [{ with: '*', can: 'expression/*' }],
+      expiration: Math.floor(Date.now() / 1000) + 3600,
+      facts: [AGENT_FACT],
+    });
+    const grant: Grant = {
+      v: 1,
+      did: who.me.did,
+      name: 'Ada',
+      token: note.encoded,
+      access: 'write',
+      scope: 'account',
+      spaces: [],
+      accountKey: base64UrlEncode(await deriveVaultKeyBytes(who.seed)),
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      agent: true,
+      home: 'https://home.test/connect',
+    };
+    const base = await createNode({
+      signer: grantSigner(grant),
+      sessionKey: keys,
+      stores: memoryStores(),
+      accountKey: base64UrlDecode(grant.accountKey!),
+      watchIntervalMs: 0,
+      network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
+    });
+    open.push(base);
+    return { base, node: await base.asAgent({ keys, note: note.encoded }), did };
+  }
+
+  async function accountHolder(hub: FakeHub) {
+    const manager = createIdentityManager();
+    const seed = generateSeed();
+    const me = await manager.fromSeed(seed);
+    const stores = memoryStores();
+    const node = await createNode({
+      signer: createLocalRootSigner(me, manager.getProvider()),
+      stores,
+      accountKey: await deriveVaultKeyBytes(seed),
+      watchIntervalMs: 0,
+      network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
+    });
+    open.push(node);
+    return { node, me, manager, stores, seed };
+  }
+
+  test('it finds the account\'s spaces by itself — ones made later too — and writes in them via agent', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const ada = await accountHolder(hub);
+    const before = await ada.node.spaces.create({ name: 'Before', visibility: 'private' });
+    const agent = await agentNode(ada, hub);
+    await until(async () => (await agent.node.spaces.list()).some((space) => space.id === before.id), 4000, 'the space made before');
+
+    const after = await ada.node.spaces.create({ name: 'After', visibility: 'private' });
+    await until(async () => (await agent.node.spaces.list()).some((space) => space.id === after.id), 4000, 'the space made after');
+
+    await agent.node.spaces.open(after.id);
+    await ada.node.spaces.open(after.id);
+    const note = await agent.node.records.put(after.id, 'app.note', { text: 'from the terminal' });
+    await until(async () => (await ada.node.records.get(after.id, note.key)) !== null, 4000, 'the note reaching Ada');
+    const seen = await ada.node.records.get(after.id, note.key);
+    assert.equal(seen?.viaAgent, true);
+    assert.equal(seen?.createdBy, ada.me.did);
+  });
+
+  test('it never writes the account itself: not its list of spaces, not its name', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const ada = await accountHolder(hub);
+    const home = await ada.node.spaces.create({ name: 'Home', visibility: 'private' });
+    const agent = await agentNode(ada, hub);
+    await until(async () => (await agent.node.spaces.list()).length === 1, 4000, 'the agent following the account');
+    await assert.rejects(() => agent.node.spaces.leave(home.id), /can't leave spaces/);
+    // Past the agent's wrapper, on the node underneath: the account's own space refuses it too.
+    await assert.rejects(() => agent.base.spaces.leave(home.id), /agent can't change the account/);
+    await assert.rejects(() => agent.base.account.setName('Hacked'), /agent can't change the account/);
+    await settle();
+    assert.deepEqual((await ada.node.spaces.list()).map((space) => space.name), ['Home']);
+  });
+});
+
+describe('connecting an agent with a code', () => {
+  test('the app asks the person, the terminal gets a checked agent\'s note', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const who = await person(hub);
+    const provider = who.manager.getProvider();
+    const keys = await provider.generateKeyPair();
+    const did = publicKeyToDid(await provider.exportPublicKey(keys.publicKey), P256_MULTICODEC);
+    const network = { relays: [], transport: (peer: string) => hub.transport(peer, 'agent-link') };
+
+    const stages: string[] = [];
+    const offer = await offerAgentLink(network, (stage) => {
+      stages.push(stage.kind);
+      if (stage.kind !== 'asking') return;
+      assert.equal(stage.agent.name, 'Agent on laptop');
+      void (async () => {
+        const note = await createLocalRootSigner(who.me, provider).delegate({
+          audience: stage.agent.did,
+          capabilities: [{ with: '*', can: 'expression/*' }],
+          expiration: Math.floor(Date.now() / 1000) + 3600,
+          facts: [AGENT_FACT],
+        });
+        await stage.allow({ v: 1, did: who.me.did, name: 'Ada', token: note.encoded, access: 'write', scope: 'account', spaces: [], expiresAt: Math.floor(Date.now() / 1000) + 3600, agent: true, home: 'https://home.test/connect' });
+      })();
+    });
+    open.push({ close: async () => offer.stop() });
+
+    // Someone with a different code in the same place gets nowhere.
+    await assert.rejects(() => acceptAgentLink({ code: newAgentCode(), did: 'did:key:zStranger', name: 'x', network, findTimeoutMs: 300 }), /did not answer/);
+
+    const grant = await acceptAgentLink({ code: `npx weave connect ${offer.code}`, did, name: 'Agent on laptop', network });
+    assert.equal(grant.did, who.me.did);
+    assert.ok(isAgentNote(grant.token));
+    await until(async () => stages.includes('connected'), 2000, 'the app hearing it worked');
+    assert.deepEqual(stages, ['waiting', 'asking', 'connected']);
+  });
+
+  test('saying no reaches the terminal, and a note for another key is refused', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const network = { relays: [], transport: (peer: string) => hub.transport(peer, 'agent-link') };
+    const offer = await offerAgentLink(network, (stage) => {
+      if (stage.kind === 'asking') stage.deny('Not today.');
+    });
+    open.push({ close: async () => offer.stop() });
+    await assert.rejects(() => acceptAgentLink({ code: offer.code, did: 'did:key:zLaptop', name: 'Agent', network }), /Not today/);
+    assert.throws(() => readAgentCode('wv_short'), /not a connect code/);
   });
 });
 

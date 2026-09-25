@@ -418,8 +418,9 @@ weave records query --space <id> \\
 # available, and relays for your devices
 weave run
 
-# The same operations as MCP tools for a desktop agent
-weave mcp
+# Connect an agent (Claude Code, Claude Desktop, Cursor) with the
+# code from "Connect an agent" in an app; it then serves MCP by itself
+weave connect wv_…
 `;
 
 const PROTOCOLS = ['Weave', 'AT Protocol (Bluesky)', 'Nostr', 'Solid'] as const;

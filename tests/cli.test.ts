@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { openFsDirectory } from '../cli/src/fs-directory.js';
 import { openHome, createAccount, unlock, chooseAccount } from '../cli/src/home.js';
 import { startDaemon, type Daemon } from '../cli/src/daemon.js';
-import { handleMcpMessage } from '../cli/src/mcp.js';
+import { handleMcpMessage, PERSON_ONLY } from '../cli/src/mcp.js';
 import { createNode } from '../src/node/node.js';
 import type { P2PNode } from '../src/node/types.js';
 import { createFolderAdapter } from '../src/storage/folder-adapter.js';
@@ -255,6 +255,26 @@ describe('MCP', () => {
 
     const unknown = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 4, method: 'no/such' }, info)) as { error: { code: number } };
     assert.equal(unknown.error.code, -32601);
+    await node.close();
+  });
+
+  test('an agent is not offered what needs a person, and is told to propose apps instead', async () => {
+    const manager = createIdentityManager();
+    const me = await manager.fromSeed(new Uint8Array(16).fill(4));
+    const node = await createNode({ signer: createLocalRootSigner(me, manager.getProvider()), stores: memoryStores(), watchIntervalMs: 0 });
+    const agent = { agent: true };
+
+    const init = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }, info, agent)) as { result: { instructions: string } };
+    assert.match(init.result.instructions, /apps_propose/);
+    const list = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, info, agent)) as { result: { tools: Array<{ name: string }> } };
+    const names = list.result.tools.map((tool) => tool.name);
+    for (const name of PERSON_ONLY) assert.ok(!names.includes(name), `${name} is not offered`);
+    assert.ok(names.includes('apps_propose') && names.includes('records_put'));
+
+    const refused = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'spaces_create', arguments: { name: 'x', visibility: 'public' } } }, info, agent)) as {
+      error: { message: string };
+    };
+    assert.match(refused.error.message, /Unknown tool/);
     await node.close();
   });
 });

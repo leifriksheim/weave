@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { injectBaseStyles } from './styles';
-import { exposeToAgents, desktopAgentsEnabled, connectDesktopAgents } from './webmcp';
+import { exposeToAgents } from './webmcp';
 import { Landing, Developers } from './site/Site';
 import { WeaveProvider } from 'weave-protocol/react';
 import { connection } from './weave';
@@ -26,11 +26,6 @@ if (page === 'app') {
   // The node's operations as WebMCP tools, from the start — agents and
   // extensions read the list on load. They act for whoever signs in.
   exposeToAgents();
-
-  // Bridges those tools to desktop MCP clients through a local relay — only
-  // when the person turned it on (Security settings): whatever listens on the
-  // relay's port gets every tool.
-  if (desktopAgentsEnabled()) connectDesktopAgents(true);
 }
 
 const root = document.getElementById('root');

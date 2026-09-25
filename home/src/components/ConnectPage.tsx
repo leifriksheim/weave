@@ -132,23 +132,24 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
     <Frame>
       {agent ? (
         <>
-          <h1 style={styles.title}>Let an agent help in {host}</h1>
+          <h1 style={styles.title}>Connect “{request.name ?? 'an agent'}”</h1>
           <p style={styles.subtitle}>
-            An AI agent working in {request.name ? <>“{request.name}”</> : host} wants to {writes ? 'read and change' : 'read'} spaces in your
-            account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>, for you.
+            An AI agent on your computer — Claude Code, Claude Desktop, Cursor — wants to {writes ? 'read and change' : 'read'}{' '}
+            {whole ? 'everything in' : 'spaces in'} your account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>. It
+            asked through {host}.
           </p>
           <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 12, background: palette.surface.sunken }}>
             <p style={{ ...styles.todoText }}>What it can do</p>
             <p style={styles.errorHint}>
-              Read the spaces you pick, write in them as you, and propose new apps there. Everything it writes shows as yours, “via agent”,
-              to everyone in the space.
+              Read {whole ? 'every space, including ones you make later' : 'the spaces you pick'}, write in them as you, and propose new apps
+              there. Everything it writes shows as yours, “via agent”, to everyone in the space. It keeps working when no app is open.
             </p>
           </div>
           <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
             <p style={{ ...styles.todoText }}>What always needs you</p>
             <p style={styles.errorHint}>
-              Adding an app or a collection, changing roles, inviting or removing people. Every device in the space ignores an agent that
-              tries. It gets no other spaces and can't sign in as you.
+              Adding an app or a collection, changing roles, inviting or removing people, joining or leaving spaces. Every device ignores an
+              agent that tries. It can't sign in as you.
             </p>
           </div>
         </>
@@ -162,7 +163,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
         </>
       )}
 
-      {whole && (
+      {whole && !agent && (
         <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
           <p style={{ ...styles.todoText }}>Your whole account</p>
           <p style={styles.errorHint}>
@@ -208,7 +209,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
       )}
 
       <p style={{ ...styles.errorHint, marginBottom: 20 }}>
-        Access lasts 7 days; after that it asks again.
+        Access lasts {lasts(request.days ?? 7)}; after that it asks again.
         {(whole || privateChosen) && ' It can read the private spaces it gets from now on — that cannot be taken back yet.'}
       </p>
 
@@ -229,7 +230,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
 
       <p style={{ ...styles.errorHint, marginTop: 20 }}>
         {agent ? 'The agent' : 'The app'} gets a note signed by your account, for its own key. It never sees your password.
-        {agent && ' You can disconnect the agent alone, in your account, and keep the app.'}
+        {agent && ' You can disconnect it any time, in your account.'}
       </p>
     </Frame>
   );
@@ -325,6 +326,12 @@ function ApproveCarrier({ incoming }: { incoming: IncomingRequest }) {
       </div>
     </Frame>
   );
+}
+
+/** "7 days", "1 year" */
+function lasts(days: number): string {
+  if (days >= 365) return days === 365 ? '1 year' : `${Math.round(days / 365)} years`;
+  return days === 1 ? '1 day' : `${days} days`;
 }
 
 /** The page around it; `mark` off when the sign-in element draws its own */

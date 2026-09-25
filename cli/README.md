@@ -4,7 +4,7 @@ One program, three jobs:
 
 - **Manage your spaces** — every command the Node API has, as `weave spaces …` and `weave records …`
 - **Run an always-on node** — `weave run` keeps every space syncing, serves sockets browsers dial into, and is a relay too
-- **Hand your spaces to an agent** — `weave mcp` exposes the same operations over MCP
+- **Connect an agent** — `weave connect <code>`, then Claude Code, Claude Desktop or Cursor starts `weave mcp` by itself
 
 It uses the same data folder layout a browser does. Point `--home` at the folder
 you picked in Chrome and the CLI, the daemon and the browser all share one
@@ -86,19 +86,36 @@ For a server, `bun build.ts` makes single-file binaries for this machine,
 
 ## Agents
 
-```json
-{ "mcpServers": { "weave": { "command": "weave", "args": ["mcp"], "env": { "WEAVE_PASSPHRASE": "…" } } } }
+In an app, choose **Connect an agent** in the account menu. It shows one
+command:
+
+```bash
+npx weave-protocol-cli connect wv_…      # in this repo: npm run weave -- connect wv_…
 ```
 
-An agent can also shape a space: `collections_list` shows what a space holds,
-and `collections_define` publishes a new collection — a poll, an expense, a
-reading list — with a JSON Schema, which then syncs to everyone in the space.
+It makes a key for this computer's agent (it never leaves `~/.weave/agent/`),
+finds the app through the relay, and waits while you allow it at your account
+home, which signs an agent's note for your whole account, for as long as you
+chose. Then it adds `weave` to Claude Code (`claude mcp add`), Claude Desktop
+and Cursor, where it finds them. `--no-configure` prints the config instead,
+`--name` changes what you see ("Agent on leifs-macbook"), and `--relay` adds
+one the app uses (`$WEAVE_RELAYS` sets the defaults).
 
-The tools are the Node API's actions, with MCP's read-only and destructive
-hints set, and a warning on `spaces_invite` since an invite carries a key. What
-an agent can do is exactly what the account can do, through the same gates.
+From then on the agent starts `weave mcp` itself. It's a node of its own: it
+follows your account's list of spaces, meets your other devices over WebRTC,
+and keeps working with every tab closed. What it writes shows "via agent". It
+isn't offered what needs a person (making, joining or leaving spaces, invites,
+roles, defining collections): it proposes apps with `apps_propose`, and you add
+them. `weave disconnect` forgets it on this computer; disconnecting it in your
+account home stops its note working everywhere.
 
-`weave mcp` works offline against the folder; with `weave run` on the same folder,
+`weave mcp --account` serves the unlocked account instead, as you:
+
+```json
+{ "mcpServers": { "weave": { "command": "weave", "args": ["mcp", "--account"], "env": { "WEAVE_PASSPHRASE": "…" } } } }
+```
+
+It works offline against the folder; with `weave run` on the same folder,
 whatever the agent writes is synced within seconds.
 
 ## Who gets served

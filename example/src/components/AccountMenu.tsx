@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAccount, useConnection } from 'weave-protocol/react';
 import { Avatar } from './Avatar';
-import { agentGrant, connectDesktopAgents, desktopAgentsEnabled, letAgentIn, letAgentOut, onAgentChange } from '../webmcp';
+import { ConnectAgent } from './ConnectAgent';
 import { palette } from '../styles';
 
 /**
@@ -16,10 +16,7 @@ export function AccountMenu() {
   const { connection, state } = useConnection();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [agents, setAgents] = useState(desktopAgentsEnabled);
-  const [agent, setAgent] = useState(() => agentGrant() !== null);
-  const [agentError, setAgentError] = useState<string | null>(null);
-  useEffect(() => onAgentChange(() => setAgent(agentGrant() !== null)), []);
+  const [connecting, setConnecting] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
   // A menu that stays open after you have clicked past it feels stuck.
@@ -100,26 +97,16 @@ export function AccountMenu() {
             </Item>
             <Item
               onClick={() => {
-                setAgentError(null);
-                // From the click itself: letting one in opens the account home.
-                (agent ? letAgentOut() : letAgentIn()).catch((error: unknown) => setAgentError(error instanceof Error ? error.message : String(error)));
+                setOpen(false);
+                setConnecting(true);
               }}
-              hint={agent ? `On · ${agentGrant()?.spaces.map((space) => space.name).join(', ') || 'no spaces'}` : 'Off'}
+              hint="Claude Code, Desktop, Cursor"
             >
-              Let an agent help
+              Connect an agent
             </Item>
-            <Item
-              onClick={() => {
-                connectDesktopAgents(!agents);
-                setAgents(!agents);
-              }}
-              hint={agents ? 'On' : 'Off'}
-            >
-              Desktop agents
-            </Item>
-            <p style={{ margin: '4px 10px 6px', fontSize: 12, lineHeight: 1.45, color: agentError ? palette.accent.danger : palette.ink.faint }}>
-              {agentError ??
-                'An agent in your browser, or on your desktop, works as you in the spaces you pick. What it writes shows “via agent”. It can propose apps; adding one is always yours.'}
+            <p style={{ margin: '4px 10px 6px', fontSize: 12, lineHeight: 1.45, color: palette.ink.faint }}>
+              An agent in this browser works as you, with nothing to set up. One on your computer connects here, and keeps working with
+              this tab closed.
             </p>
           </div>
 
@@ -132,6 +119,7 @@ export function AccountMenu() {
           </div>
         </div>
       )}
+      {connecting && <ConnectAgent onClose={() => setConnecting(false)} />}
     </div>
   );
 }

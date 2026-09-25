@@ -175,6 +175,12 @@ export interface SpaceRuntimeDeps {
   readonly onRole?: (role: string | null) => void;
   /** Told once an invite's secret has been used, and can be forgotten */
   readonly onJoined?: () => void;
+  /**
+   * Nothing an agent signs counts here — for the account's own spaces (its
+   * list of spaces, a carrier's passes), where a note for "every space" would
+   * otherwise let an agent join the account to a space or leave one.
+   */
+  readonly peopleOnly?: boolean;
 }
 
 export interface SpaceRuntime {
@@ -529,6 +535,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (expression.space !== space.id) return { ok: false, reason: 'It belongs to a different space' };
     const verdict = await judge(expression);
     if (!verdict.verified || !verdict.root) return { ok: false, reason: verdict.reason ?? 'Its signature does not check out' };
+    if (deps.peopleOnly && isAgentNote(expression.proof)) return { ok: false, reason: 'Only the account itself writes here, not an agent' };
     const { history } = await access();
 
     if (ACCESS_COLLECTIONS.has(expression.collection)) {
@@ -1030,6 +1037,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     options: { joining?: boolean; as?: ActiveSession } = {},
   ): Promise<Expression> {
     const writer = options.as ?? session;
+    if (deps.peopleOnly && isAgentNote(writer.proof())) throw new Error('An agent can\'t change the account itself. Ask the person to do it.');
     // Every peer would ignore it (see buildEvent); say why here instead.
     if (ACCESS_COLLECTIONS.has(collection) && isAgentNote(writer.proof())) {
       throw new Error(
