@@ -2,7 +2,7 @@
  * The kinds of field and link a person can pick when defining a
  * collection — shared by the form that makes one and the one that changes it.
  */
-import type { JsonSchema } from 'weave-protocol';
+import type { JsonSchema } from '@weaveprotocol/core';
 import { kindOf } from './schema-ui';
 
 export const FIELD_TYPES = {

@@ -1,12 +1,12 @@
 /**
- * weave-protocol
+ * @weaveprotocol/core
  * Self-sovereign, peer-to-peer protocol for the browser.
  * 
  * Identity via WebAuthn passkeys, data as signed Expressions,
  * storage in a Merkle Search Tree, sync via anti-entropy gossip,
  * and end-to-end encryption for private Spaces.
  * 
- * @module weave-protocol
+ * @module @weaveprotocol/core
  */
 
 // Core types

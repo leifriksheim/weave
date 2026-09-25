@@ -2,8 +2,8 @@
  * The little the two visible pages share: building elements, and drawing the
  * carried spaces and the pod the same way in both.
  */
-import type { CarriedSpace } from 'weave-protocol/node';
-import { ensureFolderPermission, recallDataFolder } from 'weave-protocol/storage';
+import type { CarriedSpace } from '@weaveprotocol/core/node';
+import { ensureFolderPermission, recallDataFolder } from '@weaveprotocol/core/storage';
 import type { CarrierStatus } from './shared';
 
 type Child = Node | string | null | false | undefined;

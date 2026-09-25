@@ -66,9 +66,9 @@ function securityHeaders(): Plugin {
 export default defineConfig(() => ({
   resolve: {
     alias: [
-      // weave-protocol/<entry> → ../src/<entry>/index.ts
-      { find: /^weave-protocol\/(.+)$/, replacement: fileURLToPath(new URL('../src/$1/index.ts', import.meta.url)) },
-      { find: /^weave-protocol$/, replacement: fileURLToPath(new URL('../src/index.ts', import.meta.url)) },
+      // @weaveprotocol/core/<entry> → ../src/<entry>/index.ts
+      { find: /^@weaveprotocol\/core\/(.+)$/, replacement: fileURLToPath(new URL('../src/$1/index.ts', import.meta.url)) },
+      { find: /^@weaveprotocol\/core$/, replacement: fileURLToPath(new URL('../src/index.ts', import.meta.url)) },
     ],
     // The protocol's React bindings sit outside this folder; they must use
     // this app's copy of React, not look for their own.

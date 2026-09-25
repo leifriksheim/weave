@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useConnection } from 'weave-protocol/react';
+import { useConnection } from '@weaveprotocol/core/react';
 import { Wordmark } from './Wordmark';
 import { styles, palette } from '../styles';
 

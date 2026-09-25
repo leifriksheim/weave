@@ -4,7 +4,7 @@
  * The home is the one place the seed is ever unlocked. Apps open it to ask for
  * access (`/connect`), and link to it for account settings (`/`).
  */
-import { createWeaveAuth } from 'weave-protocol/session';
+import { createWeaveAuth } from '@weaveprotocol/core/session';
 import { CONFIGURED_NODES, relayUrls } from './relay';
 
 export const auth = createWeaveAuth({

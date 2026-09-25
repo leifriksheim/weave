@@ -14,8 +14,8 @@
  * The offscreen page may only use `chrome.runtime`, so everything it keeps is
  * in IndexedDB, which every page of the extension shares.
  */
-import type { CarriedSpace } from 'weave-protocol/node';
-import type { CarryGrant } from 'weave-protocol/session';
+import type { CarriedSpace } from '@weaveprotocol/core/node';
+import type { CarryGrant } from '@weaveprotocol/core/session';
 
 declare const __WEAVE_HOME__: string;
 declare const __WEAVE_RELAYS__: string;

@@ -24,7 +24,7 @@
  * installs it.
  */
 import { initializeWebMCPPolyfill } from '@mcp-b/webmcp-polyfill';
-import { NODE_ACTIONS, checkActionInput } from 'weave-protocol';
+import { NODE_ACTIONS, checkActionInput } from '@weaveprotocol/core';
 import { getNode } from './weave';
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };

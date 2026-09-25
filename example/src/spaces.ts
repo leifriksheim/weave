@@ -2,7 +2,7 @@
  * Invite links: a space, and for a private one its key, in the URL fragment —
  * which browsers never send to a server, including the one hosting this page.
  */
-import type { InvitePreview, P2PNode } from 'weave-protocol';
+import type { InvitePreview, P2PNode } from '@weaveprotocol/core';
 
 /** A link that lets someone else open this space — joining with `role`, or with none, only to read it. */
 export async function createInviteLink(node: P2PNode, spaceId: string, role: string | null): Promise<string> {

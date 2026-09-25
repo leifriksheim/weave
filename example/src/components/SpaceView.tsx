@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { NodeRecord, SpaceProfile, SpaceSummary } from 'weave-protocol';
-import { useAccess, useCollections, useNode, useOpenSpace, useProfiles, useAccount, useSpaceStatus } from 'weave-protocol/react';
+import type { NodeRecord, SpaceProfile, SpaceSummary } from '@weaveprotocol/core';
+import { useAccess, useCollections, useNode, useOpenSpace, useProfiles, useAccount, useSpaceStatus } from '@weaveprotocol/core/react';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
 import { RecordPanel } from './RecordPanel';

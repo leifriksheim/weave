@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
-import { useLive, useNode, useProfiles } from 'weave-protocol/react';
-import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
+import { useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
+import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { collectionLabel, fieldsOf, humanize, recordLabel, titleField } from '../derive/schema-ui';
 import { nameOf, peopleFrom, type People } from '../derive/people';
 import { ago } from '../derive/time';

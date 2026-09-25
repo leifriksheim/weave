@@ -4,7 +4,7 @@
  * pretend to be someone else: two people with the same name get the tail of
  * their identity after it, and someone with no profile is shown by that tail.
  */
-import type { SpaceProfile } from 'weave-protocol';
+import type { SpaceProfile } from '@weaveprotocol/core';
 
 export type People = ReadonlyMap<string, SpaceProfile>;
 

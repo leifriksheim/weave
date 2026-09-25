@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { JsonSchema } from 'weave-protocol';
+import type { JsonSchema } from '@weaveprotocol/core';
 import { choicesOf, emptyValue, fieldsOf, type Field, type LinkedByRel } from '../derive/schema-ui';
 import { styles } from '../styles';
 

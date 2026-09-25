@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { AuthError, Place, PodContents } from 'weave-protocol/session';
+import type { AuthError, Place, PodContents } from '@weaveprotocol/core/session';
 import { Modal } from './Modal';
 import { styles, palette } from '../styles';
 

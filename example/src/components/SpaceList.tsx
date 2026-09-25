@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import type { SpaceSummary, SpaceVisibility } from 'weave-protocol';
-import type { NewSpace } from 'weave-protocol';
-import { rolePresets } from 'weave-protocol';
+import type { SpaceSummary, SpaceVisibility } from '@weaveprotocol/core';
+import type { NewSpace } from '@weaveprotocol/core';
+import { rolePresets } from '@weaveprotocol/core';
 import { Modal, Choice } from './Modal';
 import { Info } from './Info';
 import { NameField, useMyName } from './NameField';

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { useNode, useCollections } from 'weave-protocol/react';
-import type { JsonSchema, NodeCollection, SpaceSummary } from 'weave-protocol';
+import { useNode, useCollections } from '@weaveprotocol/core/react';
+import type { JsonSchema, NodeCollection, SpaceSummary } from '@weaveprotocol/core';
 import { collectionLabel } from '../derive/schema-ui';
 import { styles } from '../styles';
 import { ANNOTATIONS } from './RecordPanel';

@@ -6,7 +6,7 @@ what each space says about itself.
 It also serves the landing pages for now: `/` for developers, `/why` for
 people, and the app itself at `/app` (`example/src/site/`). Links made
 before the move — an invite at `/` — still open the app.
-`public/_redirects` sends every path to `index.html` on Netlify. A Vite + React app on top of [`weave-protocol`](../README.md). It imports the
+`public/_redirects` sends every path to `index.html` on Netlify. A Vite + React app on top of [`@weaveprotocol/core`](../README.md). It imports the
 protocol straight from `../src`, so edits to the library hot-reload here.
 
 ```bash

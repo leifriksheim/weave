@@ -1,7 +1,7 @@
 import { useState, type DragEvent } from 'react';
-import { useCan, useLive, useNode } from 'weave-protocol/react';
-import type { NodeRecord } from 'weave-protocol';
-import { column, task, positionBetween, type Column, type Task } from 'weave-protocol/schemas';
+import { useCan, useLive, useNode } from '@weaveprotocol/core/react';
+import type { NodeRecord } from '@weaveprotocol/core';
+import { column, task, positionBetween, type Column, type Task } from '@weaveprotocol/core/schemas';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
 

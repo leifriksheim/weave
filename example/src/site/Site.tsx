@@ -261,7 +261,7 @@ const NODE = `
 import {
   createNode, createIdentityManager,
   createLocalRootSigner, indexedDBStores, rolePresets,
-} from 'weave-protocol';
+} from '@weaveprotocol/core';
 
 // Someone's account, from the password they keep
 const manager = createIdentityManager();
@@ -284,7 +284,7 @@ const invite = await node.spaces.invite(space.id);
 
 const STEP_POLL = `
 import * as z from 'zod'; // or Valibot, ArkType: any Standard Schema
-import { collection } from 'weave-protocol';
+import { collection } from '@weaveprotocol/core';
 
 const Poll = z.object({
   question: z.string().min(1).max(500),
@@ -391,7 +391,7 @@ const mayEdit = await node.records.can(space.id, 'edit', poll.key);
 const SCHEMAS = `
 import {
   poll, vote, reaction, useSchemas,
-} from 'weave-protocol/schemas';
+} from '@weaveprotocol/core/schemas';
 
 // The poll above ships ready-made, as std.poll and std.vote
 await useSchemas(node, space.id, [poll, vote, reaction]);
@@ -526,7 +526,7 @@ export function Developers() {
           <div className="actions">
             <span className="install">
               <span>$</span>
-              <code>npm install weave-protocol</code>
+              <code>npm install @weaveprotocol/core</code>
             </span>
             <a href="/app" className="btn btn-secondary">
               See the example app

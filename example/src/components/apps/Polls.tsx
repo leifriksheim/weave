@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useAccount, useCan, useLive, useNode, useProfiles } from 'weave-protocol/react';
-import type { IncludedOf, QueryRecord } from 'weave-protocol';
-import { poll, vote, type Poll, type Vote } from 'weave-protocol/schemas';
+import { useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
+import type { IncludedOf, QueryRecord } from '@weaveprotocol/core';
+import { poll, vote, type Poll, type Vote } from '@weaveprotocol/core/schemas';
 import { nameOf, peopleFrom, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { Avatar } from '../Avatar';

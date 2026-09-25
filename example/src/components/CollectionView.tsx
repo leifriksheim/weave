@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { useNode, useLive, useProfiles, useCan } from 'weave-protocol/react';
-import type { NodeCollection, NodeRecord, QueryRecord, SpaceSummary } from 'weave-protocol';
-import { reaction, comment, tag } from 'weave-protocol/schemas';
+import { useNode, useLive, useProfiles, useCan } from '@weaveprotocol/core/react';
+import type { NodeCollection, NodeRecord, QueryRecord, SpaceSummary } from '@weaveprotocol/core';
+import { reaction, comment, tag } from '@weaveprotocol/core/schemas';
 import {
   byRel,
   checkField,

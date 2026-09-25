@@ -5,7 +5,7 @@
  * ```html
  * <weave-auth app-name="Todo" relays="wss://relay.example"></weave-auth>
  * <script type="module">
- *   import 'weave-protocol/elements';
+ *   import '@weaveprotocol/core/elements';
  *   document.querySelector('weave-auth').addEventListener('weave-session', (event) => {
  *     const session = event.detail.session;   // null when signed out
  *     if (session) start(session.node);

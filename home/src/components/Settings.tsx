@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { CarrierSummary } from 'weave-protocol/node';
-import { STAY_SIGNED_IN_CHOICES, type Connection, type StaySignedIn } from 'weave-protocol/session';
-import { useAuth, useSession } from 'weave-protocol/react';
+import type { CarrierSummary } from '@weaveprotocol/core/node';
+import { STAY_SIGNED_IN_CHOICES, type Connection, type StaySignedIn } from '@weaveprotocol/core/session';
+import { useAuth, useSession } from '@weaveprotocol/core/react';
 import { Avatar } from './Avatar';
 import { PairPhone } from './PairPhone';
 import { styles, palette } from '../styles';

@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { DEFINE, roleHolds } from 'weave-protocol';
-import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
-import { useAccess, useNode } from 'weave-protocol/react';
-import { useSchemas } from 'weave-protocol/schemas';
+import { DEFINE, roleHolds } from '@weaveprotocol/core';
+import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
+import { useAccess, useNode } from '@weaveprotocol/core/react';
+import { useSchemas } from '@weaveprotocol/core/schemas';
 import { APPS, readiness, has, type WeaveApp } from './index';
 import { isAdded, MadeAppScreen, MadeAppTiles, Proposals, useMadeApps } from './MadeApps';
 import { styles, palette } from '../../styles';

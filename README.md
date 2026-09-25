@@ -1,4 +1,4 @@
-# weave-protocol
+# @weaveprotocol/core
 
 A peer-to-peer data protocol for the browser. You own your identity as a
 written-down code, keep your data in signed records that sync directly between
@@ -47,7 +47,7 @@ import {
   generateSeed, seedToRecoveryCode, createIdentityManager, createLocalRootSigner,
   publicKeyToDid, P256_MULTICODEC, createSigner, createExpression,
   createIndexedDBAdapter, createStorageProvider, createSpaceManager,
-} from 'weave-protocol';
+} from '@weaveprotocol/core';
 
 // 1. An account is a 16-byte seed. Show the code once; the user keeps it.
 const seed = generateSeed();
@@ -97,7 +97,7 @@ identity, its spaces, validation, encryption and sync into one object, and its
 API is plain data in and out:
 
 ```typescript
-import { createNode, createIdentityManager, createLocalRootSigner, indexedDBStores, rolePresets } from 'weave-protocol';
+import { createNode, createIdentityManager, createLocalRootSigner, indexedDBStores, rolePresets } from '@weaveprotocol/core';
 
 const manager = createIdentityManager();
 const me = await manager.fromRecoveryCode(code);
@@ -152,7 +152,7 @@ The protocol ships it, so an app does not write it:
 ```html
 <weave-auth app-name="Todo" relays="wss://relay.example"></weave-auth>
 <script type="module">
-  import 'weave-protocol/elements';
+  import '@weaveprotocol/core/elements';
   document.querySelector('weave-auth').addEventListener('weave-session', (event) => {
     const session = event.detail.session;      // { account, did, sessionDid, node }, or null
     if (session) start(session.node);
@@ -166,13 +166,13 @@ the page rather than a shadow root, because password managers fill forms there
 reliably and the account password living in one is the point. Colours, font and
 radius are custom properties (`--weave-accent`, `--weave-font`, …).
 
-Underneath it is `createWeaveAuth` (`weave-protocol/session`): the same flow as
+Underneath it is `createWeaveAuth` (`@weaveprotocol/core/session`): the same flow as
 state and actions, with no framework. The element draws it; an app that wants
 its own screens draws it itself. Either way the seed stays inside it.
 
 ```tsx
-import { createWeaveAuth } from 'weave-protocol/session';
-import { WeaveProvider, WeaveAuth, useWeave, useNode, useQuery } from 'weave-protocol/react';
+import { createWeaveAuth } from '@weaveprotocol/core/session';
+import { WeaveProvider, WeaveAuth, useWeave, useNode, useQuery } from '@weaveprotocol/core/react';
 
 const auth = createWeaveAuth({ appName: 'Todo', network: { relays: ['wss://relay.example'] } });
 
@@ -213,7 +213,7 @@ Everything below the provider asks for what it needs:
 
 An app connected to an account home passes its node instead:
 `<WeaveProvider node={node}>`. React is an optional peer dependency; only
-`weave-protocol/react` imports it.
+`@weaveprotocol/core/react` imports it.
 
 ## Apps without the seed — the account home
 
@@ -228,8 +228,8 @@ An app connects with `createWeaveConnection` — the twin of `createWeaveAuth`,
 for apps:
 
 ```tsx
-import { createWeaveConnection } from 'weave-protocol/session';
-import { WeaveProvider, useConnection } from 'weave-protocol/react';
+import { createWeaveConnection } from '@weaveprotocol/core/session';
+import { WeaveProvider, useConnection } from '@weaveprotocol/core/react';
 
 const connection = createWeaveConnection({
   home: 'https://weave-home.netlify.app/connect',
@@ -290,7 +290,7 @@ The home side is `receiveConnectRequest()` and `auth.grant(…)`; see
 
 ## Modules
 
-### Identity (`weave-protocol/identity`)
+### Identity (`@weaveprotocol/core/identity`)
 
 | Export | Description |
 |--------|-------------|
@@ -363,7 +363,7 @@ A root identity — a passkey you never expose to a web app — delegates narrow
 expiring capabilities to keys that do the day-to-day signing:
 
 ```typescript
-import { issueUCAN, delegateCapabilities, validateDelegationChain } from 'weave-protocol';
+import { issueUCAN, delegateCapabilities, validateDelegationChain } from '@weaveprotocol/core';
 
 // Root grants a session key everything it may do with todos, for an hour
 const sessionUcan = await issueUCAN({
@@ -390,7 +390,7 @@ Escalation is refused at issue time (a child capability must be a subset of its
 parent), a delegation can never outlive its parent, and only the audience of a
 token may delegate it onward.
 
-### Schema (`weave-protocol/schema`)
+### Schema (`@weaveprotocol/core/schema`)
 
 Typed, signed data expressions using [Standard Schema](https://standardschema.dev/).
 
@@ -402,7 +402,7 @@ Typed, signed data expressions using [Standard Schema](https://standardschema.de
 | `createExpression()` | Build unsigned expressions (optionally carrying a UCAN `proof`) |
 | `canonicalize()` | Deterministic JSON serialization |
 
-### Storage (`weave-protocol/storage`)
+### Storage (`@weaveprotocol/core/storage`)
 
 Local-first storage with Merkle Search Tree for efficient sync.
 
@@ -534,14 +534,14 @@ so an agent reading `collections_list` sees how a space's things connect.
 
 **Standard schemas, optional.** The protocol has no built-in kinds of record.
 For the patterns nearly every app needs there is a small library of ordinary
-collection definitions, named `std.*`, in `weave-protocol/schemas`: things that
+collection definitions, named `std.*`, in `@weaveprotocol/core/schemas`: things that
 attach to any record (`reaction`, `comment`, `tag`, `attachment`, `reference`)
 and a few common nouns (`message`, `task`, `column`, `poll`, `vote`). Nouns kept in a hand-made
 order carry a `position` string; `positionBetween(a, b)` makes one between two
 neighbours, so moving a card rewrites only that card:
 
 ```typescript
-import { reaction, useSchemas } from 'weave-protocol/schemas';
+import { reaction, useSchemas } from '@weaveprotocol/core/schemas';
 
 await useSchemas(node, space.id, [reaction]);   // defines only what the space lacks
 await node.records.put(space.id, reaction.name, { emoji: '👍' }, { links: [{ rel: 'about', to: post.key }] });
@@ -595,7 +595,7 @@ schema is plain JSON Schema. Before a query runs, every reference becomes its
 name, so the query is still plain data.
 
 ```typescript
-import { collection } from 'weave-protocol';
+import { collection } from '@weaveprotocol/core';
 
 const polls = collection({ name: 'app.poll', schema: Poll });    // Poll is a Zod object
 const votes = collection({ name: 'app.poll.vote', schema: Vote });
@@ -642,7 +642,7 @@ is signed, so the signature covers the ciphertext: peers without the key still
 verify and relay the data, they simply cannot read it. The structural gate steps
 aside for encrypted bodies — their shape is checked by members after decryption.
 
-### Network (`weave-protocol/network`)
+### Network (`@weaveprotocol/core/network`)
 
 Browser-to-browser communication via WebRTC.
 
@@ -680,7 +680,7 @@ npm run signal          # ws://localhost:8787; /health says {"ok":true}
 Only peers already in a room hear about a newcomer, so exactly one side creates
 the offer and the two never collide.
 
-### Sync (`weave-protocol/sync`)
+### Sync (`@weaveprotocol/core/sync`)
 
 Anti-entropy gossip protocol for eventual consistency.
 
@@ -699,7 +699,7 @@ The engine's `validate` hook is the seam where the validation engine sits.
 Expressions a peer sends are only committed if it accepts them; the rest are
 dropped and surface as a `rejected` event with the reason.
 
-### Validation (`weave-protocol/validation`)
+### Validation (`@weaveprotocol/core/validation`)
 
 A pipeline of gates for incoming expressions.
 
@@ -733,7 +733,7 @@ const validation = createValidationEngine({
 });
 ```
 
-### Privacy (`weave-protocol/privacy`)
+### Privacy (`@weaveprotocol/core/privacy`)
 
 End-to-end encryption for private Spaces.
 
@@ -793,7 +793,7 @@ import {
   pickDataFolder, createFolderAccountStore, recoveryCodeToSeed, deriveVaultKey,
   createFolderAdapter, createEncryptedAdapter, reconcileFolder,
   createIdentityManager, createStorageProvider,
-} from 'weave-protocol';
+} from '@weaveprotocol/core';
 
 const folder = await pickDataFolder();                 // needs a user gesture
 const accounts = createFolderAccountStore(folder);
@@ -914,7 +914,7 @@ and the list of spaces — and only the first fits in a QR code:
 import {
   pairingRoomId, derivePairingKey, encodePairingTicket,
   sealPairingPayload, openPairingPayload,
-} from 'weave-protocol';
+} from '@weaveprotocol/core';
 
 // Desktop: a link for the QR. The fragment never reaches a server.
 const ticket = encodePairingTicket({ v: 1, code: seedToRecoveryCode(seed), relay });
@@ -978,7 +978,7 @@ Lower down, the schema engine takes any [Standard Schema
 v1](https://standardschema.dev/) validator directly, for local checks:
 
 ```typescript
-import { createSchemaEngine } from 'weave-protocol';
+import { createSchemaEngine } from '@weaveprotocol/core';
 
 const schema = createSchemaEngine();
 schema.registerCollection({ name: 'app.example.post', schema: PostSchema });
@@ -1073,7 +1073,7 @@ an agent wrote.
 
 **Agents on your computer (Claude Code, Claude Desktop, Cursor).** "Connect an
 agent", in the account menu, shows one command:
-`npx weave-protocol-cli connect wv_…`. The terminal makes its own key, finds
+`npx @weaveprotocol/cli connect wv_…`. The terminal makes its own key, finds
 the tab through the relay, and the person allows it at their account home,
 which signs an agent's note for the whole account, for as long as they chose.
 Everything said on the way is sealed with a key from the code, so the relay

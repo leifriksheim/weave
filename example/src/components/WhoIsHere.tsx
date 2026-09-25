@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { CarrierSummary, SpaceStatus } from 'weave-protocol';
-import { useNode } from 'weave-protocol/react';
+import type { CarrierSummary, SpaceStatus } from '@weaveprotocol/core';
+import { useNode } from '@weaveprotocol/core/react';
 import { styles } from '../styles';
 
 const count = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`);

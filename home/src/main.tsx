@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { WeaveProvider } from 'weave-protocol/react';
+import { WeaveProvider } from '@weaveprotocol/core/react';
 import { App } from './App';
 import { ConnectPage } from './components/ConnectPage';
 import { injectBaseStyles } from './styles';

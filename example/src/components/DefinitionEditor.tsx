@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { roleHolds } from 'weave-protocol';
-import type { DefineCollection, JsonSchema, NodeCollection, SpaceSummary } from 'weave-protocol';
-import { useAccess, useAccount, useNode, useProfiles } from 'weave-protocol/react';
+import { roleHolds } from '@weaveprotocol/core';
+import type { DefineCollection, JsonSchema, NodeCollection, SpaceSummary } from '@weaveprotocol/core';
+import { useAccess, useAccount, useNode, useProfiles } from '@weaveprotocol/core/react';
 import { collectionLabel, humanize } from '../derive/schema-ui';
 import { FIELD_TYPES, SUGGESTED_LINKS, fieldSchema, fieldTypeOf, optionsOf, relFrom, type FieldTypeName } from '../derive/field-types';
 import { nameOf, peopleFrom } from '../derive/people';

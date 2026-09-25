@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAccount, useNode } from 'weave-protocol/react';
-import { createScreenBridge, screenDocument, type ScreenBridge } from 'weave-protocol/schemas';
+import { useAccount, useNode } from '@weaveprotocol/core/react';
+import { createScreenBridge, screenDocument, type ScreenBridge } from '@weaveprotocol/core/schemas';
 import { styles, palette } from '../../styles';
 
 /**

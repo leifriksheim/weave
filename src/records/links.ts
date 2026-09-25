@@ -9,7 +9,7 @@
  *
  * A collection declares its link roles in its definition. The protocol has no
  * built-in kinds of record: well-known shapes like reactions and comments are
- * an optional library (`weave-protocol/schemas`), defined into a space like
+ * an optional library (`@weaveprotocol/core/schemas`), defined into a space like
  * any other collection.
  */
 import type { Link } from '../types.js';

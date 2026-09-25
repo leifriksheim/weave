@@ -1,4 +1,4 @@
-import { useWeave } from 'weave-protocol/react';
+import { useWeave } from '@weaveprotocol/core/react';
 import { relayOnlyLocal, relayProblem } from '../relay';
 import { PodChoice } from './PodChoice';
 import { styles } from '../styles';

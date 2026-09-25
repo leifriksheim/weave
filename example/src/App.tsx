@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { SpaceSummary } from 'weave-protocol';
-import { useConnection, useSpaces } from 'weave-protocol/react';
+import type { SpaceSummary } from '@weaveprotocol/core';
+import { useConnection, useSpaces } from '@weaveprotocol/core/react';
 import { AccountMenu } from './components/AccountMenu';
 import { ConnectScreen } from './components/ConnectScreen';
 import { RelayNotice } from './components/RelayNotice';

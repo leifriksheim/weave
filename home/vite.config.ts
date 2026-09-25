@@ -53,8 +53,8 @@ function securityHeaders(mode: string): Plugin {
 export default defineConfig(({ mode }) => ({
   resolve: {
     alias: [
-      { find: /^weave-protocol\/(.+)$/, replacement: fileURLToPath(new URL('../src/$1/index.ts', import.meta.url)) },
-      { find: /^weave-protocol$/, replacement: fileURLToPath(new URL('../src/index.ts', import.meta.url)) },
+      { find: /^@weaveprotocol\/core\/(.+)$/, replacement: fileURLToPath(new URL('../src/$1/index.ts', import.meta.url)) },
+      { find: /^@weaveprotocol\/core$/, replacement: fileURLToPath(new URL('../src/index.ts', import.meta.url)) },
     ],
     dedupe: ['react', 'react-dom'],
   },

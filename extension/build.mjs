@@ -35,12 +35,12 @@ async function readEnvFile(path) {
 const env = { ...(await readEnvFile('.env.local')), ...process.env };
 const setting = (name, fallback) => env[name] || fallback;
 
-/** `weave-protocol/node` → ../src/node/index.ts, as in the home's Vite config */
+/** `@weaveprotocol/core/node` → ../src/node/index.ts, as in the home's Vite config */
 const protocol = {
-  name: 'weave-protocol',
+  name: '@weaveprotocol/core',
   setup(b) {
-    b.onResolve({ filter: /^weave-protocol(\/.+)?$/ }, (args) => ({
-      path: here(`../src${args.path.slice('weave-protocol'.length) || ''}/index.ts`),
+    b.onResolve({ filter: /^@weaveprotocol\/core(\/.+)?$/ }, (args) => ({
+      path: here(`../src${args.path.slice('@weaveprotocol/core'.length) || ''}/index.ts`),
     }));
   },
 };

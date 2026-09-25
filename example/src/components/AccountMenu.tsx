@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useAccount, useConnection } from 'weave-protocol/react';
+import { useAccount, useConnection } from '@weaveprotocol/core/react';
 import { Avatar } from './Avatar';
 import { ConnectAgent } from './ConnectAgent';
 import { palette } from '../styles';

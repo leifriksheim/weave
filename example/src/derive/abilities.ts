@@ -6,8 +6,8 @@
  * permission, or to say why a button is off instead of letting it fail.
  * The rank rules mirror `space/roles.ts` in the protocol.
  */
-import { permissionMatches, roleHolds, DEFINE, INVITE, MANAGE } from 'weave-protocol';
-import type { NodeCollection, SpaceRole, Who } from 'weave-protocol';
+import { permissionMatches, roleHolds, DEFINE, INVITE, MANAGE } from '@weaveprotocol/core';
+import type { NodeCollection, SpaceRole, Who } from '@weaveprotocol/core';
 import { collectionLabel, humanize } from './schema-ui';
 
 /** As much of a collection as these helpers read */

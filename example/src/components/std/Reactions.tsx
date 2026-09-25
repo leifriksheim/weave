@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNode, useAccount } from 'weave-protocol/react';
-import type { NodeRecord, SpaceSummary } from 'weave-protocol';
-import { reaction } from 'weave-protocol/schemas';
+import { useNode, useAccount } from '@weaveprotocol/core/react';
+import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
+import { reaction } from '@weaveprotocol/core/schemas';
 import { palette } from '../../styles';
 
 const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];

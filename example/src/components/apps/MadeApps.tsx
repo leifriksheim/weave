@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
-import { useLive, useNode, useProfiles, useSpaces } from 'weave-protocol/react';
-import { addApp, app as appSchema, appScreen, copyApp, reviewApp, type App, type AppReview } from 'weave-protocol/schemas';
+import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
+import { useLive, useNode, useProfiles, useSpaces } from '@weaveprotocol/core/react';
+import { addApp, app as appSchema, appScreen, copyApp, reviewApp, type App, type AppReview } from '@weaveprotocol/core/schemas';
 import { AppBoard } from './AppBoard';
 import { ScreenFrame } from './ScreenFrame';
 import { nameOf, peopleFrom, type People } from '../../derive/people';

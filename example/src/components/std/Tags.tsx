@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useCan, useNode } from 'weave-protocol/react';
-import type { NodeRecord, SpaceSummary } from 'weave-protocol';
-import { tag } from 'weave-protocol/schemas';
+import { useCan, useNode } from '@weaveprotocol/core/react';
+import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
+import { tag } from '@weaveprotocol/core/schemas';
 import { palette } from '../../styles';
 
 /** A tag's label, if the record is one */

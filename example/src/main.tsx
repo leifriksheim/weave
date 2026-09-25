@@ -3,7 +3,7 @@ import { App } from './App';
 import { injectBaseStyles } from './styles';
 import { exposeToAgents } from './webmcp';
 import { Landing, Developers } from './site/Site';
-import { WeaveProvider } from 'weave-protocol/react';
+import { WeaveProvider } from '@weaveprotocol/core/react';
 import { connection } from './weave';
 
 /**

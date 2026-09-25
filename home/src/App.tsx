@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { WeaveAuth, useWeave } from 'weave-protocol/react';
+import { WeaveAuth, useWeave } from '@weaveprotocol/core/react';
 import { AccountNotices } from './components/AccountNotices';
 import { Settings } from './components/Settings';
 import { Wordmark } from './components/Wordmark';

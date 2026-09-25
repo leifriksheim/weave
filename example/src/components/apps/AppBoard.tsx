@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
-import { useLive, useNode, useProfiles } from 'weave-protocol/react';
+import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
+import { useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import { SchemaForm } from '../SchemaForm';
 import { Value } from '../Value';
 import { choicesFrom, choicesOf, collectionLabel, fieldsOf, metaFields, recordLabel, titleField, type Field } from '../../derive/schema-ui';

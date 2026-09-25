@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { connectToHome, offerAgentLink, type AgentAsking, type AgentLinkStage } from 'weave-protocol/session';
-import { useConnection } from 'weave-protocol/react';
+import { connectToHome, offerAgentLink, type AgentAsking, type AgentLinkStage } from '@weaveprotocol/core/session';
+import { useConnection } from '@weaveprotocol/core/react';
 import { Choice, Modal } from './Modal';
 import { relayUrls } from '../relay';
 import { styles, palette, variants } from '../styles';
 
 /** What people run, before the code */
-const COMMAND = import.meta.env.VITE_WEAVE_CONNECT ?? 'npx weave-protocol-cli connect';
+const COMMAND = import.meta.env.VITE_WEAVE_CONNECT ?? 'npx @weaveprotocol/cli connect';
 /** The relay the CLI meets on unless told otherwise (`cli/src/agent.ts`) */
 const CLI_RELAY = 'wss://p2p-web-relay.fly.dev';
 

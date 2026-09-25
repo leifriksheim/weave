@@ -34,7 +34,7 @@ export function serverCommand(home: string): ServerCommand {
   // Run from npx: its cache is temporary, so ask npx again.
   if (script.includes(`${path.sep}_npx${path.sep}`)) {
     const npx = path.join(path.dirname(process.execPath), process.platform === 'win32' ? 'npx.cmd' : 'npx');
-    return { command: existsSync(npx) ? npx : 'npx', args: ['-y', 'weave-protocol-cli', ...tail] };
+    return { command: existsSync(npx) ? npx : 'npx', args: ['-y', '@weaveprotocol/cli', ...tail] };
   }
   // From the sources: Node needs tsx, found from here rather than from wherever the agent starts.
   const tsx = script.endsWith('.ts') ? import.meta.resolve('tsx') : null;

@@ -1,8 +1,16 @@
 {
-  "name": "weave-protocol",
+  "name": "@weaveprotocol/core",
   "version": "0.1.0",
   "type": "module",
   "description": "Self-sovereign P2P protocol for the browser — identity, schemas, storage, networking, and gossip sync",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leifriksheim/weave.git"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -62,10 +70,11 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "weave": "node --env-file=cli/.env.dev --import tsx cli/src/main.ts",
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-vm-modules --import tsx --test tests/**/*.test.ts",
-    "signal": "node server/signaling-server.mjs"
+    "signal": "node server/signaling-server.mjs",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
@@ -91,5 +100,8 @@
     "react": {
       "optional": true
     }
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -27,8 +27,11 @@ npm run dev
 To have `weave` everywhere:
 
 ```bash
-cd cli && npm install && npm link          # or a binary with no Node at all: bun build.ts --native
+npm install -g @weaveprotocol/cli            # or run it without installing: npx @weaveprotocol/cli <command>
 ```
+
+From this repo: `cd cli && npm install && npm run bundle && npm link`, or a
+binary with no Node at all: `bun build.ts --native`.
 
 ```bash
 weave init --name Leif --passphrase          # prints your recovery code once
@@ -90,7 +93,7 @@ In an app, choose **Connect an agent** in the account menu. It shows one
 command:
 
 ```bash
-npx weave-protocol-cli connect wv_…      # in this repo: npm run weave -- connect wv_…
+npx @weaveprotocol/cli connect wv_…      # in this repo: npm run weave -- connect wv_…
 ```
 
 It makes a key for this computer's agent (it never leaves `~/.weave/agent/`),

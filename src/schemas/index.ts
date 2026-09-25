@@ -6,7 +6,7 @@
  * one the same way it learns any other, when someone defines it there:
  *
  * ```ts
- * import { reaction, comment, useSchemas } from 'weave-protocol/schemas';
+ * import { reaction, comment, useSchemas } from '@weaveprotocol/core/schemas';
  *
  * await useSchemas(node, space.id, [reaction, comment]);
  * await node.records.put(space.id, reaction, { emoji: '👍' }, {

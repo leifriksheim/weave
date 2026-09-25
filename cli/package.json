@@ -1,22 +1,39 @@
 {
-  "name": "weave-protocol-cli",
+  "name": "@weaveprotocol/cli",
   "version": "0.1.0",
   "description": "The Weave protocol from a terminal: manage spaces, run an always-on node, serve MCP to agents",
   "type": "module",
   "bin": {
-    "weave": "bin/weave.mjs"
+    "weave": "dist/weave.mjs"
   },
   "scripts": {
     "start": "node --import tsx src/main.ts",
-    "build": "bun build.ts"
+    "bundle": "esbuild src/main.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/weave.mjs --external:ws --external:node-datachannel --banner:js='#!/usr/bin/env node'",
+    "build": "bun build.ts",
+    "prepublishOnly": "npm run bundle"
   },
   "dependencies": {
     "node-datachannel": "^0.33.4",
-    "tsx": "^4.19.0",
     "ws": "^8.18.0"
   },
   "engines": {
     "node": ">=22"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leifriksheim/weave.git",
+    "directory": "cli"
+  },
+  "files": [
+    "dist/weave.mjs",
+    "README.md"
+  ],
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "tsx": "^4.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

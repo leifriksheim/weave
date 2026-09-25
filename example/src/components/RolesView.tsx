@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from 'react';
-import { permissionMatches, roleHolds } from 'weave-protocol';
-import type { NodeCollection, SpaceRole, SpaceSummary } from 'weave-protocol';
-import { useAccess, useAccount, useNode, useProfiles } from 'weave-protocol/react';
+import { permissionMatches, roleHolds } from '@weaveprotocol/core';
+import type { NodeCollection, SpaceRole, SpaceSummary } from '@weaveprotocol/core';
+import { useAccess, useAccount, useNode, useProfiles } from '@weaveprotocol/core/react';
 import {
   abilitiesOf,
   assignableRoles,

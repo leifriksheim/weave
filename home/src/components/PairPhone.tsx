@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import type { PairingOffer, PairingStage } from 'weave-protocol/session';
-import { useAuth } from 'weave-protocol/react';
+import type { PairingOffer, PairingStage } from '@weaveprotocol/core/session';
+import { useAuth } from '@weaveprotocol/core/react';
 import { servedOverLan, relayProblem, relayOnlyLocal } from '../relay';
 import { Info } from './Info';
 import { styles, palette } from '../styles';

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAccount, useNode } from 'weave-protocol/react';
+import { useAccount, useNode } from '@weaveprotocol/core/react';
 import { styles } from '../styles';
 
 /**

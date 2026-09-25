@@ -4,11 +4,11 @@
  * It starts the carrier from the stored grant, attaches the pod when Chrome
  * allows it, and reports how things are to the other pages and the badge. It
  * holds no seed and no space key: only its own key, the carry space's key, and
- * encrypted records (`weave-protocol/node`, `createCarrierNode`).
+ * encrypted records (`@weaveprotocol/core/node`, `createCarrierNode`).
  */
-import { createCarrierNode, folderStores, indexedDBStores, type CarrierNode } from 'weave-protocol/node';
-import { appKey, forgetAppKey, type CarryGrant } from 'weave-protocol/session';
-import { forgetDataFolder, queryFolderPermission, recallDataFolder } from 'weave-protocol/storage';
+import { createCarrierNode, folderStores, indexedDBStores, type CarrierNode } from '@weaveprotocol/core/node';
+import { appKey, forgetAppKey, type CarryGrant } from '@weaveprotocol/core/session';
+import { forgetDataFolder, queryFolderPermission, recallDataFolder } from '@weaveprotocol/core/storage';
 import {
   BUILT_IN_RELAYS,
   forgetGrant,

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { SpaceSummary } from 'weave-protocol';
-import { useNode } from 'weave-protocol/react';
+import type { SpaceSummary } from '@weaveprotocol/core';
+import { useNode } from '@weaveprotocol/core/react';
 import { NameField, useMyName } from './NameField';
 import { clearInviteFromUrl, previewInvite, readInviteFromUrl } from '../spaces';
 import { styles } from '../styles';

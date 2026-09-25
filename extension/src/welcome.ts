@@ -6,8 +6,8 @@
  * the moment the home's window takes focus, and the home's answer would have
  * nowhere to arrive.
  */
-import { appKey, connectCarrier, homeAddress, type CarryGrant } from 'weave-protocol/session';
-import { pickDataFolder, rememberDataFolder, type DirectoryHandleLike } from 'weave-protocol/storage';
+import { appKey, connectCarrier, homeAddress, type CarryGrant } from '@weaveprotocol/core/session';
+import { pickDataFolder, rememberDataFolder, type DirectoryHandleLike } from '@weaveprotocol/core/storage';
 import { ask, DEFAULT_HOME, EXTENSION_NAME, KEY_NAME, loadGrant, saveGrant, setRemoved, type CarrierStatus, type StatusChanged } from './shared';
 import { accountLine, h, mark, resumePod, spaceList, summary } from './ui';
 

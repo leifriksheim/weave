@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNode } from 'weave-protocol/react';
-import type { NodeRecord, SpaceSummary } from 'weave-protocol';
-import { comment } from 'weave-protocol/schemas';
+import { useNode } from '@weaveprotocol/core/react';
+import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
+import { comment } from '@weaveprotocol/core/schemas';
 import { nameOf, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { Avatar } from '../Avatar';

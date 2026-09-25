@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
-import type { DefineCollection, NodeCollection, NodeRecord, P2PNode, SpaceSummary } from 'weave-protocol';
-import { column, message, poll, reaction, task, vote, positionBetween } from 'weave-protocol/schemas';
+import type { DefineCollection, NodeCollection, NodeRecord, P2PNode, SpaceSummary } from '@weaveprotocol/core';
+import { column, message, poll, reaction, task, vote, positionBetween } from '@weaveprotocol/core/schemas';
 import { Chat } from './Chat';
 import { Kanban } from './Kanban';
 import { Polls } from './Polls';

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { NodeCollection, NodeRecord, SpaceSummary } from 'weave-protocol';
-import { useLive, useNode } from 'weave-protocol/react';
+import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
+import { useLive, useNode } from '@weaveprotocol/core/react';
 import { collectionLabel, humanize, recordLabel } from '../derive/schema-ui';
 import { styles, palette } from '../styles';
 

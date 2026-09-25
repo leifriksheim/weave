@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent, type ReactNode } from 'react';
 import { parse, render } from 'sugar-high/core';
 import * as json from 'sugar-high/lang/json';
-import { useNode, useProfiles } from 'weave-protocol/react';
-import type { NodeCollection, NodeRecord, Query, QueryRecord, QueryResult, SpaceSummary } from 'weave-protocol';
+import { useNode, useProfiles } from '@weaveprotocol/core/react';
+import type { NodeCollection, NodeRecord, Query, QueryRecord, QueryResult, SpaceSummary } from '@weaveprotocol/core';
 import { collectionLabel, fieldsOf, recordLabel, titleField } from '../derive/schema-ui';
 import { nameOf, peopleFrom } from '../derive/people';
 import { ago } from '../derive/time';

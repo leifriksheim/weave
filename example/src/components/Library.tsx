@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNode } from 'weave-protocol/react';
-import type { NodeCollection, SpaceSummary } from 'weave-protocol';
-import { standardAnnotations, useSchemas } from 'weave-protocol/schemas';
+import { useNode } from '@weaveprotocol/core/react';
+import type { NodeCollection, SpaceSummary } from '@weaveprotocol/core';
+import { standardAnnotations, useSchemas } from '@weaveprotocol/core/schemas';
 import { styles, palette } from '../styles';
 
 const WHAT_IT_ADDS: Record<string, string> = {

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { SpaceSummary } from 'weave-protocol';
-import { receiveConnectRequest, type IncomingRequest } from 'weave-protocol/session';
-import { WeaveAuth, useAuth, useSession, useWeave } from 'weave-protocol/react';
+import type { SpaceSummary } from '@weaveprotocol/core';
+import { receiveConnectRequest, type IncomingRequest } from '@weaveprotocol/core/session';
+import { WeaveAuth, useAuth, useSession, useWeave } from '@weaveprotocol/core/react';
 import { Wordmark } from './Wordmark';
 import { Avatar } from './Avatar';
 import { styles, palette } from '../styles';

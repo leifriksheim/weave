@@ -6,7 +6,7 @@
  * form, a table, a record page and the "add a vote to this poll" buttons.
  * Pure functions, so any renderer (DOM, native, a voice agent) could use them.
  */
-import type { JsonSchema, NodeCollection, NodeRecord } from 'weave-protocol';
+import type { JsonSchema, NodeCollection, NodeRecord } from '@weaveprotocol/core';
 
 /** How a field is edited and shown */
 export type FieldKind = 'text' | 'longText' | 'number' | 'integer' | 'boolean' | 'choice' | 'list' | 'object' | 'json';

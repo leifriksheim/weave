@@ -12,8 +12,8 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "weave-protocol": ["../src/index.ts"],
-      "weave-protocol/*": ["../src/*/index.ts"]
+      "@weaveprotocol/core": ["../src/index.ts"],
+      "@weaveprotocol/core/*": ["../src/*/index.ts"]
     }
   },
   "include": ["src", "build.mjs"]
