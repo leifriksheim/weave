@@ -21,6 +21,7 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 | [BLOCK-16](BLOCK-16-contacts.md) | Contacts: live messages in spaces, a contact list, sealed contact requests | ~1 week |
 | [BLOCK-17](BLOCK-17-browser-extension.md) | A Chrome extension that keeps your node in the gossip and your pod up to date while the browser is open, without being able to read your spaces | ~2 weeks |
 | [BLOCK-18](BLOCK-18-agent-made-apps.md) | Apps an agent makes: its own labelled key, proposals a person adds, a summary worked out from the rules, apps as records in the Apps tab | ~1 week |
+| [BLOCK-19](BLOCK-19-compatible-definitions.md) | Compatible definitions: apps check what a collection promises (fields, links, rules) instead of its name; harmless updates apply themselves (after 18) | ~1 week |
 | [BLOCK-20](BLOCK-20-connect-an-agent.md) | Connect an agent with one command: the browser's agent works as you, one on your computer pairs through a code and runs a node of its own | ~3 days |
 
 ## Next, not written as blocks yet
