@@ -12,6 +12,15 @@
 # Several relays are better than one, and the app takes a comma-separated list:
 #
 #   VITE_SIGNALING_URL=wss://my-relay.fly.dev,wss://a-friends-relay.example
+#
+# It also runs TURN (coturn, see start.sh), for people whose networks won't let
+# two browsers connect directly. That takes UDP, which on Fly needs a dedicated
+# IPv4, and one shared secret:
+#
+#   fly ips allocate-v4               # then put it in TURN_PUBLIC_IP below
+#   fly secrets set TURN_SECRET=$(openssl rand -hex 32)
+#
+# Without TURN_SECRET the relay runs alone.
 
 app = "p2p-web-relay"
 primary_region = "ams"
@@ -19,16 +28,19 @@ primary_region = "ams"
 [build]
   dockerfile = "Dockerfile"
 
+[env]
+  TURN_PUBLIC_IP = "169.155.61.145"
+  TURN_URLS = "turn:169.155.61.145:3478?transport=udp,turn:169.155.61.145:3478?transport=tcp"
+
 [http_service]
   internal_port = 8080
   force_https = true
 
-  # The relay holds no state worth keeping — rooms are rebuilt as peers
-  # reconnect — so it can sleep when nobody is being introduced. A cold start
-  # costs a second or two on the first connection of the day.
-  auto_stop_machines = "stop"
+  # Always on: Fly wakes a machine for a websocket, but not for TURN's UDP, and
+  # a call relayed through TURN must not be cut when nobody is being introduced.
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [http_service.http_options]
     # Long-lived websockets: do not cut them off mid-introduction.
@@ -39,6 +51,28 @@ primary_region = "ams"
     interval = "30s"
     timeout = "5s"
     grace_period = "10s"
+
+# TURN: where browsers reach coturn (UDP, and TCP for networks that block UDP)…
+[[services]]
+  protocol = "udp"
+  internal_port = 3478
+  [[services.ports]]
+    port = 3478
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 3478
+  [[services.ports]]
+    port = 3478
+
+# …and the relay ports it hands out, the same range as turnserver.conf.
+# Fly doesn't rewrite UDP ports, so outside and inside match.
+[[services]]
+  protocol = "udp"
+  internal_port = 49152
+  [[services.ports]]
+    start_port = 49152
+    end_port = 49407
 
 [[vm]]
   size = "shared-cpu-1x"

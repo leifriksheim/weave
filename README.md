@@ -830,6 +830,9 @@ tell a Weave peer from anyone else, so set coturn's own quotas (`user-quota`,
 `total-quota`, `max-bps`). TURN only forwards encrypted packets; it can't
 see or hear a call.
 
+The relay's Docker image (`server/`, deployed to Fly) runs coturn beside it when
+`TURN_SECRET` is set, already capped that way: `server/fly.toml` says how.
+
 Only peers already in a room hear about a newcomer, so exactly one side creates
 the offer and the two never collide.
 
