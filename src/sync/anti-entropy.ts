@@ -4,8 +4,8 @@
  *
  * Two peers reconcile by walking each other's Merkle Search Tree from the root,
  * descending only into subtrees they do not already have. Nodes are content
- * addressed, so a subtree whose CID is part of your own tree is identical to
- * yours and can be skipped whole. Two trees differing by one entry exchange only
+ * addressed, so a subtree whose CID you hold is one you have and can be
+ * skipped whole. Two trees differing by one entry exchange only
  * the nodes on the path to it — a handful at any size — instead of every key.
  */
 import type { StorageAdapter } from '../types.js';
@@ -37,14 +37,20 @@ export async function verifyNode(cid: string, value: unknown): Promise<MSTNode |
 }
 
 /**
- * The children of a peer's node worth fetching: those not already part of the
- * local tree.
+ * The children of a peer's node worth fetching: those this store does not hold.
  *
+ * A node is only ever stored by building this store's own tree, so holding
+ * one means holding — or having since superseded — every entry beneath it,
+ * whether or not the current root still reaches it. Asking the store is one
+ * lookup per child, where collecting the local tree first read all of it.
+ *
+ * @param adapter The local store
  * @param node A node from the peer's tree
- * @param localTree Every CID reachable from the local root
  */
-export function unknownChildren(node: MSTNode, localTree: ReadonlySet<string>): string[] {
-  return node.children.filter((child): child is string => child !== null && !localTree.has(child));
+export async function unknownChildren(adapter: StorageAdapter, node: MSTNode): Promise<string[]> {
+  const children = node.children.filter((child): child is string => child !== null);
+  const held = await Promise.all(children.map((child) => adapter.has(child)));
+  return children.filter((_, i) => !held[i]);
 }
 
 /**

@@ -16,7 +16,7 @@
  */
 import type { Expression } from '../types.js';
 import type { StorageProvider } from '../storage/storage-provider.js';
-import { collectReachableCids, deserializeNode } from '../storage/mst.js';
+import { deserializeNode } from '../storage/mst.js';
 import { cidFromBytes } from '../utils/hash.js';
 import { parseSyncMessage, SYNC_PROTOCOL_VERSION, type SyncMessage, type SyncMessageBody } from './sync-messages.js';
 import { differingEntries, unknownChildren, verifyNode } from './anti-entropy.js';
@@ -87,8 +87,6 @@ interface Walk {
   readonly remoteRoot: string;
   /** The local root when the walk began — what the peer's entries are compared with */
   readonly localRoot: string | null;
-  /** Every CID in the local tree when the walk began — the subtrees to skip */
-  readonly localTree: ReadonlySet<string>;
   readonly depth: Map<string, number>;
   readonly queue: string[];
   /** Node requests in flight, by request id */
@@ -220,9 +218,8 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       return;
     }
     const localRoot = await storageProvider.getRootCid();
-    const localTree = await collectReachableCids(storageProvider.getAdapter(), localRoot);
-    if (localTree.has(remoteRoot)) {
-      // Their whole tree is a subtree of ours: nothing to pull.
+    if (await storageProvider.getAdapter().has(remoteRoot)) {
+      // A tree this store holds, or has moved past: nothing to pull.
       emit('synced', peerId);
       return;
     }
@@ -230,7 +227,6 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     const walk: Walk = {
       remoteRoot,
       localRoot,
-      localTree,
       depth: new Map([[remoteRoot, 0]]),
       queue: [remoteRoot],
       nodeBatches: new Map(),
@@ -265,7 +261,7 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
 
       const depth = walk.depth.get(cid) ?? 0;
       if (depth >= MAX_DEPTH) continue;
-      for (const child of unknownChildren(node, walk.localTree)) {
+      for (const child of await unknownChildren(adapter, node)) {
         if (walk.depth.has(child)) continue; // already queued — a cycle, or a shared subtree
         walk.depth.set(child, depth + 1);
         walk.queue.push(child);
