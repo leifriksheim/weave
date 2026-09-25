@@ -30,6 +30,8 @@ import { NODE_ACTIONS } from '../src/node/actions.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { hold } from './helpers/hold.js';
+import { createFakeHub } from './helpers/fake-transport.js';
+import { createMesh } from '../src/network/mesh.js';
 
 const run = promisify(execFile);
 const temporary: string[] = [];
@@ -134,6 +136,19 @@ describe('the daemon', () => {
   test('answers /health, and says nothing about whose node it is', async () => {
     const health = (await (await fetch(`http://127.0.0.1:${daemon.port}/health`)).json()) as Record<string, unknown>;
     assert.deepEqual(health, { ok: true });
+  });
+
+  test('is a relay too: peers meet through it, in several spaces over one socket', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const meshOf = (did: string) =>
+      createMesh({ did, relays: [`ws://127.0.0.1:${daemon.port}`], createTransport: () => hub.signalled(did, 'daemon-relay') });
+    const [a, b] = [meshOf('did:key:zA'), meshOf('did:key:zB')];
+    const rooms = [a.join('one'), a.join('two'), b.join('one'), b.join('two')];
+    const met = rooms.map(() => 0);
+    rooms.forEach((room, i) => room.on('peer-connected', () => (met[i] = met[i]! + 1)));
+    await Promise.all(rooms.map((room) => room.connect()));
+    await until(() => met.every((n) => n === 1), 5000, 'both to meet in both spaces');
+    for (const room of rooms) room.disconnect();
   });
 
   test('two devices that are never online together converge through it', async () => {

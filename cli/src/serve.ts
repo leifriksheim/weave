@@ -7,8 +7,9 @@
  *   (`src/network/peer-auth.ts`); a public one is otherwise open, as it is to
  *   anyone anyway. Each socket becomes a peer in that space, with no relay and
  *   no TURN in between.
- * - any other path, `?room=<id>` — the signaling relay, so a self-hoster runs
- *   one process to bootstrap a space.
+ * - any other path — the signaling relay (`server/relay.mjs`, the same one
+ *   the public relay runs), so a self-hoster runs one process to bootstrap a
+ *   space. With TURN_SECRET and TURN_URLS set it hands out TURN passwords too.
  * - `GET /health` — alive or not, for monitoring.
  *
  * It listens on this machine only unless told otherwise (`--host 0.0.0.0`):
@@ -21,6 +22,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import { peerNonce, type P2PNode, type PeerTransport, type PeerTransportEvents } from '../../src/index.js';
+import { createRelay, turnFromEnv, MAX_MESSAGE_BYTES as RELAY_MAX_MESSAGE_BYTES } from '../../server/relay.mjs';
 
 // ─── Inbound peers ─────────────────────────────────────────────────────
 
@@ -108,90 +110,8 @@ export function createInboundPeers() {
 
 export type InboundPeers = ReturnType<typeof createInboundPeers>;
 
-// ─── Relay ─────────────────────────────────────────────────────────────
-
-interface RelayClient {
-  readonly socket: WebSocket;
-  readonly room: string;
-  did: string | null;
-}
-
-/** The same limits as the public relay (`server/signaling-server.mjs`) */
-const RELAY_MAX_ROOM_LENGTH = 128;
-const RELAY_MAX_PEERS_PER_ROOM = 64;
-const RELAY_MESSAGES_PER_SECOND = 50;
-const RELAY_BURST = 100;
+/** A DID as a peer sends it in its hello */
 const DID_PATTERN = /^did:key:z[1-9A-HJ-NP-Za-km-z]{1,250}$/;
-
-function createRelay() {
-  const rooms = new Map<string, Set<RelayClient>>();
-
-  const broadcast = (sender: RelayClient, payload: string) => {
-    for (const peer of rooms.get(sender.room) ?? []) {
-      if (peer !== sender && peer.did && peer.socket.readyState === peer.socket.OPEN) peer.socket.send(payload);
-    }
-  };
-
-  return {
-    rooms,
-    accept(socket: WebSocket, room: string) {
-      if (room.length > RELAY_MAX_ROOM_LENGTH || (rooms.get(room)?.size ?? 0) >= RELAY_MAX_PEERS_PER_ROOM) {
-        socket.close(1008, 'room refused');
-        return;
-      }
-      const client: RelayClient = { socket, room, did: null };
-      if (!rooms.has(room)) rooms.set(room, new Set());
-      rooms.get(room)!.add(client);
-
-      // A token bucket: bursts are fine, a flood is cut off.
-      let tokens = RELAY_BURST;
-      let refilled = Date.now();
-
-      socket.on('message', (data: RawData, isBinary: boolean) => {
-        const now = Date.now();
-        tokens = Math.min(RELAY_BURST, tokens + ((now - refilled) / 1000) * RELAY_MESSAGES_PER_SECOND);
-        refilled = now;
-        if ((tokens -= 1) < 0) {
-          socket.close(1008, 'too many messages');
-          return;
-        }
-        if (isBinary) return;
-        let message: { type?: unknown; from?: unknown; to?: unknown; payload?: unknown };
-        try {
-          message = JSON.parse(String(data));
-        } catch {
-          return;
-        }
-        if (typeof message?.type !== 'string') return;
-        // Only peers already present hear about a newcomer, so exactly one
-        // side creates the offer and the two never collide. A socket joins
-        // once, as one DID, and a DID already here is not handed to another.
-        if (message.type === 'join') {
-          if (client.did || typeof message.from !== 'string' || !DID_PATTERN.test(message.from)) return;
-          if ([...rooms.get(room)!].some((peer) => peer.did === message.from)) {
-            socket.close(4009, 'that DID is already in this room');
-            return;
-          }
-          client.did = message.from;
-          broadcast(client, JSON.stringify({ type: 'join', from: client.did }));
-          return;
-        }
-        if (!client.did || !['offer', 'answer', 'candidate'].includes(message.type) || typeof message.to !== 'string') return;
-        const target = [...(rooms.get(room) ?? [])].find((peer) => peer.did === message.to);
-        // Always from the sender as it joined, whatever the message claims.
-        const forwarded = { type: message.type, from: client.did, to: message.to, payload: message.payload };
-        if (target && target.socket.readyState === target.socket.OPEN) target.socket.send(JSON.stringify(forwarded));
-      });
-
-      socket.on('close', () => {
-        const peers = rooms.get(room);
-        if (!peers?.delete(client)) return;
-        if (peers.size === 0) rooms.delete(room);
-        if (client.did) broadcast(client, JSON.stringify({ type: 'leave', from: client.did }));
-      });
-    },
-  };
-}
 
 // ─── Server ────────────────────────────────────────────────────────────
 
@@ -223,10 +143,10 @@ function parseHello(data: RawData, isBinary: boolean): { did: string; nonce: str
 
 export async function serve(options: ServeOptions): Promise<Served> {
   const { node, inbound } = options;
-  const relay = createRelay();
+  // The same relay as the public one, so the app can meet peers through this node too.
+  const relay = createRelay({ turn: turnFromEnv(process.env) });
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
-  // Signaling is offers and candidates: a few kilobytes at most.
-  const relaySockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+  const relaySockets = new WebSocketServer({ noServer: true, maxPayload: RELAY_MAX_MESSAGE_BYTES, perMessageDeflate: false, clientTracking: false });
 
   const http = createServer((req, res) => {
     // Up or not, and nothing more: which account runs here, and how much it
@@ -286,7 +206,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     if (url.pathname === '/peer') {
       sockets.handleUpgrade(req, socket, head, (ws) => void onPeer(ws, url).catch(() => ws.close(1011, 'internal error')));
     } else {
-      relaySockets.handleUpgrade(req, socket, head, (ws) => relay.accept(ws, url.searchParams.get('room') ?? 'default'));
+      relay.upgrade(relaySockets, req, socket, head);
     }
   });
 
@@ -300,7 +220,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
   return {
     port,
     async close() {
-      for (const client of [...sockets.clients, ...relaySockets.clients]) client.terminate();
+      for (const client of sockets.clients) client.terminate();
+      relay.close();
       sockets.close();
       relaySockets.close();
       await new Promise<void>((resolve) => http.close(() => resolve()));

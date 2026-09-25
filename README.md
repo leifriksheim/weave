@@ -739,8 +739,10 @@ Browser-to-browser communication via WebRTC.
 
 #### Signaling relay
 
-`server/signaling-server.mjs` is a dumb relay in a couple hundred lines of
-Node on the `ws` library: a peer holds one socket and joins a room on it for
+`server/relay.mjs` is a dumb relay in a couple hundred lines of Node with no
+dependencies of its own. It runs on its own as `server/signaling-server.mjs`
+(an HTTP server and the `ws` library around it), and inside every always-on
+node (`weave serve`), so the two are the same relay. A peer holds one socket and joins a room on it for
 each space, and the relay passes join notices and WebRTC offers, answers and
 candidates between peers that share a room. (A socket opened with `?room=` is
 the older one-room form, still served.) The room is a hash of
