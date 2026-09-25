@@ -12,15 +12,32 @@
 import type { CryptoProvider, Space, SpaceRole, SpaceVisibility, StorageAdapter } from '../types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 import { base64UrlEncode, base64UrlDecode, utf8Encode, utf8Decode } from '../utils/encoding.js';
-import { generateSpaceKey, type SpaceKey } from '../privacy/space-encryption.js';
+import { generateSpaceKey, spaceKeyFromRaw, type SpaceKey } from '../privacy/space-encryption.js';
 import { checkSpace, checkStartingRoles, deriveInviteKey, deriveReadKey, spaceGenesis, spaceIdOf, type SpaceKeyPair } from './space-access.js';
 import { solo } from './presets.js';
+import { checkRelays } from './roles.js';
 
 /** A space plus the secrets this node holds for it */
 export interface SpaceRecord {
   readonly space: Space;
-  /** The AES key that reads a private space */
+  /** The AES key this node reads and writes a private space with: the newest it holds */
   readonly key: SpaceKey | null;
+  /**
+   * Every key of the space this node holds, the current one included. A
+   * private space's key changes when someone is removed (`sys.key`); records
+   * written before keep the key they were written with.
+   */
+  readonly keys?: ReadonlyArray<SpaceKey>;
+  /**
+   * This account's member key for the space, for a node given it without the
+   * account key (`deriveMemberKeyBytes`) — what a new space key is sealed to.
+   */
+  readonly memberKey?: Uint8Array | null;
+  /**
+   * Where the space's members meet, as this node last heard: from the invite
+   * that brought it here, then from the space itself (`sys.relays`).
+   */
+  readonly relays?: ReadonlyArray<string>;
   /**
    * An invite link's secret, held until this account's member record is
    * written with it — which needs the invite's own record to have arrived.
@@ -55,12 +72,16 @@ export interface SpaceInvite {
   /** The role the invite is for, for showing before joining. The space's own record is what counts. */
   readonly role?: string;
   readonly invitedBy: string;
+  /** Where the space's members meet — a hint for reaching it before its own list has synced */
+  readonly relays?: ReadonlyArray<string>;
 }
 
 export interface InviteOptions {
   /** The secret behind an invite record already written for a role. Absent: a view-only invite. */
   readonly secret?: Uint8Array;
   readonly role?: string;
+  /** Relays to name in it. Default: the ones this node holds for the space. */
+  readonly relays?: ReadonlyArray<string>;
 }
 
 export interface SpaceManager {
@@ -80,12 +101,29 @@ export interface SpaceManager {
   clearInvite(spaceId: string): Promise<void>;
   /** Remembers the role this account holds, for listing */
   setRole(spaceId: string, role: string | null): Promise<void>;
+  /**
+   * Adds keys of a space to what this node holds, and makes `current` the
+   * one it writes with. Keys already held are kept.
+   */
+  addKeys(spaceId: string, keys: ReadonlyArray<SpaceKey>, current: string): Promise<void>;
+  /** Keeps this account's member key for a space (`SpaceRecord.memberKey`) */
+  setMemberKey(spaceId: string, memberKey: Uint8Array): Promise<void>;
+  /** Keeps where the space's members meet (`SpaceRecord.relays`) */
+  setRelays(spaceId: string, relays: ReadonlyArray<string>): Promise<void>;
 }
 
 const SPACE_PREFIX = 'space:';
 const KEY_PREFIX = 'spacekey:';
 const INVITE_PREFIX = 'spaceinvite:';
 const ROLE_PREFIX = 'spacerole:';
+const MEMBER_KEY_PREFIX = 'spacememberkey:';
+const RELAYS_PREFIX = 'spacerelays:';
+
+/** How a space's keys are kept: every one held, and which is current */
+interface StoredKeyring {
+  readonly keys: ReadonlyArray<StoredKey>;
+  readonly current: string;
+}
 
 /** Stored form of a space key: raw bytes plus the metadata that travels with it. */
 interface StoredKey {
@@ -131,15 +169,22 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
     await adapter.put(`${SPACE_PREFIX}${space.id}`, utf8Encode(JSON.stringify(space)));
   }
 
-  async function readKey(spaceId: string): Promise<SpaceKey | null> {
+  async function readKeyring(spaceId: string): Promise<{ key: SpaceKey | null; keys: SpaceKey[] }> {
     const bytes = await adapter.get(`${KEY_PREFIX}${spaceId}`);
-    if (!bytes) return null;
-    return importKey(JSON.parse(utf8Decode(bytes)) as StoredKey);
+    if (!bytes) return { key: null, keys: [] };
+    const stored = JSON.parse(utf8Decode(bytes)) as StoredKeyring;
+    const keys = await Promise.all(stored.keys.map(importKey));
+    return { key: keys.find((key) => key.id === stored.current) ?? keys.at(-1) ?? null, keys };
+  }
+
+  async function writeKeyring(spaceId: string, keys: ReadonlyArray<SpaceKey>, current: string): Promise<void> {
+    const stored: StoredKeyring = { keys: await Promise.all(keys.map(exportKey)), current };
+    await adapter.put(`${KEY_PREFIX}${spaceId}`, utf8Encode(JSON.stringify(stored)));
   }
 
   async function writeKey(spaceId: string, key: SpaceKey): Promise<void> {
-    const stored = await exportKey(key);
-    await adapter.put(`${KEY_PREFIX}${spaceId}`, utf8Encode(JSON.stringify(stored)));
+    const { keys } = await readKeyring(spaceId);
+    await writeKeyring(spaceId, [...keys.filter((held) => held.id !== key.id), key], key.id);
   }
 
   async function readText(prefix: string, spaceId: string): Promise<string | null> {
@@ -151,11 +196,17 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
     const space = await readSpace(spaceId);
     if (!space) return null;
     const invite = await readText(INVITE_PREFIX, spaceId);
+    const memberKey = await readText(MEMBER_KEY_PREFIX, spaceId);
+    const relays = await readText(RELAYS_PREFIX, spaceId);
+    const { key, keys } = await readKeyring(spaceId);
     return {
       space,
-      key: await readKey(spaceId),
+      key,
+      keys,
       invite: invite ? base64UrlDecode(invite) : null,
       role: await readText(ROLE_PREFIX, spaceId),
+      ...(memberKey ? { memberKey: base64UrlDecode(memberKey) } : {}),
+      ...(relays ? { relays: JSON.parse(relays) as string[] } : {}),
     };
   }
 
@@ -185,7 +236,7 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       await writeSpace(space);
       if (key) await writeKey(id, key);
       await adapter.put(`${ROLE_PREFIX}${id}`, utf8Encode(creatorRole));
-      return { space, key, invite: null, role: creatorRole };
+      return { space, key, keys: key ? [key] : [], invite: null, role: creatorRole };
     },
 
     async get(spaceId: string): Promise<SpaceRecord | null> {
@@ -201,7 +252,7 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
     },
 
     async remove(spaceId: string): Promise<void> {
-      for (const prefix of [SPACE_PREFIX, KEY_PREFIX, INVITE_PREFIX, ROLE_PREFIX]) await adapter.delete(`${prefix}${spaceId}`);
+      for (const prefix of [SPACE_PREFIX, KEY_PREFIX, INVITE_PREFIX, ROLE_PREFIX, MEMBER_KEY_PREFIX, RELAYS_PREFIX]) await adapter.delete(`${prefix}${spaceId}`);
     },
 
     async createInvite(spaceId: string, invitedBy: string, options: InviteOptions = {}): Promise<string> {
@@ -217,12 +268,11 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       // its id, and its key must be the one the space names.
       const problem = await checkSpace(parsed.space);
       if (problem) throw new Error(`That invite does not describe a real space: ${problem.charAt(0).toLowerCase()}${problem.slice(1)}.`);
-      const key = parsed.key
-        ? await importKey({ id: parsed.space.encryptionKeyId ?? '', raw: parsed.key, createdAt: parsed.space.createdAt, version: 1 })
-        : null;
-      if (key && (await deriveReadKey(key, provider)).did !== parsed.space.readKey) {
-        throw new Error('That invite carries a key that does not belong to its space.');
-      }
+      if (parsed.key && parsed.space.visibility !== 'private') throw new Error('That invite carries a key for a space that has none.');
+      // The key may be the space's first or a later one — the space's key
+      // changed since. Its id is its hash, so it is only ever the key the
+      // history names or one that opens nothing.
+      const key = parsed.key ? await spaceKeyFromRaw(base64UrlDecode(parsed.key), parsed.space.createdAt) : null;
       const secret = parsed.invite ? base64UrlDecode(parsed.invite) : null;
       // A secret of the wrong length cannot be an invite's; refuse it here rather than wait on it forever.
       if (secret && secret.length !== 32) throw new Error('That invite carries a secret that is not an invite\'s.');
@@ -233,12 +283,35 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       if (key) await writeKey(space.id, key);
       // Joining again with a secret while one is waiting keeps the newer one.
       if (secret) await adapter.put(`${INVITE_PREFIX}${space.id}`, utf8Encode(base64UrlEncode(secret)));
+      // Only a hint, but a checked one: a relay list the space itself could not hold is dropped.
+      if (parsed.relays && checkRelays(parsed.relays) === null && parsed.relays.length > 0 && !(await readText(RELAYS_PREFIX, space.id))) {
+        await adapter.put(`${RELAYS_PREFIX}${space.id}`, utf8Encode(JSON.stringify(parsed.relays)));
+      }
 
       return (await load(space.id))!;
     },
 
     async clearInvite(spaceId: string): Promise<void> {
       await adapter.delete(`${INVITE_PREFIX}${spaceId}`);
+    },
+
+    async addKeys(spaceId: string, keys: ReadonlyArray<SpaceKey>, current: string): Promise<void> {
+      if (!(await readSpace(spaceId))) return;
+      const held = (await readKeyring(spaceId)).keys;
+      const known = new Set(held.map((key) => key.id));
+      const all = [...held, ...keys.filter((key) => !known.has(key.id) && (known.add(key.id), true))];
+      if (!all.some((key) => key.id === current)) throw new Error('The current key must be one of the keys held');
+      await writeKeyring(spaceId, all, current);
+    },
+
+    async setRelays(spaceId: string, relays: ReadonlyArray<string>): Promise<void> {
+      if (!(await readSpace(spaceId)) || checkRelays(relays) !== null) return;
+      await adapter.put(`${RELAYS_PREFIX}${spaceId}`, utf8Encode(JSON.stringify(relays)));
+    },
+
+    async setMemberKey(spaceId: string, memberKey: Uint8Array): Promise<void> {
+      if (!(await readSpace(spaceId))) return;
+      await adapter.put(`${MEMBER_KEY_PREFIX}${spaceId}`, utf8Encode(base64UrlEncode(memberKey)));
     },
 
     async setRole(spaceId: string, role: string | null): Promise<void> {
@@ -262,6 +335,7 @@ export async function encodeSpaceInvite(record: SpaceRecord, invitedBy: string, 
     ...(record.key ? { key: (await exportKey(record.key)).raw } : {}),
     ...(options.secret ? { invite: base64UrlEncode(options.secret) } : {}),
     ...(options.secret && options.role ? { role: options.role } : {}),
+    ...((options.relays ?? record.relays)?.length ? { relays: [...(options.relays ?? record.relays)!] } : {}),
   };
   return base64UrlEncode(utf8Encode(JSON.stringify(invite)));
 }

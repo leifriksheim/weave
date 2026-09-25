@@ -108,3 +108,53 @@ export async function decryptExpression(encrypted: EncryptedExpression, spaceKey
     body
   });
 }
+
+/**
+ * A space key from its raw bytes. Its id is the hash of the bytes, so a key
+ * handed over — in an invite, a box — can be checked against the id a space
+ * or its history names.
+ */
+export async function spaceKeyFromRaw(raw: Uint8Array, createdAt = new Date().toISOString()): Promise<SpaceKey> {
+  const key = await globalThis.crypto.subtle.importKey('raw', raw as BufferSource, { name: 'AES-GCM', length: 256 }, true, [
+    'encrypt',
+    'decrypt',
+  ]);
+  const id = base64UrlEncode(new Uint8Array(await sha256(raw)));
+  return Object.freeze({ id, key, createdAt, version: 1 });
+}
+
+/** A space key's raw bytes */
+export async function spaceKeyBytes(key: SpaceKey): Promise<Uint8Array> {
+  return new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', key.key));
+}
+
+/**
+ * Seals a value with a space key, bound to `context`: only someone holding
+ * the key opens it, and only where the context matches.
+ * @returns base64url: the IV, then the ciphertext
+ */
+export async function sealWith(spaceKey: SpaceKey, value: unknown, context: string): Promise<string> {
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await globalThis.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv, additionalData: utf8Encode(context) as BufferSource },
+    spaceKey.key,
+    utf8Encode(JSON.stringify(value)) as BufferSource,
+  );
+  return base64UrlEncode(new Uint8Array([...iv, ...new Uint8Array(ciphertext)]));
+}
+
+/** Opens what `sealWith` sealed; null when it wasn't sealed with this key, for this context, or was changed */
+export async function openWith(spaceKey: SpaceKey, sealed: unknown, context: string): Promise<unknown> {
+  if (typeof sealed !== 'string' || sealed.length > 1_000_000) return null;
+  try {
+    const bytes = base64UrlDecode(sealed);
+    const plain = await globalThis.crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: bytes.subarray(0, 12) as BufferSource, additionalData: utf8Encode(context) as BufferSource },
+      spaceKey.key,
+      bytes.subarray(12) as BufferSource,
+    );
+    return JSON.parse(utf8Decode(new Uint8Array(plain))) as unknown;
+  } catch {
+    return null;
+  }
+}

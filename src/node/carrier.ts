@@ -209,7 +209,10 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
     }
     let changed = false;
     for (const [spaceId, record] of wanted) {
-      if (carried.has(spaceId)) continue;
+      const held = carried.get(spaceId);
+      if (held && held.record.read?.did === record.read?.did) continue;
+      // The space's key changed: carried again, proving the new read key.
+      if (held) await drop(spaceId);
       await carry(record);
       changed = true;
     }

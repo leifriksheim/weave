@@ -25,6 +25,7 @@ import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../uti
 /** Domain separation for the contact key. Changing it changes every account's contact key. */
 const CONTACT_KEY_INFO = 'weave/p256-contact-key/v1';
 const SEAL_INFO = 'weave/contact-seal/v1';
+const MEMBER_KEY_INFO = 'weave/p256-member-key/v1';
 
 /** 48 bytes reduce to a P-256 scalar without bias, as for the root key (`crypto-p256.ts`) */
 const P256_SEED_BYTES = 48;
@@ -54,6 +55,20 @@ async function hkdf(ikm: Uint8Array, info: string, length: number): Promise<Uint
  */
 export async function deriveContactKeyBytes(seed: Uint8Array): Promise<Uint8Array> {
   return p256.utils.randomSecretKey(await hkdf(seed, CONTACT_KEY_INFO, P256_SEED_BYTES));
+}
+
+/**
+ * An account's **member key** for one space: the same kind of key pair, derived
+ * from the account's vault key and the space id. When a private space's key
+ * changes, the new key is sealed to each member's member key (`sys.box`).
+ *
+ * One per space, not one per account, so an account home can hand an app the
+ * member keys for exactly the spaces it grants — and a new space key reaches
+ * that app without it holding anything that opens other spaces' keys.
+ * @param accountKey The vault key bytes (`deriveVaultKeyBytes(seed)`)
+ */
+export async function deriveMemberKeyBytes(accountKey: Uint8Array, spaceId: string): Promise<Uint8Array> {
+  return p256.utils.randomSecretKey(await hkdf(accountKey, `${MEMBER_KEY_INFO}|${spaceId}`, P256_SEED_BYTES));
 }
 
 /** The public half, from the private scalar */

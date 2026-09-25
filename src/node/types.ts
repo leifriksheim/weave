@@ -147,6 +147,14 @@ export interface SpaceAccess {
   readonly role: SpaceRole | null;
   /** The latest access changes held — what a record written now names as `seen` */
   readonly heads: ReadonlyArray<string>;
+  /**
+   * A private space's key: how many times it has changed, and whether this
+   * device holds the one in use now — not while a new one is on its way here.
+   * Null in a public space.
+   */
+  readonly key: { readonly changes: number; readonly held: boolean } | null;
+  /** Where the space's members meet: the relays it names, or until it names some, the ones its invite did */
+  readonly relays: ReadonlyArray<string>;
 }
 
 /** A record, opened and checked — its current version, unless listed as history */
@@ -340,7 +348,12 @@ export interface NodeSpaces {
    */
   invite(spaceId: string, options?: InviteOptions): Promise<string>;
   preview(invite: string): InvitePreview;
-  join(invite: string): Promise<SpaceSummary>;
+  /**
+   * Joins a space from an invite. `memberKey` is this account's member key
+   * for it, for a node without the account key — an app an account home gave
+   * the space to — so a new key of the space reaches it too.
+   */
+  join(invite: string, options?: { readonly memberKey?: Uint8Array }): Promise<SpaceSummary>;
   /**
    * Forgets a space on this node, with its key. Other members keep theirs.
    * Your role stays too — to give it up, `setMember` yourself to null first.
@@ -356,6 +369,19 @@ export interface NodeSpaces {
   removeRole(spaceId: string, name: string): Promise<void>;
   /** Closes an invite — by the link itself, or by its key from `access().invites`. Who joined with it before stays. */
   closeInvite(spaceId: string, keyOrLink: string): Promise<void>;
+  /**
+   * Gives a private space a new key, sealed to every member and nobody else.
+   * Happens by itself when someone is removed or leaves; call it when a
+   * device was lost. View-only links made before stop working. Needs `manage`.
+   */
+  changeKey(spaceId: string): Promise<void>;
+  /**
+   * Names the relays the space's members meet on — wss:// URLs, at most 8 —
+   * so people whose apps use different relays still find each other. Every
+   * member joins the space's room there too, and invites carry them. A space
+   * names the relays of whoever manages it first by itself. Needs `manage`.
+   */
+  setRelays(spaceId: string, relays: ReadonlyArray<string>): Promise<void>;
   /**
    * Revokes a note this account signed — an app's, say. Nothing written under
    * it counts from then on, except what this node had already seen.

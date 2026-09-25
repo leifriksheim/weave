@@ -20,7 +20,7 @@
  * the remover never saw it — is passed over when reading, and the version
  * before it counts again, where the store still has one.
  */
-import { isContactPublicKey } from '../identity/contact-key.js';
+import { contactKeyPair, isContactPublicKey, openSealed, sealFor } from '../identity/contact-key.js';
 import type { Expression, CryptoProvider, StorageAdapter } from '../types.js';
 import type { Signer } from '../schema/signer.js';
 import { createSchemaEngine, type SchemaEngine } from '../schema/schema-engine.js';
@@ -42,12 +42,31 @@ import { createStructuralGate } from '../validation/structural-gate.js';
 import { createStatefulGate } from '../validation/stateful-gate.js';
 import { createCapabilityGate } from '../validation/capability-gate.js';
 import { createValidationEngine } from '../validation/validation-engine.js';
-import { encryptExpression, decryptExpression, type EncryptedExpression } from '../privacy/space-encryption.js';
+import {
+  encryptExpression,
+  decryptExpression,
+  generateSpaceKey,
+  openWith,
+  sealWith,
+  spaceKeyBytes,
+  spaceKeyFromRaw,
+  type EncryptedExpression,
+  type SpaceKey,
+} from '../privacy/space-encryption.js';
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
 import { createMesh, type Mesh } from '../network/mesh.js';
 import { createWebSocketTransport } from '../network/ws-transport.js';
-import { createClientAuth, createMeshAuth } from '../network/peer-auth.js';
+import { createClientAuth, createMeshAuth, type ReadAccess } from '../network/peer-auth.js';
 import {
+  BOX_COLLECTION,
+  MEMBER_KEY_COLLECTION,
+  SPACE_KEY_RECORD,
+  SPACE_RELAYS_RECORD,
+  memberKeyRecordKey,
+  boxContext,
+  boxKey,
+  earlierKeysContext,
+  membershipContext,
   deriveInviteKey,
   deriveReadKey,
   generateInviteSecret,
@@ -62,10 +81,16 @@ import {
   ACCESS_COLLECTIONS,
   DEFINITION_COLLECTION,
   INVITE_COLLECTION,
+  KEY_COLLECTION,
+  MANAGE,
+  MAX_RELAYS,
+  RELAYS_COLLECTION,
+  checkRelays,
   MEMBER_COLLECTION,
   REVOKE_COLLECTION,
   ROLE_COLLECTION,
   checkRole,
+  readers,
   replayAccess,
   roleHolds,
   standing,
@@ -89,7 +114,7 @@ import {
 import { CARRIER_COLLECTION, MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
 import { PASS_COLLECTION } from '../space/pass.js';
 import { base32Encode, cidFromBytes, sha256 } from '../utils/hash.js';
-import { utf8Encode } from '../utils/encoding.js';
+import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import type {
   ConnectionState,
   DefineCollection,
@@ -104,7 +129,7 @@ import type {
 } from './types.js';
 
 /** Collections the node writes itself, through their own calls — never through `put` */
-const MANAGED = new Set([MEMBERSHIP_COLLECTION, PROFILE_COLLECTION, CARRIER_COLLECTION, PASS_COLLECTION, ...ACCESS_COLLECTIONS]);
+const MANAGED = new Set([MEMBERSHIP_COLLECTION, PROFILE_COLLECTION, CARRIER_COLLECTION, PASS_COLLECTION, BOX_COLLECTION, MEMBER_KEY_COLLECTION, ...ACCESS_COLLECTIONS]);
 
 /**
  * Access records a peer without the space key must still be able to judge:
@@ -112,7 +137,7 @@ const MANAGED = new Set([MEMBERSHIP_COLLECTION, PROFILE_COLLECTION, CARRIER_COLL
  * private space. Collection definitions stay sealed — a peer that cannot
  * read the records has no use for their rules.
  */
-const IN_THE_CLEAR = new Set([ROLE_COLLECTION, MEMBER_COLLECTION, INVITE_COLLECTION, REVOKE_COLLECTION]);
+const IN_THE_CLEAR = new Set([ROLE_COLLECTION, MEMBER_COLLECTION, INVITE_COLLECTION, REVOKE_COLLECTION, KEY_COLLECTION, BOX_COLLECTION, MEMBER_KEY_COLLECTION, RELAYS_COLLECTION]);
 
 /** Which collection each access record key belongs to */
 const ACCESS_KEYS: ReadonlyArray<readonly [string, string]> = [
@@ -121,6 +146,8 @@ const ACCESS_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['invite:', INVITE_COLLECTION],
   ['revoke:', REVOKE_COLLECTION],
   ['collection:', DEFINITION_COLLECTION],
+  ['key:', KEY_COLLECTION],
+  ['relays:', RELAYS_COLLECTION],
 ];
 
 /** How many records a keep list may name */
@@ -186,6 +213,16 @@ export interface SpaceRuntimeDeps {
   /** Told once an invite's secret has been used, and can be forgotten */
   readonly onJoined?: () => void;
   /**
+   * This account's member key for the space (`deriveMemberKeyBytes`): what a
+   * new key is sealed to when the space's key changes. Without it, this node
+   * waits for another of the account's to learn the new key.
+   */
+  readonly memberKey?: Uint8Array | null;
+  /** Told every key of the space this node holds whenever it learns one, and which it now writes with */
+  readonly onKeys?: (keys: ReadonlyArray<SpaceKey>, current: string) => Promise<void>;
+  /** Told the relays the space names, when they differ from the ones the record came with */
+  readonly onRelays?: (relays: ReadonlyArray<string>) => Promise<void>;
+  /**
    * Nothing an agent signs counts here — for the account's own spaces (its
    * list of spaces, a carrier's passes), where a note for "every space" would
    * otherwise let an agent join the account to a space or leave one.
@@ -212,6 +249,12 @@ export interface SpaceRuntime {
   /** For the node itself: says who this account is, here — when that changed and the space takes its writes */
   /** Without a contact key, the one this account's profile here already carries is kept */
   publishProfile(profile: { name: string; contactKey?: string }): Promise<void>;
+  /** Gives a private space a new key now, sealed to every member but nobody else. Done by itself when someone is removed. */
+  rotateKey(): Promise<void>;
+  /** Who may read the space, for a node checking the peers that connect to it */
+  readAccess(): ReadAccess | null;
+  /** Names the relays the space's members meet on — for someone who manages it */
+  setRelays(relays: ReadonlyArray<string>): Promise<void>;
   collections(): Promise<ReadonlyArray<NodeCollection>>;
   define(definition: DefineCollection): Promise<NodeCollection>;
   /** Takes a definition out of the space — only once nothing is left in it */
@@ -280,7 +323,18 @@ const isStringList = (value: unknown): value is string[] => Array.isArray(value)
 
 export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRuntime> {
   const { record, provider, signer, schemas, session, emit } = deps;
-  const { space, key } = record;
+  const { space } = record;
+  let closed = false;
+
+  /**
+   * Every key of the space this node holds, by id. Encrypted bodies name the
+   * key they were sealed with; the history names which one is current.
+   */
+  const keyring = new Map<string, SpaceKey>();
+  for (const held of record.keys ?? []) keyring.set(held.id, held);
+  if (record.key) keyring.set(record.key.id, record.key);
+  /** This account's member key here, which new keys are sealed to */
+  const memberPair = deps.memberKey ? await contactKeyPair(deps.memberKey) : null;
   /** An invite waiting to be used — forgotten here once it is, whatever the stored record still says */
   let waitingInvite = record.invite !== null;
 
@@ -343,9 +397,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
    */
   async function openBody(expression: Expression): Promise<{ body: unknown; links: ReadonlyArray<Link>; encrypted: boolean }> {
     if (!looksEncrypted(expression.body)) return { body: expression.body, links: expression.links ?? [], encrypted: false };
-    if (!key) return { body: null, links: [], encrypted: true };
+    const sealedWith = keyring.get(String((expression.body as { keyId?: unknown }).keyId));
+    if (!sealedWith) return { body: null, links: [], encrypted: true };
     try {
-      const opened = (await decryptExpression(expression as EncryptedExpression, key)).body as { body?: unknown; links?: unknown };
+      const opened = (await decryptExpression(expression as EncryptedExpression, sealedWith)).body as { body?: unknown; links?: unknown };
       const links = checkLinks(opened?.links ?? []) === null ? ((opened?.links as ReadonlyArray<Link> | undefined) ?? []) : [];
       return { body: opened?.body ?? null, links, encrypted: true };
     } catch {
@@ -389,6 +444,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     creator: space.creator,
     roles: space.roles,
     creatorRole: space.creatorRole,
+    ...(space.visibility === 'private' && space.encryptionKeyId && space.readKey
+      ? { key: { keyId: space.encryptionKeyId, readKey: space.readKey } }
+      : {}),
   };
 
   /** Events, by version id — building one checks signatures and invites, so they are kept */
@@ -455,6 +513,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         if (version.key !== (await inviteRecordKey(inviteDid))) return null;
         return { ...base, keep, kind: 'invite', inviteKey: inviteDid, role: body.role, open: body.open };
       }
+      case KEY_COLLECTION: {
+        if (version.key !== SPACE_KEY_RECORD || typeof body.keyId !== 'string' || body.keyId.length > 64) return null;
+        if (typeof body.readKey !== 'string' || !body.readKey.startsWith('did:key:')) return null;
+        return { ...base, keep: [], kind: 'key', keyId: body.keyId, readKey: body.readKey };
+      }
+      case RELAYS_COLLECTION: {
+        if (version.key !== SPACE_RELAYS_RECORD || !isStringList(body.relays) || body.relays.length > MAX_RELAYS) return null;
+        return { ...base, keep: [], kind: 'relays', relays: body.relays };
+      }
       case REVOKE_COLLECTION: {
         if (typeof body.note !== 'string') return null;
         let issuer: string;
@@ -476,6 +543,22 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     readonly events: ReadonlyArray<AccessEvent>;
   }
   let accessCache: Promise<Access> | null = null;
+  /** The read key readers must prove now — kept at hand, since a handshake asks for it without waiting */
+  let currentReadKey = space.readKey ?? '';
+
+  /**
+   * Where the members meet: the relays the space names once it names some,
+   * and until then the ones the invite that brought it here named. Handed to
+   * the mesh for this space's room alone.
+   */
+  let relays: ReadonlyArray<string> = record.relays ?? [];
+  let meshRoom: string | null = null;
+  function useRelays(named: ReadonlyArray<string>): void {
+    if (named.length === 0 || (named.length === relays.length && named.every((url, i) => url === relays[i]))) return;
+    relays = [...named];
+    if (meshRoom) deps.mesh?.useRelays(meshRoom, relays);
+    void deps.onRelays?.(relays).catch(() => {});
+  }
   const access = () => (accessCache ??= loadAccess());
 
   async function loadAccess(): Promise<Access> {
@@ -493,6 +576,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
     const history = replayAccess(accessGenesis, found);
     reportRole(history.current);
+    currentReadKey = history.current.keys.at(-1)?.readKey ?? currentReadKey;
+    useRelays(history.current.relays);
     return { history, events: found };
   }
 
@@ -884,15 +969,272 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return result;
   }
 
+
+  /**
+   * Each member's member key, from their own record of it — kept in the
+   * clear, so someone who holds only an older key of the space can still say
+   * where to seal the new one.
+   */
+  let memberKeysCache: Promise<Map<string, string>> | null = null;
+  const memberKeyMap = () => (memberKeysCache ??= loadMemberKeys());
+
+  async function loadMemberKeys(): Promise<Map<string, string>> {
+    const found = new Map<string, string>();
+    // By key: the current version may be anyone's.
+    for (const [key, versions] of await storage.histories('memberkey:')) {
+      for (const version of versions) {
+        if (version.collection !== MEMBER_KEY_COLLECTION || version.deleted) continue;
+        const verdict = await judge(version);
+        if (!verdict.verified || !verdict.root || (await memberKeyRecordKey(verdict.root)) !== key) continue;
+        if (!(await standingOf(version)).ok) continue;
+        const body = version.body as { key?: unknown } | null;
+        if (isContactPublicKey(body?.key)) {
+          found.set(verdict.root, body.key);
+          break;
+        }
+      }
+    }
+    return found;
+  }
+
   /** Records changed: everything derived from them may have too. */
   const recordsChanged = () => {
     linkIndexCache = null;
     catalogCache = null;
     profilesCache = null;
+    memberKeysCache = null;
     accessCache = null;
     standings.clear();
     emit({ type: 'records', space: space.id });
+    keepUp();
   };
+
+  // ─── The space's keys ──────────────────────────────────────────────
+  //
+  // A private space's key changes when someone loses their place in it
+  // (`sys.key`, part of the access history): whoever manages the space makes
+  // a new one, and seals a copy to each member's member key (`sys.box`). The
+  // key record carries every earlier key sealed under the new one, so holding
+  // the current key opens everything written before it — which is how
+  // someone who joins later reads the old records, and someone removed reads
+  // nothing new. This is how Keybase changes a team's key.
+
+  /** The key the history names now, if this node holds it */
+  function currentKey(state: AccessState): SpaceKey | null {
+    const epoch = state.keys.at(-1);
+    return epoch ? (keyring.get(epoch.keyId) ?? null) : null;
+  }
+
+  /** The newest key this node holds that the history names — what it proves it may read with while behind */
+  function newestKey(state: AccessState): SpaceKey | null {
+    for (const epoch of [...state.keys].reverse()) {
+      const held = keyring.get(epoch.keyId);
+      if (held) return held;
+    }
+    return record.key;
+  }
+
+  /** Box and key record versions already opened, so each is tried once */
+  const opened = new Set<string>();
+
+  /** Takes in what this node can open: boxes sealed to its member key, and the earlier keys each key record carries */
+  async function learnKeys(): Promise<void> {
+    const { history } = await access();
+    const epochs = history.current.keys;
+    const learned: SpaceKey[] = [];
+    const take = (found: SpaceKey) => {
+      if (keyring.has(found.id)) return false;
+      keyring.set(found.id, found);
+      learned.push(found);
+      return true;
+    };
+
+    if (memberPair && epochs.some((epoch) => !keyring.has(epoch.keyId))) {
+      for (const versions of (await storage.histories('box:')).values()) {
+        for (const version of versions) {
+          if (version.collection !== BOX_COLLECTION || version.deleted || opened.has(version.id)) continue;
+          const body = version.body as { keyId?: unknown; to?: unknown; sealed?: unknown } | null;
+          if (body?.to !== deps.rootDid || typeof body.keyId !== 'string' || typeof body.sealed !== 'string') continue;
+          const epoch = epochs.find((known) => known.keyId === body.keyId);
+          if (!epoch || keyring.has(epoch.keyId)) continue;
+          opened.add(version.id);
+          const content = (await openSealed(memberPair.privateKey, body.sealed, boxContext(space.id, epoch.keyId, deps.rootDid))) as { key?: unknown } | null;
+          if (typeof content?.key !== 'string') continue;
+          // Whoever sealed it, it is the key the history names or it is nothing.
+          const found = await spaceKeyFromRaw(base64UrlDecode(content.key)).catch(() => null);
+          if (found?.id === epoch.keyId && (await deriveReadKey(found, provider)).did === epoch.readKey) take(found);
+        }
+      }
+    }
+
+    // Each newer key opens the ones before it — which may open more.
+    let more = true;
+    while (more) {
+      more = false;
+      for (const versions of (await storage.histories('key:')).values()) {
+        for (const version of versions) {
+          const body = version.body as { keyId?: unknown; earlier?: unknown } | null;
+          if (version.collection !== KEY_COLLECTION || opened.has(version.id) || typeof body?.keyId !== 'string') continue;
+          const holder = keyring.get(body.keyId);
+          if (!holder) continue;
+          opened.add(version.id);
+          const earlier = await openWith(holder, body.earlier, earlierKeysContext(space.id, holder.id));
+          if (!isStringList(earlier)) continue;
+          for (const raw of earlier.slice(0, 1000)) {
+            const found = await spaceKeyFromRaw(base64UrlDecode(raw)).catch(() => null);
+            if (found && take(found)) more = true;
+          }
+        }
+      }
+    }
+
+    if (learned.length === 0) return;
+    const writeWith = newestKey((await access()).history.current);
+    if (writeWith) await deps.onKeys?.([...keyring.values()], writeWith.id);
+    recordsChanged();
+  }
+
+  /** Makes a new key current, with every key before it sealed inside, and seals it to each member */
+  async function rotateKey(): Promise<void> {
+    if (space.visibility !== 'private') throw new Error('A public space has no key to change');
+    const { history } = await access();
+    if (!roleHolds(standing(history.current, deps.rootDid), MANAGE)) throw new Error(`Only someone who manages "${space.name}" can change its key`);
+    if (!currentKey(history.current)) throw new Error(`This device doesn't hold the current key of "${space.name}" yet`);
+    const next = await generateSpaceKey();
+    const earlier = await Promise.all([...keyring.values()].map(async (held) => base64UrlEncode(await spaceKeyBytes(held))));
+    const body = {
+      keyId: next.id,
+      readKey: (await deriveReadKey(next, provider)).did,
+      earlier: await sealWith(next, earlier, earlierKeysContext(space.id, next.id)),
+    };
+    keyring.set(next.id, next);
+    try {
+      await upsert(KEY_COLLECTION, SPACE_KEY_RECORD, body);
+    } catch (error) {
+      keyring.delete(next.id);
+      throw error;
+    }
+    await deps.onKeys?.([...keyring.values()], next.id);
+    await boxForMembers();
+  }
+
+  /**
+   * Seals the current key to each member who has no copy from someone who
+   * manages the space. Members show their member key on their profile; one
+   * who hasn't yet gets their copy once they do.
+   */
+  async function boxForMembers(): Promise<void> {
+    const { history } = await access();
+    const state = history.current;
+    const epoch = state.keys.at(-1);
+    const key = currentKey(state);
+    if (!epoch || !key) return;
+
+    const boxed = new Set<string>();
+    for (const versions of (await storage.histories('box:')).values()) {
+      for (const version of versions) {
+        const body = version.body as { keyId?: unknown; to?: unknown } | null;
+        if (version.collection !== BOX_COLLECTION || body?.keyId !== epoch.keyId || typeof body.to !== 'string') continue;
+        const { root } = await judge(version);
+        if (root && (root === deps.rootDid || roleHolds(standing(state, root), MANAGE))) boxed.add(body.to);
+      }
+    }
+    const memberKeys = await memberKeyMap();
+    const raw = base64UrlEncode(await spaceKeyBytes(key));
+    for (const did of [...readers(state)].sort()) {
+      const publicKey = memberKeys.get(did);
+      if (boxed.has(did) || !publicKey) continue;
+      const sealed = await sealFor(publicKey, { key: raw }, boxContext(space.id, epoch.keyId, did));
+      await upsert(BOX_COLLECTION, await boxKey(epoch.keyId, did, deps.rootDid), { keyId: epoch.keyId, to: did, sealed });
+    }
+  }
+
+  /**
+   * Keeps the keys in step with the history: says where to seal this
+   * account's copy, learns what it can, and — managing the space — changes
+   * the key when due and seals it to whoever lacks it.
+   */
+  async function upkeep(): Promise<void> {
+    if (isAgentNote(session.proof())) {
+      if (space.visibility === 'private') await learnKeys();
+      return;
+    }
+    await nameRelays();
+    if (space.visibility !== 'private') return;
+    if (deps.peopleOnly) {
+      await learnKeys();
+      return;
+    }
+    const mine = await memberKeyMap();
+    if (memberPair && mine.get(deps.rootDid) !== memberPair.publicKey && !(await cannotWrite())) {
+      await upsert(MEMBER_KEY_COLLECTION, await memberKeyRecordKey(deps.rootDid), { key: memberPair.publicKey });
+    }
+    await learnKeys();
+    const { history } = await access();
+    const state = history.current;
+    if (!currentKey(state)) return;
+    if (!roleHolds(standing(state, deps.rootDid), MANAGE)) return;
+    if (state.keyDue) await rotateKey();
+    else await boxForMembers();
+  }
+
+  /**
+   * A space nobody has said where to meet yet: whoever manages it names the
+   * relays this node uses, so the invites and devices that follow meet there.
+   */
+  async function nameRelays(): Promise<void> {
+    const own = (deps.network?.relays ?? []).filter((url) => checkRelays([url]) === null).slice(0, MAX_RELAYS);
+    if (own.length === 0) return;
+    const { history } = await access();
+    if (history.current.relays.length > 0 || !roleHolds(standing(history.current, deps.rootDid), MANAGE)) return;
+    await upsert(RELAYS_COLLECTION, SPACE_RELAYS_RECORD, { relays: own });
+  }
+
+  let keysRunning: Promise<void> | null = null;
+  let keysAgain = false;
+  /** Runs the upkeep once more after whatever changed — one run at a time */
+  function keepUp(): void {
+    if (closed) return;
+    if (keysRunning) {
+      keysAgain = true;
+      return;
+    }
+    keysRunning = (async () => {
+      do {
+        keysAgain = false;
+        await upkeep().catch(() => {
+          // A write refused, a peer's junk: the next change tries again.
+        });
+      } while (keysAgain && !closed);
+    })().finally(() => {
+      keysRunning = null;
+    });
+  }
+
+  /** How this node proves it may read, and checks the peers that connect — against the history at that moment */
+  const readAccess: ReadAccess | null =
+    space.visibility !== 'private'
+      ? null
+      : {
+          async key() {
+            const held = newestKey((await access()).history.current);
+            // A carrier holds the read key pair without the key it comes from: it may be served the space, and cannot open it.
+            return held ? deriveReadKey(held, provider) : (record.read ?? null);
+          },
+          current: () => currentReadKey,
+          async membership() {
+            const held = newestKey((await access()).history.current);
+            return held ? sealWith(held, session.proof(), membershipContext(space.id)) : null;
+          },
+          async admits(peerDid: string, readKey: string, membership: unknown) {
+            const { history } = await access();
+            const epoch = history.current.keys.find((known) => known.readKey === readKey);
+            const held = epoch ? keyring.get(epoch.keyId) : undefined;
+            if (!held) return false;
+            const { account } = await accountOf(peerDid, await openWith(held, membership, membershipContext(space.id)));
+            return account !== null && readers(history.current).has(account);
+          },
+        };
 
   // ─── Peers ─────────────────────────────────────────────────────────
 
@@ -941,20 +1283,16 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   const net = deps.network;
   if (net) {
     const room = encodeURIComponent(space.id);
-    // A carrier holds the read key pair without the key it comes from: it may be served the space, and cannot open it.
-    const readKey = space.visibility === 'private' ? (key ? await deriveReadKey(key, provider) : (record.read ?? null)) : null;
+    // Who is at the other end is asked of the history at each handshake: the space's key may change while it is open.
+    await access();
     if (deps.mesh) {
+      meshRoom = await relayRoom(space.id);
+      deps.mesh.useRelays(meshRoom, relays);
       // Every peer met through a relay proves who it is, and in a private space that it may read.
-      const auth = createMeshAuth(
-        space.id,
-        session,
-        space.visibility === 'private' ? { key: readKey, publicDid: space.readKey ?? '' } : null,
-        provider,
-      );
-      networks.push(deps.mesh.join(await relayRoom(space.id), auth));
+      networks.push(deps.mesh.join(meshRoom, createMeshAuth(space.id, session, readAccess, provider)));
     }
     // Both sides of a socket to a node prove who they are; in a private space the client also proves it may read.
-    const authenticator = net.nodes?.length ? createClientAuth(space.id, session, readKey, provider) : null;
+    const authenticator = net.nodes?.length ? createClientAuth(space.id, session, readAccess, provider) : null;
     for (const node of net.nodes ?? []) {
       const url = `${node}${node.includes('?') ? '&' : '?'}space=${room}`;
       networks.push(
@@ -1161,7 +1499,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // signature and relay the record, they just cannot read it.
       payload = body;
       if (space.visibility === 'private' && !IN_THE_CLEAR.has(collection)) {
-        if (!key) throw new Error('This private space has no key on this node');
+        // Always the key the history names now: one someone removed still holds would do nothing.
+        const key = currentKey((await access()).history.current);
+        if (!key) {
+          throw new Error(
+            keyring.size
+              ? `The key of "${space.name}" changed, and the new one hasn't reached this device yet — connect to someone in the space first`
+              : 'This private space has no key on this node',
+          );
+        }
         // Body and links sealed together: a relay learns neither.
         const content = links.length ? { body, links } : { body };
         const sealed = await encryptExpression(
@@ -1179,6 +1525,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const retain =
       ACCESS_COLLECTIONS.has(collection) ||
       collection === PROFILE_COLLECTION ||
+      collection === BOX_COLLECTION ||
+      collection === MEMBER_KEY_COLLECTION ||
       (await catalog()).get(collection)?.definition.history === 'all';
 
     const { history, events: held } = await access();
@@ -1342,6 +1690,16 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       await upsert(PROFILE_COLLECTION, await profileKey(deps.rootDid), { name, ...(contactKey ? { contactKey } : {}) });
     },
 
+    rotateKey,
+
+    readAccess: () => readAccess,
+
+    async setRelays(named: ReadonlyArray<string>) {
+      const problem = checkRelays(named);
+      if (problem) throw new Error(problem);
+      await upsert(RELAYS_COLLECTION, SPACE_RELAYS_RECORD, { relays: [...named] });
+    },
+
     async update<T>(recordKey: string, body: T, options: { links?: ReadonlyArray<Link>; as?: ActiveSession } = {}): Promise<NodeRecord<T>> {
       const current = await requireLive(recordKey);
       guard(current.collection);
@@ -1427,7 +1785,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const { history } = await access();
       const state = history.current;
       const role = standing(state, deps.rootDid);
-      return Object.freeze({
+      // Once at open, then after every change.
+  keepUp();
+
+  return Object.freeze({
         roles: [...state.roles.values()].sort((a, b) => b.rank - a.rank || a.name.localeCompare(b.name)),
         members: [...state.members]
           .map(([did, name]) => ({ did, role: name }))
@@ -1435,6 +1796,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         invites: [...state.invites].map(([inviteDid, invite]) => ({ key: inviteDid, role: invite.role, open: invite.open })),
         role,
         heads: history.heads(),
+        key: state.keys.length ? { changes: state.keys.length - 1, held: currentKey(state) !== null } : null,
+        relays: state.relays.length ? state.relays : relays,
       });
     },
 
@@ -1544,6 +1907,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     },
 
     async close(): Promise<void> {
+      closed = true;
+      await keysRunning;
       if (watchTimer) clearInterval(watchTimer);
       if (announceTimer) clearTimeout(announceTimer);
       channel?.close();

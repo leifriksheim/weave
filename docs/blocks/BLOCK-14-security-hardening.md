@@ -6,7 +6,7 @@ The parts of the September 2026 security audit that change the protocol's
 design rather than fix a bug in it. When this block is done:
 
 - nobody can freeze a record, or take over who created it;
-- removing someone from a space actually cuts them off;
+- removing someone from a space actually cuts them off (done);
 - pairing a phone no longer puts the whole account on screen;
 - a private space no longer gives away who voted for what;
 - one peer cannot make another do unbounded work.
@@ -81,27 +81,10 @@ migrate (see the memory note on migrations).
 
 ## 2. Removing someone from a space
 
-> The write half is now BLOCK-15 (member records you can delete, with a keep
-> list). What's left here is the read half: key epochs.
-
-**The problem.** The space id is a hash of the space's genesis, which includes
-the read key and the write key (`space/space-access.ts`). So neither key can
-ever change, and someone invited stays invited. After you "remove" them they
-can still read everything and write. `members` is only for display, and an
-invite's member list is taken as given. `privacy-guard.rotateSpaceKey` exists,
-but nothing calls it.
-
-**The shape of a fix.** Key epochs. The genesis names the *owner's* key and
-epoch 0. A new epoch is a record signed by the owner (or a role the rules
-allow) that names the new public read and write keys. It carries the new
-secrets sealed to each remaining member, using `privacy/key-distribution.ts`,
-which already does ECIES-style wrapping. A record is valid under the epoch
-current when it was written. Readers keep old epochs' keys to read old data.
-Where epochs are too much, a "move to a new space" flow is the blunt version:
-copy what is current into a fresh space, and invite everyone but them.
-
-Be honest in the UI about what removal can do. Someone removed keeps whatever
-they already downloaded.
+Done: the write half in BLOCK-15, the read half as key changes (see the
+README, *Removing someone from a private space changes its key*). What's left
+is honest UI copy in the home's member screens: someone removed keeps what they
+already downloaded, and view-only links made before a removal stop working.
 
 ---
 

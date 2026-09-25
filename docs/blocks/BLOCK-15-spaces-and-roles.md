@@ -397,8 +397,9 @@ to keep working.
 
 ## What is left out, on purpose
 
-- **Taking away reading.** A role governs writing. Anyone who had the read key
-  keeps it until the key changes for everyone, which is BLOCK-14 §2.
+- **Taking away reading.** A role governs writing. Reading ends with a new
+  key for the space, made by itself when someone is removed (built since; see
+  the README).
 - **Roles that follow a person across spaces.** Each space has its own. An app
   can copy roles when it makes a new space.
 - **Facts through links** ("the creator of the poll this vote is about may

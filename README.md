@@ -599,8 +599,9 @@ and roles ranked below you, and give out roles up to your own rank. Two people
 at the same rank can never remove each other, only themselves — so the creator
 **hands over** by giving someone their role, then leaving, and the space goes on.
 
-Roles, members, invites, revoked notes and collection definitions are records
-(`sys.role`, `sys.member`, `sys.invite`, `sys.revoke`, `sys.collection`), and
+Roles, members, invites, revoked notes, collection definitions and changes of a
+private space's key are records (`sys.role`, `sys.member`, `sys.invite`,
+`sys.revoke`, `sys.collection`, `sys.key`), and
 every record written anywhere names the latest of them its writer knew, as
 `seen`. That makes the **access history** a small graph, which every peer
 replays the same way (`space/roles.ts`): a change comes after what it saw;
@@ -642,15 +643,35 @@ connect under someone else's name, and in a private space with the read key
 too, checked against its public half. A stranger who learns a space's id, or a
 relay that sees its room, gets no ciphertext. A peer-to-peer handshake also
 signs both ends' DTLS fingerprints, so a relay that swapped in its own offer to
-sit in the middle is caught. Roles govern writing only: someone removed keeps
-the read key until the space's key changes for everyone (BLOCK-14 §2).
+sit in the middle is caught.
+
+**Removing someone from a private space changes its key**, the way Keybase
+changes a team's key. Whoever manages the space, seeing someone lose their
+place (removed, left, or their role deleted), makes a new key by itself and
+writes a `sys.key` record: the new key's id and public read key, and every
+earlier key sealed under the new one. It is part of the access history, so two
+new keys made apart resolve like any other change, and only `manage` may make
+one. Each member's copy goes in a `sys.box`, sealed to their **member key**: a
+key pair per account per space, derived from the account's vault key, whose
+public half each member publishes in the clear (`sys.memberkey`). An account
+home hands an app the member keys of exactly the spaces it grants.
+
+From then on new records are sealed with the new key. Someone removed keeps what
+they could already read, and nothing after it. Holding the current key opens
+every earlier one, so a newcomer reads the space's past. A member who was away
+when the key changed still holds only the older read key: they prove that, and
+send their note sealed under the older key, and a peer holding it lets them in
+if they are still a member. A host with no key takes the current read key only.
+View-only links made before the change stop working; share a new one.
+`node.spaces.changeKey(space)` does the same by hand, for a lost device.
 
 A space's **id is the hash of what is fixed at creation**: creator, visibility,
 starting roles and which one the creator holds, time, a random nonce and the
-read key (the name is left out, so it can change). `join` refuses an invite
-whose space does not hash to its id, or whose key is not the one the space
-names — so whoever passes an invite on cannot change who started the space, or
-with which roles.
+first read key (the name is left out, so it can change). `join` refuses an
+invite whose space does not hash to its id — so whoever passes an invite on
+cannot change who started the space, or with which roles. The key an invite
+carries may be a later one; its id is its hash, so it is either the key the
+history names or one that opens nothing.
 
 **Spaces describe themselves.** A space stores its collections' definitions —
 name, title, description and a JSON Schema — as signed records in
@@ -1046,6 +1067,18 @@ space with is a peer in that one only.
 
 **Several relays**, so there is no single phone book — a peer announced by two
 of them is announced upward once, and replies go back the way they arrived.
+
+**The space says where it meets**, like a Nostr relay list, but the space's
+own. `sys.relays` is part of the access history, so only someone who manages
+the space changes it (`node.spaces.setRelays`), and a new space names its
+creator's relays by itself. Invites carry the list, so a joiner whose app uses
+other relays reaches the space before anything has synced. Every member then
+joins the space's room on those relays as well as their own
+(`mesh.useRelays(room, relays)`); relays only one space names are joined for
+that space's room alone, and dropped once no open space names them. Moving a
+space to another relay, a self-hosted one say, is one change, and everyone
+follows. No DHT: browsers can't be DHT nodes, and would need a relay to reach
+one anyway.
 
 **Peers introduce peers**, so a relay is only needed for the *first* connection.
 Once you are connected to someone, their data channel carries signalling for the

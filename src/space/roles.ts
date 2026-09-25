@@ -51,6 +51,18 @@ export const INVITE_COLLECTION = 'sys.invite';
 export const REVOKE_COLLECTION = 'sys.revoke';
 /** Collection definitions are part of the access history too: they decide what a rule asks for */
 export const DEFINITION_COLLECTION = 'sys.collection';
+/**
+ * A private space's key changes: the new key's id and public read key. The
+ * key itself travels sealed to each member (`sys.box`); this record only says
+ * which key is current, so a peer without any key can still check readers.
+ */
+export const KEY_COLLECTION = 'sys.key';
+/**
+ * Where the space's members meet: the relays it names, so two people whose
+ * apps use different relays still find each other. Like a Nostr relay list,
+ * but the space's, and changed only by someone who manages it.
+ */
+export const RELAYS_COLLECTION = 'sys.relays';
 
 /** Every collection whose records are part of the access history */
 export const ACCESS_COLLECTIONS: ReadonlySet<string> = new Set([
@@ -59,6 +71,8 @@ export const ACCESS_COLLECTIONS: ReadonlySet<string> = new Set([
   INVITE_COLLECTION,
   REVOKE_COLLECTION,
   DEFINITION_COLLECTION,
+  KEY_COLLECTION,
+  RELAYS_COLLECTION,
 ]);
 
 export const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,39}$/;
@@ -125,7 +139,44 @@ export type AccessEvent = EventBase &
     | { readonly kind: 'invite'; readonly inviteKey: string; readonly role: string; readonly open: boolean }
     | { readonly kind: 'revoke'; /** The note's CID */ readonly note: string; /** Who signed the note */ readonly issuer: string }
     | { readonly kind: 'definition'; readonly name: string; readonly deleted: boolean }
+    | {
+        readonly kind: 'key';
+        /** The new key's id: the hash of its bytes, as encrypted bodies name it */
+        readonly keyId: string;
+        /** The public half of the read key derived from it, which readers prove they hold */
+        readonly readKey: string;
+      }
+    | { readonly kind: 'relays'; /** WebSocket URLs, at most `MAX_RELAYS` */ readonly relays: ReadonlyArray<string> }
   );
+
+/** How many relays a space may name */
+export const MAX_RELAYS = 8;
+
+/** Why a list of relays can't be a space's, or null */
+export function checkRelays(relays: unknown): string | null {
+  if (!Array.isArray(relays) || relays.length > MAX_RELAYS) return `A space names at most ${MAX_RELAYS} relays`;
+  for (const url of relays) {
+    if (typeof url !== 'string' || url.length > 200) return 'A relay is a URL of at most 200 characters';
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return `"${url}" is not a URL`;
+    }
+    // Plain ws:// only on this machine: anywhere else it would show the room to everyone on the way.
+    const local = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+    if (parsed.protocol !== 'wss:' && !(parsed.protocol === 'ws:' && local)) return `"${url}" is not a wss:// relay`;
+  }
+  return new Set(relays).size === relays.length ? null : 'A relay is named twice';
+}
+
+/** One of a private space's keys, as the history names it */
+export interface SpaceKeyEpoch {
+  readonly keyId: string;
+  readonly readKey: string;
+  /** The change that made it current; the space id for the key it started with */
+  readonly event: string;
+}
 
 /** Who holds what, at one point in the history */
 export interface AccessState {
@@ -136,6 +187,12 @@ export interface AccessState {
   readonly invites: ReadonlyMap<string, { readonly role: string; readonly open: boolean; readonly event: string }>;
   /** Collection name → the id of the definition in force, and who first defined it */
   readonly definitions: ReadonlyMap<string, { readonly event: string; readonly definedBy: string }>;
+  /** A private space's keys, oldest first; the last is current. Empty in a public space. */
+  readonly keys: ReadonlyArray<SpaceKeyEpoch>;
+  /** Whether someone lost their place in the space since the current key — so a new one is due */
+  readonly keyDue: boolean;
+  /** The relays the space names — empty until someone who manages it names some */
+  readonly relays: ReadonlyArray<string>;
 }
 
 /** What a space starts with, from its genesis */
@@ -145,6 +202,8 @@ export interface AccessGenesis {
   readonly creator: string;
   readonly roles: ReadonlyArray<Role>;
   readonly creatorRole: string;
+  /** A private space's first key, from its genesis */
+  readonly key?: { readonly keyId: string; readonly readKey: string };
 }
 
 export type EventStatus =
@@ -203,6 +262,9 @@ interface MutableState {
   members: Map<string, string>;
   invites: Map<string, { role: string; open: boolean; event: string }>;
   definitions: Map<string, { event: string; definedBy: string }>;
+  keys: SpaceKeyEpoch[];
+  keyDue: boolean;
+  relays: ReadonlyArray<string>;
 }
 
 function startState(genesis: AccessGenesis): MutableState {
@@ -211,6 +273,9 @@ function startState(genesis: AccessGenesis): MutableState {
     members: new Map([[genesis.creator, genesis.creatorRole]]),
     invites: new Map(),
     definitions: new Map(),
+    keys: genesis.key ? [{ ...genesis.key, event: genesis.id }] : [],
+    keyDue: false,
+    relays: [],
   };
 }
 
@@ -219,7 +284,15 @@ const copyState = (state: MutableState): MutableState => ({
   members: new Map(state.members),
   invites: new Map(state.invites),
   definitions: new Map(state.definitions),
+  keys: [...state.keys],
+  keyDue: state.keyDue,
+  relays: state.relays,
 });
+
+/** Everyone holding a role that exists — who can read, as far as the history is concerned */
+export function readers(state: AccessState): Set<string> {
+  return new Set([...state.members].filter(([, role]) => state.roles.has(role)).map(([did]) => did));
+}
 
 function roleOf(state: AccessState, did: string): Role | null {
   const name = state.members.get(did);
@@ -256,6 +329,8 @@ function takesAway(event: AccessEvent, state: AccessState): boolean {
       return event.role.rank < before.rank || before.permissions.some((p) => !event.role!.permissions.includes(p));
     }
     case 'definition':
+    case 'key':
+    case 'relays':
       return false;
   }
 }
@@ -276,6 +351,8 @@ function mayTakeAway(event: AccessEvent): boolean {
     case 'role':
       return true;
     case 'definition':
+    case 'key':
+    case 'relays':
       return false;
   }
 }
@@ -337,6 +414,14 @@ function refusal(event: AccessEvent, state: AccessState): string | null {
       if (roleHolds(author, MANAGE)) return null;
       return author && existing.definedBy === event.root ? null : 'Only whoever defined it, or someone who manages the space, may change it';
     }
+    case 'key': {
+      if (state.keys.length === 0) return 'A public space has no key to change';
+      if (!roleHolds(author, MANAGE)) return 'Its author may not change the space\'s key';
+      // Going back to a key a removed member still holds would undo the point of changing it.
+      return state.keys.some((known) => known.keyId === event.keyId || known.readKey === event.readKey) ? 'That key was used before' : null;
+    }
+    case 'relays':
+      return roleHolds(author, MANAGE) ? checkRelays(event.relays) : 'Its author may not change where the space meets';
   }
 }
 
@@ -348,6 +433,13 @@ function affected(event: AccessEvent, state: AccessState): ReadonlyArray<string>
 }
 
 function apply(event: AccessEvent, state: MutableState): void {
+  const before = event.kind === 'key' ? null : readers(state);
+  change(event, state);
+  if (event.kind === 'key') state.keyDue = false;
+  else if (state.keys.length > 0 && [...before!].some((did) => !readers(state).has(did))) state.keyDue = true;
+}
+
+function change(event: AccessEvent, state: MutableState): void {
   switch (event.kind) {
     case 'role':
       if (event.role) state.roles.set(event.name, event.role);
@@ -371,6 +463,12 @@ function apply(event: AccessEvent, state: MutableState): void {
       state.definitions.set(event.name, { event: event.id, definedBy });
       return;
     }
+    case 'key':
+      state.keys.push({ keyId: event.keyId, readKey: event.readKey, event: event.id });
+      return;
+    case 'relays':
+      state.relays = [...event.relays];
+      return;
   }
 }
 

@@ -255,6 +255,29 @@ describe('the mesh, through real relays', () => {
     for (const room of [a, b, c]) room.disconnect();
   });
 
+  test('a room that names its own relay: two peers on different relays meet there, with nobody to introduce them', async () => {
+    const meshA = mesh('did:key:zA', [relay], 'own-relay');
+    const meshC = mesh('did:key:zC', [otherRelay], 'own-relay');
+    // The space names the relay C uses; A joins its room there as well as on its own.
+    meshA.useRelays('named', [otherRelay]);
+    const a = meshA.join('named');
+    const c = meshC.join('named');
+    const seenA = collect(a);
+    await a.connect();
+    await c.connect();
+    await until(() => seenA.connected.includes('did:key:zC'), 5000, 'A to meet C on the room\'s relay');
+
+    // A room that names no relay of its own stays on A's relays alone: C is not met there.
+    const plainA = meshA.join('plain');
+    const plainC = meshC.join('plain');
+    const seenPlain = collect(plainA);
+    await plainA.connect();
+    await plainC.connect();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(seenPlain.connected.includes('did:key:zC'), false);
+    for (const room of [a, c, plainA, plainC]) room.disconnect();
+  });
+
   test('two spaces shared by two devices use one connection', async () => {
     const [meshA, meshB] = [mesh('did:key:zA', [relay], 'shared-link'), mesh('did:key:zB', [relay], 'shared-link')];
     const [a1, a2, b1, b2] = [meshA.join('one'), meshA.join('two'), meshB.join('one'), meshB.join('two')];

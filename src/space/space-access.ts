@@ -171,6 +171,28 @@ export const inviteKey = (inviteDid: string) => hashKey('invite', inviteDid);
 export const revokeKey = (noteCid: string) => hashKey('revoke', noteCid);
 /** The key of a role's record */
 export const roleKey = (name: string) => `role:${name}`;
+/**
+ * Where each member says, in the clear, which member key a new space key
+ * should be sealed to: `{ key }`, one record per account. In the clear so
+ * someone holding only an older key of the space can still write it.
+ */
+export const MEMBER_KEY_COLLECTION = 'sys.memberkey';
+/** The key of an account's member key record */
+export const memberKeyRecordKey = (did: string) => hashKey('memberkey', did);
+/** Where the sealed copies of a changed space key live, one per member: `{ keyId, to, sealed }` */
+export const BOX_COLLECTION = 'sys.box';
+/** What the earlier keys a key record carries are bound to */
+export const earlierKeysContext = (spaceId: string, keyId: string) => `weave/space-earlier-keys/v1|${spaceId}|${keyId}`;
+/** What a reader's note, sealed for a connection, is bound to (`network/peer-auth.ts`) */
+export const membershipContext = (spaceId: string) => `weave/space-membership/v1|${spaceId}`;
+/** The one record key the space's relay list is a version of */
+export const SPACE_RELAYS_RECORD = 'relays:space';
+/** The one record key every change of a private space's key is a version of — so two made apart are rivals, and one wins */
+export const SPACE_KEY_RECORD = 'key:space';
+/** The key of a sealed copy of a space key: one per key, recipient and sender */
+export const boxKey = (keyId: string, to: string, from: string) => hashKey('box', `${keyId}|${to}|${from}`);
+/** What a box is bound to, so one moved to another space, key or person doesn't open */
+export const boxContext = (spaceId: string, keyId: string, to: string) => `weave/space-key-box/v1|${spaceId}|${keyId}|${to}`;
 
 const inviteLabel = (spaceId: string, did: string) => utf8Encode(`${INVITE_INFO}|${spaceId}|${did}`);
 

@@ -16,7 +16,7 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 | [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | S3-compatible and Google Drive blob drivers; S3 first, since hosting needs it (after 03) | ~1 week |
 | [BLOCK-07](BLOCK-07-hosting-tier.md) | Hosting: one blind always-on node on one server carrying many people's spaces, backed up to R2; paid-until plans by card, Apple Pay or crypto, and pricing (after 03 and S3 from 04) | ~3 weeks |
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
-| [BLOCK-14](BLOCK-14-security-hardening.md) | Security, round two: checkable version history, removing members, safe pairing, private votes, sync limits | ~3 weeks |
+| [BLOCK-14](BLOCK-14-security-hardening.md) | Security, round two: checkable version history, safe pairing, private votes, sync limits (removing members is done) | ~2½ weeks |
 | [BLOCK-15](BLOCK-15-spaces-and-roles.md) | Spaces and roles: one kind of space, custom roles per space, hand over and leave, access you can take back. Built except the home's role screens | ~3 days left |
 | [BLOCK-17](BLOCK-17-browser-extension.md) | A Chrome extension that keeps your node in the gossip and your pod up to date while the browser is open, without being able to read your spaces | ~2 weeks |
 | [BLOCK-18](BLOCK-18-agent-made-apps.md) | Apps an agent makes: its own labelled key, proposals a person adds, a summary worked out from the rules, apps as records in the Apps tab | ~1 week |

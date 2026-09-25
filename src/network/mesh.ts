@@ -73,6 +73,12 @@ export interface Mesh {
    */
   join(room: string, auth?: MeshAuth | null): NetworkManager;
   /**
+   * The relays a room's space names as its own (`sys.relays`), joined for
+   * that room on top of the mesh's — so members whose apps use different
+   * relays meet there. Called again when the space changes them.
+   */
+  useRelays(room: string, relays: ReadonlyArray<string>): void;
+  /**
    * The ICE servers for a WebRTC connection: the configured ones (STUN by
    * default), and TURN servers a relay offered, with passwords fresh for at
    * least a while. For connections of the application's own — a call's.
@@ -124,6 +130,8 @@ export function createMesh(config: MeshConfig): Mesh {
   const authTimeoutMs = config.authTimeoutMs ?? 10_000;
 
   const rooms = new Map<string, Room>();
+  /** Relays each room's space names, for its room only */
+  const roomRelays = new Map<string, ReadonlyArray<string>>();
   /** Connections that are open */
   const links = new Set<string>();
   /** Peers a connection has been started with, so hearing of one twice does not open it twice */
@@ -406,6 +414,13 @@ export function createMesh(config: MeshConfig): Mesh {
       return currentIce();
     },
 
+    useRelays(name: string, relays: ReadonlyArray<string>) {
+      const before = roomRelays.get(name) ?? [];
+      if (before.length === relays.length && before.every((url, i) => url === relays[i])) return;
+      roomRelays.set(name, [...relays]);
+      if (rooms.has(name)) signaling.join(name, relays);
+    },
+
     join(name: string, auth: MeshAuth | null = null): NetworkManager {
       const room: Room = { auth, peers: new Map(), handshakes: new Map(), events: createEmitter<NetworkEvents>() };
       const send = (peer: string, message: NetworkMessage) => {
@@ -416,7 +431,7 @@ export function createMesh(config: MeshConfig): Mesh {
         async connect() {
           if (rooms.has(name)) throw new Error('This mesh is already in that room');
           rooms.set(name, room);
-          signaling.join(name);
+          signaling.join(name, roomRelays.get(name) ?? []);
           await start();
         },
         disconnect() {

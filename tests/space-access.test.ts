@@ -126,7 +126,7 @@ describe('space access: the space vouches for itself', () => {
     assert.match(String(await checkSpace({ ...space, creatorRole: 'nobody' })), /not one of the starting roles/);
   });
 
-  test('a forged invite is refused: changed creator, changed roles, a key that is not the space’s', async () => {
+  test('a forged invite is refused: changed creator, changed roles', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub);
     const bob = await person(hub);
@@ -135,11 +135,24 @@ describe('space access: the space vouches for itself', () => {
 
     await assert.rejects(bob.node.spaces.join(tamper(invite, (p) => (p.space.creator = bob.node.did))), /does not describe a real space/);
     await assert.rejects(bob.node.spaces.join(tamper(invite, (p) => (p.space.creatorRole = 'editor'))), /does not describe a real space/);
-    await assert.rejects(
-      bob.node.spaces.join(tamper(invite, (p) => (p.key = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)))))),
-      /key that does not belong/,
-    );
     assert.equal((await bob.node.spaces.list()).length, 0);
+  });
+
+  test('a key that is not the space’s opens nothing — a later key is taken on trust until the history names it', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const alice = await person(hub);
+    const bob = await person(hub);
+    const { id: space } = await alice.node.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
+    await alice.node.records.put(space, 'app.note', { text: 'secret' });
+    const invite = await alice.node.spaces.invite(space, { write: false });
+
+    await bob.node.spaces.join(tamper(invite, (p) => (p.key = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32))))));
+    await hold(alice.node, space);
+    await hold(bob.node, space);
+    await until(async () => (await bob.node.records.list(space, { collection: 'app.note' })).length === 1, 4000, 'the note to arrive');
+    const [note] = await bob.node.records.list(space, { collection: 'app.note' });
+    assert.equal(note!.body, null);
+    assert.equal((await bob.node.spaces.access(space)).key?.held, false);
   });
 });
 
