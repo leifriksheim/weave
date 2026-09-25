@@ -76,7 +76,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
             <Icon name={space.visibility === 'private' ? 'lock' : 'globe'} size={12} />
             {spaceBadges(space)}
           </span>
-          {status && <WhoIsHere status={status} />}
+          {status && <WhoIsHere status={status} people={people} />}
           <CallButton space={space} />
           {status && status.rejected > 0 && (
             <span style={{ ...styles.badge, color: palette.accent.danger }} title="Records peers sent that failed validation">

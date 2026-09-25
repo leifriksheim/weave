@@ -1038,10 +1038,18 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   if (networks.length > 0) {
     connection = 'connecting';
-    void Promise.allSettled(networks.map((network) => network.connect())).then((results) => {
-      connection = results.some((result) => result.status === 'fulfilled') ? 'connected' : 'error';
-      emit({ type: 'status', space: space.id });
-    });
+    // Online as soon as one way in works: a node that is slow to answer, or
+    // never does, must not keep the space saying "connecting" meanwhile.
+    void Promise.any(networks.map((network) => network.connect())).then(
+      () => {
+        connection = 'connected';
+        emit({ type: 'status', space: space.id });
+      },
+      () => {
+        connection = 'error';
+        emit({ type: 'status', space: space.id });
+      },
+    );
     sync.start();
   }
 
