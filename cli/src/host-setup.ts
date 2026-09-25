@@ -5,7 +5,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createP256Provider, folderStores, type StoreFactory } from '../../src/index.js';
+import { createP256Provider, createS3BlobStore, folderStores, type BlobStore, type StoreFactory } from '../../src/index.js';
 import { openFsDirectory } from './fs-directory.js';
 import type { Billing } from './host.js';
 import { createStripeBilling } from './stripe.js';
@@ -48,5 +48,24 @@ export function billingFromEnv(env: NodeJS.ProcessEnv): Billing | null {
     webhookSecret: env.STRIPE_WEBHOOK_SECRET,
     ...(env.STRIPE_PRICE_MONTHLY ? { monthlyPrice: env.STRIPE_PRICE_MONTHLY } : {}),
     ...(env.STRIPE_PRICE_YEARLY ? { yearlyPrice: env.STRIPE_PRICE_YEARLY } : {}),
+  });
+}
+
+/**
+ * The host's bucket, from WEAVE_S3_ENDPOINT, WEAVE_S3_BUCKET,
+ * WEAVE_S3_ACCESS_KEY_ID and WEAVE_S3_SECRET_ACCESS_KEY (WEAVE_S3_REGION and
+ * WEAVE_S3_PREFIX optional) — Cloudflare R2, or any S3-compatible store.
+ * None when they are not set: the host keeps everything on its own disk.
+ */
+export function mirrorFromEnv(env: NodeJS.ProcessEnv): BlobStore | null {
+  const { WEAVE_S3_ENDPOINT, WEAVE_S3_BUCKET, WEAVE_S3_ACCESS_KEY_ID, WEAVE_S3_SECRET_ACCESS_KEY } = env;
+  if (!WEAVE_S3_ENDPOINT || !WEAVE_S3_BUCKET || !WEAVE_S3_ACCESS_KEY_ID || !WEAVE_S3_SECRET_ACCESS_KEY) return null;
+  return createS3BlobStore({
+    endpoint: WEAVE_S3_ENDPOINT,
+    bucket: WEAVE_S3_BUCKET,
+    accessKeyId: WEAVE_S3_ACCESS_KEY_ID,
+    secretAccessKey: WEAVE_S3_SECRET_ACCESS_KEY,
+    ...(env.WEAVE_S3_REGION ? { region: env.WEAVE_S3_REGION } : {}),
+    ...(env.WEAVE_S3_PREFIX ? { prefix: env.WEAVE_S3_PREFIX } : {}),
   });
 }

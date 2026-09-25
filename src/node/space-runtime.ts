@@ -36,6 +36,8 @@ import { checkLinks } from '../records/links.js';
 import { allows, changedFixedField, describeWho, onePerKey, permissionName, type CollectionRules } from '../records/rules.js';
 import type { Link } from '../types.js';
 import { reconcileFolder } from '../storage/folder-reconcile.js';
+import type { BlobStore } from '../storage/blob-store.js';
+import { createMirror, type Mirror } from '../storage/mirror.js';
 import type { FolderAdapter } from '../storage/folder-adapter.js';
 import { createCryptoGate } from '../validation/crypto-gate.js';
 import { createStructuralGate } from '../validation/structural-gate.js';
@@ -222,6 +224,11 @@ export interface SpaceRuntimeDeps {
   readonly onKeys?: (keys: ReadonlyArray<SpaceKey>, current: string) => Promise<void>;
   /** Told the relays the space names, when they differ from the ones the record came with */
   readonly onRelays?: (relays: ReadonlyArray<string>) => Promise<void>;
+  /**
+   * File stores the space is also kept in (`storage/mirror.ts`): a bucket, an
+   * app folder. Read when the space opens, written soon after every change.
+   */
+  readonly mirrors?: ReadonlyArray<BlobStore>;
   /**
    * Nothing an agent signs counts here — for the account's own spaces (its
    * list of spaces, a carrier's passes), where a note for "every space" would
@@ -1007,6 +1014,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     standings.clear();
     emit({ type: 'records', space: space.id });
     keepUp();
+    for (const mirror of mirrors) mirror.changed();
   };
 
   // ─── The space's keys ──────────────────────────────────────────────
@@ -1235,6 +1243,45 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
             return account !== null && readers(history.current).has(account);
           },
         };
+
+  // ─── Mirrors ───────────────────────────────────────────────────────
+  //
+  // Every mirror is one more peer: what it holds goes through the same gates
+  // as a peer's records, and what this node holds goes out to it.
+
+  const mirrors: Mirror[] = [];
+  for (const [index, store] of (deps.mirrors ?? []).entries()) {
+    mirrors.push(
+      await createMirror({
+        store,
+        space: space.id,
+        storage,
+        state: await deps.stores(`mirrors/${space.id}/${index}`),
+        accept: async (version) => {
+          const verdict = await admit(version);
+          if (!verdict.ok) return verdict.later ? 'later' : 'refused';
+          await storage.addExpression(version);
+          return 'stored';
+        },
+      }),
+    );
+  }
+  /** Reads every mirror in the background: a space that opens from nothing — a host that lost its disk — fills in as it goes */
+  const pullMirrors = () =>
+    Promise.all(
+      mirrors.map((mirror) =>
+        mirror
+          .pull()
+          .then(({ added }) => {
+            if (added === 0) return;
+            recordsChanged();
+            announceSoon();
+          })
+          .catch(() => {
+            // Out of reach now; what this node holds goes out on the next change.
+          }),
+      ),
+    );
 
   // ─── Peers ─────────────────────────────────────────────────────────
 
@@ -1633,6 +1680,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return allows(who, { member: true, creator, can: (permission) => roleHolds(role, permissionName(collection, permission)) });
   }
 
+  // Once at open, then after every change.
+  keepUp();
+  const pulling = pullMirrors();
+
   return Object.freeze({
     async list<T>(options: ListOptions = {}): Promise<ReadonlyArray<NodeRecord<T>>> {
       const current = (await everyCurrent(options.collection)).filter((e) => options.collection || !e.collection.startsWith('sys.'));
@@ -1785,10 +1836,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const { history } = await access();
       const state = history.current;
       const role = standing(state, deps.rootDid);
-      // Once at open, then after every change.
-  keepUp();
-
-  return Object.freeze({
+      return Object.freeze({
         roles: [...state.roles.values()].sort((a, b) => b.rank - a.rank || a.name.localeCompare(b.name)),
         members: [...state.members]
           .map(([did, name]) => ({ did, role: name }))
@@ -1909,6 +1957,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     async close(): Promise<void> {
       closed = true;
       await keysRunning;
+      await pulling;
+      await Promise.all(mirrors.map((mirror) => mirror.close()));
       if (watchTimer) clearInterval(watchTimer);
       if (announceTimer) clearTimeout(announceTimer);
       channel?.close();

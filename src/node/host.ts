@@ -24,6 +24,8 @@ import { utf8Decode, utf8Encode } from '../utils/encoding.js';
 import { createCarryCore, type CarriedSpace, type CarrierEvent } from './carrier.js';
 import type { StoreFactory } from './stores.js';
 import type { NodeNetworkConfig } from './types.js';
+import type { BlobStore } from '../storage/blob-store.js';
+import { deleteMirrored } from '../storage/mirror.js';
 
 /** Someone paying for hosting, as the host knows them */
 export interface Subscription {
@@ -53,6 +55,13 @@ export interface HostConfig {
   readonly free?: boolean;
   /** Unix seconds now; for tests */
   readonly now?: () => number;
+  /**
+   * The host's bucket (`storage/blob/s3.ts`): every carried space is kept
+   * there too, in the mirror layout, and so is the list of subscriptions. The
+   * host's disk is then only a cache — lose it, and everything comes back.
+   * A space nobody pays for any more is deleted from it.
+   */
+  readonly mirror?: BlobStore;
   readonly watchIntervalMs?: number;
 }
 
@@ -87,6 +96,8 @@ export interface HostNode {
 }
 
 const SUBSCRIPTION_PREFIX = 'subscription:';
+/** Where the subscriptions are kept in the bucket */
+const BUCKET_PREFIX = 'host/subscriptions/';
 const DAY = 24 * 3600;
 
 /** Starts a host */
@@ -111,9 +122,17 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     const bytes = await store.get(`${SUBSCRIPTION_PREFIX}${id}`);
     return bytes ? (JSON.parse(utf8Decode(bytes)) as Subscription) : null;
   };
+  const bucketKey = (id: string) => `${BUCKET_PREFIX}${encodeURIComponent(id)}.json`;
   const write = async (subscription: Subscription): Promise<Subscription> => {
-    await store.put(`${SUBSCRIPTION_PREFIX}${subscription.id}`, utf8Encode(JSON.stringify(subscription)));
+    const bytes = utf8Encode(JSON.stringify(subscription));
+    await store.put(`${SUBSCRIPTION_PREFIX}${subscription.id}`, bytes);
+    // The bucket's copy is what a host with a new disk starts from.
+    await config.mirror?.put(bucketKey(subscription.id), bytes);
     return subscription;
+  };
+  const forget = async (id: string) => {
+    await store.delete(`${SUBSCRIPTION_PREFIX}${id}`);
+    await config.mirror?.delete(bucketKey(id));
   };
   const list = async (): Promise<Subscription[]> => {
     const keys = await store.list(SUBSCRIPTION_PREFIX);
@@ -125,6 +144,16 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     return subscription.paidUntil + graceSeconds >= now() ? 'grace' : 'lapsed';
   };
 
+  // A fresh disk: the subscriptions come back from the bucket, and the spaces with them.
+  if (config.mirror && (await store.list(SUBSCRIPTION_PREFIX)).length === 0) {
+    for (const key of await config.mirror.list(BUCKET_PREFIX)) {
+      const bytes = await config.mirror.get(key);
+      if (!bytes) continue;
+      const subscription = JSON.parse(utf8Decode(bytes)) as Subscription;
+      if (typeof subscription.id === 'string') await store.put(`${SUBSCRIPTION_PREFIX}${subscription.id}`, bytes);
+    }
+  }
+
   /** The subscription an account's carry space belongs to, when it wrote `carry:closed` */
   let closing: Promise<void> = Promise.resolve();
   const core = await createCarryCore({
@@ -134,6 +163,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     provider,
     ...(config.watchIntervalMs !== undefined ? { watchIntervalMs: config.watchIntervalMs } : {}),
     emit,
+    ...(config.mirror ? { mirror: config.mirror, onRelease: (spaceId: string) => deleteMirrored(config.mirror!, spaceId) } : {}),
     onClosed: (carrySpace) => {
       // The account stopped using this host: forget its carry space; the subscription stays paid.
       closing = closing.then(async () => {
@@ -205,7 +235,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       const dropped: string[] = [];
       for (const subscription of await list()) {
         if (state(subscription) !== 'lapsed') continue;
-        await store.delete(`${SUBSCRIPTION_PREFIX}${subscription.id}`);
+        await forget(subscription.id);
         if (subscription.carry && !(await carriedByOther(subscription.carry.space, subscription.id))) {
           await core.removeCarry(subscription.carry.space);
         }

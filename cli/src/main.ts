@@ -27,7 +27,7 @@ import { createNode, isValidRecoveryCode, NODE_ACTIONS, runAction, type NodeActi
 import { chooseAccount, createAccount, homePath, openHome, unlock, type Home } from './home.js';
 import { startDaemon } from './daemon.js';
 import { startHost } from './host.js';
-import { billingFromEnv, defaultHostData, hostKey, hostStores } from './host-setup.js';
+import { billingFromEnv, defaultHostData, hostKey, hostStores, mirrorFromEnv } from './host-setup.js';
 import { runMcpStdio } from './mcp.js';
 import { configuredRelays, connectAgent, daysLeft, defaultAgentName, forgetAgent, startAgentNode } from './agent.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
@@ -286,6 +286,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       ...(values.host ? { host: values.host } : {}),
       ...(values.free ? { free: true } : {}),
       billing,
+      mirror: mirrorFromEnv(process.env),
       log: (line) => stderr(`[${new Date().toISOString()}] ${line}`),
     });
     const stop = () => {

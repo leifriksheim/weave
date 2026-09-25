@@ -442,3 +442,11 @@ export {
   HostError,
 } from './session/hosting.js';
 export type { Hosting, SubscriptionKey, HostStatus, HostInfo, HostClient } from './session/hosting.js';
+
+// Mirrors: a space kept in a dumb file store — a bucket, an app folder — synced like a peer
+export type { BlobStore } from './storage/blob-store.js';
+export { createMemoryBlobStore } from './storage/blob/memory.js';
+export { createS3BlobStore } from './storage/blob/s3.js';
+export type { S3Config } from './storage/blob/s3.js';
+export { createMirror, deleteMirrored } from './storage/mirror.js';
+export type { Mirror, MirrorConfig, Taken } from './storage/mirror.js';

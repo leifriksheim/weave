@@ -19,7 +19,7 @@
  * every subscription counts as paid — someone hosting only themselves.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createHostNode, verifyRequest, createP256Provider, type HostNode, type HostStatus, type StoreFactory } from '../../src/index.js';
+import { createHostNode, verifyRequest, createP256Provider, type BlobStore, type HostNode, type HostStatus, type StoreFactory } from '../../src/index.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 
 /** What the host needs from a payment provider */
@@ -43,6 +43,8 @@ export interface HostOptions {
   readonly port: number;
   readonly host?: string;
   readonly billing?: Billing | null;
+  /** The bucket every carried space, and the subscription list, are kept in too */
+  readonly mirror?: BlobStore | null;
   /** Every subscription counts as paid */
   readonly free?: boolean;
   readonly graceDays?: number;
@@ -120,6 +122,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     network: { transports: inbound.transports },
     ...(options.free ? { free: true } : {}),
     ...(options.graceDays !== undefined ? { graceDays: options.graceDays } : {}),
+    ...(options.mirror ? { mirror: options.mirror } : {}),
   });
 
   const statusOf = async (id: string): Promise<HostStatus> => {
@@ -260,7 +263,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   }, options.sweepMs ?? 3600_000);
   (sweeping as { unref?: () => void }).unref?.();
 
-  log(`host ${node.did} listening on port ${served.port}${options.free ? ' (free: every subscription counts as paid)' : ''}`);
+  log(`host ${node.did} listening on port ${served.port}${options.free ? ' (free: every subscription counts as paid)' : ''}${options.mirror ? ', kept in its bucket' : ', on this disk alone'}`);
   return {
     node,
     port: served.port,

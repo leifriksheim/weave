@@ -19,6 +19,7 @@ import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { createHostClient, HostError, newSubscriptionSeed, signRequest, subscriptionKey, verifyRequest } from '../src/session/hosting.js';
 import { startHost } from '../cli/src/host.js';
 import { createStripeBilling, verifyStripeSignature } from '../cli/src/stripe.js';
+import { createMemoryBlobStore } from '../src/storage/blob/memory.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 
@@ -349,5 +350,52 @@ describe('an account using a host, end to end over sockets', () => {
     assert.deepEqual((await phone.records.list(notes.id))[0]?.body, { text: 'safe with the host' });
     // Every device knows the host from the registry, with nothing set up.
     assert.deepEqual((await phone.hosting.list()).map((known) => known.url), [url]);
+  });
+});
+
+describe('a host whose disk is only a cache', () => {
+  test('lose the disk, start again on the same bucket: every subscription and space comes back, still sealed', async () => {
+    const bucket = createMemoryBlobStore();
+    const hostKeys = await provider.generateKeyPair();
+    const start = async () => {
+      const served = await startHost({ key: hostKeys, stores: memoryStores(), port: 0, free: true, mirror: bucket });
+      open.push(served);
+      return served;
+    };
+    const onSockets = async (me: Account, port: number) => {
+      const node = await createNode({ signer: me.signer, stores: memoryStores(), accountKey: me.accountKey, watchIntervalMs: 0, network: { nodes: [`ws://127.0.0.1:${port}/peer`] } });
+      open.push(node);
+      return node;
+    };
+
+    const first = await start();
+    const me = await account();
+    const laptop = await onSockets(me, first.port);
+    const notes = await laptop.spaces.create({ name: 'Notes', visibility: 'private' });
+    await laptop.records.put(notes.id, 'note', { text: 'in the bucket' });
+    await laptop.hosting.use(`http://127.0.0.1:${first.port}`);
+    await until(
+      async () => {
+        const reached = (await first.node.spaces()).filter((space) => space.peers > 0).map((space) => space.name);
+        return reached.includes('Account registry') && reached.includes('Notes');
+      },
+      15_000,
+      'the laptop to reach the host',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await laptop.close();
+    // Closing flushes what was waiting: the bucket holds it all now.
+    await first.close();
+    const everything = new TextDecoder().decode(new Uint8Array((await Promise.all((await bucket.list('')).map((key) => bucket.get(key)))).flatMap((bytes) => [...(bytes ?? [])])));
+    assert.equal(everything.includes('in the bucket'), false, 'sealed, as it travels');
+
+    // A new machine: an empty disk, the same key and bucket.
+    const second = await start();
+    assert.equal((await second.node.list()).length, 1, 'the subscription came back');
+    await until(carries(second.node, notes.id), 8000, 'the space to be carried again');
+
+    const phone = await onSockets(me, second.port);
+    await until(async () => (await phone.records.list(notes.id).catch(() => [])).length === 1, 15_000, 'the note to reach a new phone');
+    assert.deepEqual((await phone.records.list(notes.id))[0]?.body, { text: 'in the bucket' });
   });
 });

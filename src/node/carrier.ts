@@ -31,6 +31,7 @@ import { carriedRecord, CARRY_CLOSED_KEY, openPass, PASS_COLLECTION } from '../s
 import { createLocalHub, type LocalHub } from '../network/local-transport.js';
 import { meshFor, openSpaceRuntime, type SpaceRuntime } from './space-runtime.js';
 import type { StoreFactory } from './stores.js';
+import type { BlobStore } from '../storage/blob-store.js';
 import type { ConnectionState, NodeEvent, NodeNetworkConfig } from './types.js';
 
 export interface CarrierConfig {
@@ -106,6 +107,10 @@ export interface CarryCoreConfig {
   readonly emit: (event: CarrierEvent) => void;
   /** An account wrote `carry:closed` into its carry space: it stopped using this node */
   readonly onClosed: (carrySpace: string) => void;
+  /** A file store every carried space is also kept in — a host's bucket */
+  readonly mirror?: BlobStore;
+  /** A space nobody asks for any more was let go — not one opened again after a key change */
+  readonly onRelease?: (spaceId: string) => Promise<void>;
 }
 
 /**
@@ -140,6 +145,7 @@ export async function createCarryCore(config: CarryCoreConfig) {
     openSpaceRuntime({
       // Carried spaces meet through relays; the copy in the pod only over the local link.
       ...(as === session && mesh ? { mesh } : {}),
+      ...(as === session && config.mirror ? { mirrors: [config.mirror] } : {}),
       record,
       stores,
       provider,
@@ -238,6 +244,7 @@ export async function createCarryCore(config: CarryCoreConfig) {
     for (const spaceId of [...carried.keys()]) {
       if (carries.has(spaceId) || wanted.has(spaceId)) continue;
       await drop(spaceId);
+      await config.onRelease?.(spaceId).catch(() => {});
       changed = true;
     }
     if (changed) emit({ type: 'spaces' });
@@ -273,6 +280,7 @@ export async function createCarryCore(config: CarryCoreConfig) {
       if (!carries.delete(carrySpace)) return;
       await drop(carrySpace);
       await registry.remove(carrySpace);
+      await config.onRelease?.(carrySpace).catch(() => {});
       await refresh();
     },
 
