@@ -15,7 +15,7 @@ import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression, type CreateExpressionParams } from '../src/schema/expression.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
-import { encodeSyncMessage } from '../src/sync/sync-messages.js';
+import { SYNC_PROTOCOL_VERSION } from '../src/sync/sync-messages.js';
 import type { Expression } from '../src/types.js';
 import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
@@ -141,7 +141,7 @@ describe('attacks on a shared space', () => {
     // No keys at all: just a copy with its signature broken, pushed unasked.
     const stranger = hub.transport('did:key:zstranger', space);
     stranger.on('connected', (peer: string) => {
-      const payload = Array.from(encodeSyncMessage({ type: 'push-update', expression: { ...real!, signature: 'AAAA' }, newRootCid: '' }));
+      const payload = { v: SYNC_PROTOCOL_VERSION, type: 'push-update', expression: { ...real!, signature: 'AAAA' }, newRootCid: '' };
       stranger.send(peer, new TextEncoder().encode(JSON.stringify({ type: 'sync', from: 'did:key:zstranger', payload })));
     });
     await stranger.connect();

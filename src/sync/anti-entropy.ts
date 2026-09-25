@@ -9,39 +9,31 @@
  * the nodes on the path to it — a handful at any size — instead of every key.
  */
 import type { StorageAdapter } from '../types.js';
-import { cidFromBytes } from '../utils/hash.js';
-import { deserializeNode, lookupInMST, type MSTNode } from '../storage/mst.js';
+import { hashNode, lookupInMST, type MSTNode } from '../storage/mst.js';
+
+const isString = (value: unknown): value is string => typeof value === 'string';
 
 /**
- * Compares two root CIDs to check if they differ.
- * @returns True if they are different, false otherwise.
- */
-export function compareRoots(localRoot: string | null, remoteRoot: string | null): boolean {
-  return localRoot !== remoteRoot;
-}
-
-/**
- * Checks a node a peer sent: it must hash to the CID it was sent as.
+ * Checks a node a peer sent: it must be well formed, and hash to the CID it
+ * was sent as.
  *
- * A peer can send anything. A node stored under the wrong CID could never be
- * found again and would poison the walk, so a mismatch is dropped.
+ * A peer can send anything. Only the four fields of a node are read, and they
+ * are hashed the one canonical way — so whatever else came with it, a node
+ * that checks out is exactly the node that CID names.
  *
- * @returns The node, or null when the bytes do not match the CID or do not parse
+ * @returns The node, or null when it is malformed or does not match the CID
  */
-export async function verifyNode(cid: string, bytes: Uint8Array): Promise<MSTNode | null> {
-  if ((await cidFromBytes(bytes)) !== cid) return null;
-  try {
-    const node = deserializeNode(bytes);
-    const wellFormed =
-      Array.isArray(node.keys) &&
-      Array.isArray(node.children) &&
-      node.children.length === node.keys.length + 1 &&
-      node.keys.every((key) => typeof key === 'string') &&
-      node.children.every((child) => child === null || typeof child === 'string');
-    return wellFormed ? node : null;
-  } catch {
-    return null;
-  }
+export async function verifyNode(cid: string, value: unknown): Promise<MSTNode | null> {
+  const { height, keys, values, children } = (value ?? {}) as Partial<Record<keyof MSTNode, unknown>>;
+  if (
+    !Number.isSafeInteger(height) ||
+    !Array.isArray(keys) || !keys.every(isString) ||
+    !Array.isArray(values) || values.length !== keys.length || !values.every(isString) ||
+    !Array.isArray(children) || children.length !== keys.length + 1 ||
+    !children.every((child) => child === null || isString(child))
+  ) return null;
+  const node: MSTNode = { height: height as number, keys, values, children };
+  return (await hashNode(node)) === cid ? node : null;
 }
 
 /**

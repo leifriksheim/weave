@@ -861,8 +861,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   const sync = createSyncEngine({
     storageProvider: storage,
-    sendToPeer: (peerId, data) => {
-      routes.get(peerId)?.send(peerId, { type: 'sync', from: session.did, payload: Array.from(data) });
+    sendToPeer: (peerId, message) => {
+      routes.get(peerId)?.send(peerId, { type: 'sync', from: session.did, payload: message });
     },
     validate: async (expression) => {
       const verdict = await admit(expression);
@@ -937,8 +937,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   for (const network of networks) {
     network.on('message', (message: NetworkMessage) => {
-      if (message.type !== 'sync' || !Array.isArray(message.payload)) return;
-      void sync.handleMessage(message.from, new Uint8Array(message.payload as number[]));
+      if (message.type === 'sync') void sync.handleMessage(message.from, message.payload);
     });
     network.on('peer-connected', (info: PeerInfo) => {
       routes.set(info.did, network);

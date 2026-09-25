@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { createStorageProvider, type StorageProvider } from '../src/storage/storage-provider.js';
 import { createSyncEngine, type SyncEngine } from '../src/sync/sync-engine.js';
-import { decodeSyncMessage, encodeSyncMessage } from '../src/sync/sync-messages.js';
+import { SYNC_PROTOCOL_VERSION, type SyncMessage } from '../src/sync/sync-messages.js';
 import { utf8Encode } from '../src/utils/encoding.js';
 import type { Expression } from '../src/types.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
@@ -37,16 +37,15 @@ const range = (from: number, to: number) => Array.from({ length: to - from }, (_
  * Two engines wired together in memory. `tamper` may rewrite or drop what B
  * sends A — how the hostile-peer tests misbehave.
  */
-function wire(a: StorageProvider, b: StorageProvider, tamper?: (data: Uint8Array) => Uint8Array | null) {
+function wire(a: StorageProvider, b: StorageProvider, tamper?: (message: SyncMessage) => SyncMessage | null) {
   const stats = { messages: 0, bytes: 0, nodesSent: 0, rounds: 0 };
   const queue: Array<() => Promise<void>> = [];
   let engineA: SyncEngine;
   let engineB: SyncEngine;
-  const count = (data: Uint8Array) => {
+  const count = (message: SyncMessage) => {
     stats.messages++;
-    stats.bytes += data.byteLength;
-    const message = decodeSyncMessage(data);
-    if (message?.type === 'node-response') stats.nodesSent += message.nodes.length;
+    stats.bytes += JSON.stringify(message).length;
+    if (message.type === 'node-response') stats.nodesSent += message.nodes.length;
   };
   engineA = createSyncEngine({
     storageProvider: a,
@@ -144,11 +143,10 @@ describe('a peer that misbehaves', () => {
     const a = await filled([]);
     const b = await filled(range(0, 200));
     const { engineA, settle } = wire(a, b, (data) => {
-      const message = decodeSyncMessage(data);
-      if (message?.type !== 'node-response') return data;
-      // Swap every node's bytes for another node's: valid nodes, wrong CIDs.
-      const bytes = message.nodes.map((n) => n.bytes).reverse();
-      return encodeSyncMessage({ type: 'node-response', id: message.id, nodes: message.nodes.map((n, i) => ({ cid: n.cid, bytes: bytes[i]! })) });
+      if (data.type !== 'node-response') return data;
+      // Swap every node for another: valid nodes, wrong CIDs.
+      const nodes = data.nodes.map((n) => n.node).reverse();
+      return { ...data, nodes: data.nodes.map((n, i) => ({ cid: n.cid, node: nodes[i] })) };
     });
 
     engineA.notifyPeers(['b']);
@@ -164,8 +162,7 @@ describe('a peer that misbehaves', () => {
     const a = await filled([]);
     const b = await filled(range(0, 200));
     const { engineA, settle } = wire(a, b, (data) => {
-      const message = decodeSyncMessage(data);
-      return message?.type === 'node-response' ? encodeSyncMessage({ type: 'node-response', id: message.id, nodes: [] }) : data;
+      return data.type === 'node-response' ? { ...data, nodes: [] } : data;
     });
 
     const synced: string[] = [];
@@ -178,13 +175,13 @@ describe('a peer that misbehaves', () => {
   test('a message from another protocol version is dropped, not half-processed', async () => {
     const a = await filled(range(0, 10));
     const errors: unknown[] = [];
-    const sent: Uint8Array[] = [];
-    const engine = createSyncEngine({ storageProvider: a, sendToPeer: (_p, d) => sent.push(d) });
+    const sent: SyncMessage[] = [];
+    const engine = createSyncEngine({ storageProvider: a, sendToPeer: (_p, m) => sent.push(m) });
     engine.on('error', (e: unknown) => errors.push(e));
     engine.addPeer('x');
 
-    await engine.handleMessage('x', utf8Encode(JSON.stringify({ v: 99, type: 'sync-request', rootCid: null })));
-    await engine.handleMessage('x', utf8Encode('not json'));
+    await engine.handleMessage('x', { v: 99, type: 'sync-request', rootCid: null });
+    await engine.handleMessage('x', 'not a message');
     assert.equal(sent.length, 0);
     assert.equal(errors.length, 0);
   });
@@ -192,11 +189,11 @@ describe('a peer that misbehaves', () => {
   test('only tree nodes are served — not other keys in the store', async () => {
     const a = await filled(range(0, 5));
     await a.getAdapter().put('secret', utf8Encode('not for peers'));
-    const sent: Uint8Array[] = [];
-    const engine = createSyncEngine({ storageProvider: a, sendToPeer: (_p, d) => sent.push(d) });
+    const sent: SyncMessage[] = [];
+    const engine = createSyncEngine({ storageProvider: a, sendToPeer: (_p, m) => sent.push(m) });
 
-    await engine.handleMessage('x', encodeSyncMessage({ type: 'node-request', id: 1, cids: ['secret'] }));
-    const reply = decodeSyncMessage(sent[0]!);
+    await engine.handleMessage('x', { v: SYNC_PROTOCOL_VERSION, type: 'node-request', id: 1, cids: ['secret'] });
+    const reply = sent[0];
     assert.equal(reply?.type, 'node-response');
     assert.deepEqual(reply?.type === 'node-response' ? reply.nodes : null, []);
   });

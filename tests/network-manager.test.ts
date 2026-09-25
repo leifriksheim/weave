@@ -139,7 +139,7 @@ describe('sync through a transport', () => {
       const sync = createSyncEngine({
         storageProvider: storage,
         heartbeatInterval: 60_000,
-        sendToPeer: (peerId, data) => network.send(peerId, { type: 'sync', from: did, payload: Array.from(data) }),
+        sendToPeer: (peerId, message) => network.send(peerId, { type: 'sync', from: did, payload: message }),
         validate: async (expression) => {
           const result = await cryptoGate.validate(expression, async (did) =>
             provider.importPublicKey(didToPublicKey(did).publicKeyBytes),
@@ -148,7 +148,7 @@ describe('sync through a transport', () => {
         },
       });
       network.on('message', (message: NetworkMessage) => {
-        if (message.type === 'sync') void sync.handleMessage(message.from, new Uint8Array(message.payload as number[]));
+        if (message.type === 'sync') void sync.handleMessage(message.from, message.payload);
       });
       network.on('peer-connected', (info: PeerInfo) => {
         sync.addPeer(info.did);

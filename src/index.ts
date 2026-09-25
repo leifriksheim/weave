@@ -294,13 +294,11 @@ export type { SignalingClient, SignalingMessage } from './network/signaling.js';
 
 // Phase 5: Gossip/Sync Protocol
 export {
-  encodeSyncMessage,
-  decodeSyncMessage,
+  parseSyncMessage,
   SYNC_PROTOCOL_VERSION,
 } from './sync/sync-messages.js';
 export type { SyncMessage } from './sync/sync-messages.js';
 export {
-  compareRoots,
   verifyNode,
   unknownChildren,
   differingEntries,

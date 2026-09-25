@@ -17,6 +17,9 @@ function fakeExpression(i: number): Expression {
   return { id, author: 'did:key:zBench', collection: 'app.bench', createdAt: new Date(1_700_000_000_000 + i).toISOString(), body: { i }, signature: 'sig', key: `k${i.toString(36)}`, seq: 0 };
 }
 
+/** Bytes of the frame a space actually sends: the sync message inside the network's envelope */
+const wireBytes = (message: unknown) => JSON.stringify({ type: 'sync', from: 'did:key:zBench', payload: message }).length;
+
 async function measure(n: number, differing = 1) {
   const a = createStorageProvider(createMemoryAdapter());
   const b = createStorageProvider(createMemoryAdapter());
@@ -35,7 +38,7 @@ async function measure(n: number, differing = 1) {
     storageProvider: a,
     sendToPeer: (_peer, data) => {
       messages++;
-      bytes += data.byteLength;
+      bytes += wireBytes(data);
       queue.push(() => engineB.handleMessage('a', data));
     },
   });
@@ -43,7 +46,7 @@ async function measure(n: number, differing = 1) {
     storageProvider: b,
     sendToPeer: (_peer, data) => {
       messages++;
-      bytes += data.byteLength;
+      bytes += wireBytes(data);
       queue.push(() => engineA.handleMessage('b', data));
     },
   });

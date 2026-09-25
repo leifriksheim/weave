@@ -16,11 +16,10 @@
  */
 import type { Expression } from '../types.js';
 import type { StorageProvider } from '../storage/storage-provider.js';
-import { collectReachableCids } from '../storage/mst.js';
-import { base64UrlDecode, base64UrlEncode } from '../utils/encoding.js';
+import { collectReachableCids, deserializeNode } from '../storage/mst.js';
 import { cidFromBytes } from '../utils/hash.js';
-import { encodeSyncMessage, decodeSyncMessage, type SyncMessage, type SyncMessageBody } from './sync-messages.js';
-import { compareRoots, differingEntries, unknownChildren, verifyNode } from './anti-entropy.js';
+import { parseSyncMessage, SYNC_PROTOCOL_VERSION, type SyncMessage, type SyncMessageBody } from './sync-messages.js';
+import { differingEntries, unknownChildren, verifyNode } from './anti-entropy.js';
 
 /** Verdict on an expression that arrived from a peer */
 export interface IncomingValidation {
@@ -43,7 +42,7 @@ const rank = (e: Expression): number => (e?.collection === 'sys.collection' ? -1
 
 export interface SyncEngineConfig {
   readonly storageProvider: StorageProvider;
-  readonly sendToPeer: (peerId: string, data: Uint8Array) => void;
+  readonly sendToPeer: (peerId: string, message: SyncMessage) => void;
   readonly heartbeatInterval?: number;
   /**
    * Gatekeeper for expressions arriving from peers — typically a
@@ -62,7 +61,8 @@ type EventHandler = (...args: any[]) => void;
 export interface SyncEngine {
   start(): void;
   stop(): void;
-  handleMessage(peerId: string, data: Uint8Array): Promise<void>;
+  /** Handles whatever a peer sent; anything that is not a sync message this peer speaks is ignored. */
+  handleMessage(peerId: string, message: unknown): Promise<void>;
   notifyPeers(peers: ReadonlyArray<string>): void;
   onLocalChange(expression: Expression): void;
   addPeer(peerId: string): void;
@@ -128,11 +128,10 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     }
   };
 
-  const send = (peerId: string, msg: SyncMessageBody) => sendToPeer(peerId, encodeSyncMessage(msg));
-
+  const stamp = (msg: SyncMessageBody) => ({ v: SYNC_PROTOCOL_VERSION, ...msg }) as SyncMessage;
+  const send = (peerId: string, msg: SyncMessageBody) => sendToPeer(peerId, stamp(msg));
   const broadcast = (msg: SyncMessageBody) => {
-    const data = encodeSyncMessage(msg);
-    for (const peer of peers) sendToPeer(peer, data);
+    for (const peer of peers) sendToPeer(peer, stamp(msg));
   };
 
   /**
@@ -245,17 +244,17 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     advance(peerId, walk);
   };
 
-  const onNodes = async (peerId: string, requestId: number, nodes: ReadonlyArray<{ cid: string; bytes: string }>) => {
+  const onNodes = async (peerId: string, requestId: number, nodes: ReadonlyArray<{ cid: string; node: unknown }>) => {
     const walk = walks.get(peerId);
     const batch = walk?.nodeBatches.get(requestId);
     if (!walk || !batch) return; // not ours, or already answered
     const asked = new Set(batch);
     const adapter = storageProvider.getAdapter();
 
-    for (const { cid, bytes } of nodes) {
-      if (typeof cid !== 'string' || typeof bytes !== 'string' || !asked.has(cid)) continue;
-      const node = await verifyNode(cid, base64UrlDecode(bytes));
-      if (!node) continue; // bytes that do not hash to their CID
+    for (const { cid, node: sent } of nodes) {
+      if (typeof cid !== 'string' || !asked.has(cid)) continue;
+      const node = await verifyNode(cid, sent);
+      if (!node) continue; // malformed, or not the node that CID names
 
       if (++walk.fetched > MAX_NODES_PER_WALK) {
         walks.delete(peerId);
@@ -302,13 +301,13 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
 
   const serveNodes = async (peerId: string, requestId: number, cids: ReadonlyArray<string>) => {
     const adapter = storageProvider.getAdapter();
-    const nodes: Array<{ cid: string; bytes: string }> = [];
+    const nodes: Array<{ cid: string; node: unknown }> = [];
     for (const cid of cids.slice(0, MAX_CIDS_PER_REQUEST)) {
       if (typeof cid !== 'string') continue;
       const bytes = await adapter.get(cid);
       // Only content-addressed tree nodes leave this store — never another key
       // that happens to share the namespace.
-      if (bytes && (await cidFromBytes(bytes)) === cid) nodes.push({ cid, bytes: base64UrlEncode(bytes) });
+      if (bytes && (await cidFromBytes(bytes)) === cid) nodes.push({ cid, node: deserializeNode(bytes) });
     }
     send(peerId, { type: 'node-response', id: requestId, nodes });
   };
@@ -340,15 +339,15 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       walks.clear();
     },
 
-    async handleMessage(peerId: string, data: Uint8Array): Promise<void> {
+    async handleMessage(peerId: string, message: unknown): Promise<void> {
       try {
-        const msg: SyncMessage | null = decodeSyncMessage(data);
+        const msg = parseSyncMessage(message);
         if (!msg) return; // malformed, or a protocol version this peer does not speak
 
         switch (msg.type) {
           case 'sync-request': {
             const localRoot = await storageProvider.getRootCid();
-            const differs = compareRoots(localRoot, msg.rootCid);
+            const differs = localRoot !== msg.rootCid;
             send(peerId, { type: 'sync-response', rootCid: localRoot, hasChanges: differs });
             // They will pull ours from the response; we pull theirs.
             if (differs) await pull(peerId, msg.rootCid);
