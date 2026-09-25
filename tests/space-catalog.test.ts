@@ -21,6 +21,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { joined } from './helpers/joined.js';
+import { hold, letGo } from './helpers/hold.js';
 
 const expense = {
   type: 'object',
@@ -135,7 +136,7 @@ describe('a space that describes itself', () => {
     const invite = await owner.spaces.invite(space);
     await member.spaces.join(invite);
     await outsider.spaces.join(invite);
-    for (const node of [owner, member, outsider]) await node.spaces.open(space);
+    for (const node of [owner, member, outsider]) await hold(node, space);
     await joined(member, space);
     await joined(outsider, space);
 
@@ -161,7 +162,7 @@ describe('a space that describes itself', () => {
     const member = await person(hub);
     const { id: space } = await owner.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
     await member.spaces.join(await owner.spaces.invite(space));
-    for (const node of [owner, member]) await node.spaces.open(space);
+    for (const node of [owner, member]) await hold(node, space);
     await joined(member, space);
 
     await owner.collections.define(space, { name: 'app.trip.expense', schema: expense });
@@ -191,15 +192,15 @@ describe('a space that describes itself', () => {
     const b = await person(hub);
     const { id: space } = await a.spaces.create({ name: 'Trip', ...team, visibility: 'public' });
     await b.spaces.join(await a.spaces.invite(space));
-    await a.spaces.open(space);
+    await hold(a, space);
     await joined(b, space);
-    await a.spaces.close(space);
+    await letGo(a, space);
 
     // B writes before it has seen any definition — valid where it was written.
-    await b.spaces.open(space);
+    await hold(b, space);
     const loose = await b.records.put(space, 'app.trip.expense', { what: 'dinner' });
     await a.collections.define(space, { name: 'app.trip.expense', schema: expense });
-    await a.spaces.open(space);
+    await hold(a, space);
 
     await until(async () => (await a.records.get(space, loose.key)) !== null, 3000, 'B’s record to reach A');
     const seen = await a.records.get(space, loose.key);

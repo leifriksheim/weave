@@ -10,6 +10,16 @@
  *   client → { type: 'join', from: did, room }     client → { type: 'leave', room }
  *   relay  → { type: 'join' | 'leave', from: did, room }, to the others in the room
  *   either → { type: 'offer' | 'answer' | 'candidate', to: did, payload }
+ *   client → { type: 'ice' }                       relay → { type: 'ice', payload: { servers, expiresAt } }
+ *
+ * With TURN_SECRET and TURN_URLS set, the relay also hands out TURN passwords
+ * for a coturn server run with `use-auth-secret` and the same secret: the
+ * "TURN REST API" scheme, where a password is an HMAC of when it expires, so
+ * nothing is stored and nothing needs revoking. They go to any socket that has
+ * joined a room, unprompted on its first join and on request after, and last
+ * TURN_TTL_SECONDS (default 4 hours). The relay can't tell a Weave peer from
+ * anyone else, so cap what TURN may carry in coturn itself (`user-quota`,
+ * `total-quota`, `max-bps`).
  *
  * A socket opened with `?room=<id>` is the older, one-room form: its `join`
  * names no room and means that one. Both kinds meet in the same rooms.
@@ -22,6 +32,7 @@
  */
 
 import { createServer } from 'node:http';
+import { createHmac } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 
 const PORT = Number(process.argv[2] ?? process.env.PORT ?? 8787);
@@ -47,6 +58,10 @@ const MAX_BUFFERED_BYTES = 1024 * 1024;
 /** Only these are passed from one peer to another; join and leave come from us. */
 const ROUTED = new Set(['offer', 'answer', 'candidate']);
 const DID_PATTERN = /^did:key:z[1-9A-HJ-NP-Za-km-z]+$/;
+
+const TURN_SECRET = process.env.TURN_SECRET ?? '';
+const TURN_URLS = (process.env.TURN_URLS ?? '').split(',').map((url) => url.trim()).filter(Boolean);
+const TURN_TTL_SECONDS = Number(process.env.TURN_TTL_SECONDS ?? 4 * 3600);
 
 /** A close code a client can tell apart from a network drop. */
 const CLOSE_DID_TAKEN = 4009;
@@ -174,12 +189,19 @@ function handleMessage(client, raw) {
       return;
     }
 
+    const first = !client.did;
     client.did = message.from;
     client.rooms.add(room);
     if (!rooms.has(room)) rooms.set(room, new Set());
     rooms.get(room).add(client);
     announce(client, room, 'join');
+    if (first) offerTurn(client);
     log(`peer joined room ${short(room)} (${rooms.get(room).size} present)`);
+    return;
+  }
+
+  if (message.type === 'ice') {
+    if (client.did) offerTurn(client);
     return;
   }
 
@@ -196,6 +218,15 @@ function handleMessage(client, raw) {
       return;
     }
   }
+}
+
+/** Sends a socket TURN servers with a password good for TURN_TTL_SECONDS, when this relay has TURN */
+function offerTurn(client) {
+  if (!TURN_SECRET || TURN_URLS.length === 0) return;
+  const expires = Math.floor(Date.now() / 1000) + TURN_TTL_SECONDS;
+  const username = String(expires);
+  const credential = createHmac('sha1', TURN_SECRET).update(username).digest('base64');
+  send(client, JSON.stringify({ type: 'ice', payload: { servers: [{ urls: TURN_URLS, username, credential }], expiresAt: expires * 1000 } }));
 }
 
 function leave(client, room) {

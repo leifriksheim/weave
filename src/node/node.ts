@@ -26,6 +26,7 @@ import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
 import { meshFor, noteCid, openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
 import { createServerAuth } from '../network/peer-auth.js';
+import { DEFAULT_ICE_SERVERS } from '../network/rtc-transport.js';
 import { deriveInviteKey } from '../space/space-access.js';
 import { base64UrlDecode } from '../utils/encoding.js';
 import {
@@ -165,6 +166,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   const registryStore = await config.stores('registry', { seal: true });
   const registry = createSpaceManager(registryStore, provider);
   const runtimes = new Map<string, Promise<SpaceRuntime>>();
+  /**
+   * Who is holding each space open. One object per stretch of being held:
+   * when the space closes for another reason (leaving it), the object goes,
+   * and a release from before does nothing to whoever holds it next.
+   */
+  const holds = new Map<string, { count: number }>();
 
   // The account's own space list, kept in a space every device of the account
   // derives for itself. Hidden from `list`; everything else treats it as a space.
@@ -304,6 +311,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   }
 
   async function closeRuntime(spaceId: string): Promise<void> {
+    holds.delete(spaceId);
     const open = runtimes.get(spaceId);
     if (!open) return;
     runtimes.delete(spaceId);
@@ -556,11 +564,29 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       emit({ type: 'spaces' });
     },
 
-    async open(spaceId: string) {
-      await runtime(spaceId);
+    async hold(spaceId: string) {
+      const held = holds.get(spaceId) ?? holds.set(spaceId, { count: 0 }).get(spaceId)!;
+      held.count += 1;
+      let released = false;
+      const release = async () => {
+        if (released) return;
+        released = true;
+        if (holds.get(spaceId) !== held) return;
+        held.count -= 1;
+        if (held.count === 0) await closeRuntime(spaceId);
+      };
+      try {
+        await runtime(spaceId);
+      } catch (error) {
+        await release();
+        throw error;
+      }
+      return release;
     },
 
-    close: closeRuntime,
+    async send(spaceId: string, message: unknown, to?: string) {
+      await (await runtime(spaceId)).send(message, to);
+    },
 
     async status(spaceId: string) {
       const status = await (await runtime(spaceId)).status();
@@ -808,9 +834,11 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       closeInvite: person('close invites'),
       revoke: person('revoke notes'),
       access: async (spaceId: string) => (inside(spaceId), spaces.access(spaceId)),
-      open: async (spaceId: string) => (inside(spaceId), spaces.open(spaceId)),
+      hold: async (spaceId: string) => (inside(spaceId), spaces.hold(spaceId)),
       status: async (spaceId: string) => (inside(spaceId), spaces.status(spaceId)),
       profiles: async (spaceId: string) => (inside(spaceId), spaces.profiles(spaceId)),
+      // It would arrive as the person: a live message carries no note of its own to say "via agent".
+      send: person('send live messages'),
       authenticator: async () => null,
     });
 
@@ -862,6 +890,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       account: Object.freeze({ profile: accountApi.profile, setName: person('rename the account'), revoke: person('revoke notes') }),
       carriers: Object.freeze({ list: carriers.list, add: person('add a carrier'), remove: person('remove a carrier') }),
       delegation: () => note,
+      iceServers: node.iceServers,
       delegate: person('pass its access on'),
       asAgent: person('start another agent'),
       subscribe: (listener: (event: NodeEvent) => void) =>
@@ -884,6 +913,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     asAgent,
 
     delegation: () => current,
+
+    iceServers: async () => (mesh ? mesh.iceServers() : (config.network?.iceServers ?? DEFAULT_ICE_SERVERS)),
 
     async delegate(params: DelegateParams) {
       const token = await delegateCapabilities(

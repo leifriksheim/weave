@@ -4,17 +4,23 @@ import { useNode } from './context.js';
 import { useLive } from './use-live.js';
 
 /**
- * Keeps a space syncing while the component is on screen. Reading or writing
+ * Holds a space (`spaces.hold`) while the component is on screen, so it keeps syncing. Reading or writing
  * opens a space anyway; this is for a view that should hear from peers even
  * before it asks for anything.
  */
-export function useOpenSpace(spaceId: string): void {
+export function useHoldSpace(spaceId: string): void {
   const node = useNode();
   useEffect(() => {
-    void node.spaces.open(spaceId).catch(() => {});
-    return () => void node.spaces.close(spaceId);
+    const held = node.spaces.hold(spaceId).catch(() => null);
+    // Let go a moment late: clicking away and straight back keeps the space syncing.
+    return () => {
+      setTimeout(() => void held.then((release) => release?.()), LET_GO_LATE_MS);
+    };
   }, [node, spaceId]);
 }
+
+/** How long a space stays held after the screen showing it goes */
+const LET_GO_LATE_MS = 3000;
 
 /** A record's current version: undefined while loading, null when there is none. */
 export function useRecord<T = unknown>(spaceId: string, key: string): NodeRecord<T> | null | undefined {

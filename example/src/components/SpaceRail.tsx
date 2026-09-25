@@ -3,6 +3,7 @@ import type { SpaceSummary } from '@weaveprotocol/core';
 import type { NewSpace } from '@weaveprotocol/core';
 import { SpaceDialog, SpaceMark } from './SpaceList';
 import { palette } from '../styles';
+import { useCallSpaces } from './calls/Calls';
 
 /**
  * Every space down the left edge while one is open, the way Slack and Discord
@@ -26,6 +27,7 @@ export function SpaceRail({
   onJoin: (invite: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const calls = useCallSpaces();
 
   return (
     <nav aria-label="Spaces" className="rail">
@@ -60,6 +62,13 @@ export function SpaceRail({
               <span style={{ borderRadius: 12, boxShadow: on ? `0 0 0 2px ${palette.surface.page}, 0 0 0 4px ${palette.ink.strong}` : undefined }}>
                 <SpaceMark space={space} size={40} />
               </span>
+              {(calls.mine === space.id || calls.others.has(space.id)) && (
+                <span
+                  aria-label={calls.mine === space.id ? 'Your call is here' : 'A call is going on here'}
+                  title={calls.mine === space.id ? 'Your call is here' : 'A call is going on here'}
+                  style={{ ...callDot, background: calls.mine === space.id ? palette.accent.good : palette.surface.card, borderColor: palette.accent.good }}
+                />
+              )}
             </button>
           );
         })}
@@ -81,6 +90,17 @@ const plain = {
   alignItems: 'center',
   justifyContent: 'center',
   borderRadius: 10,
+};
+/** A spot on a space's corner while a call goes on in it: filled when it's yours */
+const callDot = {
+  position: 'absolute' as const,
+  right: 10,
+  bottom: 0,
+  width: 12,
+  height: 12,
+  borderRadius: 6,
+  border: '2px solid',
+  boxShadow: `0 0 0 2px ${palette.surface.sunken}`,
 };
 const pill = {
   position: 'absolute' as const,

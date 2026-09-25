@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { NodeRecord, SpaceProfile, SpaceSummary } from '@weaveprotocol/core';
-import { useAccess, useCollections, useNode, useOpenSpace, useProfiles, useAccount, useSpaceStatus } from '@weaveprotocol/core/react';
+import { useAccess, useCollections, useNode, useHoldSpace, useProfiles, useAccount, useSpaceStatus } from '@weaveprotocol/core/react';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
 import { RecordPanel } from './RecordPanel';
@@ -15,6 +15,7 @@ import { styles, palette } from '../styles';
 import { Avatar } from './Avatar';
 import { Icon } from './Icon';
 import { WhoIsHere } from './WhoIsHere';
+import { CallButton } from './calls/Calls';
 import { nameOf, peopleFrom } from '../derive/people';
 
 /** Where in the space we are: which collection, and which record is open beside it */
@@ -51,7 +52,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
 
   // Syncing while it is on screen. Opening writes nothing: standard schemas
   // are added only when someone picks them from the library.
-  useOpenSpace(space.id);
+  useHoldSpace(space.id);
   const collections = useCollections(space.id);
   const profiles = useProfiles(space.id);
   const people = peopleFrom(profiles);
@@ -75,7 +76,8 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
             <Icon name={space.visibility === 'private' ? 'lock' : 'globe'} size={12} />
             {spaceBadges(space)}
           </span>
-          {status && <WhoIsHere status={status} />}
+          {status && <WhoIsHere status={status} people={people} />}
+          <CallButton space={space} />
           {status && status.rejected > 0 && (
             <span style={{ ...styles.badge, color: palette.accent.danger }} title="Records peers sent that failed validation">
               {status.rejected} rejected

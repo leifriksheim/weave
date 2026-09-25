@@ -34,6 +34,7 @@ import { createMemoryDirectory } from './helpers/memory-directory.js';
 import { team } from '../src/space/presets.js';
 import { memberKey } from '../src/space/space-access.js';
 import { nextVersion } from '../src/records/version.js';
+import { hold, letGo } from './helpers/hold.js';
 
 const open: Array<{ close(): Promise<unknown> }> = [];
 afterEach(async () => {
@@ -98,9 +99,9 @@ async function setup() {
   const bob = await person(hub);
   const { id: space } = await alice.node.spaces.create({ name: 'Climbing', ...team, visibility: 'public' });
   await bob.node.spaces.join(await alice.node.spaces.invite(space));
-  await alice.node.spaces.open(space);
+  await hold(alice.node, space);
   await joined(bob.node, space);
-  await bob.node.spaces.open(space);
+  await hold(bob.node, space);
   return { hub, alice, bob, space };
 }
 
@@ -174,14 +175,14 @@ describe('an agent acting for a person', () => {
 
   test('a definition an agent signs by hand is ignored by every peer', async () => {
     const { alice, bob, space } = await setup();
-    await alice.node.spaces.close(space);
+    await letGo(alice.node, space);
     const forged = await forgeAsAgent(alice, space, {
       collection: 'sys.collection',
       body: { name: 'app.sneaky', schema: { type: 'object' }, version: 1 },
       retain: true,
       version: { key: 'collection:app.sneaky', seq: 0 },
     });
-    await alice.node.spaces.open(space);
+    await hold(alice.node, space);
     // Refused on arrival as not a change anyone may make; even the agent's own person ignores it.
     await settle(500);
     assert.equal(await createStorageProvider(await bob.stores(`spaces/${space}`)).getExpression(forged.id), null);
@@ -195,14 +196,14 @@ describe('an agent acting for a person', () => {
     // Bob knowing he joined is not Alice having heard it yet.
     await until(async () => (await aliceStore.getCurrent(await memberKey(bob.node.did))) !== null, 4000, 'Alice to hold Bob\'s member record');
     const held = await aliceStore.getCurrent(await memberKey(bob.node.did));
-    await alice.node.spaces.close(space);
+    await letGo(alice.node, space);
     await forgeAsAgent(alice, space, {
       collection: 'sys.member',
       body: { did: bob.node.did, role: null },
       retain: true,
       version: nextVersion(held!),
     });
-    await alice.node.spaces.open(space);
+    await hold(alice.node, space);
     await settle(500);
     assert.equal((await bob.node.spaces.access(space)).role?.name, 'editor');
     assert.equal((await alice.node.spaces.access(space)).members.find((m) => m.did === bob.node.did)?.role, 'editor');
@@ -443,8 +444,8 @@ describe('an agent running a node of its own', () => {
     const after = await ada.node.spaces.create({ name: 'After', visibility: 'private' });
     await until(async () => (await agent.node.spaces.list()).some((space) => space.id === after.id), 4000, 'the space made after');
 
-    await agent.node.spaces.open(after.id);
-    await ada.node.spaces.open(after.id);
+    await hold(agent.node, after.id);
+    await hold(ada.node, after.id);
     const note = await agent.node.records.put(after.id, 'app.note', { text: 'from the terminal' });
     await until(async () => (await ada.node.records.get(after.id, note.key)) !== null, 4000, 'the note reaching Ada');
     const seen = await ada.node.records.get(after.id, note.key);

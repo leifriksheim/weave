@@ -6,7 +6,8 @@ import type { CandidateSink, PeerTransportEvents, SignalledTransport } from './t
 import { createEmitter } from '../utils/events.js';
 
 export interface RTCTransportConfig {
-  readonly iceServers?: ReadonlyArray<RTCIceServer>;
+  /** Fixed, or asked for each new connection — TURN passwords a relay hands out change */
+  readonly iceServers?: ReadonlyArray<RTCIceServer> | (() => ReadonlyArray<RTCIceServer>);
 }
 
 export type RTCTransportEvents = PeerTransportEvents;
@@ -25,7 +26,7 @@ function fingerprintOf(description: RTCSessionDescription | null): string | null
   return match ? `${match[1]!.toLowerCase()} ${match[2]!.toUpperCase()}` : null;
 }
 
-const DEFAULT_ICE_SERVERS: ReadonlyArray<RTCIceServer> = [
+export const DEFAULT_ICE_SERVERS: ReadonlyArray<RTCIceServer> = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' }
 ];
@@ -37,7 +38,8 @@ const DEFAULT_ICE_SERVERS: ReadonlyArray<RTCIceServer> = [
  * @returns The RTC transport instance.
  */
 export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
-  const iceServers = config?.iceServers ?? DEFAULT_ICE_SERVERS;
+  const configured = config?.iceServers ?? DEFAULT_ICE_SERVERS;
+  const iceServers = () => (typeof configured === 'function' ? configured() : configured);
   const connections = new Map<string, PeerConnectionData>();
 
   const { on, off, emit } = createEmitter<RTCTransportEvents>();
@@ -69,7 +71,7 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     if (connections.has(peerId)) {
       close(peerId);
     }
-    const connection = new RTCPeerConnection({ iceServers: [...iceServers] });
+    const connection = new RTCPeerConnection({ iceServers: [...iceServers()] });
     connections.set(peerId, { connection, channel: null });
 
     // Attached before any description is set, so no candidate can be missed.

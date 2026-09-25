@@ -26,7 +26,7 @@ import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { createEmitter, type Emitter } from '../utils/events.js';
 import type { SignalKind } from './signaling.js';
 import { createMultiSignalingClient } from './multi-signaling.js';
-import { createRTCTransport } from './rtc-transport.js';
+import { createRTCTransport, DEFAULT_ICE_SERVERS } from './rtc-transport.js';
 import type { SignalledTransport } from './transport.js';
 import { peerNonce, type MeshAuth } from './peer-auth.js';
 import type { NetworkEvents, NetworkManager } from './network-manager.js';
@@ -72,7 +72,18 @@ export interface Mesh {
    * @param auth What peers must prove here; null lets anyone in the room in
    */
   join(room: string, auth?: MeshAuth | null): NetworkManager;
+  /**
+   * The ICE servers for a WebRTC connection: the configured ones (STUN by
+   * default), and TURN servers a relay offered, with passwords fresh for at
+   * least a while. For connections of the application's own — a call's.
+   */
+  iceServers(): Promise<ReadonlyArray<RTCIceServer>>;
 }
+
+/** Ask the relay for new TURN passwords once the ones held run out within this */
+const ICE_REFRESH_MS = 10 * 60_000;
+/** How long to wait for them before going ahead with what there is */
+const ICE_WAIT_MS = 1500;
 
 interface Handshake {
   readonly nonce: string;
@@ -98,8 +109,17 @@ type Deliver = (kind: SignalKind, data: unknown) => void;
 
 export function createMesh(config: MeshConfig): Mesh {
   const { did } = config;
-  const transport = config.createTransport?.() ?? createRTCTransport({ iceServers: config.iceServers });
   const signaling = createMultiSignalingClient(config.relays, did);
+  const configuredIce = config.iceServers ?? DEFAULT_ICE_SERVERS;
+  let relayIce: { servers: ReadonlyArray<RTCIceServer>; expiresAt: number } | null = null;
+  let iceAskedAt = 0;
+  signaling.on('ice', (servers, expiresAt) => {
+    relayIce = { servers, expiresAt };
+    iceAskedAt = 0;
+  });
+  const currentIce = (): ReadonlyArray<RTCIceServer> =>
+    relayIce && relayIce.expiresAt > Date.now() ? [...configuredIce, ...relayIce.servers] : configuredIce;
+  const transport = config.createTransport?.() ?? createRTCTransport({ iceServers: currentIce });
   const introduce = config.introductions !== false;
   const authTimeoutMs = config.authTimeoutMs ?? 10_000;
 
@@ -366,6 +386,26 @@ export function createMesh(config: MeshConfig): Mesh {
   };
 
   return {
+    async iceServers() {
+      const stale = !relayIce || relayIce.expiresAt - Date.now() < ICE_REFRESH_MS;
+      // A relay that did not answer last time has no TURN; don't wait on it every call.
+      if (signaling.isConnected() && stale && Date.now() - iceAskedAt > ICE_REFRESH_MS) {
+        iceAskedAt = Date.now();
+        // Relays without TURN never answer; a short wait costs a call's first second at most.
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(timer);
+            signaling.off('ice', done);
+            resolve();
+          };
+          const timer = setTimeout(done, ICE_WAIT_MS);
+          signaling.on('ice', done);
+          signaling.requestIce();
+        });
+      }
+      return currentIce();
+    },
+
     join(name: string, auth: MeshAuth | null = null): NetworkManager {
       const room: Room = { auth, peers: new Map(), handshakes: new Map(), events: createEmitter<NetworkEvents>() };
       const send = (peer: string, message: NetworkMessage) => {

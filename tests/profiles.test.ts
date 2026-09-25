@@ -23,6 +23,7 @@ import { joined } from './helpers/joined.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
+import { hold } from './helpers/hold.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -62,8 +63,8 @@ describe('profiles', () => {
     const bob = await person(hub, 'Bob');
     const { id: space } = await alice.node.spaces.create({ name: 'Chat', ...team, visibility: 'private' });
     await bob.node.spaces.join(await alice.node.spaces.invite(space));
-    await alice.node.spaces.open(space);
-    await bob.node.spaces.open(space);
+    await hold(alice.node, space);
+    await hold(bob.node, space);
 
     await until(async () => (await nameIn(alice.node, space, bob.node.did)) === 'Bob', 4000, 'Bob’s name to reach Alice');
     await until(async () => (await nameIn(bob.node, space, alice.node.did)) === 'Alice', 4000, 'Alice’s name to reach Bob');
@@ -75,8 +76,8 @@ describe('profiles', () => {
     const bob = await person(hub, 'Bob');
     const { id: space } = await alice.node.spaces.create({ name: 'Chat', ...team, visibility: 'public' });
     await bob.node.spaces.join(await alice.node.spaces.invite(space));
-    await alice.node.spaces.open(space);
-    await bob.node.spaces.open(space);
+    await hold(alice.node, space);
+    await hold(bob.node, space);
     await until(async () => (await nameIn(bob.node, space, alice.node.did)) === 'Alice', 4000, 'first name');
 
     await alice.node.account.setName('Alice R.');
@@ -90,7 +91,7 @@ describe('profiles', () => {
     const mallory = await person(hub, 'Mallory');
     const { id: space } = await alice.node.spaces.create({ name: 'Chat', ...team, visibility: 'public' });
     await mallory.node.spaces.join(await alice.node.spaces.invite(space));
-    await alice.node.spaces.open(space);
+    await hold(alice.node, space);
     await joined(mallory.node, space);
     await until(async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice', 4000, 'Alice’s own profile');
 
@@ -123,7 +124,7 @@ describe('profiles', () => {
     // Mallory is a member — she may write here — so the profile rule is what must stop her.
     const forged = authored;
     await createStorageProvider(await mallory.stores(`spaces/${space}`)).addExpression(forged);
-    await mallory.node.spaces.open(space);
+    await hold(mallory.node, space);
 
     // Mallory's own records reach Alice, so sync is working…
     await until(async () => (await nameIn(alice.node, space, mallory.node.did)) === 'Mallory', 4000, 'Mallory’s profile');
@@ -143,8 +144,8 @@ describe('profiles', () => {
     const carol = await person(hub, 'Carol');
     const { id: space } = await alice.node.spaces.create({ name: 'Blog', visibility: 'public' });
     await carol.node.spaces.join(await alice.node.spaces.invite(space));
-    await alice.node.spaces.open(space);
-    await carol.node.spaces.open(space);
+    await hold(alice.node, space);
+    await hold(carol.node, space);
     await until(async () => (await nameIn(carol.node, space, alice.node.did)) === 'Alice', 4000, 'the owner’s name');
     assert.equal(await nameIn(carol.node, space, carol.node.did), undefined);
   });
@@ -153,7 +154,7 @@ describe('profiles', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub, 'Alice');
     const { id: space } = await alice.node.spaces.create({ name: 'Notes', visibility: 'private' });
-    await alice.node.spaces.open(space);
+    await hold(alice.node, space);
     await until(async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice', 4000, 'own profile');
     const listed = (await runAction(alice.node, 'spaces_profiles', { space })) as Array<{ did: string; name: string }>;
     assert.deepEqual(listed.map((p) => [p.did, p.name]), [[alice.node.did, 'Alice']]);

@@ -7,9 +7,10 @@
  * record writes it into a closed store, then opens the space to send it.
  */
 import type { P2PNode } from '../../src/node/types.js';
+import { letGo } from './hold.js';
 
 export async function seenBy(node: P2PNode, spaceId: string): Promise<ReadonlyArray<string>> {
   const { heads } = await node.spaces.access(spaceId);
-  await node.spaces.close(spaceId);
+  await letGo(node, spaceId);
   return heads;
 }

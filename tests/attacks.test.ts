@@ -22,6 +22,7 @@ import { joined } from './helpers/joined.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
+import { hold, letGo } from './helpers/hold.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -76,15 +77,15 @@ async function setup() {
   const bob = await person(hub);
   const { id: space } = await alice.node.spaces.create({ name: 'Polls', ...team, visibility: 'public' });
   await bob.node.spaces.join(await alice.node.spaces.invite(space));
-  await alice.node.spaces.open(space);
+  await hold(alice.node, space);
   await joined(bob.node, space);
   await alice.node.collections.define(space, {
     name: 'app.poll',
     schema: { type: 'object' },
     rules: { edit: 'creator', delete: 'creator', fixed: ['options'] },
   });
-  await alice.node.spaces.open(space);
-  await bob.node.spaces.open(space);
+  await hold(alice.node, space);
+  await hold(bob.node, space);
   await until(async () => (await bob.node.collections.list(space)).some((c) => c.name === 'app.poll' && c.version !== null), 4000, 'the definition');
   const poll = await alice.node.records.put(space, 'app.poll', { question: 'Where?', options: ['a'] });
   await until(async () => (await bob.node.records.get(space, poll.key)) !== null, 4000, 'the poll');
@@ -95,13 +96,13 @@ describe('attacks on a shared space', () => {
   test('a version cannot escape its record\'s rules by naming another record as its first', async () => {
     const { alice, bob, space, poll } = await setup();
     const unruled = await bob.node.records.put(space, 'app.other', { x: 1 });
-    await bob.node.spaces.close(space);
+    await letGo(bob.node, space);
     await forge(bob, space, {
       collection: 'app.poll',
       body: { question: 'Hijacked', options: ['zzz'] },
       version: { key: poll.key, seq: 5, prev: poll.version, genesis: unruled.version },
     });
-    await bob.node.spaces.open(space);
+    await hold(bob.node, space);
     await until(async () => (await bob.node.spaces.status(space)).peers.length > 0, 4000, 'Bob to reconnect');
     await settle();
     assert.equal((await alice.node.records.get<{ question: string }>(space, poll.key))?.body?.question, 'Where?');
@@ -110,7 +111,7 @@ describe('attacks on a shared space', () => {
   test('a member cannot take down a collection\'s definition they did not write', async () => {
     const { alice, bob, space } = await setup();
     const definition = await createStorageProvider(await bob.stores(`spaces/${space}`)).getCurrent('collection:app.poll');
-    await bob.node.spaces.close(space);
+    await letGo(bob.node, space);
     await forge(bob, space, {
       collection: 'sys.collection',
       body: null,
@@ -118,7 +119,7 @@ describe('attacks on a shared space', () => {
       retain: true,
       version: { key: 'collection:app.poll', seq: 50, prev: definition!.id, genesis: definition!.id },
     });
-    await bob.node.spaces.open(space);
+    await hold(bob.node, space);
     // It does arrive — and changes nothing.
     const aliceStore = createStorageProvider(await alice.stores(`spaces/${space}`));
     await until(async () => (await aliceStore.getCurrent('collection:app.poll'))?.seq === 50, 4000, 'the delete to arrive');
@@ -129,10 +130,10 @@ describe('attacks on a shared space', () => {
 
   test('a stranger sending a mangled copy first does not get the real record refused', async () => {
     const { hub, alice, bob, space } = await setup();
-    await bob.node.spaces.close(space);
+    await letGo(bob.node, space);
     const second = await alice.node.records.put(space, 'app.poll', { question: 'Second', options: ['a'] });
     const real = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(second.key);
-    await alice.node.spaces.close(space);
+    await letGo(alice.node, space);
 
     const rejected: string[] = [];
     bob.node.subscribe((event) => {
@@ -145,10 +146,10 @@ describe('attacks on a shared space', () => {
       stranger.send(peer, new TextEncoder().encode(JSON.stringify({ type: 'sync', from: 'did:key:zstranger', payload })));
     });
     await stranger.connect();
-    await bob.node.spaces.open(space);
+    await hold(bob.node, space);
     await until(async () => rejected.length > 0, 4000, 'the mangled copy to be refused');
 
-    await alice.node.spaces.open(space);
+    await hold(alice.node, space);
     await until(async () => (await bob.node.records.get(space, second.key)) !== null, 4000, 'the real record');
   });
 });

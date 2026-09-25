@@ -89,7 +89,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
         for (const space of found) {
           if (space.role !== null || opened.has(space.id)) continue;
           opened.add(space.id);
-          void session.node.spaces.open(space.id).catch(() => {});
+          void session.node.spaces.hold(space.id).catch(() => {});
         }
       }, () => {});
     load();

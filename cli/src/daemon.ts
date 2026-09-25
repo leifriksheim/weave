@@ -45,18 +45,18 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     },
   });
 
-  const open = new Set<string>();
+  /** Spaces being served, and how to let go of each */
+  const open = new Map<string, () => Promise<void>>();
   const rescan = async () => {
     const held = new Set((await node.spaces.list()).map((space) => space.id));
     for (const id of held) {
       if (open.has(id)) continue;
-      await node.spaces.open(id);
-      open.add(id);
+      open.set(id, await node.spaces.hold(id));
       log(`serving space ${id}`);
     }
-    for (const id of [...open]) {
+    for (const [id, release] of [...open]) {
       if (held.has(id)) continue;
-      await node.spaces.close(id);
+      await release();
       open.delete(id);
       log(`stopped serving space ${id}`);
     }

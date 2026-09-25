@@ -21,6 +21,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
 import { team } from '../src/space/presets.js';
+import { hold, letGo } from './helpers/hold.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -91,8 +92,8 @@ async function pollSpace(visibility: 'public' | 'private' = 'public') {
     links: { about: { to: ['app.poll'], cardinality: 'one' } },
     rules: { edit: 'creator', onePer: ['@author', 'link:about'] },
   });
-  await alice.node.spaces.open(space);
-  await bob.node.spaces.open(space);
+  await hold(alice.node, space);
+  await hold(bob.node, space);
   await joined(bob.node, space);
   await until(async () => (await bob.node.collections.list(space)).filter((c) => c.version !== null).length === 2, 4000, 'definitions to reach Bob');
   return { hub, alice, bob, space };
@@ -127,7 +128,7 @@ describe('rules: who may edit and delete', () => {
     const poll = await alice.node.records.put(space, 'app.poll', { question: 'Where?', options: ['Oslo', 'Lisbon'] });
     await until(async () => (await bob.node.records.get(space, poll.key)) !== null, 4000, 'the poll');
 
-    await bob.node.spaces.close(space);
+    await letGo(bob.node, space);
     await forge(bob, space, {
       author: '',
       collection: 'app.poll',
@@ -138,7 +139,7 @@ describe('rules: who may edit and delete', () => {
     alice.node.subscribe((event) => {
       if (event.type === 'rejected') rejected = event.reason;
     });
-    await bob.node.spaces.open(space);
+    await hold(bob.node, space);
     await until(async () => rejected !== '', 4000, 'Alice to refuse it');
     assert.match(rejected, /Only whoever created it can edit/);
     assert.equal((await alice.node.records.get<{ question: string }>(space, poll.key))?.body?.question, 'Where?');
@@ -209,7 +210,7 @@ describe('rules: one per something', () => {
 
     // The definition version to pin, as a modified app would.
     const pinned = (await createStorageProvider(await bob.stores(`spaces/${space}`)).getCurrent('collection:app.poll.vote'))!.id;
-    await bob.node.spaces.close(space);
+    await letGo(bob.node, space);
     await forge(bob, space, {
       author: '',
       collection: 'app.poll.vote',
@@ -222,7 +223,7 @@ describe('rules: one per something', () => {
     alice.node.subscribe((event) => {
       if (event.type === 'rejected') rejected = event.reason;
     });
-    await bob.node.spaces.open(space);
+    await hold(bob.node, space);
     await until(async () => rejected !== '', 4000, 'Alice to refuse the second vote');
     assert.match(rejected, /one per @author \+ link:about/);
     assert.equal((await alice.node.records.linked(space, poll.key, { collection: 'app.poll.vote' })).length, 1);
@@ -238,7 +239,7 @@ describe('rules: arriving in any order', () => {
     const poll = await alice.node.records.put(space, 'app.poll', { question: 'v0' });
     await alice.node.records.update(space, poll.key, { question: 'v1' });
     await alice.node.records.update(space, poll.key, { question: 'v2' });
-    await alice.node.spaces.open(space);
+    await hold(alice.node, space);
 
     const carol = await person(hub);
     await carol.node.spaces.join(await alice.node.spaces.invite(space));
@@ -246,7 +247,7 @@ describe('rules: arriving in any order', () => {
     carol.node.subscribe((event) => {
       if (event.type === 'rejected') rejected++;
     });
-    await carol.node.spaces.open(space);
+    await hold(carol.node, space);
     await until(async () => (await carol.node.records.get<{ question: string }>(space, poll.key))?.body?.question === 'v2', 4000, 'the latest version');
     assert.equal(rejected, 0);
   });

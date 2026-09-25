@@ -154,7 +154,7 @@ export async function startAgentNode(home: string, options: { readonly nodes?: R
 
   const node = await base.asAgent({ keys: key.keys, note: grant.token });
   // Open every space, so it syncs while the agent works rather than on first use.
-  for (const space of await node.spaces.list()) void node.spaces.open(space.id).catch(() => {});
+  for (const space of await node.spaces.list()) void node.spaces.hold(space.id).catch(() => {});
   return {
     node,
     grant,
