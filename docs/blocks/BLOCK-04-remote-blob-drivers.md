@@ -6,6 +6,12 @@ Two `BlobStore` implementations so a node can keep its durable data in storage
 the user already pays for. S3 covers Cloudflare R2, Backblaze B2, Minio, Wasabi
 and AWS itself for free. Google Drive is the consumer-facing one.
 
+**Build S3 first, on its own.** It's what hosting needs (BLOCK-07 mirrors into
+its own R2 bucket), and it's plain keys and PUT/GET/LIST, with no OAuth and no
+app review. Drive is "your own storage", a later feature with harder token
+rules; it fits best in the extension (BLOCK-17), where `chrome.identity` can
+renew Google tokens in the background.
+
 ---
 
 ## Before you start
@@ -234,9 +240,10 @@ Document the env vars in the test file header.
 - **OAuth token brokering and refresh-token storage** — BLOCK-07. `getAccessToken`
   is a callback so this block doesn't need to care.
 - **Dropbox and OneDrive.** Both have an app-folder permission, the narrowest
-  grant there is, and Dropbox is the first provider hosting needs (BLOCK-07).
+  grant there is, and Dropbox hands browser apps long-lived refresh tokens.
   Once the contract suite exists each is an afternoon: do Dropbox next, with
-  `list_folder/continue` and long polling as its `changes`.
+  `list_folder/continue` and long polling as its `changes`. It's the first
+  your-own-storage provider hosting supports, after R2.
 - **iCloud, WebDAV.** iCloud has no usable web API for this; iCloud users keep
   a data folder on their Mac instead.
 
