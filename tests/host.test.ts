@@ -19,6 +19,7 @@ import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { createHostClient, HostError, newSubscriptionSeed, signRequest, subscriptionKey, verifyRequest } from '../src/session/hosting.js';
 import { startHost } from '../cli/src/host.js';
 import { createStripeBilling, verifyStripeSignature } from '../cli/src/stripe.js';
+import { allowList, checkExposure } from '../cli/src/host-setup.js';
 import { createMemoryBlobStore } from '../src/storage/blob/memory.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
@@ -397,5 +398,53 @@ describe('a host whose disk is only a cache', () => {
     const phone = await onSockets(me, second.port);
     await until(async () => (await phone.records.list(notes.id).catch(() => [])).length === 1, 15_000, 'the note to reach a new phone');
     assert.deepEqual((await phone.records.list(notes.id))[0]?.body, { text: 'in the bucket' });
+  });
+});
+
+describe('a host for named accounts only', () => {
+  test('it carries for the accounts it was told, and turns everyone else away before keeping anything', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const [me, stranger] = [await account(), await account()];
+    const served = await startHost({ key: await provider.generateKeyPair(), stores: memoryStores(), port: 0, free: true, allow: [me.did] });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+
+    const mine = await device(me, hub);
+    await mine.spaces.create({ name: 'Notes', visibility: 'private' });
+    const myKey = await subscriptionKey(newSubscriptionSeed());
+    const status = await createHostClient(url, myKey).attach(me.did, (await mine.carriers.add({ did: served.node.did, name: 'Host' })).invite);
+    assert.equal(status.carrying, true);
+
+    const theirs = await device(stranger, hub);
+    await theirs.spaces.create({ name: 'Mine now?', visibility: 'private' });
+    const theirKey = await subscriptionKey(newSubscriptionSeed());
+    await assert.rejects(
+      createHostClient(url, theirKey).attach(stranger.did, (await theirs.carriers.add({ did: served.node.did, name: 'Host' })).invite),
+      (error: unknown) => error instanceof HostError && error.status === 403,
+    );
+    assert.deepEqual((await served.node.list()).map((subscription) => subscription.id), [myKey.did], 'nothing kept for the stranger');
+  });
+
+  test('the host node itself refuses them too, whatever the API', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const stranger = await account();
+    const node = await createHostNode({ key: await provider.generateKeyPair(), stores: memoryStores(), network: onHub(hub), free: true, allow: ['did:key:zSomeoneElse'] });
+    open.push(node);
+    const theirs = await device(stranger, hub);
+    const id = await subscriptionId();
+    await node.subscribe(id);
+    await assert.rejects(node.attach(id, stranger.did, (await theirs.carriers.add({ did: node.did, name: 'Host' })).invite), /only carries spaces for the accounts/);
+  });
+
+  test('a free host anyone could reach refuses to start unless it names its accounts', () => {
+    assert.doesNotThrow(() => checkExposure({ free: true, allow: null }));
+    assert.doesNotThrow(() => checkExposure({ host: '127.0.0.1', free: true, allow: null }));
+    assert.throws(() => checkExposure({ host: '0.0.0.0', free: true, allow: null }), /--allow/);
+    assert.doesNotThrow(() => checkExposure({ host: '0.0.0.0', free: true, allow: ['did:key:zA'] }));
+    assert.doesNotThrow(() => checkExposure({ host: '0.0.0.0', free: false, allow: null }), 'a paying host is open to anyone who pays');
+
+    assert.equal(allowList(undefined, {}), null);
+    assert.deepEqual(allowList(['did:key:zA'], { WEAVE_HOST_ALLOW: 'did:key:zB, did:key:zA' }), ['did:key:zA', 'did:key:zB']);
+    assert.throws(() => allowList(['alice'], {}), /not an account DID/);
   });
 });

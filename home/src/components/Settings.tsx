@@ -226,7 +226,7 @@ function AccountHeader({ name, did, onRename }: { name: string; did: string; onR
             </button>
           </h1>
         )}
-        <code style={{ fontSize: 12, color: palette.ink.faint }}>{did.slice(0, 16)}…{did.slice(-6)}</code>
+        <CopyDid did={did} />
       </div>
     </header>
   );
@@ -236,6 +236,26 @@ function AccountHeader({ name, did, onRename }: { name: string; did: string; onR
 const connectionId = (app: Connection) => (app.agent ? app.audience : app.origin);
 
 /** "Todo (todo.example) · read and change Groceries · until 3 October" */
+
+/** The account's DID, short, with a way to copy it whole — what a host's `--allow` takes */
+function CopyDid({ did }: { did: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(did);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <code title={did} style={{ fontSize: 12, color: palette.ink.faint }}>
+        {did.slice(0, 16)}…{did.slice(-6)}
+      </code>
+      <button onClick={() => void copy()} data-variant="quiet" style={{ ...styles.smallButton, height: 24, fontSize: 12 }}>
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </span>
+  );
+}
 
 function describeConnection(app: Connection): string {
   const url = new URL(app.origin);

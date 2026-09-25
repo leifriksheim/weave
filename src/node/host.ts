@@ -53,6 +53,11 @@ export interface HostConfig {
   readonly graceDays?: number;
   /** Every subscription counts as paid — for someone hosting only themselves, and for trying it out */
   readonly free?: boolean;
+  /**
+   * The accounts this host carries for, and no others — someone hosting only
+   * themselves and their family. Absent: any account whose subscription is paid.
+   */
+  readonly allow?: ReadonlyArray<string>;
   /** Unix seconds now; for tests */
   readonly now?: () => number;
   /**
@@ -96,6 +101,13 @@ export interface HostNode {
 }
 
 const SUBSCRIPTION_PREFIX = 'subscription:';
+
+/** An account this host was not told to carry for */
+export class NotAllowedError extends Error {
+  constructor() {
+    super('This host only carries spaces for the accounts its owner named');
+  }
+}
 /** Where the subscriptions are kept in the bucket */
 const BUCKET_PREFIX = 'host/subscriptions/';
 const DAY = 24 * 3600;
@@ -105,6 +117,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
   const provider = config.provider ?? createP256Provider();
   const now = config.now ?? (() => Math.floor(Date.now() / 1000));
   const graceSeconds = (config.graceDays ?? 30) * DAY;
+  const allowed = (account: string) => !config.allow || config.allow.includes(account);
   const store: StorageAdapter = await config.stores('host');
 
   const listeners = new Set<(event: CarrierEvent) => void>();
@@ -179,7 +192,8 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
 
   // Carry again what was carried before a restart — the store is only a cache of the spaces, but the list is ours.
   for (const subscription of await list()) {
-    if (!subscription.carry || state(subscription) === 'lapsed') continue;
+    // An account taken off the list since is not carried again.
+    if (!subscription.carry || state(subscription) === 'lapsed' || !allowed(subscription.carry.account)) continue;
     await core.addCarry(subscription.carry.account, subscription.carry.invite).catch((error: unknown) => {
       console.error(`Could not carry for subscription ${subscription.id}:`, error);
     });
@@ -216,6 +230,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       const subscription = await read(id);
       if (!subscription || state(subscription) === 'lapsed') throw new Error('That subscription is not paid for');
       if (!account.startsWith('did:key:')) throw new Error('An account is named by its DID');
+      if (!allowed(account)) throw new NotAllowedError();
       const space = await core.addCarry(account, invite);
       const before = subscription.carry;
       const attached = await write({ ...subscription, carry: { account, space, invite } });

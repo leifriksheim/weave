@@ -94,8 +94,11 @@ account's spaces — sealed, as they travel — and serves them over sockets and
 relay, like `weave run`. It holds no account and no space key.
 
 ```bash
-# Try it, or host only yourself: every subscription counts as paid
+# Try it on this machine: every subscription counts as paid
 weave host --free --port 8787
+
+# Host only yourself and your family, on a server: the accounts named, and nobody else
+weave host --free --host 0.0.0.0 --allow did:key:zDnae… --allow did:key:zDnae…
 
 # As a service: Stripe for payments, R2 (or any S3) for storage
 STRIPE_SECRET_KEY=sk_live_… STRIPE_WEBHOOK_SECRET=whsec_… \
@@ -105,6 +108,10 @@ WEAVE_S3_ACCESS_KEY_ID=… WEAVE_S3_SECRET_ACCESS_KEY=… \
 weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
 ```
 
+- `--free` on an address others can reach needs `--allow` (or
+  `WEAVE_HOST_ALLOW`, comma separated): otherwise anyone who found it could
+  fill its disk. An account's DID is under its name in the account home's
+  Settings, with a Copy button. `--allow` works on a paying host too.
 - The host's key is made once, in `--data` (`host-key`, readable by you alone).
   A new key is a new host: every account would hand its spaces over again.
 - Point Stripe's webhook at `https://<host>/host/billing/webhook`, sending

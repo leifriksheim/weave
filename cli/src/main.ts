@@ -27,7 +27,7 @@ import { createNode, isValidRecoveryCode, NODE_ACTIONS, runAction, type NodeActi
 import { chooseAccount, createAccount, homePath, openHome, unlock, type Home } from './home.js';
 import { startDaemon } from './daemon.js';
 import { startHost } from './host.js';
-import { billingFromEnv, defaultHostData, hostKey, hostStores, mirrorFromEnv } from './host-setup.js';
+import { allowList, billingFromEnv, checkExposure, defaultHostData, hostKey, hostStores, mirrorFromEnv } from './host-setup.js';
 import { runMcpStdio } from './mcp.js';
 import { configuredRelays, connectAgent, daysLeft, defaultAgentName, forgetAgent, startAgentNode } from './agent.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
@@ -42,7 +42,7 @@ Usage:
   weave spaces  list | create | invite | join | leave | status   [--flags]
   weave records list | get | put | update | delete               [--flags]
   weave run [--port 8787] [--host 127.0.0.1] [--node wss://…/peer] [--create]
-  weave host [--port 8787] [--host 127.0.0.1] [--data DIR] [--free]
+  weave host [--port 8787] [--host 127.0.0.1] [--data DIR] [--free] [--allow did:key:…]
   weave connect <code> [--name NAME] [--relay wss://…] [--no-configure]
   weave disconnect
   weave mcp [--account]
@@ -272,9 +272,12 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         host: { type: 'string' },
         data: { type: 'string', default: process.env.WEAVE_HOST_DATA ?? defaultHostData() },
         free: { type: 'boolean' },
+        allow: { type: 'string', multiple: true },
       },
     });
     const data = path.resolve(values.data);
+    const allow = allowList(values.allow, process.env);
+    checkExposure({ ...(values.host ? { host: values.host } : {}), free: !!values.free, allow });
     const billing = billingFromEnv(process.env);
     if (!billing && !values.free) {
       throw new Error('weave host needs a way to take payments (STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET), or --free to host without them.');
@@ -285,6 +288,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       port: Number(values.port),
       ...(values.host ? { host: values.host } : {}),
       ...(values.free ? { free: true } : {}),
+      ...(allow ? { allow } : {}),
       billing,
       mirror: mirrorFromEnv(process.env),
       log: (line) => stderr(`[${new Date().toISOString()}] ${line}`),

@@ -69,3 +69,30 @@ export function mirrorFromEnv(env: NodeJS.ProcessEnv): BlobStore | null {
     ...(env.WEAVE_S3_PREFIX ? { prefix: env.WEAVE_S3_PREFIX } : {}),
   });
 }
+
+/** Whether an address only this machine can reach */
+const isLoopback = (host: string | undefined) => !host || ['127.0.0.1', 'localhost', '::1'].includes(host);
+
+/**
+ * The accounts a host carries for, from `--allow` and WEAVE_HOST_ALLOW
+ * (comma separated): account DIDs, as the home shows them. None: any.
+ */
+export function allowList(flags: ReadonlyArray<string> | undefined, env: NodeJS.ProcessEnv): ReadonlyArray<string> | null {
+  const named = [...(flags ?? []), ...(env.WEAVE_HOST_ALLOW ?? '').split(',')].map((did) => did.trim()).filter(Boolean);
+  if (named.length === 0) return null;
+  const wrong = named.find((did) => !/^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$/.test(did));
+  if (wrong) throw new Error(`"${wrong}" is not an account DID — copy it from the account home (Settings, under your name).`);
+  return [...new Set(named)];
+}
+
+/**
+ * Refuses a free host anyone could reach and use: every subscription counts as
+ * paid there, so a stranger could fill its disk. On this machine alone, or
+ * limited to named accounts, it is fine.
+ */
+export function checkExposure(options: { readonly host?: string; readonly free?: boolean; readonly allow: ReadonlyArray<string> | null }): void {
+  if (!options.free || options.allow || isLoopback(options.host)) return;
+  throw new Error(
+    `A free host on ${options.host} would carry spaces for anyone who finds it. Name the accounts it is for with --allow did:key:… (or WEAVE_HOST_ALLOW), or keep it on this machine.`,
+  );
+}

@@ -373,6 +373,7 @@ export {
   checkActionInput,
   createCarrierNode,
   createHostNode,
+  NotAllowedError,
 } from './node/index.js';
 export type {
   StoreFactory,

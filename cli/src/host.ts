@@ -19,7 +19,7 @@
  * every subscription counts as paid — someone hosting only themselves.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createHostNode, verifyRequest, createP256Provider, type BlobStore, type HostNode, type HostStatus, type StoreFactory } from '../../src/index.js';
+import { createHostNode, NotAllowedError, verifyRequest, createP256Provider, type BlobStore, type HostNode, type HostStatus, type StoreFactory } from '../../src/index.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 
 /** What the host needs from a payment provider */
@@ -47,6 +47,8 @@ export interface HostOptions {
   readonly mirror?: BlobStore | null;
   /** Every subscription counts as paid */
   readonly free?: boolean;
+  /** Only these accounts are carried for */
+  readonly allow?: ReadonlyArray<string>;
   readonly graceDays?: number;
   /** How often lapsed subscriptions are dropped. Default hourly. */
   readonly sweepMs?: number;
@@ -121,6 +123,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // No relays: WebRTC needs a browser. Peers reach the host over sockets.
     network: { transports: inbound.transports },
     ...(options.free ? { free: true } : {}),
+    ...(options.allow ? { allow: options.allow } : {}),
     ...(options.graceDays !== undefined ? { graceDays: options.graceDays } : {}),
     ...(options.mirror ? { mirror: options.mirror } : {}),
   });
@@ -195,12 +198,15 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       if (typeof input.account !== 'string' || typeof input.invite !== 'string' || input.invite.length > 16_000) {
         throw new Refusal(400, 'An account and a carry invite are needed');
       }
+      // Asked before anything is kept: a stranger at a free host leaves nothing behind.
+      if (options.allow && !options.allow.includes(input.account)) throw new Refusal(403, new NotAllowedError().message);
       if (options.free) await node.subscribe(id);
       const subscription = await node.get(id);
       if (!subscription || node.state(subscription) === 'lapsed') throw new Refusal(402, 'This subscription is not paid for');
       try {
         await node.attach(id, input.account, input.invite);
       } catch (error) {
+        if (error instanceof NotAllowedError) throw new Refusal(403, error.message);
         throw new Refusal(400, error instanceof Error ? error.message : 'That invite could not be used');
       }
       log(`subscription ${id} carries ${input.account}'s spaces`);
@@ -263,7 +269,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   }, options.sweepMs ?? 3600_000);
   (sweeping as { unref?: () => void }).unref?.();
 
-  log(`host ${node.did} listening on port ${served.port}${options.free ? ' (free: every subscription counts as paid)' : ''}${options.mirror ? ', kept in its bucket' : ', on this disk alone'}`);
+  const who = options.allow ? `, only for ${options.allow.length} account${options.allow.length === 1 ? '' : 's'}` : '';
+  log(`host ${node.did} listening on port ${served.port}${options.free ? ' (free: every subscription counts as paid)' : ''}${who}${options.mirror ? ', kept in its bucket' : ', on this disk alone'}`);
   return {
     node,
     port: served.port,
