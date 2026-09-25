@@ -293,3 +293,8 @@ export async function useSchemas(node: P2PNode, spaceId: string, schemas: Readon
     if (!known.has(schema.name)) await node.collections.define(spaceId, schema);
   }
 }
+
+export { app, appScreen, checkApp, reviewApp, proposeApp, addApp, copyApp, MAX_APP_COLLECTIONS } from './apps.js';
+export { SCREEN_GUIDE, SCREEN_CLIENT, screenDocument, createScreenBridge } from './screens.js';
+export type { ScreenBridge, ScreenRecord, ScreenViewer } from './screens.js';
+export type { App, AppDefinition, AppReview, AppNeedReview } from './apps.js';

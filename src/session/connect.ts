@@ -27,6 +27,7 @@ import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
 import { cidFromBytes } from '../utils/hash.js';
 import { base64UrlDecode, utf8Encode } from '../utils/encoding.js';
 import { verifyUCAN, parseUCAN, type Capability, type UCANToken } from '../identity/ucan.js';
+import { isAgentNote } from '../identity/agent-note.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import { createNode } from '../node/node.js';
 import { indexedDBStores, type StoreFactory } from '../node/stores.js';
@@ -65,7 +66,21 @@ export interface ConnectRequest {
   readonly create?: ReadonlyArray<NewSpace>;
   /** Whether to offer the person's existing spaces to pick from. Default true. */
   readonly chooseSpaces?: boolean;
+  /**
+   * The key is an agent's — one on the person's computer, connected with
+   * `weave connect` (`agent-link.ts`). Its note says so (`AGENT_FACT`), so
+   * every record it writes shows as "via agent", and every peer refuses it
+   * changing the space's collections or who may do what, or the account's
+   * list of spaces. It may be given chosen spaces or the whole account, but
+   * never spaces made for it.
+   */
+  readonly agent?: boolean;
+  /** How many days the note should last, 1–365. The home decides; default 7. */
+  readonly days?: number;
 }
+
+/** The longest a home gives a note for */
+export const MAX_GRANT_DAYS = 365;
 
 /** A space an app was given */
 export interface GrantedSpace {
@@ -96,6 +111,8 @@ export interface Grant {
   readonly accountKey?: string;
   /** Unix seconds */
   readonly expiresAt: number;
+  /** Present, and true, when the note is an agent's */
+  readonly agent?: true;
   /** The home that granted it, so the app can go back there */
   readonly home: string;
   /**
@@ -227,8 +244,15 @@ export interface ConnectOptions {
   readonly home: string;
   /** What to ask for; `audience` is filled in with this app's key */
   readonly request: Omit<ConnectRequest, 'v' | 'audience'>;
-  /** The key to ask for. Default: {@link appKey}. */
+  /** The key to ask for. Default: {@link appKey} under `keyName`. */
   readonly key?: AppKey;
+  /** Which of this app's keys to use when `key` is not given. Default `default`. */
+  readonly keyName?: string;
+  /**
+   * Ask for a note made out to this key instead of one of the app's own —
+   * an agent's, which lives on another computer (`offerAgentLink`).
+   */
+  readonly audience?: string;
   /** How long to wait for the person. Default 10 minutes. */
   readonly timeoutMs?: number;
 }
@@ -244,9 +268,11 @@ export async function connectToHome(options: ConnectOptions): Promise<Grant> {
   const homeUrl = new URL(options.home, globalThis.location.href);
   // Opened before anything is awaited, so it still counts as the click's.
   const popup = openHome(homeUrl);
-  const key = options.key ?? (await appKey());
-  const grant = (await askHome(popup, homeUrl.origin, { v: 1, audience: key.did, ...options.request }, options.timeoutMs)) as Grant;
-  await checkGrant(grant, key.did);
+  const audience = options.audience ?? (options.key ?? (await appKey(options.keyName))).did;
+  const grant = (await askHome(popup, homeUrl.origin, { v: 1, audience, ...options.request }, options.timeoutMs)) as Grant;
+  await checkGrant(grant, audience);
+  // An agent's note must say so, or its writes would pass as the person's own.
+  if (options.request.agent && !isAgentNote(grant.token)) throw new Error('The home gave an ordinary note, not an agent\'s. Update your account home.');
   return { ...grant, home: homeUrl.href };
 }
 
@@ -469,7 +495,12 @@ function isRequest(value: unknown): value is ConnectRequest {
     (request.access === 'read' || request.access === 'write' || request.access === 'carry') &&
     (request.scope === undefined || request.scope === 'spaces' || request.scope === 'account') &&
     (request.name === undefined || (typeof request.name === 'string' && request.name.length <= 80)) &&
-    (request.create === undefined || isNewSpaces(request.create))
+    (request.create === undefined || isNewSpaces(request.create)) &&
+    (request.days === undefined || (Number.isInteger(request.days) && request.days >= 1 && request.days <= MAX_GRANT_DAYS)) &&
+    // An agent works in spaces that exist: none made for it, and no carrying.
+    (request.agent === undefined ||
+      request.agent === false ||
+      (request.agent === true && request.access !== 'carry' && request.create === undefined))
   );
 }
 

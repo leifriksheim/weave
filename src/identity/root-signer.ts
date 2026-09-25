@@ -17,7 +17,7 @@
  */
 
 import type { CryptoProvider } from '../types.js';
-import type { Capability, UCANToken } from './ucan.js';
+import type { Capability, Fact, UCANToken } from './ucan.js';
 import { issueUCAN } from './ucan.js';
 
 /** What a session needs from an identity, wherever that identity is kept */
@@ -35,12 +35,14 @@ export interface RootSigner {
    * @param params.audience The session key's DID
    * @param params.capabilities What it may do
    * @param params.expiration Unix seconds after which the note is worthless
+   * @param params.facts Facts the note carries — that its key is an agent's, say
    * @returns The signed token
    */
   delegate(params: {
     audience: string;
     capabilities: ReadonlyArray<Capability>;
     expiration: number;
+    facts?: ReadonlyArray<Fact>;
   }): Promise<UCANToken>;
 }
 
@@ -66,6 +68,7 @@ export function createLocalRootSigner(
       audience: string;
       capabilities: ReadonlyArray<Capability>;
       expiration: number;
+      facts?: ReadonlyArray<Fact>;
     }): Promise<UCANToken> {
       return issueUCAN(
         {
@@ -73,6 +76,7 @@ export function createLocalRootSigner(
           audience: params.audience,
           capabilities: params.capabilities,
           expiration: params.expiration,
+          ...(params.facts?.length ? { facts: params.facts } : {}),
         },
         provider,
       );

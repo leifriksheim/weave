@@ -21,6 +21,7 @@
  */
 import { createIdentityManager } from '../identity/identity-manager.js';
 import { createLocalRootSigner } from '../identity/root-signer.js';
+import { AGENT_FACT } from '../identity/agent-note.js';
 import { accountDataPath, newAccountId, createBrowserAccountStore } from '../identity/account-store.js';
 import type { AccountStore, AccountSummary } from '../identity/account-store.js';
 import { createVault } from '../identity/folder-account.js';
@@ -59,7 +60,7 @@ import {
   type PodContents,
 } from './places.js';
 import { createStaySignedIn, type KeyValueStore, type StaySignedIn } from './stay-signed-in.js';
-import { grantCapabilities, type CarryGrant, type ConnectRequest, type Grant, type GrantedSpace } from './connect.js';
+import { grantCapabilities, MAX_GRANT_DAYS, type CarryGrant, type ConnectRequest, type Grant, type GrantedSpace } from './connect.js';
 import {
   clearPairingTicket,
   collectFromDesktop,
@@ -166,6 +167,8 @@ export interface Connection {
   readonly expiresAt: number;
   /** The note the app writes under — what disconnecting revokes */
   readonly token?: string;
+  /** Present, and true, for an agent connected through the app at `origin` — its own key, kept apart from the app's own connection */
+  readonly agent?: true;
 }
 
 /** What the person chose on the approval screen */
@@ -174,7 +177,7 @@ export interface GrantChoice {
   readonly request: ConnectRequest;
   /** Existing spaces to give the app */
   readonly spaceIds: ReadonlyArray<string>;
-  /** How long the note lasts. Default 7. */
+  /** How long the note lasts, overriding what the request asked for. Default: the request's `days`, or 7. */
   readonly days?: number;
 }
 
@@ -270,8 +273,12 @@ export interface WeaveAuth {
    * writes from now on counts, and forgets it. What this home had
    * seen it write stays. What it could already read, it keeps — reading is
    * holding a space's key, and that is not taken back.
+   *
+   * Disconnecting an app disconnects the agents connected through it too.
+   * `{ agent: true }` disconnects only those agents; `{ audience }` only the
+   * one with that key.
    */
-  disconnect(origin: string): Promise<void>;
+  disconnect(origin: string, options?: { readonly agent?: boolean; readonly audience?: string }): Promise<void>;
   readonly staySignedIn: {
     choice(): StaySignedIn;
     setChoice(choice: StaySignedIn): Promise<void>;
@@ -937,6 +944,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
       if (request.access === 'carry') throw new Error('A carrier is given passes, not a note — use grantCarry.');
       const access = request.access;
+      const agent = request.agent === true;
+      if (agent && request.create?.length) throw new Error('An agent works in spaces that exist — none are made for it.');
       const whole = request.scope === 'account';
       const created = [];
       for (const params of request.create ?? []) created.push(await node.spaces.create(params));
@@ -951,13 +960,15 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         spaces.push({ id, name: space.name, invite });
       }
 
-      const expiresAt = Math.floor(Date.now() / 1000) + Math.round((choice.days ?? 7) * 24 * 3600);
+      const days = Math.min(Math.max(choice.days ?? request.days ?? 7, 1 / 24), MAX_GRANT_DAYS);
+      const expiresAt = Math.floor(Date.now() / 1000) + Math.round(days * 24 * 3600);
       const manager = createIdentityManager();
       const root = createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider());
       const token = await root.delegate({
         audience: request.audience,
         capabilities: grantCapabilities(access, whole ? 'all' : ids),
         expiration: expiresAt,
+        ...(agent ? { facts: [AGENT_FACT] } : {}),
       });
 
       const connection: Connection = {
@@ -970,8 +981,11 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         grantedAt: new Date().toISOString(),
         expiresAt,
         token: token.encoded,
+        ...(agent ? { agent: true as const } : {}),
       };
-      writeConnections([connection, ...auth.connections().filter((known) => known.origin !== choice.origin)]);
+      // Connecting again replaces the old note. An agent is its own key: connecting one replaces only that one.
+      const replaced = (known: Connection) => (agent ? known.audience === request.audience : known.origin === choice.origin && !known.agent);
+      writeConnections([connection, ...auth.connections().filter((known) => !replaced(known))]);
 
       return {
         v: 1,
@@ -984,6 +998,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         ...(whole ? { accountKey: base64UrlEncode(await deriveVaultKeyBytes(seed)) } : {}),
         ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
         expiresAt,
+        ...(agent ? { agent: true as const } : {}),
       };
     },
 
@@ -1048,23 +1063,30 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         .map((account) => ({ id: account.id, name: account.name }));
     },
 
-    async disconnect(origin) {
-      const connection = auth.connections().find((known) => known.origin === origin);
+    async disconnect(origin, options = {}) {
+      // The app goes with the agents connected through it; an agent can go alone.
+      const goes = (known: Connection) =>
+        options.audience !== undefined
+          ? known.audience === options.audience
+          : known.origin === origin && (!options.agent || !!known.agent);
+      const going = auth.connections().filter(goes);
       const node = state.session?.node;
-      if (connection?.carrySpace && node) await node.carriers.remove(connection.carrySpace);
-      if (connection?.token && connection.access === 'write' && node) {
-        const covered =
-          connection.scope === 'account'
-            ? (await node.spaces.list()).filter((space) => space.writable).map((space) => space.id)
-            : connection.spaces.map((space) => space.id);
-        for (const spaceId of covered) {
-          // A space that is gone, or that this account no longer writes in, has nothing to revoke.
-          await node.spaces.revoke(spaceId, connection.token).catch(() => {});
+      for (const connection of going) {
+        if (connection.carrySpace && node) await node.carriers.remove(connection.carrySpace);
+        if (connection.token && connection.access === 'write' && node) {
+          const covered =
+            connection.scope === 'account'
+              ? (await node.spaces.list()).filter((space) => space.writable).map((space) => space.id)
+              : connection.spaces.map((space) => space.id);
+          for (const spaceId of covered) {
+            // A space that is gone, or that this account no longer writes in, has nothing to revoke.
+            await node.spaces.revoke(spaceId, connection.token).catch(() => {});
+          }
+          // A whole-account app could also add spaces to the account's list, and rename it.
+          if (connection.scope === 'account') await node.account.revoke(connection.token).catch(() => {});
         }
-        // A whole-account app could also add spaces to the account's list, and rename it.
-        if (connection.scope === 'account') await node.account.revoke(connection.token).catch(() => {});
       }
-      writeConnections(auth.connections().filter((known) => known.origin !== origin));
+      writeConnections(auth.connections().filter((known) => !goes(known)));
     },
 
     staySignedIn: {

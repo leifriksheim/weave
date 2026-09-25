@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_WEAVE_NODES?: string;
   /** The account home's connect page, e.g. http://localhost:5174/connect */
   readonly VITE_WEAVE_HOME?: string;
+  /** What "Connect an agent" tells people to run, before the code. Default `npx weave-protocol-cli connect` */
+  readonly VITE_WEAVE_CONNECT?: string;
 }
 
 interface ImportMeta {

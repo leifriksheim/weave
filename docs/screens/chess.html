@@ -1,0 +1,222 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; --ink: #111; --muted: #666; --line: #e5e5e5; --card: #fff; --page: #fafafa; --light: #eed9b6; --dark: #b58863; --hi: #f6e05e; --move: rgba(20, 83, 45, .45); }
+  @media (prefers-color-scheme: dark) { :root { --ink: #f2f2f2; --muted: #999; --line: #333; --card: #161616; --page: #0d0d0d; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--page); }
+  .wrap { display: flex; gap: 20px; padding: 16px; flex-wrap: wrap; }
+  .side { flex: 1 1 220px; display: flex; flex-direction: column; gap: 12px; min-width: 200px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button.primary { background: var(--ink); color: var(--page); border-color: var(--ink); }
+  button:disabled { opacity: .5; cursor: default; }
+  .games { display: flex; flex-direction: column; gap: 6px; }
+  .games button { text-align: left; }
+  .games button.on { border-color: var(--ink); }
+  .board { display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); width: min(88vw, 520px); aspect-ratio: 1; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex: 0 0 auto; }
+  .sq { display: flex; align-items: center; justify-content: center; font-size: min(8.5vw, 50px); line-height: 1; user-select: none; cursor: pointer; position: relative; border: 0; padding: 0; border-radius: 0; color: #111; }
+  .sq.l { background: var(--light); } .sq.d { background: var(--dark); }
+  .sq.sel { box-shadow: inset 0 0 0 4px var(--hi); }
+  .sq.last { box-shadow: inset 0 0 0 3px rgba(246, 224, 94, .8); }
+  .sq.can::after { content: ""; width: 26%; height: 26%; border-radius: 50%; background: var(--move); position: absolute; }
+  .sq.can.take::after { width: 88%; height: 88%; background: none; border: 5px solid var(--move); }
+  .sq .w { color: #fff; text-shadow: 0 0 2px #000, 0 0 1px #000; } .sq .b { color: #111; }
+  .coord { position: absolute; left: 3px; bottom: 1px; font-size: 10px; opacity: .6; }
+  .status { font-weight: 600; font-size: 15px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .seats { display: flex; flex-direction: column; gap: 6px; }
+  .moves { font: 12px/1.6 ui-monospace, monospace; color: var(--muted); max-height: 180px; overflow: auto; }
+  .error { color: #d33; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="board" class="board" aria-label="Chess board"></div>
+  <div class="side">
+    <div class="status" id="status">Loading…</div>
+    <div class="seats" id="seats"></div>
+    <div class="error" id="error"></div>
+    <div><div class="muted">Moves</div><div class="moves" id="moves"></div></div>
+    <div><div class="muted" style="margin-bottom:6px">Games</div><div class="games" id="games"></div></div>
+    <button class="primary" id="new">New game</button>
+  </div>
+</div>
+<script>
+const GAME = 'app.chess.game', SEAT = 'app.chess.seat', MOVE = 'app.chess.move';
+const GLYPH = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };
+const $ = (id) => document.getElementById(id);
+let state = { games: [], seats: [], moves: [], people: [], current: null, selected: null };
+
+// ── Rules of chess ─────────────────────────────────────────────
+// Squares 0..63, a8 = 0, h1 = 63. Pieces: uppercase white, lowercase black.
+const sq = (name) => (8 - Number(name[1])) * 8 + 'abcdefgh'.indexOf(name[0]);
+const nameOf = (i) => 'abcdefgh'[i % 8] + (8 - Math.floor(i / 8));
+const colorOf = (p) => (p ? (p === p.toUpperCase() ? 'w' : 'b') : null);
+function start() {
+  const b = Array(64).fill(null);
+  'rnbqkbnr'.split('').forEach((p, i) => { b[i] = p; b[56 + i] = p.toUpperCase(); b[8 + i] = 'p'; b[48 + i] = 'P'; });
+  return { b, turn: 'w', castle: { K: true, Q: true, k: true, q: true }, ep: null };
+}
+function attacked(b, i, by) {
+  const r = Math.floor(i / 8), c = i % 8, at = (rr, cc) => (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 ? b[rr * 8 + cc] : undefined);
+  const is = (p, t) => p && colorOf(p) === by && p.toUpperCase() === t;
+  const pr = by === 'w' ? r + 1 : r - 1;
+  if (is(at(pr, c - 1), 'P') || is(at(pr, c + 1), 'P')) return true;
+  for (const [dr, dc] of [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]]) if (is(at(r + dr, c + dc), 'N')) return true;
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if ((dr || dc) && is(at(r + dr, c + dc), 'K')) return true;
+  for (const [dr, dc, t] of [[1,0,'R'],[-1,0,'R'],[0,1,'R'],[0,-1,'R'],[1,1,'B'],[1,-1,'B'],[-1,1,'B'],[-1,-1,'B']]) {
+    for (let k = 1; k < 8; k++) {
+      const p = at(r + dr * k, c + dc * k);
+      if (p === undefined) break;
+      if (p) { if (colorOf(p) === by && (p.toUpperCase() === t || p.toUpperCase() === 'Q')) return true; break; }
+    }
+  }
+  return false;
+}
+function pseudo(pos, from) {
+  const { b } = pos, p = b[from], me = colorOf(p), out = [];
+  const r = Math.floor(from / 8), c = from % 8, T = p.toUpperCase();
+  const add = (rr, cc) => { if (rr < 0 || rr > 7 || cc < 0 || cc > 7) return false; const to = rr * 8 + cc; if (colorOf(b[to]) === me) return false; out.push(to); return !b[to]; };
+  if (T === 'P') {
+    const d = me === 'w' ? -1 : 1, home = me === 'w' ? 6 : 1;
+    if (!b[(r + d) * 8 + c]) { out.push((r + d) * 8 + c); if (r === home && !b[(r + 2 * d) * 8 + c]) out.push((r + 2 * d) * 8 + c); }
+    for (const dc of [-1, 1]) { const cc = c + dc; if (cc < 0 || cc > 7) continue; const to = (r + d) * 8 + cc; if ((b[to] && colorOf(b[to]) !== me) || to === pos.ep) out.push(to); }
+  } else if (T === 'N') { for (const [dr, dc] of [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]]) add(r + dr, c + dc); }
+  else if (T === 'K') {
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (dr || dc) add(r + dr, c + dc);
+    const them = me === 'w' ? 'b' : 'w', row = me === 'w' ? 7 : 0, k = me === 'w' ? 'K' : 'k', q = me === 'w' ? 'Q' : 'q';
+    if (from === row * 8 + 4 && !attacked(b, from, them)) {
+      if (pos.castle[k] && !b[row * 8 + 5] && !b[row * 8 + 6] && !attacked(b, row * 8 + 5, them)) out.push(row * 8 + 6);
+      if (pos.castle[q] && !b[row * 8 + 3] && !b[row * 8 + 2] && !b[row * 8 + 1] && !attacked(b, row * 8 + 3, them)) out.push(row * 8 + 2);
+    }
+  } else {
+    const dirs = T === 'R' ? [[1,0],[-1,0],[0,1],[0,-1]] : T === 'B' ? [[1,1],[1,-1],[-1,1],[-1,-1]] : [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+    for (const [dr, dc] of dirs) for (let k = 1; k < 8 && add(r + dr * k, c + dc * k); k++);
+  }
+  return out;
+}
+function play(pos, from, to) {
+  const b = pos.b.slice(), p = b[from], me = colorOf(p), T = p.toUpperCase(), castle = { ...pos.castle };
+  if (T === 'P' && to === pos.ep) b[to + (me === 'w' ? 8 : -8)] = null;
+  b[to] = p; b[from] = null;
+  if (T === 'P' && (to < 8 || to > 55)) b[to] = me === 'w' ? 'Q' : 'q';
+  if (T === 'K' && Math.abs(to - from) === 2) { const row = Math.floor(from / 8) * 8; if (to % 8 === 6) { b[row + 5] = b[row + 7]; b[row + 7] = null; } else { b[row + 3] = b[row]; b[row] = null; } }
+  if (T === 'K') { if (me === 'w') castle.K = castle.Q = false; else castle.k = castle.q = false; }
+  for (const [i, k] of [[63, 'K'], [56, 'Q'], [7, 'k'], [0, 'q']]) if (from === i || to === i) castle[k] = false;
+  const ep = T === 'P' && Math.abs(to - from) === 16 ? (from + to) / 2 : null;
+  return { b, turn: me === 'w' ? 'b' : 'w', castle, ep };
+}
+const kingOf = (b, color) => b.findIndex((p) => p === (color === 'w' ? 'K' : 'k'));
+function legal(pos, from) {
+  if (colorOf(pos.b[from]) !== pos.turn) return [];
+  return pseudo(pos, from).filter((to) => { const next = play(pos, from, to); return !attacked(next.b, kingOf(next.b, pos.turn), next.turn); });
+}
+const anyLegal = (pos) => pos.b.some((p, i) => colorOf(p) === pos.turn && legal(pos, i).length > 0);
+const inCheck = (pos) => attacked(pos.b, kingOf(pos.b, pos.turn), pos.turn === 'w' ? 'b' : 'w');
+
+// ── The game, from the records ─────────────────────────────────
+const linksTo = (r, rel, key) => r.links.some((l) => l.rel === rel && l.to === key);
+const person = (did) => (did === weave.me.did ? 'You' : state.people.find((p) => p.did === did)?.name || (did ? did.slice(-6) : 'someone'));
+function seatsOf(game) {
+  const seats = {};
+  for (const s of state.seats) if (linksTo(s, 'game', game.key) && !seats[s.body?.color]) seats[s.body.color] = s;
+  return seats;
+}
+// Replays the moves in order. A move that isn't legal, or isn't by whoever sits in that colour, ends the replay: every device stops at the same place.
+function replay(game) {
+  const seats = seatsOf(game);
+  const moves = state.moves.filter((m) => linksTo(m, 'game', game.key)).sort((a, b) => a.body.ply - b.body.ply);
+  let pos = start(), history = [], last = null;
+  for (const m of moves) {
+    if (m.body.ply !== history.length) break;
+    const color = pos.turn === 'w' ? 'white' : 'black';
+    if (!seats[color] || seats[color].createdBy !== m.createdBy) break;
+    const from = sq(m.body.from), to = sq(m.body.to);
+    if (!legal(pos, from).includes(to)) break;
+    history.push(`${m.body.from}–${m.body.to}`);
+    pos = play(pos, from, to); last = { from, to };
+  }
+  return { pos, history, last, seats };
+}
+
+// ── Drawing ────────────────────────────────────────────────────
+function draw() {
+  const games = state.games;
+  $('games').innerHTML = '';
+  games.forEach((g, n) => {
+    const { seats } = replay(g);
+    const btn = document.createElement('button');
+    btn.textContent = `Game ${n + 1}: ${seats.white ? person(seats.white.createdBy) : '—'} vs ${seats.black ? person(seats.black.createdBy) : '—'}`;
+    btn.className = state.current === g.key ? 'on' : '';
+    btn.onclick = () => { state.current = g.key; state.selected = null; draw(); };
+    $('games').appendChild(btn);
+  });
+  const game = games.find((g) => g.key === state.current) || games[games.length - 1];
+  if (!game) { $('status').textContent = 'No games yet — start one.'; $('board').innerHTML = ''; $('seats').innerHTML = ''; $('moves').textContent = ''; return; }
+  state.current = game.key;
+  const { pos, history, last, seats } = replay(game);
+  const myColor = seats.white?.createdBy === weave.me.did ? 'w' : seats.black?.createdBy === weave.me.did ? 'b' : null;
+  const flipped = myColor === 'b';
+  const over = !anyLegal(pos);
+  const toMove = pos.turn === 'w' ? 'White' : 'Black';
+  $('status').textContent = over ? (inCheck(pos) ? `Checkmate — ${pos.turn === 'w' ? 'Black' : 'White'} wins` : 'Stalemate') : `${toMove} to move${inCheck(pos) ? ' — check!' : ''}${myColor && myColor === pos.turn ? ' (you)' : ''}`;
+
+  $('seats').innerHTML = '';
+  for (const color of ['white', 'black']) {
+    const row = document.createElement('div');
+    if (seats[color]) row.textContent = `${color === 'white' ? '♔' : '♚'} ${person(seats[color].createdBy)}${seats[color].viaAgent ? ' (via agent)' : ''}`;
+    else {
+      const btn = document.createElement('button');
+      btn.textContent = `Play ${color}`;
+      btn.disabled = !!myColor;
+      btn.onclick = () => act(() => weave.put(SEAT, { color }, { links: [{ rel: 'game', to: game.key }] }));
+      row.appendChild(btn);
+    }
+    $('seats').appendChild(row);
+  }
+  $('moves').textContent = history.map((m, i) => (i % 2 === 0 ? `${i / 2 + 1}. ${m}` : m)).join('  ');
+
+  const targets = state.selected !== null ? legal(pos, state.selected) : [];
+  $('board').innerHTML = '';
+  for (let v = 0; v < 64; v++) {
+    const i = flipped ? 63 - v : v;
+    const cell = document.createElement('button');
+    const r = Math.floor(i / 8), c = i % 8;
+    cell.className = `sq ${(r + c) % 2 ? 'd' : 'l'}${state.selected === i ? ' sel' : ''}${last && (last.from === i || last.to === i) ? ' last' : ''}${targets.includes(i) ? ' can' : ''}${targets.includes(i) && pos.b[i] ? ' take' : ''}`;
+    cell.setAttribute('aria-label', nameOf(i) + (pos.b[i] ? ' ' + pos.b[i] : ''));
+    const p = pos.b[i];
+    if (p) { const s = document.createElement('span'); s.className = colorOf(p); s.textContent = GLYPH[p.toUpperCase()]; cell.appendChild(s); }
+    if ((flipped ? c === 7 : c === 0)) { const k = document.createElement('span'); k.className = 'coord'; k.textContent = 8 - r; cell.appendChild(k); }
+    cell.onclick = () => click(i, pos, myColor, history.length, game, over);
+    $('board').appendChild(cell);
+  }
+}
+function click(i, pos, myColor, ply, game, over) {
+  if (over || myColor !== pos.turn) { state.selected = null; draw(); return; }
+  if (state.selected !== null && legal(pos, state.selected).includes(i)) {
+    const from = nameOf(state.selected), to = nameOf(i);
+    state.selected = null;
+    act(() => weave.put(MOVE, { ply, from, to }, { links: [{ rel: 'game', to: game.key }] }));
+    return;
+  }
+  state.selected = colorOf(pos.b[i]) === myColor ? i : null;
+  draw();
+}
+async function act(work) {
+  $('error').textContent = '';
+  try { await work(); } catch (e) { $('error').textContent = e.message; }
+  await load();
+}
+async function load() {
+  const [games, seats, moves, people] = await Promise.all([weave.list(GAME), weave.list(SEAT), weave.list(MOVE), weave.people()]);
+  state = { ...state, games, seats, moves, people };
+  draw();
+}
+$('new').onclick = () => act(async () => { const g = await weave.put(GAME, { started: new Date().toISOString() }); state.current = g.key; });
+weave.onChange(load);
+load().catch((e) => { $('status').textContent = e.message; });
+</script>
+</body>
+</html>

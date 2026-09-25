@@ -16,7 +16,7 @@ import {
   type Field,
   type LinkedByRel,
 } from '../derive/schema-ui';
-import { nameOf, peopleFrom } from '../derive/people';
+import { nameOf, peopleFrom, writerOf } from '../derive/people';
 import { ago } from '../derive/time';
 import { SchemaForm, FieldInput } from './SchemaForm';
 import { Value } from './Value';
@@ -150,9 +150,12 @@ export function RecordPanel({
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: palette.ink.muted }}>
                 <Avatar did={record.createdBy ?? record.root ?? record.author} size={20} />
-                <span>{nameOf(record.createdBy ?? record.root, people)}</span>
+                <span>
+                  {nameOf(record.createdBy ?? record.root, people)}
+                  {record.viaAgent && record.seq === 0 && ' via agent'}
+                </span>
                 <span>· {ago(record.createdAt)}</span>
-                {record.seq > 0 && <span>· edited {ago(record.updatedAt)}</span>}
+                {record.seq > 0 && <span>· edited {ago(record.updatedAt)}{record.viaAgent && ' via agent'}</span>}
               </div>
             </div>
 
@@ -255,7 +258,7 @@ export function RecordPanel({
                         <Avatar did={r.root ?? r.author} size={18} />
                         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{labelFor(r)}</span>
                         <span style={{ color: palette.ink.faint, fontSize: 12 }}>
-                          {nameOf(r.root, people)} · {ago(r.createdAt)}
+                          {writerOf(r, people)} · {ago(r.createdAt)}
                         </span>
                       </button>
                     ))}

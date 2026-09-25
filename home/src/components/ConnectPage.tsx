@@ -71,7 +71,8 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
   const { auth } = useAuth();
   const session = useSession();
   const host = new URL(origin).host;
-  const previous = auth.connections().find((known) => known.origin === origin);
+  const agent = request.agent === true;
+  const previous = auth.connections().find((known) => known.origin === origin && !!known.agent === agent);
 
   const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set(previous?.spaces.map((space) => space.id) ?? []));
@@ -79,7 +80,23 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void session.node.spaces.list().then(setSpaces);
+    const opened = new Set<string>();
+    const load = () =>
+      void session.node.spaces.list().then((found) => {
+        setSpaces(found);
+        // A space this home has never opened doesn't know its role here yet, and so can't be offered
+        // to write in. Opening it syncs its access history; the role follows.
+        for (const space of found) {
+          if (space.role !== null || opened.has(space.id)) continue;
+          opened.add(space.id);
+          void session.node.spaces.open(space.id).catch(() => {});
+        }
+      }, () => {});
+    load();
+    // A space made in an app a moment ago may still be on its way here, and its role with it.
+    return session.node.subscribe((event) => {
+      if (event.type === 'spaces' || event.type === 'account' || event.type === 'records') load();
+    });
   }, [session]);
 
   const whole = request.scope === 'account';
@@ -113,13 +130,40 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
 
   return (
     <Frame>
-      <h1 style={styles.title}>Connect to {host}</h1>
-      <p style={styles.subtitle}>
-        {request.name ? <>It calls itself “{request.name}”. </> : null}It wants to {writes ? 'read and change' : 'read'}{' '}
-        {whole ? 'everything in' : 'spaces in'} your account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>.
-      </p>
+      {agent ? (
+        <>
+          <h1 style={styles.title}>Connect “{request.name ?? 'an agent'}”</h1>
+          <p style={styles.subtitle}>
+            An AI agent on your computer — Claude Code, Claude Desktop, Cursor — wants to {writes ? 'read and change' : 'read'}{' '}
+            {whole ? 'everything in' : 'spaces in'} your account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>. It
+            asked through {host}.
+          </p>
+          <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 12, background: palette.surface.sunken }}>
+            <p style={{ ...styles.todoText }}>What it can do</p>
+            <p style={styles.errorHint}>
+              Read {whole ? 'every space, including ones you make later' : 'the spaces you pick'}, write in them as you, and propose new apps
+              there. Everything it writes shows as yours, “via agent”, to everyone in the space. It keeps working when no app is open.
+            </p>
+          </div>
+          <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
+            <p style={{ ...styles.todoText }}>What always needs you</p>
+            <p style={styles.errorHint}>
+              Adding an app or a collection, changing roles, inviting or removing people, joining or leaving spaces. Every device ignores an
+              agent that tries. It can't sign in as you.
+            </p>
+          </div>
+        </>
+      ) : (
+        <>
+          <h1 style={styles.title}>Connect to {host}</h1>
+          <p style={styles.subtitle}>
+            {request.name ? <>It calls itself “{request.name}”. </> : null}It wants to {writes ? 'read and change' : 'read'}{' '}
+            {whole ? 'everything in' : 'spaces in'} your account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>.
+          </p>
+        </>
+      )}
 
-      {whole && (
+      {whole && !agent && (
         <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
           <p style={{ ...styles.todoText }}>Your whole account</p>
           <p style={styles.errorHint}>
@@ -131,7 +175,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
 
       {choosing && (
         <section style={{ marginBottom: 20 }}>
-          <p style={styles.fieldLabel}>Which spaces</p>
+          <p style={styles.fieldLabel}>{agent ? 'Which spaces it may work in' : 'Which spaces'}</p>
           {offered.length === 0 && <p style={styles.errorHint}>You have no spaces it could use.</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {offered.map((space) => (
@@ -165,7 +209,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
       )}
 
       <p style={{ ...styles.errorHint, marginBottom: 20 }}>
-        Access lasts 7 days; after that it asks again.
+        Access lasts {lasts(request.days ?? 7)}; after that it asks again.
         {(whole || privateChosen) && ' It can read the private spaces it gets from now on — that cannot be taken back yet.'}
       </p>
 
@@ -185,7 +229,8 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
       </div>
 
       <p style={{ ...styles.errorHint, marginTop: 20 }}>
-        The app gets a note signed by your account, for its own key. It never sees your password.
+        {agent ? 'The agent' : 'The app'} gets a note signed by your account, for its own key. It never sees your password.
+        {agent && ' You can disconnect it any time, in your account.'}
       </p>
     </Frame>
   );
@@ -281,6 +326,12 @@ function ApproveCarrier({ incoming }: { incoming: IncomingRequest }) {
       </div>
     </Frame>
   );
+}
+
+/** "7 days", "1 year" */
+function lasts(days: number): string {
+  if (days >= 365) return days === 365 ? '1 year' : `${Math.round(days / 365)} years`;
+  return days === 1 ? '1 day' : `${days} days`;
 }
 
 /** The page around it; `mark` off when the sign-in element draws its own */

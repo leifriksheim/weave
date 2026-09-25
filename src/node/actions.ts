@@ -15,6 +15,9 @@
 import type { P2PNode } from './types.js';
 import { rolePresets } from '../space/presets.js';
 import type { Query } from '../query/types.js';
+import { app, appScreen, checkApp, proposeApp, reviewApp, type App, type AppDefinition } from '../schemas/apps.js';
+import { SCREEN_GUIDE } from '../schemas/screens.js';
+import { describeCollection } from '../records/describe.js';
 
 /** The subset of JSON Schema these inputs use */
 export interface ActionSchema {
@@ -235,7 +238,8 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'oneOf: [{ "const": "low", "title": "Low" }, …]. When a value picks from a list in a linked record — a vote\'s choice ' +
       'from its poll\'s options — add "x-choicesFrom": { "rel": "about", "field": "options" } to the field (a number is a ' +
       'position in that list; text is the option itself), so apps can show labels and tallies. Name it reverse-DNS, e.g. "app.trip.expense". ' +
-      'Redefining bumps the version; only whoever first defined it, or someone who can manage the space, may. Records are then checked against it when written.',
+      'Redefining bumps the version; only whoever first defined it, or someone who can manage the space, may. Records are then checked against it when written. ' +
+      'An agent acting for someone can\'t define collections: every peer ignores it. Propose an app with apps_propose instead.',
     input: {
       type: 'object',
       properties: {
@@ -265,13 +269,14 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
             'above). onePer makes at most one record per author + linked record (+ body field): writing again changes it. fixed fields ' +
             'keep their first value.',
         },
+        screen: { type: 'string', description: 'Optional: its own screen, one HTML document — read apps_screen_guide first' },
       },
       required: ['space', 'name', 'schema'],
     },
     readOnly: false,
     destructive: true,
-    run: (node, input) =>
-      node.collections.define(str(input, 'space'), {
+    run: async (node, input) => {
+      const defined = await node.collections.define(str(input, 'space'), {
         name: str(input, 'name'),
         schema: input.schema as Record<string, unknown>,
         ...(typeof input.title === 'string' ? { title: input.title } : {}),
@@ -281,7 +286,98 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         ...(typeof input.links === 'object' && input.links !== null ? { links: input.links as Record<string, never> } : {}),
         ...(Array.isArray(input.permissions) ? { permissions: input.permissions.filter((p): p is string => typeof p === 'string') } : {}),
         ...(typeof input.rules === 'object' && input.rules !== null ? { rules: input.rules as Record<string, never> } : {}),
-      }),
+        ...(typeof input.screen === 'string' ? { screen: input.screen } : {}),
+      });
+      // What it allows, from its rules — worth repeating to the person as it is.
+      return { ...defined, summary: describeCollection({ ...defined, schema: defined.schema ?? undefined }) };
+    },
+  },
+  {
+    name: 'apps_list',
+    description:
+      'The apps proposed in a space: each with its title, who proposed it (viaAgent when an agent did), and for every collection ' +
+      'it needs whether it is new, already there, or would change one — with what it allows, worked out from its rules. ' +
+      '"added" is true once a person has added it.',
+    input: { type: 'object', properties: { space }, required: ['space'] },
+    readOnly: true,
+    peerContent: true,
+    run: async (node, input) => {
+      const spaceId = str(input, 'space');
+      const collections = await node.collections.list(spaceId);
+      const found = await node.records.list<App>(spaceId, { collection: app.name });
+      return found.map((record) => {
+        const review = record.body ? reviewApp(record.body, collections) : null;
+        return {
+          key: record.key,
+          title: record.body?.title ?? null,
+          description: record.body?.description ?? null,
+          proposedBy: record.createdBy,
+          ...(record.viaAgent ? { viaAgent: true } : {}),
+          ...(record.body && appScreen(record.body) ? { screen: appScreen(record.body)!.collection } : {}),
+          added: review?.added ?? false,
+          problem: review?.problem ?? (record.body ? null : 'It could not be read'),
+          needs: review?.needs.map(({ definition, status, summary, changes }) => ({ name: definition.name, status, summary, changes })) ?? [],
+        };
+      });
+    },
+  },
+  {
+    name: 'apps_screen_guide',
+    description:
+      'How to write a screen — an app\'s own HTML UI, kept on its main collection\'s definition as "screen" and run sealed ' +
+      'in the app: what it can use (window.weave: list, put, update, remove, onChange, me) and what it can\'t (network, storage).',
+    input: { type: 'object', properties: {} },
+    readOnly: true,
+    run: async () => SCREEN_GUIDE,
+  },
+  {
+    name: 'apps_propose',
+    description:
+      'Propose an app in a space: a new way for its people to work together — a carpool, a sign-up sheet, a decision log. ' +
+      'Give it a title, a line on what it is for, and the collections it needs, each exactly as collections_define takes it ' +
+      '(name, title, description, schema, links, permissions, rules — no version). Nothing is defined yet: everyone in the ' +
+      'space sees the proposal, with what it allows worked out from its rules, and a person who may define collections adds it. ' +
+      'Read collections_list first and reuse what the space already has (std.poll, std.task…) rather than inventing a twin. ' +
+      'For anything plain lists and forms can\'t show — a game board, a calendar, a whiteboard — give the main collection ' +
+      'a "screen": its own HTML UI (one document, inline scripts and styles, no network). Inside it, use exactly: ' +
+      'weave.me ({ did, name }), await weave.list("<collection>", { where: { "link:<rel>": key } }), ' +
+      'await weave.put("<collection>", body, { links: [{ rel, to: key }] }), await weave.update(key, body), await weave.remove(key), ' +
+      'weave.onChange(redraw). Records are { key, body, links, createdBy, mine }. Read apps_screen_guide for the rest. ' +
+      'Returns what each collection will allow; tell the person that, not your own description.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        title: { type: 'string', description: 'What people will call it, e.g. "Carpool"' },
+        description: { type: 'string', description: 'What it is for, in a sentence' },
+        needs: {
+          type: 'array',
+          description: 'Collection definitions, as collections_define takes them — without version',
+          items: { type: 'object' },
+        },
+      },
+      required: ['space', 'title', 'needs'],
+    },
+    readOnly: false,
+    run: async (node, input) => {
+      const spaceId = str(input, 'space');
+      const body: App = {
+        title: str(input, 'title'),
+        ...(typeof input.description === 'string' ? { description: input.description } : {}),
+        needs: input.needs as ReadonlyArray<AppDefinition>,
+      };
+      const problem = checkApp(body);
+      if (problem) throw new Error(problem);
+      const record = await proposeApp(node, spaceId, body);
+      const review = reviewApp(body, await node.collections.list(spaceId));
+      return {
+        key: record.key,
+        proposed: true,
+        added: false,
+        next: 'A person in the space who may define collections adds it from the Apps tab.',
+        needs: review.needs.map(({ definition, status, summary, changes }) => ({ name: definition.name, status, summary, changes })),
+      };
+    },
   },
   {
     name: 'collections_delete',

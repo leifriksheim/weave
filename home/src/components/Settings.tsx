@@ -20,10 +20,11 @@ export function Settings() {
   const hasPasskey = (state.entry?.shortcuts.length ?? 0) > 0;
   const place = state.place;
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
-  const disconnect = async (origin: string) => {
-    setDisconnecting(origin);
+  const disconnect = async (app: Connection) => {
+    setDisconnecting(connectionId(app));
     try {
-      await auth.disconnect(origin);
+      // An agent is its own key; an app takes the agents that connected through it along.
+      await auth.disconnect(app.origin, app.agent ? { audience: app.audience } : {});
     } finally {
       setDisconnecting(null);
     }
@@ -91,9 +92,9 @@ export function Settings() {
       >
         {connections.length === 0 && elsewhere.length === 0 && <Row label="No apps yet.">{null}</Row>}
         {connections.map((app) => (
-          <Row key={app.origin} label={app.access === 'carry' ? `${describeConnection(app)} · ${presence(app.carrySpace)}` : describeConnection(app)}>
-            <button onClick={() => void disconnect(app.origin)} disabled={disconnecting !== null} data-variant="quiet" style={styles.smallButton}>
-              {disconnecting === app.origin ? 'Disconnecting…' : 'Disconnect'}
+          <Row key={connectionId(app)} label={app.access === 'carry' ? `${describeConnection(app)} · ${presence(app.carrySpace)}` : describeConnection(app)}>
+            <button onClick={() => void disconnect(app)} disabled={disconnecting !== null} data-variant="quiet" style={styles.smallButton}>
+              {disconnecting === connectionId(app) ? 'Disconnecting…' : 'Disconnect'}
             </button>
           </Row>
         ))}
@@ -223,13 +224,17 @@ function AccountHeader({ name, did, onRename }: { name: string; did: string; onR
   );
 }
 
+/** Agents connect through an app's origin, several to one, so each is named by its key */
+const connectionId = (app: Connection) => (app.agent ? app.audience : app.origin);
+
 /** "Todo (todo.example) · read and change Groceries · until 3 October" */
+
 function describeConnection(app: Connection): string {
   const url = new URL(app.origin);
   const extension = url.protocol === 'chrome-extension:' || url.protocol === 'moz-extension:';
   if (app.access === 'carry') return `${app.name ?? 'Browser extension'} · keeps your spaces online · can't read them`;
   const host = extension ? 'browser extension' : url.host;
-  const who = app.name ? `${app.name} (${host})` : host;
+  const who = app.agent ? `${app.name ?? 'An agent'} (agent, via ${host})` : app.name ? `${app.name} (${host})` : host;
   const what = app.scope === 'account' ? 'your whole account' : app.spaces.length ? app.spaces.map((space) => space.name).join(', ') : 'no spaces';
   const until = new Date(app.expiresAt * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
   const expired = app.expiresAt * 1000 < Date.now();

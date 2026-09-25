@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAccount, useConnection } from 'weave-protocol/react';
 import { Avatar } from './Avatar';
-import { connectDesktopAgents, desktopAgentsEnabled } from '../webmcp';
+import { ConnectAgent } from './ConnectAgent';
 import { palette } from '../styles';
 
 /**
@@ -16,7 +16,7 @@ export function AccountMenu() {
   const { connection, state } = useConnection();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [agents, setAgents] = useState(desktopAgentsEnabled);
+  const [connecting, setConnecting] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
   // A menu that stays open after you have clicked past it feels stuck.
@@ -97,13 +97,17 @@ export function AccountMenu() {
             </Item>
             <Item
               onClick={() => {
-                connectDesktopAgents(!agents);
-                setAgents(!agents);
+                setOpen(false);
+                setConnecting(true);
               }}
-              hint={agents ? 'On' : 'Off'}
+              hint="Claude Code, Desktop, Cursor"
             >
-              Desktop agents
+              Connect an agent
             </Item>
+            <p style={{ margin: '4px 10px 6px', fontSize: 12, lineHeight: 1.45, color: palette.ink.faint }}>
+              An agent in this browser works as you, with nothing to set up. One on your computer connects here, and keeps working with
+              this tab closed.
+            </p>
           </div>
 
           <Divider />
@@ -115,6 +119,7 @@ export function AccountMenu() {
           </div>
         </div>
       )}
+      {connecting && <ConnectAgent onClose={() => setConnecting(false)} />}
     </div>
   );
 }

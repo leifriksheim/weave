@@ -153,6 +153,33 @@
 .site .table td { color: var(--muted); }
 .site .table td:first-of-type { color: var(--ink); }
 
+/* How it works: tabs over a step's words and its animation */
+.site .walk { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.site .walk-tabs { position: relative; display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.site .walk-tabs::-webkit-scrollbar { display: none; }
+.site .walk-tab { position: relative; flex: 1 0 auto; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 18px; font: inherit; font-size: 14px; color: var(--muted); background: #fff; border: none; border-right: 1px solid var(--line); cursor: pointer; white-space: nowrap; transition: color .15s ease, background-color .15s ease; }
+.site .walk-tab:last-child { border-right: none; }
+.site .walk-tab:hover { color: var(--ink); }
+.site .walk-tab[aria-selected="true"] { color: var(--ink); background: var(--sunken); font-weight: 500; }
+.site .walk-tab:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.site .walk-tab .n { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 600; color: var(--muted); background: #fff; }
+.site .walk-tab[aria-selected="true"] .n { background: var(--ink); border-color: var(--ink); color: #fff; }
+.site .walk-tab::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: transparent; }
+.site .walk-tab[aria-selected="true"]::after { background: var(--line); }
+.site .walk-tab .progress { position: absolute; left: 0; bottom: -1px; height: 2px; width: 100%; background: var(--ink); transform-origin: left; z-index: 1; animation-name: walk-progress; animation-timing-function: linear; animation-fill-mode: forwards; }
+@keyframes walk-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.site .walk-panel { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); align-items: center; }
+.site .walk-text { padding: 40px; }
+.site .walk-text .step-label { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.site .walk-text h3 { font-size: 22px; font-weight: 600; letter-spacing: -0.035em; color: var(--ink); margin-bottom: 12px; }
+.site .walk-text p { color: var(--muted); font-size: 16px; }
+.site .walk-stage { border-left: 1px solid var(--line); padding: 24px; background: #fff; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 16px 16px; }
+.site .walk-stage svg { display: block; width: 100%; height: auto; font-family: 'Geist', -apple-system, sans-serif; animation: walk-in .35s ease; }
+@keyframes walk-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .site .walk-stage svg { animation: none; }
+}
+
 /* CTA + footer */
 .site .cta { padding: 96px 0; text-align: center; }
 .site .cta h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 600; letter-spacing: -0.045em; color: var(--ink); }
@@ -173,6 +200,10 @@
   .site .layer .more { justify-self: start; }
   .site .parts { grid-template-columns: 1fr; gap: 20px; }
   .site .points { grid-template-columns: 1fr; gap: 28px; }
+  .site .walk-panel { grid-template-columns: 1fr; }
+  .site .walk-text { padding: 24px; }
+  .site .walk-stage { border-left: none; border-top: 1px solid var(--line); padding: 16px; }
+  .site .walk-tab { flex: 0 0 auto; padding: 12px 14px; }
   .site .hero { padding: 80px 0 64px; }
   .site section.band { padding: 72px 0; }
   .site .nav-links a.hide-sm { display: none; }

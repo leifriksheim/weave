@@ -1,5 +1,9 @@
 # BLOCK-18 — Apps an agent makes, that a group can use straight away
 
+> **Status (2026-09-24):** built on branch `agent-made-apps`, all four parts.
+> Where the build differs from the plan below, it says **Built:**. What's left
+> is under "Still open" at the end.
+
 ## What this delivers
 
 Someone in a space asks their agent for a new way to work together, and it's
@@ -106,6 +110,16 @@ goes through the same connect flow as any app, with a new `agent: true` on the
 renewed while the tab is open). The home writes the label into the note
 itself, as a UCAN fact (`fct: { weave: { agent: true } }`). Notes carry no
 facts today, so this is the one addition to how notes are made and read.
+
+**Built:** the fact is `{ weave: 'agent' }` (`AGENT_FACT`,
+`src/identity/agent-note.ts`). The note lasts 7 days like an app's: renewing
+means opening the home, which needs a click, so a day would mean asking every
+day. An agent gets chosen spaces only: the home refuses an agent request for
+the whole account or for new spaces. `node.asAgent({ keys, note })` is the node
+acting as the agent: it signs with the agent key, reads and writes only the
+spaces the note names, and refuses joining, leaving, inviting, roles and the
+account. The home keeps the agent's connection apart from the app's (same
+origin); disconnecting the app disconnects its agent too.
 Every WebMCP and desktop-relay tool call signs with the agent key. The person's
 own clicks keep signing with the tab's key.
 
@@ -123,11 +137,13 @@ revoked is refused by peers. A record claiming the `agent` label without a
 note that says so shows as a plain record from that key, not as "via agent"
 of someone else.
 
-**Honest limit:** the note narrows spaces and read or write, not permissions
-inside a space. An agent key held by someone who may `define` could still
-define directly if the tab let it. Part 2 closes that in the tab (the tools
-refuse), not at peers. Limits that peers check would need notes that name
-permissions, which is later work.
+**Built, stronger than planned:** the limit above is closed at peers, not only
+in the tab. Every peer ignores any change to the access history (definitions,
+roles, members, invites, revokes) signed under an agent's note, the same way
+it ignores a malformed one (`buildEvent` in `space-runtime.ts`). So an agent
+can never add a collection or change who may do what, whichever tool it
+reaches, even one it signs by hand. Tests in `tests/agents.test.ts` forge both
+and fail without the rule.
 
 ## 2. Propose, don't define
 
@@ -208,11 +224,71 @@ tab lists the space's `std.app` records:
   opens with its linked collections underneath, with add buttons and counts
   (`x-choicesFrom` already makes vote-style tallies possible). No new UI
   concepts, just the Collections tab narrowed to one app.
+  **Built:** the app's collections, each as the Collections tab draws it,
+  the one nothing else points at first (`MadeApps.tsx`).
 - **Copy to…:** writes the same `std.app` into another space you're in, with
   `from` set, as a proposal there.
 
 When a coded app and a `std.app` need the same collections, the coded app
-wins. It's the better screen for the same data.
+wins. It's the better screen for the same data. **Not built yet:** both show.
+
+## 5. Added after: a nested screen, and screens of their own
+
+**Built on 2026-09-24**, after the first four parts.
+
+**Drawn from the rules (`AppBoard.tsx`).** An added app with no screen of its
+own is no longer a stack of lists. What nothing else in the app points at is
+the main list (trips, polls, games); what points at one of them is drawn
+inside it (seats in a trip, votes on a poll). A field that picks from the thing
+it points at (`x-choicesFrom`) becomes buttons with counts. Nothing to fill in
+plus one per person becomes "Add your seat" / "Remove your seat". Anything
+else gets a form.
+
+**Screens.** For what lists can't show (a chess board, a calendar), a
+collection definition may carry `screen`: one HTML document, at most 48 KB.
+Because it's on the definition:
+
+- only a person allowed to define collections puts one in a space (every peer
+  ignores an agent doing it), and
+- what they approved is exactly what runs: later edits to the proposal change
+  nothing.
+
+The app runs it in `<iframe sandbox="allow-scripts">` loading `/screen.html`,
+whose own policy takes the network away (no fetch, no outside images or
+fonts, no forms). The frame has an opaque origin, so it can't touch the app's
+storage, keys or page. Its only way out is a message port to
+`createScreenBridge` (`src/schemas/screens.ts`): the app's collections, in one
+space, as whoever is looking, under the rules. The port is handed over once,
+so a page the frame navigates to hears nothing. `window.weave` inside the
+screen is `list / get / put / update / remove / people / onChange / me`;
+`apps_screen_guide` tells an agent how to write one.
+
+The site's policy moved from a header into the app's own HTML (added at
+build), because one site-wide header would also apply to `/screen.html` and
+block the screen. Only `frame-ancestors 'self'` stays a header.
+
+**Proof:** an agent (through the same tools) built chess, with game, seat and
+move collections plus a screen (`docs/screens/chess.html`, 14 KB). The rules do
+the multiplayer work:
+
+- one seat per colour per game: the first to take it holds it;
+- one move per turn number: a clash resolves the same way on every device;
+- moves can't be changed once made.
+
+The screen checks legality and skips any move that breaks the rules, or that
+wasn't made by the player in that seat. Two people in two browsers played it
+over real peer connections.
+
+**Honest limits:**
+
+- A screen can still send data out by navigating its own frame to a web
+  address. The app stops it at once, but can't stop that first request. It
+  can only carry what the app's collections hold in this space, which
+  everyone there can already read. It matters most for an app copied in from
+  elsewhere, and the proposal card says to add a screen only when you trust
+  who proposed it.
+- Code can't be summed up in sentences the way rules can. The card shows the
+  code, and what the frame lets it do, but not what it will show.
 
 ---
 
@@ -223,12 +299,7 @@ In rough order of when they're likely to matter:
 - **Meaning hints on definitions** (which field is the title, "show as a
   count"), added when a real agent-made app shows the derived screen falling
   short. Already on the README list.
-- **Screens made by the agent.** A UI bundle stored as a record by its hash,
-  run in an iframe with **no network at all**, talking to the page only through
-  a bridge that exposes the collections its app declared, in one space. Added
-  by someone with `define`, like collections. It's the long tail (games,
-  whiteboards) and the only part that runs someone else's code, so it waits
-  until parts 1–4 show what shapes and rules alone can't do.
+- ~~Screens made by the agent~~, built in part 5.
 - **Work worked out on read.** "Voting closes Friday", "who hasn't answered".
   Each reader can compute these from the records and their own clock, so they
   need no one to run anything. That keeps the no-servers promise. They belong
@@ -241,9 +312,8 @@ In rough order of when they're likely to matter:
 
 ## Open questions
 
-1. **Can an agent key ever add?** In a space for one ("my own tracker"),
-   asking yourself to approve your own agent's proposal is friction. A
-   per-space "my agent may add collections here" switch, off by default?
+1. ~~Can an agent key ever add?~~ **Decided: no.** A person always approves,
+   even in a space that's only theirs.
 2. **Should `std.app` carry a version**, so a changed proposal for an app
    that's already added shows as an update rather than a second app?
 3. **Is "via agent" enough to say?** Or should the card name which agent
@@ -252,3 +322,11 @@ In rough order of when they're likely to matter:
 
 Rough size: **about a week.** Parts 1 and 3 are the protocol-side work; 2 and 4
 are mostly the example.
+
+## Still open
+
+- ~~**The desktop path signs as the person.**~~ Done in BLOCK-20: `weave
+  connect` gives the terminal an agent's note, and `weave mcp` runs `asAgent`.
+  The agent in the browser now works as the person, with no note (BLOCK-20
+  says why).
+- **Coded app wins** (part 4) isn't built.

@@ -22,3 +22,12 @@ export function nameOf(did: string | null | undefined, people: People): string {
   const shared = [...people.values()].some((other) => other.did !== did && other.name.toLowerCase() === profile.name.toLowerCase());
   return shared ? `${profile.name} · ${tail(did)}` : profile.name;
 }
+
+/**
+ * Who wrote this version: their name, and "via agent" when an agent wrote it
+ * for them. The account signed that into the agent's note, so it can't be
+ * left out by the agent.
+ */
+export function writerOf(record: { readonly root: string | null; readonly viaAgent?: true }, people: People): string {
+  return record.viaAgent ? `${nameOf(record.root, people)} via agent` : nameOf(record.root, people);
+}

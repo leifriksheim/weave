@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from 'weave-protocol/react';
 import type { ResultOf } from 'weave-protocol';
 import { message, poll, reaction, vote, type Message, type Poll } from 'weave-protocol/schemas';
-import { nameOf, peopleFrom } from '../../derive/people';
+import { nameOf, peopleFrom, writerOf } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { Avatar } from '../Avatar';
 import { Reactions } from '../std/Reactions';
@@ -92,7 +92,7 @@ export function Chat({ space, collections, onOpen }: AppProps) {
               key={m.key}
               record={m}
               startsRun={startsRun}
-              name={nameOf(m.root, people)}
+              name={writerOf(m, people)}
               mine={m.root === me}
               showReactions={reacts && (hover === m.key || reactionsOf(m).length > 0)}
               onHover={(on) => setHover(on ? m.key : (h) => (h === m.key ? null : h))}

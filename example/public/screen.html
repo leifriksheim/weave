@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Where an app's own screen runs. The frame holding this page is sandboxed
+      (scripts only: no same-origin, no popups, no forms), and this policy takes
+      the network away: nothing may be fetched, loaded or sent. It stays in
+      force after the screen is written in below, so the screen lives under it.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <script>
+      // The app sends the screen and a port, once. The port is the screen's
+      // only way out, and it is kept on this window: a page the frame
+      // navigates to later starts without it.
+      addEventListener('message', function load(event) {
+        if (event.source !== parent || !event.data || event.data.weave !== 'load' || !event.ports[0]) return;
+        removeEventListener('message', load);
+        window.__weave = { port: event.ports[0], me: event.data.me, collections: event.data.collections };
+        document.open();
+        document.write(event.data.document);
+        document.close();
+      });
+      parent.postMessage({ weave: 'ready' }, '*');
+    </script>
+  </body>
+</html>

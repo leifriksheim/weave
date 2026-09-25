@@ -16,7 +16,6 @@
     "sugar-high": "^2.4.1"
   },
   "devDependencies": {
-    "@mcp-b/webmcp-local-relay": "^4.0.0",
     "@mcp-b/webmcp-types": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

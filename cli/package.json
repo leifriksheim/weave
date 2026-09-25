@@ -11,8 +11,9 @@
     "build": "bun build.ts"
   },
   "dependencies": {
-    "ws": "^8.18.0",
-    "tsx": "^4.19.0"
+    "node-datachannel": "^0.33.4",
+    "tsx": "^4.19.0",
+    "ws": "^8.18.0"
   },
   "engines": {
     "node": ">=22"

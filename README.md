@@ -1050,12 +1050,30 @@ same over WebMCP.
 every node operation as a WebMCP tool on `document.modelContext`
 (`example/src/webmcp.ts`, with `@mcp-b/webmcp-polyfill`: Chrome's own WebMCP
 when present, a polyfill otherwise). A browser agent or extension sees the same
-19 tools as the CLI and `weave mcp` — `spaces_create`, `records_query`,
-`records_put`… — and acts for whoever is signed in, with this
-tab's session key; until someone signs in, each tool says so. Anything that
-hands out a space's key (`spaces_invite`) asks you first. Desktop MCP clients
-reach the same tools through `npx @mcp-b/webmcp-local-relay`, whose browser
-side is served at `/webmcp/embed.js`.
+tools as the CLI and `weave mcp` — `spaces_list`, `records_query`,
+`records_put`, `apps_propose`… — and works as the person, with nothing to
+switch on: anything that can call a page's tools can already click through the
+page, so a key of its own would stop nothing. It isn't offered
+`collections_define`: it proposes apps (`apps_propose`) and a person adds
+them. Anything that changes a space's people, or hands out its key, asks the
+person first. An app may bring its own screen: a collection definition's
+`screen`, one HTML document, which the example runs in a sandboxed frame with
+no network, talking to the space only through a message port
+(`createScreenBridge`, `apps_screen_guide`). `docs/screens/chess.html` is one
+an agent wrote.
+
+**Agents on your computer (Claude Code, Claude Desktop, Cursor).** "Connect an
+agent", in the account menu, shows one command:
+`npx weave-protocol-cli connect wv_…`. The terminal makes its own key, finds
+the tab through the relay, and the person allows it at their account home,
+which signs an agent's note for the whole account, for as long as they chose.
+Everything said on the way is sealed with a key from the code, so the relay
+learns nothing (`src/session/agent-link.ts`). The command then adds `weave` to
+the agents it finds, and they start `weave mcp` themselves: a node of its own,
+over WebRTC (`node-datachannel`), that follows the account and keeps working
+with every tab closed. What it writes shows "via agent", and every peer
+ignores an agent changing collections, who may do what, or the account's own
+list of spaces. See BLOCK-20.
 
 ## Tests
 

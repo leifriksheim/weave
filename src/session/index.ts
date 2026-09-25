@@ -33,6 +33,7 @@ export {
   grantCapabilities,
   appKey,
   forgetAppKey,
+  MAX_GRANT_DAYS,
 } from './connect.js';
 export type { ConnectRequest, ConnectOptions, Grant, CarryGrant, GrantedSpace, IncomingRequest, AppKey } from './connect.js';
 export {
@@ -51,4 +52,6 @@ export { createStaySignedIn, STAY_SIGNED_IN_CHOICES, DEFAULT_STAY_SIGNED_IN } fr
 export type { StaySignedIn, StaySignedInStore, KeyValueStore } from './stay-signed-in.js';
 export { offerToPhone, collectFromDesktop, readPairingTicket, clearPairingTicket } from './pairing.js';
 export type { PairingStage, PairingOffer } from './pairing.js';
+export { offerAgentLink, acceptAgentLink, checkAgentGrant, newAgentCode, readAgentCode } from './agent-link.js';
+export type { AgentLinkStage, AgentLinkOffer, AgentAsking } from './agent-link.js';
 export { offerToSave, accountCredentialName, deviceCredentialName } from './credentials.js';
