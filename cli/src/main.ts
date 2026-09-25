@@ -6,6 +6,7 @@
  *   weave spaces list | create | invite | join | leave | status
  *   weave records list | get | put | update | delete
  *   weave run                          stay up: sync every space, serve sockets and a relay
+ *   weave host                         a hosting service: carry many accounts' spaces, blind
  *   weave connect <code>               connect this computer's agent, with the code from an app
  *   weave mcp                          serve the same operations to an agent over MCP (stdio)
  *   weave actions                      every operation, with its input schema
@@ -25,6 +26,8 @@ import { parseArgs } from 'node:util';
 import { createNode, isValidRecoveryCode, NODE_ACTIONS, runAction, type NodeAction } from '../../src/index.js';
 import { chooseAccount, createAccount, homePath, openHome, unlock, type Home } from './home.js';
 import { startDaemon } from './daemon.js';
+import { startHost } from './host.js';
+import { billingFromEnv, defaultHostData, hostKey, hostStores } from './host-setup.js';
 import { runMcpStdio } from './mcp.js';
 import { configuredRelays, connectAgent, daysLeft, defaultAgentName, forgetAgent, startAgentNode } from './agent.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
@@ -39,6 +42,7 @@ Usage:
   weave spaces  list | create | invite | join | leave | status   [--flags]
   weave records list | get | put | update | delete               [--flags]
   weave run [--port 8787] [--host 127.0.0.1] [--node wss://…/peer] [--create]
+  weave host [--port 8787] [--host 127.0.0.1] [--data DIR] [--free]
   weave connect <code> [--name NAME] [--relay wss://…] [--no-configure]
   weave disconnect
   weave mcp [--account]
@@ -253,6 +257,40 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     const stop = () => {
       stderr('shutting down');
       void daemon.close().then(() => process.exit(0));
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+    await new Promise(() => {}); // until a signal
+    return 0;
+  }
+
+  if (command === 'host') {
+    const { values } = parseArgs({
+      args,
+      options: {
+        port: { type: 'string', default: process.env.PORT ?? '8787' },
+        host: { type: 'string' },
+        data: { type: 'string', default: process.env.WEAVE_HOST_DATA ?? defaultHostData() },
+        free: { type: 'boolean' },
+      },
+    });
+    const data = path.resolve(values.data);
+    const billing = billingFromEnv(process.env);
+    if (!billing && !values.free) {
+      throw new Error('weave host needs a way to take payments (STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET), or --free to host without them.');
+    }
+    const running = await startHost({
+      key: await hostKey(data),
+      stores: await hostStores(data),
+      port: Number(values.port),
+      ...(values.host ? { host: values.host } : {}),
+      ...(values.free ? { free: true } : {}),
+      billing,
+      log: (line) => stderr(`[${new Date().toISOString()}] ${line}`),
+    });
+    const stop = () => {
+      stderr('shutting down');
+      void running.close().then(() => process.exit(0));
     };
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);

@@ -90,14 +90,34 @@ interface Carried {
   pod: Promise<SpaceRuntime> | null;
 }
 
+/** An account's carry space, as a carrying node holds it */
+interface Carry {
+  readonly account: string;
+  /** The spaces its passes named last time they were read */
+  wants: ReadonlySet<string>;
+}
+
+export interface CarryCoreConfig {
+  readonly key: CryptoKeyPair;
+  readonly stores: StoreFactory;
+  readonly network?: NodeNetworkConfig;
+  readonly provider?: CryptoProvider;
+  readonly watchIntervalMs?: number;
+  readonly emit: (event: CarrierEvent) => void;
+  /** An account wrote `carry:closed` into its carry space: it stopped using this node */
+  readonly onClosed: (carrySpace: string) => void;
+}
+
 /**
- * Starts a carrier.
- * @throws When the carry invite is not a readable invite to a private space
+ * What a carrier and a host share: carry spaces — one per account it carries
+ * for — and every space their passes name, each held once however many
+ * accounts ask for it.
  */
-export async function createCarrierNode(config: CarrierConfig): Promise<CarrierNode> {
+export async function createCarryCore(config: CarryCoreConfig) {
   const provider = config.provider ?? createP256Provider();
   const signer = createSigner(provider);
   const schemas = createSchemaEngine();
+  const { emit } = config;
   const did = publicKeyToDid(await provider.exportPublicKey(config.key.publicKey), P256_MULTICODEC);
   // It never writes, so it never needs a note; the session only names it on the wire.
   const session = { did, key: config.key.privateKey, proof: () => '' };
@@ -106,32 +126,19 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
   const podDid = publicKeyToDid(await provider.exportPublicKey(podKeys.publicKey), P256_MULTICODEC);
   const podSession = { did: podDid, key: podKeys.privateKey, proof: () => '' };
 
-  const listeners = new Set<(event: CarrierEvent) => void>();
-  const emit = (event: CarrierEvent) => {
-    for (const listener of listeners) {
-      try {
-        listener(event);
-      } catch (error) {
-        console.error('Error in carrier listener:', error);
-      }
-    }
-  };
-
-  // The carry space is joined like any space: it is the one key the carrier holds.
+  // Carry spaces are joined like any space: their keys are the only ones a carrier holds.
   const registryStore = await config.stores('registry');
   const registry = createSpaceManager(registryStore, provider);
-  const carrySpace = parseSpaceInvite(config.carry).space.id;
-  const carryRecord = (await registry.get(carrySpace)) ?? (await registry.join(config.carry));
-  if (carryRecord.space.visibility !== 'private' || !carryRecord.key) throw new Error('That is not an invite to a carry space.');
 
   let closed = false;
   let podStores: StoreFactory | null = null;
+  const carries = new Map<string, Carry>();
   const carried = new Map<string, Carried>();
 
   const mesh = meshFor(config.network, did);
   const open = (record: SpaceRecord, stores: StoreFactory, as: typeof session, network: NodeNetworkConfig, onEvent: (event: NodeEvent) => void) =>
     openSpaceRuntime({
-      // The carrier's own spaces meet through relays; its copy in the pod only over the local link.
+      // Carried spaces meet through relays; the copy in the pod only over the local link.
       ...(as === session && mesh ? { mesh } : {}),
       record,
       stores,
@@ -166,7 +173,7 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
     };
     const runtime = await open(record, config.stores, session, network, (event) => {
       if (event.type === 'records' || event.type === 'status') emit({ type: 'status', space: spaceId });
-      if (event.type === 'records' && spaceId === carrySpace) void refresh();
+      if (event.type === 'records' && carries.has(spaceId)) void refresh();
     });
     if (closed) return void (await runtime.close());
     const entry: Carried = { record, hub, runtime, pod: null };
@@ -186,26 +193,38 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
   let refreshing: Promise<void> = Promise.resolve();
   function refresh(): Promise<void> {
     refreshing = refreshing.then(refreshOnce).catch((error: unknown) => {
-      if (!closed) console.error('Could not read the carry space:', error);
+      if (!closed) console.error('Could not read a carry space:', error);
     });
     return refreshing;
   }
 
   async function refreshOnce(): Promise<void> {
-    const carryRuntime = carried.get(carrySpace)?.runtime;
-    if (!carryRuntime || closed) return;
-    const records = (await carryRuntime.list<unknown>({ collection: PASS_COLLECTION })).filter(
-      (record) => record.verified && record.root === config.account,
-    );
-    if (records.some((record) => record.key === CARRY_CLOSED_KEY)) {
-      emit({ type: 'closed' });
-      return;
-    }
+    if (closed) return;
     const wanted = new Map<string, SpaceRecord>();
-    for (const record of records) {
-      if (!record.key.startsWith('pass:')) continue;
-      const pass = await openPass(record.body, provider);
-      if (pass && pass.space.id !== carrySpace) wanted.set(pass.space.id, carriedRecord(pass));
+    for (const [carrySpace, entry] of carries) {
+      const carryRuntime = carried.get(carrySpace)?.runtime;
+      if (!carryRuntime) continue;
+      const records = (await carryRuntime.list<unknown>({ collection: PASS_COLLECTION })).filter(
+        (record) => record.verified && record.root === entry.account,
+      );
+      if (records.some((record) => record.key === CARRY_CLOSED_KEY)) {
+        entry.wants = new Set();
+        config.onClosed(carrySpace);
+        continue;
+      }
+      const wants = new Set<string>();
+      for (const record of records) {
+        if (!record.key.startsWith('pass:')) continue;
+        const pass = await openPass(record.body, provider);
+        if (!pass || carries.has(pass.space.id)) continue;
+        wants.add(pass.space.id);
+        // Two accounts naming one space: a pass for a later key beats one for the space's first,
+        // since an account whose pass is behind just hasn't caught up yet.
+        const known = wanted.get(pass.space.id);
+        const later = (read: SpaceRecord['read']) => !!read && read.did !== pass.space.readKey;
+        if (!known || (!later(known.read) && later(pass.read))) wanted.set(pass.space.id, carriedRecord(pass));
+      }
+      entry.wants = wants;
     }
     let changed = false;
     for (const [spaceId, record] of wanted) {
@@ -217,38 +236,47 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
       changed = true;
     }
     for (const spaceId of [...carried.keys()]) {
-      if (spaceId === carrySpace || wanted.has(spaceId)) continue;
+      if (carries.has(spaceId) || wanted.has(spaceId)) continue;
       await drop(spaceId);
       changed = true;
     }
     if (changed) emit({ type: 'spaces' });
   }
 
-  await carry(carryRecord);
-  await refresh();
-
-  return Object.freeze({
+  return {
     did,
-    carrySpace,
+    podDid,
+    carried: carried as ReadonlyMap<string, Carried>,
+    carries: carries as ReadonlyMap<string, Carry>,
 
-    async spaces() {
-      const found: CarriedSpace[] = [];
-      for (const [spaceId, entry] of carried) {
-        const status = await entry.runtime.status();
-        found.push({
-          id: spaceId,
-          name: entry.record.space.name,
-          visibility: entry.record.space.visibility,
-          carry: spaceId === carrySpace,
-          connection: status.connection,
-          peers: status.peers.filter((peer) => peer !== podDid).length,
-          inPod: entry.pod !== null,
-        });
+    /**
+     * Starts carrying for an account: joins its carry space and every space
+     * its passes name.
+     * @returns The carry space's id
+     * @throws When the invite is not a readable invite to a private space
+     */
+    async addCarry(account: string, invite: string): Promise<string> {
+      const carrySpace = parseSpaceInvite(invite).space.id;
+      const record = (await registry.get(carrySpace)) ?? (await registry.join(invite));
+      if (record.space.visibility !== 'private' || !record.key) {
+        await registry.remove(carrySpace);
+        throw new Error('That is not an invite to a carry space.');
       }
-      return found;
+      if (!carries.has(carrySpace)) carries.set(carrySpace, { account, wants: new Set() });
+      await carry(record);
+      await refresh();
+      return carrySpace;
     },
 
-    async usePod(stores: StoreFactory | null) {
+    /** Stops carrying for an account: its carry space, and every space nobody else still asks for */
+    async removeCarry(carrySpace: string): Promise<void> {
+      if (!carries.delete(carrySpace)) return;
+      await drop(carrySpace);
+      await registry.remove(carrySpace);
+      await refresh();
+    },
+
+    async setPod(stores: StoreFactory | null) {
       podStores = stores;
       for (const entry of carried.values()) {
         const was = entry.pod;
@@ -259,11 +287,21 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
       emit({ type: 'spaces' });
     },
 
-    subscribe(listener: (event: CarrierEvent) => void) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
+    async spaces(): Promise<ReadonlyArray<CarriedSpace>> {
+      const found: CarriedSpace[] = [];
+      for (const [spaceId, entry] of carried) {
+        const status = await entry.runtime.status();
+        found.push({
+          id: spaceId,
+          name: entry.record.space.name,
+          visibility: entry.record.space.visibility,
+          carry: carries.has(spaceId),
+          connection: status.connection,
+          peers: status.peers.filter((peer) => peer !== podDid).length,
+          inPod: entry.pod !== null,
+        });
+      }
+      return found;
     },
 
     async close() {
@@ -272,6 +310,51 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
       await refreshing;
       await Promise.all([...carried.keys()].map((spaceId) => drop(spaceId)));
       await registryStore.close();
+    },
+  };
+}
+
+/**
+ * Starts a carrier.
+ * @throws When the carry invite is not a readable invite to a private space
+ */
+export async function createCarrierNode(config: CarrierConfig): Promise<CarrierNode> {
+  const listeners = new Set<(event: CarrierEvent) => void>();
+  const emit = (event: CarrierEvent) => {
+    for (const listener of listeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error('Error in carrier listener:', error);
+      }
+    }
+  };
+  const core = await createCarryCore({
+    key: config.key,
+    stores: config.stores,
+    ...(config.network ? { network: config.network } : {}),
+    ...(config.provider ? { provider: config.provider } : {}),
+    ...(config.watchIntervalMs !== undefined ? { watchIntervalMs: config.watchIntervalMs } : {}),
+    emit,
+    onClosed: () => emit({ type: 'closed' }),
+  });
+  const carrySpace = await core.addCarry(config.account, config.carry);
+
+  return Object.freeze({
+    did: core.did,
+    carrySpace,
+    spaces: core.spaces,
+    usePod: core.setPod,
+
+    subscribe(listener: (event: CarrierEvent) => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+
+    async close() {
+      await core.close();
       listeners.clear();
     },
   });

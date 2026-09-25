@@ -371,6 +371,8 @@ export {
   NODE_ACTIONS,
   runAction,
   checkActionInput,
+  createCarrierNode,
+  createHostNode,
 } from './node/index.js';
 export type {
   StoreFactory,
@@ -404,6 +406,14 @@ export type {
   NodeContacts,
   ContactView,
   ContactRequest,
+  CarrierConfig,
+  CarrierNode,
+  CarriedSpace,
+  CarrierEvent,
+  HostConfig,
+  HostNode,
+  Subscription,
+  SubscriptionState,
 } from './node/index.js';
 
 // Queries: plain-data filters, sorting, paging and includes over a space
@@ -417,3 +427,16 @@ export { plainQuery } from './query/types.js';
 export { checkRules, onePerKey } from './records/rules.js';
 export { describeCollection } from './records/describe.js';
 export type { CollectionRules, Who } from './records/rules.js';
+
+// Hosting: a subscription key, signed requests to a host, and a client for one
+export {
+  HOSTING_COLLECTION,
+  REQUEST_WINDOW_SECONDS,
+  newSubscriptionSeed,
+  subscriptionKey,
+  signRequest,
+  verifyRequest,
+  createHostClient,
+  HostError,
+} from './session/hosting.js';
+export type { Hosting, SubscriptionKey, HostStatus, HostInfo, HostClient } from './session/hosting.js';

@@ -19,9 +19,9 @@
  * The node is an anchor, not a host: it validates everything that arrives with
  * the same gates as any peer, and holds no authority a peer does not.
  */
-import { createServer, type IncomingMessage } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
-import { peerNonce, type P2PNode, type PeerTransport, type PeerTransportEvents } from '../../src/index.js';
+import { peerNonce, type PeerTransport, type PeerTransportEvents, type ServerAuth } from '../../src/index.js';
 import { createRelay, turnFromEnv, MAX_MESSAGE_BYTES as RELAY_MAX_MESSAGE_BYTES } from '../../server/relay.mjs';
 
 // ─── Inbound peers ─────────────────────────────────────────────────────
@@ -115,8 +115,19 @@ const DID_PATTERN = /^did:key:z[1-9A-HJ-NP-Za-km-z]{1,250}$/;
 
 // ─── Server ────────────────────────────────────────────────────────────
 
+/** What serving needs of a node: who it is, how it checks a peer in a space, and keeping a space open */
+export interface Servable {
+  readonly sessionDid: string;
+  readonly spaces: {
+    authenticator(spaceId: string): Promise<ServerAuth | null>;
+    hold(spaceId: string): Promise<unknown>;
+  };
+}
+
 export interface ServeOptions {
-  readonly node: P2PNode;
+  readonly node: Servable;
+  /** More HTTP routes, tried before the default answer: true when it answered */
+  readonly routes?: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
   readonly inbound: InboundPeers;
   readonly port: number;
   readonly host?: string;
@@ -129,12 +140,13 @@ export interface Served {
   close(): Promise<void>;
 }
 
-function parseHello(data: RawData, isBinary: boolean): { did: string; nonce: string; proof: { sig?: unknown; read?: unknown } } | null {
+function parseHello(data: RawData, isBinary: boolean): { did: string; nonce: string; proof: Record<string, unknown> } | null {
   if (isBinary) return null;
   try {
-    const hello = JSON.parse(String(data)) as { type?: unknown; did?: unknown; nonce?: unknown; sig?: unknown; read?: unknown };
+    const hello = JSON.parse(String(data)) as { type?: unknown; did?: unknown; nonce?: unknown; sig?: unknown; read?: unknown; readKey?: unknown; member?: unknown };
+    // The whole proof: a reader behind on the space's key proves an older one, with its note sealed under it.
     return hello.type === 'hello' && typeof hello.did === 'string' && DID_PATTERN.test(hello.did) && typeof hello.nonce === 'string'
-      ? { did: hello.did, nonce: hello.nonce, proof: { sig: hello.sig, read: hello.read } }
+      ? { did: hello.did, nonce: hello.nonce, proof: { sig: hello.sig, read: hello.read, readKey: hello.readKey, member: hello.member } }
       : null;
   } catch {
     return null;
@@ -156,8 +168,17 @@ export async function serve(options: ServeOptions): Promise<Served> {
       res.end(JSON.stringify({ ok: true }));
       return;
     }
-    res.writeHead(426, { 'content-type': 'text/plain' });
-    res.end('This endpoint speaks WebSocket only.\n');
+    void (options.routes?.(req, res) ?? Promise.resolve(false))
+      .then((answered) => {
+        if (answered) return;
+        res.writeHead(426, { 'content-type': 'text/plain' });
+        res.end('This endpoint speaks WebSocket only.\n');
+      })
+      .catch((error: unknown) => {
+        console.error('route failed:', error);
+        if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Something went wrong on the host' }));
+      });
   });
 
   /** Spaces a peer has asked for: held from then on, for as long as this node serves */
