@@ -30,7 +30,7 @@ To have `weave` everywhere:
 npm install -g @weaveprotocol/cli            # or run it without installing: npx @weaveprotocol/cli <command>
 ```
 
-From this repo: `cd cli && npm install && npm run bundle && npm link`, or a
+From this repo: `npm install` at the repo root (the CLI is a workspace), then `cd cli && npm run bundle && npm link`, or a
 binary with no Node at all: `bun build.ts --native`.
 
 ```bash

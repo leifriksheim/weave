@@ -1097,7 +1097,7 @@ the protocol straight from `src/`. It knows no kinds of data in advance: every
 screen is worked out from what a space says about itself (see *Derived UI* below):
 
 ```bash
-npm install && (cd example && npm install) && (cd home && npm install) && (cd cli && npm install)
+npm install && (cd example && npm install) && (cd home && npm install)   # the CLI is a workspace: the first one installs it
 npm run dev
 ```
 
@@ -1191,6 +1191,21 @@ over WebRTC (`node-datachannel`), that follows the account and keeps working
 with every tab closed. What it writes shows "via agent", and every peer
 ignores an agent changing collections, who may do what, or the account's own
 list of spaces. See BLOCK-20.
+
+## Releasing
+
+`@weaveprotocol/core` (this folder) and `@weaveprotocol/cli` (`cli/`, an npm
+workspace) are released together, always with the same version:
+
+```bash
+npm run release
+```
+
+It typechecks and runs the tests, then [bumpp](https://github.com/antfu-collective/bumpp)
+asks for the next version, writes it to both packages, and commits and tags
+it (`v0.1.2`). Both are published (each builds itself first: `dist/` for the
+core, one bundled file for the CLI), and only then is the commit pushed. The
+settings are in `bump.config.ts`.
 
 ## Tests
 
