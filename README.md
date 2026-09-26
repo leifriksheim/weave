@@ -1222,11 +1222,44 @@ npm install && (cd example && npm install) && (cd home && npm install)   # the C
 npm run dev
 ```
 
-That starts three things: the example app on 5173, the account home it
-connects to on 5174, and an always-on node on port 8787 that is also the relay.
-The node gets a throwaway identity on first run (`cli/.env.dev`, data in
-`.weave-dev/`), and `example/.env.development` points the app at the other two.
-Override either in a `.env.local`.
+That starts everything, with coloured output per part, and Ctrl-C stops it all:
+
+| Part | Where | What |
+|---|---|---|
+| app | http://localhost:5173 | The example app |
+| home | http://localhost:5174 | The account home it connects to |
+| node | port 8787 | An always-on node that is also the relay; a throwaway identity on first run (`cli/.env.dev`, data in `.weave-dev/`) |
+| host | http://localhost:8788 | `weave host`, what "Keep my spaces online" uses, with its pay page at `/pay`; settings in `cli/.env.host.dev` |
+| stripe | — | Only when you add a Stripe test key (below): forwards Stripe's webhooks to the host |
+
+`example/.env.development` and `home/.env.development` point the app and home
+at the rest. Override any of them in a `.env.local`, and the host in
+`cli/.env.host.local`.
+
+**Trying hosting and payments.** In the home: Settings, **Keep my spaces
+online**, **Keep online** (the dev host is filled in), then **Payment**, which
+opens the host's pay page in a new tab. What you can pay with there:
+
+- **A browser wallet, on by default.** Payments go to Base Sepolia, a test
+  network: test money only. In MetaMask (or any browser wallet), get test ETH
+  for the fee from a Base Sepolia faucet (Coinbase's, or Alchemy's) and test
+  USDC from faucet.circle.com (choose Base Sepolia). Pay, and the pay page
+  says "Payment received"; back in the home's tab, the host shows "paid until"
+  and takes your spaces. To see payments arrive, set your own address as
+  `WEAVE_WALLET_ADDRESS` in `cli/.env.host.local`.
+- **A card, in Stripe's test mode.** In `cli/.env.host.local`, add
+  `STRIPE_SECRET_KEY=sk_test_…` and the price ids of a monthly and a yearly
+  recurring test price (`STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY`, from the Stripe
+  dashboard in test mode). With the Stripe CLI installed, `npm run dev`
+  forwards Stripe's webhooks to the host by itself. Pay with card
+  4242 4242 4242 4242, any future date, any CVC.
+- **Phone wallets, by QR code.** Add `WEAVE_WALLETCONNECT_PROJECT_ID` (free at
+  dashboard.reown.com, with localhost allowed in the project) to
+  `cli/.env.host.local`; `npm run dev` builds what the pay page needs. The
+  wallet has to be on Base Sepolia too.
+
+`npm test` covers the same paths without any of this: a fake network, fake
+Stripe calls, and the home's side against a real host.
 
 The example never signs anyone in: "Connect with Weave" opens the home, where
 you make an account or sign in, and allow the example your whole account. Its
