@@ -9,6 +9,8 @@
  *
  *   client → { type: 'drop', topic, blob, ttl? }       relay → { type: 'dropped', topic, id } | { type: 'refused', topic, reason }
  *   client → { type: 'fetch', topic, after? }          relay → { type: 'mail', topic, items: [{ seq, id, at, blob }], more }
+ *   client → { type: 'challenge' }                     relay → { type: 'challenge', nonce }
+ *   client → { type: 'purge', topic, sign, ids?, sig } relay → { type: 'purged', topic, count } | { type: 'refused', topic, reason }
  */
 
 /** One sealed knock, as a relay holds it */
@@ -31,6 +33,19 @@ export interface MailboxClient {
   drop(relay: string, topic: string, blob: string, ttlSeconds?: number): Promise<string>;
   /** Everything a relay holds under a topic, after a sequence number */
   fetch(relay: string, topic: string, after?: number): Promise<ReadonlyArray<MailItem>>;
+  /**
+   * Clears knocks from a topic — all of them, or those named — as the door's
+   * owner: shows the signing key and signs the relay's challenge with it.
+   * @param signChallenge Signs a nonce for these ids (`signPurge`)
+   * @returns How many the relay let go
+   */
+  purge(
+    relay: string,
+    topic: string,
+    sign: string,
+    ids: ReadonlyArray<string> | null,
+    signChallenge: (nonce: string) => Promise<string>,
+  ): Promise<number>;
 }
 
 export interface MailboxOptions {
@@ -48,6 +63,19 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
 
   /** Opens a socket, sends one message, and resolves with the first answer `pick` accepts */
   function ask<T>(relay: string, message: unknown, pick: (answer: Record<string, unknown>) => T | undefined): Promise<T> {
+    return talk(relay, (send) => send(message), async (answer) => pick(answer));
+  }
+
+  /**
+   * Opens a socket and holds a short conversation: `start` says the first
+   * thing, `hear` answers what comes back (it may `send` again) and settles it
+   * by returning a value.
+   */
+  function talk<T>(
+    relay: string,
+    start: (send: (message: unknown) => void) => void,
+    hear: (answer: Record<string, unknown>, send: (message: unknown) => void) => Promise<T | undefined>,
+  ): Promise<T> {
     const Socket = options.WebSocket ?? globalThis.WebSocket;
     if (!Socket) return Promise.reject(new Error('No WebSocket here to reach a relay with'));
     return new Promise<T>((resolve, reject) => {
@@ -66,7 +94,8 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
         else resolve(value as T);
       };
       const timer = setTimeout(() => finish(new Error(`${relay} did not answer`)), timeoutMs);
-      ws.onopen = () => ws.send(JSON.stringify(message));
+      const say = (message: unknown) => ws.send(JSON.stringify(message));
+      ws.onopen = () => start(say);
       ws.onerror = () => finish(new Error(`Could not reach ${relay}`));
       ws.onclose = () => finish(new Error(`${relay} closed the connection`));
       ws.onmessage = (event: MessageEvent) => {
@@ -77,17 +106,17 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
           return;
         }
         if (!answer || typeof answer !== 'object') return;
-        try {
-          const value = pick(answer as Record<string, unknown>);
-          if (value !== undefined) finish(null, value);
-        } catch (error) {
-          finish(error instanceof Error ? error : new Error(String(error)));
-        }
+        hear(answer as Record<string, unknown>, say).then(
+          (value) => {
+            if (value !== undefined) finish(null, value);
+          },
+          (error: unknown) => finish(error instanceof Error ? error : new Error(String(error))),
+        );
       };
     });
   }
 
-  return Object.freeze({
+  const client: MailboxClient = {
     drop(relay: string, topic: string, blob: string, ttlSeconds?: number) {
       return ask(relay, { type: 'drop', topic, blob, ...(ttlSeconds ? { ttl: ttlSeconds } : {}) }, (answer) => {
         if (answer.topic !== topic) return undefined;
@@ -112,7 +141,25 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
       }
       return found;
     },
-  });
+
+    purge(relay, topic, sign, ids, signChallenge) {
+      return talk(
+        relay,
+        (send) => send({ type: 'challenge' }),
+        async (answer, send) => {
+          if (answer.type === 'challenge' && typeof answer.nonce === 'string') {
+            send({ type: 'purge', topic, sign, ...(ids ? { ids: [...ids] } : {}), sig: await signChallenge(answer.nonce) });
+            return undefined;
+          }
+          if (answer.topic !== topic) return undefined;
+          if (answer.type === 'purged' && typeof answer.count === 'number') return answer.count;
+          if (answer.type === 'refused') throw new Error(`${relay} refused to clear the door: ${String(answer.reason ?? 'no reason given')}`);
+          return undefined;
+        },
+      );
+    },
+  };
+  return Object.freeze(client);
 }
 
 function isMailItem(value: unknown): value is MailItem {

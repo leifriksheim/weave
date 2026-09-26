@@ -370,6 +370,10 @@ describe('an agent connected through the account home', () => {
     const desk = await auth.grant({ origin, request: { ...whole, audience: 'did:key:zDesk', name: 'Agent on desk', days: 1 }, spaceIds: [] });
     assert.ok(laptop.accountKey, 'it follows the account, so spaces made later reach it');
     assert.ok(isAgentNote(laptop.token));
+    assert.equal(laptop.contactKey, undefined, 'the whole account, but never the contact key: it opens contact requests and knocks');
+    const app = await auth.grant({ origin: 'https://whole.test', request: { v: 1, access: 'write', scope: 'account', audience: 'did:key:zWholeApp' }, spaceIds: [] });
+    assert.ok(app.contactKey, 'an app given the whole account does get it');
+    await auth.disconnect('https://whole.test');
     const day = 24 * 3600;
     const now = Math.floor(Date.now() / 1000);
     assert.ok(Math.abs(laptop.expiresAt - (now + 30 * day)) < 60);

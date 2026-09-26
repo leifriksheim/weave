@@ -27,6 +27,7 @@ const CONTACT_KEY_INFO = 'weave/p256-contact-key/v1';
 const SEAL_INFO = 'weave/contact-seal/v1';
 const MEMBER_KEY_INFO = 'weave/p256-member-key/v1';
 const DOOR_KEY_INFO = 'weave/p256-door-key/v1';
+const DOOR_SIGN_KEY_INFO = 'weave/p256-door-sign-key/v1';
 
 /** 48 bytes reduce to a P-256 scalar without bias, as for the root key (`crypto-p256.ts`) */
 const P256_SEED_BYTES = 48;
@@ -85,6 +86,50 @@ export async function deriveMemberKeyBytes(accountKey: Uint8Array, spaceId: stri
  */
 export async function deriveDoorKeyBytes(contactKey: Uint8Array, doorId: string): Promise<Uint8Array> {
   return p256.utils.randomSecretKey(await hkdf(contactKey, `${DOOR_KEY_INFO}|${doorId}`, P256_SEED_BYTES));
+}
+
+/**
+ * A door's **signing key**: what proves you own a door, without saying whose
+ * it is — to a relay, when clearing the door's mailbox, and to someone who
+ * knocked, when you answer. Separate from the door key, which only opens
+ * knocks: one key should not both sign and decrypt.
+ */
+export async function deriveDoorSignKeyBytes(contactKey: Uint8Array, doorId: string): Promise<Uint8Array> {
+  return p256.utils.randomSecretKey(await hkdf(contactKey, `${DOOR_SIGN_KEY_INFO}|${doorId}`, P256_SEED_BYTES));
+}
+
+/**
+ * Signs with a P-256 private scalar: ECDSA over SHA-256, 64 bytes r ‖ s,
+ * base64url — for door signing keys.
+ */
+export async function signWithScalar(secret: Uint8Array, data: Uint8Array): Promise<string> {
+  const point = p256.getPublicKey(secret, false);
+  const key = await globalThis.crypto.subtle.importKey(
+    'jwk',
+    {
+      kty: 'EC',
+      crv: 'P-256',
+      x: base64UrlEncode(point.subarray(1, 33)),
+      y: base64UrlEncode(point.subarray(33, 65)),
+      d: base64UrlEncode(secret),
+      ext: false,
+    },
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign'],
+  );
+  return base64UrlEncode(new Uint8Array(await globalThis.crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, data as BufferSource)));
+}
+
+/** Checks what `signWithScalar` signed, against a compressed public key (base64url) */
+export async function verifyWithPoint(publicKey: string, data: Uint8Array, signature: string): Promise<boolean> {
+  try {
+    const point = p256.Point.fromBytes(base64UrlDecode(publicKey)).toBytes(false);
+    const key = await globalThis.crypto.subtle.importKey('raw', point as BufferSource, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    return await globalThis.crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, base64UrlDecode(signature) as BufferSource, data as BufferSource);
+  } catch {
+    return false;
+  }
 }
 
 /** The public half, from the private scalar */

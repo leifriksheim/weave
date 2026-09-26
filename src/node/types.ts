@@ -758,8 +758,10 @@ export interface DoorView {
   readonly label?: string;
   /** The name its code gives whoever knocks */
   readonly name?: string;
-  /** The door key's public half */
+  /** The door key's public half: knocks are sealed to it */
   readonly key: string;
+  /** The door's signing key's public half: its hash is the door's mailbox topic */
+  readonly sign: string;
   readonly relays: ReadonlyArray<string>;
   /** The door code to hand out: put it in a link (`#door=…`) or a QR code */
   readonly code: string;
@@ -814,9 +816,16 @@ export interface NodeDoors {
   /** Closes a door: its knocks are no longer read, and its code leads nowhere */
   close(id: string): Promise<void>;
   /**
+   * Clears every knock waiting at a door, from every relay it names, as its
+   * owner — for a door someone flooded, without closing it and breaking
+   * every place its code was shared.
+   */
+  clear(id: string): Promise<void>;
+  /**
    * Knocks on someone's door: makes a private space for the two of you and
    * leaves its invite, sealed and signed, in their door's mailboxes. They
-   * become a contact once they open it.
+   * become a contact once they answer there, signed with the door's key; a
+   * knock nobody answers is let go after two weeks, space and all.
    * @param code A door code, or a link carrying one
    * @returns The space for two
    */
@@ -829,8 +838,14 @@ export interface NodeDoors {
   knocks(): Promise<ReadonlyArray<KnockView>>;
   /** Knocks you left that nobody has answered yet */
   sent(): Promise<ReadonlyArray<SentKnockView>>;
-  /** Joins the space for two a knock invites you to, and puts whoever knocked on your list */
+  /**
+   * Joins the space for two a knock invites you to, and puts whoever knocked
+   * on your list. Your answer — signed with the door's signing key — is written
+   * there once your membership lands, and that is what makes you their contact.
+   */
   accept(id: string): Promise<ContactView>;
+  /** Lets a knock go without blocking whoever knocked: cleared from the door's relays, on every device */
+  dismiss(id: string): Promise<void>;
 }
 
 export interface P2PNode {

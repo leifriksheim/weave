@@ -29,4 +29,20 @@ export interface Relay {
   close(): void;
 }
 
-export declare function createRelay(options?: { readonly turn?: TurnSettings; readonly log?: (message: string) => void }): Relay;
+/** The mailbox's limits (see `relay.mjs`) */
+export interface MailboxLimits {
+  readonly maxTopics: number;
+  readonly maxChars: number;
+  readonly reserveChars: number;
+  readonly ttlSeconds: number;
+  readonly dropsPerNetworkPerTopic: number;
+  readonly dropsPerNetwork: number;
+}
+
+export declare const MAILBOX_LIMITS: MailboxLimits;
+
+export declare function createRelay(options?: {
+  readonly turn?: TurnSettings;
+  readonly log?: (message: string) => void;
+  readonly mailbox?: Partial<MailboxLimits>;
+}): Relay;

@@ -32,6 +32,7 @@ export const contact = typed<Contact>()({
       space: { type: 'string', maxLength: 256, description: 'The id of your space for two' },
       note: { type: 'string', maxLength: 2000 },
       blocked: { type: 'boolean', description: 'Their contact requests are hidden, in every space' },
+      door: { type: 'string', maxLength: 64, description: 'The door they knocked on, while your answer is still to be written in your space for two' },
     },
     required: ['did', 'name'],
   },
@@ -43,6 +44,7 @@ export interface Contact {
   readonly space?: string;
   readonly note?: string;
   readonly blocked?: boolean;
+  readonly door?: string;
 }
 
 /** An invite to a space for two, sealed so only the person it is for can read it. */
@@ -110,8 +112,10 @@ export const knock = typed<Knock>()({
       space: { type: 'string', maxLength: 256, description: 'The space for two it invites them to' },
       name: { type: 'string', maxLength: 64, description: 'The name their door code gave' },
       door: { type: 'string', maxLength: 64, description: 'The door key knocked on' },
+      sign: { type: 'string', maxLength: 64, description: "The door's signing key, which their answer must be signed with" },
+      invite: { type: 'string', maxLength: 8000, description: 'The invite sent, to close once they answer' },
     },
-    required: ['space', 'name', 'door'],
+    required: ['space', 'name', 'door', 'sign', 'invite'],
   },
   rules: { onePer: ['space'] },
 });
@@ -119,4 +123,28 @@ export interface Knock {
   readonly space: string;
   readonly name: string;
   readonly door: string;
+  readonly sign: string;
+  readonly invite: string;
+}
+
+/**
+ * The answer to a knock, in the space for two: the door's owner, signing with
+ * the door's signing key that the account writing this is theirs. It is how
+ * the knocker tells the person behind the door from anyone the invite reached.
+ */
+export const knockAnswer = typed<KnockAnswer>()({
+  name: 'std.knock-answer',
+  title: 'Knock answer',
+  description: "Proof that the account which joined is the one behind the door knocked on.",
+  schema: {
+    type: 'object',
+    properties: {
+      sig: { type: 'string', maxLength: 200, description: 'The door signing key over "weave/knock-answer/v1|<space>|<account>"' },
+    },
+    required: ['sig'],
+  },
+  rules: { edit: 'creator', delete: 'creator' },
+});
+export interface KnockAnswer {
+  readonly sig: string;
 }

@@ -6,7 +6,10 @@
  * you. A **door** is an address you hand out on purpose, and can close:
  *
  * - a **door key**, derived from your contact key and the door's id
- *   (`deriveDoorKeyBytes`), which says nothing about the account behind it;
+ *   (`deriveDoorKeyBytes`), which says nothing about the account behind it,
+ *   and a **signing key** beside it (`deriveDoorSignKeyBytes`) that proves
+ *   ownership of the door — to a relay clearing its mailbox, and to a knocker
+ *   when you answer;
  * - the **relays** whose mailboxes hold knocks on it — two or three, chosen by
  *   you, so no one relay can shut it.
  *
@@ -18,8 +21,8 @@
  * joining that space.
  *
  * ```
- * code   = base64url(JSON { v: 1, key, relays, name? })
- * topic  = base64url(SHA-256("weave/door-topic/v1|" + key))
+ * code   = base64url(JSON { v: 1, key, sign, relays, name? })
+ * topic  = base64url(SHA-256("weave/door-topic/v1|" + sign))
  * knock  = sealFor(key, { body, sig }, "weave/knock/v1|" + key)
  * body   = { v: 1, door: key, from, name, invite, note?, at, session, proof }
  * sig    = session key signs canonical(body)
@@ -29,7 +32,7 @@
  * knocked, not what they said. See `docs/spec/07-doors.md`.
  */
 import type { CryptoProvider } from '../types.js';
-import { contactKeyPair, contactPublicKey, isContactPublicKey, openSealed, sealFor } from '../identity/contact-key.js';
+import { contactKeyPair, contactPublicKey, isContactPublicKey, openSealed, sealFor, signWithScalar, verifyWithPoint } from '../identity/contact-key.js';
 import { didToPublicKey } from '../identity/did.js';
 import { resolveDelegationRoot, UCAN_CLOCK_SKEW_SECONDS } from '../identity/ucan.js';
 import { isAgentNote } from '../identity/agent-note.js';
@@ -44,7 +47,13 @@ import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../uti
 export const MAX_DOOR_RELAYS = 3;
 /** How long a knock waits in a mailbox, and so how old one may be when opened */
 export const KNOCK_TTL_SECONDS = 14 * 24 * 3600;
-const MAX_KNOCK_AGE_SECONDS = 30 * 24 * 3600;
+/**
+ * How far a knock's own time may be from when the relay took it. A knock is
+ * dropped as soon as it is signed, so its time is checked against the relay's
+ * — which the knocker can't choose — and a note that ran out can't be used by
+ * dating a knock back to when it was good.
+ */
+export const KNOCK_DROP_WINDOW_SECONDS = 600;
 const MAX_NAME = 64;
 const MAX_NOTE = 2000;
 const MAX_INVITE = 6000;
@@ -53,8 +62,10 @@ const MAX_PROOF = 4096;
 /** What a door code says: where to knock, and whose door the owner says it is */
 export interface DoorCode {
   readonly v: 1;
-  /** The door key's public half: a compressed P-256 point, base64url */
+  /** The door key's public half: a compressed P-256 point, base64url. Knocks are sealed to it. */
   readonly key: string;
+  /** The door's signing key's public half, likewise. Its hash is the door's topic. */
+  readonly sign: string;
   /** Relays whose mailboxes hold knocks on it, 1–3 */
   readonly relays: ReadonlyArray<string>;
   /** Who the owner says they are — shown to the knocker, and proves nothing */
@@ -93,11 +104,19 @@ export interface OpenedKnock {
   readonly at: number;
 }
 
+/** Cuts text to at most `max` characters without splitting one (a surrogate pair stays whole) */
+export function clip(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length <= max ? text : chars.slice(0, max).join('');
+}
+
 /** Encodes a door code: what goes in a link or a QR code */
 export function encodeDoorCode(code: Omit<DoorCode, 'v'>): string {
   const problem = checkDoorCode({ v: 1, ...code });
   if (problem) throw new Error(problem);
-  return base64UrlEncode(utf8Encode(canonicalize({ v: 1, key: code.key, relays: [...code.relays], ...(code.name ? { name: code.name } : {}) })));
+  return base64UrlEncode(
+    utf8Encode(canonicalize({ v: 1, key: code.key, sign: code.sign, relays: [...code.relays], ...(code.name ? { name: code.name } : {}) })),
+  );
 }
 
 /**
@@ -117,7 +136,7 @@ export function parseDoorCode(text: string): DoorCode {
   const problem = checkDoorCode(parsed);
   if (problem) throw new Error(`That door code doesn't work: ${problem}`);
   const code = parsed as DoorCode;
-  return Object.freeze({ v: 1, key: code.key, relays: Object.freeze([...code.relays]), ...(code.name ? { name: code.name } : {}) });
+  return Object.freeze({ v: 1, key: code.key, sign: code.sign, relays: Object.freeze([...code.relays]), ...(code.name ? { name: code.name } : {}) });
 }
 
 /** Why a value is not a door code, or null */
@@ -125,18 +144,50 @@ export function checkDoorCode(value: unknown): string | null {
   const code = value as Partial<DoorCode> | null;
   if (!code || typeof code !== 'object' || code.v !== 1) return 'it is not a version 1 door';
   if (!isContactPublicKey(code.key)) return 'its key is not a P-256 public key';
+  if (!isContactPublicKey(code.sign) || code.sign === code.key) return 'its signing key is not a P-256 public key of its own';
   if (!Array.isArray(code.relays) || code.relays.length === 0 || code.relays.length > MAX_DOOR_RELAYS) {
     return `it names 1–${MAX_DOOR_RELAYS} relays`;
   }
   const relays = checkRelays(code.relays);
   if (relays) return relays;
-  if (code.name !== undefined && (typeof code.name !== 'string' || code.name.length > MAX_NAME)) return `its name is text of at most ${MAX_NAME} characters`;
+  if (code.name !== undefined && (typeof code.name !== 'string' || Array.from(code.name).length > MAX_NAME)) return `its name is text of at most ${MAX_NAME} characters`;
   return null;
 }
 
-/** The mailbox topic of a door: a hash of its key, so the relay can't tell whose door it is */
-export async function doorTopic(key: string): Promise<string> {
-  return base64UrlEncode(await sha256(utf8Encode(`weave/door-topic/v1|${key}`)));
+/**
+ * The mailbox topic of a door: a hash of its signing key. The relay can't tell
+ * whose door it is, and can check that whoever clears it holds that key.
+ */
+export async function doorTopic(sign: string): Promise<string> {
+  return base64UrlEncode(await sha256(utf8Encode(`weave/door-topic/v1|${sign}`)));
+}
+
+/**
+ * What a door's owner signs to clear knocks from a relay's mailbox: the topic,
+ * the relay's one-time challenge, and which knocks (`*` for all of them).
+ */
+export const purgeMessage = (topic: string, nonce: string, ids: ReadonlyArray<string> | null) =>
+  utf8Encode(`weave/door-purge/v1|${topic}|${nonce}|${ids ? [...ids].sort().join(',') : '*'}`);
+
+/** Signs a relay's purge challenge with the door's signing key */
+export function signPurge(signKey: Uint8Array, topic: string, nonce: string, ids: ReadonlyArray<string> | null): Promise<string> {
+  return signWithScalar(signKey, purgeMessage(topic, nonce, ids));
+}
+
+/**
+ * The answer to a knock: the door's owner, signing with the door's signing key
+ * that the account which joined the space for two is theirs. Without it,
+ * whoever joined first — someone the invite was passed on to — would be taken
+ * for the person behind the door.
+ */
+const answerMessage = (pairSpace: string, did: string) => utf8Encode(`weave/knock-answer/v1|${pairSpace}|${did}`);
+
+export function signAnswer(signKey: Uint8Array, pairSpace: string, did: string): Promise<string> {
+  return signWithScalar(signKey, answerMessage(pairSpace, did));
+}
+
+export function checkAnswer(sign: string, pairSpace: string, did: string, signature: string): Promise<boolean> {
+  return verifyWithPoint(sign, answerMessage(pairSpace, did), signature);
 }
 
 /** A knock's id: the hash of its sealed blob, as relays file it */
@@ -156,12 +207,12 @@ export async function sealKnock(
   session: { readonly did: string; readonly key: CryptoKey; readonly proof: string },
   provider: CryptoProvider,
 ): Promise<string> {
-  const note = knock.note?.trim().slice(0, MAX_NOTE);
+  const note = knock.note ? clip(knock.note.trim(), MAX_NOTE) : undefined;
   const body: KnockBody = {
     v: 1,
     door,
     from: knock.from,
-    name: knock.name.trim().slice(0, MAX_NAME) || 'Someone',
+    name: clip(knock.name.trim(), MAX_NAME) || 'Someone',
     invite: knock.invite,
     ...(note ? { note } : {}),
     at: Math.floor(Date.now() / 1000),
@@ -173,13 +224,15 @@ export async function sealKnock(
 }
 
 /**
- * Opens a knock left on a door, and checks it through: sealed to this door,
- * signed by a session key its account's note vouches for, not by an agent,
- * recent, and carrying an invite to a private space that account made.
+ * Opens a knock left on a door, and checks it through: sealed to this door;
+ * signed by a session key that its account's note vouches for, for the whole
+ * account and not by an agent; signed when the relay took it; recent; and
+ * carrying an invite to a private space that account made.
  * @param doorKey The door key's private scalar (`deriveDoorKeyBytes`)
+ * @param receivedAt When the relay took it, ms, as `fetch` says
  * @returns The knock, or null when it is anything less
  */
-export async function openKnock(doorKey: Uint8Array, blob: string, provider: CryptoProvider): Promise<OpenedKnock | null> {
+export async function openKnock(doorKey: Uint8Array, blob: string, receivedAt: number, provider: CryptoProvider): Promise<OpenedKnock | null> {
   const door = contactPublicKey(doorKey);
   const opened = (await openSealed((await contactKeyPair(doorKey)).privateKey, blob, knockContext(door))) as {
     body?: KnockBody;
@@ -189,12 +242,16 @@ export async function openKnock(doorKey: Uint8Array, blob: string, provider: Cry
   if (!body || typeof opened.sig !== 'string') return null;
   if (body.v !== 1 || body.door !== door) return null;
   if (typeof body.from !== 'string' || typeof body.session !== 'string' || typeof body.name !== 'string') return null;
+  if (Array.from(body.name).length > MAX_NAME) return null;
   if (typeof body.invite !== 'string' || body.invite.length > MAX_INVITE) return null;
   if (typeof body.proof !== 'string' || body.proof.length > MAX_PROOF) return null;
-  if (body.note !== undefined && (typeof body.note !== 'string' || body.note.length > MAX_NOTE)) return null;
-  if (!Number.isSafeInteger(body.at)) return null;
+  if (body.note !== undefined && (typeof body.note !== 'string' || Array.from(body.note).length > MAX_NOTE)) return null;
+  if (!Number.isSafeInteger(body.at) || !Number.isFinite(receivedAt)) return null;
   const now = Math.floor(Date.now() / 1000);
-  if (body.at > now + UCAN_CLOCK_SKEW_SECONDS || body.at < now - MAX_KNOCK_AGE_SECONDS) return null;
+  if (body.at > now + UCAN_CLOCK_SKEW_SECONDS || body.at < now - KNOCK_TTL_SECONDS) return null;
+  // Signed when it was dropped, not dated back to when a note was still good.
+  const dropped = Math.floor(receivedAt / 1000);
+  if (body.at > dropped + UCAN_CLOCK_SKEW_SECONDS || body.at < dropped - KNOCK_DROP_WINDOW_SECONDS) return null;
 
   // Signed by the session key it names…
   let signed = false;
@@ -209,6 +266,9 @@ export async function openKnock(doorKey: Uint8Array, blob: string, provider: Cry
   if (isAgentNote(body.proof)) return null;
   const chain = await resolveDelegationRoot(body.proof, () => null, provider, { at: body.at }).catch(() => null);
   if (!chain?.valid || chain.audience !== body.session || chain.rootDid !== body.from) return null;
+  // Knocking makes a space and hands out its invite: only a note for the whole
+  // account, to write, may. An app given one space, or only to read, may not.
+  if (!chain.capabilities.some((capability) => capability.with === '*' && (capability.can === 'expression/*' || capability.can === '*'))) return null;
 
   // A private space the knocker made, with its key: anything else isn't a space for two from them.
   let invited;
@@ -222,7 +282,7 @@ export async function openKnock(doorKey: Uint8Array, blob: string, provider: Cry
 
   return Object.freeze({
     from: body.from,
-    name: body.name.slice(0, MAX_NAME) || 'Someone',
+    name: clip(body.name, MAX_NAME) || 'Someone',
     ...(body.note ? { note: body.note } : {}),
     invite: body.invite,
     pairSpace: invited.space.id,

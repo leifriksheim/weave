@@ -10,6 +10,12 @@ export {
   knockId,
   sealKnock,
   openKnock,
+  signPurge,
+  purgeMessage,
+  signAnswer,
+  checkAnswer,
+  clip,
+  KNOCK_DROP_WINDOW_SECONDS,
   MAX_DOOR_RELAYS,
   KNOCK_TTL_SECONDS,
 } from './doors.js';
