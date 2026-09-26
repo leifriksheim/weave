@@ -9,7 +9,7 @@ import type { Plugin } from 'vite';
  *
  * This page holds the account's seed while it signs, so a script that should
  * not be here is a stolen account. The policy allows only this site's own
- * scripts, and connections only to the relays and nodes the build was
+ * scripts, and connections only to the relays, nodes and host the build was
  * configured with. `frame-ancestors 'none'`: the home opens as a window of its
  * own, never inside another site.
  */
@@ -20,7 +20,9 @@ function securityHeaders(mode: string): Plugin {
     .map((url) => url.trim())
     .filter(Boolean)
     .map((url) => new URL(url).origin.replace(/^http/, 'ws'));
-  const connect = [...new Set(["'self'", ...configured, 'ws://localhost:*', 'ws://127.0.0.1:*'])];
+  // The host the home offers under "Keep my spaces online": its API is plain https.
+  const host = env.VITE_WEAVE_HOST ? [new URL(env.VITE_WEAVE_HOST).origin] : [];
+  const connect = [...new Set(["'self'", ...configured, ...host, 'ws://localhost:*', 'ws://127.0.0.1:*'])];
   const policy = [
     "default-src 'self'",
     "script-src 'self'",

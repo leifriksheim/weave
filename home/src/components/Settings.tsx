@@ -4,6 +4,7 @@ import { STAY_SIGNED_IN_CHOICES, type Connection, type StaySignedIn } from '@wea
 import { useAuth, useSession } from '@weaveprotocol/core/react';
 import { Avatar } from './Avatar';
 import { PairPhone } from './PairPhone';
+import { Hosting } from './Hosting';
 import { styles, palette } from '../styles';
 
 /**
@@ -33,6 +34,11 @@ export function Settings() {
   // Carriers are in the account registry, so every device lists them — not
   // only the home that connected one, which is all `connections()` knows.
   const [carriers, setCarriers] = useState<ReadonlyArray<CarrierSummary> | null>(null);
+  // A host is a carrier too, but it has its own section.
+  const [hostKeys, setHostKeys] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    void session.node.hosting.list().then((hosts) => setHostKeys(new Set(hosts.map((host) => host.host))), () => {});
+  }, [session]);
   // Which carriers are online now: each is a peer in its own carry space. One
   // that never is may be keeping another account online instead.
   const [online, setOnline] = useState<ReadonlySet<string>>(new Set());
@@ -65,7 +71,7 @@ export function Settings() {
     .connections()
     .filter((app) => app.access !== 'carry' || carriers === null || carriers.some((carrier) => carrier.space === app.carrySpace));
   const known = new Set(connections.map((app) => app.carrySpace).filter(Boolean));
-  const elsewhere = (carriers ?? []).filter((carrier) => !known.has(carrier.space));
+  const elsewhere = (carriers ?? []).filter((carrier) => !known.has(carrier.space) && !hostKeys.has(carrier.did));
   const removeCarrier = async (space: string) => {
     setDisconnecting(space);
     try {
@@ -113,10 +119,12 @@ export function Settings() {
         {connections.length > 0 && (
           <p style={styles.errorHint}>
             Disconnecting stops the app for good the next time it comes online: it signs itself out, and nothing it changes after that
-            counts. What it already wrote stays. It keeps what it could already read, since a space's key cannot be changed yet.
+            counts. What it already wrote stays, and it keeps what it could already read.
           </p>
         )}
       </Section>
+
+      <Hosting node={session.node} />
 
       <Section
         title="Passkey"
@@ -218,7 +226,7 @@ function AccountHeader({ name, did, onRename }: { name: string; did: string; onR
             </button>
           </h1>
         )}
-        <code style={{ fontSize: 12, color: palette.ink.faint }}>{did.slice(0, 16)}…{did.slice(-6)}</code>
+        <CopyDid did={did} />
       </div>
     </header>
   );
@@ -228,6 +236,26 @@ function AccountHeader({ name, did, onRename }: { name: string; did: string; onR
 const connectionId = (app: Connection) => (app.agent ? app.audience : app.origin);
 
 /** "Todo (todo.example) · read and change Groceries · until 3 October" */
+
+/** The account's DID, short, with a way to copy it whole — what a host's `--allow` takes */
+function CopyDid({ did }: { did: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(did);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <code title={did} style={{ fontSize: 12, color: palette.ink.faint }}>
+        {did.slice(0, 16)}…{did.slice(-6)}
+      </code>
+      <button onClick={() => void copy()} data-variant="quiet" style={{ ...styles.smallButton, height: 24, fontSize: 12 }}>
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </span>
+  );
+}
 
 function describeConnection(app: Connection): string {
   const url = new URL(app.origin);

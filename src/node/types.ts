@@ -147,6 +147,14 @@ export interface SpaceAccess {
   readonly role: SpaceRole | null;
   /** The latest access changes held — what a record written now names as `seen` */
   readonly heads: ReadonlyArray<string>;
+  /**
+   * A private space's key: how many times it has changed, and whether this
+   * device holds the one in use now — not while a new one is on its way here.
+   * Null in a public space.
+   */
+  readonly key: { readonly changes: number; readonly held: boolean } | null;
+  /** Where the space's members meet: the relays it names, or until it names some, the ones its invite did */
+  readonly relays: ReadonlyArray<string>;
 }
 
 /** A record, opened and checked — its current version, unless listed as history */
@@ -340,7 +348,12 @@ export interface NodeSpaces {
    */
   invite(spaceId: string, options?: InviteOptions): Promise<string>;
   preview(invite: string): InvitePreview;
-  join(invite: string): Promise<SpaceSummary>;
+  /**
+   * Joins a space from an invite. `memberKey` is this account's member key
+   * for it, for a node without the account key — an app an account home gave
+   * the space to — so a new key of the space reaches it too.
+   */
+  join(invite: string, options?: { readonly memberKey?: Uint8Array }): Promise<SpaceSummary>;
   /**
    * Forgets a space on this node, with its key. Other members keep theirs.
    * Your role stays too — to give it up, `setMember` yourself to null first.
@@ -356,6 +369,19 @@ export interface NodeSpaces {
   removeRole(spaceId: string, name: string): Promise<void>;
   /** Closes an invite — by the link itself, or by its key from `access().invites`. Who joined with it before stays. */
   closeInvite(spaceId: string, keyOrLink: string): Promise<void>;
+  /**
+   * Gives a private space a new key, sealed to every member and nobody else.
+   * Happens by itself when someone is removed or leaves; call it when a
+   * device was lost. View-only links made before stop working. Needs `manage`.
+   */
+  changeKey(spaceId: string): Promise<void>;
+  /**
+   * Names the relays the space's members meet on — wss:// URLs, at most 8 —
+   * so people whose apps use different relays still find each other. Every
+   * member joins the space's room there too, and invites carry them. A space
+   * names the relays of whoever manages it first by itself. Needs `manage`.
+   */
+  setRelays(spaceId: string, relays: ReadonlyArray<string>): Promise<void>;
   /**
    * Revokes a note this account signed — an app's, say. Nothing written under
    * it counts from then on, except what this node had already seen.
@@ -507,6 +533,63 @@ export interface NodeCarriers {
   remove(space: string): Promise<void>;
 }
 
+/** A host the account uses, and what it says now */
+export interface HostingView {
+  /** The host's address */
+  readonly url: string;
+  /** The host's own key, as it appears to peers */
+  readonly host: string;
+  /** Its name, as it describes itself; its address's host name when it doesn't */
+  readonly name: string;
+  /** The subscription — the key the account made for this host */
+  readonly subscription: string;
+  readonly since: string;
+  /**
+   * How the subscription stands, as the host signed it: just now when `live`,
+   * otherwise the last it said (kept in the account registry). Null when it
+   * never said.
+   */
+  readonly status: import('../session/hosting.js').HostStatus | null;
+  /** Whether `status` is what the host said just now */
+  readonly live: boolean;
+  /** Why it could not be reached */
+  readonly error?: string;
+  /** Its price, for people, as it puts it */
+  readonly price?: string;
+  /** Whether it takes payments, on its own page (`payPage`) */
+  readonly pays: boolean;
+}
+
+/**
+ * Hosts: nodes that never sleep, keeping the account's spaces online and
+ * backed up when every device is off — without being able to read them. A
+ * host is a carrier (`carriers`) the account pays for; every device of the
+ * account hands it the spaces, with nothing to set up.
+ *
+ * Nothing here knows how a host is paid (BLOCK-23): a host takes payments on
+ * its own page, which `payPage` links to, and says how the subscription stands
+ * in a status it signs.
+ */
+export interface NodeHosting {
+  /** The hosts the account uses, each asked how it stands. Hands a host the spaces if it was paid since. */
+  list(): Promise<ReadonlyArray<HostingView>>;
+  /**
+   * Starts using a host: makes a subscription key, keeps it in the account
+   * registry so every device signs as it, and — once it is paid, or at once
+   * for a free host — hands the host the account's spaces.
+   */
+  use(url: string): Promise<HostingView>;
+  /**
+   * A link to the host's own pay page, signed with the subscription key: it
+   * lets whoever opens it pay for this subscription, at that host, for an
+   * hour. Open it in a new tab (`noopener`), and call `list` when the person
+   * comes back.
+   */
+  payPage(url: string): Promise<string>;
+  /** Stops using a host: it forgets the spaces, and the subscription is let go. A card that renews is cancelled on the host's pay page. */
+  stop(url: string): Promise<void>;
+}
+
 export interface NodeAccount {
   /** The account's profile as its devices last set it. Null without an account key, or before any is set. */
   profile(): Promise<AccountProfileView | null>;
@@ -601,6 +684,8 @@ export interface P2PNode {
   readonly account: NodeAccount;
   /** Nodes that keep the account's spaces online without reading them */
   readonly carriers: NodeCarriers;
+  /** Hosts the account pays to keep its spaces online */
+  readonly hosting: NodeHosting;
   /** People: the account's contact list, and asking to be added */
   readonly contacts: NodeContacts;
   /** The delegation the session key currently writes under (root → session) */

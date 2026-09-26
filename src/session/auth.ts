@@ -36,7 +36,7 @@ import {
   type AccountVault,
   type DeviceWrap,
 } from '../identity/account-vault.js';
-import { deriveContactKeyBytes } from '../identity/contact-key.js';
+import { deriveContactKeyBytes, deriveMemberKeyBytes } from '../identity/contact-key.js';
 import { createDeviceKey, getDeviceKey, deleteDeviceKey } from '../identity/device-key.js';
 import { registerPasskey, authenticatePasskey, hasPlatformAuthenticator, renamePasskey } from '../identity/webauthn.js';
 import { generateSeed, seedToRecoveryCode, recoveryCodeToSeed, isValidRecoveryCode } from '../identity/recovery-code.js';
@@ -962,7 +962,9 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         if (!space) throw new Error(`No space ${id} in this account.`);
         // Read-only: what lets the app write is the note, under this account's own role — never a secret of the space's.
         const invite = await node.spaces.invite(id, { write: false });
-        spaces.push({ id, name: space.name, invite });
+        // Only for the spaces granted: each opens that space's next key and nothing else.
+        const memberKey = !whole && space.visibility === 'private' ? base64UrlEncode(await deriveMemberKeyBytes(await deriveVaultKeyBytes(seed), id)) : null;
+        spaces.push({ id, name: space.name, invite, ...(memberKey ? { memberKey } : {}) });
       }
 
       const days = Math.min(Math.max(choice.days ?? request.days ?? 7, 1 / 24), MAX_GRANT_DAYS);

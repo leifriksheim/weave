@@ -550,6 +550,17 @@ Local-first storage with Merkle Search Tree for efficient sync.
 | `createEncryptedAdapter()` | Seals chosen keys (space records, space keys) at rest |
 | `reconcileFolder()` | Rebuilds the tree after another writer touched a folder |
 | `insertIntoMST()` / `listMSTEntries()` | Direct MST operations; a listing can stop at a key prefix |
+| `createMirror()` | Keeps a space in a dumb file store too, synced like a peer that never runs code |
+| `createS3BlobStore()` / `createMemoryBlobStore()` | File stores a mirror can use: any S3-compatible bucket (R2, B2, MinIO, AWS), or memory |
+
+**Mirrors.** A bucket or an app folder can hold a space: each writer (one store
+on one device, with a random id) only ever adds immutable segments in its own
+folder, named by a counter and the hash of their bytes — so nothing is written
+twice and nothing needs a lock. A segment holds versions exactly as they travel,
+private bodies still sealed, and everything read back passes the same gates as a
+peer's records: the store can hide things, not forge them. What a writer knows
+the store holds, it never uploads again; a writer compacts its own segments
+into fewer. Merging is the protocol's own — a set of versions that only grows.
 
 ### Spaces
 
@@ -599,8 +610,9 @@ and roles ranked below you, and give out roles up to your own rank. Two people
 at the same rank can never remove each other, only themselves — so the creator
 **hands over** by giving someone their role, then leaving, and the space goes on.
 
-Roles, members, invites, revoked notes and collection definitions are records
-(`sys.role`, `sys.member`, `sys.invite`, `sys.revoke`, `sys.collection`), and
+Roles, members, invites, revoked notes, collection definitions and changes of a
+private space's key are records (`sys.role`, `sys.member`, `sys.invite`,
+`sys.revoke`, `sys.collection`, `sys.key`), and
 every record written anywhere names the latest of them its writer knew, as
 `seen`. That makes the **access history** a small graph, which every peer
 replays the same way (`space/roles.ts`): a change comes after what it saw;
@@ -642,15 +654,35 @@ connect under someone else's name, and in a private space with the read key
 too, checked against its public half. A stranger who learns a space's id, or a
 relay that sees its room, gets no ciphertext. A peer-to-peer handshake also
 signs both ends' DTLS fingerprints, so a relay that swapped in its own offer to
-sit in the middle is caught. Roles govern writing only: someone removed keeps
-the read key until the space's key changes for everyone (BLOCK-14 §2).
+sit in the middle is caught.
+
+**Removing someone from a private space changes its key**, the way Keybase
+changes a team's key. Whoever manages the space, seeing someone lose their
+place (removed, left, or their role deleted), makes a new key by itself and
+writes a `sys.key` record: the new key's id and public read key, and every
+earlier key sealed under the new one. It is part of the access history, so two
+new keys made apart resolve like any other change, and only `manage` may make
+one. Each member's copy goes in a `sys.box`, sealed to their **member key**: a
+key pair per account per space, derived from the account's vault key, whose
+public half each member publishes in the clear (`sys.memberkey`). An account
+home hands an app the member keys of exactly the spaces it grants.
+
+From then on new records are sealed with the new key. Someone removed keeps what
+they could already read, and nothing after it. Holding the current key opens
+every earlier one, so a newcomer reads the space's past. A member who was away
+when the key changed still holds only the older read key: they prove that, and
+send their note sealed under the older key, and a peer holding it lets them in
+if they are still a member. A host with no key takes the current read key only.
+View-only links made before the change stop working; share a new one.
+`node.spaces.changeKey(space)` does the same by hand, for a lost device.
 
 A space's **id is the hash of what is fixed at creation**: creator, visibility,
 starting roles and which one the creator holds, time, a random nonce and the
-read key (the name is left out, so it can change). `join` refuses an invite
-whose space does not hash to its id, or whose key is not the one the space
-names — so whoever passes an invite on cannot change who started the space, or
-with which roles.
+first read key (the name is left out, so it can change). `join` refuses an
+invite whose space does not hash to its id — so whoever passes an invite on
+cannot change who started the space, or with which roles. The key an invite
+carries may be a later one; its id is its hash, so it is either the key the
+history names or one that opens nothing.
 
 **Spaces describe themselves.** A space stores its collections' definitions —
 name, title, description and a JSON Schema — as signed records in
@@ -1050,6 +1082,18 @@ space with is a peer in that one only.
 **Several relays**, so there is no single phone book — a peer announced by two
 of them is announced upward once, and replies go back the way they arrived.
 
+**The space says where it meets**, like a Nostr relay list, but the space's
+own. `sys.relays` is part of the access history, so only someone who manages
+the space changes it (`node.spaces.setRelays`), and a new space names its
+creator's relays by itself. Invites carry the list, so a joiner whose app uses
+other relays reaches the space before anything has synced. Every member then
+joins the space's room on those relays as well as their own
+(`mesh.useRelays(room, relays)`); relays only one space names are joined for
+that space's room alone, and dropped once no open space names them. Moving a
+space to another relay, a self-hosted one say, is one change, and everyone
+follows. No DHT: browsers can't be DHT nodes, and would need a relay to reach
+one anyway.
+
 **Peers introduce peers**, so a relay is only needed for the *first* connection.
 Once you are connected to someone, their data channel carries signalling for the
 peers you have not met: `__peers` says who I can see, `__signal` carries
@@ -1148,6 +1192,27 @@ it doubles as a relay), and `weave mcp` to hand the same operations to an agent.
 It reads and writes the same data folder layout a browser does. See
 [cli/README.md](cli/README.md).
 
+**Hosting.** `weave host` keeps many accounts' spaces online without being able
+to read them: it is the extension's carrier (`createCarrierNode`) with one carry
+space per paying account (`createHostNode`), each space held once however many
+members pay for it. A subscription is a key the account makes and keeps in its
+registry (`sys.hosting`), so every device signs as it; `node.hosting.use(url)`
+starts one, and whichever device notices it is paid hands the host the carry
+space. Every call to the host is signed over method, path, time and body.
+The home knows nothing about payment (BLOCK-23): a host describes itself at
+`/.well-known/weave-host` (like a Nostr relay's NIP-11 document), signs every
+status it gives — the home keeps the latest in the registry as the person's
+proof — and takes payments on its own pay page, which `node.hosting.payPage(url)`
+links to with a signature by the subscription key, valid for an hour at that
+host only. On the page: Stripe Checkout and the Customer Portal (card, Apple
+Pay, Google Pay), whose webhook moves a paid-until date taken from Stripe's own
+billing period; and USDC from a crypto wallet straight to the host's address,
+checked on the network by the host. Past the date: a grace period, then the host drops
+the spaces and deletes its copy. With a bucket (`WEAVE_S3_*`) the host's disk
+is only a cache — every carried space and the subscription list live in the
+bucket, sealed, and a new machine starts from it. The account home's Settings
+has **Keep my spaces online**.
+
 ## Example app
 
 `example/` is the Weave website — a landing page for developers at `/`, and
@@ -1160,11 +1225,44 @@ npm install && (cd example && npm install) && (cd home && npm install)   # the C
 npm run dev
 ```
 
-That starts three things: the example app on 5173, the account home it
-connects to on 5174, and an always-on node on port 8787 that is also the relay.
-The node gets a throwaway identity on first run (`cli/.env.dev`, data in
-`.weave-dev/`), and `example/.env.development` points the app at the other two.
-Override either in a `.env.local`.
+That starts everything, with coloured output per part, and Ctrl-C stops it all:
+
+| Part | Where | What |
+|---|---|---|
+| app | http://localhost:5173 | The example app |
+| home | http://localhost:5174 | The account home it connects to |
+| node | port 8787 | An always-on node that is also the relay; a throwaway identity on first run (`cli/.env.dev`, data in `.weave-dev/`) |
+| host | http://localhost:8788 | `weave host`, what "Keep my spaces online" uses, with its pay page at `/pay`; settings in `cli/.env.host.dev` |
+| stripe | — | Only when you add a Stripe test key (below): forwards Stripe's webhooks to the host |
+
+`example/.env.development` and `home/.env.development` point the app and home
+at the rest. Override any of them in a `.env.local`, and the host in
+`cli/.env.host.local`.
+
+**Trying hosting and payments.** In the home: Settings, **Keep my spaces
+online**, **Keep online** (the dev host is filled in), then **Payment**, which
+opens the host's pay page in a new tab. What you can pay with there:
+
+- **A browser wallet, on by default.** Payments go to Base Sepolia, a test
+  network: test money only. In MetaMask (or any browser wallet), get test ETH
+  for the fee from a Base Sepolia faucet (Coinbase's, or Alchemy's) and test
+  USDC from faucet.circle.com (choose Base Sepolia). Pay, and the pay page
+  says "Payment received"; back in the home's tab, the host shows "paid until"
+  and takes your spaces. To see payments arrive, set your own address as
+  `WEAVE_WALLET_ADDRESS` in `cli/.env.host.local`.
+- **A card, in Stripe's test mode.** In `cli/.env.host.local`, add
+  `STRIPE_SECRET_KEY=sk_test_…` and the price ids of a monthly and a yearly
+  recurring test price (`STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY`, from the Stripe
+  dashboard in test mode). With the Stripe CLI installed, `npm run dev`
+  forwards Stripe's webhooks to the host by itself. Pay with card
+  4242 4242 4242 4242, any future date, any CVC.
+- **Phone wallets, by QR code.** Add `WEAVE_WALLETCONNECT_PROJECT_ID` (free at
+  dashboard.reown.com, with localhost allowed in the project) to
+  `cli/.env.host.local`; `npm run dev` builds what the pay page needs. The
+  wallet has to be on Base Sepolia too.
+
+`npm test` covers the same paths without any of this: a fake network, fake
+Stripe calls, and the home's side against a real host.
 
 The example never signs anyone in: "Connect with Weave" opens the home, where
 you make an account or sign in, and allow the example your whole account. Its

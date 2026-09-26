@@ -10,7 +10,8 @@
     "start": "node --import tsx src/main.ts",
     "bundle": "esbuild src/main.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/weave.mjs --external:ws --external:node-datachannel --banner:js='#!/usr/bin/env node'",
     "build": "bun build.ts",
-    "prepublishOnly": "npm run bundle"
+    "prepublishOnly": "npm run bundle && npm run bundle:pay",
+    "bundle:pay": "esbuild pay/walletconnect.ts --bundle --format=esm --minify --platform=browser --target=es2022 --outfile=pay/dist/walletconnect.js --define:process.env.NODE_ENV='\"production\"'"
   },
   "dependencies": {
     "node-datachannel": "^0.33.4",
@@ -27,9 +28,11 @@
   },
   "files": [
     "dist/weave.mjs",
+    "pay/dist/walletconnect.js",
     "README.md"
   ],
   "devDependencies": {
+    "@reown/appkit": "^1.8.24",
     "esbuild": "^0.28.0",
     "tsx": "^4.19.0"
   },

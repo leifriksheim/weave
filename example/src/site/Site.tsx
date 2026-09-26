@@ -31,9 +31,6 @@ function Nav({ page }: { page: 'users' | 'developers' }) {
           Weave
         </a>
         <nav className="nav-links">
-          <a href="/" aria-current={page === 'developers' ? 'page' : undefined} className="hide-sm">
-            Developers
-          </a>
           <a href="/why" aria-current={page === 'users' ? 'page' : undefined}>
             Why Weave
           </a>
@@ -52,7 +49,6 @@ function Footer() {
       <div className="wrap">
         <span>Weave — your data, every app.</span>
         <span style={{ display: 'flex', gap: 16 }}>
-          <a href="/">Developers</a>
           <a href="/why">Why Weave</a>
           <a href="/app">Open app</a>
         </span>
@@ -131,13 +127,14 @@ export function Landing() {
       <section className="hero">
         <div className="wrap">
           <h1>
-            Your data.
+            Make any app.
             <br />
-            Every app.
+            Own all of it.
           </h1>
           <p>
-            Weave keeps your data with you — on your devices, in a folder you own — and lets any app you choose work
-            with it. No company in the middle, no account to lose, nothing to export.
+            With AI, anyone can make an app just by describing it. Weave is where those apps can live: no servers to
+            rent, no database to run, no sign-up form to build. The people who use an app keep their own data, and no
+            company sits in the middle.
           </p>
           <div className="actions">
             <a href="/app" className="btn btn-primary">
@@ -153,34 +150,67 @@ export function Landing() {
       <section className="band">
         <div className="wrap">
           <div className="section-head">
-            <div className="kicker">Why Weave</div>
-            <h2>Apps come and go. Your data should stay yours.</h2>
-            <p>Most apps keep your things on their servers, behind their login, in their format. Weave turns that around.</p>
+            <div className="kicker">What changed</div>
+            <h2>Making software is almost free now. Running it isn't.</h2>
+            <p>
+              Ask an AI agent for an app, and you can have one working in an afternoon. Then the hard part starts, and
+              it's the same for every app anyone makes.
+            </p>
+          </div>
+          <div className="points">
+            <div>
+              <h3>Getting people in</h3>
+              <p>Sign-up forms, passwords, reset emails, another account for everyone who wants to try it.</p>
+            </div>
+            <div>
+              <h3>Keeping the data somewhere</h3>
+              <p>A database to set up, secure and back up, full of other people's things you're now responsible for.</p>
+            </div>
+            <div>
+              <h3>Keeping it running</h3>
+              <p>Servers, updates, and a bill that grows with every person who joins. Stop paying, and it's gone.</p>
+            </div>
+            <div>
+              <h3>So it never leaves your laptop</h3>
+              <p>
+                Most homemade apps stop here. And the apps everyone ends up using belong to the few companies that can
+                afford to run them.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="band">
+        <div className="wrap">
+          <div className="section-head">
+            <div className="kicker">What Weave does</div>
+            <h2>Apps without the infrastructure.</h2>
+            <p>Weave takes care of the parts every app needs, so an app can be just the part that's yours.</p>
           </div>
           <div className="grid">
-            <Feature icon="M8 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6ZM2.5 14.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5" title="You own your account">
-              No email sign-up, no company holding the keys. Your account is a password you keep — nobody can lock you out,
-              and nobody can reset it for someone else.
+            <Feature icon="M8 2v2M8 12v2M2 8h2M12 8h2M4 4l1.4 1.4M10.6 10.6L12 12M4 12l1.4-1.4M10.6 5.4L12 4" title="Made with your agent">
+              Describe what you want to the AI assistant you already use. It proposes the app, and you look it over and
+              add it. Nothing is added without you saying yes.
             </Feature>
-            <Feature icon="M2 4.5h4l1.5 1.5H14v7.5H2zM2 4.5V3h4" title="Your data lives with you">
-              Keep it in a pod — a folder on your computer you can back up, copy or sync — or just in your browser. Either
-              way it's on your devices, not someone's server.
+            <Feature icon="M8 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6ZM2.5 14.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5" title="No sign-up to build">
+              Everyone brings one Weave account that works in every Weave app. You never store anyone's password, and
+              nobody can lock them out.
             </Feature>
-            <Feature icon="M1.5 4h5v8h-5zM9.5 4h5v8h-5zM6.5 8h3" title="Apps are just views">
-              Open the same data in a different app, and it's all there. Switching apps doesn't mean exporting, importing
-              or starting over.
+            <Feature icon="M2 4.5h4l1.5 1.5H14v7.5H2zM2 4.5V3h4" title="No database to run">
+              Everyone's data stays on their own devices, or in a folder they own. More people doesn't mean a bigger
+              bill, because there's no bill.
+            </Feature>
+            <Feature icon="M6 10l4-4M5 7.5L3.5 9a2.5 2.5 0 0 0 3.5 3.5L8.5 11M11 8.5L12.5 7A2.5 2.5 0 0 0 9 3.5L7.5 5" title="Sharing built in">
+              Invite people with a link. Changes go straight between their devices, live, and keep working offline.
             </Feature>
             <Feature icon="M4 7V5a4 4 0 0 1 8 0v2M3 7h10v7H3z" title="Private by default">
-              Private spaces are encrypted on your device before anything leaves it. The relays that help devices find
-              each other see only scrambled data.
+              Private spaces are locked on your device before anything leaves it. Whatever helps pass data along only
+              ever sees scrambled bytes.
             </Feature>
-            <Feature icon="M6 10l4-4M5 7.5L3.5 9a2.5 2.5 0 0 0 3.5 3.5L8.5 11M11 8.5L12.5 7A2.5 2.5 0 0 0 9 3.5L7.5 5" title="Share without a platform">
-              Invite someone with a link. The key to a private space travels inside the link itself — it never passes
-              through a server.
-            </Feature>
-            <Feature icon="M8 2v2M8 12v2M2 8h2M12 8h2M4 4l1.4 1.4M10.6 10.6L12 12M4 12l1.4-1.4M10.6 5.4L12 4" title="Your agent works for you">
-              AI assistants can use your data through the apps you open, acting as you — and asking before they hand
-              access to anyone else.
+            <Feature icon="M1.5 4h5v8h-5zM9.5 4h5v8h-5zM6.5 8h3" title="Apps that work together">
+              A poll made in one app can be voted on in another. Your things aren't stuck inside whichever app made
+              them.
             </Feature>
           </div>
         </div>
@@ -196,22 +226,51 @@ export function Landing() {
             <div className="col">
               <h3>Usually</h3>
               <ul>
-                <li>An account with each company</li>
+                <li>Your app needs servers, a database and a login</li>
+                <li>An account with every company</li>
                 <li>Your data on their servers</li>
-                <li>Stuck when the app shuts down</li>
-                <li>They decide who sees what</li>
-                <li>Offline means nothing works</li>
+                <li>They decide the rules, and can change them</li>
+                <li>When the company goes, so does your data</li>
               </ul>
             </div>
             <div className="col us">
               <h3>With Weave</h3>
               <ul>
-                <li>One account that works in every Weave app</li>
+                <li>Your app is just the app</li>
+                <li>One account, yours, in every app</li>
                 <li>Your data on your devices</li>
+                <li>You and the people you invite decide</li>
                 <li>Open it in another app instead</li>
-                <li>You invite who you want</li>
-                <li>Works offline, syncs when your devices meet</li>
               </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="band">
+        <div className="wrap">
+          <div className="section-head">
+            <div className="kicker">A different internet</div>
+            <h2>Lots of small apps, owned by the people who use them.</h2>
+            <p>
+              The web started as something anyone could add to. Then it settled into a few platforms that own the
+              accounts, the data and the rules. Now that anyone can make software, it doesn't have to stay that way.
+            </p>
+          </div>
+          <div className="points">
+            <div>
+              <h3>Made for a few people</h3>
+              <p>
+                A sign-up sheet for your club, a recipe box for your family, a tool library for your street. Apps too
+                small for a company to bother with, made by the people who need them.
+              </p>
+            </div>
+            <div>
+              <h3>Answering to nobody else</h3>
+              <p>
+                No terms of service that change overnight, no ads, no one reading along. The rules are the ones your
+                group set, and every device keeps to them.
+              </p>
             </div>
           </div>
         </div>
@@ -225,16 +284,16 @@ export function Landing() {
           </div>
           <div className="steps">
             <div className="step">
-              <h3>Choose where your data lives</h3>
-              <p>A pod on your computer, or just this browser. You can move to a pod later.</p>
+              <h3>Make your account</h3>
+              <p>Choose where your data lives, and save the password Weave makes for you. It opens every Weave app.</p>
             </div>
             <div className="step">
-              <h3>Save your password</h3>
-              <p>Weave makes a strong one. Keep it in your password manager — it opens your account in any Weave app.</p>
+              <h3>Make something</h3>
+              <p>Connect your AI assistant and describe an app, or start with one someone shared with you.</p>
             </div>
             <div className="step">
-              <h3>Make a space</h3>
-              <p>Keep it to yourself, or share it with a link. Everything in it syncs straight between your devices.</p>
+              <h3>Share it with a link</h3>
+              <p>Invite the people it's for. It's theirs as much as yours, and nobody else's.</p>
             </div>
           </div>
         </div>
@@ -242,7 +301,7 @@ export function Landing() {
 
       <section className="cta">
         <div className="wrap">
-          <h2>Take your data back.</h2>
+          <h2>Make something of your own.</h2>
           <p>It takes a minute, and nothing leaves your hands.</p>
           <div className="actions">
             <a href="/app" className="btn btn-primary">

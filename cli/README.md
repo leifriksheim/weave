@@ -87,6 +87,67 @@ gates as any peer. It is an **anchor, not a host** — uptime, no authority.
 For a server, `bun build.ts` makes single-file binaries for this machine,
 `linux-x64` and `linux-arm64`; `weave-node.service` is a systemd unit.
 
+## Hosting other people's spaces
+
+`weave host` is a hosting service in one process. It carries every paying
+account's spaces — sealed, as they travel — and serves them over sockets and a
+relay, like `weave run`. It holds no account and no space key.
+
+```bash
+# Try it on this machine: every subscription counts as paid
+weave host --free --port 8787
+
+# Host only yourself and your family, on a server: the accounts named, and nobody else
+weave host --free --host 0.0.0.0 --allow did:key:zDnae… --allow did:key:zDnae…
+
+# As a service: Stripe for payments, R2 (or any S3) for storage
+STRIPE_SECRET_KEY=sk_live_… STRIPE_WEBHOOK_SECRET=whsec_… \
+STRIPE_PRICE_MONTHLY=price_… STRIPE_PRICE_YEARLY=price_… \
+WEAVE_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com WEAVE_S3_BUCKET=weave-host \
+WEAVE_S3_ACCESS_KEY_ID=… WEAVE_S3_SECRET_ACCESS_KEY=… \
+weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
+```
+
+- `--free` on an address others can reach needs `--allow` (or
+  `WEAVE_HOST_ALLOW`, comma separated): otherwise anyone who found it could
+  fill its disk. An account's DID is under its name in the account home's
+  Settings, with a Copy button. `--allow` works on a paying host too.
+- The host's key is made once, in `--data` (`host-key`, readable by you alone).
+  A new key is a new host: every account would hand its spaces over again.
+- Point Stripe's webhook at `https://<host>/host/billing/webhook`, sending
+  `checkout.session.completed` and `invoice.paid`.
+- Every host serves its own **pay page** at `/pay`. Homes know nothing about
+  payment: they open that page in a new tab with a link signed for the
+  subscription, and read the status the host signs. Say who you are with
+  `WEAVE_HOST_NAME`, `WEAVE_HOST_PRICE` (text, like "$4 a month"),
+  `WEAVE_HOST_TERMS` and `WEAVE_HOST_URL` (your public https:// address,
+  where Stripe sends people back to). It's all at
+  `/.well-known/weave-host`.
+- Crypto wallets pay with no company in between: USDC on Base, sent straight
+  to your address. Next to Stripe, or instead of it:
+
+  ```bash
+  WEAVE_WALLET_ADDRESS=0x… WEAVE_WALLET_MONTHLY=4 WEAVE_WALLET_YEARLY=36 \
+  weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
+  ```
+
+  The pay page asks the person's browser wallet (MetaMask, Coinbase Wallet,
+  Rabby…) to send the plan's price plus a fraction of a cent that marks it as
+  theirs; the host reads the network to see it arrive, then adds a month or a
+  year. Time is paid up front. `WEAVE_WALLET_NETWORK=base-sepolia` tries it
+  with test USDC; `WEAVE_WALLET_RPC` points at a network node of your own or a
+  provider's (default: the network's public one). Keep the address's private
+  key off the host — it only needs to receive.
+- Phone wallets and every other wallet, by QR code: set
+  `WEAVE_WALLETCONNECT_PROJECT_ID` (free at dashboard.reown.com) and build the
+  WalletConnect bundle once with `npm run bundle:pay` in `cli/` (the published
+  package has it built).
+- With a bucket, the disk is only a cache: lose it, start on the same key and
+  bucket, and every subscription and space comes back.
+- Put it behind something that terminates TLS (Caddy does it in two lines).
+  The account home offers it under **Keep my spaces online** when built with
+  `VITE_WEAVE_HOST=https://<host>`.
+
 ## Agents
 
 In an app, choose **Connect an agent** in the account menu. It shows one

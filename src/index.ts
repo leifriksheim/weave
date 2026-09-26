@@ -371,6 +371,9 @@ export {
   NODE_ACTIONS,
   runAction,
   checkActionInput,
+  createCarrierNode,
+  createHostNode,
+  NotAllowedError,
 } from './node/index.js';
 export type {
   StoreFactory,
@@ -404,6 +407,16 @@ export type {
   NodeContacts,
   ContactView,
   ContactRequest,
+  CarrierConfig,
+  CarrierNode,
+  CarriedSpace,
+  CarrierEvent,
+  HostConfig,
+  HostNode,
+  NodeHosting,
+  HostingView,
+  Subscription,
+  SubscriptionState,
 } from './node/index.js';
 
 // Queries: plain-data filters, sorting, paging and includes over a space
@@ -417,3 +430,31 @@ export { plainQuery } from './query/types.js';
 export { checkRules, onePerKey } from './records/rules.js';
 export { describeCollection } from './records/describe.js';
 export type { CollectionRules, Who } from './records/rules.js';
+
+// Hosting: a subscription key, signed requests to a host, and a client for one
+export {
+  HOSTING_COLLECTION,
+  REQUEST_WINDOW_SECONDS,
+  newSubscriptionSeed,
+  subscriptionKey,
+  signRequest,
+  verifyRequest,
+  createHostClient,
+  describeHost,
+  signStatus,
+  readStatus,
+  payLink,
+  verifyPayLink,
+  HOST_DESCRIPTION_PATH,
+  PAY_LINK_SECONDS,
+  HostError,
+} from './session/hosting.js';
+export type { Hosting, SubscriptionKey, HostStatus, SignedStatus, HostDescription, HostClient } from './session/hosting.js';
+
+// Mirrors: a space kept in a dumb file store — a bucket, an app folder — synced like a peer
+export type { BlobStore } from './storage/blob-store.js';
+export { createMemoryBlobStore } from './storage/blob/memory.js';
+export { createS3BlobStore } from './storage/blob/s3.js';
+export type { S3Config } from './storage/blob/s3.js';
+export { createMirror, deleteMirrored } from './storage/mirror.js';
+export type { Mirror, MirrorConfig, Taken } from './storage/mirror.js';

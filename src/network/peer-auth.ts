@@ -24,6 +24,16 @@
  * it, and a host that cannot read the space checks readers exactly as a
  * member's own node does.
  *
+ * **A private space's key changes** when someone is removed (`sys.key`), and
+ * with it the read key. A reader proves the one the space names now. One
+ * that was offline when it changed still holds only an older one: it proves
+ * that, and sends its note — the delegation from its account — sealed with
+ * the older space key, so only those who could read the space then can open
+ * it. A peer holding that key opens the note and lets it in if its account is
+ * still a member. Someone removed holds the older key too, but is no member.
+ * A peer without any key of the space's (a host) takes the current read key
+ * only.
+ *
  * The node signs with **its own key**, the one its DID names. That proves the
  * welcome comes from the node that sent the challenge; which node to trust is
  * the client's choice of URL. Naming the node in the client's signature keeps
@@ -37,6 +47,59 @@ import { didToPublicKey } from '../identity/did.js';
 export interface HelloProof {
   readonly sig: string;
   readonly read?: string;
+  /** The read key that signed `read`, when it is not the one the space names now */
+  readonly readKey?: string;
+  /** Its note, sealed with the space key behind `readKey` — for a reader that may be behind */
+  readonly member?: string;
+}
+
+/**
+ * Who may read a private space, as one side of a connection knows it — asked
+ * at every handshake, since the space's key can change while it is open.
+ */
+export interface ReadAccess {
+  /** The read key this side proves with, or null when it holds none */
+  key(): Promise<{ readonly did: string; readonly privateKey: CryptoKey } | null>;
+  /** The read key every reader must prove, as the space names it now */
+  current(): string;
+  /**
+   * This side's note, sealed with the space key behind the read key it
+   * proves with — sent along when that may not be the current one.
+   */
+  membership?(): Promise<string | null>;
+  /** Whether a peer proving an older read key, with this sealed note, is still a member */
+  admits?(peerDid: string, readKey: string, membership: unknown): Promise<boolean>;
+}
+
+/** What a caller may pass for a space's read access: the full thing, or a fixed key pair and the public half it must match */
+export type ReadAccessInput =
+  | ReadAccess
+  | { readonly key: { readonly privateKey: CryptoKey; readonly did?: string } | null; readonly publicDid: string };
+
+function readAccessOf(read: ReadAccessInput | null): ReadAccess | null {
+  if (!read) return null;
+  if ('current' in read) return read;
+  const { key, publicDid } = read;
+  return { key: async () => (key ? { did: key.did ?? publicDid, privateKey: key.privateKey } : null), current: () => publicDid };
+}
+
+/** Signs `label` as a reader: with the read key, saying which one when it is not the current one, and the sealed note then */
+async function proveRead(access: ReadAccess, label: Uint8Array, provider: CryptoProvider): Promise<Omit<HelloProof, 'sig'> | null> {
+  const key = await access.key();
+  if (!key) return null;
+  const read = base64UrlEncode(await provider.sign(key.privateKey, label));
+  if (key.did === access.current()) return { read };
+  const member = (await access.membership?.()) ?? null;
+  return { read, readKey: key.did, ...(member ? { member } : {}) };
+}
+
+/** Whether a proof shows a reader: the current read key, or an older one with a note from someone still a member */
+async function checkRead(access: ReadAccess, peerDid: string, label: Uint8Array, proof: Partial<HelloProof>, provider: CryptoProvider) {
+  const current = access.current();
+  const claimed = typeof proof.readKey === 'string' ? proof.readKey : current;
+  if (!claimed.startsWith('did:key:') || !(await verifyBy(provider, claimed, proof.read, label))) return false;
+  if (claimed === current) return true;
+  return access.admits ? access.admits(peerDid, claimed, proof.member) : false;
 }
 
 /** The connecting side: proves who it is and that it may read, and checks the node's welcome. */
@@ -75,19 +138,23 @@ async function verifyBy(provider: CryptoProvider, did: string, sig: unknown, dat
  * The client side.
  * @param spaceId The space — bound into every signature, so a proof for one space is useless in another
  * @param session This side's DID and the key it names
- * @param readKey In a private space, the space's read key (`deriveReadKey`); null in a public one
+ * @param read In a private space, how this side proves it may read — or just the read key (`deriveReadKey`); null in a public one
  */
 export function createClientAuth(
   spaceId: string,
   session: { readonly did: string; readonly key: CryptoKey },
-  readKey: { readonly privateKey: CryptoKey } | null,
+  read: ReadAccess | { readonly privateKey: CryptoKey } | null,
   provider: CryptoProvider,
 ): ClientAuth {
+  // A bare key pair proves itself as whatever the node names now.
+  const access: ReadAccess | null = !read ? null : 'current' in read ? read : { key: async () => ({ did: '', privateKey: read.privateKey }), current: () => '' };
   return Object.freeze({
     async hello(clientDid: string, nodeDid: string, nodeNonce: string) {
       const label = helloLabel(spaceId, clientDid, nodeDid, nodeNonce);
       const sig = base64UrlEncode(await provider.sign(session.key, label));
-      return readKey ? { sig, read: base64UrlEncode(await provider.sign(readKey.privateKey, label)) } : { sig };
+      if (!access) return { sig };
+      const proof = await proveRead(access, label, provider);
+      return proof ? { sig, ...proof } : { sig };
     },
     checkWelcome(nodeDid: string, clientNonce: string, sig: unknown) {
       return verifyBy(provider, nodeDid, sig, welcomeLabel(spaceId, nodeDid, clientNonce));
@@ -96,17 +163,18 @@ export function createClientAuth(
 }
 
 /**
- * The node side. Holds no secret of the space's.
- * @param readKey In a private space, its public read key, from the space itself; null in a public one
+ * The node side. Needs no secret of the space's.
+ * @param read In a private space, who may read it — or just its public read key; null in a public one
  * @param nodeKey The private key of the DID the node introduces itself as
  */
-export function createServerAuth(spaceId: string, readKey: string | null, nodeKey: CryptoKey, provider: CryptoProvider): ServerAuth {
+export function createServerAuth(spaceId: string, read: ReadAccess | string | null, nodeKey: CryptoKey, provider: CryptoProvider): ServerAuth {
+  const access: ReadAccess | null = read === null ? null : typeof read === 'string' ? { key: async () => null, current: () => read } : read;
   return Object.freeze({
     async checkHello(clientDid: string, nodeDid: string, nodeNonce: string, proof: unknown) {
-      const { sig, read } = (proof ?? {}) as { sig?: unknown; read?: unknown };
+      const given = (proof ?? {}) as Partial<HelloProof>;
       const label = helloLabel(spaceId, clientDid, nodeDid, nodeNonce);
-      if (!clientDid.startsWith('did:key:') || !(await verifyBy(provider, clientDid, sig, label))) return false;
-      return readKey ? verifyBy(provider, readKey, read, label) : true;
+      if (!clientDid.startsWith('did:key:') || !(await verifyBy(provider, clientDid, given.sig, label))) return false;
+      return access ? checkRead(access, clientDid, label, given, provider) : true;
     },
     async welcome(nodeDid: string, clientNonce: string) {
       return base64UrlEncode(await provider.sign(nodeKey, welcomeLabel(spaceId, nodeDid, clientNonce)));
@@ -144,11 +212,8 @@ export interface ChannelBinding {
   readonly remote: string;
 }
 
-/** What one side sends to prove itself */
-export interface MeshProof {
-  readonly sig: string;
-  readonly read?: string;
-}
+/** What one side sends to prove itself — as a client's hello */
+export type MeshProof = HelloProof;
 
 /** Proving who you are to a peer — and, in a private space, that you may read it. */
 export interface MeshAuth {
@@ -168,24 +233,26 @@ const meshLabel = (spaceId: string, prover: string, verifier: string, nonce: str
 export function createMeshAuth(
   spaceId: string,
   session: { readonly did: string; readonly key: CryptoKey },
-  read: { readonly key: { readonly privateKey: CryptoKey } | null; readonly publicDid: string } | null,
+  read: ReadAccessInput | null,
   provider: CryptoProvider,
 ): MeshAuth {
+  const access = readAccessOf(read);
   return Object.freeze({
     async prove(peerDid: string, peerNonce: string, binding: ChannelBinding | null) {
       const label = meshLabel(spaceId, session.did, peerDid, peerNonce, binding?.local ?? '', binding?.remote ?? '');
       const sig = base64UrlEncode(await provider.sign(session.key, label));
-      if (!read) return { sig };
+      if (!access) return { sig };
+      const proof = await proveRead(access, label, provider);
       // A node without the space's key cannot prove it may read — and should not be served.
-      if (!read.key) throw new Error('This node cannot read the space, so it cannot join its peers');
-      return { sig, read: base64UrlEncode(await provider.sign(read.key.privateKey, label)) };
+      if (!proof) throw new Error('This node cannot read the space, so it cannot join its peers');
+      return { sig, ...proof };
     },
     async check(peerDid: string, ourNonce: string, binding: ChannelBinding | null, proof: unknown) {
-      const { sig, read: readSig } = (proof ?? {}) as { sig?: unknown; read?: unknown };
+      const given = (proof ?? {}) as Partial<HelloProof>;
       // What they signed, seen from this end: their certificate is our remote one.
       const label = meshLabel(spaceId, peerDid, session.did, ourNonce, binding?.remote ?? '', binding?.local ?? '');
-      if (!peerDid.startsWith('did:key:') || !(await verifyBy(provider, peerDid, sig, label))) return false;
-      return read ? verifyBy(provider, read.publicDid, readSig, label) : true;
+      if (!peerDid.startsWith('did:key:') || !(await verifyBy(provider, peerDid, given.sig, label))) return false;
+      return access ? checkRead(access, peerDid, label, given, provider) : true;
     },
   });
 }

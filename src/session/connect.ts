@@ -94,6 +94,12 @@ export interface GrantedSpace {
   readonly name: string;
   /** What the app joins it with — carrying the key, for a private space */
   readonly invite: string;
+  /**
+   * For a private space: the account's member key there (base64url,
+   * `deriveMemberKeyBytes`), which opens the space's next key when it
+   * changes. It opens nothing else.
+   */
+  readonly memberKey?: string;
 }
 
 /** What the home hands back when the person approves */
@@ -411,7 +417,7 @@ export async function startConnectedNode(params: {
   });
   const held = new Set((await node.spaces.list()).map((space) => space.id));
   for (const space of params.grant.spaces) {
-    if (!held.has(space.id)) await node.spaces.join(space.invite);
+    if (!held.has(space.id)) await node.spaces.join(space.invite, space.memberKey ? { memberKey: base64UrlDecode(space.memberKey) } : {});
   }
   return node;
 }
