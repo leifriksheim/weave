@@ -93,13 +93,15 @@ function createPair() {
 
   /**
    * Runs the exchange to completion. Some sends are queued from promise
-   * callbacks, so this keeps turning the event loop until two rounds pass with
-   * nothing left to deliver.
+   * callbacks, so this keeps turning the event loop until two quiet rounds —
+   * each a few milliseconds of real time — pass with nothing left to deliver.
    */
   const settle = async () => {
     let idleRounds = 0;
     for (let round = 0; round < 50 && idleRounds < 2; round++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Nothing to deliver: wait a little real time too. A hello goes out only after its
+      // fingerprints are hashed, which on a busy machine takes longer than a turn or two.
+      await new Promise((resolve) => setTimeout(resolve, inFlight.length > 0 ? 0 : 25));
       if (inFlight.length === 0) {
         idleRounds++;
         continue;
