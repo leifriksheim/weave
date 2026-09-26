@@ -239,12 +239,37 @@ async function payWith(provider, plan) {
         await provider.request({ method: 'wallet_addEthereumChain', params: [{ chainId, chainName: w.chainName, rpcUrls: [w.rpcUrl], blockExplorerUrls: [w.explorerUrl], nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 } }] });
       }
     }
+    await checkBalances(provider, from, payment);
     const tx = await provider.request({ method: 'eth_sendTransaction', params: [{ from, to: payment.token, data: transferData(payment.to, payment.amount) }] });
     try { sessionStorage.setItem('weave-pay-tx', tx); } catch {}
     await claim(tx);
   } catch (error) {
     if (error && error.code === 4001) throw new Error('Cancelled in the wallet');
     throw error;
+  }
+}
+
+// Where test money comes from, on a test network.
+const FAUCETS = {
+  84532: { usdc: 'faucet.circle.com (choose Base Sepolia)', eth: 'a Base Sepolia faucet (Coinbase\'s or Alchemy\'s)' },
+};
+const amountText = (units, decimals) => {
+  const scale = 10n ** BigInt(decimals);
+  const fraction = (units % scale).toString().padStart(decimals, '0').replace(/0+$/, '');
+  return (units / scale).toString() + (fraction ? '.' + fraction : '');
+};
+
+// Said here, before the wallet opens: a transfer the wallet can't cover only shows there as "likely to fail".
+async function checkBalances(provider, from, payment) {
+  const w = state.wallet;
+  const faucet = FAUCETS[payment.chainId];
+  const usdc = BigInt(await provider.request({ method: 'eth_call', params: [{ to: payment.token, data: '0x70a08231' + from.slice(2).toLowerCase().padStart(64, '0') }, 'latest'] }));
+  if (usdc < BigInt(payment.amount)) {
+    throw new Error('This wallet has ' + amountText(usdc, payment.decimals) + ' ' + w.symbol + ' on ' + w.chainName + ', and this payment is ' + amountText(BigInt(payment.amount), payment.decimals) + '.' + (faucet ? ' Get test ' + w.symbol + ' at ' + faucet.usdc + '.' : ''));
+  }
+  const eth = BigInt(await provider.request({ method: 'eth_getBalance', params: [from, 'latest'] }));
+  if (eth === 0n) {
+    throw new Error('This wallet has no ETH on ' + w.chainName + ' for the network fee (about a cent).' + (faucet ? ' Get test ETH from ' + faucet.eth + '.' : ''));
   }
 }
 
