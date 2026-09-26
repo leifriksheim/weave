@@ -822,7 +822,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         handedAt.set(hosting.url, Date.now());
         status = await client.attach(config.signer.did, await carryFor(hosting));
       }
-      return { ...base, status, plans: info.plans };
+      return { ...base, status, plans: info.plans, ...(info.wallet ? { wallet: info.wallet } : {}) };
     } catch (error) {
       if (error instanceof HostError && error.status === 402) return { ...base, status: await client.status().catch(() => null), plans: [] };
       return { ...base, status: null, plans: [], error: error instanceof Error ? error.message : String(error) };
@@ -868,6 +868,18 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async manage(url: string, returnUrl: string) {
       const { client } = await hostClient(await requireHosting(url));
       return (await client.manage(returnUrl)).url;
+    },
+
+    async walletPayment(url: string, plan: string) {
+      const { client } = await hostClient(await requireHosting(url));
+      return client.walletPayment(plan);
+    },
+
+    async walletClaim(url: string, tx: string) {
+      const known = await requireHosting(url);
+      const { client } = await hostClient(known);
+      // Paid: ask again at once, which hands the host the spaces.
+      return (await client.walletClaim(tx)) ? viewHosting(known, true) : null;
     },
 
     async stop(url: string) {
@@ -1295,6 +1307,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         use: person('start using a host'),
         checkout: person('pay for hosting'),
         manage: person('change what it pays'),
+        walletPayment: person('pay for hosting'),
+        walletClaim: person('pay for hosting'),
         stop: person('stop using a host'),
       }),
       // The list only when the agent was given it; changing it, or asking anyone, is the person's.

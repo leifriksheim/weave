@@ -442,7 +442,7 @@ export {
   createHostClient,
   HostError,
 } from './session/hosting.js';
-export type { Hosting, SubscriptionKey, HostStatus, HostInfo, HostClient } from './session/hosting.js';
+export type { Hosting, SubscriptionKey, HostStatus, HostInfo, HostClient, WalletOffer, WalletPayment } from './session/hosting.js';
 
 // Mirrors: a space kept in a dumb file store — a bucket, an app folder — synced like a peer
 export type { BlobStore } from './storage/blob-store.js';

@@ -21,6 +21,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHostNode, NotAllowedError, verifyRequest, createP256Provider, type BlobStore, type HostNode, type HostStatus, type StoreFactory } from '../../src/index.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
+import type { WalletPayments } from './wallet.js';
 
 /** What the host needs from a payment provider */
 export interface Billing {
@@ -43,6 +44,8 @@ export interface HostOptions {
   readonly port: number;
   readonly host?: string;
   readonly billing?: Billing | null;
+  /** Payments straight from a crypto wallet, next to (or instead of) `billing` */
+  readonly wallet?: WalletPayments | null;
   /** The bucket every carried space, and the subscription list, are kept in too */
   readonly mirror?: BlobStore | null;
   /** Every subscription counts as paid */
@@ -63,7 +66,17 @@ export interface RunningHost {
 
 /** Largest request body the API reads */
 const MAX_BODY = 64 * 1024;
-const SUBSCRIPTION_PATH = /^\/host\/subscriptions\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(\/(carry|checkout|manage))?$/;
+const SUBSCRIPTION_PATH = /^\/host\/subscriptions\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(\/(carry|checkout|manage|wallet|wallet\/claim))?$/;
+/**
+ * How long a wallet payment stays open: asked again within it, the same
+ * amount; its amount isn't given to anyone else; and only a transfer made
+ * within it pays it.
+ */
+const INVOICE_SECONDS = 7 * 24 * 3600;
+/** How far the network's clock may be behind the host's */
+const CLOCK_SKEW_SECONDS = 60;
+/** Where the transactions already counted are kept in the bucket */
+const SPENT_PREFIX = 'host/wallet/spent/';
 
 class Refusal extends Error {
   constructor(
@@ -116,6 +129,23 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const provider = createP256Provider();
   const inbound = createInboundPeers();
   const billing = options.billing ?? null;
+  const wallet = options.wallet ?? null;
+  // The transactions already counted, so none pays twice — on disk, and in the bucket when there is one.
+  const spentStore = wallet ? await options.stores('host-wallet') : null;
+  const isSpent = async (tx: string) => !!(await spentStore?.has(`spent:${tx}`)) || !!(await options.mirror?.get(`${SPENT_PREFIX}${tx}`));
+  const markSpent = async (tx: string, subscription: string) => {
+    const bytes = new TextEncoder().encode(subscription);
+    await spentStore?.put(`spent:${tx}`, bytes);
+    await options.mirror?.put(`${SPENT_PREFIX}${tx}`, bytes);
+  };
+  const now = () => Math.floor(Date.now() / 1000);
+  // Claims one at a time, so one transaction can't be counted twice by two calls at once.
+  let claiming: Promise<unknown> = Promise.resolve();
+  const oneAtATime = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = claiming.then(work, work);
+    claiming = next.catch(() => {});
+    return next;
+  };
   const node = await createHostNode({
     key: options.key,
     stores: options.stores,
@@ -130,13 +160,14 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
   const statusOf = async (id: string): Promise<HostStatus> => {
     const subscription = await node.get(id);
-    if (!subscription) return { subscription: id, state: 'none', paidUntil: 0, carrying: false, spaces: 0 };
+    if (!subscription) return { subscription: id, state: 'none', paidUntil: 0, carrying: false, spaces: 0, renews: false };
     return {
       subscription: id,
       state: node.state(subscription),
       paidUntil: subscription.paidUntil,
       carrying: subscription.carry !== undefined,
       spaces: await node.carriedFor(id),
+      renews: subscription.customer !== undefined,
     };
   };
 
@@ -169,7 +200,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   async function answer(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
     const method = req.method ?? 'GET';
     if (url.pathname === '/host' && method === 'GET') {
-      return send(res, 200, { did: node.did, free: !!options.free, plans: billing?.plans ?? [] });
+      return send(res, 200, { did: node.did, free: !!options.free, plans: billing?.plans ?? [], ...(wallet ? { wallet: wallet.offer } : {}) });
     }
 
     if (url.pathname === '/host/billing/webhook' && method === 'POST') {
@@ -238,6 +269,50 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       return send(res, 200, { url: await billing.manage({ customer, returnUrl: checkReturnUrl(input.returnUrl) }) });
     }
 
+    if (action === 'wallet' && method === 'POST') {
+      if (!wallet) throw new Refusal(404, 'This host takes no wallet payments');
+      if (typeof input.plan !== 'string' || !wallet.offer.plans.some((plan) => plan.id === input.plan)) throw new Refusal(400, 'No such plan');
+      const subscription = await node.subscribe(id);
+      const open = subscription.invoice;
+      // Asked again — a reload, a second try — the same amount, so a payment already on its way still counts.
+      if (open && open.plan === input.plan && now() - open.at < INVOICE_SECONDS) {
+        const { chainId, token, to, decimals } = wallet.offer;
+        return send(res, 200, { plan: open.plan, chainId, token, to, amount: open.amount, decimals });
+      }
+      const taken = new Set(
+        (await node.list()).flatMap((other) => (other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [])),
+      );
+      const payment = wallet.payment(input.plan, taken);
+      await node.setInvoice(id, { plan: payment.plan, amount: payment.amount, at: now() });
+      return send(res, 200, payment);
+    }
+
+    if (action === 'wallet/claim' && method === 'POST') {
+      if (!wallet) throw new Refusal(404, 'This host takes no wallet payments');
+      if (typeof input.tx !== 'string') throw new Refusal(400, 'A transaction hash is needed');
+      const tx = input.tx.toLowerCase();
+      return oneAtATime(async () => {
+        const subscription = await node.get(id);
+        const invoice = subscription?.invoice;
+        if (!subscription || !invoice) throw new Refusal(409, 'No wallet payment was asked for');
+        if (await isSpent(tx)) throw new Refusal(409, 'That transaction was already counted');
+        const check = await wallet.check(tx);
+        if (check.state === 'waiting') return send(res, 202, { waiting: true });
+        if (check.state === 'failed') throw new Refusal(400, check.reason);
+        if (!check.amounts.includes(invoice.amount)) throw new Refusal(400, 'That transaction sent a different amount than was asked for');
+        if (check.at < invoice.at - CLOCK_SKEW_SECONDS || check.at > invoice.at + INVOICE_SECONDS) {
+          throw new Refusal(400, 'That transaction was not made while this payment was open');
+        }
+        // Counted first: should anything after fail, the payment is lost to a restart, never counted twice.
+        await markSpent(tx, id);
+        const until = wallet.extend(invoice.plan, Math.max(now(), subscription.paidUntil));
+        await node.extend(id, until);
+        await node.setInvoice(id, null);
+        log(`subscription ${id} paid from a wallet until ${new Date(until * 1000).toISOString()}`);
+        return send(res, 200, await statusOf(id));
+      });
+    }
+
     throw new Refusal(405, 'That call does not take that method');
   }
 
@@ -269,6 +344,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   }, options.sweepMs ?? 3600_000);
   (sweeping as { unref?: () => void }).unref?.();
 
+  if (wallet) log(`taking ${wallet.offer.symbol} on ${wallet.offer.chainName} at ${wallet.offer.to}`);
   const who = options.allow ? `, only for ${options.allow.length} account${options.allow.length === 1 ? '' : 's'}` : '';
   log(`host ${node.did} listening on port ${served.port}${options.free ? ' (free: every subscription counts as paid)' : ''}${who}${options.mirror ? ', kept in its bucket' : ', on this disk alone'}`);
   return {
@@ -278,6 +354,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       clearInterval(sweeping);
       await served.close();
       await node.close();
+      await spentStore?.close();
     },
   };
 }

@@ -116,6 +116,22 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   A new key is a new host: every account would hand its spaces over again.
 - Point Stripe's webhook at `https://<host>/host/billing/webhook`, sending
   `checkout.session.completed` and `invoice.paid`.
+- Crypto wallets pay with no company in between: USDC on Base, sent straight
+  to your address. Next to Stripe, or instead of it:
+
+  ```bash
+  WEAVE_WALLET_ADDRESS=0x… WEAVE_WALLET_MONTHLY=4 WEAVE_WALLET_YEARLY=36 \
+  weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
+  ```
+
+  The home asks the person's wallet (MetaMask, Coinbase Wallet, Rabby…) to
+  send the plan's price plus a fraction of a cent that marks it as theirs; the
+  host reads the network to see it arrive, then adds a month or a year. Time is
+  paid up front, and the home offers to add more a month before it runs out.
+  `WEAVE_WALLET_NETWORK=base-sepolia` tries it with test USDC;
+  `WEAVE_WALLET_RPC` points at a network node of your own or a provider's
+  (default: the network's public one). Keep the address's private key off the
+  host — it only needs to receive.
 - With a bucket, the disk is only a cache: lose it, start on the same key and
   bucket, and every subscription and space comes back.
 - Put it behind something that terminates TLS (Caddy does it in two lines).

@@ -27,7 +27,7 @@ import { createNode, isValidRecoveryCode, NODE_ACTIONS, runAction, type NodeActi
 import { chooseAccount, createAccount, homePath, openHome, unlock, type Home } from './home.js';
 import { startDaemon } from './daemon.js';
 import { startHost } from './host.js';
-import { allowList, billingFromEnv, checkExposure, defaultHostData, hostKey, hostStores, mirrorFromEnv } from './host-setup.js';
+import { allowList, billingFromEnv, checkExposure, defaultHostData, hostKey, hostStores, mirrorFromEnv, walletFromEnv } from './host-setup.js';
 import { runMcpStdio } from './mcp.js';
 import { configuredRelays, connectAgent, daysLeft, defaultAgentName, forgetAgent, startAgentNode } from './agent.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
@@ -279,8 +279,11 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     const allow = allowList(values.allow, process.env);
     checkExposure({ ...(values.host ? { host: values.host } : {}), free: !!values.free, allow });
     const billing = billingFromEnv(process.env);
-    if (!billing && !values.free) {
-      throw new Error('weave host needs a way to take payments (STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET), or --free to host without them.');
+    const wallet = walletFromEnv(process.env);
+    if (!billing && !wallet && !values.free) {
+      throw new Error(
+        'weave host needs a way to take payments — Stripe (STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET), a wallet (WEAVE_WALLET_ADDRESS), or both — or --free to host without them.',
+      );
     }
     const running = await startHost({
       key: await hostKey(data),
@@ -290,6 +293,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       ...(values.free ? { free: true } : {}),
       ...(allow ? { allow } : {}),
       billing,
+      wallet,
       mirror: mirrorFromEnv(process.env),
       log: (line) => stderr(`[${new Date().toISOString()}] ${line}`),
     });

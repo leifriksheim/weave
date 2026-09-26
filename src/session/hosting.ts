@@ -110,6 +110,44 @@ export interface HostStatus {
   readonly carrying: boolean;
   /** How many spaces it carries for this subscription */
   readonly spaces: number;
+  /** Paid through a provider that renews it by itself (a card); false for time paid up front */
+  readonly renews: boolean;
+}
+
+/**
+ * What a host takes from a crypto wallet: USDC, sent straight to the host's
+ * own address on one network, for a plan of time paid up front.
+ */
+export interface WalletOffer {
+  /** The network, as wallets name it (EIP-155): 8453 for Base */
+  readonly chainId: number;
+  readonly chainName: string;
+  /** A public address a wallet may use to reach the network, if it doesn't know it yet */
+  readonly rpcUrl: string;
+  readonly explorerUrl: string;
+  /** The token's contract, and its decimals */
+  readonly token: string;
+  readonly symbol: string;
+  readonly decimals: number;
+  /** Where payments go: the host's own address */
+  readonly to: string;
+  /** Each plan's price, in whole units of the token ("36") */
+  readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string; readonly price: string }>;
+}
+
+/**
+ * One payment to make: send exactly `amount` of the token to `to`. The amount
+ * is the plan's price plus a fraction of a cent that no other open payment
+ * has, which is how the host knows the transfer is this subscription's.
+ */
+export interface WalletPayment {
+  readonly plan: string;
+  readonly chainId: number;
+  readonly token: string;
+  readonly to: string;
+  /** In the token's smallest unit, as a decimal string */
+  readonly amount: string;
+  readonly decimals: number;
 }
 
 /** What a host says about itself, to anyone */
@@ -119,6 +157,8 @@ export interface HostInfo {
   /** Whether every subscription counts as paid — someone hosting themselves */
   readonly free: boolean;
   readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+  /** Present when it also takes payments from a crypto wallet */
+  readonly wallet?: WalletOffer;
 }
 
 /** A host's calls, signed as one subscription */
@@ -133,6 +173,13 @@ export interface HostClient {
   checkout(plan: string, returnUrl: string): Promise<{ readonly url: string }>;
   /** The payment provider's page for changing the card, cancelling, receipts */
   manage(returnUrl: string): Promise<{ readonly url: string }>;
+  /** What to send from a wallet for a plan. Asked again within a week, the same amount. */
+  walletPayment(plan: string): Promise<WalletPayment>;
+  /**
+   * Tells the host a wallet sent the payment: the transaction's hash. Null
+   * while the network hasn't confirmed it yet — ask again in a few seconds.
+   */
+  walletClaim(tx: string): Promise<HostStatus | null>;
 }
 
 /** Why a host said no: its status code, and what it said */
@@ -168,5 +215,10 @@ export function createHostClient(url: string, key: SubscriptionKey, provider: Cr
     detach: async () => void (await call('DELETE', `${mine}/carry`)),
     checkout: (plan: string, returnUrl: string) => call<{ url: string }>('POST', `${mine}/checkout`, { plan, returnUrl }),
     manage: (returnUrl: string) => call<{ url: string }>('POST', `${mine}/manage`, { returnUrl }),
+    walletPayment: (plan: string) => call<WalletPayment>('POST', `${mine}/wallet`, { plan }),
+    walletClaim: async (tx: string) => {
+      const answer = await call<HostStatus | { waiting: true }>('POST', `${mine}/wallet/claim`, { tx });
+      return 'waiting' in answer ? null : answer;
+    },
   });
 }

@@ -9,6 +9,7 @@ import { createP256Provider, createS3BlobStore, folderStores, type BlobStore, ty
 import { openFsDirectory } from './fs-directory.js';
 import type { Billing } from './host.js';
 import { createStripeBilling } from './stripe.js';
+import { createWalletPayments, NETWORKS, type NetworkName, type WalletPayments } from './wallet.js';
 
 /** Where a host keeps its data unless told: `~/.weave-host` */
 export function defaultHostData(): string {
@@ -48,6 +49,28 @@ export function billingFromEnv(env: NodeJS.ProcessEnv): Billing | null {
     webhookSecret: env.STRIPE_WEBHOOK_SECRET,
     ...(env.STRIPE_PRICE_MONTHLY ? { monthlyPrice: env.STRIPE_PRICE_MONTHLY } : {}),
     ...(env.STRIPE_PRICE_YEARLY ? { yearlyPrice: env.STRIPE_PRICE_YEARLY } : {}),
+  });
+}
+
+/**
+ * Wallet payments, when WEAVE_WALLET_ADDRESS is set: USDC to that address, at
+ * WEAVE_WALLET_MONTHLY and/or WEAVE_WALLET_YEARLY dollars, on
+ * WEAVE_WALLET_NETWORK (base, or base-sepolia to try it; default base), read
+ * through WEAVE_WALLET_RPC (default: the network's public node). None otherwise.
+ */
+export function walletFromEnv(env: NodeJS.ProcessEnv): WalletPayments | null {
+  if (!env.WEAVE_WALLET_ADDRESS) return null;
+  const network = (env.WEAVE_WALLET_NETWORK ?? 'base') as NetworkName;
+  if (!(network in NETWORKS)) throw new Error(`WEAVE_WALLET_NETWORK must be ${Object.keys(NETWORKS).join(' or ')}, not "${network}"`);
+  if (!env.WEAVE_WALLET_MONTHLY && !env.WEAVE_WALLET_YEARLY) {
+    throw new Error('Wallet payments need a price: WEAVE_WALLET_MONTHLY, WEAVE_WALLET_YEARLY, or both, in dollars (like 4 and 36)');
+  }
+  return createWalletPayments({
+    network,
+    to: env.WEAVE_WALLET_ADDRESS,
+    ...(env.WEAVE_WALLET_MONTHLY ? { monthly: env.WEAVE_WALLET_MONTHLY } : {}),
+    ...(env.WEAVE_WALLET_YEARLY ? { yearly: env.WEAVE_WALLET_YEARLY } : {}),
+    ...(env.WEAVE_WALLET_RPC ? { rpcUrl: env.WEAVE_WALLET_RPC } : {}),
   });
 }
 

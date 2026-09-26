@@ -2,7 +2,8 @@
  * Hosting: a carrier for many accounts that never sleeps. Subscriptions that
  * are paid, in their grace period or lapsed; spaces carried once however many
  * pay for them; an API where every call is signed by the subscription; and
- * Stripe, telling the host who paid until when.
+ * Stripe, telling the host who paid until when; and USDC from a wallet,
+ * checked on a (fake) network.
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +20,8 @@ import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { createHostClient, HostError, newSubscriptionSeed, signRequest, subscriptionKey, verifyRequest } from '../src/session/hosting.js';
 import { startHost } from '../cli/src/host.js';
 import { createStripeBilling, verifyStripeSignature } from '../cli/src/stripe.js';
-import { allowList, checkExposure } from '../cli/src/host-setup.js';
+import { allowList, checkExposure, walletFromEnv } from '../cli/src/host-setup.js';
+import { createWalletPayments, NETWORKS, toUnits } from '../cli/src/wallet.js';
 import { createMemoryBlobStore } from '../src/storage/blob/memory.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
@@ -446,5 +448,168 @@ describe('a host for named accounts only', () => {
     assert.equal(allowList(undefined, {}), null);
     assert.deepEqual(allowList(['did:key:zA'], { WEAVE_HOST_ALLOW: 'did:key:zB, did:key:zA' }), ['did:key:zA', 'did:key:zB']);
     assert.throws(() => allowList(['alice'], {}), /not an account DID/);
+  });
+});
+
+/**
+ * A network node that knows a few transactions: each a USDC transfer (or
+ * anything else) in a block, and a chain `latest` blocks long.
+ */
+function fakeChain() {
+  const HOST_ADDRESS = '0x1111111111111111111111111111111111111111';
+  const word = (hex: string) => `0x${hex.replace(/^0x/, '').toLowerCase().padStart(64, '0')}`;
+  const chain = {
+    latest: 100,
+    txs: new Map<string, { status: string; block: number; time: number; logs: Array<{ address: string; topics: string[]; data: string }> }>(),
+    calls: 0,
+    /** A transfer of `amount` (smallest units) to `to`, in block `block` */
+    send(amount: bigint | string, options: { block?: number; time?: number; to?: string; token?: string; status?: string } = {}) {
+      const tx = `0x${(chain.txs.size + 1).toString(16).padStart(64, 'a')}`;
+      chain.txs.set(tx, {
+        status: options.status ?? '0x1',
+        block: options.block ?? chain.latest,
+        time: options.time ?? nowSeconds(),
+        logs: [
+          {
+            address: options.token ?? NETWORKS['base-sepolia'].usdc,
+            topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', word('0x2222222222222222222222222222222222222222'), word(options.to ?? HOST_ADDRESS)],
+            data: word(BigInt(amount).toString(16)),
+          },
+        ],
+      });
+      return tx;
+    },
+    fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
+      chain.calls++;
+      const { id, method, params } = JSON.parse(String(init?.body)) as { id: number; method: string; params: unknown[] };
+      const answer = (result: unknown) => Response.json({ jsonrpc: '2.0', id, result });
+      if (method === 'eth_blockNumber') return answer(`0x${chain.latest.toString(16)}`);
+      if (method === 'eth_getTransactionReceipt') {
+        const found = chain.txs.get(String(params[0]));
+        if (!found || found.block > chain.latest) return answer(null);
+        return answer({ status: found.status, blockNumber: `0x${found.block.toString(16)}`, logs: found.logs });
+      }
+      if (method === 'eth_getBlockByNumber') {
+        const found = [...chain.txs.values()].find((tx) => `0x${tx.block.toString(16)}` === params[0]);
+        return answer({ timestamp: `0x${(found?.time ?? nowSeconds()).toString(16)}` });
+      }
+      return Response.json({ jsonrpc: '2.0', id, error: { message: `unexpected ${method}` } });
+    }) as typeof fetch,
+  };
+  const wallet = createWalletPayments({ network: 'base-sepolia', to: HOST_ADDRESS, monthly: '4', yearly: '36', fetch: chain.fetch });
+  return { chain, wallet, HOST_ADDRESS };
+}
+
+describe('wallet payments', () => {
+  test('prices, and amounts marked apart by a fraction of a cent', () => {
+    assert.equal(toUnits('36'), 36_000_000n);
+    assert.equal(toUnits('4.5'), 4_500_000n);
+    assert.throws(() => toUnits('36.001'), /not a price/);
+    const { wallet } = fakeChain();
+    assert.deepEqual(wallet.offer.plans.map((plan) => [plan.id, plan.price]), [['yearly', '36'], ['monthly', '4']]);
+    const taken = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const amount = BigInt(wallet.payment('yearly', taken).amount);
+      assert.ok(amount > 36_000_000n && amount < 36_010_000n, 'less than a cent over the price');
+      assert.ok(!taken.has(amount.toString()), 'never an amount already open');
+      taken.add(amount.toString());
+    }
+    assert.equal(wallet.extend('yearly', Date.UTC(2026, 8, 25) / 1000), Date.UTC(2027, 8, 25) / 1000);
+    assert.equal(wallet.extend('monthly', Date.UTC(2026, 0, 15) / 1000), Date.UTC(2026, 1, 15) / 1000);
+  });
+
+  test('a transaction counts once confirmed, and only what reached this host in USDC', async () => {
+    const { chain, wallet } = fakeChain();
+    assert.deepEqual(await wallet.check('0x1234'), { state: 'failed', reason: 'That is not a transaction hash' });
+    assert.deepEqual(await wallet.check(`0x${'f'.repeat(64)}`), { state: 'waiting' }, 'not on the chain yet');
+    const tx = chain.send(36_004_217n, { block: 100 });
+    assert.deepEqual(await wallet.check(tx), { state: 'waiting' }, 'one block is not enough');
+    chain.latest = 102;
+    const sent = await wallet.check(tx);
+    assert.equal(sent.state, 'sent');
+    assert.deepEqual(sent.state === 'sent' && sent.amounts, ['36004217']);
+
+    assert.equal((await wallet.check(chain.send(36_004_217n, { block: 90, to: '0x3333333333333333333333333333333333333333' }))).state, 'failed', 'to someone else');
+    assert.equal((await wallet.check(chain.send(36_004_217n, { block: 90, token: '0x4444444444444444444444444444444444444444' }))).state, 'failed', 'another token');
+    assert.equal((await wallet.check(chain.send(36_004_217n, { block: 90, status: '0x0' }))).state, 'failed', 'reverted');
+  });
+
+  test('the host: an amount per subscription, the same when asked again; the date moves once per transaction', async () => {
+    const { chain, wallet } = fakeChain();
+    const served = await startHost({ key: await provider.generateKeyPair(), stores: memoryStores(), port: 0, wallet });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const key = await subscriptionKey(newSubscriptionSeed());
+    const client = createHostClient(url, key);
+
+    const info = await client.info();
+    assert.equal(info.wallet?.chainId, 84532);
+    assert.deepEqual(info.plans, [], 'no card plans without Stripe');
+
+    const payment = await client.walletPayment('yearly');
+    assert.equal(payment.to, info.wallet?.to);
+    assert.equal((await client.walletPayment('yearly')).amount, payment.amount, 'asked again, the same amount');
+    const other = createHostClient(url, await subscriptionKey(newSubscriptionSeed()));
+    const theirs = await other.walletPayment('yearly');
+    assert.notEqual(theirs.amount, payment.amount);
+
+    // Someone else's payment, or the wrong amount, pays nothing here.
+    chain.latest = 110;
+    const wrong = chain.send(BigInt(theirs.amount), { block: 105 });
+    await assert.rejects(client.walletClaim(wrong), /different amount/);
+    const early = chain.send(BigInt(payment.amount), { block: 104, time: nowSeconds() - 3600 });
+    await assert.rejects(client.walletClaim(early), /not made while this payment was open/);
+
+    const tx = chain.send(BigInt(payment.amount), { block: 111 });
+    assert.equal(await client.walletClaim(tx), null, 'not confirmed yet');
+    chain.latest = 113;
+    const status = await client.walletClaim(tx);
+    assert.equal(status?.state, 'active');
+    assert.equal(status?.renews, false, 'time paid up front');
+    assert.ok(Math.abs((status?.paidUntil ?? 0) - (nowSeconds() + 365 * 24 * 3600)) < 2 * 24 * 3600);
+    await assert.rejects(client.walletClaim(tx), (error: unknown) => error instanceof HostError && error.status === 409);
+    // Their subscription can't take the same transaction either.
+    await assert.rejects(other.walletClaim(tx), /different amount|already counted/);
+
+    // Paying again adds a month on top of the year.
+    const again = await client.walletPayment('monthly');
+    assert.notEqual(again.amount, payment.amount);
+    chain.latest = 120;
+    const more = await client.walletClaim(chain.send(BigInt(again.amount), { block: 117 }));
+    assert.ok((more?.paidUntil ?? 0) > (status?.paidUntil ?? 0) + 27 * 24 * 3600);
+  });
+
+  test('from the env: an address and a price, or nothing', () => {
+    assert.equal(walletFromEnv({}), null);
+    assert.throws(() => walletFromEnv({ WEAVE_WALLET_ADDRESS: '0x1111111111111111111111111111111111111111' }), /need a price/);
+    assert.throws(() => walletFromEnv({ WEAVE_WALLET_ADDRESS: 'me', WEAVE_WALLET_YEARLY: '36' }), /not an address/);
+    assert.throws(() => walletFromEnv({ WEAVE_WALLET_ADDRESS: '0x1111111111111111111111111111111111111111', WEAVE_WALLET_YEARLY: '36', WEAVE_WALLET_NETWORK: 'solana' }), /base or base-sepolia/);
+    assert.equal(walletFromEnv({ WEAVE_WALLET_ADDRESS: '0x1111111111111111111111111111111111111111', WEAVE_WALLET_YEARLY: '36' })?.offer.chainId, 8453);
+  });
+
+  test('an account pays from a wallet, and the host takes its spaces', async () => {
+    const { chain, wallet } = fakeChain();
+    const served = await startHost({ key: await provider.generateKeyPair(), stores: memoryStores(), port: 0, wallet });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const me = await account();
+    const laptop = await createNode({
+      signer: me.signer,
+      stores: memoryStores(),
+      accountKey: me.accountKey,
+      watchIntervalMs: 0,
+      network: { nodes: [`ws://127.0.0.1:${served.port}/peer`] },
+    });
+    open.push(laptop);
+    await laptop.spaces.create({ name: 'Notes', visibility: 'private' });
+
+    const before = await laptop.hosting.use(url);
+    assert.equal(before.wallet?.symbol, 'USDC');
+    assert.equal(before.status?.carrying, false);
+    const payment = await laptop.hosting.walletPayment(url, 'yearly');
+    chain.latest = 200;
+    const after = await laptop.hosting.walletClaim(url, chain.send(BigInt(payment.amount), { block: 198 }));
+    assert.equal(after?.status?.state, 'active');
+    assert.equal(after?.status?.carrying, true);
   });
 });

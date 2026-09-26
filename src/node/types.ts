@@ -548,6 +548,8 @@ export interface HostingView {
   readonly error?: string;
   /** The payment plans it offers; none for a host that takes no payments */
   readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+  /** Present when it also takes payments from a crypto wallet */
+  readonly wallet?: import('../session/hosting.js').WalletOffer;
 }
 
 /**
@@ -569,6 +571,14 @@ export interface NodeHosting {
   checkout(url: string, plan: string, returnUrl: string): Promise<string>;
   /** The payment provider's page for changing the card, cancelling, receipts */
   manage(url: string, returnUrl: string): Promise<string>;
+  /** What to send from a crypto wallet for a plan: an exact amount, to the host's address */
+  walletPayment(url: string, plan: string): Promise<import('../session/hosting.js').WalletPayment>;
+  /**
+   * Tells the host a wallet sent the payment (the transaction's hash), and
+   * hands it the spaces once it counts. Null while the network hasn't
+   * confirmed it yet — ask again in a few seconds.
+   */
+  walletClaim(url: string, tx: string): Promise<HostingView | null>;
   /** Stops using a host: it forgets the spaces, and the subscription is let go. Paying stops in `manage`. */
   stop(url: string): Promise<void>;
 }

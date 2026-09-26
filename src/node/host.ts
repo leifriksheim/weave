@@ -39,6 +39,17 @@ export interface Subscription {
   readonly carry?: { readonly account: string; readonly space: string; readonly invite: string };
   /** The payment provider's reference for whoever pays — nothing else about them is kept */
   readonly customer?: string;
+  /** A wallet payment asked for and not yet seen (`cli/src/wallet.ts`) */
+  readonly invoice?: Invoice;
+}
+
+/** A payment a host asked a wallet for: an exact amount, so the transfer that arrives says whose it is */
+export interface Invoice {
+  readonly plan: string;
+  /** In the token's smallest unit, as a decimal string */
+  readonly amount: string;
+  /** When it was asked for, unix seconds — a transfer made before it pays nothing */
+  readonly at: number;
 }
 
 export type SubscriptionState = 'active' | 'grace' | 'lapsed';
@@ -80,6 +91,8 @@ export interface HostNode {
   state(subscription: Subscription): SubscriptionState;
   /** Moves a subscription's paid-until date — the one thing payments do */
   extend(id: string, until: number, customer?: string): Promise<Subscription>;
+  /** Keeps a wallet payment asked for, or drops it (null) once it arrived */
+  setInvoice(id: string, invoice: Invoice | null): Promise<Subscription>;
   /**
    * Starts carrying an account's spaces for a subscription: its carry space,
    * and every space its passes name. Replaces what the subscription carried.
@@ -224,6 +237,11 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
         await core.addCarry(extended.carry.account, extended.carry.invite);
       }
       return extended;
+    },
+
+    async setInvoice(id: string, invoice: Invoice | null) {
+      const { invoice: _before, ...subscription } = await host.subscribe(id);
+      return write(invoice ? { ...subscription, invoice } : subscription);
     },
 
     async attach(id: string, account: string, invite: string) {

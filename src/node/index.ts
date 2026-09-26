@@ -9,7 +9,7 @@ export { copyAccountData } from './copy.js';
 export { createCarrierNode } from './carrier.js';
 export type { CarrierConfig, CarrierNode, CarriedSpace, CarrierEvent } from './carrier.js';
 export { createHostNode, NotAllowedError } from './host.js';
-export type { HostConfig, HostNode, Subscription, SubscriptionState } from './host.js';
+export type { HostConfig, HostNode, Invoice, Subscription, SubscriptionState } from './host.js';
 export type { CopyAccountParams, CopyResult } from './copy.js';
 export type { StoreFactory, StoreOptions } from './stores.js';
 export { NODE_ACTIONS, runAction, checkActionInput } from './actions.js';
