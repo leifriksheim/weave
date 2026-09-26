@@ -147,6 +147,62 @@ The wallet payment itself is BLOCK-07's: USDC on Base straight to the host's
 address, an amount marked with a fraction of a cent, checked on the network by
 the host (`cli/src/wallet.ts`).
 
+## Next: a reminder before time runs out
+
+Not built yet. Time paid from a wallet doesn't renew by itself, so someone
+who paid a year up front needs telling before it ends. A card needs no
+reminder: it renews, and Stripe emails about receipts and failed payments.
+Reminders are the host's business, like payment, so the home stays out of
+them as far as it can. The host sends two kinds, and both are optional.
+
+**When:** 14 days and 3 days before `paidUntil`, and once when the grace
+period starts. Each reminder is sent once per date (the host keeps which it
+sent next to the subscription). A payment moves the date, which cancels any
+reminder not yet sent.
+
+### Email, on the pay page
+
+- A field on the pay page, off by default: *Email me before my time runs
+  out*, with one sentence on the cost: the host then knows an address for
+  this subscription, where before it knew only a key and a date.
+- **Double opt-in.** The host sends a link, and only a clicked link turns
+  reminders on, so nobody can sign someone else up.
+- Every email carries a link to the pay page (no signed link in it: opening
+  it from an email asks the person to open it from their home) and a
+  one-click unsubscribe (`List-Unsubscribe`, RFC 8058). It's used for nothing
+  else.
+- The host keeps the address next to the subscription and deletes it when the
+  person unsubscribes or the subscription is dropped. The home never sees it.
+- **Sending is plain SMTP** (`WEAVE_SMTP_URL`, `WEAVE_SMTP_FROM`), which works
+  with every provider (Postmark, Resend, SES, a mailbox). Without them, the
+  field isn't shown.
+
+### Web Push, to the person's devices
+
+No address, nothing that says who someone is: the host wakes the person's
+devices directly, the way BLOCK-22's keepers do for new records. It rides on
+BLOCK-22's pieces instead of adding its own:
+
+- A device's push subscription is already going to be a record in the
+  account's **carry space** (`sys.subscription`, BLOCK-22 part 4), and the host
+  already reads that space. A reminder subscription is the same record with no
+  filter and `purpose: 'hosting'`, written by the home when the person allows
+  notifications ("Remind me on this device"). No new call between home and
+  host.
+- The host sends the push (VAPID-signed, payload encrypted per RFC 8291):
+  `{ kind: 'hosting', host, paidUntil }`, signed like a status. The home's
+  service worker shows "Your hosting with Dev host ends on 12 Oct", and
+  tapping it opens the home.
+- **To settle with BLOCK-22 first:** a push subscription is tied to one
+  sender's key (the `applicationServerKey` it was made with), so only the
+  holder of that key can push to it. Several keepers pushing to one device,
+  as BLOCK-22 describes, needs either one subscription per keeper (the device
+  subscribes with each keeper's key, which the host's description would list
+  as `vapid`) or keepers that share a key. Reminders work with either.
+
+Email works today, everywhere. Push needs BLOCK-22's service worker, so
+email comes first and push follows when BLOCK-22 lands.
+
 ## Before you start
 
 Paste this. It must print `READY`.
@@ -165,3 +221,4 @@ test -f cli/src/host.ts && test -f cli/src/wallet.ts && test -f src/session/host
   it carries: pay once, get anonymous tokens, spend them for time.
 - A Lightning route (BTCPay), as another method on the pay page.
 - Gasless USDC (EIP-3009, as x402 does), so a person needs no ETH for the fee.
+- Reminders before time runs out: email now, Web Push with BLOCK-22 (above).

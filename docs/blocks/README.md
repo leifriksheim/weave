@@ -24,7 +24,7 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 | [BLOCK-20](BLOCK-20-connect-an-agent.md) | Connect an agent with one command: the browser's agent works as you, one on your computer pairs through a code and runs a node of its own | ~3 days |
 | [BLOCK-21](BLOCK-21-calls.md) | Calls: voice and video in any space, ringing one person or a call the space can join, and the call stays up while you move between spaces. Built; running TURN and testing on real networks and phones is left | ~2 days left |
 | [BLOCK-22](BLOCK-22-keepers-and-caches.md) | Keepers and caches: apps hold only the collections they use, many keepers heal each other, Negentropy replaces the tree, and subscriptions across spaces wake your devices by Web Push | ~3½ weeks |
-| [BLOCK-23](BLOCK-23-paying-a-host.md) | Paying a host: the home knows no payment providers — a host's description, a signed status and a signed link to the host's own pay page (card, browser wallets, WalletConnect) | ~3 days |
+| [BLOCK-23](BLOCK-23-paying-a-host.md) | Paying a host: the home knows no payment providers — a host's description, a signed status and a signed link to the host's own pay page (card, browser wallets, WalletConnect). Built; reminders before time runs out (email, then Web Push with BLOCK-22) left | ~3 days left |
 
 ## Next, not written as blocks yet
 
