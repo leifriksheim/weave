@@ -12,7 +12,8 @@ seed (16 bytes)
  ├─ HKDF "weave/p256-identity-key/v1" ─▶ root key (P-256, ECDSA) ─▶ account DID (did:key:zDn…)
  │                                         └─ signs UCANs ─▶ session / app / agent keys ─▶ sign records
  ├─ HKDF "weave/p256-contact-key/v1"  ─▶ contact key (P-256, ECDH)
- │                                         └─ HKDF "weave/p256-door-key/v1|<door>" ─▶ door key per door
+ │                                         ├─ HKDF "weave/p256-door-key/v1|<door>"      ─▶ door key per door (ECDH)
+ │                                         └─ HKDF "weave/p256-door-sign-key/v1|<door>" ─▶ door signing key per door (ECDSA)
  ├─ HKDF "weave-vault-key-v1"         ─▶ vault key (AES-256) ── also the "account key" bytes
  │                                         ├─ HKDF "weave/p256-member-key/v1|<space>" ─▶ member key per space
  │                                         └─ HKDF "weave/account-registry/…", "weave/contacts/…" ─▶ account spaces
@@ -207,9 +208,13 @@ Encoders MUST use the compressed point. Decoders:
    compressed (33-byte) or uncompressed (65-byte, `0x04 ‖ x ‖ y`) point and
    rejects bytes that are not a point on P-256.
 
-Decoders SHOULD reject a multicodec other than `0x80 0x24`. *The reference
-decoder does not check it*; a non-P-256 key fails later, when it is imported as
-a P-256 point.
+Decoders SHOULD reject a multicodec other than `0x80 0x24`.
+
+> **Known defect:** the reference decoder does not check the multicodec
+> (`src/identity/did.ts`, `didToPublicKey`), and neither does `verifyUCAN` for
+> a token's `iss` (`src/identity/ucan.ts`). A non-P-256 key fails later, only
+> because it does not import as a P-256 point. A fix will reject any other
+> multicodec when decoding.
 
 Example: see §3.3; the decoded bytes are
 `8024029084c70c6acbeb1bfbab099abb469443aa06c02bd1b02b830d846b1129d8c7fb`. The
@@ -236,7 +241,8 @@ this one own the use; this table is the registry.
 | `weave/p256-contact-key/v1` | HKDF, L=48 → `ScalarFrom` | seed | P-256 scalar (ECDH) | Contact key | `identity/contact-key.ts:26` | 01 |
 | `weave/p256-member-key/v1\|<spaceId>` | HKDF, L=48 → `ScalarFrom` | vault key bytes | P-256 scalar (ECDH) | Member key for one space | `identity/contact-key.ts:28` | 01, 03 |
 | `weave/p256-door-key/v1\|<doorId>` | HKDF, L=48 → `ScalarFrom` | contact key's 32-byte private scalar | P-256 scalar (ECDH) | Door key (knocks are sealed to it) | `identity/contact-key.ts:29` | 01, 07 |
-| `weave/door-topic/v1\|<doorKey>` | SHA-256, base64url | — | mailbox topic | A door's mailbox topic on a relay | `doors/doors.ts:139` | 07 |
+| `weave/p256-door-sign-key/v1\|<doorId>` | HKDF, L=48 → `ScalarFrom` | contact key's 32-byte private scalar | P-256 scalar (ECDSA) | Door signing key (proves ownership of a door) | `identity/contact-key.ts` | 01, 07 |
+| `weave/door-topic/v1\|<signKey>` | SHA-256, base64url | — | mailbox topic | A door's mailbox topic on a relay: a hash of its signing key | `doors/doors.ts` (`doorTopic`) | 07 |
 | `weave/contact-seal/v1` | HKDF, L=32 | ECDH shared x (32) ‖ ephemeral uncompressed point (65) | AES-256-GCM key | One sealed message to a contact or member key | `identity/contact-key.ts:27` | 01 |
 | `weave-vault-key-v1` | HKDF, L=32 | seed | AES-256-GCM key / 32 bytes | Vault key: at-rest encryption; the "account key" | `identity/account-vault.ts:51` | 01, 05 |
 | `weave-pairing-room-v1` | CID of prefix ‖ seed (no separator) | seed | room id | Pairing room | `identity/pairing.ts:29` | 01 |
@@ -264,7 +270,9 @@ keys, listed so new labels do not collide with them:
 | `weave/space-earlier-keys/v1\|<spaceId>\|<keyId>` | Sealing context | `space/space-access.ts:185` | 03 |
 | `weave/space-membership/v1\|<spaceId>` | Sealing context | `space/space-access.ts:187` | 03, 04 |
 | `weave/contact-request\|<spaceId>\|<from>\|<to>` | `sealFor` context | `node/node.ts:1101` | 03 |
-| `weave/knock/v1\|<doorKey>` | `sealFor` context | `doors/doors.ts:147` | 07 |
+| `weave/knock/v1\|<doorKey>` | `sealFor` context | `doors/doors.ts` (`sealKnock`) | 07 |
+| `weave/door-purge/v1\|<topic>\|<nonce>\|<ids>` | Signed by a door signing key, checked by a relay | `doors/doors.ts` (`purgeMessage`), `server/relay.mjs` | 07 |
+| `weave/knock-answer/v1\|<space>\|<account>` | Signed by a door signing key | `doors/doors.ts` (`signAnswer`) | 07 |
 | `weave-peer/v3\|client\|…`, `weave-peer/v3\|server\|…` | Signed peer-auth messages | `network/peer-auth.ts:123,125` | 04 |
 | `weave-mesh/v1\|…` | Signed mesh proof | `network/peer-auth.ts:225` | 04 |
 | `weave-host/v1\n…`, `weave-host-status/v1\n…`, `weave-pay/v1\n…` | Signed host requests | `session/hosting.ts:69,164,165` | 06 |
@@ -293,6 +301,7 @@ Notes:
 | **Contact key** | `ScalarFrom(HKDF(seed, contact label, 48))` | The account's | Nothing; ECDH only (§9) |
 | **Member key** | `ScalarFrom(HKDF(vaultKey, member label, 48))` | The account's | Nothing; ECDH only (§9) |
 | **Door key** | `ScalarFrom(HKDF(contactKey, door label, 48))` | Until the door is closed | Nothing; ECDH only (§9) |
+| **Door signing key** | `ScalarFrom(HKDF(contactKey, door sign label, 48))` | Until the door is closed | Purge challenges and knock answers (07) |
 
 The root key signs exactly one kind of thing: a UCAN delegating to another key.
 It MUST NOT be used to sign records directly in normal operation. (A record
@@ -440,9 +449,14 @@ Given a token and a time `at` (Unix seconds), a verifier:
 3. MUST decode `iss` as a did:key (§4), import its public key, and verify the
    signature over the first two parts as received.
 
-The verifier does not re-canonicalize and does not check `nnc`, `fct` or the
-header fields. *The reference verifier does not check `alg`, `typ` or `ucv`*;
-a conforming verifier SHOULD reject a header other than the one above.
+The verifier does not re-canonicalize and does not check `nnc` or `fct`. A
+verifier SHOULD reject a header other than the one in §7.1, and SHOULD reject
+an `iss` whose multicodec is not `p256-pub` (§4).
+
+> **Known defect:** the reference `verifyUCAN` checks neither the header
+> (`alg`, `typ`, `ucv`) nor the issuer's multicodec (`src/identity/ucan.ts`,
+> `src/identity/did.ts`). A fix will reject both. Other implementations MUST
+> NOT rely on a token with a different header being accepted.
 
 `at` is the moment the token is being relied on:
 
@@ -481,10 +495,15 @@ the record's `author`, that some leaf capability covers the capability the
 record needs, and that the root DID is allowed in the space
 ([02 — Records](02-records.md), [03 — Spaces](03-spaces.md)).
 
-**How parent tokens travel is not yet specified.** A record carries a single
-token in `proof`; peers currently resolve parents with a resolver that finds
-none, so in practice only single-token proofs (`prf: []`, issued by the root)
-validate on records.
+**How parent tokens travel is not yet specified** (§15). The rules above are
+the intended check for a chain of any length up to 10.
+
+> **Known defect:** a record carries only its leaf token in `proof`, and the
+> reference wires no proof resolver for records — the capability gate and
+> `src/node/space-runtime.ts` pass `() => null`
+> (`src/validation/capability-gate.ts`). So a chain deeper than one link never
+> validates on a record; only tokens issued directly by the root (`prf: []`)
+> do. A fix will define how parents travel and resolve them.
 
 ### 7.6 Capability coverage
 
@@ -601,10 +620,15 @@ d_door = ScalarFrom(HKDF(d_contact_bytes, "weave/p256-door-key/v1|" ‖ doorId, 
 ```
 
 where `d_contact_bytes` is the contact key's 32-byte big-endian private scalar
-(§9.1). Every device and app holding the contact key derives the same door
-keys. The public half (same encoding as the contact key) says nothing about
-the account behind it. *The doors code is new on this branch; see
-[07](07-doors.md) for its status.*
+(§9.1). Beside it, each door has a **signing key**, used only for ECDSA:
+
+```
+d_door_sign = ScalarFrom(HKDF(d_contact_bytes, "weave/p256-door-sign-key/v1|" ‖ doorId, 48))
+```
+
+Every device and app holding the contact key derives the same door keys.
+Their public halves (same encoding as the contact key) say nothing about the
+account behind them.
 
 ### 9.4 Sealing (`sealFor` / `openSealed`)
 
@@ -1041,7 +1065,7 @@ Offering device                                     Phone
 ## 15. Not yet specified
 
 - Transport of parent tokens for multi-link delegation chains (§7.5), and
-  whether records may carry them.
+  whether records may carry them. See the known defect in §7.5.
 - A checksum or version marker for recovery codes (§2).
 - Rotation of a compromised seed. Today an account *is* its seed; a new seed
   is a new identity.

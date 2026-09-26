@@ -444,6 +444,13 @@ For each differing collection the initiator:
 4. If the session was marked to run again, a new session begins.
 
 A session that has heard nothing for 30 s is dropped at the next heartbeat.
+An unanswered `want` is meant to be dropped the same way; how long to wait is
+not yet specified (§18).
+
+> **Known defect:** the heartbeat sweep drops stale sessions but never
+> unanswered `want`s (`src/sync/sync-engine.ts`, `sweep`). A `want` whose
+> answer is lost keeps the peer in flight, so it never becomes `synced`
+> (§6.5) until it disconnects. A fix will sweep stale `want`s too.
 
 ### 6.4 Answering (responder)
 
@@ -452,6 +459,13 @@ A session that has heard nothing for 30 s is dropped at the next heartbeat.
   with the 32,000-byte frame limit, and send `reconciled` with the same `id`.
 - On `want`: answer with `versions` carrying the same `id` and every asked
   version it holds (first 200 ids only).
+
+Not yet specified: how a responder reports a `reconcile` whose `message` it
+cannot parse (§18).
+
+> **Known defect:** a responder that cannot parse a `reconcile` sends no reply
+> at all (`src/sync/sync-engine.ts`, `onReconcile`), so the initiator waits
+> until its session goes stale after 30 s (§6.3). A fix will answer at once.
 
 ### 6.5 Done
 
@@ -715,8 +729,8 @@ adapter:
 | `spacekey:<id>` | UTF-8 JSON `{ "keys": [{ "id", "raw" (base64url AES-256 key), "createdAt", "version" }], "current": <key id> }` | yes |
 | `spaceinvite:<id>` | UTF-8 base64url of an invite secret, until used | yes |
 | `spacerole:<id>` | UTF-8 role name this account last held (a listing hint) | yes |
-| `spacememberkey:<id>` | UTF-8 base64url of this account's member key for the space | **no** — see §18 |
-| `spacerelays:<id>` | UTF-8 JSON array of relay URLs | no |
+| `spacememberkey:<id>` | UTF-8 base64url of this account's member key for the space | **no** — known defect, §15 |
+| `spacerelays:<id>` | UTF-8 JSON array of relay URLs | no — known defect, §15 |
 
 Forgetting a space deletes all six.
 
@@ -907,6 +921,16 @@ offset  size  field
   shows each record's author, timestamp and collection, and anything in a
   public space.
 
+Every registry entry of §12 that belongs to one space is meant to be sealed,
+including `spacememberkey:` and `spacerelays:`.
+
+> **Known defect:** the sealing adapter's default prefixes leave out
+> `spacememberkey:` and `spacerelays:` (`src/storage/encrypted-adapter.ts`,
+> `DEFAULT_ENCRYPTED_PREFIXES`). So a copied data folder exposes each space's
+> member key in the clear — the key new space keys are sealed to (`sys.box`,
+> [03](03-spaces.md)) — and the space's relays. A fix will seal both. Other
+> implementations SHOULD NOT copy this.
+
 *Source: `src/storage/encrypted-adapter.ts`, `src/node/stores.ts`. Tests:
 `tests/account-vault.test.ts` ("encryption at rest").*
 
@@ -1041,17 +1065,14 @@ delete the old ones. A reader in between sees duplicates, which are harmless.
 
 ## 18. Not yet specified
 
-- **Stale requests.** Sessions silent for 30 s are dropped, but a `want`
-  whose answer never comes is not: it keeps the peer "busy" (never `synced`)
-  until the peer disconnects.
-- **Responder errors.** A responder that cannot parse a `reconcile` sends
-  nothing; the initiator's session then goes stale after 30 s.
+- **Stale requests.** How long a `want` may go unanswered before it is
+  dropped. See the known defect in §6.3.
+- **Responder errors.** How a responder reports a `reconcile` it cannot
+  parse. See the known defect in §6.4.
 - **Widening a cache** when too few keepers are online (BLOCK-22) is not
   implemented; a cache only widens as queries use collections.
 - **`BlobStore.changes`** is defined but no mirror uses it; pull always lists.
 - **Other blob drivers** (Dropbox, OneDrive, Drive app folders) are not
   implemented; only memory and S3-compatible.
-- **Member key at rest.** `spacememberkey:` registry entries are not in the
-  default sealed prefixes, so a folder copy exposes each space's member key
-  in the clear, although it is what new space keys are sealed to
-  (`sys.box`, [03](03-spaces.md)). Whether it should be sealed is open.
+- **Member key at rest.** How to move `spacememberkey:` and `spacerelays:`
+  entries written unsealed to sealed ones. See the known defect in §15.

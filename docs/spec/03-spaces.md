@@ -541,12 +541,15 @@ Each is judged by §4.5.
 (allowed: a role up to your own rank), then removes themselves. The new holder
 keeps managing.
 
-**Leaving on a node** (`node.spaces.leave`) is local: the node deletes the
-space's membership record in the account registry (§13), closes the space and
-forgets it and its keys. *It does not write a `sys.member` change*, so the
-space's history still lists the account, and no key change becomes due. Not
-yet specified whether a protocol-level leave should also write the
-self-removal.
+**Leaving on a node** (`node.spaces.leave`): the node deletes the space's
+membership record in the account registry (§13), closes the space and forgets
+it and its keys. Whether a leave must also write the self-removal above is not
+yet specified (§17).
+
+> **Known defect:** the reference leave is local only. It writes no
+> `sys.member` self-removal (`src/node/node.ts`, `spaces.leave`), so the
+> space's history still lists the account and no key change becomes due
+> (§9). A fix is expected to write the self-removal.
 
 ### 6.3 Keep lists
 
@@ -598,9 +601,16 @@ An account holding `invite` opens one by writing `sys.invite` at
 the invite's public key goes into the space; the secret goes only into the link.
 
 It is closed by writing the next version of the same record with `open: false`
-(same `key` and `role`). Deleting the record does **not** close it (§3.3). A
+(same `key` and `role`). Whether deleting the record should also close it is
+not yet specified; a writer closing an invite SHOULD write `open: false`. A
 view-only invite (§7.5) has no record and cannot be closed; only a key change
 (§9) stops it working for new records.
+
+> **Known defect:** deleting an invite record does not close it. A deleted
+> access version yields no event (§3.3), so the invite stays open as of its
+> last undeleted version. `closeInvite` writes `open: false`
+> (`src/node/space-runtime.ts`). Other implementations MUST NOT rely on a
+> deleted invite staying open.
 
 ### 7.3 Joining with a secret
 
@@ -639,6 +649,11 @@ An invite is `base64url( UTF-8( JSON.stringify(SpaceInvite) ) )` — plain
 | `invite` | base64url of the 32-byte secret | role invites only |
 | `role` | string | role invites only; for display — the invite record is what counts |
 | `relays` | string[] | when known: the space's relays (§10), else the inviter's own |
+
+> **Known defect:** `space.name` and `invitedBy` are not authenticated. Neither
+> is in the space's genesis (§1.2), and nothing signs the invite string, so
+> anyone passing the link on can change them. A reader MUST NOT treat them as
+> verified. A fix will authenticate them or drop them from the invite.
 
 Example (private space of §1.2, role invite with the secret of §7.1), decoded:
 
@@ -1177,10 +1192,11 @@ then reject the value unless `invite` parses as an invite (§7.4) to a
 ## 17. Not yet specified
 
 - Whether leaving a space (§6.2) should also write a self-removal in its
-  history, so that a key change becomes due.
+  history, so that a key change becomes due. See the known defect in §6.2.
+- Whether deleting an invite record closes it (§7.2, known defect).
 - Any bound on how many events a history may hold, or on the replay's cost.
 - Expiry or single use of invites: an open invite stays open until closed.
 - A way to re-establish a space's key for members who lost every key they held
   other than a fresh role invite.
 - `invitedBy` and the space `name` in invites are unauthenticated; no
-  signature over the invite string exists.
+  signature over the invite string exists. See the known defect in §7.4.

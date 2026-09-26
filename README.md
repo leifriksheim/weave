@@ -304,18 +304,23 @@ await anna.doors.close(door.id);                   // the code leads nowhere now
 ```
 
 - **The relay keeps a mailbox**, the one thing it holds: a sealed blob under a
-  hash of the door key, for up to 30 days. It can't tell whose door it is, who
-  knocked, or what they said. A door names up to three relays and a knock goes
-  to all of them, so no one relay can shut it.
+  hash of the door's signing key, for up to 14 days. It sees addresses, as it
+  does for any socket, but not whose door it is, which account knocked, or what
+  they said. A door names up to three relays and a knock goes to all of them,
+  so no one relay can shut it.
 - **A knock proves who knocked** before anyone joins anything: it's signed by
-  the knocker's session key under their account's note, like a record, and
-  bound to the door it was left at.
+  the knocker's session key under a note for their whole account, like a
+  record, bound to the door it was left at and to when the relay took it.
+- **An answer proves who opened.** Accepting writes an answer in the space for
+  two, signed with the door's key: that, not joining, makes the owner the
+  knocker's contact, and the invite is closed behind them.
 - **The door is not the account.** Its key is not your contact key, so nobody
   can link a door to your profile in any space. Every device with the contact
   key opens the same doors.
-- **Spam** is capped at the mailbox (64 knocks a door, 4 an hour from one
-  address), blocking hides someone's knocks on every door, and a flooded door
-  is closed and replaced.
+- **Spam** is capped at the mailbox (64 knocks a door; 4 a door and 30 in all
+  an hour from one address). `dismiss` lets one knock go without blocking,
+  blocking hides someone's knocks on every door, and a flooded door is cleared
+  by its owner (`clear`), so its code keeps working.
 
 Next: handles that lead to a door, so `@anna.bsky.social` works where a code
 does ([BLOCK-24](docs/blocks/BLOCK-24-names.md)). The full design is

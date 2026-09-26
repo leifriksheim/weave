@@ -329,7 +329,15 @@ client de-duplicates:
 - `requestIce` is sent to every connected relay.
 
 A peer may therefore receive the same signal once per relay the two share.
-Not yet specified: how a receiver must treat such duplicates (§7.3).
+A duplicate signal is meant to have no further effect. Not yet specified: how
+a receiver recognises one (§7.3).
+
+> **Known defect:** with two or more relays in common, an offer is sent on
+> each (`src/network/multi-signaling.ts`), and the receiver answers each
+> copy. Answering a later copy can replace the connection the first copy just
+> started (`src/network/rtc-transport.ts`, `handleOffer`; `src/network/mesh.ts`).
+> Found by reading the code, not reproduced. A fix will drop a duplicate offer.
+> Other implementations SHOULD NOT copy this.
 
 *Source: `src/network/multi-signaling.ts`. Tests: `tests/introductions.test.ts` ("several relays at once"), `tests/network-manager.test.ts` ("a relay connects the first pair…").*
 
@@ -695,7 +703,7 @@ peer from that room, and closes the connection if no room uses it.
   (relay, or mesh); an `answer` or `candidate` is applied.
 
 Not yet specified: suppression of a duplicate offer that arrives through a
-second shared relay (§3). The reference implementation answers each.
+second shared relay. See the known defect in §3.
 
 *Source: `src/network/mesh.ts` (`meet`, `offerTo`, `onSignal`). Tests: `tests/network-manager.test.ts`.*
 
@@ -870,11 +878,8 @@ of §6.1 on a node socket; attribute every message to the connection, not to
 
 ## Open questions
 
-- **Duplicate signals across relays.** With two relays in common, an offer
-  and its candidates are sent on both, and the receiver answers each offer,
-  replacing the connection it just made (`src/network/multi-signaling.ts:207-209`,
-  `src/network/mesh.ts:279-296`). Not yet specified whether receivers must
-  de-duplicate.
+- **Duplicate signals across relays.** How a receiver recognises and drops a
+  duplicate offer. See the known defect in §3.
 - **Size limits on peer connections.** No maximum WebRTC message size is
   specified or enforced; browsers' SCTP limits apply.
 - **"64 KB"** for live messages is measured in UTF-16 code units of the JSON

@@ -738,7 +738,7 @@ page it opened):
 | `scope` | `spaces` \| `account` | |
 | `spaces` | `{ id, name, invite, memberKey? }[]` | Granted spaces; `memberKey` is base64url. |
 | `accountKey` | base64url, optional | With `scope: account`: the vault key bytes. It opens every private space and the account registry, but cannot sign as the account. |
-| `contactKey` | base64url, optional | With `contacts` or `scope: account`: the contact key's secret. |
+| `contactKey` | base64url, optional | With `contacts` or `scope: account`: the contact key's secret. Never in an agent's grant: it opens contact requests and knocks on the account's doors ([07](07-doors.md)). |
 | `contactsSpace` | string, optional | With `contacts` and `scope: spaces`: which of `spaces` is the contacts space. |
 | `relays` | string[], optional | Relays the home uses; the app joins them too, so the two always share one. |
 | `expiresAt` | number | Unix seconds. |
@@ -908,10 +908,10 @@ and was issued by `node.did`. The agent:
 
 Closing the agent leaves the underlying node running.
 
-An agent granted `scope: account` gets a `*` note, the account key and — as
-implemented — the contact key in its grant (§4.5), so the whole contact list is
-within its note. Whether a home should withhold the contact key from an agent
-is *Not yet specified*; the CLI agent does not pass it to its node (§5.4).
+An agent granted `scope: account` gets a `*` note and the account key in its
+grant (§4.5), so the contact list is within its note to read. A home MUST NOT
+give an agent the contact key: with it, an agent could open contact requests
+and knocks on the account's doors ([07](07-doors.md)).
 
 *Source: `src/node/node.ts` (`asAgent`). Tests: `tests/agents.test.ts` ("an agent acting for a person").*
 

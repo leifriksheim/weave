@@ -81,14 +81,13 @@ whose DID document doesn't name it back is refused; a missing record says
 
 A knock (07 §6) gains an optional `handle` field. The owner checks it: resolve
 the handle (Part 1), read the knocker's **own** door record, and compare the
-door key there with a `handleProof`: the knocker's signature, with the key of
-**their** door, over `weave/knock-handle/v1|<door knocked on>|<knock at>`.
+door signing key there (`sign` in its code) with a `handleProof`: the knocker's
+signature, with **their** door's signing key, over
+`weave/knock-handle/v1|<door knocked on>|<knock at>`.
 
 That proves the knocker controls both the handle's repository (the record is
-there) and the door key (the signature), without putting their account DID in
-public. Needs door keys that can sign: derive a separate **door signing key**
-next to the door key (`weave/p256-door-sign-key/v1|<id>`), and publish its
-public half in the code as `sign`. A door key MUST NOT both sign and decrypt.
+there) and a door (the signature), without putting their account DID in
+public. Door signing keys already exist (07 §1).
 
 Shown as "@leif.bsky.social ✓" when it checks out, and as the plain name
 otherwise.

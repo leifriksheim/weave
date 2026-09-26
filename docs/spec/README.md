@@ -44,6 +44,10 @@ the code disagree, that is a bug in one of them: open an issue, and say which.
 - **Rationale** is kept short and set apart, so the rules can be read without it.
 - **Not yet specified.** Where behaviour is left to the implementation, or is
   still moving, the spec says so rather than guessing.
+- **Known defect.** Where this implementation does something the protocol
+  should not require, the spec says so in a blockquote starting
+  "> **Known defect:**", describing current behaviour and what a fix will
+  change. Other implementations MUST NOT rely on it, and SHOULD NOT copy it.
 
 ## The shape of it, in one page
 

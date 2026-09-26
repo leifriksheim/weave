@@ -285,9 +285,14 @@ the one no other held version supersedes.
   (which has a higher `seq`) stays deleted when an older version turns up; two
   devices that edited apart pick the same winner; the same set of versions,
   received in any order, gives the same current version.
-- A version with a higher `seq` than the one it names in `prev` is not checked
-  against it: `prev` is **not verified** by readers, and `seq` gaps are not
-  refused. See *Not yet specified* below.
+- A writer MUST set `prev` and `seq` as in §4.2. How a reader checks them is
+  not yet specified (§4.6).
+
+> **Known defect:** readers never check `prev` and accept `seq` gaps, so a
+> writer allowed to edit a record can skip to any higher `seq` and win under
+> this rule. Nothing in the reference implementation reads `prev`
+> (`src/records/version.ts`). A fix will bind a later version to the version
+> it names in `prev`; other implementations MUST NOT rely on gaps being accepted.
 
 > Rationale: no clock is trusted, because every clock is whatever its writer
 > typed. The rule is load-bearing forever — two peers running different rules
@@ -356,8 +361,7 @@ Checks that depend on what else a peer holds are **not** shape checks:
   version is ignored when reading, as if absent.
 
 *Not yet specified:* whether `prev` must name a held version, and whether a
-`seq` may skip. Today neither is checked, so a writer allowed to edit a record
-can choose any higher `seq`.
+`seq` may skip. See the known defect in §4.3.
 
 *Source: `src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `RECORD_KEY_PATTERN`, `MAX_SEEN`), `src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepOrDrop`), `src/node/space-runtime.ts` (`firstOf`, `consistent`, `write`, `after`). Tests: `tests/versions.test.ts` (all), `tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first").*
 
@@ -639,9 +643,14 @@ digest = SHA-256( UTF-8( join(lines, "\n") ) )
 key    = "one:" ‖ lowercase-hex( digest[0..20) )     // 44 characters
 ```
 
-`JSON(v)` is the JSON text of the value as the reference implementation's
-`JSON.stringify` writes it. For a string, number, boolean or `null` this is the
-canonical form (§1); a `null` field is present and gives `field=null`.
+`JSON(v)` is the canonical JSON (§1) of the value. A `null` field is present
+and gives `field=null`.
+
+> **Known defect:** the reference writes `JSON(v)` with `JSON.stringify`, not
+> canonical JSON (`src/records/rules.ts`, `onePerKey`). For a string, number,
+> boolean or `null` the two agree. For an object or array, `JSON.stringify`
+> keeps the member order of the parsed object, so the key depends on member
+> order. A fix will use canonical JSON; until then, use scalar fields.
 
 Example — `std.vote` (`onePer: ["@author", "link:about"]`) by
 `did:key:zDnaeSm3GDBe3cfca4gaw8nchcuzkJ2LPQiZp9tYs2bRGfQRJ` about the record
@@ -666,18 +675,18 @@ A writer derives the key and writes the next version after whatever it holds
 at that key (§4.2) — so "adding another" is an edit of the existing record,
 and the `edit` rule decides whether it is allowed.
 
-*Not yet specified:* the encoding of an object- or array-valued body field in
-`onePer`. The reference writes it with `JSON.stringify`, whose member order is
-the order of the parsed object, not canonical order; two implementations can
-derive different keys for the same object. Use scalar fields.
-
 ### 7.4 `fixed`
 
 `fixed` is a non-empty list of top-level body fields that keep the value the
 record was created with. A peer MUST refuse a later, non-delete version in
 which any listed field differs from the record's first version — compared as
-`JSON.stringify` output, so "absent" equals "absent" — when it can read both
-bodies. The same caveat as §7.3 applies to object- and array-valued fields.
+canonical JSON (§1), with "absent" equal to "absent" — when it can read both
+bodies.
+
+> **Known defect:** the reference compares `JSON.stringify` output, not
+> canonical JSON (`src/records/rules.ts`, `changedFixedField`), so an object-
+> or array-valued field whose members are reordered counts as changed. A fix
+> will compare canonical JSON.
 
 ### 7.5 Checking a definition's rules
 
@@ -806,6 +815,10 @@ The capability every write in space `S` needs is
   4. The chain's audience MUST equal `author`.
   5. Some capability in the chain MUST cover the one required.
   6. The root is the chain's root issuer.
+
+> **Known defect:** a chain deeper than one link never validates here, because
+> no proof resolver is wired and a record carries only its leaf token
+> ([01 — Identity](01-identity.md) §7.5).
 
 ### 9.4 Standing (the stateful check)
 
@@ -1016,9 +1029,13 @@ subfilter does not hold.
 - The result's `cursor` is the key of the last record returned when more
   records follow it, else `null`. Passing it back resumes after the record with
   that key in the re-sorted candidates.
-- If no candidate has the cursor's key any more, the reference starts again
-  from the first record. *Not yet specified:* whether that is intended — the
-  code's own comment says it resumes "from where it would have been".
+- If no candidate has the cursor's key any more, the query is meant to resume
+  from where that record would have been. *Not yet specified:* how "where it
+  would have been" is found once the record is gone.
+
+> **Known defect:** when the cursor's key is gone, the reference starts again
+> from the first record (`src/query/engine.ts`), so a caller paging through
+> sees records twice. A fix will resume after the cursor's position.
 
 ### 11.6 Include
 
