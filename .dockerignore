@@ -1,0 +1,12 @@
+# What cli/Dockerfile never needs, and secrets that must never reach an image.
+**/node_modules
+**/dist
+**/.weave-dev
+**/.env
+**/.env.*
+.git
+docs
+tests
+home
+example
+extension

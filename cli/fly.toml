@@ -1,0 +1,65 @@
+# A hosting service on Fly: `weave host`, keeping people's spaces online.
+# Change `app` to a name of your own, then, from the repository root:
+#
+#   fly launch --no-deploy --copy-config --config cli/fly.toml --name my-host
+#   fly volumes create host_data --size 1 --region ams --config cli/fly.toml
+#   fly secrets set --config cli/fly.toml \
+#     WEAVE_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com \
+#     WEAVE_S3_BUCKET=… WEAVE_S3_ACCESS_KEY_ID=… WEAVE_S3_SECRET_ACCESS_KEY=… \
+#     WEAVE_WALLET_ADDRESS=0x… \
+#     STRIPE_SECRET_KEY=sk_live_… STRIPE_WEBHOOK_SECRET=whsec_… \
+#     STRIPE_PRICE_MONTHLY=price_… STRIPE_PRICE_YEARLY=price_… \
+#     WEAVE_WALLETCONNECT_PROJECT_ID=…
+#   fly deploy . --config cli/fly.toml
+#
+# It needs at least one way to be paid: Stripe (both STRIPE_ keys) or a wallet
+# (WEAVE_WALLET_ADDRESS). Point Stripe's webhook at
+# https://my-host.fly.dev/host/billing/webhook, and set WEAVE_HOST_URL below
+# to the host's own address.
+
+app = "weave-host"
+primary_region = "ams"
+# Give it time to finish writing before a deploy replaces it.
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  WEAVE_HOST_NAME = "Weave host"
+  WEAVE_HOST_URL = "https://weave-host.fly.dev"
+  WEAVE_WALLET_NETWORK = "base"
+  WEAVE_WALLET_MONTHLY = "4"
+  WEAVE_WALLET_YEARLY = "36"
+
+# The host's key and subscriptions live here, and must outlive every deploy:
+# lose the key and every home that trusts this host stops trusting it. The
+# spaces themselves are also kept in the R2 bucket, so this stays small.
+[mounts]
+  source = "host_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # Unlike the relay, a host is a device that never sleeps.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.http_options]
+    # Long-lived sockets: peers stay connected to sync.
+    idle_timeout = 900
+
+  [[http_service.checks]]
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+# One machine only: the volume belongs to one machine, and the subscriptions
+# aren't shared between copies. Don't `fly scale count` past 1.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
