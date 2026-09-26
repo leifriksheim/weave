@@ -13,10 +13,10 @@ What the user sees:
 1. In the account home, Settings, then **"Keep my spaces online"**, with one
    sentence: *your spaces stay reachable and backed up when your devices are
    off; we store them encrypted and can't read them.*
-2. **Monthly** or **a year up front**, by card, Apple Pay or Google Pay (the
-   payment provider's own checkout opens), or from a **crypto wallet** in the
-   browser (MetaMask, Coinbase Wallet…: the wallet asks to send USDC, and
-   that's it). No Weave account to make, nothing to set up.
+2. **Payment** opens the host's own pay page in a new tab (BLOCK-23): monthly
+   or a year up front, by card, Apple Pay or Google Pay (Stripe's checkout),
+   or from a **crypto wallet** (USDC). No Weave account to make, nothing to
+   set up, and the home itself knows nothing about how the host is paid.
 3. Back in the home, the spaces show **"Always online"**, and Settings shows
    **"Paid until 12 Oct 2027 · Manage"**.
 4. The payoff to lead with: **lose every device, type the recovery code on a
@@ -38,7 +38,9 @@ the host its spaces, mirrors into R2 (BLOCK-03's core and BLOCK-04's S3
 driver), a restart from the bucket alone, and **Keep my spaces online** in the
 home's Settings. Removing members (BLOCK-14 §2) is done too. **Wallet
 payments** (`cli/src/wallet.ts`): USDC on Base straight to the host's address,
-checked on the network by the host, no company in between.
+checked on the network by the host, no company in between. How a home and a
+host talk about paying — a description, signed statuses, a pay page opened
+with a signed link — is BLOCK-23.
 
 **Decided while building:** the host is the extension's carrier with many carry
 spaces, not a second kind of node — so it learns which account asked for which
@@ -49,11 +51,7 @@ except through that carry space.
 **Left:** metering bytes and requests per subscription, quotas, the 1,000-space
 load test, TURN measured, user storage as a second mirror (Dropbox, Drive),
 BTCPay (Bitcoin and Lightning), a real Stripe test-mode run end to end in a
-browser, and a real wallet payment on Base Sepolia. For wallets: a QR code
-for phone wallets (EIP-681; the host would then scan its address's transfers
-instead of being handed a hash), and gasless payments — the wallet signs a
-USDC authorization (EIP-3009, what x402 does) and the host sends it, so
-nobody needs ETH for the fee; that takes a funded key on the host.
+browser, and a real wallet payment on Base Sepolia (see BLOCK-23).
 
 ---
 
@@ -200,21 +198,22 @@ The host needs to know one thing: *this subscription is paid until X*. Every
 way of paying just adds time to that date, so there is one code path, whatever
 the method.
 
-1. The home asks the billing API for a checkout, sending the subscription's
-   public key and the chosen plan.
+1. The host's pay page (BLOCK-23) asks for a checkout, with the pay link the
+   home signed and the chosen plan.
 2. The API creates a checkout session with the provider, tagged with the
    subscription id (the hash of the public key), and returns its URL.
-3. The person pays on the provider's page and comes back to the home.
+3. The person pays on the provider's page and comes back to the host's pay
+   page, which says it's done. The home, in its own tab, asks again.
 4. The provider's webhook tells the API; the API moves paid-until forward (one
    month, or a year). Renewals arrive the same way.
-5. "Manage" opens the provider's customer portal (change card, cancel,
-   receipts). We build no billing screens.
+5. "Change card or cancel" on the pay page opens the provider's customer
+   portal. We build no billing screens.
 
 | Method | How | Notes |
 |---|---|---|
 | Card, Apple Pay, Google Pay | Stripe Checkout + Customer Portal | Apple Pay and Google Pay appear by themselves in Checkout. On the web, Apple takes no cut; that rule applies only inside a native iOS app. |
 | Crypto, easy route | Stripe's stablecoin (USDC) payments | Same checkout, same webhook. Check it's available to the account, and for the plan type, before relying on it. |
-| Crypto wallet, built | USDC on Base, straight to the host's address, **time paid up front** | No company in the middle. The home asks the wallet to send the plan's price plus a fraction of a cent no other open payment has (36.004217); the host reads the transaction on the network, and the exact amount says whose it is. The wallet's address is never kept. The person needs a little ETH on Base for the fee (about a cent). Payments are public on the chain: anyone can see that address paid the host. |
+| Crypto wallet, built | USDC on Base, straight to the host's address, **time paid up front** | No company in the middle. The pay page asks the wallet to send the plan's price plus a fraction of a cent no other open payment has (36.004217); the host reads the transaction on the network, and the exact amount says whose it is. The wallet's address is never kept. The person needs a little ETH on Base for the fee (about a cent). Payments are public on the chain: anyone can see that address paid the host. |
 | Crypto, private route | BTCPay Server / Lightning, **prepaid only** | Self-hosted, no company in the middle, no subscription to cancel. The only way to pay without anyone learning who paid. After launch. |
 
 The host stores the provider's customer reference next to the subscription,

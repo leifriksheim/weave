@@ -1196,9 +1196,15 @@ members pay for it. A subscription is a key the account makes and keeps in its
 registry (`sys.hosting`), so every device signs as it; `node.hosting.use(url)`
 starts one, and whichever device notices it is paid hands the host the carry
 space. Every call to the host is signed over method, path, time and body.
-Stripe Checkout and the Customer Portal take payments (card, Apple Pay, Google
-Pay, stablecoins where enabled); the webhook only moves a paid-until date, taken
-from Stripe's own billing period. Past it: a grace period, then the host drops
+The home knows nothing about payment (BLOCK-23): a host describes itself at
+`/.well-known/weave-host` (like a Nostr relay's NIP-11 document), signs every
+status it gives — the home keeps the latest in the registry as the person's
+proof — and takes payments on its own pay page, which `node.hosting.payPage(url)`
+links to with a signature by the subscription key, valid for an hour at that
+host only. On the page: Stripe Checkout and the Customer Portal (card, Apple
+Pay, Google Pay), whose webhook moves a paid-until date taken from Stripe's own
+billing period; and USDC from a crypto wallet straight to the host's address,
+checked on the network by the host. Past the date: a grace period, then the host drops
 the spaces and deletes its copy. With a bucket (`WEAVE_S3_*`) the host's disk
 is only a cache — every carried space and the subscription list live in the
 bucket, sealed, and a new machine starts from it. The account home's Settings

@@ -116,6 +116,13 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   A new key is a new host: every account would hand its spaces over again.
 - Point Stripe's webhook at `https://<host>/host/billing/webhook`, sending
   `checkout.session.completed` and `invoice.paid`.
+- Every host serves its own **pay page** at `/pay`. Homes know nothing about
+  payment: they open that page in a new tab with a link signed for the
+  subscription, and read the status the host signs. Say who you are with
+  `WEAVE_HOST_NAME`, `WEAVE_HOST_PRICE` (text, like "$4 a month"),
+  `WEAVE_HOST_TERMS` and `WEAVE_HOST_URL` (your public https:// address,
+  where Stripe sends people back to). It's all at
+  `/.well-known/weave-host`.
 - Crypto wallets pay with no company in between: USDC on Base, sent straight
   to your address. Next to Stripe, or instead of it:
 
@@ -124,14 +131,17 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   ```
 
-  The home asks the person's wallet (MetaMask, Coinbase Wallet, Rabby…) to
-  send the plan's price plus a fraction of a cent that marks it as theirs; the
-  host reads the network to see it arrive, then adds a month or a year. Time is
-  paid up front, and the home offers to add more a month before it runs out.
-  `WEAVE_WALLET_NETWORK=base-sepolia` tries it with test USDC;
-  `WEAVE_WALLET_RPC` points at a network node of your own or a provider's
-  (default: the network's public one). Keep the address's private key off the
-  host — it only needs to receive.
+  The pay page asks the person's browser wallet (MetaMask, Coinbase Wallet,
+  Rabby…) to send the plan's price plus a fraction of a cent that marks it as
+  theirs; the host reads the network to see it arrive, then adds a month or a
+  year. Time is paid up front. `WEAVE_WALLET_NETWORK=base-sepolia` tries it
+  with test USDC; `WEAVE_WALLET_RPC` points at a network node of your own or a
+  provider's (default: the network's public one). Keep the address's private
+  key off the host — it only needs to receive.
+- Phone wallets and every other wallet, by QR code: set
+  `WEAVE_WALLETCONNECT_PROJECT_ID` (free at dashboard.reown.com) and build the
+  WalletConnect bundle once with `npm run bundle:pay` in `cli/` (the published
+  package has it built).
 - With a bucket, the disk is only a cache: lose it, start on the same key and
   bucket, and every subscription and space comes back.
 - Put it behind something that terminates TLS (Caddy does it in two lines).

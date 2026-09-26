@@ -539,17 +539,25 @@ export interface HostingView {
   readonly url: string;
   /** The host's own key, as it appears to peers */
   readonly host: string;
+  /** Its name, as it describes itself; its address's host name when it doesn't */
+  readonly name: string;
   /** The subscription — the key the account made for this host */
   readonly subscription: string;
   readonly since: string;
-  /** What the host said just now; null when it could not be reached */
+  /**
+   * How the subscription stands, as the host signed it: just now when `live`,
+   * otherwise the last it said (kept in the account registry). Null when it
+   * never said.
+   */
   readonly status: import('../session/hosting.js').HostStatus | null;
+  /** Whether `status` is what the host said just now */
+  readonly live: boolean;
   /** Why it could not be reached */
   readonly error?: string;
-  /** The payment plans it offers; none for a host that takes no payments */
-  readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
-  /** Present when it also takes payments from a crypto wallet */
-  readonly wallet?: import('../session/hosting.js').WalletOffer;
+  /** Its price, for people, as it puts it */
+  readonly price?: string;
+  /** Whether it takes payments, on its own page (`payPage`) */
+  readonly pays: boolean;
 }
 
 /**
@@ -557,6 +565,10 @@ export interface HostingView {
  * backed up when every device is off — without being able to read them. A
  * host is a carrier (`carriers`) the account pays for; every device of the
  * account hands it the spaces, with nothing to set up.
+ *
+ * Nothing here knows how a host is paid (BLOCK-23): a host takes payments on
+ * its own page, which `payPage` links to, and says how the subscription stands
+ * in a status it signs.
  */
 export interface NodeHosting {
   /** The hosts the account uses, each asked how it stands. Hands a host the spaces if it was paid since. */
@@ -567,19 +579,14 @@ export interface NodeHosting {
    * for a free host — hands the host the account's spaces.
    */
   use(url: string): Promise<HostingView>;
-  /** A payment page for a host's plan; coming back to `returnUrl` after paying, call `list` */
-  checkout(url: string, plan: string, returnUrl: string): Promise<string>;
-  /** The payment provider's page for changing the card, cancelling, receipts */
-  manage(url: string, returnUrl: string): Promise<string>;
-  /** What to send from a crypto wallet for a plan: an exact amount, to the host's address */
-  walletPayment(url: string, plan: string): Promise<import('../session/hosting.js').WalletPayment>;
   /**
-   * Tells the host a wallet sent the payment (the transaction's hash), and
-   * hands it the spaces once it counts. Null while the network hasn't
-   * confirmed it yet — ask again in a few seconds.
+   * A link to the host's own pay page, signed with the subscription key: it
+   * lets whoever opens it pay for this subscription, at that host, for an
+   * hour. Open it in a new tab (`noopener`), and call `list` when the person
+   * comes back.
    */
-  walletClaim(url: string, tx: string): Promise<HostingView | null>;
-  /** Stops using a host: it forgets the spaces, and the subscription is let go. Paying stops in `manage`. */
+  payPage(url: string): Promise<string>;
+  /** Stops using a host: it forgets the spaces, and the subscription is let go. A card that renews is cancelled on the host's pay page. */
   stop(url: string): Promise<void>;
 }
 

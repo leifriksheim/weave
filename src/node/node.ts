@@ -52,7 +52,21 @@ import {
   type Membership,
 } from '../space/account-registry.js';
 import { CARRY_CLOSED_KEY, makePass, PASS_COLLECTION, passKey, type SpacePass } from '../space/pass.js';
-import { createHostClient, HOSTING_COLLECTION, HostError, newSubscriptionSeed, subscriptionKey, type HostClient, type Hosting } from '../session/hosting.js';
+import {
+  createHostClient,
+  describeHost,
+  HOSTING_COLLECTION,
+  HostError,
+  newSubscriptionSeed,
+  payLink,
+  readStatus,
+  subscriptionKey,
+  type HostClient,
+  type HostDescription,
+  type HostStatus,
+  type Hosting,
+  type SignedStatus,
+} from '../session/hosting.js';
 import { sha256 } from '../utils/hash.js';
 import type {
   ContactRequest,
@@ -796,7 +810,14 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   async function hostClient(hosting: Hosting): Promise<{ client: HostClient; subscription: string }> {
     const key = await subscriptionKey(base64UrlDecode(hosting.seed), provider);
-    return { client: createHostClient(hosting.url, key, provider), subscription: key.did };
+    return { client: createHostClient(hosting.url, hosting.host, key, provider), subscription: key.did };
+  }
+
+  /** What the host at a known address says about itself — refused when it's another host now */
+  async function describeKnown(hosting: Hosting): Promise<HostDescription> {
+    const description = await describeHost(hosting.url);
+    if (description.did !== hosting.host) throw new Error("The host at this address has another key now, so it's another host");
+    return description;
   }
 
   /** The carry space shared with a host: the one the account made for it, or a new one */
@@ -809,23 +830,48 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   const handedAt = new Map<string, number>();
   const HAND_AGAIN_MS = 60_000;
 
+  /**
+   * Keeps what the host signed in the registry, so every device shows it and
+   * the person holds the host's word — written only when what it says changed.
+   */
+  async function keepReceipt(hosting: Hosting, kept: HostStatus | null, status: HostStatus, receipt: SignedStatus, name: string): Promise<void> {
+    if (agentSession || !accountSpaceId) return;
+    const same = kept && kept.state === status.state && kept.paidUntil === status.paidUntil && kept.renews === status.renews && hosting.name === name;
+    if (same) return;
+    const record: Hosting = { ...hosting, name, receipt };
+    await (await runtime(accountSpaceId)).upsertSystem<Hosting>(HOSTING_COLLECTION, await hostingKey(hosting.url), record);
+  }
+
   /** Asks a host how it stands, and hands it the spaces if it is paid for but not carrying them */
   async function viewHosting(hosting: Hosting, force = false): Promise<HostingView> {
     const { client, subscription } = await hostClient(hosting);
+    const kept = hosting.receipt ? await readStatus(hosting.receipt, hosting.host, provider) : null;
     const base = { url: hosting.url, host: hosting.host, subscription, since: hosting.since };
     try {
-      const [info, first] = await Promise.all([client.info(), client.status()]);
-      let status = first;
+      const description = await describeKnown(hosting);
+      let { status, receipt } = await client.status();
       const due = force || Date.now() - (handedAt.get(hosting.url) ?? 0) > HAND_AGAIN_MS;
-      const paid = status.state === 'active' || status.state === 'grace' || (info.free && status.state !== 'lapsed');
+      const paid = status.state === 'active' || status.state === 'grace' || (description.free && status.state !== 'lapsed');
       if (!status.carrying && paid && due && !agentSession) {
         handedAt.set(hosting.url, Date.now());
-        status = await client.attach(config.signer.did, await carryFor(hosting));
+        try {
+          ({ status, receipt } = await client.attach(config.signer.did, await carryFor(hosting)));
+        } catch (error) {
+          // Not paid after all (it lapsed in between): the status says so.
+          if (!(error instanceof HostError && error.status === 402)) throw error;
+        }
       }
-      return { ...base, status, plans: info.plans, ...(info.wallet ? { wallet: info.wallet } : {}) };
+      await keepReceipt(hosting, kept, status, receipt, description.name);
+      return {
+        ...base,
+        name: description.name,
+        status,
+        live: true,
+        pays: description.pay !== undefined,
+        ...(description.price ? { price: description.price } : {}),
+      };
     } catch (error) {
-      if (error instanceof HostError && error.status === 402) return { ...base, status: await client.status().catch(() => null), plans: [] };
-      return { ...base, status: null, plans: [], error: error instanceof Error ? error.message : String(error) };
+      return { ...base, name: hosting.name ?? new URL(hosting.url).host, status: kept, live: false, pays: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
@@ -841,6 +887,14 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     return found;
   }
 
+  /** An address a device may reach: https://, or http:// on this machine */
+  function checkAddress(address: string, what: string): URL {
+    const url = new URL(address);
+    const local = ['localhost', '127.0.0.1'].includes(url.hostname);
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) throw new Error(`${what} is reached over https://`);
+    return url;
+  }
+
   const hosting: NodeHosting = Object.freeze({
     async list() {
       return Promise.all((await hostingRecords()).map((known) => viewHosting(known)));
@@ -848,38 +902,21 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
     async use(address: string) {
       if (!accountSpaceId) throw new Error('Using a host needs the account key');
-      const url = new URL(address);
-      const local = ['localhost', '127.0.0.1'].includes(url.hostname);
-      if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) throw new Error('A host is reached over https://');
-      const base = url.origin;
+      const base = checkAddress(address, 'A host').origin;
       const known = (await hostingRecords()).find((existing) => existing.url === base);
       if (known) return viewHosting(known, true);
-      const info = await createHostClient(base, await subscriptionKey(newSubscriptionSeed(), provider), provider).info();
-      const record: Hosting = { url: base, host: info.did, seed: base64UrlEncode(newSubscriptionSeed()), since: new Date().toISOString() };
+      const description = await describeHost(base);
+      const record: Hosting = { url: base, host: description.did, name: description.name, seed: base64UrlEncode(newSubscriptionSeed()), since: new Date().toISOString() };
       await (await runtime(accountSpaceId)).upsertSystem<Hosting>(HOSTING_COLLECTION, await hostingKey(base), record);
       return viewHosting(record, true);
     },
 
-    async checkout(url: string, plan: string, returnUrl: string) {
-      const { client } = await hostClient(await requireHosting(url));
-      return (await client.checkout(plan, returnUrl)).url;
-    },
-
-    async manage(url: string, returnUrl: string) {
-      const { client } = await hostClient(await requireHosting(url));
-      return (await client.manage(returnUrl)).url;
-    },
-
-    async walletPayment(url: string, plan: string) {
-      const { client } = await hostClient(await requireHosting(url));
-      return client.walletPayment(plan);
-    },
-
-    async walletClaim(url: string, tx: string) {
+    async payPage(url: string) {
       const known = await requireHosting(url);
-      const { client } = await hostClient(known);
-      // Paid: ask again at once, which hands the host the spaces.
-      return (await client.walletClaim(tx)) ? viewHosting(known, true) : null;
+      const description = await describeKnown(known);
+      if (description.pay === undefined) throw new Error('This host takes no payments');
+      const page = checkAddress(new URL(description.pay, `${known.url}/`).toString(), 'A pay page');
+      return payLink(page.toString(), known.host, await subscriptionKey(base64UrlDecode(known.seed), provider), provider);
     },
 
     async stop(url: string) {
@@ -1305,10 +1342,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       hosting: Object.freeze({
         list: person('look at hosting'),
         use: person('start using a host'),
-        checkout: person('pay for hosting'),
-        manage: person('change what it pays'),
-        walletPayment: person('pay for hosting'),
-        walletClaim: person('pay for hosting'),
+        payPage: person('pay for hosting'),
         stop: person('stop using a host'),
       }),
       // The list only when the agent was given it; changing it, or asking anyone, is the person's.

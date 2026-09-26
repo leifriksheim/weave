@@ -75,6 +75,31 @@ export function walletFromEnv(env: NodeJS.ProcessEnv): WalletPayments | null {
 }
 
 /**
+ * How the host presents itself, from WEAVE_HOST_NAME, WEAVE_HOST_PRICE (text
+ * for people; default from the wallet prices), WEAVE_HOST_TERMS (an address),
+ * WEAVE_HOST_URL (its public https:// address, where Stripe sends people back
+ * to; default from each request) and WEAVE_WALLETCONNECT_PROJECT_ID (the pay
+ * page then reaches every wallet, not only the browser's).
+ */
+export function presentationFromEnv(env: NodeJS.ProcessEnv): {
+  name?: string;
+  price?: string;
+  terms?: string;
+  publicUrl?: string;
+  walletConnectProjectId?: string;
+} {
+  const url = env.WEAVE_HOST_URL?.trim();
+  if (url && !/^https?:\/\/[^/]+\/?$/.test(url)) throw new Error(`WEAVE_HOST_URL must be an address like https://host.example, not "${url}"`);
+  return {
+    ...(env.WEAVE_HOST_NAME ? { name: env.WEAVE_HOST_NAME } : {}),
+    ...(env.WEAVE_HOST_PRICE ? { price: env.WEAVE_HOST_PRICE } : {}),
+    ...(env.WEAVE_HOST_TERMS ? { terms: env.WEAVE_HOST_TERMS } : {}),
+    ...(url ? { publicUrl: url.replace(/\/$/, '') } : {}),
+    ...(env.WEAVE_WALLETCONNECT_PROJECT_ID ? { walletConnectProjectId: env.WEAVE_WALLETCONNECT_PROJECT_ID } : {}),
+  };
+}
+
+/**
  * The host's bucket, from WEAVE_S3_ENDPOINT, WEAVE_S3_BUCKET,
  * WEAVE_S3_ACCESS_KEY_ID and WEAVE_S3_SECRET_ACCESS_KEY (WEAVE_S3_REGION and
  * WEAVE_S3_PREFIX optional) — Cloudflare R2, or any S3-compatible store.

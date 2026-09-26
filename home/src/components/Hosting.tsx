@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { HostingView, P2PNode } from '@weaveprotocol/core/node';
 import { styles, palette } from '../styles';
-import { findWallets, forgetPending, pendingPayment, rememberPending, sendPayment, type Wallet } from '../wallet';
 
 /** The host this home offers by default; any other can be typed in */
 const DEFAULT_HOST = import.meta.env.VITE_WEAVE_HOST ?? '';
@@ -11,23 +10,31 @@ const TOP_UP_DAYS = 30;
 
 /**
  * "Keep my spaces online": one host, paid for once, carrying every space of
- * the account — without being able to read them. A card pays on the
- * provider's own page, and coming back here the list asks the host again and
- * hands it the spaces. A crypto wallet pays right here: the host gets the
- * transaction and checks it on the network.
+ * the account — without being able to read them.
+ *
+ * This home knows nothing about how a host is paid (BLOCK-23). **Payment**
+ * opens the host's own page in a new tab, with a link signed for this
+ * subscription; that page takes cards, wallets, whatever the host chose. The
+ * home stays in its own tab, and never follows a link the host hands it, so
+ * no host can send the person to a lookalike. Coming back to this tab, the
+ * list asks the host again — and what the host signs is kept in the registry.
  */
 export function Hosting({ node }: { node: P2PNode }) {
   const [hosts, setHosts] = useState<ReadonlyArray<HostingView> | null>(null);
   const [address, setAddress] = useState(DEFAULT_HOST);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** Several wallets in this browser: which one to pay with */
-  const [picking, setPicking] = useState<{ url: string; plan: string; wallets: ReadonlyArray<Wallet> } | null>(null);
-  /** A host whose wallet payment is sent, and waiting for the network */
-  const [confirming, setConfirming] = useState<string | null>(null);
 
-  const load = () => void node.hosting.list().then(setHosts, (reason: unknown) => setError(message(reason)));
-  useEffect(load, [node]);
+  useEffect(() => {
+    const load = () => void node.hosting.list().then(setHosts, (reason: unknown) => setError(message(reason)));
+    load();
+    // Back from the host's pay page in the other tab: ask again.
+    const back = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', back);
+    return () => document.removeEventListener('visibilitychange', back);
+  }, [node]);
 
   const act = async (what: string, work: () => Promise<void>) => {
     setBusy(what);
@@ -46,59 +53,22 @@ export function Hosting({ node }: { node: P2PNode }) {
       await node.hosting.use(address.trim());
       setHosts(await node.hosting.list());
     });
-  // Back to this very page after paying: it asks the host again, and the spaces go over.
-  const pay = (host: HostingView, plan: string) =>
-    act(`pay:${plan}`, async () => {
-      window.location.assign(await node.hosting.checkout(host.url, plan, window.location.href));
-    });
-  const manage = (host: HostingView) =>
-    act('manage', async () => {
-      window.location.assign(await node.hosting.manage(host.url, window.location.href));
-    });
-  // Asks the host every few seconds until the network has confirmed the transfer.
-  const claim = async (url: string, tx: string) => {
-    setConfirming(url);
-    try {
-      for (let tries = 0; tries < 60; tries++) {
-        if (await node.hosting.walletClaim(url, tx)) {
-          forgetPending(url);
-          setHosts(await node.hosting.list());
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+  const pay = (host: HostingView) => {
+    // Opened at once, inside the click, so no popup blocker stops it; the link follows.
+    const tab = window.open('about:blank', '_blank');
+    void act('pay', async () => {
+      try {
+        const link = await node.hosting.payPage(host.url);
+        if (!tab) return void window.open(link, '_blank', 'noopener');
+        // Cut the tab loose first: the host's page can't reach back into this one.
+        tab.opener = null;
+        tab.location.href = link;
+      } catch (reason) {
+        tab?.close();
+        throw reason;
       }
-      throw new Error("The network hasn't confirmed the payment yet. It counts once it has: come back to this page in a while.");
-    } catch (reason) {
-      // Refused for good (another amount, counted already): nothing left to ask about.
-      const status = (reason as { status?: number }).status;
-      if (status === 400 || status === 409) forgetPending(url);
-      throw reason;
-    } finally {
-      setConfirming(null);
-    }
-  };
-  const payWithWallet = (host: HostingView, plan: string, chosen?: Wallet) =>
-    act(`wallet:${plan}`, async () => {
-      if (!host.wallet) return;
-      const wallets = chosen ? [chosen] : await findWallets();
-      if (wallets.length === 0) throw new Error('There is no crypto wallet in this browser. Add one, like MetaMask or Coinbase Wallet, and try again.');
-      if (wallets.length > 1) return setPicking({ url: host.url, plan, wallets });
-      setPicking(null);
-      const payment = await node.hosting.walletPayment(host.url, plan);
-      const tx = await sendPayment(wallets[0]!, host.wallet, payment);
-      rememberPending(host.url, tx);
-      await claim(host.url, tx);
     });
-  // A payment sent before a reload is claimed when the page comes back.
-  const resumed = useRef(false);
-  useEffect(() => {
-    if (!hosts || resumed.current) return;
-    resumed.current = true;
-    for (const host of hosts) {
-      const tx = pendingPayment(host.url);
-      if (tx) void act('resume', () => claim(host.url, tx));
-    }
-  }, [hosts]);
+  };
   const stop = (host: HostingView) =>
     act('stop', async () => {
       await node.hosting.stop(host.url);
@@ -137,12 +107,17 @@ export function Hosting({ node }: { node: P2PNode }) {
         <div key={host.url} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={row}>
             <span>
-              {new URL(host.url).host} · {describe(host)}
+              {host.name} · {describe(host)}
             </span>
             <span style={{ display: 'flex', gap: 8 }}>
-              {host.status?.renews && (
-                <button onClick={() => void manage(host)} disabled={busy !== null} data-variant="quiet" style={styles.smallButton}>
-                  {busy === 'manage' ? 'Opening…' : 'Billing'}
+              {host.pays && (
+                <button
+                  onClick={() => pay(host)}
+                  disabled={busy !== null}
+                  data-variant={needsPaying(host) ? undefined : 'quiet'}
+                  style={needsPaying(host) ? styles.addButton : styles.smallButton}
+                >
+                  {busy === 'pay' ? 'Opening…' : 'Payment'}
                 </button>
               )}
               <button onClick={() => void stop(host)} disabled={busy !== null} data-variant="quiet" style={styles.smallButton}>
@@ -150,50 +125,7 @@ export function Hosting({ node }: { node: P2PNode }) {
               </button>
             </span>
           </div>
-          {(needsPaying(host) || runsOutSoon(host)) && host.plans.length > 0 && (
-            <PayGroup label="Card, Apple Pay or Google Pay">
-              {[...host.plans]
-                // A year up front first: cheaper for you, and nearly all of it reaches the host.
-                .sort((a, b) => (a.id === 'yearly' ? -1 : b.id === 'yearly' ? 1 : 0))
-                .map((plan, index) => (
-                  <button
-                    key={plan.id}
-                    onClick={() => void pay(host, plan.id)}
-                    disabled={busy !== null}
-                    style={index === 0 ? styles.addButton : styles.smallButton}
-                  >
-                    {busy === `pay:${plan.id}` ? 'Opening…' : `Pay ${plan.label.toLowerCase()}`}
-                  </button>
-                ))}
-            </PayGroup>
-          )}
-          {(needsPaying(host) || runsOutSoon(host)) && host.wallet && (
-            <PayGroup label={`Crypto wallet · ${host.wallet.symbol} on ${host.wallet.chainName}, straight to the host`}>
-              {host.wallet.plans.map((plan) => (
-                <button
-                  key={plan.id}
-                  onClick={() => void payWithWallet(host, plan.id)}
-                  disabled={busy !== null}
-                  style={host.plans.length === 0 && plan.id === host.wallet?.plans[0]?.id ? styles.addButton : styles.smallButton}
-                >
-                  {busy === `wallet:${plan.id}` && confirming !== host.url
-                    ? 'Waiting for the wallet…'
-                    : `${plan.label} · ${plan.price} ${host.wallet!.symbol}`}
-                </button>
-              ))}
-            </PayGroup>
-          )}
-          {picking?.url === host.url && (
-            <PayGroup label="Pay with">
-              {picking.wallets.map((wallet) => (
-                <button key={wallet.name} onClick={() => void payWithWallet(host, picking.plan, wallet)} disabled={busy !== null} style={styles.smallButton}>
-                  {wallet.icon && <img src={wallet.icon} alt="" width={16} height={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />}
-                  {wallet.name}
-                </button>
-              ))}
-            </PayGroup>
-          )}
-          {confirming === host.url && <p style={styles.errorHint}>Payment sent. Waiting for the network to confirm it, which takes a few seconds…</p>}
+          {host.pays && needsPaying(host) && host.price && <p style={styles.errorHint}>{host.price}, paid on the host's own page.</p>}
           {host.status?.state === 'grace' && (
             <p style={styles.errorHint}>
               The last payment ran out. Your spaces stay online for a while longer; pay again before then, or the host deletes its copy.
@@ -208,38 +140,30 @@ export function Hosting({ node }: { node: P2PNode }) {
   );
 }
 
+/** Not paid, running out, or time paid up front that ends within a month */
 function needsPaying(host: HostingView): boolean {
-  return !host.status || host.status.state === 'none' || host.status.state === 'lapsed' || host.status.state === 'grace';
-}
-
-/** Time paid up front, running out within a month: offer to add more */
-function runsOutSoon(host: HostingView): boolean {
   const status = host.status;
-  if (!status || status.state !== 'active' || status.renews || status.paidUntil === 0) return false;
+  if (!status || status.state !== 'active') return true;
+  if (status.renews || status.paidUntil === 0) return false;
   return status.paidUntil - Date.now() / 1000 < TOP_UP_DAYS * 24 * 3600;
-}
-
-function PayGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <span style={{ color: palette.ink.muted, fontSize: 13 }}>{label}</span>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{children}</div>
-    </div>
-  );
 }
 
 function describe(host: HostingView): string {
   const status = host.status;
-  if (!status) return `can't be reached right now${host.error ? ` (${host.error})` : ''}`;
+  const unreachable = `can't be reached right now${host.error ? ` (${host.error})` : ''}`;
+  if (!status) return unreachable;
+  // Not live: the last the host signed, from the registry.
+  const offline = host.live ? '' : ` · ${unreachable}`;
   const until = new Date(status.paidUntil * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-  const spaces = `${status.spaces} space${status.spaces === 1 ? '' : 's'} online`;
+  const spaces = host.live ? ` · ${status.spaces} space${status.spaces === 1 ? '' : 's'} online` : '';
   switch (status.state) {
     case 'active':
-      return status.paidUntil > 0 ? `paid until ${until} · ${spaces}` : spaces;
+      if (status.paidUntil === 0) return `free${spaces}${offline}`;
+      return `${status.renews ? 'renews' : 'paid until'} ${until}${spaces}${offline}`;
     case 'grace':
-      return `payment ran out on ${until} · ${spaces} for now`;
+      return `payment ran out on ${until}${spaces}${offline}`;
     default:
-      return host.plans.length || host.wallet ? 'not paid for yet' : "this host isn't taking new accounts";
+      return host.pays ? `not paid for yet${offline}` : `this host isn't taking new accounts${offline}`;
   }
 }
 

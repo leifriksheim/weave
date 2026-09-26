@@ -12,14 +12,48 @@
  * is never counted twice.
  *
  * Time is paid up front: a wallet can't be charged again each month, so a
- * payment adds a month or a year to the date, and the home offers to add more
- * before it runs out.
+ * payment adds a month or a year to the date, and the pay page offers to add
+ * more.
  *
  * Plain JSON-RPC over `fetch` (eth_getTransactionReceipt, eth_blockNumber,
  * eth_getBlockByNumber), against any node for the network — a public one,
  * one from a provider, or one's own.
  */
-import type { WalletOffer, WalletPayment } from '../../src/index.js';
+/**
+ * What the host takes from a wallet: USDC, sent straight to its own address
+ * on one network, for a plan of time paid up front. The pay page shows it.
+ */
+export interface WalletOffer {
+  /** The network, as wallets name it (EIP-155): 8453 for Base */
+  readonly chainId: number;
+  readonly chainName: string;
+  /** A public address a wallet may use to reach the network, if it doesn't know it yet */
+  readonly rpcUrl: string;
+  readonly explorerUrl: string;
+  /** The token's contract, and its decimals */
+  readonly token: string;
+  readonly symbol: string;
+  readonly decimals: number;
+  /** Where payments go: the host's own address */
+  readonly to: string;
+  /** Each plan's price, in whole units of the token ("36") */
+  readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string; readonly price: string }>;
+}
+
+/**
+ * One payment to make: send exactly `amount` of the token to `to`. The amount
+ * is the plan's price plus a fraction of a cent that no other open payment
+ * has, which is how the host knows the transfer is this subscription's.
+ */
+export interface WalletPayment {
+  readonly plan: string;
+  readonly chainId: number;
+  readonly token: string;
+  readonly to: string;
+  /** In the token's smallest unit, as a decimal string */
+  readonly amount: string;
+  readonly decimals: number;
+}
 
 /** The networks a host can take USDC on (Circle's own USDC, not a bridged one) */
 export const NETWORKS = {

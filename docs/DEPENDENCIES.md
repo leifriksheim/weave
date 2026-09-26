@@ -45,6 +45,13 @@ The CLI (`cli/`, a separate package) has one runtime dependency:
 |---|---|---|
 | `ws` | `cli/src/serve.ts` | The standard WebSocket server for Node for over a decade, no dependencies, and runs unchanged under Bun — so the node serves browsers without a hand-written protocol implementation. |
 
+A host's pay page (BLOCK-23) is the one place a large library is allowed,
+because it runs on the host's own address and never next to a key:
+
+| Package | Where | Why it's allowed there |
+|---|---|---|
+| `@reown/appkit` (dev dependency of `cli/`) | `cli/pay/walletconnect.ts`, bundled into `cli/pay/dist/walletconnect.js` | The WalletConnect team's own library: the only practical way to reach phone and desktop wallet apps. It brings ~250 packages, which fails the bar for the protocol and would be a risk in the account home, where the seed is. On the pay page it can reach no key, only the payment the person approves in their wallet. Loaded only when a host has a WalletConnect project id, and only when someone picks "another wallet". Browser wallets don't need it (EIP-6963, by hand). |
+
 ## Decided, not yet needed
 
 | Package | For | Instead of |

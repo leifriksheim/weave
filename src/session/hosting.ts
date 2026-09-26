@@ -13,6 +13,12 @@
  * Every call is signed over what it asks — method, path, time and body — the
  * way a signed HTTP request is (AWS SigV4, RFC 9421), and a host refuses one
  * more than five minutes off.
+ *
+ * What a device knows about paying is nothing (BLOCK-23). A host describes
+ * itself at a well-known address (like a Nostr relay's NIP-11 document), signs
+ * every status it gives, and takes payments on its own page, which the device
+ * opens with a link signed by the subscription key — the way an S3 link is
+ * pre-signed.
  */
 import type { CryptoProvider } from '../types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
@@ -32,6 +38,10 @@ export interface Hosting {
   /** The subscription key's seed, base64url */
   readonly seed: string;
   readonly since: string;
+  /** The host's name, as it described itself */
+  readonly name?: string;
+  /** The latest status the host signed — what every device shows, and the person's proof */
+  readonly receipt?: SignedStatus;
 }
 
 /** A subscription key, ready to sign with */
@@ -100,86 +110,120 @@ export async function verifyRequest(
   }
 }
 
-/** What a host says about a subscription */
+/** What a host says about a subscription, signed with its own key */
 export interface HostStatus {
   readonly subscription: string;
+  /** The host's key, which signed it */
+  readonly host: string;
   readonly state: 'active' | 'grace' | 'lapsed' | 'none';
   /** Unix seconds; 0 before it was ever paid */
   readonly paidUntil: number;
+  /** Paid through something that renews by itself (a card); false for time paid up front */
+  readonly renews: boolean;
   /** Whether it carries an account's spaces now */
   readonly carrying: boolean;
   /** How many spaces it carries for this subscription */
   readonly spaces: number;
-  /** Paid through a provider that renews it by itself (a card); false for time paid up front */
-  readonly renews: boolean;
+  /** When the host said it, unix seconds */
+  readonly at: number;
+}
+
+/** A status as the host sent it: the exact bytes, and its signature over them */
+export interface SignedStatus {
+  /** A `HostStatus`, as JSON */
+  readonly payload: string;
+  /** base64url P-256 signature over `weave-host-status/v1\n<payload>` */
+  readonly sig: string;
 }
 
 /**
- * What a host takes from a crypto wallet: USDC, sent straight to the host's
- * own address on one network, for a plan of time paid up front.
+ * What a host says about itself, to anyone, at `/.well-known/weave-host`.
+ * Nothing in it is about how the host is paid: that's on its pay page.
  */
-export interface WalletOffer {
-  /** The network, as wallets name it (EIP-155): 8453 for Base */
-  readonly chainId: number;
-  readonly chainName: string;
-  /** A public address a wallet may use to reach the network, if it doesn't know it yet */
-  readonly rpcUrl: string;
-  readonly explorerUrl: string;
-  /** The token's contract, and its decimals */
-  readonly token: string;
-  readonly symbol: string;
-  readonly decimals: number;
-  /** Where payments go: the host's own address */
-  readonly to: string;
-  /** Each plan's price, in whole units of the token ("36") */
-  readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string; readonly price: string }>;
-}
-
-/**
- * One payment to make: send exactly `amount` of the token to `to`. The amount
- * is the plan's price plus a fraction of a cent that no other open payment
- * has, which is how the host knows the transfer is this subscription's.
- */
-export interface WalletPayment {
-  readonly plan: string;
-  readonly chainId: number;
-  readonly token: string;
-  readonly to: string;
-  /** In the token's smallest unit, as a decimal string */
-  readonly amount: string;
-  readonly decimals: number;
-}
-
-/** What a host says about itself, to anyone */
-export interface HostInfo {
-  /** Its own key, as it appears to peers */
+export interface HostDescription {
+  readonly weave: 'host/1';
+  /** Its own key, as it appears to peers, and what signs its statuses */
   readonly did: string;
-  /** Whether every subscription counts as paid — someone hosting themselves */
+  readonly name: string;
+  /** Every subscription counts as paid — someone hosting themselves */
   readonly free: boolean;
-  readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
-  /** Present when it also takes payments from a crypto wallet */
-  readonly wallet?: WalletOffer;
+  /** For people, as the host puts it: "$4 a month or $36 a year" */
+  readonly price?: string;
+  /** Its pay page, relative to the host's address or absolute; absent when it takes no payments */
+  readonly pay?: string;
+  /** Its terms, for people */
+  readonly terms?: string;
 }
 
-/** A host's calls, signed as one subscription */
-export interface HostClient {
-  /** The host's own key and what it offers — asked without a subscription */
-  info(): Promise<HostInfo>;
-  status(): Promise<HostStatus>;
-  /** Hands the host the account's carry space */
-  attach(account: string, invite: string): Promise<HostStatus>;
-  detach(): Promise<void>;
-  /** A payment page's address; paying moves the subscription's date */
-  checkout(plan: string, returnUrl: string): Promise<{ readonly url: string }>;
-  /** The payment provider's page for changing the card, cancelling, receipts */
-  manage(returnUrl: string): Promise<{ readonly url: string }>;
-  /** What to send from a wallet for a plan. Asked again within a week, the same amount. */
-  walletPayment(plan: string): Promise<WalletPayment>;
-  /**
-   * Tells the host a wallet sent the payment: the transaction's hash. Null
-   * while the network hasn't confirmed it yet — ask again in a few seconds.
-   */
-  walletClaim(tx: string): Promise<HostStatus | null>;
+/** Where a host's description is */
+export const HOST_DESCRIPTION_PATH = '/.well-known/weave-host';
+
+/** How long a pay link works, in seconds */
+export const PAY_LINK_SECONDS = 3600;
+
+const statusText = (payload: string) => utf8Encode(`weave-host-status/v1\n${payload}`);
+const payText = (host: string, subscription: string, at: number) => utf8Encode(`weave-pay/v1\n${host}\n${subscription}\n${at}`);
+
+/** Signs a status with the host's key */
+export async function signStatus(status: HostStatus, privateKey: CryptoKey, provider: CryptoProvider = createP256Provider()): Promise<SignedStatus> {
+  const payload = JSON.stringify(status);
+  return { payload, sig: base64UrlEncode(await provider.sign(privateKey, statusText(payload))) };
+}
+
+/** The status a signed one says, when `host` signed it; null when it didn't */
+export async function readStatus(signed: SignedStatus, host: string, provider: CryptoProvider = createP256Provider()): Promise<HostStatus | null> {
+  try {
+    const publicKey = await provider.importPublicKey(didToPublicKey(host).publicKeyBytes);
+    if (!(await provider.verify(publicKey, base64UrlDecode(signed.sig), statusText(signed.payload)))) return null;
+    const status = JSON.parse(signed.payload) as HostStatus;
+    return status.host === host ? status : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A link to a host's pay page that lets whoever opens it pay for one
+ * subscription, at that host only, for an hour. The signature is in the
+ * fragment, which browsers never send to a server.
+ * @param pay The pay page's address, absolute
+ * @param host The host's key
+ */
+export async function payLink(
+  pay: string,
+  host: string,
+  key: SubscriptionKey,
+  provider: CryptoProvider = createP256Provider(),
+  at = Math.floor(Date.now() / 1000),
+): Promise<string> {
+  const sig = base64UrlEncode(await provider.sign(key.privateKey, payText(host, key.did, at)));
+  const url = new URL(pay);
+  url.hash = new URLSearchParams({ s: key.did, at: String(at), sig }).toString();
+  return url.toString();
+}
+
+/**
+ * The subscription a pay page's call is for — its `Authorization: WeavePay
+ * s=…, at=…, sig=…` header, from a pay link to this host (`host`, its key)
+ * that is less than an hour old. Null otherwise.
+ */
+export async function verifyPayLink(
+  header: string | undefined,
+  host: string,
+  provider: CryptoProvider = createP256Provider(),
+  now = Math.floor(Date.now() / 1000),
+): Promise<string | null> {
+  const match = /^WeavePay s=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/.exec(header ?? '');
+  if (!match) return null;
+  const [, did, atText, sig] = match as unknown as [string, string, string, string];
+  const at = Number(atText);
+  if (now - at > PAY_LINK_SECONDS || at - now > REQUEST_WINDOW_SECONDS) return null;
+  try {
+    const publicKey = await provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
+    return (await provider.verify(publicKey, base64UrlDecode(sig), payText(host, did, at))) ? did : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Why a host said no: its status code, and what it said */
@@ -192,33 +236,55 @@ export class HostError extends Error {
   }
 }
 
+async function answerOf<T>(response: Response): Promise<T> {
+  const answer = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) throw new HostError(response.status, answer.error ?? `The host answered ${response.status}`);
+  return answer;
+}
+
+/**
+ * What a host at an address says about itself.
+ * @param url The host's address, https://
+ */
+export async function describeHost(url: string): Promise<HostDescription> {
+  const description = await answerOf<HostDescription>(await fetch(`${url.replace(/\/+$/, '')}${HOST_DESCRIPTION_PATH}`));
+  if (description.weave !== 'host/1' || typeof description.did !== 'string' || !description.did.startsWith('did:key:')) {
+    throw new Error("That address doesn't answer as a Weave host");
+  }
+  return description;
+}
+
+/** A host's calls, signed as one subscription */
+export interface HostClient {
+  /** How the subscription stands, checked as signed by the host; and the signed original, to keep */
+  status(): Promise<{ readonly status: HostStatus; readonly receipt: SignedStatus }>;
+  /** Hands the host the account's carry space */
+  attach(account: string, invite: string): Promise<{ readonly status: HostStatus; readonly receipt: SignedStatus }>;
+  detach(): Promise<void>;
+}
+
 /**
  * A client for one host, signing as one subscription.
  * @param url The host's address, https://
+ * @param host The host's key: every status must be signed by it
  */
-export function createHostClient(url: string, key: SubscriptionKey, provider: CryptoProvider = createP256Provider()): HostClient {
+export function createHostClient(url: string, host: string, key: SubscriptionKey, provider: CryptoProvider = createP256Provider()): HostClient {
   const base = url.replace(/\/+$/, '');
-  async function call<T>(method: string, path: string, body?: unknown, signed = true): Promise<T> {
+  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const text = body === undefined ? '' : JSON.stringify(body);
-    const headers: Record<string, string> = body === undefined ? {} : { 'content-type': 'application/json' };
-    if (signed) headers.authorization = await signRequest(key, method, path, text, provider);
-    const response = await fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: text }) });
-    const answer = (await response.json().catch(() => ({}))) as T & { error?: string };
-    if (!response.ok) throw new HostError(response.status, answer.error ?? `The host answered ${response.status}`);
-    return answer;
+    const headers: Record<string, string> = { authorization: await signRequest(key, method, path, text, provider) };
+    if (body !== undefined) headers['content-type'] = 'application/json';
+    return answerOf<T>(await fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: text }) }));
   }
+  const checked = async (receipt: SignedStatus) => {
+    const status = await readStatus(receipt, host, provider);
+    if (!status || status.subscription !== key.did) throw new Error("The host's answer isn't signed by the host this account uses");
+    return { status, receipt };
+  };
   const mine = `/host/subscriptions/${encodeURIComponent(key.did)}`;
   return Object.freeze({
-    info: () => call<HostInfo>('GET', '/host', undefined, false),
-    status: () => call<HostStatus>('GET', mine),
-    attach: (account: string, invite: string) => call<HostStatus>('PUT', `${mine}/carry`, { account, invite }),
+    status: async () => checked(await call<SignedStatus>('GET', mine)),
+    attach: async (account: string, invite: string) => checked(await call<SignedStatus>('PUT', `${mine}/carry`, { account, invite })),
     detach: async () => void (await call('DELETE', `${mine}/carry`)),
-    checkout: (plan: string, returnUrl: string) => call<{ url: string }>('POST', `${mine}/checkout`, { plan, returnUrl }),
-    manage: (returnUrl: string) => call<{ url: string }>('POST', `${mine}/manage`, { returnUrl }),
-    walletPayment: (plan: string) => call<WalletPayment>('POST', `${mine}/wallet`, { plan }),
-    walletClaim: async (tx: string) => {
-      const answer = await call<HostStatus | { waiting: true }>('POST', `${mine}/wallet/claim`, { tx });
-      return 'waiting' in answer ? null : answer;
-    },
   });
 }
