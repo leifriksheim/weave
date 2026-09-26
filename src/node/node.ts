@@ -960,7 +960,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   /** Last time each host was handed the spaces, or refused them — so asking again waits a while */
   const handedAt = new Map<string, number>();
   const HAND_AGAIN_MS = 60_000;
-  /** Handovers under way, by host address: a second look waits for the first rather than reporting what it will change */
+  /** Handovers under way, so a second look waits for the first instead of reporting the spaces not carried */
   const handing = new Map<string, Promise<{ status: HostStatus; receipt: SignedStatus }>>();
 
   /**
@@ -985,24 +985,21 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       let { status, receipt } = await client.status();
       const due = force || Date.now() - (handedAt.get(hosting.url) ?? 0) > HAND_AGAIN_MS;
       const paid = status.state === 'active' || status.state === 'grace' || (description.free && status.state !== 'lapsed');
-      const underWay = handing.get(hosting.url);
-      if (underWay) {
-        ({ status, receipt } = await underWay);
+      const inFlight = handing.get(hosting.url);
+      if (!status.carrying && inFlight) {
+        // Another look is handing the spaces over right now: wait for it,
+        // rather than answer "not carrying" while they're on their way.
+        const handed = await inFlight.catch(() => null);
+        if (handed) ({ status, receipt } = handed);
       } else if (!status.carrying && paid && due && !agentSession) {
         handedAt.set(hosting.url, Date.now());
-        const asked = { status, receipt };
-        const handover = (async () => {
-          try {
-            return await client.attach(config.signer.did, await carryFor(hosting));
-          } catch (error) {
-            // Not paid after all (it lapsed in between): the status says so.
-            if (!(error instanceof HostError && error.status === 402)) throw error;
-            return asked;
-          }
-        })();
-        handing.set(hosting.url, handover);
+        const attaching = carryFor(hosting).then((invite) => client.attach(config.signer.did, invite));
+        handing.set(hosting.url, attaching);
         try {
-          ({ status, receipt } = await handover);
+          ({ status, receipt } = await attaching);
+        } catch (error) {
+          // Not paid after all (it lapsed in between): the status says so.
+          if (!(error instanceof HostError && error.status === 402)) throw error;
         } finally {
           handing.delete(hosting.url);
         }
