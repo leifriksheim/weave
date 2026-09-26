@@ -18,6 +18,7 @@ import type { ServerAuth } from '../network/peer-auth.js';
 import type { StoreFactory } from './stores.js';
 import type { JsonSchema, SchemaIssue } from '../schema/collection-def.js';
 import type { Keeper } from '../space/roles.js';
+import type { NotifyWhen } from '../space/notify.js';
 
 export interface NodeNetworkConfig {
   /** Relays for WebRTC, browsers only. Each space meets in the room named after its id. */
@@ -584,6 +585,30 @@ export interface NodeCarriers {
   remove(space: string): Promise<void>;
 }
 
+/** A subscription, as the person made it (`space/notify.ts`) */
+export interface NotifyView extends NotifyWhen {
+  readonly id: string;
+}
+
+/**
+ * "Let me know when…": new records in a collection, in some of the account's
+ * spaces or all of them, perhaps only those with a topic value, perhaps only
+ * other people's. The account's carriers — its extension — notice them and
+ * say so, without reading anything: they get each subscription with its value
+ * replaced by a topic tag. Needs the account key.
+ */
+export interface NodeNotifications {
+  list(): Promise<ReadonlyArray<NotifyView>>;
+  /**
+   * Starts one. `topic` matches exact values of a topic field the collection
+   * names (`topics`): `{ field: 'mentions', value: myDid }`.
+   */
+  add(when: Omit<NotifyWhen, 'since'> & { readonly since?: string }): Promise<NotifyView>;
+  /** Changes its label, pauses or resumes it */
+  update(id: string, changes: { readonly label?: string; readonly paused?: boolean }): Promise<NotifyView>;
+  remove(id: string): Promise<void>;
+}
+
 /** A host the account uses, and what it says now */
 export interface HostingView {
   /** The host's address */
@@ -737,6 +762,8 @@ export interface P2PNode {
   readonly carriers: NodeCarriers;
   /** Hosts the account pays to keep its spaces online */
   readonly hosting: NodeHosting;
+  /** "Let me know when…" — noticed by the account's carriers, which can't read what they notice */
+  readonly notifications: NodeNotifications;
   /** People: the account's contact list, and asking to be added */
   readonly contacts: NodeContacts;
   /** The delegation the session key currently writes under (root → session) */

@@ -17,6 +17,11 @@ import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { createMeshAuth } from '../src/network/peer-auth.js';
 import { makePass, openPass, carriedRecord } from '../src/space/pass.js';
+import { carriedFor, matchesSubscription } from '../src/space/notify.js';
+import type { CarrierEvent } from '../src/node/carrier.js';
+import { generateSpaceKey } from '../src/privacy/space-encryption.js';
+import { hold } from './helpers/hold.js';
+import { joined } from './helpers/joined.js';
 import { createSpaceManager, parseSpaceInvite } from '../src/space/space-manager.js';
 import { team } from '../src/space/presets.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
@@ -284,5 +289,82 @@ describe('a carrier', () => {
     const notes = await home.spaces.create({ name: 'Notes', visibility: 'private' });
     await assert.rejects(home.records.put(notes.id, 'sys.pass', { v: 1 }), /written by the node itself/);
     await assert.rejects(home.records.put(added.space, 'sys.pass', { v: 1 }), /written by the node itself/);
+  });
+});
+
+describe('notifications through a carrier', () => {
+  test('a carrier gets tags, never the values it matches', async () => {
+    const key = await generateSpaceKey();
+    const when = { label: 'Mentioned', collection: 'app.chat', spaces: 'all' as const, topic: { field: 'mentions', value: 'did:key:zMe' }, since: new Date().toISOString() };
+    const carried = await carriedFor(when, [
+      { id: 'club', key, visibility: 'private' },
+      { id: 'blog', key: null, visibility: 'public' },
+      { id: 'locked', key: null, visibility: 'private' },
+    ]);
+    assert.equal(JSON.stringify(carried).includes('zMe'), false);
+    assert.deepEqual(Object.keys(carried.tags ?? {}).sort(), ['blog', 'club'], 'a private space with no key here gets no tag, so never matches');
+    const version = {
+      id: 'x', author: 'did:key:zAnna', collection: 'app.chat', createdAt: new Date().toISOString(), body: {}, key: 'k', seq: 0, signature: 's',
+      tags: carried.tags!['club']!,
+    };
+    assert.equal(matchesSubscription(carried, 'club', version, 'did:key:zMe'), true);
+    assert.equal(matchesSubscription(carried, 'blog', version, 'did:key:zMe'), false, 'another space’s tag');
+    assert.equal(matchesSubscription(carried, 'club', { ...version, author: 'did:key:zMe' }, 'did:key:zMe'), false, 'my own');
+    assert.equal(matchesSubscription(carried, 'club', { ...version, seq: 1 }, 'did:key:zMe'), false, 'an edit, not a new record');
+    assert.equal(matchesSubscription(carried, 'club', { ...version, createdAt: '2020-01-01T00:00:00Z' }, 'did:key:zMe'), false, 'from before it was made');
+    assert.equal(matchesSubscription({ ...carried, paused: true }, 'club', version, 'did:key:zMe'), false, 'paused');
+  });
+
+  test('someone mentions you in a private space: the carrier says so, and nothing else', async () => {
+    const me = await account();
+    const anna = await account();
+    const hub = createFakeHub({ latencyMs: 1 });
+    const laptop = await device(me, hub);
+    const annaNode = await device(anna, hub);
+    const club = await laptop.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await laptop.collections.define(club.id, { name: 'app.chat', schema: { type: 'object' }, topics: ['mentions', 'channel'] });
+    await annaNode.spaces.join(await laptop.spaces.invite(club.id, { role: 'editor' }));
+    await hold(laptop, club.id);
+    await hold(annaNode, club.id);
+    await joined(annaNode, club.id);
+    await until(async () => (await annaNode.collections.list(club.id)).some((c) => c.topics.length === 2), 5000, 'the definition to reach Anna');
+
+    const added = await laptop.carriers.add({ did: (await carrierKey()).did, name: 'Chrome' });
+    const node = await carrier(me, added.invite, hub);
+    const heard: Array<Extract<CarrierEvent, { type: 'notify' }>> = [];
+    node.subscribe((event) => {
+      if (event.type === 'notify') heard.push(event);
+    });
+    await until(carries(node, club.id), 5000, 'the space to be carried');
+
+    const mentioned = await laptop.notifications.add({ label: 'Mentioned in Club', collection: 'app.chat', spaces: 'all', topic: { field: 'mentions', value: me.did } });
+    await laptop.notifications.add({ label: 'Anything in #design', collection: 'app.chat', spaces: [club.id], topic: { field: 'channel', value: 'design' } });
+    await until(async () => (await node.subscriptions()).length === 2, 5000, 'the carrier to hold the subscriptions');
+    assert.deepEqual((await node.subscriptions()).map((s) => s.label).sort(), ['Anything in #design', 'Mentioned in Club']);
+    assert.deepEqual((await laptop.notifications.list()).map((s) => s.label), ['Mentioned in Club', 'Anything in #design']);
+
+    await annaNode.records.put(club.id, 'app.chat', { text: 'look, @you', mentions: [me.did], channel: 'random' });
+    await until(async () => heard.length === 1, 5000, 'the mention to be noticed');
+    assert.equal(heard[0]!.subscription.label, 'Mentioned in Club');
+    assert.equal(heard[0]!.space.name, 'Club');
+    assert.equal(JSON.stringify(heard[0]).includes('look'), false, 'the carrier never saw the text');
+
+    // Your own writes, and what matches no subscription, stay quiet.
+    await laptop.records.put(club.id, 'app.chat', { text: 'note to self', mentions: [me.did] });
+    await annaNode.records.put(club.id, 'app.chat', { text: 'unrelated', channel: 'random' });
+    await annaNode.records.put(club.id, 'app.chat', { text: 'new logo', channel: 'design' });
+    await until(async () => heard.length === 2, 5000, 'the #design message to be noticed');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(heard.map((h) => h.subscription.label), ['Mentioned in Club', 'Anything in #design']);
+
+    // Paused: quiet.
+    await laptop.notifications.update(mentioned.id, { paused: true });
+    await until(async () => (await node.subscriptions()).some((s) => s.paused), 5000, 'the pause to reach the carrier');
+    await annaNode.records.put(club.id, 'app.chat', { text: 'again, @you', mentions: [me.did] });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(heard.length, 2);
+
+    await laptop.notifications.remove(mentioned.id);
+    await until(async () => (await node.subscriptions()).length === 1, 5000, 'the removal to reach the carrier');
   });
 });

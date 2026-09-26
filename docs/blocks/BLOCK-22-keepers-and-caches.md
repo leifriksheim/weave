@@ -1,11 +1,13 @@
 # BLOCK-22 — Keepers and caches: not every node holds everything
 
-> **Status (2026-09-26):** parts 1–3 built on branch `keepers-and-caches`:
-> the Merkle tree is gone and sync is Negentropy, one collection at a time;
-> apps connected to an account home hold only what they use once a space names
-> keepers; collections can name topic fields, and records carry blind tags for
-> them. Where the build differs from the plan below, each part says so. Part 4
-> (subscriptions and pushes) is still ahead.
+> **Status (2026-09-26):** built on branch `keepers-and-caches`: the Merkle
+> tree is gone and sync is Negentropy, one collection at a time; apps connected
+> to an account home hold only what they use once a space names keepers;
+> collections can name topic fields, and records carry blind tags for them;
+> subscriptions across spaces, noticed by the extension, which shows
+> notifications itself. Where the build differs from the plan below, each part
+> says so. Left: Web Push for closed browsers and phones, and the smaller
+> items each part lists.
 
 ## What this delivers
 
@@ -564,6 +566,56 @@ space.
 - a keeper's logs and stores hold no decrypted body or topic value.
 
 ---
+
+
+**As built — the extension first, no push service.** Chrome's extension is
+already running and already sees every record arrive, so it shows
+notifications itself (`chrome.notifications`): no Web Push, no push service
+in between. Web Push, for a closed browser or a phone, is left for later (see
+below). What was built:
+
+- **Two records, not one.** The person's subscription, value and all, is kept
+  in the account registry (`sys.notify`, key `notify:<id>`), sealed.
+  Every device holding the account key copies each one into every carry space
+  as `sys.subscription`, with the value replaced by each space's tag
+  (`space/notify.ts`, `carriedFor`) — the same way it keeps passes in step.
+  A carrier learns "tag X, in Club", never what X is. A private space whose key
+  that device doesn't hold gets no tag, so it never matches.
+- `node.notifications` — `list`, `add({ label, collection, spaces, topic?,
+  others?, open? })`, `update(id, { label?, paused? })`, `remove`. Needs the
+  account key.
+- **Matching** (`matchesSubscription`): a record new to the carrier, arriving
+  from a peer; seq 0 (a new record, not an edit or delete); the collection;
+  one of the spaces; written after the subscription was made and within the
+  last 24 hours (a carrier catching up on last week stays quiet); by someone
+  else when `others` (the account at the root of its note); and carrying the
+  space's tag when there is a topic. All from the outside of the record.
+- The carrier emits `{ type: 'notify', subscription, space, record }` —
+  label, space name, record key and time — and `carrier.subscriptions()`
+  lists them.
+- **The extension**: the offscreen page hands each match to the worker, the
+  only part allowed to show a notification: the space as the title, the
+  label as the text, the time. Several for one subscription within a minute
+  become one, "3 new". Clicking opens the subscription's `open` address, or
+  the account home. The popup lists "Notify me when…", mutes one in this
+  browser only, and its **Add or change** button opens the home at
+  `#notifications`. The manifest gains the `notifications` permission.
+- **The home**: a "Notify me when…" section — every space or one, a
+  collection, optionally "only when <topic field> is <value>" with a **Me**
+  button, only other people's, a label (suggested) — and pause and remove.
+- A host carries for accounts too, and so gets the subscriptions, labels
+  included; it ignores the matches. Labels are the one thing a carrier reads
+  as written: they are the person's own words, shown as the notification.
+
+**Not built yet:** Web Push. When it is: a host (or the extension) POSTs the
+encrypted record to the endpoint the browser gave (RFC 8030, 8291, VAPID
+8292) — plain HTTPS, no SDK or account with anyone, but the browser chooses
+the push service behind the endpoint (Chrome's is Google's, Firefox's
+Mozilla's, Safari's Apple's), which sees only ciphertext and timing. That is
+what reaches a closed browser or a phone. Also not built: the example chat's
+"notify me when I'm mentioned", and a browser-driven test of the extension's
+popup and notifications (the library side is tested: `tests/carrier.test.ts`,
+"notifications through a carrier").
 
 ## Not in this block
 

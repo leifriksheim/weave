@@ -411,6 +411,10 @@ export type {
   SubscriptionState,
   Keeper,
   CacheConfig,
+  NodeNotifications,
+  NotifyView,
+  NotifyWhen,
+  CarriedSubscriptionView,
 } from './node/index.js';
 
 // Queries: plain-data filters, sorting, paging and includes over a space

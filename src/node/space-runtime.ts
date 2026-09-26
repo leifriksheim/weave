@@ -244,6 +244,8 @@ export interface SpaceRuntimeDeps {
   readonly peopleOnly?: boolean;
   /** Hold only the collections used, once the space names a keeper (`NodeConfig.cache`). Absent: hold it whole. */
   readonly cache?: CacheConfig;
+  /** Told of every version a peer sent that was taken in — what a carrier matches subscriptions against */
+  readonly onArrived?: (version: Expression) => void;
 }
 
 export interface SpaceRuntime {
@@ -1427,9 +1429,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }, 100);
   };
 
-  sync.on('expression-received', () => {
+  sync.on('expression-received', (version: Expression) => {
     recordsChanged();
     announceSoon();
+    deps.onArrived?.(version);
   });
   sync.on('rejected', (peer: string, _expression: Expression, reason: string) => {
     rejected += 1;

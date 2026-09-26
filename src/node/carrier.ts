@@ -28,6 +28,8 @@ import { createSigner } from '../schema/signer.js';
 import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
 import { carriedRecord, CARRY_CLOSED_KEY, openPass, PASS_COLLECTION } from '../space/pass.js';
+import { matchesSubscription, readCarried, SUBSCRIPTION_COLLECTION, type CarriedSubscription } from '../space/notify.js';
+import type { Expression } from '../types.js';
 import { createLocalHub, type LocalHub } from '../network/local-transport.js';
 import { meshFor, openSpaceRuntime, type SpaceRuntime } from './space-runtime.js';
 import type { StoreFactory } from './stores.js';
@@ -68,7 +70,28 @@ export type CarrierEvent =
   /** Records arrived, or peers came and went, in a space */
   | { readonly type: 'status'; readonly space: string }
   /** The account stopped using this carrier: forget everything */
-  | { readonly type: 'closed' };
+  | { readonly type: 'closed' }
+  /**
+   * A record arrived that one of the account's subscriptions asks about. Only
+   * what the carrier can see: which subscription, which space, which record.
+   */
+  | {
+      readonly type: 'notify';
+      readonly subscription: CarriedSubscriptionView;
+      readonly space: { readonly id: string; readonly name: string };
+      readonly record: { readonly key: string; readonly collection: string; readonly createdAt: string };
+    };
+
+/** A subscription as the carrier holds it: the person's label, what it looks at, where a click goes */
+export interface CarriedSubscriptionView {
+  readonly id: string;
+  readonly label: string;
+  readonly collection: string;
+  /** The spaces it looks at, by name; empty for every space */
+  readonly spaces: ReadonlyArray<string>;
+  readonly open?: string;
+  readonly paused: boolean;
+}
 
 export interface CarrierNode {
   readonly did: string;
@@ -80,6 +103,8 @@ export interface CarrierNode {
    * data path in it. Null stops writing there; the carrier's own copy goes on.
    */
   usePod(stores: StoreFactory | null): Promise<void>;
+  /** The account's subscriptions, as this carrier holds them */
+  subscriptions(): Promise<ReadonlyArray<CarriedSubscriptionView>>;
   subscribe(listener: (event: CarrierEvent) => void): () => void;
   close(): Promise<void>;
 }
@@ -96,6 +121,8 @@ interface Carry {
   readonly account: string;
   /** The spaces its passes named last time they were read */
   wants: ReadonlySet<string>;
+  /** Its subscriptions, by key, as last read */
+  subscriptions: ReadonlyMap<string, CarriedSubscription>;
 }
 
 export interface CarryCoreConfig {
@@ -141,8 +168,16 @@ export async function createCarryCore(config: CarryCoreConfig) {
   const carried = new Map<string, Carried>();
 
   const mesh = meshFor(config.network, did);
-  const open = (record: SpaceRecord, stores: StoreFactory, as: typeof session, network: NodeNetworkConfig, onEvent: (event: NodeEvent) => void) =>
+  const open = (
+    record: SpaceRecord,
+    stores: StoreFactory,
+    as: typeof session,
+    network: NodeNetworkConfig,
+    onEvent: (event: NodeEvent) => void,
+    onArrived?: (version: Expression) => void,
+  ) =>
     openSpaceRuntime({
+      ...(onArrived ? { onArrived } : {}),
       // Carried spaces meet through relays; the copy in the pod only over the local link.
       ...(as === session && mesh ? { mesh } : {}),
       ...(as === session && config.mirror ? { mirrors: [config.mirror] } : {}),
@@ -177,15 +212,54 @@ export async function createCarryCore(config: CarryCoreConfig) {
       ...config.network,
       transports: (space, sessionDid) => [...(config.network?.transports?.(space, sessionDid) ?? []), hub.transport(did)],
     };
-    const runtime = await open(record, config.stores, session, network, (event) => {
-      if (event.type === 'records' || event.type === 'status') emit({ type: 'status', space: spaceId });
-      if (event.type === 'records' && carries.has(spaceId)) void refresh();
-    });
+    const runtime = await open(
+      record,
+      config.stores,
+      session,
+      network,
+      (event) => {
+        if (event.type === 'records' || event.type === 'status') emit({ type: 'status', space: spaceId });
+        if (event.type === 'records' && carries.has(spaceId)) void refresh();
+      },
+      (version) => arrived(record, version),
+    );
     if (closed) return void (await runtime.close());
     const entry: Carried = { record, hub, runtime, pod: null };
     carried.set(spaceId, entry);
     if (podStores) entry.pod = openPod(record, hub, podStores);
   }
+
+  /** Records already said something about — one can arrive twice, from a peer and from the pod */
+  const noticed = new Set<string>();
+
+  /** A record arrived in a space: does any subscription of an account carrying it ask about it? */
+  function arrived(record: SpaceRecord, version: Expression): void {
+    const spaceId = record.space.id;
+    if (noticed.has(version.id) || carries.has(spaceId)) return;
+    for (const entry of carries.values()) {
+      if (!entry.wants.has(spaceId)) continue;
+      for (const [id, sub] of entry.subscriptions) {
+        if (!matchesSubscription(sub, spaceId, version, entry.account)) continue;
+        noticed.add(version.id);
+        if (noticed.size > 1000) noticed.delete(noticed.values().next().value!);
+        emit({
+          type: 'notify',
+          subscription: view(id, sub),
+          space: { id: spaceId, name: record.space.name },
+          record: { key: version.key, collection: version.collection, createdAt: version.createdAt },
+        });
+      }
+    }
+  }
+
+  const view = (id: string, sub: CarriedSubscription): CarriedSubscriptionView => ({
+    id,
+    label: sub.label,
+    collection: sub.collection,
+    spaces: sub.spaces === 'all' ? [] : sub.spaces.map((space) => carried.get(space)?.record.space.name ?? 'a space'),
+    ...(sub.open ? { open: sub.open } : {}),
+    paused: sub.paused,
+  });
 
   async function drop(spaceId: string): Promise<void> {
     const entry = carried.get(spaceId);
@@ -218,6 +292,13 @@ export async function createCarryCore(config: CarryCoreConfig) {
         config.onClosed(carrySpace);
         continue;
       }
+      const subscriptions = new Map<string, CarriedSubscription>();
+      for (const record of await carryRuntime.list<unknown>({ collection: SUBSCRIPTION_COLLECTION })) {
+        if (!record.verified || record.root !== entry.account) continue;
+        const sub = readCarried(record.body);
+        if (sub) subscriptions.set(record.key, sub);
+      }
+      entry.subscriptions = subscriptions;
       const wants = new Set<string>();
       for (const record of records) {
         if (!record.key.startsWith('pass:')) continue;
@@ -269,7 +350,7 @@ export async function createCarryCore(config: CarryCoreConfig) {
         await registry.remove(carrySpace);
         throw new Error('That is not an invite to a carry space.');
       }
-      if (!carries.has(carrySpace)) carries.set(carrySpace, { account, wants: new Set() });
+      if (!carries.has(carrySpace)) carries.set(carrySpace, { account, wants: new Set(), subscriptions: new Map() });
       await carry(record);
       await refresh();
       return carrySpace;
@@ -293,6 +374,11 @@ export async function createCarryCore(config: CarryCoreConfig) {
         if (stores) entry.pod = openPod(entry.record, entry.hub, stores);
       }
       emit({ type: 'spaces' });
+    },
+
+    async subscriptions(): Promise<ReadonlyArray<CarriedSubscriptionView>> {
+      await refreshing;
+      return [...carries.values()].flatMap((entry) => [...entry.subscriptions].map(([id, sub]) => view(id, sub)));
     },
 
     async spaces(): Promise<ReadonlyArray<CarriedSpace>> {
@@ -353,6 +439,7 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
     carrySpace,
     spaces: core.spaces,
     usePod: core.setPod,
+    subscriptions: core.subscriptions,
 
     subscribe(listener: (event: CarrierEvent) => void) {
       listeners.add(listener);

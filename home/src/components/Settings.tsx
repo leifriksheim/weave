@@ -5,6 +5,7 @@ import { useAuth, useSession } from '@weaveprotocol/core/react';
 import { Avatar } from './Avatar';
 import { PairPhone } from './PairPhone';
 import { Hosting } from './Hosting';
+import { Notifications } from './Notifications';
 import { styles, palette } from '../styles';
 
 /**
@@ -125,6 +126,8 @@ export function Settings() {
       </Section>
 
       <Hosting node={session.node} />
+
+      <Notifications node={session.node} carriers={carriers} />
 
       <Section
         title="Passkey"

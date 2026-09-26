@@ -52,6 +52,7 @@ import {
   type Membership,
 } from '../space/account-registry.js';
 import { CARRY_CLOSED_KEY, makePass, PASS_COLLECTION, passKey, type SpacePass } from '../space/pass.js';
+import { carriedFor, checkNotify, NOTIFY_COLLECTION, SUBSCRIPTION_COLLECTION, type NotifySpace, type NotifyWhen } from '../space/notify.js';
 import {
   createHostClient,
   describeHost,
@@ -67,7 +68,7 @@ import {
   type Hosting,
   type SignedStatus,
 } from '../session/hosting.js';
-import { sha256 } from '../utils/hash.js';
+import { base32Encode, sha256 } from '../utils/hash.js';
 import type {
   ContactRequest,
   ContactView,
@@ -82,6 +83,8 @@ import type {
   NodeRecord,
   NodeAccount,
   NodeCarriers,
+  NodeNotifications,
+  NotifyView,
   NodeHosting,
   HostingView,
   NodeCollections,
@@ -524,6 +527,45 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       held.delete(key);
     }
     for (const [key, record] of held) if (!record.deleted) await carry.removeSystem(key);
+
+    // Subscriptions, with each value replaced by the space's tag: the carrier matches, never learns.
+    const spaces: NotifySpace[] = [];
+    for (const membership of await memberships()) {
+      if (membership.deleted || !membership.body || hidden(membership.body.space)) continue;
+      const record = await registry.get(membership.body.space);
+      if (record) spaces.push({ id: record.space.id, key: record.key, visibility: record.space.visibility });
+    }
+    const subscriptions = new Map<string, unknown>();
+    for (const view of await notifyRecords()) subscriptions.set(view.id, await carriedFor(view, spaces));
+    const carried = new Map(
+      (await carry.list<unknown>({ collection: SUBSCRIPTION_COLLECTION, includeDeleted: true }))
+        .filter((record) => record.verified && record.root === config.signer.did)
+        .map((record) => [record.key, record]),
+    );
+    for (const [key, body] of subscriptions) {
+      const current = carried.get(key);
+      if (!current || current.deleted || JSON.stringify(current.body) !== JSON.stringify(body)) await carry.upsertSystem(SUBSCRIPTION_COLLECTION, key, body);
+      carried.delete(key);
+    }
+    for (const [key, record] of carried) if (!record.deleted) await carry.removeSystem(key);
+  }
+
+  /** The account's subscriptions, as it made them */
+  async function notifyRecords(): Promise<ReadonlyArray<NotifyView>> {
+    if (!accountSpaceId) return [];
+    const found: NotifyView[] = [];
+    for (const record of await (await runtime(accountSpaceId)).list<NotifyWhen>({ collection: NOTIFY_COLLECTION })) {
+      if (!record.verified || record.root !== config.signer.did || !record.key.startsWith('notify:') || checkNotify(record.body) !== null) continue;
+      found.push({ ...record.body!, id: record.key });
+    }
+    return found.sort((a, b) => a.since.localeCompare(b.since));
+  }
+
+  /** Every carrier gets the subscriptions as they are now */
+  async function passSubscriptionsOn(): Promise<void> {
+    for (const { record } of await carrierRecords()) {
+      if (!record.deleted && record.body) await syncPasses(record.body).catch(() => {});
+    }
   }
 
   /**
@@ -804,6 +846,45 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     await runtime(accountSpaceId);
     await reconcile();
   }
+
+  const notifications: NodeNotifications = Object.freeze({
+    list: notifyRecords,
+
+    async add(when: Omit<NotifyWhen, 'since'> & { readonly since?: string }) {
+      if (!accountSpaceId) throw new Error('Subscriptions need the account key');
+      const body: NotifyWhen = { ...when, label: when.label.trim(), since: when.since ?? new Date().toISOString() };
+      const problem = checkNotify(body);
+      if (problem) throw new Error(problem);
+      const id = `notify:${base32Encode(globalThis.crypto.getRandomValues(new Uint8Array(10)))}`;
+      await (await runtime(accountSpaceId)).upsertSystem<NotifyWhen>(NOTIFY_COLLECTION, id, body);
+      await passSubscriptionsOn();
+      return { ...body, id };
+    },
+
+    async update(id: string, changes: { readonly label?: string; readonly paused?: boolean }) {
+      if (!accountSpaceId) throw new Error('Subscriptions need the account key');
+      const current = (await notifyRecords()).find((view) => view.id === id);
+      if (!current) throw new Error('There is no such subscription');
+      const { id: _id, ...was } = current;
+      const body: NotifyWhen = {
+        ...was,
+        ...(changes.label !== undefined ? { label: changes.label.trim() } : {}),
+        ...(changes.paused !== undefined ? { paused: changes.paused } : {}),
+      };
+      const problem = checkNotify(body);
+      if (problem) throw new Error(problem);
+      await (await runtime(accountSpaceId)).upsertSystem<NotifyWhen>(NOTIFY_COLLECTION, id, body);
+      await passSubscriptionsOn();
+      return { ...body, id };
+    },
+
+    async remove(id: string) {
+      if (!accountSpaceId) throw new Error('Subscriptions need the account key');
+      if (!(await notifyRecords()).some((view) => view.id === id)) return;
+      await (await runtime(accountSpaceId)).removeSystem(id);
+      await passSubscriptionsOn();
+    },
+  });
 
   const carriers: NodeCarriers = Object.freeze({
     async list() {
@@ -1413,6 +1494,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       collections: agentCollections,
       account: Object.freeze({ profile: accountApi.profile, setName: person('rename the account'), revoke: person('revoke notes') }),
       carriers: Object.freeze({ list: carriers.list, add: person('add a carrier'), remove: person('remove a carrier') }),
+      notifications: Object.freeze({
+        list: person('look at notifications'),
+        add: person('subscribe to anything'),
+        update: person('change notifications'),
+        remove: person('change notifications'),
+      }),
       hosting: Object.freeze({
         list: person('look at hosting'),
         use: person('start using a host'),
@@ -1454,6 +1541,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     account: accountApi,
     carriers,
     hosting,
+    notifications,
     contacts,
     asAgent,
 
