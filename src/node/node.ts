@@ -829,6 +829,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   /** Last time each host was handed the spaces, or refused them — so asking again waits a while */
   const handedAt = new Map<string, number>();
   const HAND_AGAIN_MS = 60_000;
+  /** Handovers under way, so a second look waits for the first instead of reporting the spaces not carried */
+  const handing = new Map<string, Promise<{ status: HostStatus; receipt: SignedStatus }>>();
 
   /**
    * Keeps what the host signed in the registry, so every device shows it and
@@ -852,13 +854,23 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       let { status, receipt } = await client.status();
       const due = force || Date.now() - (handedAt.get(hosting.url) ?? 0) > HAND_AGAIN_MS;
       const paid = status.state === 'active' || status.state === 'grace' || (description.free && status.state !== 'lapsed');
-      if (!status.carrying && paid && due && !agentSession) {
+      const inFlight = handing.get(hosting.url);
+      if (!status.carrying && inFlight) {
+        // Another look is handing the spaces over right now: wait for it,
+        // rather than answer "not carrying" while they're on their way.
+        const handed = await inFlight.catch(() => null);
+        if (handed) ({ status, receipt } = handed);
+      } else if (!status.carrying && paid && due && !agentSession) {
         handedAt.set(hosting.url, Date.now());
+        const attaching = carryFor(hosting).then((invite) => client.attach(config.signer.did, invite));
+        handing.set(hosting.url, attaching);
         try {
-          ({ status, receipt } = await client.attach(config.signer.did, await carryFor(hosting)));
+          ({ status, receipt } = await attaching);
         } catch (error) {
           // Not paid after all (it lapsed in between): the status says so.
           if (!(error instanceof HostError && error.status === 402)) throw error;
+        } finally {
+          handing.delete(hosting.url);
         }
       }
       await keepReceipt(hosting, kept, status, receipt, description.name);
