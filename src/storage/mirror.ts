@@ -120,7 +120,7 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
 
   /** Every version this store keeps: current, first and retained */
   async function held(): Promise<string[]> {
-    return [...new Set((await storage.entries()).map((entry) => entry.value))];
+    return storage.versionIds();
   }
 
   async function flushNow(): Promise<void> {

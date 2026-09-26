@@ -31,7 +31,7 @@ import { isAgentNote } from '../identity/agent-note.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import { createNode } from '../node/node.js';
 import { indexedDBStores, type StoreFactory } from '../node/stores.js';
-import type { NewSpace, NodeNetworkConfig, P2PNode } from '../node/types.js';
+import type { CacheConfig, NewSpace, NodeNetworkConfig, P2PNode } from '../node/types.js';
 import { checkStartingRoles } from '../space/space-access.js';
 import { parseSpaceInvite } from '../space/space-manager.js';
 import type { KeyValueStore } from './stay-signed-in.js';
@@ -395,12 +395,16 @@ export function grantSigner(grant: Grant): RootSigner {
  * It joins the granted spaces (again, harmlessly, on later starts) and keeps
  * its data in this site's storage. It has no account key: it sees the spaces
  * it was given, not the account's whole list.
+ *
+ * In a space that names a keeper it holds only the collections the app uses
+ * (`cache`); pass `cache: false` to hold every space whole.
  */
 export async function startConnectedNode(params: {
   readonly grant: Grant;
   readonly key?: AppKey;
   readonly network?: NodeNetworkConfig;
   readonly stores?: StoreFactory;
+  readonly cache?: CacheConfig | false;
 }): Promise<P2PNode> {
   const key = params.key ?? (await appKey());
   // The home's relays as well as the app's, so the two always share one.
@@ -410,6 +414,7 @@ export async function startConnectedNode(params: {
     signer: grantSigner(params.grant),
     sessionKey: key.keys,
     stores: params.stores ?? indexedDBStores(`weave-app:${params.grant.did}`),
+    ...(params.cache === false ? {} : { cache: params.cache ?? {} }),
     ...(params.grant.accountKey ? { accountKey: base64UrlDecode(params.grant.accountKey) } : {}),
     ...(params.grant.contactKey ? { contactKey: base64UrlDecode(params.grant.contactKey) } : {}),
     ...(params.grant.contactsSpace ? { contactsSpace: params.grant.contactsSpace } : {}),

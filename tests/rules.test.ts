@@ -226,7 +226,11 @@ describe('rules: one per something', () => {
     await hold(bob.node, space);
     await until(async () => rejected !== '', 4000, 'Alice to refuse the second vote');
     assert.match(rejected, /one per @author \+ link:about/);
-    assert.equal((await alice.node.records.linked(space, poll.key, { collection: 'app.poll.vote' })).length, 1);
+    // The real vote may arrive in the same batch, just after the refusal: one vote, and it stays one.
+    const votes = async () => (await alice.node.records.linked(space, poll.key, { collection: 'app.poll.vote' })).length;
+    await until(async () => (await votes()) === 1, 4000, 'the real vote');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(await votes(), 1);
   });
 });
 

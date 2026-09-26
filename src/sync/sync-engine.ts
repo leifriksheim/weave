@@ -2,25 +2,37 @@
  * @module sync-engine
  * Keeps one store in step with its peers.
  *
- * Reconciliation is a pull, and both sides do it:
+ * 1. A peer says hello with a fingerprint of each collection it keeps. Equal
+ *    fingerprints mean the same versions: nothing to do for that collection.
+ * 2. For each collection that differs, one side — the initiator — reconciles
+ *    it with the other (`negentropy.ts`). A few rounds of fingerprints of
+ *    ever smaller ranges end with the initiator knowing which versions each
+ *    side lacks.
+ * 3. The initiator asks for what it lacks, and sends what the other lacks.
+ *    Everything that arrives passes the gatekeeper before it is stored.
  *
- * 1. A tells B its root. Equal roots mean identical data — one round trip, done.
- * 2. Otherwise each walks the other's tree from the root, asking for nodes in
- *    batches and skipping any subtree that is already part of its own tree.
- * 3. The keys found in the nodes it fetched, less the records it already
- *    holds, are what it is missing. It asks for those, and every one of them
- *    passes the gatekeeper before it is stored.
+ * Cost follows the difference, not the size: two stores differing by one
+ * version exchange a few hundred bytes.
  *
- * Cost follows the difference, not the size: two trees differing by one entry
- * exchange the few nodes on the path to it.
+ * The initiator is the peer whose id sorts first, so two peers that hear each
+ * other's hello at once don't both do the work. A peer that isn't the
+ * initiator answers a hello with its own, which starts the other.
+ *
+ * **Holding part of a space.** A node may hold every collection, or only
+ * some (plus the space's own `sys.*`, which every node holds). Each hello
+ * says which. Two peers reconcile only the collections both hold, and a
+ * version for a collection this node doesn't hold is not taken in. Whatever
+ * a node does take in from a peer, it tells that peer it has (`stored`): a
+ * node holding part of a space keeps its own writes until enough keepers have
+ * said so.
  */
 import type { Expression } from '../types.js';
 import type { StorageProvider } from '../storage/storage-provider.js';
-import { deserializeNode } from '../storage/mst.js';
-import { cidFromBytes } from '../utils/hash.js';
+import { cidDigest, cidOfDigest } from '../utils/hash.js';
+import { base64UrlDecode, base64UrlEncode, bytesToHex } from '../utils/encoding.js';
 import { createEmitter } from '../utils/events.js';
+import { createReconciler, fingerprintOf } from './negentropy.js';
 import { parseSyncMessage, SYNC_PROTOCOL_VERSION, type SyncMessage, type SyncMessageBody } from './sync-messages.js';
-import { differingEntries, unknownChildren, verifyNode } from './anti-entropy.js';
 
 /** Verdict on an expression that arrived from a peer */
 export interface IncomingValidation {
@@ -37,6 +49,15 @@ export interface IncomingValidation {
 
 /** At most this many records wait for what they depend on; the oldest give way */
 const MAX_WAITING = 1000;
+/** Refusals remembered, so reconciling doesn't ask a peer for the same bad version every round */
+const MAX_REFUSED = 10_000;
+
+/** What a node holds of a space: every collection, or these (besides `sys.*`, which every node holds) */
+export type Holds = 'all' | ReadonlySet<string>;
+
+/** Whether a collection is held, given what a node holds */
+export const holdsCollection = (holds: Holds, collection: string): boolean =>
+  collection.startsWith('sys.') || holds === 'all' || holds.has(collection);
 
 /** Collection definitions first, then records by version — what others depend on comes first */
 const rank = (e: Expression): number => (e?.collection === 'sys.collection' ? -1 : (e?.seq ?? 0));
@@ -44,6 +65,12 @@ const rank = (e: Expression): number => (e?.collection === 'sys.collection' ? -1
 export interface SyncEngineConfig {
   readonly storageProvider: StorageProvider;
   readonly sendToPeer: (peerId: string, message: SyncMessage) => void;
+  /**
+   * This node's id among its peers. The one of two peers whose id sorts first
+   * starts reconciling. Without it, this node starts whenever it hears of a
+   * difference — harmless, just sometimes twice the work.
+   */
+  readonly self?: string;
   readonly heartbeatInterval?: number;
   /**
    * Gatekeeper for expressions arriving from peers — typically a
@@ -54,9 +81,18 @@ export interface SyncEngineConfig {
    * for a trusted transport or a test.
    */
   readonly validate?: (expression: Expression) => Promise<IncomingValidation>;
+  /** What this node holds, asked afresh for every hello. Default: everything. */
+  readonly holds?: () => Holds;
 }
 
-export type SyncEvent = 'synced' | 'expression-received' | 'rejected' | 'error';
+/**
+ * - `synced` (peer, full): nothing left in flight with the peer; `full` when the peer holds every collection
+ * - `level` (peer, collection, full): this node holds what the peer holds of a
+ *   collection, as far as it could take it in; `full` when the peer holds every collection
+ * - `stored` (peer, ids): the peer says it now has these versions
+ * - `expression-received` (version), `rejected` (peer, version, reason), `error` (error)
+ */
+export type SyncEvent = 'synced' | 'level' | 'stored' | 'expression-received' | 'rejected' | 'error';
 type EventHandler = (...args: any[]) => void;
 
 export interface SyncEngine {
@@ -64,6 +100,7 @@ export interface SyncEngine {
   stop(): void;
   /** Handles whatever a peer sent; anything that is not a sync message this peer speaks is ignored. */
   handleMessage(peerId: string, message: unknown): Promise<void>;
+  /** Says hello to these peers now, rather than at the next heartbeat. */
   notifyPeers(peers: ReadonlyArray<string>): void;
   onLocalChange(expression: Expression): void;
   addPeer(peerId: string): void;
@@ -72,33 +109,40 @@ export interface SyncEngine {
   off(event: SyncEvent, callback: EventHandler): void;
 }
 
-/** Nodes asked for in one message. Nodes are small; this keeps round trips few. */
-export const MAX_CIDS_PER_REQUEST = 64;
-/** Records asked for in one message. */
+/** Records asked for, or sent, in one message. */
 export const MAX_IDS_PER_REQUEST = 200;
-/** A real tree of a billion entries is about seven deep. Anything past this is hostile. */
-const MAX_DEPTH = 32;
-/** Nodes one walk may fetch before it is abandoned as runaway. */
-const MAX_NODES_PER_WALK = 200_000;
-/** A walk that has heard nothing for this long is given up on. */
-const STALE_WALK_MS = 30_000;
+/** Largest Negentropy message, in bytes before base64. Stays well inside a data channel's limit. */
+export const FRAME_SIZE_LIMIT = 32_000;
+/** Collections one hello may name. Past this it is hostile, not big. */
+const MAX_COLLECTIONS = 1000;
+/** Rounds one reconciliation may take before it is given up as runaway. */
+const MAX_ROUNDS = 64;
+/** A session that has heard nothing for this long is given up on. */
+const STALE_MS = 30_000;
 
-/** One pull of one peer's tree */
-interface Walk {
-  readonly remoteRoot: string;
-  /** The local root when the walk began — what the peer's entries are compared with */
-  readonly localRoot: string | null;
-  readonly depth: Map<string, number>;
-  readonly queue: string[];
-  /** Node requests in flight, by request id */
-  readonly nodeBatches: Map<number, ReadonlyArray<string>>;
-  readonly missing: Set<string>;
-  /** Record requests in flight, by request id */
-  readonly idBatches: Map<number, ReadonlyArray<string>>;
-  fetched: number;
+/** Reconciling one collection with one peer, as initiator */
+interface Session {
+  readonly id: number;
+  readonly collection: string;
+  readonly reconciler: ReturnType<typeof createReconciler>;
+  rounds: number;
   touchedAt: number;
-  /** A newer root the peer announced mid-walk, to pull once this one ends */
-  next: string | null;
+  /** The peer said something new about this collection mid-session: go again once done */
+  again: boolean;
+  /**
+   * Ids already sent or asked for. A round cut short by the frame limit can
+   * name some ids again in the next — the reference implementation does too.
+   */
+  readonly handled: Set<string>;
+}
+
+/** Everything in flight with one peer */
+interface PeerState {
+  readonly sessions: Map<string, Session>;
+  /** `want` requests in flight, by request id, and the collection they are for */
+  readonly wants: Map<number, { readonly ids: ReadonlySet<string>; readonly collection: string }>;
+  /** What the peer said it holds, in its last hello */
+  holds: Holds;
 }
 
 /**
@@ -107,19 +151,34 @@ interface Walk {
  * @returns A sync engine instance.
  */
 export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
-  const { storageProvider, sendToPeer, heartbeatInterval = 30000, validate } = config;
+  const { storageProvider: storage, sendToPeer, heartbeatInterval = 30000, validate, self } = config;
+  const ourHolds = config.holds ?? (() => 'all' as const);
+  /** Peers to say hello to and push to */
   const peers = new Set<string>();
-  const walks = new Map<string, Walk>();
+  /** What's in flight with each peer */
+  const states = new Map<string, PeerState>();
   let intervalId: ReturnType<typeof setInterval> | null = null;
-  let nextRequestId = 1;
+  let nextId = 1;
 
   const { on, off, emit } = createEmitter<Record<SyncEvent, EventHandler>>();
 
   const stamp = (msg: SyncMessageBody) => ({ v: SYNC_PROTOCOL_VERSION, ...msg }) as SyncMessage;
   const send = (peerId: string, msg: SyncMessageBody) => sendToPeer(peerId, stamp(msg));
-  const broadcast = (msg: SyncMessageBody) => {
-    for (const peer of peers) sendToPeer(peer, stamp(msg));
-  };
+  const stateOf = (peerId: string): PeerState =>
+    states.get(peerId) ?? states.set(peerId, { sessions: new Map(), wants: new Map(), holds: 'all' }).get(peerId)!;
+
+  // ─── Taking in versions ────────────────────────────────────────────
+
+  /** Records that could not be judged yet — tried again whenever something new is admitted */
+  const waiting = new Map<string, { peerId: string; expression: Expression }>();
+  /**
+   * Versions the gatekeeper refused, as `peer + id`, oldest first. By peer,
+   * not by id alone: an id doesn't cover the signature, so a stranger's
+   * mangled copy shares the real record's id — refusing it must not stop us
+   * fetching the real one from someone else.
+   */
+  const refused = new Set<string>();
+  const refusal = (peerId: string, id: string) => `${peerId}\n${id}`;
 
   /**
    * Commits an expression from a peer, but only if the gatekeeper allows it.
@@ -133,19 +192,19 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
           waiting.set(expression.id, { peerId, expression });
           if (waiting.size > MAX_WAITING) waiting.delete(waiting.keys().next().value!);
         } else {
+          refused.add(refusal(peerId, expression.id));
+          if (refused.size > MAX_REFUSED) refused.delete(refused.values().next().value!);
           emit('rejected', peerId, expression, verdict.reason);
         }
         return false;
       }
     }
     waiting.delete(expression.id);
-    await storageProvider.addExpression(expression);
+    await storage.addExpression(expression);
     emit('expression-received', expression);
     return true;
   };
 
-  /** Records that could not be judged yet — tried again whenever something new is admitted */
-  const waiting = new Map<string, { peerId: string; expression: Expression }>();
   const retryWaiting = async () => {
     let progressed = true;
     while (progressed && waiting.size > 0) {
@@ -157,162 +216,260 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     }
   };
 
-  // ─── The walk ──────────────────────────────────────────────────────
-
-  const finish = (peerId: string, walk: Walk) => {
-    walks.delete(peerId);
-    emit('synced', peerId);
-    if (walk.next !== null && walk.next !== walk.remoteRoot) void pull(peerId, walk.next);
+  /**
+   * Admits a batch: definitions and first versions before what depends on
+   * them, so little has to wait. Versions of collections this node doesn't
+   * hold are passed over. The peer is told which it now has.
+   */
+  const admitAll = async (peerId: string, expressions: ReadonlyArray<Expression>) => {
+    const holds = ourHolds();
+    const stored: string[] = [];
+    for (const expression of [...expressions].sort((a, b) => rank(a) - rank(b))) {
+      if (!expression || typeof expression !== 'object' || typeof expression.collection !== 'string') continue;
+      if (!holdsCollection(holds, expression.collection)) continue;
+      if (await admit(peerId, expression)) stored.push(expression.id);
+    }
+    if (stored.length > 0) {
+      send(peerId, { type: 'stored', ids: stored });
+      await retryWaiting();
+    }
   };
 
-  /** Sends whatever is queued, or moves on to records once the tree is done. */
-  const advance = (peerId: string, walk: Walk) => {
-    walk.touchedAt = Date.now();
+  // ─── Hello ─────────────────────────────────────────────────────────
 
-    while (walk.queue.length > 0) {
-      const batch = walk.queue.splice(0, MAX_CIDS_PER_REQUEST);
-      const id = nextRequestId++;
-      walk.nodeBatches.set(id, batch);
-      send(peerId, { type: 'node-request', id, cids: batch });
+  /** A fingerprint of each collection held and kept, hex */
+  const ourSums = async (holds: Holds): Promise<Record<string, string>> => {
+    const out: Record<string, string> = {};
+    for (const [collection, sum] of await storage.sums()) {
+      if (holdsCollection(holds, collection)) out[collection] = bytesToHex(await fingerprintOf(sum));
     }
-    if (walk.nodeBatches.size > 0) return;
-
-    // The tree is walked. Ask for the records it named that are not here.
-    if (walk.missing.size > 0 && walk.idBatches.size === 0) {
-      const ids = [...walk.missing];
-      walk.missing.clear();
-      for (let i = 0; i < ids.length; i += MAX_IDS_PER_REQUEST) {
-        const batch = ids.slice(i, i + MAX_IDS_PER_REQUEST);
-        const id = nextRequestId++;
-        walk.idBatches.set(id, batch);
-        send(peerId, { type: 'diff-request', id, missingIds: batch });
-      }
-      return;
-    }
-    if (walk.idBatches.size === 0) finish(peerId, walk);
+    return out;
   };
 
-  /** Pulls a peer's tree, given its root. */
-  const pull = async (peerId: string, remoteRoot: string | null): Promise<void> => {
-    const current = walks.get(peerId);
-    if (current && Date.now() - current.touchedAt < STALE_WALK_MS) {
-      // One walk per peer at a time; a newer root is pulled when this one ends.
-      if (current.remoteRoot !== remoteRoot) current.next = remoteRoot;
-      return;
-    }
-    walks.delete(peerId);
+  const hello = async (peerId: string, reply = false) => {
+    const holds = ourHolds();
+    send(peerId, { type: 'hello', holds: holds === 'all' ? 'all' : [...holds], sums: await ourSums(holds), ...(reply ? { reply } : {}) });
+  };
 
-    if (remoteRoot === null) {
-      emit('synced', peerId);
-      return;
-    }
-    const localRoot = await storageProvider.getRootCid();
-    if (await storageProvider.getAdapter().has(remoteRoot)) {
-      // A tree this store holds, or has moved past: nothing to pull.
-      emit('synced', peerId);
-      return;
-    }
+  /** What a hello says the peer holds; anything malformed counts as holding nothing past `sys.*` */
+  const readHolds = (value: unknown): Holds => {
+    if (value === undefined || value === 'all') return 'all';
+    if (!Array.isArray(value) || value.length > MAX_COLLECTIONS) return new Set();
+    return new Set(value.filter((c): c is string => typeof c === 'string'));
+  };
 
-    const walk: Walk = {
-      remoteRoot,
-      localRoot,
-      depth: new Map([[remoteRoot, 0]]),
-      queue: [remoteRoot],
-      nodeBatches: new Map(),
-      missing: new Set(),
-      idBatches: new Map(),
-      fetched: 0,
-      touchedAt: Date.now(),
-      next: null,
+  const onHello = async (peerId: string, theirs: Readonly<Record<string, string>>, theirHolds: unknown, reply: boolean) => {
+    if (typeof theirs !== 'object' || theirs === null) return;
+    const names = Object.keys(theirs);
+    if (names.length > MAX_COLLECTIONS) return;
+    const state = stateOf(peerId);
+    state.holds = readHolds(theirHolds);
+    const holds = ourHolds();
+    const ours = await ourSums(holds);
+    // Everything either side names, and every collection this node holds even if it has none of it yet.
+    const named = new Set([...names, ...Object.keys(ours), ...(holds === 'all' ? [] : holds)]);
+    const shared = [...named].filter((c) => holdsCollection(holds, c) && holdsCollection(state.holds, c));
+    const differing = shared.filter((c) => theirs[c] !== ours[c]);
+    for (const c of shared) if (theirs[c] === ours[c]) emit('level', peerId, c, state.holds === 'all');
+    if (differing.length === 0) {
+      if (!busy(peerId)) emit('synced', peerId, state.holds === 'all');
+      return;
+    }
+    if (self !== undefined && self > peerId) {
+      // The other side starts. It may not have heard from us yet: tell it.
+      if (!reply) await hello(peerId, true);
+      return;
+    }
+    for (const collection of differing) await begin(peerId, collection);
+  };
+
+  // ─── Reconciling, as initiator ─────────────────────────────────────
+
+  const busy = (peerId: string) => {
+    const state = states.get(peerId);
+    return !!state && (state.sessions.size > 0 || state.wants.size > 0);
+  };
+
+  const settleIfDone = (peerId: string) => {
+    if (!busy(peerId)) emit('synced', peerId, states.get(peerId)?.holds === 'all');
+  };
+
+  const begin = async (peerId: string, collection: string) => {
+    if (typeof collection !== 'string') return;
+    const state = stateOf(peerId);
+    const current = state.sessions.get(collection);
+    if (current && Date.now() - current.touchedAt < STALE_MS) {
+      current.again = true;
+      return;
+    }
+    const reconciler = createReconciler(await storage.items(collection), { initiator: true, frameSizeLimit: FRAME_SIZE_LIMIT });
+    const session: Session = { id: nextId++, collection, reconciler, rounds: 0, touchedAt: Date.now(), again: false, handled: new Set() };
+    state.sessions.set(collection, session);
+    send(peerId, { type: 'reconcile', id: session.id, collection, message: base64UrlEncode(await reconciler.initiate()) });
+  };
+
+  /**
+   * A collection's session and every request it made are over: level with the
+   * peer, as far as could be. The peer is told where things stand now, so it
+   * knows it is level too — marked a reply, so it never starts another round.
+   */
+  const levelIfDone = (peerId: string, collection: string) => {
+    const state = states.get(peerId);
+    if (!state || state.sessions.has(collection)) return;
+    for (const want of state.wants.values()) if (want.collection === collection) return;
+    emit('level', peerId, collection, state.holds === 'all');
+    void hello(peerId, true).catch((err) => emit('error', err));
+  };
+
+  const onReconciled = async (peerId: string, id: number, message: string, held: boolean) => {
+    const state = states.get(peerId);
+    const session = state && [...state.sessions.values()].find((s) => s.id === id);
+    if (!state || !session) return; // not ours, or already over
+    session.touchedAt = Date.now();
+
+    const end = () => {
+      state.sessions.delete(session.collection);
+      if (session.again) void begin(peerId, session.collection).catch((err) => emit('error', err));
     };
-    walks.set(peerId, walk);
-    advance(peerId, walk);
-  };
 
-  const onNodes = async (peerId: string, requestId: number, nodes: ReadonlyArray<{ cid: string; node: unknown }>) => {
-    const walk = walks.get(peerId);
-    const batch = walk?.nodeBatches.get(requestId);
-    if (!walk || !batch) return; // not ours, or already answered
-    const asked = new Set(batch);
-    const adapter = storageProvider.getAdapter();
-
-    for (const { cid, node: sent } of nodes) {
-      if (typeof cid !== 'string' || !asked.has(cid)) continue;
-      const node = await verifyNode(cid, sent);
-      if (!node) continue; // malformed, or not the node that CID names
-
-      if (++walk.fetched > MAX_NODES_PER_WALK) {
-        walks.delete(peerId);
-        emit('error', new Error(`Sync with ${peerId} abandoned: more than ${MAX_NODES_PER_WALK} nodes`));
-        return;
-      }
-      for (const id of await differingEntries(adapter, walk.localRoot, node)) walk.missing.add(id);
-
-      const depth = walk.depth.get(cid) ?? 0;
-      if (depth >= MAX_DEPTH) continue;
-      for (const child of await unknownChildren(adapter, node)) {
-        if (walk.depth.has(child)) continue; // already queued — a cycle, or a shared subtree
-        walk.depth.set(child, depth + 1);
-        walk.queue.push(child);
-      }
+    if (!held) {
+      // They don't hold it after all — they changed what they hold since their hello.
+      end();
+      return settleIfDone(peerId);
     }
-    // Asked-for nodes the peer did not send are simply not followed: a peer can
-    // legitimately have compacted a node away between its root and our request.
-    // Marked answered only now, so a reply processed alongside this one cannot
-    // decide the tree is finished while this one's children are still unqueued.
-    walk.nodeBatches.delete(requestId);
-    advance(peerId, walk);
-  };
 
-  const onRecords = async (peerId: string, requestId: number, expressions: ReadonlyArray<Expression>) => {
-    const walk = walks.get(peerId);
-    const asked = walk?.idBatches.get(requestId);
-    // Only records this node asked for are considered; anything else was not
-    // requested and is not taken on trust as a side effect.
-    const wanted = asked ? new Set(asked) : null;
-    // Definitions and first versions before what depends on them, so little has to wait.
-    const ordered = [...expressions].sort((a, b) => rank(a) - rank(b));
-    let admitted = false;
-    for (const expression of ordered) {
-      if (wanted?.has(expression?.id) && (await admit(peerId, expression))) admitted = true;
+    let round;
+    try {
+      round = await session.reconciler.reconcile(base64UrlDecode(message));
+    } catch (err) {
+      end();
+      emit('error', new Error(`Sync with ${peerId} abandoned: ${(err as Error).message}`));
+      return settleIfDone(peerId);
     }
-    if (admitted) await retryWaiting();
-    if (!walk || !asked) return;
-    walk.idBatches.delete(requestId);
-    advance(peerId, walk);
-  };
 
-  // ─── Serving ───────────────────────────────────────────────────────
-
-  const serveNodes = async (peerId: string, requestId: number, cids: ReadonlyArray<string>) => {
-    const adapter = storageProvider.getAdapter();
-    const nodes: Array<{ cid: string; node: unknown }> = [];
-    for (const cid of cids.slice(0, MAX_CIDS_PER_REQUEST)) {
-      if (typeof cid !== 'string') continue;
-      const bytes = await adapter.get(cid);
-      // Only content-addressed tree nodes leave this store — never another key
-      // that happens to share the namespace.
-      if (bytes && (await cidFromBytes(bytes)) === cid) nodes.push({ cid, node: deserializeNode(bytes) });
+    // What they lack goes now; what we lack is asked for.
+    const fresh = (id: string) => !session.handled.has(id) && !!session.handled.add(id);
+    const have = round.have.map(cidOfDigest).filter(fresh);
+    for (let i = 0; i < have.length; i += MAX_IDS_PER_REQUEST) {
+      const versions = (await Promise.all(have.slice(i, i + MAX_IDS_PER_REQUEST).map((v) => storage.getExpression(v)))).filter(
+        (v): v is Expression => v !== null,
+      );
+      if (versions.length > 0) send(peerId, { type: 'versions', versions });
     }
-    send(peerId, { type: 'node-response', id: requestId, nodes });
+    const need = round.need.map(cidOfDigest).filter((v) => fresh(v) && !refused.has(refusal(peerId, v)));
+    for (let i = 0; i < need.length; i += MAX_IDS_PER_REQUEST) {
+      const ids = need.slice(i, i + MAX_IDS_PER_REQUEST);
+      const wantId = nextId++;
+      state.wants.set(wantId, { ids: new Set(ids), collection: session.collection });
+      send(peerId, { type: 'want', id: wantId, ids });
+    }
+
+    if (round.message && ++session.rounds < MAX_ROUNDS) {
+      send(peerId, { type: 'reconcile', id: session.id, collection: session.collection, message: base64UrlEncode(round.message) });
+      return;
+    }
+    if (round.message) emit('error', new Error(`Sync with ${peerId} abandoned: more than ${MAX_ROUNDS} rounds`));
+    end();
+    levelIfDone(peerId, session.collection);
+    settleIfDone(peerId);
   };
 
-  const serveRecords = async (peerId: string, requestId: number, ids: ReadonlyArray<string>) => {
-    const expressions: Expression[] = [];
-    for (const id of ids.slice(0, MAX_IDS_PER_REQUEST)) {
-      const expression = typeof id === 'string' ? await storageProvider.getExpression(id) : null;
-      if (expression) expressions.push(expression);
+  // ─── Answering ─────────────────────────────────────────────────────
+
+  const onReconcile = async (peerId: string, id: number, collection: string, message: string) => {
+    if (typeof collection !== 'string' || typeof message !== 'string') return;
+    if (!holdsCollection(ourHolds(), collection)) {
+      send(peerId, { type: 'reconciled', id, message: '', held: false });
+      return;
+    }
+    const responder = createReconciler(await storage.items(collection), { initiator: false, frameSizeLimit: FRAME_SIZE_LIMIT });
+    const round = await responder.reconcile(base64UrlDecode(message));
+    send(peerId, { type: 'reconciled', id, message: base64UrlEncode(round.message!) });
+  };
+
+  const serveWant = async (peerId: string, id: number, ids: ReadonlyArray<string>) => {
+    const versions: Expression[] = [];
+    for (const v of ids.slice(0, MAX_IDS_PER_REQUEST)) {
+      const expression = typeof v === 'string' && cidDigest(v) ? await storage.getExpression(v) : null;
+      if (expression) versions.push(expression);
     }
     // Always answered, even empty: the asker counts replies to know it is done.
-    send(peerId, { type: 'diff-response', id: requestId, expressions });
+    send(peerId, { type: 'versions', id, versions });
   };
+
+  const onVersions = async (peerId: string, id: number | undefined, versions: ReadonlyArray<Expression>) => {
+    const state = states.get(peerId);
+    if (id === undefined) {
+      // Sent because we lacked them. Nothing is taken on trust: each passes the gatekeeper.
+      await admitAll(peerId, versions.slice(0, MAX_IDS_PER_REQUEST));
+      return;
+    }
+    const asked = state?.wants.get(id);
+    if (!state || !asked) return;
+    // Only versions asked for are considered.
+    await admitAll(peerId, versions.filter((v) => asked.ids.has(v?.id)));
+    state.wants.delete(id);
+    levelIfDone(peerId, asked.collection);
+    settleIfDone(peerId);
+  };
+
+  // ─── Housekeeping ──────────────────────────────────────────────────
+
+  /** Drops sessions and requests a peer stopped answering, so a lost message can't wedge sync */
+  const sweep = () => {
+    const now = Date.now();
+    for (const state of states.values()) {
+      for (const [collection, session] of state.sessions) if (now - session.touchedAt > STALE_MS) state.sessions.delete(collection);
+    }
+  };
+
+  /** Handles one message from a peer; anything that is not a sync message this peer speaks is ignored */
+  const handle = async (peerId: string, message: unknown): Promise<void> => {
+    try {
+      const msg = parseSyncMessage(message);
+      // Malformed, a protocol version this peer does not speak, or a peer not
+      // added yet: an answer to it would have no way back and be lost, leaving
+      // a session waiting. Each side says hello once it adds the other, so
+      // nothing said before then is needed.
+      if (!msg || !peers.has(peerId)) return;
+
+      switch (msg.type) {
+        case 'hello':
+          await onHello(peerId, msg.sums, msg.holds, msg.reply === true);
+          break;
+        case 'reconcile':
+          await onReconcile(peerId, msg.id, msg.collection, msg.message);
+          break;
+        case 'reconciled':
+          await onReconciled(peerId, msg.id, msg.message, msg.held !== false);
+          break;
+        case 'want':
+          await serveWant(peerId, msg.id, Array.isArray(msg.ids) ? msg.ids : []);
+          break;
+        case 'versions':
+          await onVersions(peerId, msg.id, Array.isArray(msg.versions) ? msg.versions : []);
+          break;
+        case 'push-update':
+          if (msg.expression && typeof msg.expression === 'object') await admitAll(peerId, [msg.expression]);
+          break;
+        case 'stored':
+          if (Array.isArray(msg.ids)) emit('stored', peerId, msg.ids.filter((v): v is string => typeof v === 'string').slice(0, 10 * MAX_IDS_PER_REQUEST));
+          break;
+      }
+    } catch (err) {
+      emit('error', err);
+    }
+  };
+
+  /** Where each peer's messages are up to */
+  const inOrder = new Map<string, Promise<void>>();
 
   return {
     start() {
       if (intervalId !== null) return;
-      intervalId = setInterval(async () => {
-        const rootCid = await storageProvider.getRootCid();
-        broadcast({ type: 'sync-request', rootCid });
+      intervalId = setInterval(() => {
+        sweep();
+        for (const peer of peers) void hello(peer).catch((err) => emit('error', err));
       }, heartbeatInterval);
     },
 
@@ -321,61 +478,26 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
         clearInterval(intervalId);
         intervalId = null;
       }
-      walks.clear();
+      states.clear();
     },
 
-    async handleMessage(peerId: string, message: unknown): Promise<void> {
-      try {
-        const msg = parseSyncMessage(message);
-        if (!msg) return; // malformed, or a protocol version this peer does not speak
-
-        switch (msg.type) {
-          case 'sync-request': {
-            const localRoot = await storageProvider.getRootCid();
-            const differs = localRoot !== msg.rootCid;
-            send(peerId, { type: 'sync-response', rootCid: localRoot, hasChanges: differs });
-            // They will pull ours from the response; we pull theirs.
-            if (differs) await pull(peerId, msg.rootCid);
-            break;
-          }
-          case 'sync-response': {
-            if (msg.hasChanges) await pull(peerId, msg.rootCid);
-            else emit('synced', peerId);
-            break;
-          }
-          case 'node-request':
-            await serveNodes(peerId, msg.id, Array.isArray(msg.cids) ? msg.cids : []);
-            break;
-          case 'node-response':
-            await onNodes(peerId, msg.id, Array.isArray(msg.nodes) ? msg.nodes : []);
-            break;
-          case 'diff-request':
-            await serveRecords(peerId, msg.id, Array.isArray(msg.missingIds) ? msg.missingIds : []);
-            break;
-          case 'diff-response':
-            await onRecords(peerId, msg.id, Array.isArray(msg.expressions) ? msg.expressions : []);
-            break;
-          case 'push-update':
-            await admit(peerId, msg.expression);
-            break;
-        }
-      } catch (err) {
-        emit('error', err);
-      }
+    handleMessage(peerId: string, message: unknown): Promise<void> {
+      // One peer's messages are handled in the order they came: a hello saying
+      // where things stand must not overtake the versions sent before it.
+      const run = (inOrder.get(peerId) ?? Promise.resolve()).then(() => handle(peerId, message));
+      inOrder.set(peerId, run);
+      void run.finally(() => {
+        if (inOrder.get(peerId) === run) inOrder.delete(peerId);
+      });
+      return run;
     },
 
     notifyPeers(peerIds: ReadonlyArray<string>) {
-      storageProvider.getRootCid().then(rootCid => {
-        for (const peer of peerIds) {
-          if (peers.has(peer)) send(peer, { type: 'sync-request', rootCid });
-        }
-      }).catch(err => emit('error', err));
+      for (const peer of peerIds) if (peers.has(peer)) void hello(peer).catch((err) => emit('error', err));
     },
 
     onLocalChange(expression: Expression) {
-      storageProvider.getRootCid().then(newRootCid => {
-        broadcast({ type: 'push-update', expression, newRootCid: newRootCid || '' });
-      }).catch(err => emit('error', err));
+      for (const peer of peers) send(peer, { type: 'push-update', expression });
     },
 
     addPeer(peerId: string) {
@@ -383,9 +505,9 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     },
 
     removePeer(peerId: string) {
+      // A dropped peer must not leave half-finished sessions holding memory.
       peers.delete(peerId);
-      // A dropped peer must not leave a half-finished walk holding memory.
-      walks.delete(peerId);
+      states.delete(peerId);
     },
 
     on,

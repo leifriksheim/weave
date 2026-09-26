@@ -2,7 +2,7 @@
  * @module node/space-runtime
  * One open space: its store, its gatekeeper, its peers, its sync.
  *
- * A space is the unit of storage and of sync — its own Merkle tree, its own
+ * A space is the unit of storage and of sync — its own store, its own
  * rooms and sockets — so two spaces never mix, and a peer you share one space
  * with learns nothing about the others.
  *
@@ -64,6 +64,7 @@ import {
   MEMBER_KEY_COLLECTION,
   SPACE_KEY_RECORD,
   SPACE_RELAYS_RECORD,
+  SPACE_KEEPERS_RECORD,
   memberKeyRecordKey,
   boxContext,
   boxKey,
@@ -88,6 +89,9 @@ import {
   MAX_RELAYS,
   RELAYS_COLLECTION,
   checkRelays,
+  KEEPERS_COLLECTION,
+  checkKeepers,
+  type Keeper,
   MEMBER_COLLECTION,
   REVOKE_COLLECTION,
   ROLE_COLLECTION,
@@ -102,7 +106,7 @@ import {
   type AccessState,
   type Role,
 } from '../space/roles.js';
-import { createSyncEngine } from '../sync/sync-engine.js';
+import { createSyncEngine, type Holds } from '../sync/sync-engine.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { StoreFactory } from './stores.js';
 import {
@@ -115,9 +119,11 @@ import {
 } from '../schema/collection-def.js';
 import { CARRIER_COLLECTION, MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
 import { PASS_COLLECTION } from '../space/pass.js';
-import { base32Encode, cidFromBytes, sha256 } from '../utils/hash.js';
-import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
+import { base32Encode, cidFromBytes, cidOfDigest, sha256 } from '../utils/hash.js';
+import { sameTags, tagsFor, topicKey, topicTag } from '../records/topics.js';
+import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../utils/encoding.js';
 import type {
+  CacheConfig,
   ConnectionState,
   DefineCollection,
   NodeCollection,
@@ -139,7 +145,7 @@ const MANAGED = new Set([MEMBERSHIP_COLLECTION, PROFILE_COLLECTION, CARRIER_COLL
  * private space. Collection definitions stay sealed — a peer that cannot
  * read the records has no use for their rules.
  */
-const IN_THE_CLEAR = new Set([ROLE_COLLECTION, MEMBER_COLLECTION, INVITE_COLLECTION, REVOKE_COLLECTION, KEY_COLLECTION, BOX_COLLECTION, MEMBER_KEY_COLLECTION, RELAYS_COLLECTION]);
+const IN_THE_CLEAR = new Set([ROLE_COLLECTION, MEMBER_COLLECTION, INVITE_COLLECTION, REVOKE_COLLECTION, KEY_COLLECTION, BOX_COLLECTION, MEMBER_KEY_COLLECTION, RELAYS_COLLECTION, KEEPERS_COLLECTION]);
 
 /** Which collection each access record key belongs to */
 const ACCESS_KEYS: ReadonlyArray<readonly [string, string]> = [
@@ -150,6 +156,7 @@ const ACCESS_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['collection:', DEFINITION_COLLECTION],
   ['key:', KEY_COLLECTION],
   ['relays:', RELAYS_COLLECTION],
+  ['keepers:', KEEPERS_COLLECTION],
 ];
 
 /** How many records a keep list may name */
@@ -235,6 +242,10 @@ export interface SpaceRuntimeDeps {
    * otherwise let an agent join the account to a space or leave one.
    */
   readonly peopleOnly?: boolean;
+  /** Hold only the collections used, once the space names a keeper (`NodeConfig.cache`). Absent: hold it whole. */
+  readonly cache?: CacheConfig;
+  /** Told of every version a peer sent that was taken in — what a carrier matches subscriptions against */
+  readonly onArrived?: (version: Expression) => void;
 }
 
 export interface SpaceRuntime {
@@ -262,6 +273,10 @@ export interface SpaceRuntime {
   readAccess(): ReadAccess | null;
   /** Names the relays the space's members meet on — for someone who manages it */
   setRelays(relays: ReadonlyArray<string>): Promise<void>;
+  /** Names the nodes that keep the space whole, and how many copies to wait for — for someone who manages it */
+  setKeepers(keepers: ReadonlyArray<Keeper>, copies?: number | null): Promise<void>;
+  /** The topic tag a record with this value carries, keyed as a record written now would be */
+  topicTag(collection: string, field: string, value: string | number | boolean): Promise<string>;
   collections(): Promise<ReadonlyArray<NodeCollection>>;
   define(definition: DefineCollection): Promise<NodeCollection>;
   /** Takes a definition out of the space — only once nothing is left in it */
@@ -284,6 +299,11 @@ export interface SpaceRuntime {
   isRevoked(token: string): Promise<boolean>;
   /** Uses an invite's secret, once its record has arrived. True when this account is a member. */
   join(secret: Uint8Array): Promise<boolean>;
+  /**
+   * Says these collections are in use: a node holding part of the space holds
+   * them from now on. Whether it has all of them yet — a query's `complete`.
+   */
+  use(collections: ReadonlyArray<string>): boolean;
   /** Who is connected, as this space alone can tell — which of them are the account's own, the node works out */
   status(): Promise<Omit<SpaceStatus, 'own' | 'carriers'>>;
   /** A live message to the peers connected now — all of them, one account's devices, or one device */
@@ -328,6 +348,44 @@ function isFolderAdapter(adapter: StorageAdapter): adapter is FolderAdapter {
 
 const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === 'string');
 
+// ─── What a node holding part of a space remembers ──────────────────
+
+/** Where it is kept in the space's store */
+const CACHE_KEY = 'cache';
+/** One entry per write of this node's still waiting for keepers: `pending/<id>` */
+const PENDING_PREFIX = 'pending/';
+
+interface CacheState {
+  /**
+   * Whether this node has caught up with a node holding the whole space at
+   * least once — until then it can't know whether the space names keepers,
+   * so it holds only what it uses rather than everything.
+   */
+  settled: boolean;
+  /** Collection → when a query last used it: what this node holds */
+  used: Record<string, number>;
+  /** Collection → when it was first level with a node holding the whole space: what `complete` means */
+  level: Record<string, number>;
+}
+
+/** A write waiting for keepers: its collection, and the keepers that have it */
+interface Pending {
+  readonly collection: string;
+  readonly by: string[];
+}
+
+async function loadCacheState(adapter: StorageAdapter): Promise<CacheState> {
+  try {
+    const bytes = await adapter.get(CACHE_KEY);
+    const saved = bytes ? (JSON.parse(utf8Decode(bytes)) as Partial<CacheState>) : {};
+    const numbers = (value: unknown): Record<string, number> =>
+      Object.fromEntries(Object.entries(typeof value === 'object' && value !== null ? value : {}).filter(([, v]) => typeof v === 'number'));
+    return { settled: saved.settled === true, used: numbers(saved.used), level: numbers(saved.level) };
+  } catch {
+    return { settled: false, used: {}, level: {} };
+  }
+}
+
 export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRuntime> {
   const { record, provider, signer, schemas, session, emit } = deps;
   const { space } = record;
@@ -346,12 +404,18 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   let waitingInvite = record.invite !== null;
 
   const adapter = await deps.stores(`spaces/${space.id}`);
-  // Tabs sharing this browser's store are covered by compaction's grace period.
-  // A folder's other writers — a sync service bringing another device's tree
-  // back hours later — are not, so a folder keeps its old nodes.
-  const shared = isFolderAdapter(adapter);
-  const storage: StorageProvider = createStorageProvider(adapter, shared ? {} : { compactEvery: 256 });
-  if (!shared) void storage.compact().catch(() => {});
+  const storage: StorageProvider = createStorageProvider(adapter);
+
+  // What this node holds of the space (see "Holding part of the space" below).
+  // Here, before anything can ask: sync asks on every hello.
+  const cache = deps.cache ?? null;
+  const cacheState = await loadCacheState(adapter);
+  // The collections the app declared are held from the start.
+  for (const collection of cache?.collections ?? []) if (!collection.startsWith('sys.')) cacheState.used[collection] ??= Date.now();
+  // A node that may hold part of the space starts by holding only what it
+  // uses: whether the space names keepers is only known once it has caught up.
+  let partial = cache !== null;
+  const holds = (): Holds => (partial ? new Set(Object.keys(cacheState.used)) : 'all');
 
   const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
 
@@ -529,6 +593,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         if (version.key !== SPACE_RELAYS_RECORD || !isStringList(body.relays) || body.relays.length > MAX_RELAYS) return null;
         return { ...base, keep: [], kind: 'relays', relays: body.relays };
       }
+      case KEEPERS_COLLECTION: {
+        const copies = body.copies ?? null;
+        if (version.key !== SPACE_KEEPERS_RECORD || checkKeepers(body.keepers, copies) !== null) return null;
+        return { ...base, keep: [], kind: 'keepers', keepers: body.keepers as Keeper[], copies: copies as number | null };
+      }
       case REVOKE_COLLECTION: {
         if (typeof body.note !== 'string') return null;
         let issuer: string;
@@ -630,13 +699,46 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return found;
   }
 
-  /** The rules in force for a collection in one state of the history — null when there are none to judge by */
-  async function rulesAt(state: AccessState, collection: string): Promise<{ rules: CollectionRules } | null> {
+  /** The rules and topics in force for a collection in one state of the history — null when there are none to judge by */
+  async function rulesAt(state: AccessState, collection: string): Promise<{ rules: CollectionRules; topics: ReadonlyArray<string> } | null> {
     if (collection.startsWith('sys.')) return null;
     const entry = state.definitions.get(collection);
     if (!entry) return null;
     const found = await definitionIn(entry.event);
-    return typeof found === 'string' ? null : { rules: found.definition.rules ?? {} };
+    return typeof found === 'string' ? null : { rules: found.definition.rules ?? {}, topics: found.definition.topics ?? [] };
+  }
+
+  // ─── Topic tags ────────────────────────────────────────────────────
+  //
+  // Keyed from the key a record's body was sealed with, in a private space;
+  // from the space id in a public one (`records/topics.ts`).
+
+  const topicKeys = new Map<string, Promise<CryptoKey>>();
+  /** The tag key for one of the space's keys, or the public one; null when this node doesn't hold that key */
+  function tagKey(keyId: string | null): Promise<CryptoKey> | null {
+    const name = keyId ?? 'public';
+    let found = topicKeys.get(name);
+    if (!found) {
+      const held = keyId === null ? null : keyring.get(keyId);
+      if (keyId !== null && !held) return null;
+      found = topicKey(held ? { spaceKey: held.key } : { spaceId: space.id });
+      topicKeys.set(name, found);
+    }
+    return found;
+  }
+
+  /**
+   * Why a version's tags don't match its body under the topics in force, or
+   * null when they do — or when this node can't read the body to tell.
+   */
+  async function tagProblem(expression: Expression, topics: ReadonlyArray<string>): Promise<Standing | null> {
+    if (topics.length === 0 && !expression.tags?.length) return null;
+    const opened = await openBody(expression);
+    if (opened.body === null) return null;
+    const key = tagKey(opened.encrypted ? String((expression.body as { keyId?: unknown }).keyId) : null);
+    if (!key) return null;
+    const expected = await tagsFor(await key, expression.collection, topics, opened.body);
+    return sameTags(expression.tags, expected) ? null : { ok: false, reason: `Its topic tags don't match what it says` };
   }
 
   const standings = new Map<string, Promise<Standing>>();
@@ -706,6 +808,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const judged = history.judge({ id: expression.id, root, seen, note: await noteOf(expression) }, needs);
     if (!judged.ok) return judged;
 
+    if (found && !expression.deleted) {
+      const problem = await tagProblem(expression, found.topics);
+      if (problem) return problem;
+    }
     if (!rules || expression.deleted) return STANDS;
     if (expression.seq === 0 && rules.onePer) {
       const opened = await openBody(expression);
@@ -907,6 +1013,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       definedBy: entry?.definedBy ?? null,
       permissions: definition?.permissions ?? [],
       rules: definition?.rules ?? {},
+      topics: definition?.topics ?? [],
       ...(definition?.screen !== undefined ? { screen: definition.screen } : {}),
       records,
     });
@@ -1015,6 +1122,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     emit({ type: 'records', space: space.id });
     keepUp();
     for (const mirror of mirrors) mirror.changed();
+    // The access history may name keepers now, or none.
+    void refreshHolds().catch(() => {});
   };
 
   // ─── The space's keys ──────────────────────────────────────────────
@@ -1293,6 +1402,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   const sync = createSyncEngine({
     storageProvider: storage,
+    self: session.did,
+    holds,
     sendToPeer: (peerId, message) => {
       routes.get(peerId)?.send(peerId, { type: 'sync', from: session.did, payload: message });
     },
@@ -1318,9 +1429,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }, 100);
   };
 
-  sync.on('expression-received', () => {
+  sync.on('expression-received', (version: Expression) => {
     recordsChanged();
     announceSoon();
+    deps.onArrived?.(version);
   });
   sync.on('rejected', (peer: string, _expression: Expression, reason: string) => {
     rejected += 1;
@@ -1432,6 +1544,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     });
   }
 
+  // Whether to hold part of the space is settled before the first hello says what this node holds.
+  await refreshHolds().catch(() => {});
+
   if (networks.length > 0) {
     connection = 'connecting';
     // Online as soon as one way in works: a node that is slow to answer, or
@@ -1484,10 +1599,156 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       ? new globalThis.BroadcastChannel(`weave-node:${deps.rootDid}:${space.id}`)
       : null;
   if (channel) {
-    channel.onmessage = () => recordsChanged();
+    channel.onmessage = () => {
+      // The other tab wrote to the store underneath: what sync compares is read again.
+      storage.invalidate();
+      recordsChanged();
+    };
     // In Node a channel holds the process open; it must never be the only thing doing so.
     (channel as { unref?: () => void }).unref?.();
   }
+
+  // ─── Holding part of the space ─────────────────────────────────────
+  //
+  // With `cache` set, and once the space names a keeper, this node holds only
+  // the collections it uses, besides the space's own. Sync takes in nothing
+  // else. Its own writes are pending until enough keepers have them, and a
+  // collection holding a pending write is never dropped. Without a keeper the
+  // space is held whole: then this node may be one of its copies.
+
+  const HOUR = 3_600_000;
+  const DAY = 24 * HOUR;
+  const declared = new Set((cache?.collections ?? []).filter((c) => !c.startsWith('sys.')));
+  let cacheTimer: ReturnType<typeof setTimeout> | null = null;
+  const saveCache = () => {
+    if (cacheTimer || !cache) return;
+    cacheTimer = setTimeout(() => {
+      cacheTimer = null;
+      void adapter.put(CACHE_KEY, utf8Encode(JSON.stringify(cacheState))).catch(() => {});
+    }, 500);
+    (cacheTimer as { unref?: () => void }).unref?.();
+  };
+  const flushCache = async () => {
+    if (!cacheTimer) return;
+    clearTimeout(cacheTimer);
+    cacheTimer = null;
+    await adapter.put(CACHE_KEY, utf8Encode(JSON.stringify(cacheState))).catch(() => {});
+  };
+  saveCache();
+
+  /**
+   * Holds part of the space from the moment it names a keeper, and all of it
+   * again if it stops — once this node has caught up enough to know.
+   */
+  async function refreshHolds(): Promise<void> {
+    if (!cache || closed) return;
+    const next = (await access()).history.current.keepers.length > 0 || !cacheState.settled;
+    if (next === partial) return;
+    partial = next;
+    // Peers learn what this node holds now; anything newly held comes across.
+    sync.notifyPeers(connectedPeers());
+    emit({ type: 'status', space: space.id });
+  }
+
+  /** Collections a query or a screen uses: held from now on. Whether all of them are here yet. */
+  function use(collections: ReadonlyArray<string>): boolean {
+    if (!cache) return true;
+    const now = Date.now();
+    let added = false;
+    for (const collection of collections) {
+      if (typeof collection !== 'string' || collection.startsWith('sys.')) continue;
+      const was = cacheState.used[collection];
+      if (was === undefined) added = true;
+      if (was === undefined || now - was > HOUR) {
+        cacheState.used[collection] = now;
+        saveCache();
+      }
+    }
+    if (added && partial) sync.notifyPeers(connectedPeers());
+    return !partial || collections.every((c) => c.startsWith('sys.') || cacheState.level[c] !== undefined);
+  }
+
+  /** A write of this node's, waiting for keepers — only on a node that may hold part of a space */
+  async function markPending(version: Expression): Promise<void> {
+    if (!cache || version.author !== session.did || version.collection.startsWith('sys.')) return;
+    const pending: Pending = { collection: version.collection, by: [] };
+    await adapter.put(`${PENDING_PREFIX}${version.id}`, utf8Encode(JSON.stringify(pending)));
+  }
+
+  /**
+   * A keeper has some of this node's pending writes: those it named, or every
+   * one in a collection it is level on. Once enough keepers have one, it
+   * stops being pending. Only keepers the space names count.
+   */
+  async function confirm(peer: string, which: { ids?: ReadonlySet<string>; collection?: string }): Promise<void> {
+    if (!cache) return;
+    const state = (await access()).history.current;
+    if (!state.keepers.some((keeper) => keeper.did === peer)) return;
+    const target = Math.min(state.keepers.length, Math.max(state.copies ?? 2, cache.copies ?? 0));
+    for (const name of await adapter.list(PENDING_PREFIX)) {
+      const id = name.slice(PENDING_PREFIX.length);
+      if (which.ids && !which.ids.has(id)) continue;
+      const bytes = await adapter.get(name);
+      if (!bytes) continue;
+      const pending = JSON.parse(utf8Decode(bytes)) as Pending;
+      if (which.collection !== undefined && pending.collection !== which.collection) continue;
+      if (!pending.by.includes(peer)) pending.by.push(peer);
+      if (pending.by.length >= target) await adapter.delete(name);
+      else await adapter.put(name, utf8Encode(JSON.stringify(pending)));
+    }
+  }
+
+  sync.on('synced', (_peer: string, full: boolean) => {
+    if (!cache || !full || cacheState.settled) return;
+    // Caught up with a node holding everything: the access history here is the space's now.
+    cacheState.settled = true;
+    saveCache();
+    void refreshHolds().catch(() => {});
+  });
+  sync.on('stored', (peer: string, ids: ReadonlyArray<string>) => {
+    void confirm(peer, { ids: new Set(ids) }).catch(() => {});
+  });
+  sync.on('level', (peer: string, collection: string, full: boolean) => {
+    if (cache && full && cacheState.level[collection] === undefined) {
+      cacheState.level[collection] = Date.now();
+      saveCache();
+      // A query that said "not complete" says so no longer.
+      if (partial) emit({ type: 'records', space: space.id });
+    }
+    void confirm(peer, { collection }).catch(() => {});
+  });
+
+  /**
+   * Drops collections no query has touched for a while: their records go,
+   * and they are no longer held. Never one the app declared, nor one holding
+   * a write still waiting for keepers.
+   */
+  async function dropUnused(): Promise<void> {
+    if (!cache || !partial || closed) return;
+    const cutoff = Date.now() - (cache.unusedAfterDays ?? 30) * DAY;
+    const waiting = new Set<string>();
+    for (const name of await adapter.list(PENDING_PREFIX)) {
+      const bytes = await adapter.get(name);
+      if (bytes) waiting.add((JSON.parse(utf8Decode(bytes)) as Pending).collection);
+    }
+    let dropped = false;
+    for (const [collection, at] of Object.entries(cacheState.used)) {
+      if (at > cutoff || declared.has(collection) || waiting.has(collection)) continue;
+      // No longer held first, so nothing syncs it back while it goes.
+      delete cacheState.used[collection];
+      delete cacheState.level[collection];
+      for (const item of (await storage.items(collection)).items) await storage.removeExpression(cidOfDigest(item.id));
+      dropped = true;
+    }
+    if (!dropped) return;
+    saveCache();
+    recordsChanged();
+    sync.notifyPeers(connectedPeers());
+  }
+  // When the app opens the space, then every few hours while it stays open.
+  const dropTimer = cache ? setInterval(() => void dropUnused().catch(() => {}), 6 * HOUR) : null;
+  const tidying = cache ? dropUnused().catch(() => {}) : Promise.resolve();
+  (dropTimer as { unref?: () => void } | null)?.unref?.();
 
   // ─── Writing ───────────────────────────────────────────────────────
 
@@ -1534,6 +1795,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
 
     let payload: unknown = null;
+    let tags: string[] = [];
     if (!deleted) {
       // Refused here, where the writer can fix it. On arrival a misfit is kept
       // and flagged instead — see `conforms`.
@@ -1563,6 +1825,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         );
         payload = sealed.body;
       }
+      // Worked out from the body, with the key it is sealed with: what every reader will check.
+      const topics = collection.startsWith('sys.') ? [] : ((await catalog()).get(collection)?.definition.topics ?? []);
+      if (topics.length) {
+        const sealedWith = looksEncrypted(payload) ? String((payload as { keyId?: unknown }).keyId) : null;
+        const key = tagKey(sealedWith);
+        if (key) tags = await tagsFor(await key, collection, topics, body);
+      }
     }
 
     // Whether superseded versions are kept is the writer's decision, carried
@@ -1590,6 +1859,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         seen: history.heads(),
         // In the clear only where the body is: a private space sealed them above.
         ...(space.visibility === 'public' && !deleted && links.length ? { links } : {}),
+        ...(tags.length ? { tags } : {}),
       }),
       writer.key,
     );
@@ -1607,6 +1877,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (!stands.ok) throw new Error(stands.reason);
     }
     await storage.addExpression(signed);
+    await markPending(signed);
     channel?.postMessage('changed');
     sync.onLocalChange(signed);
     recordsChanged();
@@ -1686,6 +1957,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   return Object.freeze({
     async list<T>(options: ListOptions = {}): Promise<ReadonlyArray<NodeRecord<T>>> {
+      if (options.collection) use([options.collection]);
       const current = (await everyCurrent(options.collection)).filter((e) => options.collection || !e.collection.startsWith('sys.'));
 
       const shown: Array<{ version: Expression; createdAt: string }> = [];
@@ -1751,6 +2023,23 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       await upsert(RELAYS_COLLECTION, SPACE_RELAYS_RECORD, { relays: [...named] });
     },
 
+    async topicTag(collection: string, field: string, value: string | number | boolean) {
+      let keyId: string | null = null;
+      if (space.visibility === 'private') {
+        const key = currentKey((await access()).history.current);
+        if (!key) throw new Error(`This device doesn't hold the current key of "${space.name}" yet`);
+        keyId = key.id;
+      }
+      return topicTag(await tagKey(keyId)!, collection, field, value);
+    },
+
+    async setKeepers(keepers: ReadonlyArray<Keeper>, copies: number | null = null) {
+      const named = keepers.map((k) => ({ did: k.did, name: k.name }));
+      const problem = checkKeepers(named, copies);
+      if (problem) throw new Error(problem);
+      await upsert(KEEPERS_COLLECTION, SPACE_KEEPERS_RECORD, { keepers: named, copies });
+    },
+
     async update<T>(recordKey: string, body: T, options: { links?: ReadonlyArray<Link>; as?: ActiveSession } = {}): Promise<NodeRecord<T>> {
       const current = await requireLive(recordKey);
       guard(current.collection);
@@ -1760,6 +2049,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     },
 
     async linked<T>(recordKey: string, options: { rel?: string; collection?: string } = {}): Promise<ReadonlyArray<NodeRecord<T>>> {
+      if (options.collection) use([options.collection]);
       const pointing = (await linkIndex()).get(recordKey) ?? [];
       const keys = [...new Set(pointing.filter((p) => !options.rel || p.rel === options.rel).map((p) => p.from))];
       const found: NodeRecord<T>[] = [];
@@ -1811,6 +2101,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         ...(input.links !== undefined ? { links: input.links } : {}),
         ...(input.permissions !== undefined ? { permissions: input.permissions } : {}),
         ...(input.rules !== undefined ? { rules: input.rules } : {}),
+        ...(input.topics !== undefined ? { topics: input.topics } : {}),
         ...(input.screen !== undefined ? { screen: input.screen } : {}),
       };
       const problem = checkStoredCollection(definition);
@@ -1846,6 +2137,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         heads: history.heads(),
         key: state.keys.length ? { changes: state.keys.length - 1, held: currentKey(state) !== null } : null,
         relays: state.relays.length ? state.relays : relays,
+        keepers: state.keepers,
+        copies: state.copies,
       });
     },
 
@@ -1940,10 +2233,14 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         connection,
         peers: connectedPeers(),
         accounts: Object.fromEntries([...knownAccounts].flatMap(([peer, known]) => (known.account && routes.has(peer) ? [[peer, known.account]] : []))),
-        root: await storage.getRootCid(),
+        fingerprint: await storage.fingerprint(),
         rejected,
+        holds: partial ? Object.keys(cacheState.used).sort() : ('all' as const),
+        pending: (await adapter.list(PENDING_PREFIX)).length,
       };
     },
+
+    use,
 
     async send(message: unknown, to?: string) {
       const encoded = JSON.stringify(message ?? null);
@@ -1956,6 +2253,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     async close(): Promise<void> {
       closed = true;
+      if (dropTimer) clearInterval(dropTimer);
+      await tidying;
+      await flushCache();
       await keysRunning;
       await pulling;
       await Promise.all(mirrors.map((mirror) => mirror.close()));

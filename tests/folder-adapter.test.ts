@@ -45,7 +45,7 @@ describe('folder adapter — key/value storage', () => {
     const folder = createMemoryDirectory();
     const adapter = await createFolderAdapter(folder.handle, 'notes');
 
-    // The shapes the space manager and MST actually use.
+    // The shapes the space manager and the store actually use.
     const keys = ['space:bafy123', 'spacekey:bafy123', '__mst_root', 'a/b/c', 'w i t h  s p a c e'];
     for (const key of keys) await adapter.put(key, utf8Encode(key));
 
@@ -211,7 +211,7 @@ describe('two origins, one folder', () => {
     await reconcileFolder(b.storage, b.adapter);
 
     assert.equal((await b.storage.queryExpressions(COLLECTION, 50)).length, 0);
-    assert.equal(await b.storage.getRootCid(), await a.storage.getRootCid());
+    assert.equal(await b.storage.fingerprint(), await a.storage.fingerprint());
   });
 
   test('a tree that still indexes a vanished file is repaired from the files', async () => {
@@ -232,17 +232,17 @@ describe('two origins, one folder', () => {
     const result = await reconcileFolder(a.storage, a.adapter);
 
     assert.deepEqual(result.removed, [expression.id]);
-    assert.deepEqual(result.repaired, [expression.id], 'the tree should have been fixed');
+    assert.deepEqual(result.repaired, [expression.id], 'the entries should have been fixed');
     assert.equal((await a.storage.queryExpressions(COLLECTION, 50)).length, 0);
   });
 
-  test('concurrent writes converge on the union, with the same root', async () => {
+  test('concurrent writes converge on the union, with the same fingerprint', async () => {
     const folder = createMemoryDirectory();
     const a = await openOrigin(folder.open());
     const b = await openOrigin(folder.open());
 
     // Neither knows about the other: interleaved writes, no coordination, and
-    // both clobber the same MST root pointer on the way.
+    // both write the same folder's entries on the way.
     const fromA = await makeExpression('from A');
     const fromB = await makeExpression('from B');
     await a.storage.addExpression(fromA);
@@ -250,8 +250,8 @@ describe('two origins, one folder', () => {
 
     await reconcileFolder(a.storage, a.adapter);
     await reconcileFolder(b.storage, b.adapter);
-    // A second pass on A: B's reconcile may have moved the shared root pointer
-    // after A had already finished looking.
+    // A second pass on A: B's reconcile may have written entries after A had
+    // already finished looking.
     await reconcileFolder(a.storage, a.adapter);
 
     const idsFrom = async (origin: { storage: StorageProvider }) =>
@@ -260,9 +260,9 @@ describe('two origins, one folder', () => {
     assert.deepEqual(await idsFrom(a), [fromA.id, fromB.id].sort());
     assert.deepEqual(await idsFrom(b), [fromA.id, fromB.id].sort());
 
-    // Same contents means the same Merkle root, which is the whole point of
-    // rebuilding the tree from the files rather than trying to merge roots.
-    assert.equal(await a.storage.getRootCid(), await b.storage.getRootCid());
+    // Same files means the same versions kept, which is the whole point of
+    // deriving the entries from the files rather than trying to merge them.
+    assert.equal(await a.storage.fingerprint(), await b.storage.fingerprint());
   });
 
   test('reconciling with nothing new reports no change', async () => {

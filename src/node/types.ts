@@ -17,6 +17,8 @@ import type { PeerTransport } from '../network/transport.js';
 import type { ServerAuth } from '../network/peer-auth.js';
 import type { StoreFactory } from './stores.js';
 import type { JsonSchema, SchemaIssue } from '../schema/collection-def.js';
+import type { Keeper } from '../space/roles.js';
+import type { NotifyWhen } from '../space/notify.js';
 
 export interface NodeNetworkConfig {
   /** Relays for WebRTC, browsers only. Each space meets in the room named after its id. */
@@ -78,6 +80,30 @@ export interface NodeConfig {
   readonly sessionKey?: CryptoKeyPair;
   /** How often to look for writes another process made to a folder store. 0 disables. Default 2000. */
   readonly watchIntervalMs?: number;
+  /**
+   * Hold only part of a space — the collections this node uses — once the
+   * space names a keeper to hold the rest. What's dropped syncs back when a
+   * query needs it again. Apps connected to an account home do this by default.
+   * Spaces with no keeper are always held whole.
+   */
+  readonly cache?: CacheConfig;
+}
+
+/**
+ * How a node holds part of a space. Every number here is the node's own
+ * choice: nothing else depends on what a node holding part of a space keeps.
+ */
+export interface CacheConfig {
+  /** Collections this app uses: held from the start, and dropped last */
+  readonly collections?: ReadonlyArray<string>;
+  /** Drop a collection no query has touched for this many days, unless it holds writes of this node's still waiting. Default 30. */
+  readonly unusedAfterDays?: number;
+  /**
+   * How many keepers a write of this node's must reach before it can be
+   * dropped. The space's own number (`copies`) or 2 when it names none, and
+   * never more than the keepers it names; this only ever raises it.
+   */
+  readonly copies?: number;
 }
 
 /** A space, as the node describes it. Never carries the key. */
@@ -155,6 +181,10 @@ export interface SpaceAccess {
   readonly key: { readonly changes: number; readonly held: boolean } | null;
   /** Where the space's members meet: the relays it names, or until it names some, the ones its invite did */
   readonly relays: ReadonlyArray<string>;
+  /** The nodes that keep the space whole: a host, an extension. Empty until someone who manages it names some. */
+  readonly keepers: ReadonlyArray<Keeper>;
+  /** How many keepers a write should reach before a node holding part of the space lets go of it; null for the default */
+  readonly copies: number | null;
 }
 
 /** A record, opened and checked — its current version, unless listed as history */
@@ -222,6 +252,8 @@ export interface NodeCollection {
   readonly permissions: ReadonlyArray<string>;
   /** Who may create, edit and delete, what must be unique — for records created from now on */
   readonly rules: CollectionRules;
+  /** Fields whose values are topics, tagged on the outside of each record so keepers can match them unread */
+  readonly topics: ReadonlyArray<string>;
   /** A screen for its records, when its definer gave one: one HTML document, run sealed */
   readonly screen?: string;
   readonly records: number;
@@ -247,6 +279,8 @@ export interface DefineCollection {
   readonly permissions?: ReadonlyArray<string>;
   /** Who may create, edit and delete, what must be unique, which fields are fixed */
   readonly rules?: CollectionRules;
+  /** Fields whose values are topics — `channel`, `mentions` — so a keeper can match them without reading (`StoredCollection.topics`) */
+  readonly topics?: ReadonlyArray<string>;
   /** A screen for its records — one HTML document an app may run in a sealed frame (`StoredCollection.screen`) */
   readonly screen?: string;
 }
@@ -261,6 +295,13 @@ export interface NodeCollections {
    * has records; the same people who may change a definition may remove it.
    */
   delete(spaceId: string, name: string): Promise<void>;
+  /**
+   * The topic tag for one value of a collection's topic field — what a
+   * record with that value carries on its outside, and what a subscription
+   * hands a keeper to match without reading. In a private space it takes the
+   * space's current key, so only its members can work it out.
+   */
+  tag(spaceId: string, collection: string, field: string, value: string | number | boolean): Promise<string>;
 }
 
 export interface ListOptions {
@@ -286,10 +327,14 @@ export interface SpaceStatus {
   readonly carriers: ReadonlyArray<string>;
   /** The account each peer showed it acts for, by the peer's session DID — only peers that showed one */
   readonly accounts: Readonly<Record<string, string>>;
-  /** Root of this space's Merkle tree — equal on two nodes means identical data */
-  readonly root: string | null;
+  /** A fingerprint of every version this node keeps here — equal on two nodes means identical data */
+  readonly fingerprint: string;
   /** Records peers sent that failed validation */
   readonly rejected: number;
+  /** What this node holds of the space: `all`, or the collections it uses (besides the space's own) */
+  readonly holds: 'all' | ReadonlyArray<string>;
+  /** Writes of this node's that haven't reached enough keepers yet, so are kept whatever else is dropped */
+  readonly pending: number;
 }
 
 /** A live message as it arrives: what was sent, and who sent it */
@@ -382,6 +427,13 @@ export interface NodeSpaces {
    * names the relays of whoever manages it first by itself. Needs `manage`.
    */
   setRelays(spaceId: string, relays: ReadonlyArray<string>): Promise<void>;
+  /**
+   * Names the nodes that keep the space whole — a host, an extension — at
+   * most 16, and optionally how many of them a write should reach before a
+   * node holding only part of the space lets go of it. Nodes that hold part
+   * of a space only do so once it names a keeper. Needs `manage`.
+   */
+  setKeepers(spaceId: string, keepers: ReadonlyArray<Keeper>, copies?: number | null): Promise<void>;
   /**
    * Revokes a note this account signed — an app's, say. Nothing written under
    * it counts from then on, except what this node had already seen.
@@ -531,6 +583,30 @@ export interface NodeCarriers {
    * held. What it already downloaded, it keeps — encrypted, as it always was.
    */
   remove(space: string): Promise<void>;
+}
+
+/** A subscription, as the person made it (`space/notify.ts`) */
+export interface NotifyView extends NotifyWhen {
+  readonly id: string;
+}
+
+/**
+ * "Let me know when…": new records in a collection, in some of the account's
+ * spaces or all of them, perhaps only those with a topic value, perhaps only
+ * other people's. The account's carriers — its extension — notice them and
+ * say so, without reading anything: they get each subscription with its value
+ * replaced by a topic tag. Needs the account key.
+ */
+export interface NodeNotifications {
+  list(): Promise<ReadonlyArray<NotifyView>>;
+  /**
+   * Starts one. `topic` matches exact values of a topic field the collection
+   * names (`topics`): `{ field: 'mentions', value: myDid }`.
+   */
+  add(when: Omit<NotifyWhen, 'since'> & { readonly since?: string }): Promise<NotifyView>;
+  /** Changes its label, pauses or resumes it */
+  update(id: string, changes: { readonly label?: string; readonly paused?: boolean }): Promise<NotifyView>;
+  remove(id: string): Promise<void>;
 }
 
 /** A host the account uses, and what it says now */
@@ -686,6 +762,8 @@ export interface P2PNode {
   readonly carriers: NodeCarriers;
   /** Hosts the account pays to keep its spaces online */
   readonly hosting: NodeHosting;
+  /** "Let me know when…" — noticed by the account's carriers, which can't read what they notice */
+  readonly notifications: NodeNotifications;
   /** People: the account's contact list, and asking to be added */
   readonly contacts: NodeContacts;
   /** The delegation the session key currently writes under (root → session) */

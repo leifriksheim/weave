@@ -1,5 +1,14 @@
 # BLOCK-22 — Keepers and caches: not every node holds everything
 
+> **Status (2026-09-26):** built on branch `keepers-and-caches`: the Merkle
+> tree is gone and sync is Negentropy, one collection at a time; apps connected
+> to an account home hold only what they use once a space names keepers;
+> collections can name topic fields, and records carry blind tags for them;
+> subscriptions across spaces, noticed by the extension, which shows
+> notifications itself. Where the build differs from the plan below, each part
+> says so. Left: Web Push for closed browsers and phones, and the smaller
+> items each part lists.
+
 ## What this delivers
 
 Today every node holds a full copy of every space it's in. An app connected
@@ -20,7 +29,7 @@ When this block is done:
   of them hold it, and a node can widen what it holds when too few are
   around;
 - the Merkle Search Tree is gone. Sync compares sets directly (Negentropy),
-  and nothing is stored but the records and a running sum per collection;
+  and nothing is stored for it but one index entry per version;
 - you can **subscribe across spaces** ("any `chat.message` that mentions
   me"), and your keepers wake your device with a Web Push even when every tab
   is closed, without being able to read what they're passing on.
@@ -112,13 +121,13 @@ essence, **the sum of the ids in it** (then hashed with the count).
 A sum can be kept up to date on every write: add the id when a version is
 stored, subtract it when one is dropped. So:
 
-- each space keeps **a running sum per collection**. "Are we equal on
+- each space has **a sum per collection**, kept in memory. "Are we equal on
   `chat.message`?" is one 16-byte comparison, with no scan;
 - "are we equal on everything we both hold?" is **the sum of those sums**.
   It's the old "equal roots, done", for any mix of collections;
 - the items are **the versions a store keeps** (current, first, and retained
   ones), the same set the tree indexed. The ordering value is the version's
-  `createdAt`. That's only for speed: recent writes cluster at the end, where
+  `createdAt`, in whole seconds. That's only for speed: recent writes cluster at the end, where
   a range split finds them quickly. **Time never decides what's held.** A
   writer who lies about the clock makes its own records slower to sync, and
   that's all.
@@ -126,7 +135,7 @@ stored, subtract it when one is dropped. So:
 | | MST today | Negentropy |
 |---|---|---|
 | Sync a part of a space | no | any set of collections |
-| Stored for sync | a tree, a path rewritten per write | a sum and a count per collection |
+| Stored for sync | a tree, a path rewritten per write | one index entry per version |
 | Cleaning up | orphaned nodes, grace period, lock | nothing to clean |
 | Folder | tree rebuilt from the files | files plus an index, as now |
 | Equal sets | 1 round trip | 1 round trip |
@@ -138,43 +147,55 @@ stored, subtract it when one is dropped. So:
 **plain entries** instead of tree entries:
 
 ```
-r/<key>              → current version id        (as before, now a plain entry)
-g/<key>              → first version id
-h/<key>/<seq>/<id>   → retained version id
-sum/<collection>     → running sum and count
+r/<key>                      → current version id        (as before, now a plain entry)
+g/<key>                      → first version id
+h/<key>/<seq>/<id>           → retained version id
+i/<collection>/<time>/<id>   → one per version kept: what sync compares
 ```
 
-The versions themselves stay where they are, with one more index:
-(collection, createdAt, id), the order Negentropy walks.
+**As built:** the sums are not stored. The `i/` entries are listed once, when
+sync first needs them, and the sorted sets and their sums are kept in memory,
+updated by every change made through the provider. When another writer
+changes the same store (another tab, which nudges over its BroadcastChannel,
+or a folder reload that found new files), `storage.invalidate()` drops them
+and they are read again. An `i/` entry is added or removed per version, never
+rewritten, so two writers can't lose each other's.
 
 `getCurrent` becomes one lookup instead of a walk down the tree.
-`addExpression` becomes one batch: the version, its `r/` entry, the old
-version's removal, and the collection's sum. It needs no lock beyond the
-store's own transaction.
+`addExpression` becomes one batch: the version, its `r/` and `i/` entries,
+and the old version's removal. Changes still take turns in memory, since each
+reads the current version before writing.
 
 **Deleted:** `src/storage/mst.ts`, `src/sync/anti-entropy.ts`, compaction
 and its condemned-node bookkeeping, `getRootCid`. **Rewritten:**
 `src/sync/sync-engine.ts`, `src/storage/storage-provider.ts`, and the tree
 parts of `folder-reconcile.ts`, `copy.ts` and `mirror.ts` (which only used
-`entries()` to list ids). `status().root` becomes `status().fingerprint`.
-The IndexedDB version is bumped, and old databases are dropped and resynced,
-as the last bump did (pre-release: no migration).
+`entries()` to list ids; now `versionIds()`). `status().root` becomes
+`status().fingerprint`. The IndexedDB version is bumped to 3, and old
+databases are dropped and resynced, as the last bump did (pre-release: no
+migration). A folder reconcile now places every file that appeared since the
+last pass, even one already indexed: placing is idempotent, and it corrects a
+current entry the other writer's race left wrong.
 
 ### Messages (sync protocol v4)
 
 ```ts
-// Once, on connecting, and again when either side's holds change:
-{ type: 'hello', holds: 'all' | string[], sums: Record<collection, fingerprint> }
-// Per collection whose fingerprints differ, in both sides' holds:
-{ type: 'reconcile', collection, id, message: Uint8Array }   // NIP-77 wire format
-{ type: 'want', id, ids }            // "send me these versions"
-{ type: 'versions', id, versions }   // the answer, as diff-response today
-{ type: 'stored', ids }              // "I have these now" (part 2's confirmation)
-{ type: 'push-update', version }     // a write, sent straight away, as now
+// On connecting, on the heartbeat, and after taking in something new:
+{ type: 'hello', sums: Record<collection, hex fingerprint>, reply?: true }
+// Per collection whose fingerprints differ:
+{ type: 'reconcile', id, collection, message }   // NIP-77 wire format, base64url
+{ type: 'reconciled', id, message }              // the answer
+{ type: 'want', id, ids }                        // "send me these versions"
+{ type: 'versions', id?, versions }              // the answer, or (no id) what the other side lacks
+{ type: 'push-update', expression }              // a write, sent straight away, as before
 ```
 
-The heartbeat sends one fingerprint (the sum over the overlap) instead of a
-root.
+**As built:** the peer whose session DID sorts first starts reconciling, so
+two peers don't both do it. The other answers a hello with its own
+(`reply: true`), which starts the first. The initiator ends up knowing both
+sides' gaps: it asks for what it lacks and sends what the other lacks. A
+session stops at 64 rounds, and a message at 32 KB. `holds` in the hello and
+`stored` wait for part 2.
 
 Two details the tree used to hide:
 
@@ -183,23 +204,25 @@ Two details the tree used to hide:
   After both sides have synced they hold the same set, so it doesn't repeat.
 - **Versions that are refused.** A version the gatekeeper refuses would show
   up as "missing" on every round. The ids of refused versions are
-  remembered (bounded, like `waiting`) and not asked for again.
+  remembered (the last 10,000) and not asked for again.
 
 ### Library or ours
 
-The reference implementation (hoytech/negentropy, which has a JavaScript
-version) is a few hundred lines, with test vectors. Either take it, if it
-meets DEPENDENCIES.md, or write ours against the same vectors so the wire
-format matches Nostr's. The adding and subtracting of 256-bit sums uses
-`BigInt`.
+**As built:** ours, `src/sync/negentropy.ts`, ported from the reference
+(hoytech/negentropy, MIT). The reference JavaScript is CommonJS with Node's
+`crypto` and 32-bit varints, so it couldn't be used in the browser build as
+is. `tests/reconcile.test.ts` checks a fingerprint and a whole first message
+byte for byte against what the reference produced, and the two were also run
+against each other, in both roles, on sets up to 25,000 items. The 256-bit
+sums use `BigInt`.
 
 ### Done when
 
 - `sync.test.ts`, `mirror.test.ts`, `folder-adapter.test.ts`, `carrier.test.ts`,
   `host.test.ts` pass unchanged in what they check; `mst.test.ts` and
   `anti-entropy.test.ts` are replaced by `reconcile.test.ts`;
-- two stores that differ by one version of 10,000 exchange a few hundred
-  bytes, in `tests/bench`;
+- two stores that differ by one version of 2,000 exchange under 8 KB in
+  all, hellos included (`tests/reconcile.test.ts`);
 - the same versions arriving in any order give the same sums (a property
   test, as the tree's convergence test did).
 
@@ -213,6 +236,16 @@ format matches Nostr's. The adding and subtracting of 256-bit sums uses
 passes `'used'` for a space **only when the space names at least one keeper**
 (below). A space with no keeper keeps its apps as full copies, because then
 they're the backups.
+
+**As built:** it's `NodeConfig.cache` (the settings below); having one means
+"hold what's used where a space names keepers". `startConnectedNode` sets
+`cache: {}` unless given `cache: false`. The account's own spaces (registry,
+contacts, carry spaces) are always held whole. A fresh node can't know whether
+a space names keepers until it has caught up, so a node with `cache` **starts
+by holding only what it uses**, and holds everything only once it has been
+level with a node holding the whole space and seen no keepers named
+(`settled`, remembered in the space's store). Otherwise its first sync would
+take everything before the keeper list arrived.
 
 A node holding `'used'` holds:
 
@@ -231,6 +264,10 @@ An `include` without `from` could reach any collection. In a cache it fetches
 the records it links to by key, keeps them, and doesn't keep them in sync. When
 the query runs again it asks again.
 
+**As built:** not yet. An `include` without `from` finds only what the node
+already holds. `records.list` and `records.linked` with a collection count as
+using it too.
+
 ### Sync is the overlap, both ways
 
 Two nodes reconcile the collections **both** hold. A keeper with a cache:
@@ -244,6 +281,18 @@ A space names its keepers the way it names its relays: one `sys.keeper`
 record per keeper, giving the keeper node's DID and a label ("Leif's host",
 "Anna's Chrome"). Whoever may name relays may name keepers. Adding hosting
 or the extension writes one; removing it deletes it.
+
+**As built:** exactly like relays: one `sys.keepers` record (`keepers:space`)
+in the access history, holding the list (at most 16, each a `did:key` and a
+name) and `copies` — so `sys.copies` isn't a record of its own. Only someone
+who manages the space changes it (`node.spaces.setKeepers`), and
+`spaces.access(id)` shows `keepers` and `copies`. A node holding the account
+key names the account's carriers — extensions and hosts — as keepers in every
+space the account manages, keeping any other keepers named, and stops naming
+a carrier once it's removed. It does so as each space opens and whenever the
+carriers change; a space the account only belongs to is left to whoever
+manages it. A keeper's DID is its node's key as peers see it, which for a
+carrier is the key in its `sys.carrier` record.
 
 - The **record** says a keeper exists, even while it's offline. It's what
   decides `'used'` versus full.
@@ -279,6 +328,14 @@ because it's the writing node's storage and its data at risk:
 With no keeper online, pending just waits. Nothing is lost: the write is on
 the device that made it, as today.
 
+**As built:** pending writes are `pending/<id>` entries in the space's store,
+naming the collection and the keepers that have it. A keeper confirms by
+`stored`, which every node sends for whatever it takes in from a peer, or by
+being level with the node on that collection (equal fingerprints mean it has
+every version, the node's own included). `spaces.status(id).pending` counts
+them. Messages from one peer are now handled in the order they came, so a
+hello saying where things stand never overtakes the versions sent before it.
+
 ### Results say whether they're complete
 
 `QueryResult` gains `complete: boolean`:
@@ -290,6 +347,10 @@ the device that made it, as today.
 
 `watch` calls back again when it becomes `true`. `useQuery` passes it
 through, so a screen can say "Loading…" instead of showing an empty list.
+
+**As built:** a collection is complete once this node has been level on it
+with any node holding the whole space (a hello says so), remembered in the
+space's store, so an app reopened offline shows what it has as complete.
 
 ### Dropping, and holding more
 
@@ -314,6 +375,12 @@ cache: {
 - The person doesn't see any of this. A dropped collection syncs back the next
   time a screen needs it, with `complete: false` until it has.
 
+**As built:** `unusedAfterDays` and `copies`, plus `collections` (declared
+ones are held from the start and never dropped for age). Dropping runs when
+the space opens and every six hours while it stays open, and skips any
+collection holding a pending write. `maxBytes` and trimming under storage
+pressure aren't built yet.
+
 **Widening** means a node holding part of a space starting to hold all of it,
 because it notices too few keepers are online. For example, if the only host
 of a space is down, an app on a laptop with plenty of room could step in as a
@@ -321,7 +388,7 @@ temporary extra copy. It's how Holochain heals: nodes grow their share when
 others go missing. It stays **off** in this block, as an opt-in
 (`cache.widen: true`), because done automatically it could fill someone's
 disk at a bad moment. Once we have numbers from real use, we can decide when
-it should happen on its own.
+it should happen on its own. **As built:** not yet, not even as the opt-in.
 
 ### Done when
 
@@ -333,6 +400,13 @@ it should happen on its own.
 - a keeper whose store is wiped gets back what a cache holds;
 - a space with no `sys.keeper` keeps its apps full, as today;
 - `complete` is `false` on a fresh app and becomes `true` after the first sync.
+
+**As built:** `tests/caches.test.ts` (an app with two keepers named, the
+same with none, pending writes and two keepers, dropping and declared
+collections, who may name keepers), `tests/reconcile.test.ts` (the engine: a
+cache as initiator and as responder, including giving a keeper what it
+lacks, and two caches sharing only their overlap) and `tests/carrier.test.ts`
+(carriers named keepers, and no longer once removed).
 
 ---
 
@@ -376,6 +450,25 @@ anyone can compute the tags (as with Nostr's `#t`).
 In this block tags serve subscriptions (part 4). They also make **subsets by
 topic** possible later ("hold only the channels I've opened"), which a blind
 keeper can serve by tag.
+
+**As built** (`src/records/topics.ts`, `tests/topics.test.ts`):
+
+- `topics` on a definition: at most 8 field names, dotted paths allowed
+  (`author.name`). `collections.list` shows them.
+- A field's values are text, numbers and yes/no, or each of those in a list;
+  anything else gives no tag. At most 64 tags a record, sorted, each once.
+- The tag key is HKDF-SHA256 of the raw key the body is sealed with (info
+  `weave/topic-tags/v1`); in a public space, of `weave/public-topics/v1|<space
+  id>`. A tag is the first 16 bytes of HMAC-SHA256 over `collection \0 field
+  \0 value as canonical JSON`, base64url — so `1` and `"1"` differ.
+- A version is checked against the topics of the definition in force for it,
+  as its rules are: tags must be exactly those its body gives, and none when
+  the definition names no topics. A node that can't read the body, or doesn't
+  have the definition yet, doesn't judge.
+- `node.collections.tag(space, collection, field, value)` gives the tag a
+  record written now would carry — what a subscription hands a keeper. In a
+  private space it takes the current key, so only members can work it out.
+- Subsets by topic for caches: not yet.
 
 ---
 
@@ -473,6 +566,56 @@ space.
 - a keeper's logs and stores hold no decrypted body or topic value.
 
 ---
+
+
+**As built — the extension first, no push service.** Chrome's extension is
+already running and already sees every record arrive, so it shows
+notifications itself (`chrome.notifications`): no Web Push, no push service
+in between. Web Push, for a closed browser or a phone, is left for later (see
+below). What was built:
+
+- **Two records, not one.** The person's subscription, value and all, is kept
+  in the account registry (`sys.notify`, key `notify:<id>`), sealed.
+  Every device holding the account key copies each one into every carry space
+  as `sys.subscription`, with the value replaced by each space's tag
+  (`space/notify.ts`, `carriedFor`) — the same way it keeps passes in step.
+  A carrier learns "tag X, in Club", never what X is. A private space whose key
+  that device doesn't hold gets no tag, so it never matches.
+- `node.notifications` — `list`, `add({ label, collection, spaces, topic?,
+  others?, open? })`, `update(id, { label?, paused? })`, `remove`. Needs the
+  account key.
+- **Matching** (`matchesSubscription`): a record new to the carrier, arriving
+  from a peer; seq 0 (a new record, not an edit or delete); the collection;
+  one of the spaces; written after the subscription was made and within the
+  last 24 hours (a carrier catching up on last week stays quiet); by someone
+  else when `others` (the account at the root of its note); and carrying the
+  space's tag when there is a topic. All from the outside of the record.
+- The carrier emits `{ type: 'notify', subscription, space, record }` —
+  label, space name, record key and time — and `carrier.subscriptions()`
+  lists them.
+- **The extension**: the offscreen page hands each match to the worker, the
+  only part allowed to show a notification: the space as the title, the
+  label as the text, the time. Several for one subscription within a minute
+  become one, "3 new". Clicking opens the subscription's `open` address, or
+  the account home. The popup lists "Notify me when…", mutes one in this
+  browser only, and its **Add or change** button opens the home at
+  `#notifications`. The manifest gains the `notifications` permission.
+- **The home**: a "Notify me when…" section — every space or one, a
+  collection, optionally "only when <topic field> is <value>" with a **Me**
+  button, only other people's, a label (suggested) — and pause and remove.
+- A host carries for accounts too, and so gets the subscriptions, labels
+  included; it ignores the matches. Labels are the one thing a carrier reads
+  as written: they are the person's own words, shown as the notification.
+
+**Not built yet:** Web Push. When it is: a host (or the extension) POSTs the
+encrypted record to the endpoint the browser gave (RFC 8030, 8291, VAPID
+8292) — plain HTTPS, no SDK or account with anyone, but the browser chooses
+the push service behind the endpoint (Chrome's is Google's, Firefox's
+Mozilla's, Safari's Apple's), which sees only ciphertext and timing. That is
+what reaches a closed browser or a phone. Also not built: the example chat's
+"notify me when I'm mentioned", and a browser-driven test of the extension's
+popup and notifications (the library side is tested: `tests/carrier.test.ts`,
+"notifications through a carrier").
 
 ## Not in this block
 

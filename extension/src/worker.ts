@@ -7,8 +7,13 @@
  * It makes the page when Chrome starts, when the extension is installed or
  * updated, when any page asks, and on a one-minute alarm in case Chrome closed
  * it for any reason.
+ *
+ * It also shows notifications — the offscreen page may not. The carrier found
+ * a record one of the account's subscriptions asks about; all it knows is the
+ * subscription's label, the space and the time, and that is what is shown.
+ * Several for one subscription close together become one: "3 new".
  */
-import type { CarrierStatus, WorkerMessage } from './shared';
+import { loadGrant, loadMuted, type CarrierStatus, type WorkerMessage } from './shared';
 
 const OFFSCREEN = 'offscreen.html';
 
@@ -58,6 +63,44 @@ function showBadge(status: CarrierStatus): void {
   void chrome.action.setTitle({ title });
 }
 
+/** A burst for one subscription shows as one notification, counted, for this long */
+const BURST_MS = 60_000;
+const bursts = new Map<string, { count: number; since: number }>();
+/** Where clicking each notification goes. Lost if the worker sleeps: then the home. */
+const opens = new Map<string, string>();
+
+async function notify(message: Extract<WorkerMessage, { type: 'notify' }>): Promise<void> {
+  const { subscription, space, record } = message.event;
+  if ((await loadMuted()).has(subscription.id)) return;
+  const id = `weave:${subscription.id}`;
+  const now = Date.now();
+  const burst = bursts.get(id);
+  const count = burst && now - burst.since < BURST_MS ? burst.count + 1 : 1;
+  bursts.set(id, { count, since: burst && count > 1 ? burst.since : now });
+  opens.set(id, subscription.open ?? message.home);
+  const when = new Date(record.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  await chrome.notifications.create(id, {
+    type: 'basic',
+    iconUrl: chrome.runtime.getURL('icons/128.png'),
+    title: space.name,
+    message: count > 1 ? `${subscription.label} · ${count} new` : subscription.label,
+    contextMessage: `Weave · ${when}`,
+    priority: 1,
+  });
+}
+
+chrome.notifications.onClicked.addListener((id) => {
+  void (async () => {
+    const url = opens.get(id) ?? (await loadGrant())?.home;
+    bursts.delete(id);
+    await chrome.notifications.clear(id);
+    if (url) await chrome.tabs.create({ url });
+  })();
+});
+chrome.notifications.onClosed.addListener((id) => {
+  bursts.delete(id);
+});
+
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) void chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
   void ensureOffscreen();
@@ -74,6 +117,10 @@ chrome.runtime.onMessage.addListener((message: WorkerMessage, _sender, respond) 
   if (message?.to !== 'worker') return false;
   if (message.type === 'badge') {
     showBadge(message.status);
+    return false;
+  }
+  if (message.type === 'notify') {
+    void notify(message).catch(() => {});
     return false;
   }
   ensureOffscreen().then(

@@ -172,12 +172,12 @@ describe('sync through a transport', () => {
     await b.network.connect();
 
     await until(() => hub.delivered() > 0, 1000, 'first frame');
-    const rootA = await a.storage.getRootCid();
-    let rootB: string | null = null;
+    const rootA = await a.storage.fingerprint();
+    let rootB = "";
     const deadline = Date.now() + 3000;
     while (rootB !== rootA && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));
-      rootB = await b.storage.getRootCid();
+      rootB = await b.storage.fingerprint();
     }
     assert.equal(rootB, rootA);
     assert.equal((await b.storage.queryExpressions('app.test.note')).length, 3);

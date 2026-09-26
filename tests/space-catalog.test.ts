@@ -207,7 +207,7 @@ describe('a space that describes itself', () => {
     assert.equal(seen?.verified, true);
     assert.equal(seen?.conforms, false);
     assert.match(seen?.issues?.[0]?.message ?? '', /"amount"/);
-    await until(async () => (await a.spaces.status(space)).root === (await b.spaces.status(space)).root, 3000, 'the peers to converge');
+    await until(async () => (await a.spaces.status(space)).fingerprint === (await b.spaces.status(space)).fingerprint, 3000, 'the peers to converge');
   });
 
   test('an agent can discover and define collections through the actions', async () => {

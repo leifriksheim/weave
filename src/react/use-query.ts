@@ -3,7 +3,7 @@ import { plainQuery, type Query, type ResultOf } from '../query/types.js';
 import { useNode } from './context.js';
 
 export interface QueryState<R> {
-  /** The latest result, or null until the first one arrives */
+  /** The latest result, or null until the first one arrives. `result.complete` is false while what it needs is still on its way. */
   readonly result: R | null;
   /** Why the query failed — usually a malformed query, saying what to fix */
   readonly error: Error | null;

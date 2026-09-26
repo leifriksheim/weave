@@ -68,7 +68,7 @@ describe('a folder on disk', () => {
     // A second process opening the same folder sees it.
     const second = createStorageProvider(await createFolderAdapter(dir, 'stores/one'));
     assert.deepEqual(await second.getExpression(signed.id), signed);
-    assert.equal(await second.getRootCid(), await first.getRootCid());
+    assert.equal(await second.fingerprint(), await first.fingerprint());
   });
 });
 

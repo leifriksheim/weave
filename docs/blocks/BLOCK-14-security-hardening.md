@@ -152,18 +152,18 @@ refused.
 
 Smaller, and each one on its own:
 
-- **`sync-request`** with a `rootCid` from inside the victim's own tree makes
-  it walk the whole tree, as often as the peer asks. Limit the rate per peer,
-  and cache the set of reachable nodes per root.
+- **Reconciling** (`hello`, `reconcile`) costs the answering side a pass over
+  a collection's in-memory set per round, as often as a peer asks. One
+  session already stops at 64 rounds and messages at 32 KB; also limit hellos
+  and sessions per peer per minute, and the collections one hello may make
+  it compare.
 - **Waiting records.** Up to 1,000 records waiting for their first version or
   definition, of any size. Every successful admit retries all of them. Cap
   their total size and the retry work per round.
-- **Tree nodes** have no limit on `keys` or `children`, and the walk's queue can
-  grow past `MAX_NODES_PER_WALK`. Cap fan-out per node, and the total queued.
 - **Byte rate per peer** on every transport, and a cap on half-open connections
   from introductions.
-- **The sync payload** travels as a JSON array of numbers (`space-runtime.ts`),
-  about 4× its size. Base64 or binary frames.
+- **The sync payload** travels as JSON; its one binary part, Negentropy's
+  messages, as base64url (a third over its size). Binary frames would save that.
 
 ---
 

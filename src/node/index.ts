@@ -7,17 +7,20 @@ export { writeCapability, relayRoom } from './space-runtime.js';
 export { indexedDBStores, folderStores } from './stores.js';
 export { copyAccountData } from './copy.js';
 export { createCarrierNode } from './carrier.js';
-export type { CarrierConfig, CarrierNode, CarriedSpace, CarrierEvent } from './carrier.js';
+export type { CarrierConfig, CarrierNode, CarriedSpace, CarrierEvent, CarriedSubscriptionView } from './carrier.js';
+export type { NotifyWhen, CarriedSubscription } from '../space/notify.js';
 export { createHostNode, NotAllowedError } from './host.js';
 export type { HostConfig, HostNode, Invoice, Subscription, SubscriptionState } from './host.js';
 export type { CopyAccountParams, CopyResult } from './copy.js';
 export type { StoreFactory, StoreOptions } from './stores.js';
+export type { Keeper } from '../space/roles.js';
 export { NODE_ACTIONS, runAction, checkActionInput } from './actions.js';
 export type { NodeAction, ActionSchema } from './actions.js';
 export type {
   P2PNode,
   NodeConfig,
   NodeNetworkConfig,
+  CacheConfig,
   NodeSpaces,
   NodeRecords,
   NodeRecord,
@@ -36,6 +39,8 @@ export type {
   DefineCollection,
   NodeAccount,
   NodeCarriers,
+  NodeNotifications,
+  NotifyView,
   NodeHosting,
   HostingView,
   CarrierSummary,

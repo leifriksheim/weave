@@ -9,12 +9,16 @@
  * - **offscreen** — a hidden page that lives as long as Chrome does. The
  *   carrier node runs here.
  * - **welcome** — a full tab: connecting to the account home, the pod, status.
- * - **popup** — the toolbar button: status at a glance.
+ * - **popup** — the toolbar button: status at a glance, and what it notifies about.
+ *
+ * Notifications: the carrier matches arriving records against the account's
+ * subscriptions without reading them, and the offscreen page hands each
+ * match to the worker, which alone may show one (`chrome.notifications`).
  *
  * The offscreen page may only use `chrome.runtime`, so everything it keeps is
  * in IndexedDB, which every page of the extension shares.
  */
-import type { CarriedSpace } from '@weaveprotocol/core/node';
+import type { CarriedSpace, CarriedSubscriptionView, CarrierEvent } from '@weaveprotocol/core/node';
 import type { CarryGrant } from '@weaveprotocol/core/session';
 
 declare const __WEAVE_HOME__: string;
@@ -52,6 +56,8 @@ export interface CarrierStatus {
   readonly removed?: boolean;
   readonly account?: { readonly name: string; readonly did: string; readonly home: string };
   readonly spaces: ReadonlyArray<CarriedSpace>;
+  /** What the account asked to be told about, as this extension holds it */
+  readonly subscriptions: ReadonlyArray<CarriedSubscriptionView>;
   readonly pod: { readonly state: PodState; readonly folder: string | null };
   readonly error?: string;
 }
@@ -69,7 +75,9 @@ export type Request =
 /** Messages to the worker */
 export type WorkerMessage =
   | { readonly to: 'worker'; readonly type: 'ensure' }
-  | { readonly to: 'worker'; readonly type: 'badge'; readonly status: CarrierStatus };
+  | { readonly to: 'worker'; readonly type: 'badge'; readonly status: CarrierStatus }
+  /** Something a subscription asks about arrived: show it, unless it's muted here */
+  | { readonly to: 'worker'; readonly type: 'notify'; readonly event: Extract<CarrierEvent, { type: 'notify' }>; readonly home: string };
 
 /** Broadcast by the offscreen page whenever the status changes */
 export interface StatusChanged {
@@ -118,6 +126,13 @@ export const forgetGrant = () => kv<void>('readwrite', (store) => store.delete('
 /** Whether the account removed this extension last time — shown once, until it connects again */
 export const loadRemoved = () => kv<boolean | undefined>('readonly', (store) => store.get('removed')).then(Boolean);
 export const setRemoved = (removed: boolean) => kv<void>('readwrite', (store) => store.put(removed, 'removed'));
+
+/** Subscriptions muted in this browser only — the account's own pause is in the home */
+export const loadMuted = () => kv<string[] | undefined>('readonly', (store) => store.get('muted')).then((muted) => new Set(muted ?? []));
+export const setMuted = (muted: ReadonlySet<string>) => kv<void>('readwrite', (store) => store.put([...muted], 'muted'));
+
+/** Where the account home keeps its "Notify me when…" */
+export const notificationsPage = (home: string) => `${home.replace(/\/$/, '')}/#notifications`;
 
 /** The databases the carrier keeps its copy in, for one account */
 export const storePrefix = (did: string) => `weave-carrier:${did}`;

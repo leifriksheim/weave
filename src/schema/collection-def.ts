@@ -35,6 +35,7 @@ import type { StandardJSONSchemaV1, StandardSchemaV1 } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { DefineCollection } from '../node/types.js';
 import { checkRules, PERMISSION_PATTERN, type CollectionRules } from '../records/rules.js';
+import { checkTopics } from '../records/topics.js';
 
 export type JsonSchema = { readonly [keyword: string]: unknown };
 
@@ -106,6 +107,13 @@ export interface StoredCollection {
    * the access changes it saw, on every peer.
    */
   readonly rules?: CollectionRules;
+  /**
+   * Fields whose values are topics: each record carries a keyed hash of each
+   * value on its outside (`tags`), so a keeper that can't read the record can
+   * still match "in #design" or "mentions me". It learns which records share
+   * a topic, never which topic. At most 8; exact values only.
+   */
+  readonly topics?: ReadonlyArray<string>;
   /**
    * A screen for its records: one HTML document, scripts and styles inline,
    * that an app may run in a sealed frame instead of drawing the records
@@ -262,6 +270,8 @@ export function checkStoredCollection(definition: unknown): string | null {
   }
   const rules = checkRules(d.rules, 'rules', d.permissions ?? []);
   if (rules) return rules;
+  const topics = checkTopics(d.topics);
+  if (topics) return topics;
   if (d.screen !== undefined) {
     if (typeof d.screen !== 'string' || !d.screen.trim()) return 'screen must be an HTML document, as text';
     const bytes = new TextEncoder().encode(d.screen).length;

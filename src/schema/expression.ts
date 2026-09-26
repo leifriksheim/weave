@@ -28,6 +28,8 @@ export interface CreateExpressionParams<T> {
   readonly seen?: ReadonlyArray<string>;
   /** Links in the clear — public spaces only; a private space seals them in the body */
   readonly links?: ReadonlyArray<Link>;
+  /** Topic tags, worked out from the body (`records/topics.ts`) */
+  readonly tags?: ReadonlyArray<string>;
 }
 
 /**
@@ -78,6 +80,7 @@ export function createExpression<T>(params: CreateExpressionParams<T>): Unsigned
     ...(params.seen ? { seen: params.seen } : {}),
     ...(params.deleted ? { deleted: true as const } : {}),
     ...(params.links?.length ? { links: params.links } : {}),
+    ...(params.tags?.length ? { tags: params.tags } : {}),
   });
 }
 

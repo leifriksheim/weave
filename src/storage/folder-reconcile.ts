@@ -5,13 +5,14 @@
  * Two origins — or two devices behind Dropbox, iCloud or Syncthing — can write
  * into one folder at the same time. Almost nothing there can actually conflict:
  * expression files are named by their own content hash, so two writers either
- * produce different files or produce byte-identical ones. The single mutable
- * thing is the MST root pointer, and a lost write to it costs nothing, because
- * the tree is derived state.
+ * produce different files or produce byte-identical ones. The entries saying
+ * which version is current can be written by both, and one write can be lost;
+ * that costs nothing, because they are derived from the files.
  *
  * So the rule is: **the set of expression files wins.** Reconciling means
- * rebuilding the tree until it agrees with the directory — adding what turned up
- * and dropping what went away. That is the whole concurrency story.
+ * placing every file that turned up — which also puts right a current-version
+ * entry the other writer overwrote — and dropping entries whose file went
+ * away. That is the whole concurrency story.
  */
 
 import type { StorageProvider } from './storage-provider.js';
@@ -25,13 +26,10 @@ export interface FolderReconciliation {
   /** Expression files that are gone */
   readonly removed: ReadonlyArray<string>;
   /**
-   * Tree entries that had to be fixed to match the directory.
-   *
-   * Usually empty, and that is the expected case rather than a lucky one: both
-   * origins read and write the same root pointer, so the tree one of them built
-   * is normally already right for the other. This fills in when a pointer write
-   * was lost — two writers racing, or a folder that came back from Dropbox with
-   * files the pointer never saw.
+   * Versions placed or unplaced to match the directory: files another writer
+   * added (placed again, which corrects a current entry a race left wrong),
+   * files that came back from Dropbox with no entries, and entries whose file
+   * is gone.
    */
   readonly repaired: ReadonlyArray<string>;
   /** Whether anything moved at all — worth a re-render when true */
@@ -39,12 +37,12 @@ export interface FolderReconciliation {
 }
 
 /**
- * Re-reads the folder and brings the Merkle tree back in line with it.
+ * Re-reads the folder and brings the entries back in line with it.
  *
  * Safe to call as often as you like: with nothing new on disk it is two
  * directory listings and no writes.
  *
- * @param storage The provider whose tree should be brought up to date
+ * @param storage The provider whose entries should be brought up to date
  * @param adapter The folder adapter underneath it
  * @param accept Whether a version found on disk may be placed. Anyone who can
  *   write the folder can drop a file in it — another site given the folder, a
@@ -58,14 +56,18 @@ export async function reconcileFolder(
   accept: (expression: Expression) => Promise<boolean> = async () => true,
 ): Promise<FolderReconciliation> {
   const disk = await adapter.reload();
+  // Another writer's entries are on disk now too: what sync compares is read again.
+  if (disk.added.length > 0 || disk.removed.length > 0) storage.invalidate();
   const onDisk = new Set(await adapter.listExpressionIds());
 
-  // Versions another writer put on disk that this tree has not placed. Each
-  // goes through the ordering rule like anything else: it becomes current,
-  // is kept as history, or loses and is dropped — the same decision the other
-  // writer reached, so both converge on the same tree.
-  const indexed = new Set((await storage.entries()).map((entry) => entry.value));
-  const missing = [...onDisk].filter((id) => !indexed.has(id));
+  // Versions another writer put on disk. Each goes through the ordering rule
+  // like anything else: it becomes current, is kept as history, or loses and
+  // is dropped — the same decision the other writer reached, so both converge.
+  // Files that appeared since the last pass are placed again even if indexed:
+  // placing is idempotent, and it corrects a current entry a race left wrong.
+  const indexed = new Set(await storage.versionIds());
+  const appeared = new Set(disk.added);
+  const missing = [...onDisk].filter((id) => !indexed.has(id) || appeared.has(id));
   const placed: string[] = [];
   for (const id of missing) {
     const expression = await adapter.getExpression(id);
@@ -79,7 +81,7 @@ export async function reconcileFolder(
 
   // Entries whose file is gone: another writer superseded and dropped it, and
   // its replacement was placed above.
-  const stale = [...new Set((await storage.entries()).map((entry) => entry.value))].filter((id) => !onDisk.has(id) && !missing.includes(id));
+  const stale = (await storage.versionIds()).filter((id) => !onDisk.has(id) && !missing.includes(id));
   for (const id of stale) {
     if (!(await adapter.getExpression(id))) await storage.removeExpression(id);
   }

@@ -1,5 +1,5 @@
 /**
- * Sync tests — two peers reconciling over the anti-entropy protocol, with the
+ * Sync tests — two peers reconciling by Negentropy, with the
  * validation engine acting as gatekeeper on everything that arrives.
  */
 import { test, describe } from 'node:test';
@@ -139,7 +139,7 @@ describe('sync engine', () => {
     await settle();
 
     assert.notEqual(await b.storage.getExpression(note.id), null);
-    assert.equal(await b.storage.getRootCid(), await a.storage.getRootCid());
+    assert.equal(await b.storage.fingerprint(), await a.storage.fingerprint());
   });
 
   test('reconciles a peer that is behind', async () => {
@@ -156,7 +156,7 @@ describe('sync engine', () => {
 
     const notes = await b.storage.queryExpressions(COLLECTION);
     assert.equal(notes.length, 3);
-    assert.equal(await b.storage.getRootCid(), await a.storage.getRootCid());
+    assert.equal(await b.storage.fingerprint(), await a.storage.fingerprint());
   });
 
   test('drops a forged expression instead of committing it', async () => {

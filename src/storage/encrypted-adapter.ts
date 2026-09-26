@@ -10,9 +10,9 @@
  * the space record go in sealed under a key derived from the account seed, so
  * they are readable only once the folder has actually been unlocked.
  *
- * Scoped deliberately narrowly. Expressions and MST nodes pass straight through:
- * their bodies are already encrypted where it matters, they are content
- * addressed, and sealing them would cost the property that makes a folder worth
+ * Scoped deliberately narrowly. Expressions and their index entries pass
+ * straight through: bodies are already encrypted where it matters, files are
+ * content addressed, and sealing them would cost the property that makes a folder worth
  * having — that you can open it and see what is in it. What stays legible is
  * each record's author, timestamp and collection, plus anything in a space its
  * owner made public.

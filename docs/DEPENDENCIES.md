@@ -63,7 +63,7 @@ because it runs on the host's own address and never next to a key:
 
 | Area | Decision | Why |
 |---|---|---|
-| Merkle Search Tree | Keep ours (`src/storage/mst.ts`) | No standalone, widely used MST library exists. The closest, `@atproto/repo`, is bound to the AT Protocol's data model. Ours is covered by order-independence and inverse-delete tests. |
+| Negentropy (set reconciliation) | Keep ours (`src/sync/negentropy.ts`), ported from hoytech/negentropy (MIT) | The reference JavaScript is CommonJS with Node's `crypto` and 32-bit varints, so it can't be imported into the browser build as is. The port is a few hundred lines, wire-compatible with NIP-77, and `tests/reconcile.test.ts` checks it byte for byte against messages the reference produced. |
 | UCAN | Keep ours (`src/identity/ucan.ts`, UCAN 0.10) | The official libraries are migrating to UCAN 1.0 with a different envelope — the opposite of stable. Revisit when that settles. |
 | Browser WebRTC wrappers (`simple-peer` etc.) | Use the native API | Thinly maintained; they would add risk, not remove it. Connection stability comes from negotiation patterns and TURN, not a wrapper. |
 | `@modelcontextprotocol/sdk` | Hand-written stdio server (`cli/src/mcp.ts`) | Only stdio and tools are needed — four JSON-RPC methods. The SDK brings an HTTP stack and a schema library, and changes often. Revisit for HTTP transport or resources. |
