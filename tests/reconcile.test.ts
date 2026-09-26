@@ -9,7 +9,7 @@ import { webcrypto } from 'node:crypto';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createReconciler, fingerprintOf, ItemSet, type Item } from '../src/sync/negentropy.js';
 import { createStorageProvider, type StorageProvider } from '../src/storage/storage-provider.js';
-import { createSyncEngine, type SyncEngine } from '../src/sync/sync-engine.js';
+import { createSyncEngine, type Holds, type SyncEngine } from '../src/sync/sync-engine.js';
 import { base32Decode, base32Encode, cidDigest, cidFromBytes, cidOfDigest } from '../src/utils/hash.js';
 import { bytesToHex } from '../src/utils/encoding.js';
 import type { Expression } from '../src/types.js';
@@ -151,16 +151,23 @@ async function version(collection: string, overrides: Partial<Expression> = {}):
   };
 }
 
-function pair(options: { validate?: (e: Expression) => Promise<{ valid: boolean; reason?: string }> } = {}) {
+function pair(
+  options: {
+    validate?: (e: Expression) => Promise<{ valid: boolean; reason?: string }>;
+    holdsA?: () => Holds;
+    holdsB?: () => Holds;
+  } = {},
+) {
   const inFlight: Promise<void>[] = [];
   const sent = { bytes: 0, reconciles: new Map<string, number>() };
   let a: { storage: StorageProvider; sync: SyncEngine };
   let b: { storage: StorageProvider; sync: SyncEngine };
-  const make = (self: string, deliver: (message: unknown) => void) => {
+  const make = (self: string, deliver: (message: unknown) => void, holds?: () => Holds) => {
     const storage = createStorageProvider(createMemoryAdapter());
     const sync = createSyncEngine({
       storageProvider: storage,
       self,
+      ...(holds ? { holds } : {}),
       sendToPeer: (_peer, message) => {
         sent.bytes += JSON.stringify(message).length;
         if (message.type === 'reconcile') sent.reconciles.set(message.collection, (sent.reconciles.get(message.collection) ?? 0) + 1);
@@ -170,8 +177,8 @@ function pair(options: { validate?: (e: Expression) => Promise<{ valid: boolean;
     });
     return { storage, sync };
   };
-  a = make('a', (m) => inFlight.push(b.sync.handleMessage('a', m)));
-  b = make('b', (m) => inFlight.push(a.sync.handleMessage('b', m)));
+  a = make('a', (m) => inFlight.push(b.sync.handleMessage('a', m)), options.holdsA);
+  b = make('b', (m) => inFlight.push(a.sync.handleMessage('b', m)), options.holdsB);
   a.sync.addPeer('b');
   b.sync.addPeer('a');
   const settle = async () => {
@@ -294,5 +301,67 @@ describe('sync by reconciliation', () => {
     await storage.addExpression(third);
     assert.deepEqual((await storage.versionIds()).sort(), [first.id, third.id].sort());
     assert.equal((await storage.items('app.note')).size, 2);
+  });
+});
+
+describe('holding part of a space', () => {
+  const ids = async (storage: StorageProvider, collection: string) => (await storage.queryExpressions(collection)).map((v) => v.id).sort();
+
+  for (const [name, cacheIs] of [
+    ['as the initiator', 'a'],
+    ['as the responder', 'b'],
+  ] as const) {
+    test(`a cache takes only what it holds, and gives what it wrote — ${name}`, async () => {
+      let held: Holds = new Set(['app.chat']);
+      const cache = () => held;
+      const { a, b, settle } = pair(cacheIs === 'a' ? { holdsA: cache } : { holdsB: cache });
+      const [c, k] = cacheIs === 'a' ? [a, b] : [b, a];
+      const level: string[] = [];
+      const stored: string[] = [];
+      c.sync.on('level', (_peer: string, collection: string) => level.push(collection));
+      c.sync.on('stored', (_peer: string, got: string[]) => stored.push(...got));
+
+      for (let i = 0; i < 40; i++) await k.storage.addExpression(await version('app.chat'));
+      for (let i = 0; i < 40; i++) await k.storage.addExpression(await version('app.photos'));
+      await k.storage.addExpression(await version('sys.member'));
+      const mine = await version('app.chat');
+      await c.storage.addExpression(mine);
+
+      c.sync.notifyPeers([cacheIs === 'a' ? 'b' : 'a']);
+      await settle();
+
+      assert.deepEqual(await ids(c.storage, 'app.chat'), await ids(k.storage, 'app.chat'));
+      assert.equal((await ids(c.storage, 'app.chat')).length, 41);
+      assert.equal((await ids(c.storage, 'app.photos')).length, 0, 'not held, not taken');
+      assert.equal((await ids(c.storage, 'sys.member')).length, 1, 'the space’s own always');
+      assert.ok(stored.includes(mine.id), 'the keeper said it has the cache’s write');
+      assert.ok(level.includes('app.chat'));
+
+      // A push for a collection it doesn't hold passes it by.
+      const photo = await version('app.photos');
+      await k.storage.addExpression(photo);
+      k.sync.onLocalChange(photo);
+      await settle();
+      assert.equal(await c.storage.getExpression(photo.id), null);
+
+      // Holding more: the next hello brings it across.
+      held = new Set(['app.chat', 'app.photos']);
+      c.sync.notifyPeers([cacheIs === 'a' ? 'b' : 'a']);
+      await settle();
+      assert.equal((await ids(c.storage, 'app.photos')).length, 41);
+    });
+  }
+
+  test('two caches reconcile only what both hold', async () => {
+    const { a, b, sent, settle } = pair({ holdsA: () => new Set(['app.x', 'app.y']), holdsB: () => new Set(['app.y', 'app.z']) });
+    for (const c of ['app.x', 'app.y', 'app.z']) {
+      await a.storage.addExpression(await version(c));
+      await b.storage.addExpression(await version(c));
+    }
+    b.sync.notifyPeers(['a']);
+    await settle();
+    assert.deepEqual([...sent.reconciles.keys()], ['app.y']);
+    assert.equal((await ids(a.storage, 'app.y')).length, 2);
+    assert.equal((await ids(a.storage, 'app.z')).length, 1, 'its own, never the other’s');
   });
 });

@@ -15,7 +15,7 @@
  * for one signature an hour, never one per write.
  */
 import { runQuery } from '../query/engine.js';
-import { nameOf, type CollectionRef, type Query, type ResultOf } from '../query/types.js';
+import { nameOf, plainQuery, type CollectionRef, type Include, type Query, type ResultOf } from '../query/types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 import type { Link, SpaceRole } from '../types.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
@@ -30,7 +30,7 @@ import {
   type InviteOptions as InviteSecret,
   type SpaceRecord,
 } from '../space/space-manager.js';
-import { checkRelays, MAX_RELAYS } from '../space/roles.js';
+import { checkRelays, MANAGE, MAX_KEEPERS, MAX_RELAYS, roleHolds, type Keeper } from '../space/roles.js';
 import { meshFor, noteCid, openSpaceRuntime, type ActiveSession, type SpaceRuntime } from './space-runtime.js';
 import { createServerAuth } from '../network/peer-auth.js';
 import { DEFAULT_ICE_SERVERS } from '../network/rtc-transport.js';
@@ -113,6 +113,21 @@ function summarize(record: SpaceRecord): SpaceSummary {
     role: record.role,
     joining: record.invite !== null,
   });
+}
+
+/** Every collection a query reads: its own, and each `include … from` */
+function collectionsOf(query: Query): string[] {
+  const plain = plainQuery(query);
+  const found = new Set<string>();
+  if (typeof plain.collection === 'string') found.add(plain.collection);
+  const walk = (includes: Readonly<Record<string, Include>> | undefined) => {
+    for (const include of Object.values(includes ?? {})) {
+      if (typeof include?.from === 'string') found.add(include.from);
+      walk(include?.include);
+    }
+  };
+  walk(plain.include);
+  return [...found];
 }
 
 /** Accepts a bare invite or a whole share link carrying one (`…#invite=…`). */
@@ -313,6 +328,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           ...(config.network ? { network: config.network } : {}),
           ...(mesh ? { mesh } : {}),
           peopleOnly: spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId),
+          // The account's own spaces are always held whole: every device needs all of them.
+          ...(config.cache && spaceId !== accountSpaceId && spaceId !== contactsSpaceId && !carrySpaces.has(spaceId) ? { cache: config.cache } : {}),
           watchIntervalMs: config.watchIntervalMs ?? 2000,
           emit: fromRuntime,
           onRole: (role) => {
@@ -344,6 +361,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       void open.then((rt) => publishProfile(spaceId, rt)).catch(() => {});
       // A revoke that arrived on an earlier visit.
       void open.then((rt) => checkRevoked(spaceId, rt)).catch(() => {});
+      // Carriers added since this space was last open.
+      void open.then((rt) => nameKeepers(spaceId, rt)).catch(() => {});
       runtimes.set(spaceId, open);
     }
     return open;
@@ -508,6 +527,31 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   }
 
   /**
+   * Names the account's carriers — its extensions, its hosts — as keepers of
+   * a space it manages, and stops naming ones it removed, so apps there hold
+   * only what they use. Other keepers the space names stay. Done as each space
+   * opens and whenever the carriers change; a space this account doesn't
+   * manage is left to whoever does.
+   */
+  async function nameKeepers(spaceId: string, rt: SpaceRuntime): Promise<void> {
+    if (!account || agentSession || spaceId === accountSpaceId || hidden(spaceId)) return;
+    const access = await rt.access();
+    if (!roleHolds(access.role, MANAGE)) return;
+    const carriers = await carrierRecords();
+    const active = carriers.filter(({ record }) => !record.deleted && record.body).map(({ record }) => record.body!);
+    const gone = new Set<string>();
+    for (const { record } of carriers) {
+      if (!record.deleted) continue;
+      for (const version of await (await runtime(accountSpaceId!)).history<Carrier>(record.key)) if (version.body?.did) gone.add(version.body.did);
+    }
+    for (const carrier of active) gone.delete(carrier.did);
+    const kept = access.keepers.filter((keeper) => !gone.has(keeper.did));
+    const added = active.filter((carrier) => !kept.some((keeper) => keeper.did === carrier.did)).map((c) => ({ did: c.did, name: c.name.slice(0, 80) }));
+    if (added.length === 0 && kept.length === access.keepers.length) return;
+    await rt.setKeepers([...kept, ...added].slice(0, MAX_KEEPERS), access.copies);
+  }
+
+  /**
    * Makes this node's spaces match the account's: join what the account
    * belongs to, leave what it left, and record anything held here that the
    * registry has never heard of.
@@ -571,6 +615,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       // Only a device that may write in the carry space can do this; others leave it to one that can.
       await syncPasses(record.body).catch(() => {});
     }
+    // Carriers came or went: the open spaces this account manages say so.
+    for (const [spaceId, open] of runtimes) void open.then((rt) => nameKeepers(spaceId, rt)).catch(() => {});
     // Not awaited: a host that is slow to answer must not hold up the rest.
     void keepHosted().catch(() => {});
 
@@ -735,6 +781,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
     async setRelays(spaceId: string, relays: ReadonlyArray<string>) {
       await (await runtime(spaceId)).setRelays(relays);
+    },
+
+    async setKeepers(spaceId: string, keepers: ReadonlyArray<Keeper>, copies?: number | null) {
+      await (await runtime(spaceId)).setKeepers(keepers, copies ?? null);
     },
 
     async authenticator(spaceId: string) {
@@ -1218,14 +1268,17 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     },
     async query<Q extends Query>(spaceId: string, query: Q): Promise<ResultOf<Q>> {
       const space = await runtime(spaceId);
-      return runQuery(
+      // Asked before running, so a node holding part of the space starts fetching what it lacks.
+      const complete = space.use(collectionsOf(query));
+      const result = await runQuery(
         {
           list: (collection) => space.list({ collection }),
           get: (key) => space.get(key),
           linked: (key, options) => space.linked(key, options),
         },
         query,
-      ) as Promise<ResultOf<Q>>;
+      );
+      return { ...result, complete } as ResultOf<Q>;
     },
     watch<Q extends Query>(spaceId: string, query: Q, onResult: (result: ResultOf<Q>) => void, onError?: (error: Error) => void) {
       // Changes arrive in bursts during sync; one run at a time, and one more

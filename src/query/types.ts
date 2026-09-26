@@ -137,6 +137,13 @@ export interface QueryResult<T = unknown, I = AnyIncluded> {
   readonly records: ReadonlyArray<QueryRecord<T, I>>;
   /** Pass back as `cursor` for the next page; null when there is none */
   readonly cursor: string | null;
+  /**
+   * Whether this node has everything the query could find. False only on a
+   * node holding part of a space, while a collection the query needs is still
+   * on its way — show "Loading…", not "Nothing here". A `watch` calls back
+   * again when it turns true.
+   */
+  readonly complete: boolean;
 }
 
 /** The result a query gives, typed from the query itself */

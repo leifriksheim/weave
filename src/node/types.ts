@@ -17,6 +17,7 @@ import type { PeerTransport } from '../network/transport.js';
 import type { ServerAuth } from '../network/peer-auth.js';
 import type { StoreFactory } from './stores.js';
 import type { JsonSchema, SchemaIssue } from '../schema/collection-def.js';
+import type { Keeper } from '../space/roles.js';
 
 export interface NodeNetworkConfig {
   /** Relays for WebRTC, browsers only. Each space meets in the room named after its id. */
@@ -78,6 +79,30 @@ export interface NodeConfig {
   readonly sessionKey?: CryptoKeyPair;
   /** How often to look for writes another process made to a folder store. 0 disables. Default 2000. */
   readonly watchIntervalMs?: number;
+  /**
+   * Hold only part of a space — the collections this node uses — once the
+   * space names a keeper to hold the rest. What's dropped syncs back when a
+   * query needs it again. Apps connected to an account home do this by default.
+   * Spaces with no keeper are always held whole.
+   */
+  readonly cache?: CacheConfig;
+}
+
+/**
+ * How a node holds part of a space. Every number here is the node's own
+ * choice: nothing else depends on what a node holding part of a space keeps.
+ */
+export interface CacheConfig {
+  /** Collections this app uses: held from the start, and dropped last */
+  readonly collections?: ReadonlyArray<string>;
+  /** Drop a collection no query has touched for this many days, unless it holds writes of this node's still waiting. Default 30. */
+  readonly unusedAfterDays?: number;
+  /**
+   * How many keepers a write of this node's must reach before it can be
+   * dropped. The space's own number (`copies`) or 2 when it names none, and
+   * never more than the keepers it names; this only ever raises it.
+   */
+  readonly copies?: number;
 }
 
 /** A space, as the node describes it. Never carries the key. */
@@ -155,6 +180,10 @@ export interface SpaceAccess {
   readonly key: { readonly changes: number; readonly held: boolean } | null;
   /** Where the space's members meet: the relays it names, or until it names some, the ones its invite did */
   readonly relays: ReadonlyArray<string>;
+  /** The nodes that keep the space whole: a host, an extension. Empty until someone who manages it names some. */
+  readonly keepers: ReadonlyArray<Keeper>;
+  /** How many keepers a write should reach before a node holding part of the space lets go of it; null for the default */
+  readonly copies: number | null;
 }
 
 /** A record, opened and checked — its current version, unless listed as history */
@@ -290,6 +319,10 @@ export interface SpaceStatus {
   readonly fingerprint: string;
   /** Records peers sent that failed validation */
   readonly rejected: number;
+  /** What this node holds of the space: `all`, or the collections it uses (besides the space's own) */
+  readonly holds: 'all' | ReadonlyArray<string>;
+  /** Writes of this node's that haven't reached enough keepers yet, so are kept whatever else is dropped */
+  readonly pending: number;
 }
 
 /** A live message as it arrives: what was sent, and who sent it */
@@ -382,6 +415,13 @@ export interface NodeSpaces {
    * names the relays of whoever manages it first by itself. Needs `manage`.
    */
   setRelays(spaceId: string, relays: ReadonlyArray<string>): Promise<void>;
+  /**
+   * Names the nodes that keep the space whole — a host, an extension — at
+   * most 16, and optionally how many of them a write should reach before a
+   * node holding only part of the space lets go of it. Nodes that hold part
+   * of a space only do so once it names a keeper. Needs `manage`.
+   */
+  setKeepers(spaceId: string, keepers: ReadonlyArray<Keeper>, copies?: number | null): Promise<void>;
   /**
    * Revokes a note this account signed — an app's, say. Nothing written under
    * it counts from then on, except what this node had already seen.

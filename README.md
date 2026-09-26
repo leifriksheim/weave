@@ -424,6 +424,29 @@ its password or passkeys, or keep access past the note's date.
 The home side is `receiveConnectRequest()` and `auth.grant(…)`; see
 [home/README.md](home/README.md).
 
+### Apps hold what they use — keepers hold the rest
+
+A space can name its **keepers**: nodes that hold every record of it, like a
+host or the extension (`node.spaces.setKeepers`, for someone who manages the
+space; the account's carriers are named by themselves in every space it
+manages). Once it does, an app connected to the account home holds only the
+collections it uses, besides the space's own (`sys.*`):
+
+- a query says what it needs — its collection and every `include … from` —
+  and those start syncing from any peer that has them;
+- `result.complete` is false until they have caught up with a node holding
+  the whole space: show "Loading…", not "Nothing here";
+- the app's own writes stay **pending** until enough keepers say they have
+  them (`stored`): the space's `copies`, or 2, never more than it names.
+  Nothing pending is ever dropped;
+- a collection no query has touched for `unusedAfterDays` (30) is dropped,
+  unless the app declared it (`cache.collections`). It syncs back when needed.
+
+A space that names no keeper is held whole, as before: then the app may be one
+of its copies. How much to hold is each node's choice (`NodeConfig.cache`;
+`startConnectedNode` turns it on unless given `cache: false`); only how
+keepers confirm is protocol. `spaces.status(id)` shows `holds` and `pending`.
+
 ## Modules
 
 ### Identity (`@weaveprotocol/core/identity`)
@@ -884,6 +907,11 @@ among 2,000 syncs in under 8 KB, all told. Nothing is stored for sync beyond
 the versions' own index entries: the sets and sums live in memory, updated by
 every change and read again when another writer (a tab, a folder) changed the
 store.
+
+Each hello also says what the peer holds — `all`, or some collections — and
+two peers reconcile only the collections both hold. A version for a collection
+a node doesn't hold is passed over; one it takes in, it tells the sender it has
+(`stored`). One peer's messages are handled in the order they came.
 
 The engine's `validate` hook is the seam where the validation engine sits.
 Expressions a peer sends are only committed if it accepts them; the rest are

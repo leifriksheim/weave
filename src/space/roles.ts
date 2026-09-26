@@ -63,6 +63,13 @@ export const KEY_COLLECTION = 'sys.key';
  * but the space's, and changed only by someone who manages it.
  */
 export const RELAYS_COLLECTION = 'sys.relays';
+/**
+ * Who keeps the space whole: nodes that hold every record of it — a host, an
+ * extension — and how many copies a write should reach before a node that
+ * holds only part of the space lets go of it. Changed only by someone who
+ * manages the space, like its relays.
+ */
+export const KEEPERS_COLLECTION = 'sys.keepers';
 
 /** Every collection whose records are part of the access history */
 export const ACCESS_COLLECTIONS: ReadonlySet<string> = new Set([
@@ -73,6 +80,7 @@ export const ACCESS_COLLECTIONS: ReadonlySet<string> = new Set([
   DEFINITION_COLLECTION,
   KEY_COLLECTION,
   RELAYS_COLLECTION,
+  KEEPERS_COLLECTION,
 ]);
 
 export const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,39}$/;
@@ -147,7 +155,37 @@ export type AccessEvent = EventBase &
         readonly readKey: string;
       }
     | { readonly kind: 'relays'; /** WebSocket URLs, at most `MAX_RELAYS` */ readonly relays: ReadonlyArray<string> }
+    | {
+        readonly kind: 'keepers';
+        /** Nodes that keep the space whole, at most `MAX_KEEPERS` */
+        readonly keepers: ReadonlyArray<Keeper>;
+        /** How many keepers a write should reach before a partial node lets go of it; null for the default */
+        readonly copies: number | null;
+      }
   );
+
+/** A node that keeps a space whole: its key, as it appears to peers, and a name for people */
+export interface Keeper {
+  readonly did: string;
+  readonly name: string;
+}
+
+/** How many keepers a space may name */
+export const MAX_KEEPERS = 16;
+
+/** Why a list of keepers can't be a space's, or null */
+export function checkKeepers(keepers: unknown, copies: unknown = null): string | null {
+  if (!Array.isArray(keepers) || keepers.length > MAX_KEEPERS) return `A space names at most ${MAX_KEEPERS} keepers`;
+  for (const keeper of keepers as Array<Partial<Keeper>>) {
+    if (typeof keeper?.did !== 'string' || !keeper.did.startsWith('did:key:') || keeper.did.length > 200) return 'A keeper is named by its did:key';
+    if (typeof keeper.name !== 'string' || keeper.name.length > 80) return 'A keeper has a name of at most 80 characters';
+  }
+  if (new Set(keepers.map((k: Keeper) => k.did)).size !== keepers.length) return 'A keeper is named twice';
+  if (copies !== null && !(Number.isSafeInteger(copies) && (copies as number) >= 1 && (copies as number) <= MAX_KEEPERS)) {
+    return `Copies is a whole number from 1 to ${MAX_KEEPERS}`;
+  }
+  return null;
+}
 
 /** How many relays a space may name */
 export const MAX_RELAYS = 8;
@@ -193,6 +231,10 @@ export interface AccessState {
   readonly keyDue: boolean;
   /** The relays the space names — empty until someone who manages it names some */
   readonly relays: ReadonlyArray<string>;
+  /** The nodes that keep the space whole — empty until someone who manages it names some */
+  readonly keepers: ReadonlyArray<Keeper>;
+  /** How many keepers a write should reach; null for whatever each node defaults to */
+  readonly copies: number | null;
 }
 
 /** What a space starts with, from its genesis */
@@ -265,6 +307,8 @@ interface MutableState {
   keys: SpaceKeyEpoch[];
   keyDue: boolean;
   relays: ReadonlyArray<string>;
+  keepers: ReadonlyArray<Keeper>;
+  copies: number | null;
 }
 
 function startState(genesis: AccessGenesis): MutableState {
@@ -276,6 +320,8 @@ function startState(genesis: AccessGenesis): MutableState {
     keys: genesis.key ? [{ ...genesis.key, event: genesis.id }] : [],
     keyDue: false,
     relays: [],
+    keepers: [],
+    copies: null,
   };
 }
 
@@ -287,6 +333,8 @@ const copyState = (state: MutableState): MutableState => ({
   keys: [...state.keys],
   keyDue: state.keyDue,
   relays: state.relays,
+  keepers: state.keepers,
+  copies: state.copies,
 });
 
 /** Everyone holding a role that exists — who can read, as far as the history is concerned */
@@ -331,6 +379,7 @@ function takesAway(event: AccessEvent, state: AccessState): boolean {
     case 'definition':
     case 'key':
     case 'relays':
+    case 'keepers':
       return false;
   }
 }
@@ -353,6 +402,7 @@ function mayTakeAway(event: AccessEvent): boolean {
     case 'definition':
     case 'key':
     case 'relays':
+    case 'keepers':
       return false;
   }
 }
@@ -422,6 +472,8 @@ function refusal(event: AccessEvent, state: AccessState): string | null {
     }
     case 'relays':
       return roleHolds(author, MANAGE) ? checkRelays(event.relays) : 'Its author may not change where the space meets';
+    case 'keepers':
+      return roleHolds(author, MANAGE) ? checkKeepers(event.keepers, event.copies) : 'Its author may not change who keeps the space';
   }
 }
 
@@ -468,6 +520,10 @@ function change(event: AccessEvent, state: MutableState): void {
       return;
     case 'relays':
       state.relays = [...event.relays];
+      return;
+    case 'keepers':
+      state.keepers = event.keepers.map((k) => ({ did: k.did, name: k.name }));
+      state.copies = event.copies;
       return;
   }
 }

@@ -409,6 +409,8 @@ export type {
   HostingView,
   Subscription,
   SubscriptionState,
+  Keeper,
+  CacheConfig,
 } from './node/index.js';
 
 // Queries: plain-data filters, sorting, paging and includes over a space

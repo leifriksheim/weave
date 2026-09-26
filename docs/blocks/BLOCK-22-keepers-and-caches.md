@@ -1,9 +1,10 @@
 # BLOCK-22 — Keepers and caches: not every node holds everything
 
-> **Status (2026-09-26):** part 1 built on branch `keepers-and-caches`: the
-> Merkle tree is gone and sync is Negentropy, one collection at a time. Where
-> the build differs from the plan below, part 1 says so. Parts 2–4 are still
-> ahead.
+> **Status (2026-09-26):** parts 1 and 2 built on branch `keepers-and-caches`:
+> the Merkle tree is gone and sync is Negentropy, one collection at a time;
+> apps connected to an account home hold only what they use once a space names
+> keepers. Where the build differs from the plan below, each part says so.
+> Parts 3 and 4 are still ahead.
 
 ## What this delivers
 
@@ -233,6 +234,16 @@ passes `'used'` for a space **only when the space names at least one keeper**
 (below). A space with no keeper keeps its apps as full copies, because then
 they're the backups.
 
+**As built:** it's `NodeConfig.cache` (the settings below); having one means
+"hold what's used where a space names keepers". `startConnectedNode` sets
+`cache: {}` unless given `cache: false`. The account's own spaces (registry,
+contacts, carry spaces) are always held whole. A fresh node can't know whether
+a space names keepers until it has caught up, so a node with `cache` **starts
+by holding only what it uses**, and holds everything only once it has been
+level with a node holding the whole space and seen no keepers named
+(`settled`, remembered in the space's store). Otherwise its first sync would
+take everything before the keeper list arrived.
+
 A node holding `'used'` holds:
 
 1. every `sys.*` collection, always;
@@ -250,6 +261,10 @@ An `include` without `from` could reach any collection. In a cache it fetches
 the records it links to by key, keeps them, and doesn't keep them in sync. When
 the query runs again it asks again.
 
+**As built:** not yet. An `include` without `from` finds only what the node
+already holds. `records.list` and `records.linked` with a collection count as
+using it too.
+
 ### Sync is the overlap, both ways
 
 Two nodes reconcile the collections **both** hold. A keeper with a cache:
@@ -263,6 +278,18 @@ A space names its keepers the way it names its relays: one `sys.keeper`
 record per keeper, giving the keeper node's DID and a label ("Leif's host",
 "Anna's Chrome"). Whoever may name relays may name keepers. Adding hosting
 or the extension writes one; removing it deletes it.
+
+**As built:** exactly like relays: one `sys.keepers` record (`keepers:space`)
+in the access history, holding the list (at most 16, each a `did:key` and a
+name) and `copies` — so `sys.copies` isn't a record of its own. Only someone
+who manages the space changes it (`node.spaces.setKeepers`), and
+`spaces.access(id)` shows `keepers` and `copies`. A node holding the account
+key names the account's carriers — extensions and hosts — as keepers in every
+space the account manages, keeping any other keepers named, and stops naming
+a carrier once it's removed. It does so as each space opens and whenever the
+carriers change; a space the account only belongs to is left to whoever
+manages it. A keeper's DID is its node's key as peers see it, which for a
+carrier is the key in its `sys.carrier` record.
 
 - The **record** says a keeper exists, even while it's offline. It's what
   decides `'used'` versus full.
@@ -298,6 +325,14 @@ because it's the writing node's storage and its data at risk:
 With no keeper online, pending just waits. Nothing is lost: the write is on
 the device that made it, as today.
 
+**As built:** pending writes are `pending/<id>` entries in the space's store,
+naming the collection and the keepers that have it. A keeper confirms by
+`stored`, which every node sends for whatever it takes in from a peer, or by
+being level with the node on that collection (equal fingerprints mean it has
+every version, the node's own included). `spaces.status(id).pending` counts
+them. Messages from one peer are now handled in the order they came, so a
+hello saying where things stand never overtakes the versions sent before it.
+
 ### Results say whether they're complete
 
 `QueryResult` gains `complete: boolean`:
@@ -309,6 +344,10 @@ the device that made it, as today.
 
 `watch` calls back again when it becomes `true`. `useQuery` passes it
 through, so a screen can say "Loading…" instead of showing an empty list.
+
+**As built:** a collection is complete once this node has been level on it
+with any node holding the whole space (a hello says so), remembered in the
+space's store, so an app reopened offline shows what it has as complete.
 
 ### Dropping, and holding more
 
@@ -333,6 +372,12 @@ cache: {
 - The person doesn't see any of this. A dropped collection syncs back the next
   time a screen needs it, with `complete: false` until it has.
 
+**As built:** `unusedAfterDays` and `copies`, plus `collections` (declared
+ones are held from the start and never dropped for age). Dropping runs when
+the space opens and every six hours while it stays open, and skips any
+collection holding a pending write. `maxBytes` and trimming under storage
+pressure aren't built yet.
+
 **Widening** means a node holding part of a space starting to hold all of it,
 because it notices too few keepers are online. For example, if the only host
 of a space is down, an app on a laptop with plenty of room could step in as a
@@ -340,7 +385,7 @@ temporary extra copy. It's how Holochain heals: nodes grow their share when
 others go missing. It stays **off** in this block, as an opt-in
 (`cache.widen: true`), because done automatically it could fill someone's
 disk at a bad moment. Once we have numbers from real use, we can decide when
-it should happen on its own.
+it should happen on its own. **As built:** not yet, not even as the opt-in.
 
 ### Done when
 
@@ -352,6 +397,13 @@ it should happen on its own.
 - a keeper whose store is wiped gets back what a cache holds;
 - a space with no `sys.keeper` keeps its apps full, as today;
 - `complete` is `false` on a fresh app and becomes `true` after the first sync.
+
+**As built:** `tests/caches.test.ts` (an app with two keepers named, the
+same with none, pending writes and two keepers, dropping and declared
+collections, who may name keepers), `tests/reconcile.test.ts` (the engine: a
+cache as initiator and as responder, including giving a keeper what it
+lacks, and two caches sharing only their overlap) and `tests/carrier.test.ts`
+(carriers named keepers, and no longer once removed).
 
 ---
 

@@ -18,17 +18,25 @@ type V = { readonly v: typeof SYNC_PROTOCOL_VERSION };
 export type SyncMessage = V &
   (
     /**
-     * "Here is a fingerprint of each collection I keep." Equal fingerprints
-     * mean the same versions. `reply` marks the answer to one, so two peers
-     * don't answer each other forever.
+     * "Here is what I hold, and a fingerprint of each collection I keep."
+     * `holds` is `all`, or the collections held besides the space's own
+     * (`sys.*`), which every node holds. Two peers reconcile only what both
+     * hold. Equal fingerprints mean the same versions. `reply` marks the
+     * answer to one, so two peers don't answer each other forever.
      */
-    | { readonly type: 'hello'; readonly sums: Readonly<Record<string, string>>; readonly reply?: boolean }
+    | {
+        readonly type: 'hello';
+        readonly holds?: 'all' | ReadonlyArray<string>;
+        readonly sums: Readonly<Record<string, string>>;
+        readonly reply?: boolean;
+      }
     /**
      * One round of reconciling one collection: a Negentropy message, base64url.
      * `id` names the session; the answer comes back as `reconciled`.
      */
     | { readonly type: 'reconcile'; readonly id: number; readonly collection: string; readonly message: string }
-    | { readonly type: 'reconciled'; readonly id: number; readonly message: string }
+    /** The answer to a round; `held: false` when the collection isn't held here, which ends the session */
+    | { readonly type: 'reconciled'; readonly id: number; readonly message: string; readonly held?: false }
     /** "Send me these versions." `id` is echoed in the reply. */
     | { readonly type: 'want'; readonly id: number; readonly ids: ReadonlyArray<string> }
     /**
@@ -38,6 +46,12 @@ export type SyncMessage = V &
     | { readonly type: 'versions'; readonly id?: number; readonly versions: ReadonlyArray<Expression> }
     /** A record written just now, pushed without waiting for the next round. */
     | { readonly type: 'push-update'; readonly expression: Expression }
+    /**
+     * "I have these now": versions the sender took in from the receiver, or
+     * already had. A node holding only part of a space lets go of its own
+     * writes once enough keepers have said so.
+     */
+    | { readonly type: 'stored'; readonly ids: ReadonlyArray<string> }
   );
 
 /** A message before the version is stamped on — what callers construct. */

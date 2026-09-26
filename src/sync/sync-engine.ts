@@ -17,6 +17,14 @@
  * The initiator is the peer whose id sorts first, so two peers that hear each
  * other's hello at once don't both do the work. A peer that isn't the
  * initiator answers a hello with its own, which starts the other.
+ *
+ * **Holding part of a space.** A node may hold every collection, or only
+ * some (plus the space's own `sys.*`, which every node holds). Each hello
+ * says which. Two peers reconcile only the collections both hold, and a
+ * version for a collection this node doesn't hold is not taken in. Whatever
+ * a node does take in from a peer, it tells that peer it has (`stored`): a
+ * node holding part of a space keeps its own writes until enough keepers have
+ * said so.
  */
 import type { Expression } from '../types.js';
 import type { StorageProvider } from '../storage/storage-provider.js';
@@ -44,6 +52,13 @@ const MAX_WAITING = 1000;
 /** Refusals remembered, so reconciling doesn't ask a peer for the same bad version every round */
 const MAX_REFUSED = 10_000;
 
+/** What a node holds of a space: every collection, or these (besides `sys.*`, which every node holds) */
+export type Holds = 'all' | ReadonlySet<string>;
+
+/** Whether a collection is held, given what a node holds */
+export const holdsCollection = (holds: Holds, collection: string): boolean =>
+  collection.startsWith('sys.') || holds === 'all' || holds.has(collection);
+
 /** Collection definitions first, then records by version — what others depend on comes first */
 const rank = (e: Expression): number => (e?.collection === 'sys.collection' ? -1 : (e?.seq ?? 0));
 
@@ -66,9 +81,18 @@ export interface SyncEngineConfig {
    * for a trusted transport or a test.
    */
   readonly validate?: (expression: Expression) => Promise<IncomingValidation>;
+  /** What this node holds, asked afresh for every hello. Default: everything. */
+  readonly holds?: () => Holds;
 }
 
-export type SyncEvent = 'synced' | 'expression-received' | 'rejected' | 'error';
+/**
+ * - `synced` (peer, full): nothing left in flight with the peer; `full` when the peer holds every collection
+ * - `level` (peer, collection, full): this node holds what the peer holds of a
+ *   collection, as far as it could take it in; `full` when the peer holds every collection
+ * - `stored` (peer, ids): the peer says it now has these versions
+ * - `expression-received` (version), `rejected` (peer, version, reason), `error` (error)
+ */
+export type SyncEvent = 'synced' | 'level' | 'stored' | 'expression-received' | 'rejected' | 'error';
 type EventHandler = (...args: any[]) => void;
 
 export interface SyncEngine {
@@ -115,8 +139,10 @@ interface Session {
 /** Everything in flight with one peer */
 interface PeerState {
   readonly sessions: Map<string, Session>;
-  /** `want` requests in flight, by request id */
-  readonly wants: Map<number, ReadonlySet<string>>;
+  /** `want` requests in flight, by request id, and the collection they are for */
+  readonly wants: Map<number, { readonly ids: ReadonlySet<string>; readonly collection: string }>;
+  /** What the peer said it holds, in its last hello */
+  holds: Holds;
 }
 
 /**
@@ -126,6 +152,7 @@ interface PeerState {
  */
 export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
   const { storageProvider: storage, sendToPeer, heartbeatInterval = 30000, validate, self } = config;
+  const ourHolds = config.holds ?? (() => 'all' as const);
   /** Peers to say hello to and push to */
   const peers = new Set<string>();
   /** What's in flight with each peer */
@@ -137,7 +164,8 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
 
   const stamp = (msg: SyncMessageBody) => ({ v: SYNC_PROTOCOL_VERSION, ...msg }) as SyncMessage;
   const send = (peerId: string, msg: SyncMessageBody) => sendToPeer(peerId, stamp(msg));
-  const stateOf = (peerId: string): PeerState => states.get(peerId) ?? states.set(peerId, { sessions: new Map(), wants: new Map() }).get(peerId)!;
+  const stateOf = (peerId: string): PeerState =>
+    states.get(peerId) ?? states.set(peerId, { sessions: new Map(), wants: new Map(), holds: 'all' }).get(peerId)!;
 
   // ─── Taking in versions ────────────────────────────────────────────
 
@@ -188,34 +216,63 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     }
   };
 
-  /** Admits a batch: definitions and first versions before what depends on them, so little has to wait */
+  /**
+   * Admits a batch: definitions and first versions before what depends on
+   * them, so little has to wait. Versions of collections this node doesn't
+   * hold are passed over. The peer is told which it now has.
+   */
   const admitAll = async (peerId: string, expressions: ReadonlyArray<Expression>) => {
-    let admitted = false;
+    const holds = ourHolds();
+    const stored: string[] = [];
     for (const expression of [...expressions].sort((a, b) => rank(a) - rank(b))) {
-      if (expression && typeof expression === 'object' && (await admit(peerId, expression))) admitted = true;
+      if (!expression || typeof expression !== 'object' || typeof expression.collection !== 'string') continue;
+      if (!holdsCollection(holds, expression.collection)) continue;
+      if (await admit(peerId, expression)) stored.push(expression.id);
     }
-    if (admitted) await retryWaiting();
+    if (stored.length > 0) {
+      send(peerId, { type: 'stored', ids: stored });
+      await retryWaiting();
+    }
   };
 
   // ─── Hello ─────────────────────────────────────────────────────────
 
-  /** A fingerprint of each collection kept, hex */
-  const ourSums = async (): Promise<Record<string, string>> => {
+  /** A fingerprint of each collection held and kept, hex */
+  const ourSums = async (holds: Holds): Promise<Record<string, string>> => {
     const out: Record<string, string> = {};
-    for (const [collection, sum] of await storage.sums()) out[collection] = bytesToHex(await fingerprintOf(sum));
+    for (const [collection, sum] of await storage.sums()) {
+      if (holdsCollection(holds, collection)) out[collection] = bytesToHex(await fingerprintOf(sum));
+    }
     return out;
   };
 
-  const hello = async (peerId: string, reply = false) => send(peerId, { type: 'hello', sums: await ourSums(), ...(reply ? { reply } : {}) });
+  const hello = async (peerId: string, reply = false) => {
+    const holds = ourHolds();
+    send(peerId, { type: 'hello', holds: holds === 'all' ? 'all' : [...holds], sums: await ourSums(holds), ...(reply ? { reply } : {}) });
+  };
 
-  const onHello = async (peerId: string, theirs: Readonly<Record<string, string>>, reply: boolean) => {
+  /** What a hello says the peer holds; anything malformed counts as holding nothing past `sys.*` */
+  const readHolds = (value: unknown): Holds => {
+    if (value === undefined || value === 'all') return 'all';
+    if (!Array.isArray(value) || value.length > MAX_COLLECTIONS) return new Set();
+    return new Set(value.filter((c): c is string => typeof c === 'string'));
+  };
+
+  const onHello = async (peerId: string, theirs: Readonly<Record<string, string>>, theirHolds: unknown, reply: boolean) => {
     if (typeof theirs !== 'object' || theirs === null) return;
     const names = Object.keys(theirs);
     if (names.length > MAX_COLLECTIONS) return;
-    const ours = await ourSums();
-    const differing = [...new Set([...names, ...Object.keys(ours)])].filter((c) => theirs[c] !== ours[c]);
+    const state = stateOf(peerId);
+    state.holds = readHolds(theirHolds);
+    const holds = ourHolds();
+    const ours = await ourSums(holds);
+    // Everything either side names, and every collection this node holds even if it has none of it yet.
+    const named = new Set([...names, ...Object.keys(ours), ...(holds === 'all' ? [] : holds)]);
+    const shared = [...named].filter((c) => holdsCollection(holds, c) && holdsCollection(state.holds, c));
+    const differing = shared.filter((c) => theirs[c] !== ours[c]);
+    for (const c of shared) if (theirs[c] === ours[c]) emit('level', peerId, c, state.holds === 'all');
     if (differing.length === 0) {
-      if (!busy(peerId)) emit('synced', peerId);
+      if (!busy(peerId)) emit('synced', peerId, state.holds === 'all');
       return;
     }
     if (self !== undefined && self > peerId) {
@@ -234,7 +291,7 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
   };
 
   const settleIfDone = (peerId: string) => {
-    if (!busy(peerId)) emit('synced', peerId);
+    if (!busy(peerId)) emit('synced', peerId, states.get(peerId)?.holds === 'all');
   };
 
   const begin = async (peerId: string, collection: string) => {
@@ -251,7 +308,20 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     send(peerId, { type: 'reconcile', id: session.id, collection, message: base64UrlEncode(await reconciler.initiate()) });
   };
 
-  const onReconciled = async (peerId: string, id: number, message: string) => {
+  /**
+   * A collection's session and every request it made are over: level with the
+   * peer, as far as could be. The peer is told where things stand now, so it
+   * knows it is level too — marked a reply, so it never starts another round.
+   */
+  const levelIfDone = (peerId: string, collection: string) => {
+    const state = states.get(peerId);
+    if (!state || state.sessions.has(collection)) return;
+    for (const want of state.wants.values()) if (want.collection === collection) return;
+    emit('level', peerId, collection, state.holds === 'all');
+    void hello(peerId, true).catch((err) => emit('error', err));
+  };
+
+  const onReconciled = async (peerId: string, id: number, message: string, held: boolean) => {
     const state = states.get(peerId);
     const session = state && [...state.sessions.values()].find((s) => s.id === id);
     if (!state || !session) return; // not ours, or already over
@@ -261,6 +331,12 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       state.sessions.delete(session.collection);
       if (session.again) void begin(peerId, session.collection).catch((err) => emit('error', err));
     };
+
+    if (!held) {
+      // They don't hold it after all — they changed what they hold since their hello.
+      end();
+      return settleIfDone(peerId);
+    }
 
     let round;
     try {
@@ -284,7 +360,7 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     for (let i = 0; i < need.length; i += MAX_IDS_PER_REQUEST) {
       const ids = need.slice(i, i + MAX_IDS_PER_REQUEST);
       const wantId = nextId++;
-      state.wants.set(wantId, new Set(ids));
+      state.wants.set(wantId, { ids: new Set(ids), collection: session.collection });
       send(peerId, { type: 'want', id: wantId, ids });
     }
 
@@ -294,6 +370,7 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     }
     if (round.message) emit('error', new Error(`Sync with ${peerId} abandoned: more than ${MAX_ROUNDS} rounds`));
     end();
+    levelIfDone(peerId, session.collection);
     settleIfDone(peerId);
   };
 
@@ -301,6 +378,10 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
 
   const onReconcile = async (peerId: string, id: number, collection: string, message: string) => {
     if (typeof collection !== 'string' || typeof message !== 'string') return;
+    if (!holdsCollection(ourHolds(), collection)) {
+      send(peerId, { type: 'reconciled', id, message: '', held: false });
+      return;
+    }
     const responder = createReconciler(await storage.items(collection), { initiator: false, frameSizeLimit: FRAME_SIZE_LIMIT });
     const round = await responder.reconcile(base64UrlDecode(message));
     send(peerId, { type: 'reconciled', id, message: base64UrlEncode(round.message!) });
@@ -326,8 +407,9 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     const asked = state?.wants.get(id);
     if (!state || !asked) return;
     // Only versions asked for are considered.
-    await admitAll(peerId, versions.filter((v) => asked.has(v?.id)));
+    await admitAll(peerId, versions.filter((v) => asked.ids.has(v?.id)));
     state.wants.delete(id);
+    levelIfDone(peerId, asked.collection);
     settleIfDone(peerId);
   };
 
@@ -340,6 +422,47 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       for (const [collection, session] of state.sessions) if (now - session.touchedAt > STALE_MS) state.sessions.delete(collection);
     }
   };
+
+  /** Handles one message from a peer; anything that is not a sync message this peer speaks is ignored */
+  const handle = async (peerId: string, message: unknown): Promise<void> => {
+    try {
+      const msg = parseSyncMessage(message);
+      // Malformed, a protocol version this peer does not speak, or a peer not
+      // added yet: an answer to it would have no way back and be lost, leaving
+      // a session waiting. Each side says hello once it adds the other, so
+      // nothing said before then is needed.
+      if (!msg || !peers.has(peerId)) return;
+
+      switch (msg.type) {
+        case 'hello':
+          await onHello(peerId, msg.sums, msg.holds, msg.reply === true);
+          break;
+        case 'reconcile':
+          await onReconcile(peerId, msg.id, msg.collection, msg.message);
+          break;
+        case 'reconciled':
+          await onReconciled(peerId, msg.id, msg.message, msg.held !== false);
+          break;
+        case 'want':
+          await serveWant(peerId, msg.id, Array.isArray(msg.ids) ? msg.ids : []);
+          break;
+        case 'versions':
+          await onVersions(peerId, msg.id, Array.isArray(msg.versions) ? msg.versions : []);
+          break;
+        case 'push-update':
+          if (msg.expression && typeof msg.expression === 'object') await admitAll(peerId, [msg.expression]);
+          break;
+        case 'stored':
+          if (Array.isArray(msg.ids)) emit('stored', peerId, msg.ids.filter((v): v is string => typeof v === 'string').slice(0, 10 * MAX_IDS_PER_REQUEST));
+          break;
+      }
+    } catch (err) {
+      emit('error', err);
+    }
+  };
+
+  /** Where each peer's messages are up to */
+  const inOrder = new Map<string, Promise<void>>();
 
   return {
     start() {
@@ -358,38 +481,15 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       states.clear();
     },
 
-    async handleMessage(peerId: string, message: unknown): Promise<void> {
-      try {
-        const msg = parseSyncMessage(message);
-        // Malformed, a protocol version this peer does not speak, or a peer not
-        // added yet: an answer to it would have no way back and be lost, leaving
-        // a session waiting. Each side says hello once it adds the other, so
-        // nothing said before then is needed.
-        if (!msg || !peers.has(peerId)) return;
-
-        switch (msg.type) {
-          case 'hello':
-            await onHello(peerId, msg.sums, msg.reply === true);
-            break;
-          case 'reconcile':
-            await onReconcile(peerId, msg.id, msg.collection, msg.message);
-            break;
-          case 'reconciled':
-            await onReconciled(peerId, msg.id, msg.message);
-            break;
-          case 'want':
-            await serveWant(peerId, msg.id, Array.isArray(msg.ids) ? msg.ids : []);
-            break;
-          case 'versions':
-            await onVersions(peerId, msg.id, Array.isArray(msg.versions) ? msg.versions : []);
-            break;
-          case 'push-update':
-            if (msg.expression && typeof msg.expression === 'object') await admitAll(peerId, [msg.expression]);
-            break;
-        }
-      } catch (err) {
-        emit('error', err);
-      }
+    handleMessage(peerId: string, message: unknown): Promise<void> {
+      // One peer's messages are handled in the order they came: a hello saying
+      // where things stand must not overtake the versions sent before it.
+      const run = (inOrder.get(peerId) ?? Promise.resolve()).then(() => handle(peerId, message));
+      inOrder.set(peerId, run);
+      void run.finally(() => {
+        if (inOrder.get(peerId) === run) inOrder.delete(peerId);
+      });
+      return run;
     },
 
     notifyPeers(peerIds: ReadonlyArray<string>) {

@@ -94,5 +94,5 @@ export async function runQuery<T = unknown>(source: QuerySource, given: Query): 
   const page = query.limit === undefined ? sorted.slice(start) : sorted.slice(start, start + query.limit);
   const records = await Promise.all(page.map((r) => expand(source, r, query.include)));
   const more = start + page.length < sorted.length && page.length > 0;
-  return { records: records as ReadonlyArray<QueryRecord<T>>, cursor: more ? page[page.length - 1]!.key : null };
+  return { records: records as ReadonlyArray<QueryRecord<T>>, cursor: more ? page[page.length - 1]!.key : null, complete: true };
 }
