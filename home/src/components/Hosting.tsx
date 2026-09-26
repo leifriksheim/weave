@@ -155,7 +155,8 @@ function describe(host: HostingView): string {
   // Not live: the last the host signed, from the registry.
   const offline = host.live ? '' : ` · ${unreachable}`;
   const until = new Date(status.paidUntil * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-  const spaces = host.live ? ` · ${status.spaces} space${status.spaces === 1 ? '' : 's'} online` : '';
+  // No count: the host also carries the account's hidden spaces (its registry, its contacts), so any number would look wrong.
+  const spaces = host.live && status.carrying ? ' · your spaces are online' : '';
   switch (status.state) {
     case 'active':
       if (status.paidUntil === 0) return `free${spaces}${offline}`;
