@@ -442,6 +442,13 @@ collections it uses, besides the space's own (`sys.*`):
 - a collection no query has touched for `unusedAfterDays` (30) is dropped,
   unless the app declared it (`cache.collections`). It syncs back when needed.
 
+A collection can also name **topic fields** (`topics: ['channel', 'mentions']`).
+Each record then carries, on its outside, a keyed hash of each of those values
+(`tags`), so a keeper that can't read the record can still match "in
+#design" or "mentions me" — learning which records share a topic, never which
+topic. `node.collections.tag(space, collection, field, value)` gives the tag to
+match; anyone who can read a record checks its tags and refuses a mismatch.
+
 A space that names no keeper is held whole, as before: then the app may be one
 of its copies. How much to hold is each node's choice (`NodeConfig.cache`;
 `startConnectedNode` turns it on unless given `cache: false`); only how

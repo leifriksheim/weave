@@ -120,6 +120,7 @@ import {
 import { CARRIER_COLLECTION, MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
 import { PASS_COLLECTION } from '../space/pass.js';
 import { base32Encode, cidFromBytes, cidOfDigest, sha256 } from '../utils/hash.js';
+import { sameTags, tagsFor, topicKey, topicTag } from '../records/topics.js';
 import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../utils/encoding.js';
 import type {
   CacheConfig,
@@ -272,6 +273,8 @@ export interface SpaceRuntime {
   setRelays(relays: ReadonlyArray<string>): Promise<void>;
   /** Names the nodes that keep the space whole, and how many copies to wait for — for someone who manages it */
   setKeepers(keepers: ReadonlyArray<Keeper>, copies?: number | null): Promise<void>;
+  /** The topic tag a record with this value carries, keyed as a record written now would be */
+  topicTag(collection: string, field: string, value: string | number | boolean): Promise<string>;
   collections(): Promise<ReadonlyArray<NodeCollection>>;
   define(definition: DefineCollection): Promise<NodeCollection>;
   /** Takes a definition out of the space — only once nothing is left in it */
@@ -694,13 +697,46 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return found;
   }
 
-  /** The rules in force for a collection in one state of the history — null when there are none to judge by */
-  async function rulesAt(state: AccessState, collection: string): Promise<{ rules: CollectionRules } | null> {
+  /** The rules and topics in force for a collection in one state of the history — null when there are none to judge by */
+  async function rulesAt(state: AccessState, collection: string): Promise<{ rules: CollectionRules; topics: ReadonlyArray<string> } | null> {
     if (collection.startsWith('sys.')) return null;
     const entry = state.definitions.get(collection);
     if (!entry) return null;
     const found = await definitionIn(entry.event);
-    return typeof found === 'string' ? null : { rules: found.definition.rules ?? {} };
+    return typeof found === 'string' ? null : { rules: found.definition.rules ?? {}, topics: found.definition.topics ?? [] };
+  }
+
+  // ─── Topic tags ────────────────────────────────────────────────────
+  //
+  // Keyed from the key a record's body was sealed with, in a private space;
+  // from the space id in a public one (`records/topics.ts`).
+
+  const topicKeys = new Map<string, Promise<CryptoKey>>();
+  /** The tag key for one of the space's keys, or the public one; null when this node doesn't hold that key */
+  function tagKey(keyId: string | null): Promise<CryptoKey> | null {
+    const name = keyId ?? 'public';
+    let found = topicKeys.get(name);
+    if (!found) {
+      const held = keyId === null ? null : keyring.get(keyId);
+      if (keyId !== null && !held) return null;
+      found = topicKey(held ? { spaceKey: held.key } : { spaceId: space.id });
+      topicKeys.set(name, found);
+    }
+    return found;
+  }
+
+  /**
+   * Why a version's tags don't match its body under the topics in force, or
+   * null when they do — or when this node can't read the body to tell.
+   */
+  async function tagProblem(expression: Expression, topics: ReadonlyArray<string>): Promise<Standing | null> {
+    if (topics.length === 0 && !expression.tags?.length) return null;
+    const opened = await openBody(expression);
+    if (opened.body === null) return null;
+    const key = tagKey(opened.encrypted ? String((expression.body as { keyId?: unknown }).keyId) : null);
+    if (!key) return null;
+    const expected = await tagsFor(await key, expression.collection, topics, opened.body);
+    return sameTags(expression.tags, expected) ? null : { ok: false, reason: `Its topic tags don't match what it says` };
   }
 
   const standings = new Map<string, Promise<Standing>>();
@@ -770,6 +806,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const judged = history.judge({ id: expression.id, root, seen, note: await noteOf(expression) }, needs);
     if (!judged.ok) return judged;
 
+    if (found && !expression.deleted) {
+      const problem = await tagProblem(expression, found.topics);
+      if (problem) return problem;
+    }
     if (!rules || expression.deleted) return STANDS;
     if (expression.seq === 0 && rules.onePer) {
       const opened = await openBody(expression);
@@ -971,6 +1011,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       definedBy: entry?.definedBy ?? null,
       permissions: definition?.permissions ?? [],
       rules: definition?.rules ?? {},
+      topics: definition?.topics ?? [],
       ...(definition?.screen !== undefined ? { screen: definition.screen } : {}),
       records,
     });
@@ -1751,6 +1792,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
 
     let payload: unknown = null;
+    let tags: string[] = [];
     if (!deleted) {
       // Refused here, where the writer can fix it. On arrival a misfit is kept
       // and flagged instead — see `conforms`.
@@ -1780,6 +1822,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         );
         payload = sealed.body;
       }
+      // Worked out from the body, with the key it is sealed with: what every reader will check.
+      const topics = collection.startsWith('sys.') ? [] : ((await catalog()).get(collection)?.definition.topics ?? []);
+      if (topics.length) {
+        const sealedWith = looksEncrypted(payload) ? String((payload as { keyId?: unknown }).keyId) : null;
+        const key = tagKey(sealedWith);
+        if (key) tags = await tagsFor(await key, collection, topics, body);
+      }
     }
 
     // Whether superseded versions are kept is the writer's decision, carried
@@ -1807,6 +1856,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         seen: history.heads(),
         // In the clear only where the body is: a private space sealed them above.
         ...(space.visibility === 'public' && !deleted && links.length ? { links } : {}),
+        ...(tags.length ? { tags } : {}),
       }),
       writer.key,
     );
@@ -1970,6 +2020,16 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       await upsert(RELAYS_COLLECTION, SPACE_RELAYS_RECORD, { relays: [...named] });
     },
 
+    async topicTag(collection: string, field: string, value: string | number | boolean) {
+      let keyId: string | null = null;
+      if (space.visibility === 'private') {
+        const key = currentKey((await access()).history.current);
+        if (!key) throw new Error(`This device doesn't hold the current key of "${space.name}" yet`);
+        keyId = key.id;
+      }
+      return topicTag(await tagKey(keyId)!, collection, field, value);
+    },
+
     async setKeepers(keepers: ReadonlyArray<Keeper>, copies: number | null = null) {
       const named = keepers.map((k) => ({ did: k.did, name: k.name }));
       const problem = checkKeepers(named, copies);
@@ -2038,6 +2098,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         ...(input.links !== undefined ? { links: input.links } : {}),
         ...(input.permissions !== undefined ? { permissions: input.permissions } : {}),
         ...(input.rules !== undefined ? { rules: input.rules } : {}),
+        ...(input.topics !== undefined ? { topics: input.topics } : {}),
         ...(input.screen !== undefined ? { screen: input.screen } : {}),
       };
       const problem = checkStoredCollection(definition);

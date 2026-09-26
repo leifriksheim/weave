@@ -251,6 +251,8 @@ export interface NodeCollection {
   readonly permissions: ReadonlyArray<string>;
   /** Who may create, edit and delete, what must be unique — for records created from now on */
   readonly rules: CollectionRules;
+  /** Fields whose values are topics, tagged on the outside of each record so keepers can match them unread */
+  readonly topics: ReadonlyArray<string>;
   /** A screen for its records, when its definer gave one: one HTML document, run sealed */
   readonly screen?: string;
   readonly records: number;
@@ -276,6 +278,8 @@ export interface DefineCollection {
   readonly permissions?: ReadonlyArray<string>;
   /** Who may create, edit and delete, what must be unique, which fields are fixed */
   readonly rules?: CollectionRules;
+  /** Fields whose values are topics — `channel`, `mentions` — so a keeper can match them without reading (`StoredCollection.topics`) */
+  readonly topics?: ReadonlyArray<string>;
   /** A screen for its records — one HTML document an app may run in a sealed frame (`StoredCollection.screen`) */
   readonly screen?: string;
 }
@@ -290,6 +294,13 @@ export interface NodeCollections {
    * has records; the same people who may change a definition may remove it.
    */
   delete(spaceId: string, name: string): Promise<void>;
+  /**
+   * The topic tag for one value of a collection's topic field — what a
+   * record with that value carries on its outside, and what a subscription
+   * hands a keeper to match without reading. In a private space it takes the
+   * space's current key, so only its members can work it out.
+   */
+  tag(spaceId: string, collection: string, field: string, value: string | number | boolean): Promise<string>;
 }
 
 export interface ListOptions {

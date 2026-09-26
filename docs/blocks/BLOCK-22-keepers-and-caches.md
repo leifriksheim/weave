@@ -1,10 +1,11 @@
 # BLOCK-22 — Keepers and caches: not every node holds everything
 
-> **Status (2026-09-26):** parts 1 and 2 built on branch `keepers-and-caches`:
+> **Status (2026-09-26):** parts 1–3 built on branch `keepers-and-caches`:
 > the Merkle tree is gone and sync is Negentropy, one collection at a time;
 > apps connected to an account home hold only what they use once a space names
-> keepers. Where the build differs from the plan below, each part says so.
-> Parts 3 and 4 are still ahead.
+> keepers; collections can name topic fields, and records carry blind tags for
+> them. Where the build differs from the plan below, each part says so. Part 4
+> (subscriptions and pushes) is still ahead.
 
 ## What this delivers
 
@@ -447,6 +448,25 @@ anyone can compute the tags (as with Nostr's `#t`).
 In this block tags serve subscriptions (part 4). They also make **subsets by
 topic** possible later ("hold only the channels I've opened"), which a blind
 keeper can serve by tag.
+
+**As built** (`src/records/topics.ts`, `tests/topics.test.ts`):
+
+- `topics` on a definition: at most 8 field names, dotted paths allowed
+  (`author.name`). `collections.list` shows them.
+- A field's values are text, numbers and yes/no, or each of those in a list;
+  anything else gives no tag. At most 64 tags a record, sorted, each once.
+- The tag key is HKDF-SHA256 of the raw key the body is sealed with (info
+  `weave/topic-tags/v1`); in a public space, of `weave/public-topics/v1|<space
+  id>`. A tag is the first 16 bytes of HMAC-SHA256 over `collection \0 field
+  \0 value as canonical JSON`, base64url — so `1` and `"1"` differ.
+- A version is checked against the topics of the definition in force for it,
+  as its rules are: tags must be exactly those its body gives, and none when
+  the definition names no topics. A node that can't read the body, or doesn't
+  have the definition yet, doesn't judge.
+- `node.collections.tag(space, collection, field, value)` gives the tag a
+  record written now would carry — what a subscription hands a keeper. In a
+  private space it takes the current key, so only members can work it out.
+- Subsets by topic for caches: not yet.
 
 ---
 

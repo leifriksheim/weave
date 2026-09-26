@@ -1215,6 +1215,9 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async delete(spaceId: string, name: string) {
       return (await runtime(spaceId)).undefine(name);
     },
+    async tag(spaceId: string, collection: string, field: string, value: string | number | boolean) {
+      return (await runtime(spaceId)).topicTag(collection, field, value);
+    },
   });
 
   const accountApi: NodeAccount = Object.freeze({
@@ -1397,6 +1400,9 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       delete: async () => {
         throw new Error('An agent can\'t remove collections. Ask the person to do it.');
       },
+      tag: async (spaceId: string, collection: string, field: string, value: string | number | boolean) => (
+        inside(spaceId), collections.tag(spaceId, collection, field, value)
+      ),
     });
 
     return Object.freeze({

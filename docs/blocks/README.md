@@ -23,7 +23,7 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 | [BLOCK-19](BLOCK-19-compatible-definitions.md) | Compatible definitions: apps check what a collection promises (fields, links, rules) instead of its name; harmless updates apply themselves (after 18) | ~1 week |
 | [BLOCK-20](BLOCK-20-connect-an-agent.md) | Connect an agent with one command: the browser's agent works as you, one on your computer pairs through a code and runs a node of its own | ~3 days |
 | [BLOCK-21](BLOCK-21-calls.md) | Calls: voice and video in any space, ringing one person or a call the space can join, and the call stays up while you move between spaces. Built; running TURN and testing on real networks and phones is left | ~2 days left |
-| [BLOCK-22](BLOCK-22-keepers-and-caches.md) | Keepers and caches: apps hold only the collections they use, many keepers heal each other, Negentropy replaces the tree, and subscriptions across spaces wake your devices by Web Push. Parts 1–2 built (Negentropy, apps holding what they use); topic tags and pushes left | ~2 weeks left |
+| [BLOCK-22](BLOCK-22-keepers-and-caches.md) | Keepers and caches: apps hold only the collections they use, many keepers heal each other, Negentropy replaces the tree, and subscriptions across spaces wake your devices by Web Push. Parts 1–3 built (Negentropy, apps holding what they use, topic tags); subscriptions and pushes left | ~1½ weeks left |
 | [BLOCK-23](BLOCK-23-paying-a-host.md) | Paying a host: the home knows no payment providers — a host's description, a signed status and a signed link to the host's own pay page (card, browser wallets, WalletConnect) | ~3 days |
 
 ## Next, not written as blocks yet

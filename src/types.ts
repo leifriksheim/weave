@@ -105,6 +105,13 @@ export interface Expression<T = unknown> {
    * sealed inside the encrypted body instead, and this is absent.
    */
   readonly links?: ReadonlyArray<Link>;
+  /**
+   * Topic tags: a keyed hash of each value of each field the collection names
+   * as a topic (`records/topics.ts`), so a node that can't read the body can
+   * still match what it's about. Signed with the rest; checked by any node
+   * that can read the body.
+   */
+  readonly tags?: ReadonlyArray<string>;
   readonly signature: string;   // Base64URL encoded signature
 }
 
@@ -141,6 +148,8 @@ export interface UnsignedExpression<T = unknown> {
    * sealed inside the encrypted body instead, and this is absent.
    */
   readonly links?: ReadonlyArray<Link>;
+  /** Topic tags (see `Expression.tags`) */
+  readonly tags?: ReadonlyArray<string>;
 }
 
 /** Whether a space's contents are readable by anyone who has them */
