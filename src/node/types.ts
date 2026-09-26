@@ -7,6 +7,7 @@
  * are exposed as actions to a command line, an MCP server and WebMCP, and a
  * value that cannot cross a wire would have to be reshaped at each of them.
  */
+import type { MailboxClient } from '../network/mailbox.js';
 import type { BodyOf, Query, ResultOf } from '../query/types.js';
 import type { CollectionRules } from '../records/rules.js';
 import type { CollectionDef, CryptoProvider, Link, SpaceRole, SpaceVisibility, StandardJSONSchemaV1 } from '../types.js';
@@ -57,6 +58,8 @@ export interface NodeConfig {
    * account key it is derived, and this is not needed.
    */
   readonly contactsSpace?: string;
+  /** How doors reach relays' mailboxes. Default: a WebSocket to each (`createMailboxClient`). */
+  readonly mailbox?: MailboxClient;
   /** Where the registry and each space's store live */
   readonly stores: StoreFactory;
   readonly provider?: CryptoProvider;
@@ -748,6 +751,88 @@ export interface NodeContacts {
   others(did: string): Promise<ReadonlyArray<string>>;
 }
 
+/** A door of this account's, as `node.doors` shows it */
+export interface DoorView {
+  readonly id: string;
+  /** What you call it — only you see it */
+  readonly label?: string;
+  /** The name its code gives whoever knocks */
+  readonly name?: string;
+  /** The door key's public half */
+  readonly key: string;
+  readonly relays: ReadonlyArray<string>;
+  /** The door code to hand out: put it in a link (`#door=…`) or a QR code */
+  readonly code: string;
+  readonly createdAt: string;
+}
+
+/** Someone knocking on one of your doors, checked and opened */
+export interface KnockView {
+  /** The knock's id, the same on every relay: what `accept` takes */
+  readonly id: string;
+  /** Which of your doors */
+  readonly door: string;
+  /** Their account — proven by their signature and note, not by what they say */
+  readonly from: string;
+  /** The name they give; nothing vouches for it */
+  readonly name: string;
+  readonly note?: string;
+  /** The space for two it invites you to */
+  readonly pairSpace: string;
+  /** When they knocked, ISO */
+  readonly at: string;
+}
+
+/** A knock you left, waiting for them to open it */
+export interface SentKnockView {
+  /** The space for two you made */
+  readonly space: string;
+  /** The name their door code gave */
+  readonly name: string;
+  readonly at: string;
+}
+
+/**
+ * Doors: a way for people you share no space with to ask to become your
+ * contact, without your DID becoming an address. A door is a key derived from
+ * your contact key, and the relays whose mailboxes hold knocks on it; its code
+ * says both and nothing about who you are. Someone with the code knocks: a
+ * private space for the two of you, its invite sealed to the door and left in
+ * those mailboxes. Accepting joins it. Close a door and its code stops
+ * working; your contacts stay. See `docs/spec/07-doors.md`.
+ */
+export interface NodeDoors {
+  /** Your open doors */
+  list(): Promise<ReadonlyArray<DoorView>>;
+  /**
+   * Opens a new door.
+   * @param options.relays Whose mailboxes hold its knocks, 1–3. Default: the first of this node's relays.
+   * @param options.name The name its code gives. Default: the account's name.
+   * @param options.label What you call it, for telling doors apart
+   */
+  open(options?: { readonly relays?: ReadonlyArray<string>; readonly name?: string; readonly label?: string }): Promise<DoorView>;
+  /** Closes a door: its knocks are no longer read, and its code leads nowhere */
+  close(id: string): Promise<void>;
+  /**
+   * Knocks on someone's door: makes a private space for the two of you and
+   * leaves its invite, sealed and signed, in their door's mailboxes. They
+   * become a contact once they open it.
+   * @param code A door code, or a link carrying one
+   * @returns The space for two
+   */
+  knock(code: string, options?: { readonly note?: string }): Promise<{ readonly space: string }>;
+  /**
+   * Knocks waiting at your doors, from every relay they name — checked, not
+   * from people you blocked, and not ones already accepted. Also turns knocks
+   * of yours that were answered into contacts.
+   */
+  knocks(): Promise<ReadonlyArray<KnockView>>;
+  /** Knocks you left that nobody has answered yet */
+  sent(): Promise<ReadonlyArray<SentKnockView>>;
+  /** Joins the space for two a knock invites you to, and puts whoever knocked on your list */
+  accept(id: string): Promise<ContactView>;
+}
+
 export interface P2PNode {
   /** The identity this node acts for */
   readonly did: string;
@@ -766,6 +851,8 @@ export interface P2PNode {
   readonly notifications: NodeNotifications;
   /** People: the account's contact list, and asking to be added */
   readonly contacts: NodeContacts;
+  /** Doors: how people you share no space with can ask to become your contact */
+  readonly doors: NodeDoors;
   /** The delegation the session key currently writes under (root → session) */
   delegation(): UCANToken;
   /**

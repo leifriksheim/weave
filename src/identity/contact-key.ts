@@ -26,6 +26,7 @@ import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../uti
 const CONTACT_KEY_INFO = 'weave/p256-contact-key/v1';
 const SEAL_INFO = 'weave/contact-seal/v1';
 const MEMBER_KEY_INFO = 'weave/p256-member-key/v1';
+const DOOR_KEY_INFO = 'weave/p256-door-key/v1';
 
 /** 48 bytes reduce to a P-256 scalar without bias, as for the root key (`crypto-p256.ts`) */
 const P256_SEED_BYTES = 48;
@@ -69,6 +70,21 @@ export async function deriveContactKeyBytes(seed: Uint8Array): Promise<Uint8Arra
  */
 export async function deriveMemberKeyBytes(accountKey: Uint8Array, spaceId: string): Promise<Uint8Array> {
   return p256.utils.randomSecretKey(await hkdf(accountKey, `${MEMBER_KEY_INFO}|${spaceId}`, P256_SEED_BYTES));
+}
+
+/**
+ * A **door key**: the key a door's knocks are sealed to (`doors/doors.ts`).
+ * Derived from the contact key and the door's id, so every device and app
+ * holding the contact key opens the same doors, and a new door is a new id.
+ *
+ * Not the contact key itself: that one's public half is on your profile in
+ * every space you write in, and a door is handed to people who may not know
+ * who you are yet. A door key says nothing about the account behind it.
+ * @param contactKey The contact key's private scalar (`deriveContactKeyBytes`)
+ * @param doorId The door's id, as its `std.door` record names it
+ */
+export async function deriveDoorKeyBytes(contactKey: Uint8Array, doorId: string): Promise<Uint8Array> {
+  return p256.utils.randomSecretKey(await hkdf(contactKey, `${DOOR_KEY_INFO}|${doorId}`, P256_SEED_BYTES));
 }
 
 /** The public half, from the private scalar */
