@@ -97,7 +97,7 @@ export {
   withoutWrap,
   PASSPHRASE_ITERATIONS,
 } from './identity/account-vault.js';
-export { deriveContactKeyBytes, contactKeyPair, contactPublicKey, isContactPublicKey, sealFor, openSealed } from './identity/contact-key.js';
+export { deriveContactKeyBytes, deriveDoorKeyBytes, contactKeyPair, contactPublicKey, isContactPublicKey, sealFor, openSealed } from './identity/contact-key.js';
 export type { ContactKeyPair } from './identity/contact-key.js';
 export type {
   AccountVault,

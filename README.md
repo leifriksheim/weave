@@ -4,6 +4,11 @@ A peer-to-peer data protocol for the browser. You own your identity as a
 written-down code, keep your data in signed records that sync directly between
 devices, and every app is a view onto that data rather than its owner.
 
+> **Building a client, or an agent that needs the architecture?** The
+> protocol is specified in [docs/spec](docs/spec/README.md): wire formats,
+> what is signed, and what every peer must check. The tests are its
+> executable half.
+
 ## Architecture
 
 ```
@@ -229,7 +234,7 @@ it must not be enough to reach you. What lets two people reach each other is a
 space they share. So **a contact is a private space for two**: records you
 write there wait for the other person, and live messages reach them when
 they're online. There's no directory to look people up in, and no inbox
-strangers can knock on.
+strangers can knock on — unless you open a door (below).
 
 ```typescript
 // In a space you share with Anna — the book club — ask her to add you.
@@ -276,6 +281,45 @@ await node.contacts.others(anna);    // anyone else in your space with her: [] u
 contact key, which opens requests sent to you. Asking someone and accepting
 also make or join a space, so those need `scope: 'account'`, which includes
 the contacts. Agents never get them.
+
+### Doors
+
+Someone you share no space with can still ask to become your contact — if you
+give them a **door**. A door is a code you hand out on purpose (a link, a QR
+code, a line in your bio) and can close. It names a key derived from your
+contact key and the relays whose mailboxes hold knocks on it, and nothing
+about who you are.
+
+```typescript
+const door = await anna.doors.open();              // { id, code, relays, … }
+share(`https://chat.example/#door=${door.code}`);
+
+// Leif, who has never shared a space with Anna, pastes the link:
+await leif.doors.knock(link, { note: 'We met at the gig' });   // a space for two, its invite sealed to the door
+
+// Anna, whenever she's next online:
+const [knock] = await anna.doors.knocks();         // { from, name, note, pairSpace, … } — `from` is proven
+await anna.doors.accept(knock.id);                 // joins; Leif is a contact, and she is his once it syncs
+await anna.doors.close(door.id);                   // the code leads nowhere now; contacts stay
+```
+
+- **The relay keeps a mailbox**, the one thing it holds: a sealed blob under a
+  hash of the door key, for up to 30 days. It can't tell whose door it is, who
+  knocked, or what they said. A door names up to three relays and a knock goes
+  to all of them, so no one relay can shut it.
+- **A knock proves who knocked** before anyone joins anything: it's signed by
+  the knocker's session key under their account's note, like a record, and
+  bound to the door it was left at.
+- **The door is not the account.** Its key is not your contact key, so nobody
+  can link a door to your profile in any space. Every device with the contact
+  key opens the same doors.
+- **Spam** is capped at the mailbox (64 knocks a door, 4 an hour from one
+  address), blocking hides someone's knocks on every door, and a flooded door
+  is closed and replaced.
+
+Next: handles that lead to a door, so `@anna.bsky.social` works where a code
+does ([BLOCK-24](docs/blocks/BLOCK-24-names.md)). The full design is
+[docs/spec/07-doors.md](docs/spec/07-doors.md).
 
 ## Signing in — the element, and React
 
