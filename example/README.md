@@ -35,7 +35,7 @@ Two independent choices — who may write, and who may read:
 | 🔒 **Private** | Encrypted, yours alone. Only your DID's writes are accepted. | Encrypted for whoever holds the invite; the relay never sees content. |
 | 🌍 **Public** | Readable by anyone you hand it to, but only you can write. | An open space — anyone with the link reads and writes. |
 
-Each space has its own Merkle Search Tree, its own store and its own gossip
+Each space has its own store, its own sync and its own gossip
 room. Sharing one tells a peer nothing about the others.
 
 ## Deploying it
@@ -119,13 +119,13 @@ VITE_SIGNALING_URL=wss://your-relay.example npm run dev
 |----------------|-------------------|
 | Account home | Connecting: the home signs a note from the account to this app's own key, and the app never sees the seed |
 | UCAN delegation | Every record is signed by this app's key, under that note; peers check the chain back to the account |
-| Spaces | Four kinds of space, each with its own MST, database and gossip room |
+| Spaces | Four kinds of space, each with its own database, sync and gossip room |
 | E2EE | Private spaces encrypt bodies before signing; a record says *encrypted* when it had to be opened |
 | Validation engine | Signature, schema and capability gates run on everything, including what peers send |
 | Authorization | A personal space rejects writes not rooted in its owner — the *rejected* counter shows what was dropped |
 | Derived UI | Forms, tables, "+ Add …" buttons and tallies worked out from each space's own definitions |
 | Profiles | Everyone in a space shown by the name they gave, which only they can change |
-| Anti-entropy sync | Peers reconcile MST roots over WebRTC data channels |
+| Sync by reconciliation | Peers compare a fingerprint per collection, and reconcile the ones that differ (Negentropy), over WebRTC data channels |
 | WebMCP | Every node operation as a tool an agent in the page can call |
 | Invites | Space and key encoded into a fragment-only link |
 

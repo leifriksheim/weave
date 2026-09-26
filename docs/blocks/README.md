@@ -12,7 +12,7 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
 
 | Block | Delivers | Rough size |
 |---|---|---|
-| [BLOCK-03](BLOCK-03-mirrors.md) | Mirrors: a space kept in any dumb file store, synced like a peer. Built: segments, push, pull, compaction. Left: absorbing quiet writers, a directory driver, mirrors in `NodeConfig`, tree garbage collection | ~1 week left |
+| [BLOCK-03](BLOCK-03-mirrors.md) | Mirrors: a space kept in any dumb file store, synced like a peer. Built: segments, push, pull, compaction. Left: absorbing quiet writers, a directory driver, mirrors in `NodeConfig` | ~1 week left |
 | [BLOCK-04](BLOCK-04-remote-blob-drivers.md) | Blob drivers. S3 built; Google Drive and Dropbox left | ~4 days left |
 | [BLOCK-07](BLOCK-07-hosting-tier.md) | Hosting: one blind always-on node carrying many people's spaces, backed up to R2, paid through Stripe or a crypto wallet on its own pay page (BLOCK-23). Built; metering, quotas, load test and BTCPay left | ~1 week left |
 | [BLOCK-12](BLOCK-12-typed-queries.md) | Autocomplete for collections, fields and includes | ~4 days |
@@ -69,5 +69,3 @@ terminal. Libraries are allowed where a problem is hard and already solved; see
   bodies, but envelopes stay readable, so a host, a mirror's provider or a
   relay can see `app.todo.item`. Encrypting the name, or replacing it with a
   keyed hash, would close that.
-- **Orphaned tree nodes** still accumulate, a few per insert, with nothing
-  collecting them → BLOCK-03.

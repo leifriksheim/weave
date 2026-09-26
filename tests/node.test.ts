@@ -171,7 +171,7 @@ describe('two nodes', () => {
     await hold(bob, space.id);
     await joined(bob, space.id);
     const converged = async () =>
-      (await alice.spaces.status(space.id)).root === (await bob.spaces.status(space.id)).root;
+      (await alice.spaces.status(space.id)).fingerprint === (await bob.spaces.status(space.id)).fingerprint;
     return { alice, bob, space: space.id, converged };
   }
 

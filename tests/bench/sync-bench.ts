@@ -10,10 +10,12 @@
 import { createStorageProvider } from '../../src/storage/storage-provider.js';
 import { createSyncEngine, type SyncEngine } from '../../src/sync/sync-engine.js';
 import type { Expression } from '../../src/types.js';
+import { cidFromBytes } from '../../src/utils/hash.js';
 import { createMemoryAdapter } from '../helpers/memory-adapter.js';
 
-function fakeExpression(i: number): Expression {
-  const id = `b${i.toString(36).padStart(8, '0')}${'x'.repeat(40)}`;
+async function fakeExpression(i: number): Promise<Expression> {
+  // A real content id: sync compares ids as the 32-byte hashes they name.
+  const id = await cidFromBytes(new TextEncoder().encode(`bench:${i}`));
   return { id, author: 'did:key:zBench', collection: 'app.bench', createdAt: new Date(1_700_000_000_000 + i).toISOString(), body: { i }, signature: 'sig', key: `k${i.toString(36)}`, seq: 0 };
 }
 
@@ -24,7 +26,7 @@ async function measure(n: number, differing = 1) {
   const a = createStorageProvider(createMemoryAdapter());
   const b = createStorageProvider(createMemoryAdapter());
   for (let i = 0; i < n; i++) {
-    const expression = fakeExpression(i);
+    const expression = await fakeExpression(i);
     await a.addExpression(expression);
     if (differing === 0 || i !== Math.floor(n / 2)) await b.addExpression(expression);
   }
@@ -36,6 +38,7 @@ async function measure(n: number, differing = 1) {
   let engineB: SyncEngine;
   engineA = createSyncEngine({
     storageProvider: a,
+    self: 'a',
     sendToPeer: (_peer, data) => {
       messages++;
       bytes += wireBytes(data);
@@ -44,6 +47,7 @@ async function measure(n: number, differing = 1) {
   });
   engineB = createSyncEngine({
     storageProvider: b,
+    self: 'b',
     sendToPeer: (_peer, data) => {
       messages++;
       bytes += wireBytes(data);
@@ -68,7 +72,7 @@ async function measure(n: number, differing = 1) {
     await Promise.all(batch.map((deliver) => deliver()));
   }
   const ms = performance.now() - started;
-  const converged = (await a.getRootCid()) === (await b.getRootCid());
+  const converged = (await a.fingerprint()) === (await b.fingerprint());
   return { n, messages, bytes, rounds, ms: Math.round(ms), converged };
 }
 

@@ -257,7 +257,7 @@ out:
 <pod>/accounts/<id>/stores/
   registry/          sealed with the account's vault key: every space, its key,
                      its write secret. The extension never opens this.
-  spaces/<space id>/ records and the tree built from them. Not sealed: private
+  spaces/<space id>/ records and the index built from them. Not sealed: private
                      bodies are already encrypted with the space key. Exactly
                      what a carrier holds.
 ```
@@ -280,8 +280,8 @@ to 30 seconds per hop for the next heartbeat.
 
 **Two writers in one folder is already designed for.** `folder-reconcile.ts`
 exists so that two sites, or two devices behind Dropbox, can write one folder
-at once with no locks: record files are named by their own hash, and the tree
-is rebuilt to match the files. A home or app open on the same pod picks up the
+at once with no locks: record files are named by their own hash, and the index
+is put back in line with the files. A home or app open on the same pod picks up the
 extension's writes live, through the folder watch the runtime already runs
 (`space-runtime.ts:939`).
 

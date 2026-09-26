@@ -102,7 +102,7 @@ describe('a store of versions', () => {
     // A concurrent edit: another seq 2, made from v1 on another device.
     const rival = await version(key, 2, { rival: true }, nextVersion(v1!));
     const roots = new Set<string | null>();
-    for (const order of permutations([v0!, v1!, v2!, rival])) roots.add(await (await storeOf(order)).getRootCid());
+    for (const order of permutations([v0!, v1!, v2!, rival])) roots.add(await (await storeOf(order)).fingerprint());
     assert.equal(roots.size, 1);
   });
 
@@ -110,9 +110,9 @@ describe('a store of versions', () => {
     const key = newRecordKey();
     const versions = await chain(key, 4);
     const storage = await storeOf(versions);
-    const before = await storage.getRootCid();
+    const before = await storage.fingerprint();
     await storage.addExpression(versions[1]!);
-    assert.equal(await storage.getRootCid(), before);
+    assert.equal(await storage.fingerprint(), before);
     assert.equal((await storage.getCurrent(key))?.seq, 3);
   });
 
@@ -128,7 +128,7 @@ describe('a store of versions', () => {
     const key = newRecordKey();
     const versions = await chain(key, 1000);
     const storage = await storeOf(versions);
-    const kept = new Set((await storage.entries()).map((e) => e.value));
+    const kept = new Set(await storage.versionIds());
     assert.deepEqual([...kept].sort(), [versions[0]!.id, versions[999]!.id].sort());
     assert.equal(await storage.getExpression(versions[500]!.id), null);
   });
@@ -243,7 +243,7 @@ describe('versioned records through the node', () => {
 
     await bob.spaces.join(await alice.spaces.invite(space));
     await hold(bob, space);
-    await until(async () => (await alice.spaces.status(space)).root === (await bob.spaces.status(space)).root, 3000, 'the trees to match');
+    await until(async () => (await alice.spaces.status(space)).fingerprint === (await bob.spaces.status(space)).fingerprint, 3000, 'the stores to match');
     assert.equal((await bob.records.history(space, made.key)).length, 5);
   });
 

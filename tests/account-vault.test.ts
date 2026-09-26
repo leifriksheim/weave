@@ -279,8 +279,8 @@ describe('encryption at rest', () => {
     const inner = createMemoryAdapter();
     const adapter = createEncryptedAdapter(inner, await deriveVaultKey(generateSeed()));
 
-    // MST nodes and the root pointer stay as they were: content addressed,
-    // cheap to read, and verifiable from outside.
+    // Keys outside the sealed prefixes — index entries, anything else — stay
+    // as they were: cheap to read, and legible from outside.
     await adapter.put('bafyexamplenode', utf8Encode('node bytes'));
     assert.equal(utf8Decode((await inner.get('bafyexamplenode'))!), 'node bytes');
     assert.equal(utf8Decode((await adapter.get('bafyexamplenode'))!), 'node bytes');

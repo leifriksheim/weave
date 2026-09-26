@@ -11,11 +11,11 @@ devices, and every app is a view onto that data rather than its owner.
 │                        Applications                          │
 ├──────────────┬───────────┬────────────┬──────────┬───────────┤
 │   Accounts   │  Spaces   │ Validation │ Privacy  │   Sync    │
-│ seed, vault, │ roles,    │ crypto →   │ AES-GCM  │ MST anti- │
-│ root signer, │ members × │ structural │ per      │ entropy   │
-│ UCAN, pairing│ pub/priv  │ → UCAN     │ space    │ gossip    │
+│ seed, vault, │ roles,    │ crypto →   │ AES-GCM  │ Negentropy│
+│ root signer, │ members × │ structural │ per      │ per       │
+│ UCAN, pairing│ pub/priv  │ → UCAN     │ space    │ collection│
 ├──────────────┴───────────┴────────────┴──────────┴───────────┤
-│    Storage: Merkle Search Tree over a StorageAdapter         │
+│    Storage: signed versions + plain index over an adapter    │
 │    IndexedDB (per origin) · data folder (shared by origins)  │
 ├──────────────────────────────────────────────────────────────┤
 │    Network: WebRTC data channels                             │
@@ -71,7 +71,7 @@ const ucan = await root.delegate({
 const spaces = createSpaceManager(await createIndexedDBAdapter('my-app/registry'));
 const { space } = await spaces.create({ name: 'Notes', visibility: 'public', creator: me.did });
 
-// 4. A signed record, stored in that space's own Merkle tree
+// 4. A signed record, stored in that space's own store
 const storage = createStorageProvider(await createIndexedDBAdapter(`my-app/space/${space.id}`));
 const signed = await createSigner(provider).sign(
   createExpression({
@@ -540,16 +540,16 @@ Typed, signed data expressions using [Standard Schema](https://standardschema.de
 
 ### Storage (`@weaveprotocol/core/storage`)
 
-Local-first storage with Merkle Search Tree for efficient sync.
+Local-first storage: signed versions, and plain entries saying which is current
+and which versions each collection keeps — the set sync compares.
 
 | Export | Description |
 |--------|-------------|
-| `createStorageProvider()` | MST-backed expression storage; `compact()` deletes tree nodes the root no longer reaches |
+| `createStorageProvider()` | Expression storage: current, first and retained versions (`r/`, `g/`, `h/`), and every kept version by collection (`i/`) for sync; `fingerprint()` is equal on two stores keeping the same versions |
 | `createIndexedDBAdapter()` | IndexedDB storage adapter, scoped to this origin |
 | `createFolderAdapter()` | A user-picked directory, shared by every origin given access |
 | `createEncryptedAdapter()` | Seals chosen keys (space records, space keys) at rest |
-| `reconcileFolder()` | Rebuilds the tree after another writer touched a folder |
-| `insertIntoMST()` / `listMSTEntries()` | Direct MST operations; a listing can stop at a key prefix |
+| `reconcileFolder()` | Places the files another writer added to a folder, and drops entries whose file is gone |
 | `createMirror()` | Keeps a space in a dumb file store too, synced like a peer that never runs code |
 | `createS3BlobStore()` / `createMemoryBlobStore()` | File stores a mirror can use: any S3-compatible bucket (R2, B2, MinIO, AWS), or memory |
 
@@ -590,7 +590,7 @@ const { space, key } = await spaces.create({
 });
 ```
 
-Give each space its own storage and its own MST and a peer you share one list
+Give each space its own storage and its own sync and a peer you share one list
 with learns nothing about the others.
 
 #### Who may write: roles, and a history every peer replays
@@ -867,18 +867,23 @@ the offer and the two never collide.
 
 ### Sync (`@weaveprotocol/core/sync`)
 
-Anti-entropy gossip protocol for eventual consistency.
+Range-based set reconciliation (Negentropy, as Nostr's NIP-77), one collection at a time.
 
 | Export | Description |
 |--------|-------------|
-| `createSyncEngine()` | Automatic MST reconciliation with heartbeat |
-| `verifyNode()` / `unknownChildren()` | The pieces of a tree walk |
+| `createSyncEngine()` | Reconciles a space with its peers, with a heartbeat |
+| `createReconciler()` / `ItemSet` / `fingerprintOf()` | Negentropy itself, wire-compatible with the reference implementation |
 
-Two peers compare roots — equal means identical, one round trip. Otherwise each
-walks the other's tree from the root, skipping every subtree already in its own,
-so cost follows the size of the difference: one changed entry in 10,000 costs
-about 37 KB on the wire, where sending every key cost 508 KB. Whether a subtree
-is already here is one lookup in the store, not a read of the whole local tree.
+A peer says hello with a fingerprint of each collection it keeps — in essence
+the sum of its version ids. Equal fingerprints mean the same versions, and that
+collection is done. For each one that differs, the peer whose id sorts first
+compares fingerprints of ever smaller ranges with the other until both know
+exactly which versions each lacks; then it asks for what it lacks and sends what
+the other does. Cost follows the difference, not the size: one new version
+among 2,000 syncs in under 8 KB, all told. Nothing is stored for sync beyond
+the versions' own index entries: the sets and sums live in memory, updated by
+every change and read again when another writer (a tab, a folder) changed the
+store.
 
 The engine's `validate` hook is the seam where the validation engine sits.
 Expressions a peer sends are only committed if it accepts them; the rest are
@@ -965,7 +970,7 @@ A directory handle is the exception. Each origin asks for permission once, and b
   accounts.json                       name, DID and id of each account (readable without unlocking)
   accounts/<id>/account.json          that account's seed, encrypted once per way of unlocking it
   accounts/<id>/stores/<namespace>/
-    kv/<key>                          MST nodes, the root pointer, space records (sealed)
+    kv/<key>                          index entries (current, first, retained, by collection), space records (sealed)
     expressions/<cid>.json            one signed record per file
 ```
 
@@ -998,11 +1003,11 @@ const registry = createEncryptedAdapter(
 );
 ```
 
-**Expressions are the truth; the MST is an index over them.** That inversion is what lets several writers share one folder without taking a lock. Every expression file is named by its own content hash, so concurrent writers can only ever add files that agree; the single mutable thing, the root pointer, is derived state that either side can rebuild. `reconcileFolder()` rebuilds it — call it on an interval, on window focus, or after a sync round, since the web has no filesystem change notification.
+**Expressions are the truth; the entries are an index over them.** That inversion is what lets several writers share one folder without taking a lock. Every expression file is named by its own content hash, so concurrent writers can only ever add files that agree; the one thing both can overwrite, which version a record's current entry names, is derived state either side can put right. `reconcileFolder()` does — it places every file that appeared, which corrects an entry a race left wrong — so call it on an interval, on window focus, or after a sync round, since the web has no filesystem change notification.
 
 Two consequences worth having:
 
-- **The folder is the account.** Copy it to a USB stick and it is your whole identity. Put it in iCloud, Dropbox or Syncthing and several devices converge with no relay at all — the folder becomes a second transport alongside WebRTC, and both meet in the same anti-entropy merge.
+- **The folder is the account.** Copy it to a USB stick and it is your whole identity. Put it in iCloud, Dropbox or Syncthing and several devices converge with no relay at all — the folder becomes a second transport alongside WebRTC, and both meet in the same merge: the set of versions only grows, and the version rule picks the same current one everywhere.
 - **It changes nothing about the mesh.** A folder-backed node is an ordinary peer that happens to be durable and readable by several origins — an availability role, never an authority one. Where there is no folder (Safari, Firefox, mobile) a node keeps an origin-scoped replica and gossips exactly as before.
 
 ### Locking the folder
@@ -1027,7 +1032,7 @@ await accounts.write(account, withWrap(vault, wrap));
 
 `deviceWrapsFor(vault, rpId)` says which wraps this origin can even attempt; the rest name keys it cannot reach. The gate is enforced in application code rather than by cryptography — see `src/identity/device-key.ts` for what that does and does not protect against. The recovery code needs no wrap, because it *is* the seed in printable form — it opens the folder anywhere, including on a phone or in a browser with no File System Access API, and it is shown once and stored nowhere.
 
-`createEncryptedAdapter` seals `space:`, `spacekey:`, `spaceinvite:` and `spacerole:` values under the vault key, which is what makes a private space genuinely unreadable to someone holding the folder. It is scoped deliberately narrowly: expressions and MST nodes pass through, so what stays legible is each record's author, timestamp and collection, plus anything in a space its owner made public. Sealing those too would mean an opaque blob store, which would cost the property that makes a folder worth having.
+`createEncryptedAdapter` seals `space:`, `spacekey:`, `spaceinvite:` and `spacerole:` values under the vault key, which is what makes a private space genuinely unreadable to someone holding the folder. It is scoped deliberately narrowly: expressions and index entries pass through, so what stays legible is each record's author, timestamp and collection, plus anything in a space its owner made public. Sealing those too would mean an opaque blob store, which would cost the property that makes a folder worth having.
 
 ### Where the root key lives
 
@@ -1283,7 +1288,7 @@ between pods, pair a phone by QR code, and see which apps you connected. In the
 example: make private or public spaces, just yours or with people you invite, and share one with a
 friend via an invite link. Everyone in a space is shown by the name
 they gave. Every record is signed by a delegated session key, stored in that
-space's MST, encrypted first if the space is private, and gossiped to peers over
+space's own store, encrypted first if the space is private, and gossiped to peers over
 WebRTC; a record says *verified* once its signature and its delegation chain
 check out here, and *encrypted* when it arrived encrypted.
 
@@ -1372,8 +1377,8 @@ for the same private scalars, and pinned to recorded DIDs so an accidental
 change cannot slip through; recovery codes; account vaults, wraps and account
 stores; data folders with several writers; spaces, invites and
 encrypt-then-sign; UCAN issuing, attenuation and chain validation; phone
-pairing; peer introductions; the MST; the validation gates; and two peers
-reconciling over the anti-entropy protocol, including the forged, stolen,
+pairing; peer introductions; Negentropy, checked against the reference
+implementation; the validation gates; and two peers reconciling, including the forged, stolen,
 unauthorized and malformed expressions their gatekeepers reject. Above those:
 the node API — versioned records, links, queries, collection definitions,
 profiles, the account registry, moving and merging accounts — and the CLI.

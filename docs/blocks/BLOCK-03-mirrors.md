@@ -25,11 +25,11 @@ Paste this. It must print `READY`.
 
 ```bash
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && \
-grep -q 'readonly height: number' src/storage/mst.ts && \
+grep -q 'export function createReconciler' src/sync/negentropy.ts && \
 grep -q 'export async function reconcileFolder' src/storage/folder-reconcile.ts && \
 grep -q 'export function supersedes' src/records/version.ts && \
 npx tsc --noEmit >/dev/null 2>&1 && \
-echo READY || echo "NOT READY — the MST rewrite, folder reconcile or the version rule is missing, or the project does not typecheck"
+echo READY || echo "NOT READY — sync by reconciliation (BLOCK-22 part 1), folder reconcile or the version rule is missing, or the project does not typecheck"
 ```
 
 **Depends on no other block.** Free to start.
@@ -43,16 +43,16 @@ echo READY || echo "NOT READY — the MST rewrite, folder reconcile or the versi
 `src/storage/folder-reconcile.ts` makes a shared folder converge with no locks:
 record files are named by their own hash, so two writers either write
 different files or identical ones, and **the set of record files wins**. The
-tree is derived state that anyone can rebuild. A mirror is the same idea,
+index entries are derived state that anyone can rebuild. A mirror is the same idea,
 applied to a store that is slow, charges per request and can't be trusted.
 
 ### Why the store can't be a `StorageAdapter`
 
-`src/storage/mst.ts` reads one tree node per step of every walk. Google Drive
-takes roughly 200–500 ms per call and allows about 1,000 calls per 100 seconds.
-A store that answered tree lookups one at a time would make one sync take
-minutes and use up the quota. So the remote store never holds the tree. It
-holds **records**, packed into batches.
+A store reads one index entry, or one record, per call. Google Drive takes
+roughly 200–500 ms per call and allows about 1,000 calls per 100 seconds. A
+store that answered lookups one at a time would make one sync take minutes and
+use up the quota. So the remote store never holds the index. It holds
+**records**, packed into batches.
 
 ### Is this a CRDT?
 
@@ -96,9 +96,9 @@ listed in the blocks README.
   twice, so there's nothing to overwrite and nothing to lock. The only other
   write is deletion, and the rules for that are strict (see *Compaction*).
 - **A segment is a batch of signed record versions exactly as they travel on
-  the wire**: bodies encrypted in a private space, envelopes readable. No tree
-  nodes, no manifest, no root pointer. Each reader rebuilds its own tree from
-  the records, the way `reconcileFolder` does.
+  the wire**: bodies encrypted in a private space, envelopes readable. No index,
+  no manifest, no pointer. Each reader builds its own index from the records,
+  the way `reconcileFolder` does.
 - **Names sort, and carry a hash.** The counter keeps a writer's segments in
   order for humans, and the hash of the segment's bytes makes a retried upload
   land on the same name.
@@ -175,17 +175,15 @@ its segments into its own, then delete that segment. It's safe because the
 segment can't change underneath it. If two devices absorb the same segment,
 both copies are the same records, and records are idempotent.
 
-"Still wanted" means what the local tree keeps: current versions, first
-versions and retained history. A superseded version that the tree already
+"Still wanted" means what the local store keeps: current versions, first
+versions and retained history. A superseded version the store already
 dropped isn't copied forward.
 
-### Local tree garbage
+### Local tree garbage — no longer needed
 
-Separate from the above, and local only. Every insert into the tree leaves
-about four unreachable nodes behind. `collectReachableCids` in
-`src/storage/mst.ts` already walks the live set. Add `collectGarbage(adapter)`,
-which deletes every tree node it doesn't reach, and run it when the node is
-idle.
+This used to be a step: every insert into the Merkle tree left unreachable
+nodes behind. BLOCK-22 part 1 replaced the tree with plain entries and
+Negentropy, so nothing is orphaned any more and there is nothing to collect.
 
 ---
 
@@ -198,7 +196,6 @@ idle.
 | `src/storage/blob/directory.ts` | **New.** A directory handle or a directory on disk |
 | `src/storage/segment.ts` | **New.** Pack and unpack a batch of versions; name a segment |
 | `src/storage/mirror.ts` | **New.** Push, pull, compact, absorb |
-| `src/storage/mst.ts` | `collectGarbage` |
 | `src/node/types.ts`, `src/node/node.ts` | `mirrors` in `NodeConfig`; each open space gets one |
 | `src/index.ts` | Export the new surface |
 | `tests/helpers/latency-blob-store.ts` | **New.** The fixture that matters most |
@@ -272,7 +269,6 @@ and on each change notice, and flushes after local writes and on shutdown.
 6. Compaction and absorbing.
 7. `blob/directory.ts`: a real backend, and the way to try the whole thing
    before any cloud driver exists (BLOCK-04).
-8. `collectGarbage`.
 
 ---
 
@@ -306,7 +302,6 @@ Every mirror test runs behind it.
 - A quiet writer is absorbed; two nodes absorbing at once still converge
 - A segment deleted between listing and fetching is skipped, not an error
 - Under a burst of 429s the mirror backs off and still converges
-- `collectGarbage` frees unreachable nodes and never a reachable one
 
 ### Acceptance test
 

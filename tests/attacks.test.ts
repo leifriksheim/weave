@@ -146,7 +146,7 @@ describe('attacks on a shared space', () => {
     // No keys at all: just a copy with its signature broken, pushed unasked.
     const stranger = hub.transport('did:key:zstranger', space);
     stranger.on('connected', (peer: string) => {
-      const payload = { v: SYNC_PROTOCOL_VERSION, type: 'push-update', expression: { ...real!, signature: 'AAAA' }, newRootCid: '' };
+      const payload = { v: SYNC_PROTOCOL_VERSION, type: 'push-update', expression: { ...real!, signature: 'AAAA' } };
       stranger.send(peer, new TextEncoder().encode(JSON.stringify({ type: 'sync', from: 'did:key:zstranger', payload })));
     });
     await stranger.connect();

@@ -2,7 +2,7 @@
  * @module node/space-runtime
  * One open space: its store, its gatekeeper, its peers, its sync.
  *
- * A space is the unit of storage and of sync — its own Merkle tree, its own
+ * A space is the unit of storage and of sync — its own store, its own
  * rooms and sockets — so two spaces never mix, and a peer you share one space
  * with learns nothing about the others.
  *
@@ -346,12 +346,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   let waitingInvite = record.invite !== null;
 
   const adapter = await deps.stores(`spaces/${space.id}`);
-  // Tabs sharing this browser's store are covered by compaction's grace period.
-  // A folder's other writers — a sync service bringing another device's tree
-  // back hours later — are not, so a folder keeps its old nodes.
-  const shared = isFolderAdapter(adapter);
-  const storage: StorageProvider = createStorageProvider(adapter, shared ? {} : { compactEvery: 256 });
-  if (!shared) void storage.compact().catch(() => {});
+  const storage: StorageProvider = createStorageProvider(adapter);
 
   const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
 
@@ -1293,6 +1288,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   const sync = createSyncEngine({
     storageProvider: storage,
+    self: session.did,
     sendToPeer: (peerId, message) => {
       routes.get(peerId)?.send(peerId, { type: 'sync', from: session.did, payload: message });
     },
@@ -1484,7 +1480,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       ? new globalThis.BroadcastChannel(`weave-node:${deps.rootDid}:${space.id}`)
       : null;
   if (channel) {
-    channel.onmessage = () => recordsChanged();
+    channel.onmessage = () => {
+      // The other tab wrote to the store underneath: what sync compares is read again.
+      storage.invalidate();
+      recordsChanged();
+    };
     // In Node a channel holds the process open; it must never be the only thing doing so.
     (channel as { unref?: () => void }).unref?.();
   }
@@ -1940,7 +1940,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         connection,
         peers: connectedPeers(),
         accounts: Object.fromEntries([...knownAccounts].flatMap(([peer, known]) => (known.account && routes.has(peer) ? [[peer, known.account]] : []))),
-        root: await storage.getRootCid(),
+        fingerprint: await storage.fingerprint(),
         rejected,
       };
     },

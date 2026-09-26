@@ -17,16 +17,16 @@
  *   accounts.json                    who has an account here
  *   accounts/<id>/account.json       that account's keys, locked
  *   accounts/<id>/stores/<name>/
- *     kv/<key>                       MST nodes, the root pointer, space records
+ *     kv/<key>                       which version is current, what sync compares, space records
  *     expressions/<cid>.json
  * ```
  *
- * **Expressions are the truth; the MST is an index over them.** That inversion
- * is what lets two origins share one folder with no locking. Every expression
- * file is immutable and named by its own content hash, so concurrent writers can
- * only ever add files that agree — the one genuinely mutable thing, the MST root
- * pointer, is derived state that either side can rebuild. {@link reconcileFolder}
- * is what rebuilds it.
+ * **Expressions are the truth; the entries are an index over them.** That
+ * inversion is what lets two origins share one folder with no locking. Every
+ * expression file is immutable and named by its own content hash, so
+ * concurrent writers can only ever add files that agree — the one genuinely
+ * mutable thing, which version is current, is derived state that either side
+ * can put right. {@link reconcileFolder} is what puts it right.
  */
 
 import type { StorageAdapter, BatchOp, Expression } from '../types.js';
@@ -77,7 +77,7 @@ export interface FolderAdapter extends StorageAdapter {
    * local tree.
    */
   reload(): Promise<FolderReload>;
-  /** Every expression id currently on disk, whatever the MST believes */
+  /** Every expression id currently on disk, whatever the entries believe */
   listExpressionIds(): Promise<ReadonlyArray<string>>;
 }
 

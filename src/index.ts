@@ -3,7 +3,7 @@
  * Self-sovereign, peer-to-peer protocol for the browser.
  * 
  * Identity via WebAuthn passkeys, data as signed Expressions,
- * storage in a Merkle Search Tree, sync via anti-entropy gossip,
+ * sync by range-based set reconciliation (Negentropy),
  * and end-to-end encryption for private Spaces.
  * 
  * @module @weaveprotocol/core
@@ -165,15 +165,6 @@ export {
   createIndexedDBAdapter,
 } from './storage/indexeddb-adapter.js';
 export {
-  createEmptyNode,
-  insertIntoMST,
-  deleteFromMST,
-  lookupInMST,
-  listMSTEntries,
-  collectReachableCids,
-} from './storage/mst.js';
-export type { MSTNode } from './storage/mst.js';
-export {
   createStorageProvider,
 } from './storage/storage-provider.js';
 export type { StorageProvider } from './storage/storage-provider.js';
@@ -297,10 +288,11 @@ export {
 } from './sync/sync-messages.js';
 export type { SyncMessage } from './sync/sync-messages.js';
 export {
-  verifyNode,
-  unknownChildren,
-  differingEntries,
-} from './sync/anti-entropy.js';
+  createReconciler,
+  ItemSet,
+  fingerprintOf,
+} from './sync/negentropy.js';
+export type { Item, Round, Sum } from './sync/negentropy.js';
 export {
   createSyncEngine,
 } from './sync/sync-engine.js';

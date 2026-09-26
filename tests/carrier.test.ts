@@ -159,7 +159,7 @@ describe('a carrier', () => {
     const stores = memoryStores();
     const node = await carrier(me, added.invite, hub, stores);
 
-    const rootOf = async (n: { spaces: { status(id: string): Promise<{ root: string | null }> } }) => (await n.spaces.status(notes.id)).root;
+    const rootOf = async (n: { spaces: { status(id: string): Promise<{ fingerprint: string }> } }) => (await n.spaces.status(notes.id)).fingerprint;
     const carriedRoot = async () => (await node.spaces()).find((s) => s.id === notes.id) && (await laptopStatusRoot());
     const laptopStatusRoot = async () => rootOf(laptop);
     await until(async () => !!(await carriedRoot()), 5000, 'the space to be carried');

@@ -286,8 +286,8 @@ export interface SpaceStatus {
   readonly carriers: ReadonlyArray<string>;
   /** The account each peer showed it acts for, by the peer's session DID — only peers that showed one */
   readonly accounts: Readonly<Record<string, string>>;
-  /** Root of this space's Merkle tree — equal on two nodes means identical data */
-  readonly root: string | null;
+  /** A fingerprint of every version this node keeps here — equal on two nodes means identical data */
+  readonly fingerprint: string;
   /** Records peers sent that failed validation */
   readonly rejected: number;
 }

@@ -67,7 +67,7 @@ export async function copyAccountData(params: CopyAccountParams): Promise<CopyRe
       // Every version the source keeps — current, first, retained — goes
       // through the ordering rule on arrival, so the target ends up with what
       // it would have reached by syncing with the source.
-      const ids = new Set((await source.entries()).map((entry) => entry.value));
+      const ids = new Set(await source.versionIds());
       for (const id of ids) {
         const held = await target.getExpression(id);
         const expression = await source.getExpression(id);

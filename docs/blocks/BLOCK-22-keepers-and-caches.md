@@ -1,5 +1,10 @@
 # BLOCK-22 — Keepers and caches: not every node holds everything
 
+> **Status (2026-09-26):** part 1 built on branch `keepers-and-caches`: the
+> Merkle tree is gone and sync is Negentropy, one collection at a time. Where
+> the build differs from the plan below, part 1 says so. Parts 2–4 are still
+> ahead.
+
 ## What this delivers
 
 Today every node holds a full copy of every space it's in. An app connected
@@ -20,7 +25,7 @@ When this block is done:
   of them hold it, and a node can widen what it holds when too few are
   around;
 - the Merkle Search Tree is gone. Sync compares sets directly (Negentropy),
-  and nothing is stored but the records and a running sum per collection;
+  and nothing is stored for it but one index entry per version;
 - you can **subscribe across spaces** ("any `chat.message` that mentions
   me"), and your keepers wake your device with a Web Push even when every tab
   is closed, without being able to read what they're passing on.
@@ -112,13 +117,13 @@ essence, **the sum of the ids in it** (then hashed with the count).
 A sum can be kept up to date on every write: add the id when a version is
 stored, subtract it when one is dropped. So:
 
-- each space keeps **a running sum per collection**. "Are we equal on
+- each space has **a sum per collection**, kept in memory. "Are we equal on
   `chat.message`?" is one 16-byte comparison, with no scan;
 - "are we equal on everything we both hold?" is **the sum of those sums**.
   It's the old "equal roots, done", for any mix of collections;
 - the items are **the versions a store keeps** (current, first, and retained
   ones), the same set the tree indexed. The ordering value is the version's
-  `createdAt`. That's only for speed: recent writes cluster at the end, where
+  `createdAt`, in whole seconds. That's only for speed: recent writes cluster at the end, where
   a range split finds them quickly. **Time never decides what's held.** A
   writer who lies about the clock makes its own records slower to sync, and
   that's all.
@@ -126,7 +131,7 @@ stored, subtract it when one is dropped. So:
 | | MST today | Negentropy |
 |---|---|---|
 | Sync a part of a space | no | any set of collections |
-| Stored for sync | a tree, a path rewritten per write | a sum and a count per collection |
+| Stored for sync | a tree, a path rewritten per write | one index entry per version |
 | Cleaning up | orphaned nodes, grace period, lock | nothing to clean |
 | Folder | tree rebuilt from the files | files plus an index, as now |
 | Equal sets | 1 round trip | 1 round trip |
@@ -138,43 +143,55 @@ stored, subtract it when one is dropped. So:
 **plain entries** instead of tree entries:
 
 ```
-r/<key>              → current version id        (as before, now a plain entry)
-g/<key>              → first version id
-h/<key>/<seq>/<id>   → retained version id
-sum/<collection>     → running sum and count
+r/<key>                      → current version id        (as before, now a plain entry)
+g/<key>                      → first version id
+h/<key>/<seq>/<id>           → retained version id
+i/<collection>/<time>/<id>   → one per version kept: what sync compares
 ```
 
-The versions themselves stay where they are, with one more index:
-(collection, createdAt, id), the order Negentropy walks.
+**As built:** the sums are not stored. The `i/` entries are listed once, when
+sync first needs them, and the sorted sets and their sums are kept in memory,
+updated by every change made through the provider. When another writer
+changes the same store (another tab, which nudges over its BroadcastChannel,
+or a folder reload that found new files), `storage.invalidate()` drops them
+and they are read again. An `i/` entry is added or removed per version, never
+rewritten, so two writers can't lose each other's.
 
 `getCurrent` becomes one lookup instead of a walk down the tree.
-`addExpression` becomes one batch: the version, its `r/` entry, the old
-version's removal, and the collection's sum. It needs no lock beyond the
-store's own transaction.
+`addExpression` becomes one batch: the version, its `r/` and `i/` entries,
+and the old version's removal. Changes still take turns in memory, since each
+reads the current version before writing.
 
 **Deleted:** `src/storage/mst.ts`, `src/sync/anti-entropy.ts`, compaction
 and its condemned-node bookkeeping, `getRootCid`. **Rewritten:**
 `src/sync/sync-engine.ts`, `src/storage/storage-provider.ts`, and the tree
 parts of `folder-reconcile.ts`, `copy.ts` and `mirror.ts` (which only used
-`entries()` to list ids). `status().root` becomes `status().fingerprint`.
-The IndexedDB version is bumped, and old databases are dropped and resynced,
-as the last bump did (pre-release: no migration).
+`entries()` to list ids; now `versionIds()`). `status().root` becomes
+`status().fingerprint`. The IndexedDB version is bumped to 3, and old
+databases are dropped and resynced, as the last bump did (pre-release: no
+migration). A folder reconcile now places every file that appeared since the
+last pass, even one already indexed: placing is idempotent, and it corrects a
+current entry the other writer's race left wrong.
 
 ### Messages (sync protocol v4)
 
 ```ts
-// Once, on connecting, and again when either side's holds change:
-{ type: 'hello', holds: 'all' | string[], sums: Record<collection, fingerprint> }
-// Per collection whose fingerprints differ, in both sides' holds:
-{ type: 'reconcile', collection, id, message: Uint8Array }   // NIP-77 wire format
-{ type: 'want', id, ids }            // "send me these versions"
-{ type: 'versions', id, versions }   // the answer, as diff-response today
-{ type: 'stored', ids }              // "I have these now" (part 2's confirmation)
-{ type: 'push-update', version }     // a write, sent straight away, as now
+// On connecting, on the heartbeat, and after taking in something new:
+{ type: 'hello', sums: Record<collection, hex fingerprint>, reply?: true }
+// Per collection whose fingerprints differ:
+{ type: 'reconcile', id, collection, message }   // NIP-77 wire format, base64url
+{ type: 'reconciled', id, message }              // the answer
+{ type: 'want', id, ids }                        // "send me these versions"
+{ type: 'versions', id?, versions }              // the answer, or (no id) what the other side lacks
+{ type: 'push-update', expression }              // a write, sent straight away, as before
 ```
 
-The heartbeat sends one fingerprint (the sum over the overlap) instead of a
-root.
+**As built:** the peer whose session DID sorts first starts reconciling, so
+two peers don't both do it. The other answers a hello with its own
+(`reply: true`), which starts the first. The initiator ends up knowing both
+sides' gaps: it asks for what it lacks and sends what the other lacks. A
+session stops at 64 rounds, and a message at 32 KB. `holds` in the hello and
+`stored` wait for part 2.
 
 Two details the tree used to hide:
 
@@ -183,23 +200,25 @@ Two details the tree used to hide:
   After both sides have synced they hold the same set, so it doesn't repeat.
 - **Versions that are refused.** A version the gatekeeper refuses would show
   up as "missing" on every round. The ids of refused versions are
-  remembered (bounded, like `waiting`) and not asked for again.
+  remembered (the last 10,000) and not asked for again.
 
 ### Library or ours
 
-The reference implementation (hoytech/negentropy, which has a JavaScript
-version) is a few hundred lines, with test vectors. Either take it, if it
-meets DEPENDENCIES.md, or write ours against the same vectors so the wire
-format matches Nostr's. The adding and subtracting of 256-bit sums uses
-`BigInt`.
+**As built:** ours, `src/sync/negentropy.ts`, ported from the reference
+(hoytech/negentropy, MIT). The reference JavaScript is CommonJS with Node's
+`crypto` and 32-bit varints, so it couldn't be used in the browser build as
+is. `tests/reconcile.test.ts` checks a fingerprint and a whole first message
+byte for byte against what the reference produced, and the two were also run
+against each other, in both roles, on sets up to 25,000 items. The 256-bit
+sums use `BigInt`.
 
 ### Done when
 
 - `sync.test.ts`, `mirror.test.ts`, `folder-adapter.test.ts`, `carrier.test.ts`,
   `host.test.ts` pass unchanged in what they check; `mst.test.ts` and
   `anti-entropy.test.ts` are replaced by `reconcile.test.ts`;
-- two stores that differ by one version of 10,000 exchange a few hundred
-  bytes, in `tests/bench`;
+- two stores that differ by one version of 2,000 exchange under 8 KB in
+  all, hellos included (`tests/reconcile.test.ts`);
 - the same versions arriving in any order give the same sums (a property
   test, as the tree's convergence test did).
 

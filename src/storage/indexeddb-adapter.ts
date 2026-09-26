@@ -6,10 +6,11 @@
 import type { StorageAdapter, BatchOp, Expression } from '../types.js';
 
 /**
- * Bumped to 2 when MST nodes gained a `height` field. Opening an older
- * database wipes it rather than reading nodes the tree can no longer parse.
+ * Bumped to 3 when the Merkle tree gave way to plain entries and sync by
+ * reconciliation. Opening an older database wipes it: it is a local copy,
+ * rebuilt by syncing with peers.
  */
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 /**
  * Promisify an IDBRequest.
@@ -57,17 +58,15 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
       const db = request.result;
       const previousVersion = (event as IDBVersionChangeEvent).oldVersion;
 
-      // v1 stored MST nodes without a height, which the current tree cannot
-      // read. There is no way to migrate them — the old structure was a single
-      // flat node with no tree to recover — so the local cache is dropped and
-      // rebuilt by syncing with peers.
-      if (previousVersion > 0 && previousVersion < 2) {
+      // Older versions indexed records in a Merkle tree this store no longer
+      // has. The local copy is dropped and rebuilt by syncing with peers.
+      if (previousVersion > 0 && previousVersion < 3) {
         for (const name of ['kv', 'expressions']) {
           if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name);
         }
       }
 
-      // Store for key-value (MST nodes, root cid, etc)
+      // Store for key-value: which version is current, what sync compares, space records
       if (!db.objectStoreNames.contains('kv')) {
         db.createObjectStore('kv');
       }

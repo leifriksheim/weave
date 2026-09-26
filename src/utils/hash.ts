@@ -45,6 +45,39 @@ export function base32Encode(bytes: Uint8Array): string {
 }
 
 /**
+ * Decodes {@link base32Encode}'s output, either case.
+ * @returns The bytes, or null when it is not base32 of whole bytes
+ */
+export function base32Decode(text: string): Uint8Array | null {
+  const out: number[] = [];
+  let bits = 0;
+  let value = 0;
+  for (const char of text.toUpperCase()) {
+    const digit = BASE32_ALPHABET.indexOf(char);
+    if (digit < 0) return null;
+    value = ((value << 5) | digit) & 0xfff;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  // Leftover bits must be padding: fewer than a byte, and all zero.
+  if (bits >= 5 || (value & ((1 << bits) - 1)) !== 0) return null;
+  return Uint8Array.from(out);
+}
+
+/** The 32-byte hash a content id (`b` + base32 of SHA-256) stands for, or null when it is not one */
+export function cidDigest(cid: string): Uint8Array | null {
+  if (cid.length !== 53 || cid[0] !== 'b') return null;
+  const bytes = base32Decode(cid.slice(1));
+  return bytes && bytes.length === 32 ? bytes : null;
+}
+
+/** The content id for a 32-byte hash — the inverse of {@link cidDigest} */
+export const cidOfDigest = (digest: Uint8Array): string => 'b' + base32Encode(digest);
+
+/**
  * Creates a CID-like content identifier (base32 of SHA-256).
  * @param {Uint8Array} data - The data to compute the identifier for.
  * @returns {Promise<string>} A promise that resolves to the CID-like string.
