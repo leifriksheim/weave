@@ -9,16 +9,115 @@ import { EXTERNAL, GITHUB, Page, SPEC } from './Site';
 
 const specPart = (file: string) => `${GITHUB}/blob/main/spec/${file}`;
 
-/** The picture from the top of `spec/README.md` */
-const SHAPE = `
- account (seed) ──derives──▶ root key ──signs UCAN──▶ session key ──signs──▶ records
-                                                                           │
-                                                          stored per space │ synced by Negentropy
-                                                                           ▼
- space = { id, visibility, roles & access log, collections, records } ◀── peers in the space
-                                                                           ▲
-             relays (WebSocket) introduce peers ─▶ WebRTC data channels ───┘
-`;
+/** One piece of the picture: a label, a line, and a small mock-up drawn in HTML */
+function Panel({ label, title, children, mock }: { label: string; title: string; children: ReactNode; mock: ReactNode }) {
+  return (
+    <div className="moment">
+      <div className="moment-text">
+        <div className="step-label">{label}</div>
+        <h3>{title}</h3>
+        <p>{children}</p>
+      </div>
+      <div className="mock" aria-hidden>
+        {mock}
+      </div>
+    </div>
+  );
+}
+
+/** Seed, root key, session key, record: each signs for the next */
+const KEYS = (
+  <div className="keychain">
+    <div className="key">
+      <b>Seed</b>
+      <span>In your password manager</span>
+    </div>
+    <div className="key-step">derives</div>
+    <div className="key">
+      <b>Root key</b>
+      <code>did:key:zDnae…ZSULW</code>
+    </div>
+    <div className="key-step">signs a one-hour pass for</div>
+    <div className="key">
+      <b>Session key</b>
+      <span>This tab</span>
+    </div>
+    <div className="key-step">signs</div>
+    <div className="key record">
+      <b>Poll: Where in May?</b>
+      <span className="tag">Signed</span>
+    </div>
+  </div>
+);
+
+/** A private space: its roles, its collections, its records */
+const SPACE = (
+  <div className="space-card">
+    <div className="space-head">
+      <b>Riverside FC</b>
+      <span className="tag">Private</span>
+    </div>
+    <div className="space-row">
+      <span>Roles</span>
+      <div>
+        <span className="chip">Admin</span>
+        <span className="chip">Moderator</span>
+        <span className="chip">Member</span>
+      </div>
+    </div>
+    <div className="space-row">
+      <span>Collections</span>
+      <div>
+        <span className="chip">std.poll</span>
+        <span className="chip">std.vote</span>
+        <span className="chip">app.carpool</span>
+      </div>
+    </div>
+    <div className="space-row">
+      <span>Records</span>
+      <div className="sealed-count">1,284 · encrypted with the space key</div>
+    </div>
+  </div>
+);
+
+/** A change arriving, checked on the spot, and a second one refused */
+const CHECKS = (
+  <div className="checks">
+    <div className="proposal">
+      <div className="proposal-head">
+        <b>Vote from Joe</b>
+        <span className="tag">Accepted</span>
+      </div>
+      <ul>
+        <li>Signature matches</li>
+        <li>Pass from Joe’s account is valid</li>
+        <li>Joe is a member</li>
+        <li>First vote on this poll</li>
+      </ul>
+    </div>
+    <div className="refused">
+      <b>Second vote from Joe</b>
+      <span>Refused on every device: one vote per person</span>
+    </div>
+  </div>
+);
+
+/** Devices connected to each other, and a relay off to the side */
+const PEERS = (
+  <div className="mesh">
+    <div className="peers">
+      <span className="peer">Anna’s laptop</span>
+      <span className="link" />
+      <span className="peer">Joe’s phone</span>
+      <span className="link" />
+      <span className="peer">Host</span>
+    </div>
+    <div className="relay">
+      <b>Relay</b>
+      <span>Introduced them. Can’t read a thing.</span>
+    </div>
+  </div>
+);
 
 interface Point {
   readonly title: string;
@@ -332,13 +431,22 @@ export function Protocol() {
               record, and relays only make introductions. Nothing in the picture is in charge of the rest.
             </p>
           </div>
-          <div className="code">
-            <div className="bar">
-              <span>spec/README.md</span>
-            </div>
-            <pre>
-              <code>{SHAPE.replace(/^\n|\n$/g, '')}</code>
-            </pre>
+          <div className="moments">
+            <Panel label="Keys sign" title="Every change carries a signature" mock={KEYS}>
+              Your root key signs a short pass for a session key, and the session key signs your changes. Anyone can
+              check them without asking a server.
+            </Panel>
+            <Panel label="Spaces hold" title="The rules live with the data" mock={SPACE}>
+              A space holds its roles, what each kind of record allows, and the records. Private ones are encrypted
+              before they leave your device.
+            </Panel>
+            <Panel label="Devices check" title="Every device is the referee" mock={CHECKS}>
+              Each change is checked when it arrives. Anything that breaks the rules is refused everywhere, the same way.
+            </Panel>
+            <Panel label="Relays introduce" title="Devices talk directly" mock={PEERS}>
+              Relays help devices find each other, then step aside. A host keeps things online without being able to
+              read them.
+            </Panel>
           </div>
         </div>
       </section>
