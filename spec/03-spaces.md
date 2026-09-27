@@ -880,7 +880,9 @@ Open questions:
 ## 9. Key changes, member keys and boxes
 
 A private space's key changes when someone loses their place in it, so a
-removed member reads nothing written afterwards.
+removed member reads nothing written afterwards. Peers that let the removed
+member in on the old key then let go of them, so nothing more of the space
+reaches them ([04](04-network.md) §6.3).
 
 ### 9.1 Member keys (`sys.memberkey`)
 

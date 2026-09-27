@@ -628,6 +628,34 @@ A node that must prove read access but holds no read key MUST NOT complete
 the mesh handshake (the reference implementation throws, and the room times
 out).
 
+**Letting a reader go.** The check above runs once, at the handshake; a
+verifier MUST keep it true for as long as the peer stays connected. The
+verifier remembers the read key it let each peer in on: `claimed` when it
+accepted by step 3 or 4, the current read key when by step 5. Whenever its
+access history changes, and when a peer connects, it looks again at every
+peer it let in on a key that is no longer current. It keeps such a peer only
+if the account that peer showed in its `who` (§6.4) is a reader of the space
+now; it lets go of every other one at once: it leaves the room for that peer
+alone (`__leave`, §7.2) on the mesh, and closes the peer's socket on a node.
+Nothing else of the space is sent to it. A peer whose `who` has not arrived
+is given **10 s** from its handshake to send one, and is looked at again when
+it does; after that it counts as having no account, and is let go of.
+A peer let go of that reconnects is checked like any other, and a removed
+member is then refused (steps 4 and 5 fail).
+
+Example: Carol is removed and the key changes K0 → K1. Carol and Bob are
+both connected, let in on K0. Bob is still a member, so he stays, and learns
+K1 from the history. Carol is no reader, so she is let go of at once, and
+when her node redials with K0 and her note, step 4 refuses her.
+
+> Rationale: a removed member holds the key she was let in on, so a key
+> change alone stops her reading new records, but not the connection: she
+> would still be pushed new versions (sealed, but with their collections,
+> keys and authors in the clear, [03](03-spaces.md) §8.7), live messages,
+> which are not sealed, and whatever the history says next. Until the key
+> changes she may still read, as she holds the current key; a public space
+> asks no read proof, so letting someone go there would keep nobody out.
+
 > Rationale: someone removed holds the older key too, but is no member. The
 > note sealed under the older key shows which account is asking, and only
 > those who could read the space then can open it. Step 5 lets in nobody a
@@ -636,7 +664,7 @@ out).
 > are behind, a node that missed a key change could never reconnect, since
 > the peers that could tell it about the change refuse it.
 
-*Source: `packages/core/src/network/peer-auth.ts` (`proveRead`, `checkRead`, `MAX_EARLIER_READ_KEYS`), `packages/core/src/node/space-runtime.ts` (`readAccess`), `packages/core/src/privacy/space-encryption.ts` (`sealWith`, `openWith`), `packages/core/src/space/space-access.ts` (`membershipContext`). Tests: `packages/core/tests/key-change.test.ts`, `packages/core/tests/ws-transport.test.ts` ("a private space"), `packages/core/tests/network-manager.test.ts` ("in a private space, a peer without its key never becomes a peer"; "after the space key changed").*
+*Source: `packages/core/src/network/peer-auth.ts` (`proveRead`, `checkRead`, `MAX_EARLIER_READ_KEYS`), `packages/core/src/node/space-runtime.ts` (`readAccess`, `letGoOfOutsiders`), `packages/core/src/network/mesh.ts` (`drop`), `packages/core/src/network/network-manager.ts` (`drop`), `packages/core/src/privacy/space-encryption.ts` (`sealWith`, `openWith`), `packages/core/src/space/space-access.ts` (`membershipContext`). Tests: `packages/core/tests/key-change.test.ts`, `packages/core/tests/ws-transport.test.ts` ("a private space"), `packages/core/tests/network-manager.test.ts` ("in a private space, a peer without its key never becomes a peer"; "after the space key changed"; "letting a peer go in one room…"), `packages/cli/tests/cli.test.ts` ("lets go of someone removed from a private space…").*
 
 ### 6.4 The account behind a session
 
@@ -717,7 +745,11 @@ Leaving a room: a side sends `__leave` (with `room`) to each peer admitted
 there, and leaves the room on the relays. A receiver of `__leave` drops the
 peer from that room, and closes the connection if no room uses it.
 
-*Source: `packages/core/src/network/mesh.ts` (`greet`, `onHandshake`, `admit`, `closeIfIdle`). Tests: `packages/core/tests/network-manager.test.ts` ("two spaces shared by two devices use one connection", "a peer is a peer only in the rooms it shares…", "failing to prove it in one room costs nothing in another").*
+Letting one peer go (§6.3) is the same for that peer alone: `__leave` to it,
+drop it from the room, and close the connection if no room uses it. The
+connection stays for the other rooms the two share.
+
+*Source: `packages/core/src/network/mesh.ts` (`greet`, `onHandshake`, `admit`, `closeIfIdle`, `drop`). Tests: `packages/core/tests/network-manager.test.ts` ("two spaces shared by two devices use one connection", "a peer is a peer only in the rooms it shares…", "letting a peer go in one room…", "failing to prove it in one room costs nothing in another").*
 
 ### 7.3 Who connects
 
