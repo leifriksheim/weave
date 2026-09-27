@@ -114,7 +114,7 @@ export function PairPhone() {
             <p style={styles.errorHint}>
               Anyone who photographs this gets the account.
               <Info label="What is in the code">
-                Your account password, and the address of the relay that introduces the two devices.
+                Your recovery code, and the address of the relay that introduces the two devices.
                 It travels in the part of the link after the <code>#</code>, which browsers never
                 send to a server.
               </Info>

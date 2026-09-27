@@ -88,6 +88,7 @@ export {
   wrapSeedWithDeviceKey,
   unwrapSeedWithDeviceKey,
   wrapSeedWithPassphrase,
+  CLI_PASSPHRASE_LABEL,
   unwrapSeedWithPassphrase,
   deriveVaultKey,
   deriveVaultKeyBytes,

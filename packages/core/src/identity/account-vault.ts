@@ -12,11 +12,13 @@
  *   ├── HKDF → vault key ──encrypts──> space keys and space records at rest
  *   └── stored only as wraps:
  *         device     a random key in this origin's storage, gated by a passkey
- *         passphrase PBKDF2-SHA256 → AES-GCM
+ *         passphrase the account's password: PBKDF2-SHA256 → AES-GCM
  * ```
  *
- * Both wraps are shortcuts for one origin, and neither carries the account
- * anywhere — that is what the code is for. Adding an app means adding a wrap
+ * Both wraps are everyday ways in where this file is, and neither carries the
+ * account anywhere else — that is what the recovery code is for. A device wrap
+ * opens on one origin; a password opens on any origin that can read the file,
+ * which for a pod is every app pointed at it. Adding an app means adding a wrap
  * there, and two shortcuts end up meaning one account without a delegation
  * chain anywhere in sight.
  *
@@ -360,6 +362,12 @@ export function deviceWrapsFor(vault: AccountVault, rpId: string): ReadonlyArray
 export function hasPassphraseWrap(vault: AccountVault): boolean {
   return vault.wraps.some((wrap) => wrap.kind === 'passphrase');
 }
+
+/**
+ * What the CLI labels the passphrase it unlocks with unattended. Kept apart
+ * from the account's password, so changing one does not remove the other.
+ */
+export const CLI_PASSPHRASE_LABEL = 'CLI passphrase';
 
 /**
  * Adds a wrap, replacing any earlier one for the same passkey.

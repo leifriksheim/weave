@@ -9,8 +9,8 @@
  * 1. Makes its own key, kept in its own site's storage, never exportable.
  * 2. Opens the home in a popup, and says what it wants: read or write, and
  *    which spaces — existing ones the person picks, or new ones for it.
- * 3. The person unlocks at the home (a passkey, or the account password from
- *    their password manager) and approves.
+ * 3. The person unlocks at the home (a passkey, or their password) and
+ *    approves.
  * 4. The home signs a note — a UCAN — saying the app's key may write in those
  *    spaces until a date, and hands back invites for them.
  * 5. The app starts a node that signs with its key under that note.

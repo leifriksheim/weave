@@ -6,7 +6,7 @@ Your own account home: the one place your Weave account is ever unlocked.
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/leifriksheim/weave&root-directory=apps/home)
 
 Apps never sign you in. They open your home in a small window, you sign in
-there — with a passkey, or the account password your password manager keeps —
+there — with a passkey, or the password your password manager keeps —
 and you say what the app may use. The home signs a note from your account to
 the app's own key: which spaces, read or change, for seven days. The app never
 sees your password, and every peer holds it to what the note says.
@@ -56,26 +56,39 @@ example app on 5173 pointed at it.
 
 ## How signing in works
 
-**First: where your data lives.** A *pod* — a folder on your computer that any
-Weave app you point at it can open — or just this browser, which no other app
-can reach. Asked first because a pod may already hold your account; once
-answered it is remembered, and a pod is reopened without asking.
+Three things, each with one job:
 
-**Then: do you have a Weave account?** Sign in with your account password, or
-create one.
+| | What it is | For |
+|---|---|---|
+| **Recovery code** | The account itself: its seed, written out as 26 characters | Restoring — a new device with nothing to pair from, a new home, or when everything else is gone |
+| **Passkey or password** | A copy of the seed, locked, kept with the account | Signing in every day, wherever the account is kept |
+| **Pairing** | A QR code from a device that is signed in | Adding a phone or a laptop |
 
-**Create an account.** Pick a name; the app generates a strong password and
-shows it once. Save it to your password manager — that is the whole credential,
-and it is the only thing that works on an app which has never seen you.
+**Create an account.** Pick a name. The home shows the recovery code once —
+copy it, or download it as a small text file — and asks you to tick that it is
+somewhere safe: a secure note in your password manager, or on paper. Not as a
+saved login for this site, where the password you set next could replace it.
 
-It is not a backup of your key. It *is* your key, written out, which is why it
-needs nothing stored to work. A password that unlocks something needs that
-something to be present, and on a new domain it is not.
+Then choose how you sign in: a **passkey**, or a **password** your password
+manager saves under the account's name. One of them is required. Without
+either, every visit asks for the recovery code, and it ends up being used as a
+password after all.
 
-**On another device**: sign in with the same password — your password manager
-fills it in, since this is the same address. Then set up a passkey on your
-account page and this device never asks again. Apps never ask at all: they
-open this home.
+Last, in a browser that can open folders, you are offered a **pod** — a folder
+on your computer that holds your data, which any Weave app you point at it can
+open. Or keep it in this browser; you can move it any time from your account
+page.
+
+**I already have an account.** Where your data lives is asked here, and only
+here: someone with a pod has something to point at. Open your pod and its
+accounts are listed, ready for your passkey or password. Or add this device
+from one that is signed in, or type your recovery code. A restored account goes
+on to set up a passkey or password here, so it is needed only once.
+
+It works this way because apps never sign in themselves — they open this home.
+So there is one address to unlock, and a password or passkey kept at it is
+enough. The recovery code is what makes the account yours with no server: it
+needs nothing stored to work, which is also why nobody can reissue it.
 
 ### Several accounts in one place
 
@@ -87,22 +100,22 @@ last is expanded already.
 The list of names and DIDs is readable without unlocking anything — you cannot
 offer a choice without knowing what to call it. The keys are not.
 
-### The two ways in
+### The ways in
 
 | | Works where | For |
 |---|---|---|
-| Account password | Anywhere, including a domain that has never seen you | The real credential |
-| A passkey | This browser only | Not reaching for the password every time |
+| Recovery code | Anywhere, including a device or home that has never seen you | Restoring |
+| A password | Wherever the account is kept: this browser, or its pod in any app | Every day |
+| A passkey | This browser only | Every day, nothing to type |
 
-The second is a shortcut holding the same seed encrypted another way. Adding one
-is how a second app becomes a second door into one account rather than a second
-account — no delegation, just another entry in a file.
+The password and the passkey are the same seed encrypted two other ways. A
+password in a pod is a locked copy anyone who copies the folder can try to guess
+offline, which is why it has to be at least 10 characters — let your password
+manager make one. A passkey has no such weakness.
 
-There was a third — a short password for one device — and it is gone. Once the
-account password is saved in a password manager it fills itself in, so a second
-password for the same account bought nothing and cost a vault entry people had
-to tell apart from the first. One set earlier still unlocks; nothing sets a new
-one.
+Accounts made before passwords existed used the recovery code as their login,
+and password managers still fill it in. It still works in the password field,
+and the home then asks you to set a real password or passkey.
 
 **Every passkey provider works** — Bitwarden, 1Password, iCloud, Touch ID —
 because the passkey is not asked for key material. Only the PRF extension can
@@ -175,6 +188,8 @@ shows up in the other within a couple of seconds: the folder is polled, because
 the web has no filesystem change notification.
 
 ## Still to do
+
+- **A passkey that works on a new device.** Today a passkey synced by iCloud or Bitwarden gates a key that stays in one browser, so a new device still needs pairing or the recovery code. With the PRF extension the passkey could wrap the seed itself, its user handle could name the DID, and an always-on node could keep the wrapped copy — at the cost of working only with managers that implement PRF, and of those copies becoming a target.
 
 - **Members and roles.** Screens to see who is in a space and what they hold, edit roles, make an invite link per role, hand over, and leave. So far only `example/` has these (`RolesView`). The copy should be honest: someone removed keeps what they already downloaded, and view-only links made before a removal stop working.
 - **Pairing.** Warn on the arrival screen when a `#pair=` link would sign in to a different account than the one here ([01](../../docs/spec/01-identity.md), pairing).

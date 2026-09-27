@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { CarrierSummary } from '@weaveprotocol/core/node';
-import { STAY_SIGNED_IN_CHOICES, type Connection, type StaySignedIn } from '@weaveprotocol/core/session';
+import { MIN_PASSWORD_LENGTH, STAY_SIGNED_IN_CHOICES, accountCredentialName, offerToSave, recoveryKit, type Connection, type StaySignedIn } from '@weaveprotocol/core/session';
 import { useAuth, useSession } from '@weaveprotocol/core/react';
 import { Avatar } from './Avatar';
 import { PairPhone } from './PairPhone';
@@ -20,6 +20,10 @@ export function Settings() {
   const [stay, setStay] = useState<StaySignedIn>(auth.staySignedIn.choice);
   const [until, setUntil] = useState<Date | null>(auth.staySignedIn.until);
   const hasPasskey = (state.entry?.shortcuts.length ?? 0) > 0;
+  const hasPassword = state.entry?.hasPassword ?? false;
+  // Without either, every visit here asks for the recovery code.
+  const onlyWayIn = Number(hasPasskey) + Number(hasPassword) === 1;
+  const [changingPassword, setChangingPassword] = useState(false);
   const place = state.place;
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const disconnect = async (app: Connection) => {
@@ -130,12 +134,18 @@ export function Settings() {
       <Notifications node={session.node} carriers={carriers} />
 
       <Section
-        title="Passkey"
-        description="Unlock with Touch ID, Windows Hello or your password manager instead of typing your account password. On this device."
+        title="Signing in"
+        description="How you open your account here every day. A passkey works in this browser; a password works wherever your account is kept, including your pod in other apps."
       >
         {hasPasskey ? (
-          <Row label="A passkey unlocks this account here.">
-            <button onClick={() => void auth.removeShortcut('passkey')} disabled={state.busy} data-variant="quiet" style={{ ...styles.smallButton, color: palette.accent.danger }}>
+          <Row label="A passkey signs you in on this device.">
+            <button
+              onClick={() => void auth.removeShortcut('passkey')}
+              disabled={state.busy || onlyWayIn}
+              title={onlyWayIn ? 'Set a password first — otherwise you would need your recovery code to get back in.' : undefined}
+              data-variant="quiet"
+              style={{ ...styles.smallButton, color: palette.accent.danger }}
+            >
               Remove
             </button>
           </Row>
@@ -146,7 +156,45 @@ export function Settings() {
             </button>
           </Row>
         )}
+        {changingPassword ? (
+          <PasswordForm
+            account={session.account.name}
+            busy={state.busy}
+            onSave={async (password) => {
+              const ok = await auth.setPassword(password);
+              if (ok) {
+                const filedAs = accountCredentialName(session.account.name);
+                await offerToSave(filedAs, password, filedAs);
+                setChangingPassword(false);
+              }
+              return ok;
+            }}
+            onCancel={() => setChangingPassword(false)}
+          />
+        ) : (
+          <Row label={hasPassword ? 'A password is set.' : 'No password.'}>
+            <span style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => setChangingPassword(true)} disabled={state.busy} data-variant="quiet" style={styles.smallButton}>
+                {hasPassword ? 'Change' : 'Set a password'}
+              </button>
+              {hasPassword && (
+                <button
+                  onClick={() => void auth.removeShortcut('passphrase')}
+                  disabled={state.busy || onlyWayIn}
+                  title={onlyWayIn ? 'Set up a passkey first — otherwise you would need your recovery code to get back in.' : undefined}
+                  data-variant="quiet"
+                  style={{ ...styles.smallButton, color: palette.accent.danger }}
+                >
+                  Remove
+                </button>
+              )}
+            </span>
+          </Row>
+        )}
+        {changingPassword && state.error && <p style={styles.error}>{state.error.message}</p>}
       </Section>
+
+      <RecoveryCode reveal={() => auth.recoveryCode()} name={session.account.name} did={session.did} />
 
       <Section title="Stay signed in" description="Skip unlocking when you come back. After this long without using it, you'll be asked again.">
         <div role="radiogroup" aria-label="Stay signed in" style={segmented}>
@@ -232,6 +280,112 @@ function AccountHeader({ name, did, onRename }: { name: string; did: string; onR
         <CopyDid did={did} />
       </div>
     </header>
+  );
+}
+
+/** A new password, twice; a manager fills both and offers to save it under the account's name */
+function PasswordForm({ account, busy, onSave, onCancel }: { account: string; busy: boolean; onSave: (password: string) => Promise<boolean>; onCancel: () => void }) {
+  const [password, setPassword] = useState('');
+  const [again, setAgain] = useState('');
+  const [mismatch, setMismatch] = useState(false);
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        setMismatch(password !== again);
+        if (password === again) void onSave(password);
+      }}
+      style={styles.form}
+    >
+      <input type="text" name="username" autoComplete="username" value={accountCredentialName(account)} readOnly aria-label="Account" style={styles.input} />
+      <input
+        type="password"
+        name="password"
+        autoComplete="new-password"
+        placeholder="New password"
+        minLength={MIN_PASSWORD_LENGTH}
+        value={password}
+        onChange={(event) => setPassword(event.target.value)}
+        autoFocus
+        aria-label="New password"
+        style={styles.input}
+      />
+      <input
+        type="password"
+        name="confirm-password"
+        autoComplete="new-password"
+        placeholder="The same again"
+        value={again}
+        onChange={(event) => setAgain(event.target.value)}
+        aria-label="Confirm password"
+        style={styles.input}
+      />
+      {mismatch && <p style={styles.error}>Those two do not match.</p>}
+      <p style={styles.errorHint}>At least {MIN_PASSWORD_LENGTH} characters. Let your password manager make one.</p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button type="submit" disabled={busy || !password} data-variant="primary" style={{ ...styles.smallButton, background: '#000', color: '#fff', borderColor: '#000' }}>
+          {busy ? 'Saving…' : 'Save password'}
+        </button>
+        <button type="button" onClick={onCancel} disabled={busy} data-variant="quiet" style={styles.smallButton}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * The recovery code, hidden until asked for. It is the account itself, so it
+ * is shown only on purpose, and never offered to a password manager as a login.
+ */
+function RecoveryCode({ reveal, name, did }: { reveal: () => string | null; name: string; did: string }) {
+  const [code, setCode] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const download = () => {
+    if (!code) return;
+    const kit = recoveryKit({ code, name, did });
+    const url = URL.createObjectURL(new Blob([kit.text], { type: 'text/plain' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = kit.filename;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  return (
+    <Section
+      title="Recovery code"
+      description="Your account, written out. It restores the account on any device, even one that has never seen it. Keep it somewhere safe — nobody can reissue it."
+    >
+      {code ? (
+        <>
+          <code style={{ display: 'block', padding: 12, borderRadius: 8, background: palette.surface.sunken, border: `1px solid ${palette.surface.line}`, fontSize: 15, letterSpacing: '0.04em', textAlign: 'center', wordBreak: 'break-all', userSelect: 'all' }}>
+            {code}
+          </code>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => void navigator.clipboard.writeText(code).then(() => setCopied(true))}
+              data-variant="quiet"
+              style={styles.smallButton}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            <button onClick={download} data-variant="quiet" style={styles.smallButton}>
+              Download
+            </button>
+            <button onClick={() => { setCode(null); setCopied(false); }} data-variant="quiet" style={styles.smallButton}>
+              Hide
+            </button>
+          </div>
+          <p style={styles.errorHint}>Anyone who sees this can open your account.</p>
+        </>
+      ) : (
+        <div>
+          <button onClick={() => setCode(reveal())} data-variant="quiet" style={styles.smallButton}>
+            Show recovery code
+          </button>
+        </div>
+      )}
+    </Section>
   );
 }
 
