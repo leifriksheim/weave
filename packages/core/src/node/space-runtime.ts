@@ -58,7 +58,7 @@ import {
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
 import { createMesh, type Mesh } from '../network/mesh.js';
 import { createWebSocketTransport } from '../network/ws-transport.js';
-import { createClientAuth, createMeshAuth, type ReadAccess } from '../network/peer-auth.js';
+import { createClientAuth, createMeshAuth, MAX_EARLIER_READ_KEYS, type ReadAccess } from '../network/peer-auth.js';
 import {
   BOX_COLLECTION,
   MEMBER_KEY_COLLECTION,
@@ -1339,6 +1339,12 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
             return held ? deriveReadKey(held, provider) : (record.read ?? null);
           },
           current: () => currentReadKey,
+          async earlier() {
+            const { current } = (await access()).history;
+            const newest = newestKey(current);
+            const older = [...current.keys].reverse().map((epoch) => keyring.get(epoch.keyId)).filter((held): held is SpaceKey => held !== undefined && held !== newest);
+            return Promise.all(older.slice(0, MAX_EARLIER_READ_KEYS).map((held) => deriveReadKey(held, provider)));
+          },
           async membership() {
             const held = newestKey((await access()).history.current);
             return held ? sealWith(held, session.proof(), membershipContext(space.id)) : null;

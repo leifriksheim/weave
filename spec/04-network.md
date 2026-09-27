@@ -433,7 +433,7 @@ The handshake is three text frames, then binary frames either way:
 
 ```
 1. node   → client   {"type":"challenge","nonce":<Nₛ>,"did":<node DID>}
-2. client → node     {"type":"hello","did":<client session DID>,"nonce":<N꜀>,"sig":…,"read"?:…,"readKey"?:…,"member"?:…}
+2. client → node     {"type":"hello","did":<client session DID>,"nonce":<N꜀>,"sig":…,"read"?:…,"readKey"?:…,"member"?:…,"earlier"?:[…]}
 3. node   → client   {"type":"welcome","did":<node DID>,"sig":<…>}
 4. binary frames of UTF-8 JSON, either way
 ```
@@ -556,7 +556,7 @@ each as its owner's end: the prover signs with `(local, remote)` as it sees
 them; the verifier checks with `(remote, local)` as it sees them. Without a
 binding both are empty strings.
 
-A proof is `{ "sig": …, "read"?: …, "readKey"?: …, "member"?: … }`, `sig`
+A proof is `{ "sig": …, "read"?: …, "readKey"?: …, "member"?: …, "earlier"?: […] }`, `sig`
 being the prover's session key over `T`. The verifier MUST check `sig`
 against the prover's DID and, in a private space, the read proof (§6.3)
 over the same `T`.
@@ -583,10 +583,14 @@ In a private space the space names a current **read key** (`did:key`, from
 `sys.key`; derivation in [03 — Spaces](03-spaces.md)). A reader adds to its
 proof:
 
-- `read` — the read private key's signature over the same label (`H` or `T`).
-- If the read key it holds is **not** the current one (it was offline when
-  the key changed): `readKey` — the DID of the read key that signed `read`;
-  and `member` — its **note** sealed with the space key behind `readKey`:
+- `read` — the signature, over the same label (`H` or `T`), of the newest
+  read key it holds.
+- `readKey` — the DID of that read key. A reader MUST send it whenever it
+  knows the DID: a reader that missed a key change believes its key is
+  current, and cannot tell.
+- `member` — its **note** sealed with the space key behind `readKey`. A
+  reader SHOULD send it whenever it holds that space key, for the same
+  reason:
 
   ```
   member = base64url( iv(12 bytes) ‖ AES-256-GCM(spaceKey, iv,
@@ -594,16 +598,31 @@ proof:
                        plaintext = UTF-8(JSON.stringify(noteString))) )
   ```
 
+- `earlier` — the same signature by each **older** read key it still holds,
+  newest first, at most 4: `[{ "readKey": <DID>, "read": <signature> }, …]`.
+  The verifier may be the one that missed a change. A reader SHOULD send it
+  when it holds older keys.
+
 The verifier:
 
 1. takes `claimed = readKey` if present, else the current read key;
-2. MUST verify `read` against `claimed` (a `claimed` not starting with
-   `did:key:` fails);
-3. accepts if `claimed` is the current read key;
-4. otherwise accepts only if it holds the space key whose read key is
+2. verifies `read` against `claimed` (a `claimed` not starting with
+   `did:key:` fails this step);
+3. accepts if that holds and `claimed` is the current read key;
+4. accepts if that holds and it holds the space key whose read key is
    `claimed`, can open `member` with it, the note inside is valid, is made
    out to the prover's session DID, and its root account is a reader of the
-   space now. A verifier without that key (a host) rejects.
+   space now. A verifier without that key (a host) cannot;
+5. otherwise accepts only if an entry among the first 4 of `earlier` names
+   the current read key and its `read` verifies against it;
+6. rejects.
+
+Example — the key changed K0 → K1 while Bob was away. Bob holds K0 and calls
+it current; Alice holds both. Bob proves
+`{"sig":…,"read":<K0 signs T>,"readKey":<K0 DID>,"member":<note sealed with K0>}`:
+Alice accepts it by step 4. Alice proves
+`{"sig":…,"read":<K1 signs T>,"readKey":<K1 DID>,"member":…,"earlier":[{"readKey":<K0 DID>,"read":<K0 signs T>}]}`:
+Bob accepts it by step 5. The two sync, and Bob learns K1 from the history.
 
 A node that must prove read access but holds no read key MUST NOT complete
 the mesh handshake (the reference implementation throws, and the room times
@@ -611,9 +630,13 @@ out).
 
 > Rationale: someone removed holds the older key too, but is no member. The
 > note sealed under the older key shows which account is asking, and only
-> those who could read the space then can open it.
+> those who could read the space then can open it. Step 5 lets in nobody a
+> verifier would not already let in: it proves the key that verifier calls
+> current. Without steps 4 and 5 applying to readers that don't know they
+> are behind, a node that missed a key change could never reconnect, since
+> the peers that could tell it about the change refuse it.
 
-*Source: `packages/core/src/network/peer-auth.ts` (`proveRead`, `checkRead`), `packages/core/src/node/space-runtime.ts` (`readAccess`), `packages/core/src/privacy/space-encryption.ts` (`sealWith`, `openWith`), `packages/core/src/space/space-access.ts` (`membershipContext`). Tests: `packages/core/tests/key-change.test.ts`, `packages/core/tests/ws-transport.test.ts` ("a private space"), `packages/core/tests/network-manager.test.ts` ("in a private space, a peer without its key never becomes a peer").*
+*Source: `packages/core/src/network/peer-auth.ts` (`proveRead`, `checkRead`, `MAX_EARLIER_READ_KEYS`), `packages/core/src/node/space-runtime.ts` (`readAccess`), `packages/core/src/privacy/space-encryption.ts` (`sealWith`, `openWith`), `packages/core/src/space/space-access.ts` (`membershipContext`). Tests: `packages/core/tests/key-change.test.ts`, `packages/core/tests/ws-transport.test.ts` ("a private space"), `packages/core/tests/network-manager.test.ts` ("in a private space, a peer without its key never becomes a peer"; "after the space key changed").*
 
 ### 6.4 The account behind a session
 

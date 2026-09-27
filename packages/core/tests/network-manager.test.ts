@@ -21,9 +21,9 @@ import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { createCryptoGate } from '../src/validation/crypto-gate.js';
 import { createSyncEngine } from '../src/sync/sync-engine.js';
 import type { NetworkMessage, PeerInfo } from '../src/types.js';
-import { createMeshAuth } from '../src/network/peer-auth.js';
-import { generateSpaceKey } from '../src/privacy/space-encryption.js';
-import { deriveReadKey } from '../src/space/space-access.js';
+import { createMeshAuth, type ReadAccess } from '../src/network/peer-auth.js';
+import { generateSpaceKey, openWith, sealWith } from '../src/privacy/space-encryption.js';
+import { deriveReadKey, membershipContext } from '../src/space/space-access.js';
 
 /** Resolves when `predicate` holds, polling; fails the test after `ms`. */
 async function until(predicate: () => boolean, ms = 3000, what = 'condition'): Promise<void> {
@@ -386,6 +386,64 @@ describe('the mesh, through real relays', () => {
       await new Promise((resolve) => setTimeout(resolve, 1200));
       assert.deepEqual(seenA.connected, [bob.did]);
       for (const room of [a, b, e]) room.disconnect();
+    });
+
+    describe('after the space key changed', () => {
+      /**
+       * The key went K0 → K1 → K2. Alice was there for all of it and holds
+       * every key. Bob was away: he holds only K0 and believes it current.
+       * Carol was removed at K1: she holds K0 and K1, but no one still in
+       * vouches for her note.
+       */
+      const changed = async () => {
+        const keys = [await generateSpaceKey(), await generateSpaceKey(), await generateSpaceKey()];
+        const reads = await Promise.all(keys.map((key) => deriveReadKey(key, provider)));
+        const members = new Set<string>();
+        const context = membershipContext('changed');
+        const note = (who: string) => `the note of ${who}`;
+        /** Who holds `held` (newest last) and calls `current` the space's key */
+        const access = (who: { did: string }, held: number[], current: number): ReadAccess => ({
+          key: async () => reads[held.at(-1)!]!,
+          current: () => reads[current]!.did,
+          earlier: async () => held.slice(0, -1).reverse().map((i) => reads[i]!),
+          membership: async () => sealWith(keys[held.at(-1)!]!, note(who.did), context),
+          // A peer proving an older key gets in when its note opens with that key and names someone still a member.
+          admits: async (peerDid, readKey, membership) => {
+            const i = reads.findIndex((read) => read.did === readKey);
+            return i >= 0 && held.includes(i) && members.has(peerDid) && (await openWith(keys[i]!, membership, context)) === note(peerDid);
+          },
+        });
+        return { access, members };
+      };
+
+      test('a peer that missed it and one that did not still meet, whoever greets first', async () => {
+        const { access, members } = await changed();
+        const [alice, bob] = [await identity(), await identity()];
+        members.add(alice.did).add(bob.did);
+        const a = peer('behind', alice, access(alice, [0, 1, 2], 2));
+        const b = peer('behind', bob, access(bob, [0], 0));
+        const [seenA, seenB] = [collect(a), collect(b)];
+        await b.connect();
+        await a.connect();
+        await until(() => seenA.connected.includes(bob.did) && seenB.connected.includes(alice.did), 5000, 'Alice and Bob to meet');
+        a.disconnect();
+        b.disconnect();
+      });
+
+      test('someone removed still never becomes a peer of those who moved on', async () => {
+        const { access, members } = await changed();
+        const [alice, carol] = [await identity(), await identity()];
+        members.add(alice.did);
+        const a = peer('removed', alice, access(alice, [0, 1, 2], 2));
+        const c = peer('removed', carol, access(carol, [0, 1], 1));
+        const seenA = collect(a);
+        await a.connect();
+        await c.connect();
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        assert.deepEqual(seenA.connected, []);
+        a.disconnect();
+        c.disconnect();
+      });
     });
 
     test('failing to prove it in one room costs nothing in another', async () => {

@@ -34,6 +34,13 @@
  * A peer without any key of the space's (a host) takes the current read key
  * only.
  *
+ * **A reader need not know it is behind.** One that missed a key change
+ * believes its older key is current, so every reader names the key it proves
+ * with and sends its sealed note, always. And the verifier may be the one
+ * behind: a reader also proves with the older keys it still holds
+ * (`earlier`), so a verifier that knows only an older key admits it, syncs,
+ * and learns the new one from the history.
+ *
  * The node signs with **its own key**, the one its DID names. That proves the
  * welcome comes from the node that sent the challenge; which node to trust is
  * the client's choice of URL. Naming the node in the client's signature keeps
@@ -51,7 +58,12 @@ export interface HelloProof {
   readonly readKey?: string;
   /** Its note, sealed with the space key behind `readKey` — for a reader that may be behind */
   readonly member?: string;
+  /** The same proof by the older read keys it still holds, newest first — for a verifier that may be behind */
+  readonly earlier?: ReadonlyArray<{ readonly readKey: string; readonly read: string }>;
 }
+
+/** How many older keys a reader proves with: enough for a verifier away through a few changes */
+export const MAX_EARLIER_READ_KEYS = 4;
 
 /**
  * Who may read a private space, as one side of a connection knows it — asked
@@ -62,6 +74,8 @@ export interface ReadAccess {
   key(): Promise<{ readonly did: string; readonly privateKey: CryptoKey } | null>;
   /** The read key every reader must prove, as the space names it now */
   current(): string;
+  /** The older read keys this side still holds, newest first, not counting the one `key` gives */
+  earlier?(): Promise<ReadonlyArray<{ readonly did: string; readonly privateKey: CryptoKey }>>;
   /**
    * This side's note, sealed with the space key behind the read key it
    * proves with — sent along when that may not be the current one.
@@ -83,23 +97,35 @@ function readAccessOf(read: ReadAccessInput | null): ReadAccess | null {
   return { key: async () => (key ? { did: key.did ?? publicDid, privateKey: key.privateKey } : null), current: () => publicDid };
 }
 
-/** Signs `label` as a reader: with the read key, saying which one when it is not the current one, and the sealed note then */
+/**
+ * Signs `label` as a reader: with its newest read key, named, and its sealed
+ * note, since it cannot know whether the other side has moved on; and with
+ * the older keys it holds, for another side that has not.
+ */
 async function proveRead(access: ReadAccess, label: Uint8Array, provider: CryptoProvider): Promise<Omit<HelloProof, 'sig'> | null> {
   const key = await access.key();
   if (!key) return null;
   const read = base64UrlEncode(await provider.sign(key.privateKey, label));
-  if (key.did === access.current()) return { read };
+  // A bare key pair has no name to give; the other side takes it as its current one.
+  if (!key.did) return { read };
   const member = (await access.membership?.()) ?? null;
-  return { read, readKey: key.did, ...(member ? { member } : {}) };
+  const older = ((await access.earlier?.()) ?? []).filter((held) => held.did !== key.did).slice(0, MAX_EARLIER_READ_KEYS);
+  const earlier = await Promise.all(older.map(async (held) => ({ readKey: held.did, read: base64UrlEncode(await provider.sign(held.privateKey, label)) })));
+  return { read, readKey: key.did, ...(member ? { member } : {}), ...(earlier.length ? { earlier } : {}) };
 }
 
 /** Whether a proof shows a reader: the current read key, or an older one with a note from someone still a member */
 async function checkRead(access: ReadAccess, peerDid: string, label: Uint8Array, proof: Partial<HelloProof>, provider: CryptoProvider) {
   const current = access.current();
   const claimed = typeof proof.readKey === 'string' ? proof.readKey : current;
-  if (!claimed.startsWith('did:key:') || !(await verifyBy(provider, claimed, proof.read, label))) return false;
-  if (claimed === current) return true;
-  return access.admits ? access.admits(peerDid, claimed, proof.member) : false;
+  if (claimed.startsWith('did:key:') && (await verifyBy(provider, claimed, proof.read, label))) {
+    if (claimed === current) return true;
+    if (access.admits && (await access.admits(peerDid, claimed, proof.member))) return true;
+  }
+  // The reader may be ahead of us: then it proves the key we call current among its older ones.
+  const earlier = Array.isArray(proof.earlier) ? proof.earlier.slice(0, MAX_EARLIER_READ_KEYS) : [];
+  const ours = earlier.find((item) => item?.readKey === current);
+  return ours !== undefined && current.startsWith('did:key:') && verifyBy(provider, current, ours.read, label);
 }
 
 /** The connecting side: proves who it is and that it may read, and checks the node's welcome. */
