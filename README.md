@@ -1312,8 +1312,8 @@ has **Keep my spaces online**.
 
 ## Example app
 
-`apps/example/` is the Weave website — a landing page for developers at `/`, and
-why Weave, for people, at `/why` — and, at `/app`, a general-purpose app for your spaces — Vite + React, consuming
+`apps/example/` is the Weave website — a front page for communities at `/`, and
+one for developers at `/developers` — and, at `/app`, a general-purpose app for your spaces — Vite + React, consuming
 the protocol straight from `packages/core/src/`. It knows no kinds of data in advance: every
 screen is worked out from what a space says about itself (see *Derived UI* below):
 

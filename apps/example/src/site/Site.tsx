@@ -9,10 +9,16 @@ import './site.css';
 const LANGUAGES = { typescript: { ...typescript, typescript: true }, shell } as const;
 
 /**
- * The two landing pages — for developers, at `/`, and why Weave, for people,
- * at `/why` — living in the example app for now, so they share its fonts,
- * colours and deploy. The app itself is at `/app`.
+ * The two landing pages — the front page, for communities, at `/` (in
+ * `Home.tsx`), and for developers at `/developers` — living in the example app
+ * for now, so they share its fonts, colours and deploy. The app itself is at
+ * `/app`.
  */
+
+export const GITHUB = 'https://github.com/leifriksheim/weave';
+export const SPEC = `${GITHUB}/tree/main/spec`;
+/** Links off the site open in a tab of their own */
+export const EXTERNAL = { target: '_blank', rel: 'noreferrer' } as const;
 
 export function Mark({ size = 20 }: { size?: number }) {
   return (
@@ -22,7 +28,9 @@ export function Mark({ size = 20 }: { size?: number }) {
   );
 }
 
-function Nav({ page }: { page: 'users' | 'developers' }) {
+type PageName = 'home' | 'developers';
+
+function Nav({ page }: { page: PageName }) {
   return (
     <header className="nav">
       <div className="wrap">
@@ -31,8 +39,11 @@ function Nav({ page }: { page: 'users' | 'developers' }) {
           Weave
         </a>
         <nav className="nav-links">
-          <a href="/why" aria-current={page === 'users' ? 'page' : undefined}>
-            Why Weave
+          <a href="/developers" aria-current={page === 'developers' ? 'page' : undefined}>
+            Developers
+          </a>
+          <a href={GITHUB} {...EXTERNAL} className="hide-sm">
+            GitHub
           </a>
           <a href="/app" className="btn btn-primary" style={{ color: '#fff', marginLeft: 8 }}>
             Open app
@@ -47,9 +58,16 @@ function Footer() {
   return (
     <footer>
       <div className="wrap">
-        <span>Weave — your data, every app.</span>
-        <span style={{ display: 'flex', gap: 16 }}>
-          <a href="/why">Why Weave</a>
+        <span>Weave — the internet, owned by its people.</span>
+        <span style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <a href="/">Communities</a>
+          <a href="/developers">Developers</a>
+          <a href={SPEC} {...EXTERNAL}>
+            Spec
+          </a>
+          <a href={GITHUB} {...EXTERNAL}>
+            GitHub
+          </a>
           <a href="/app">Open app</a>
         </span>
       </div>
@@ -57,7 +75,7 @@ function Footer() {
   );
 }
 
-function Page({ page, children }: { page: 'users' | 'developers'; children: ReactNode }) {
+export function Page({ page, children }: { page: PageName; children: ReactNode }) {
   return (
     <div className="site">
       <Nav page={page} />
@@ -68,7 +86,7 @@ function Page({ page, children }: { page: 'users' | 'developers'; children: Reac
 }
 
 /** A small line icon, drawn the same way as the mark */
-function Icon({ d }: { d: string }) {
+export function Icon({ d }: { d: string }) {
   return (
     <span className="icon">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#000" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -78,7 +96,7 @@ function Icon({ d }: { d: string }) {
   );
 }
 
-function Feature({ icon, title, children }: { icon: string; title: string; children: ReactNode }) {
+export function Feature({ icon, title, children }: { icon: string; title: string; children: ReactNode }) {
   return (
     <div className="cell">
       <Icon d={icon} />
@@ -116,201 +134,6 @@ function Code({ file, lang = 'typescript', children }: { file: string; lang?: ke
         <code dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
     </div>
-  );
-}
-
-// ─── For people ─────────────────────────────────────────────────────
-
-export function Landing() {
-  return (
-    <Page page="users">
-      <section className="hero">
-        <div className="wrap">
-          <h1>
-            Make any app.
-            <br />
-            Own all of it.
-          </h1>
-          <p>
-            With AI, anyone can make an app just by describing it. Weave is where those apps can live: no servers to
-            rent, no database to run, no sign-up form to build. The people who use an app keep their own data, and no
-            company sits in the middle.
-          </p>
-          <div className="actions">
-            <a href="/app" className="btn btn-primary">
-              Get started
-            </a>
-            <a href="/" className="btn btn-secondary">
-              For developers
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <section className="band">
-        <div className="wrap">
-          <div className="section-head">
-            <div className="kicker">What changed</div>
-            <h2>Making software is almost free now. Running it isn't.</h2>
-            <p>
-              Ask an AI agent for an app, and you can have one working in an afternoon. Then the hard part starts, and
-              it's the same for every app anyone makes.
-            </p>
-          </div>
-          <div className="points">
-            <div>
-              <h3>Getting people in</h3>
-              <p>Sign-up forms, passwords, reset emails, another account for everyone who wants to try it.</p>
-            </div>
-            <div>
-              <h3>Keeping the data somewhere</h3>
-              <p>A database to set up, secure and back up, full of other people's things you're now responsible for.</p>
-            </div>
-            <div>
-              <h3>Keeping it running</h3>
-              <p>Servers, updates, and a bill that grows with every person who joins. Stop paying, and it's gone.</p>
-            </div>
-            <div>
-              <h3>So it never leaves your laptop</h3>
-              <p>
-                Most homemade apps stop here. And the apps everyone ends up using belong to the few companies that can
-                afford to run them.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="band">
-        <div className="wrap">
-          <div className="section-head">
-            <div className="kicker">What Weave does</div>
-            <h2>Apps without the infrastructure.</h2>
-            <p>Weave takes care of the parts every app needs, so an app can be just the part that's yours.</p>
-          </div>
-          <div className="grid">
-            <Feature icon="M8 2v2M8 12v2M2 8h2M12 8h2M4 4l1.4 1.4M10.6 10.6L12 12M4 12l1.4-1.4M10.6 5.4L12 4" title="Made with your agent">
-              Describe what you want to the AI assistant you already use. It proposes the app, and you look it over and
-              add it. Nothing is added without you saying yes.
-            </Feature>
-            <Feature icon="M8 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6ZM2.5 14.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5" title="No sign-up to build">
-              Everyone brings one Weave account that works in every Weave app. You never store anyone's password, and
-              nobody can lock them out.
-            </Feature>
-            <Feature icon="M2 4.5h4l1.5 1.5H14v7.5H2zM2 4.5V3h4" title="No database to run">
-              Everyone's data stays on their own devices, or in a folder they own. More people doesn't mean a bigger
-              bill, because there's no bill.
-            </Feature>
-            <Feature icon="M6 10l4-4M5 7.5L3.5 9a2.5 2.5 0 0 0 3.5 3.5L8.5 11M11 8.5L12.5 7A2.5 2.5 0 0 0 9 3.5L7.5 5" title="Sharing built in">
-              Invite people with a link. Changes go straight between their devices, live, and keep working offline.
-            </Feature>
-            <Feature icon="M4 7V5a4 4 0 0 1 8 0v2M3 7h10v7H3z" title="Private by default">
-              Private spaces are locked on your device before anything leaves it. Whatever helps pass data along only
-              ever sees scrambled bytes.
-            </Feature>
-            <Feature icon="M1.5 4h5v8h-5zM9.5 4h5v8h-5zM6.5 8h3" title="Apps that work together">
-              A poll made in one app can be voted on in another. Your things aren't stuck inside whichever app made
-              them.
-            </Feature>
-          </div>
-        </div>
-      </section>
-
-      <section className="band">
-        <div className="wrap">
-          <div className="section-head">
-            <div className="kicker">The difference</div>
-            <h2>Who's in charge?</h2>
-          </div>
-          <div className="compare">
-            <div className="col">
-              <h3>Usually</h3>
-              <ul>
-                <li>Your app needs servers, a database and a login</li>
-                <li>An account with every company</li>
-                <li>Your data on their servers</li>
-                <li>They decide the rules, and can change them</li>
-                <li>When the company goes, so does your data</li>
-              </ul>
-            </div>
-            <div className="col us">
-              <h3>With Weave</h3>
-              <ul>
-                <li>Your app is just the app</li>
-                <li>One account, yours, in every app</li>
-                <li>Your data on your devices</li>
-                <li>You and the people you invite decide</li>
-                <li>Open it in another app instead</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="band">
-        <div className="wrap">
-          <div className="section-head">
-            <div className="kicker">A different internet</div>
-            <h2>Lots of small apps, owned by the people who use them.</h2>
-            <p>
-              The web started as something anyone could add to. Then it settled into a few platforms that own the
-              accounts, the data and the rules. Now that anyone can make software, it doesn't have to stay that way.
-            </p>
-          </div>
-          <div className="points">
-            <div>
-              <h3>Made for a few people</h3>
-              <p>
-                A sign-up sheet for your club, a recipe box for your family, a tool library for your street. Apps too
-                small for a company to bother with, made by the people who need them.
-              </p>
-            </div>
-            <div>
-              <h3>Answering to nobody else</h3>
-              <p>
-                No terms of service that change overnight, no ads, no one reading along. The rules are the ones your
-                group set, and every device keeps to them.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="band">
-        <div className="wrap">
-          <div className="section-head">
-            <div className="kicker">Getting started</div>
-            <h2>Three steps, no sign-up form.</h2>
-          </div>
-          <div className="steps">
-            <div className="step">
-              <h3>Make your account</h3>
-              <p>Choose where your data lives, and save the password Weave makes for you. It opens every Weave app.</p>
-            </div>
-            <div className="step">
-              <h3>Make something</h3>
-              <p>Connect your AI assistant and describe an app, or start with one someone shared with you.</p>
-            </div>
-            <div className="step">
-              <h3>Share it with a link</h3>
-              <p>Invite the people it's for. It's theirs as much as yours, and nobody else's.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="cta">
-        <div className="wrap">
-          <h2>Make something of your own.</h2>
-          <p>It takes a minute, and nothing leaves your hands.</p>
-          <div className="actions">
-            <a href="/app" className="btn btn-primary">
-              Open Weave
-            </a>
-          </div>
-        </div>
-      </section>
-    </Page>
   );
 }
 
@@ -920,8 +743,8 @@ export function Developers() {
             <a href="/app" className="btn btn-primary">
               Open the example app
             </a>
-            <a href="/why" className="btn btn-secondary">
-              Why Weave
+            <a href={SPEC} {...EXTERNAL} className="btn btn-secondary">
+              Read the spec
             </a>
           </div>
         </div>
