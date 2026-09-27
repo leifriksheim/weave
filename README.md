@@ -4,6 +4,11 @@ A peer-to-peer data protocol for the browser. You own your identity as a
 written-down code, keep your data in signed records that sync directly between
 devices, and every app is a view onto that data rather than its owner.
 
+> **Building a client, or an agent that needs the architecture?** The
+> protocol is specified in [docs/spec](docs/spec/README.md): wire formats,
+> what is signed, and what every peer must check. The tests are its
+> executable half.
+
 ## Architecture
 
 ```
@@ -229,7 +234,7 @@ it must not be enough to reach you. What lets two people reach each other is a
 space they share. So **a contact is a private space for two**: records you
 write there wait for the other person, and live messages reach them when
 they're online. There's no directory to look people up in, and no inbox
-strangers can knock on.
+strangers can knock on — unless you open a door (below).
 
 ```typescript
 // In a space you share with Anna — the book club — ask her to add you.
@@ -276,6 +281,50 @@ await node.contacts.others(anna);    // anyone else in your space with her: [] u
 contact key, which opens requests sent to you. Asking someone and accepting
 also make or join a space, so those need `scope: 'account'`, which includes
 the contacts. Agents never get them.
+
+### Doors
+
+Someone you share no space with can still ask to become your contact — if you
+give them a **door**. A door is a code you hand out on purpose (a link, a QR
+code, a line in your bio) and can close. It names a key derived from your
+contact key and the relays whose mailboxes hold knocks on it, and nothing
+about who you are.
+
+```typescript
+const door = await anna.doors.open();              // { id, code, relays, … }
+share(`https://chat.example/#door=${door.code}`);
+
+// Leif, who has never shared a space with Anna, pastes the link:
+await leif.doors.knock(link, { note: 'We met at the gig' });   // a space for two, its invite sealed to the door
+
+// Anna, whenever she's next online:
+const [knock] = await anna.doors.knocks();         // { from, name, note, pairSpace, … } — `from` is proven
+await anna.doors.accept(knock.id);                 // joins; Leif is a contact, and she is his once it syncs
+await anna.doors.close(door.id);                   // the code leads nowhere now; contacts stay
+```
+
+- **The relay keeps a mailbox**, the one thing it holds: a sealed blob under a
+  hash of the door's signing key, for up to 14 days. It sees addresses, as it
+  does for any socket, but not whose door it is, which account knocked, or what
+  they said. A door names up to three relays and a knock goes to all of them,
+  so no one relay can shut it.
+- **A knock proves who knocked** before anyone joins anything: it's signed by
+  the knocker's session key under a note for their whole account, like a
+  record, bound to the door it was left at and to when the relay took it.
+- **An answer proves who opened.** Accepting writes an answer in the space for
+  two, signed with the door's key: that, not joining, makes the owner the
+  knocker's contact, and the invite is closed behind them.
+- **The door is not the account.** Its key is not your contact key, so nobody
+  can link a door to your profile in any space. Every device with the contact
+  key opens the same doors.
+- **Spam** is capped at the mailbox (64 knocks a door; 4 a door and 30 in all
+  an hour from one address). `dismiss` lets one knock go without blocking,
+  blocking hides someone's knocks on every door, and a flooded door is cleared
+  by its owner (`clear`), so its code keeps working.
+
+Next: handles that lead to a door, so `@anna.bsky.social` works where a code
+does (planned in [07 — Doors](docs/spec/07-doors.md), Names). The full design is
+[docs/spec/07-doors.md](docs/spec/07-doors.md).
 
 ## Signing in — the element, and React
 
@@ -1001,7 +1050,7 @@ interface StorageAdapter {
 - `createIndexedDBAdapter(name)` — works in every browser. Origin-scoped.
 - `createFolderAdapter(directory, namespace)` — a directory the user picked, via the File System Access API. **Not** origin-scoped. Chrome, Edge and Opera on the desktop.
 
-The always-on node (`weave run`) uses the folder adapter on disk, in the same layout. **Planned**: mirrors, which keep a space in storage the user already pays for (a Dropbox app folder, Drive, S3) and sync with it like a peer — see `docs/blocks/BLOCK-03-mirrors.md`. OPFS is not on the list: it is origin-private, so it would inherit exactly the limitation a data folder exists to avoid.
+The always-on node (`weave run`) uses the folder adapter on disk, in the same layout. **Planned**: mirrors, which keep a space in storage the user already pays for (a Dropbox app folder, Drive, S3) and sync with it like a peer — see [05 — Sync and storage](docs/spec/05-sync-and-storage.md). OPFS is not on the list: it is origin-private, so it would inherit exactly the limitation a data folder exists to avoid.
 
 ### Data folders — storage that outlives the origin
 
@@ -1247,7 +1296,7 @@ members pay for it. A subscription is a key the account makes and keeps in its
 registry (`sys.hosting`), so every device signs as it; `node.hosting.use(url)`
 starts one, and whichever device notices it is paid hands the host the carry
 space. Every call to the host is signed over method, path, time and body.
-The home knows nothing about payment (BLOCK-23): a host describes itself at
+The home knows nothing about payment ([06 — Nodes, sessions and apps](docs/spec/06-nodes-and-sessions.md), Hosts): a host describes itself at
 `/.well-known/weave-host` (like a Nostr relay's NIP-11 document), signs every
 status it gives — the home keeps the latest in the registry as the person's
 proof — and takes payments on its own pay page, which `node.hosting.payPage(url)`
@@ -1395,7 +1444,23 @@ the agents it finds, and they start `weave mcp` themselves: a node of its own,
 over WebRTC (`node-datachannel`), that follows the account and keeps working
 with every tab closed. What it writes shows "via agent", and every peer
 ignores an agent changing collections, who may do what, or the account's own
-list of spaces. See BLOCK-20.
+list of spaces. See [06 — Nodes, sessions and apps](docs/spec/06-nodes-and-sessions.md), Agents.
+
+## Still to do in the library
+
+What the protocol still has planned is in [the spec](docs/spec/README.md), under
+**Planned** in each part. Library work that isn't protocol:
+
+- **Typed queries, further.** Typed field paths and operator values in
+  `where`, a misspelled collection name as a compile error, typed link roles,
+  types generated from a space's stored definitions, and a dev-time warning
+  when declared schemas differ from the space's catalogue.
+- **Typed collections.** One TypeScript builder that emits the schema, the
+  rules and the types, and typed handles (`node.use(space, Poll)`).
+- **Definitions that update themselves.** `useSchemas` and `addApp` applying
+  harmless changes, with `differences()` in `src/schemas/apps.ts` replaced by
+  the planned `compare` ([02](docs/spec/02-records.md), compatible definitions).
+- **Web components** for the standard schemas.
 
 ## Releasing
 

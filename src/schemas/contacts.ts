@@ -32,6 +32,7 @@ export const contact = typed<Contact>()({
       space: { type: 'string', maxLength: 256, description: 'The id of your space for two' },
       note: { type: 'string', maxLength: 2000 },
       blocked: { type: 'boolean', description: 'Their contact requests are hidden, in every space' },
+      door: { type: 'string', maxLength: 64, description: 'The door they knocked on, while your answer is still to be written in your space for two' },
     },
     required: ['did', 'name'],
   },
@@ -43,6 +44,7 @@ export interface Contact {
   readonly space?: string;
   readonly note?: string;
   readonly blocked?: boolean;
+  readonly door?: string;
 }
 
 /** An invite to a space for two, sealed so only the person it is for can read it. */
@@ -65,3 +67,84 @@ export interface ContactRequestRecord {
   readonly sealed: string;
 }
 
+
+/**
+ * A door of yours: a way in for people you share no space with (`node.doors`).
+ * Kept in your contacts space, so every device of the account opens the same
+ * doors. Its key is derived from the contact key and `id`; closing the door
+ * is deleting the record.
+ */
+export const door = typed<Door>()({
+  name: 'std.door',
+  title: 'Door',
+  description: 'A way for people you share no space with to ask to become your contact.',
+  schema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', minLength: 16, maxLength: 64, description: 'Random; the door key is derived from it' },
+      label: { type: 'string', maxLength: 64, description: 'What you call this door — only you see it' },
+      name: { type: 'string', maxLength: 64, description: 'The name its code gives, shown to whoever knocks' },
+      relays: { type: 'array', items: { type: 'string', maxLength: 200 }, minItems: 1, maxItems: 3, description: 'Whose mailboxes hold its knocks' },
+    },
+    required: ['id', 'relays'],
+  },
+  rules: { onePer: ['id'] },
+});
+export interface Door {
+  readonly id: string;
+  readonly label?: string;
+  readonly name?: string;
+  readonly relays: ReadonlyArray<string>;
+}
+
+/**
+ * A knock you left on someone's door, waiting for them to open it. You don't
+ * know who they are until they join the space for two; then it becomes a
+ * `std.contact`, and this goes.
+ */
+export const knock = typed<Knock>()({
+  name: 'std.knock',
+  title: 'Knock',
+  description: 'A knock left on a door, waiting for an answer.',
+  schema: {
+    type: 'object',
+    properties: {
+      space: { type: 'string', maxLength: 256, description: 'The space for two it invites them to' },
+      name: { type: 'string', maxLength: 64, description: 'The name their door code gave' },
+      door: { type: 'string', maxLength: 64, description: 'The door key knocked on' },
+      sign: { type: 'string', maxLength: 64, description: "The door's signing key, which their answer must be signed with" },
+      invite: { type: 'string', maxLength: 8000, description: 'The invite sent, to close once they answer' },
+    },
+    required: ['space', 'name', 'door', 'sign', 'invite'],
+  },
+  rules: { onePer: ['space'] },
+});
+export interface Knock {
+  readonly space: string;
+  readonly name: string;
+  readonly door: string;
+  readonly sign: string;
+  readonly invite: string;
+}
+
+/**
+ * The answer to a knock, in the space for two: the door's owner, signing with
+ * the door's signing key that the account writing this is theirs. It is how
+ * the knocker tells the person behind the door from anyone the invite reached.
+ */
+export const knockAnswer = typed<KnockAnswer>()({
+  name: 'std.knock-answer',
+  title: 'Knock answer',
+  description: "Proof that the account which joined is the one behind the door knocked on.",
+  schema: {
+    type: 'object',
+    properties: {
+      sig: { type: 'string', maxLength: 200, description: 'The door signing key over "weave/knock-answer/v1|<space>|<account>"' },
+    },
+    required: ['sig'],
+  },
+  rules: { edit: 'creator', delete: 'creator' },
+});
+export interface KnockAnswer {
+  readonly sig: string;
+}

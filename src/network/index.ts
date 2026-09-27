@@ -21,3 +21,6 @@ export type { NetworkManager, NetworkManagerConfig, NetworkEvents } from './netw
 
 export { createLocalHub } from './local-transport.js';
 export type { LocalHub } from './local-transport.js';
+
+export { createMailboxClient } from './mailbox.js';
+export type { MailboxClient, MailboxOptions, MailItem } from './mailbox.js';

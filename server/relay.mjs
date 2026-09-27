@@ -29,13 +29,32 @@
  * `user-quota` caps each address instead of each second. What TURN may carry
  * in all is capped in coturn itself (`bps-capacity`, `max-bps`).
  *
+ * **The mailbox.** A relay also holds sealed knocks for doors (see
+ * `docs/spec/07-doors.md`), so someone can ask to become your contact while
+ * you are offline. It is the one thing a relay keeps, and it keeps as little
+ * as it can: an opaque blob under an opaque topic, for a few weeks at most.
+ *
+ *   client → { type: 'drop', topic, blob, ttl? }     relay → { type: 'dropped', topic, id } | { type: 'refused', topic, reason }
+ *   client → { type: 'fetch', topic, after?, watch? } relay → { type: 'mail', topic, items: [{ seq, id, at, blob }], more }
+ *   client → { type: 'unwatch', topic }
+ *   client → { type: 'challenge' }                    relay → { type: 'challenge', nonce }
+ *   client → { type: 'purge', topic, sign, ids?, sig } relay → { type: 'purged', topic, count } | { type: 'refused', … }
+ *
+ * A topic is a hash of a door's signing key, and a blob is sealed to the
+ * door's other key, so the relay learns neither whose door it is nor what was
+ * said. Anyone may drop or fetch — what they'd fetch opens only for the
+ * door's owner. Only the owner may purge: they show the signing key whose
+ * hash is the topic, and sign the relay's one-time challenge with it. The
+ * relay sees who drops and who fetches by address, as it sees any socket.
+ * No `join` is needed, so a mailbox socket names no DID.
+ *
  * It is public, so it assumes nobody is polite: every socket gets a size cap,
  * a message budget and a heartbeat, and each IP, room and the process as a
  * whole have a ceiling. Framing is left to the `ws` server the caller brings
  * — this file has no dependencies, so whatever runs it needs nothing else.
  */
 
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, createPublicKey, randomBytes, verify } from 'node:crypto';
 
 // Limits. Signaling messages are an SDP blob at most (a few KB), so these are
 // generous for real peers and tight for anyone trying to fill a 256 MB VM.
@@ -57,6 +76,36 @@ const HEARTBEAT_MS = 15_000;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 /** Addresses holding a TURN password at once; past this, new ones get none until old ones expire. */
 const MAX_TURN_ADDRESSES = 20_000;
+
+// Mailbox limits. A knock is an invite and a short note, sealed: a few KB.
+const MAX_BLOB_LENGTH = 12_000;
+const TOPIC_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const MAX_MAIL_PER_TOPIC = 64;
+const RESERVED_PER_TOPIC = 2;
+const DROP_WINDOW_MS = 3600_000;
+/** The mailbox's limits; a relay's operator may tighten or loosen them (`createRelay({ mailbox })`). */
+export const MAILBOX_LIMITS = Object.freeze({
+  /** Topics held at once */
+  maxTopics: 50_000,
+  /** Everything held at once, in blob characters */
+  maxChars: 64 * 1024 * 1024,
+  /**
+   * Past `maxChars`, a reserve only topics holding fewer than two knocks may
+   * use: a mailbox someone filled still takes a knock or two on every door.
+   */
+  reserveChars: 8 * 1024 * 1024,
+  /** How long a knock is kept. A client may ask for less, never more. */
+  ttlSeconds: 14 * 24 * 3600,
+  /** Drops one address may make into one topic per hour: filling a door takes many addresses */
+  dropsPerNetworkPerTopic: 4,
+  /** Drops one address may make in all, per hour: filling the mailbox takes very many */
+  dropsPerNetwork: 30,
+});
+const PURGE_SPKI_PREFIX = Buffer.from('3039301306072a8648ce3d020106082a8648ce3d030107032200', 'hex');
+const MAX_WATCHES_PER_SOCKET = 32;
+/** One `mail` message stays well under what a client will take in one frame */
+const MAX_PAGE_ITEMS = 16;
+const MAX_PAGE_CHARS = 48 * 1024;
 
 /** Only these are passed from one peer to another; join and leave come from us. */
 const ROUTED = new Set(['offer', 'answer', 'candidate']);
@@ -84,10 +133,12 @@ export function turnFromEnv(env) {
  * @param {{
  *   turn?: { secret: string, urls: string[], ttlSeconds: number },
  *   log?: (message: string) => void,
+ *   mailbox?: Partial<typeof MAILBOX_LIMITS>,
  * }} [options]
  */
 export function createRelay(options = {}) {
   const { turn } = options;
+  const limits = { ...MAILBOX_LIMITS, ...options.mailbox };
   const log = options.log ?? (() => {});
 
   /** room id -> Set of named clients in it */
@@ -98,6 +149,14 @@ export function createRelay(options = {}) {
   const perIp = new Map();
   /** network -> the TURN password its sockets share: { username, credential, expires } */
   const turnByNetwork = new Map();
+  /** topic -> its knocks, oldest first: [{ seq, id, at, expires, blob }] */
+  const mailbox = new Map();
+  /** topic -> sockets watching it */
+  const watchers = new Map();
+  /** `network|topic`, and `network` alone -> { count, since }: drops in the current hour */
+  const dropsBy = new Map();
+  let mailChars = 0;
+  let mailSeq = 0;
 
   /** Whether a room could take one more peer */
   function canEnter(room) {
@@ -111,7 +170,7 @@ export function createRelay(options = {}) {
    * DID for the life of the socket.
    */
   function accept(ws, legacyRoom, ip) {
-    const client = { ws, legacyRoom, ip, did: null, rooms: new Set(), alive: true, tokens: RATE_BURST, refilled: Date.now() };
+    const client = { ws, legacyRoom, ip, did: null, rooms: new Set(), watching: new Set(), nonce: null, alive: true, tokens: RATE_BURST, refilled: Date.now() };
 
     clients.add(client);
     perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
@@ -134,6 +193,7 @@ export function createRelay(options = {}) {
       if (left > 0) perIp.set(ip, left);
       else perIp.delete(ip);
       for (const room of [...client.rooms]) leave(client, room);
+      for (const topic of [...client.watching]) unwatch(client, topic);
     };
 
     // `ws` closes the socket itself on an oversized or malformed frame
@@ -188,6 +248,11 @@ export function createRelay(options = {}) {
       return;
     }
 
+    if (message.type === 'drop' || message.type === 'fetch' || message.type === 'unwatch' || message.type === 'challenge' || message.type === 'purge') {
+      handleMail(client, message);
+      return;
+    }
+
     if (message.type === 'ice') {
       if (client.did) offerTurn(client);
       return;
@@ -205,6 +270,163 @@ export function createRelay(options = {}) {
         send(target, JSON.stringify({ type: message.type, from: client.did, to: message.to, payload: message.payload }));
         return;
       }
+    }
+  }
+
+  /**
+   * The mailbox: `drop` leaves a sealed blob under a topic, `fetch` reads a
+   * topic's blobs after a sequence number (and, with `watch`, hears of new
+   * ones as they come), `unwatch` stops that.
+   */
+  function handleMail(client, message) {
+    if (message.type === 'challenge') {
+      client.nonce = randomBytes(18).toString('base64url');
+      send(client, JSON.stringify({ type: 'challenge', nonce: client.nonce }));
+      return;
+    }
+    const { topic } = message;
+    if (typeof topic !== 'string' || !TOPIC_PATTERN.test(topic)) return;
+
+    if (message.type === 'unwatch') {
+      unwatch(client, topic);
+      return;
+    }
+
+    if (message.type === 'purge') {
+      purge(client, message);
+      return;
+    }
+
+    if (message.type === 'fetch') {
+      const after = Number.isSafeInteger(message.after) ? message.after : 0;
+      if (message.watch === true && !client.watching.has(topic) && client.watching.size < MAX_WATCHES_PER_SOCKET) {
+        client.watching.add(topic);
+        if (!watchers.has(topic)) watchers.set(topic, new Set());
+        watchers.get(topic).add(client);
+      }
+      const now = Date.now();
+      const items = [];
+      let chars = 0;
+      let more = false;
+      for (const item of mailbox.get(topic) ?? []) {
+        if (item.seq <= after || item.expires <= now) continue;
+        if (items.length >= MAX_PAGE_ITEMS || chars + item.blob.length > MAX_PAGE_CHARS) {
+          more = true;
+          break;
+        }
+        items.push(mailItem(item));
+        chars += item.blob.length;
+      }
+      send(client, JSON.stringify({ type: 'mail', topic, items, more }));
+      return;
+    }
+
+    // drop
+    const refuse = (reason) => send(client, JSON.stringify({ type: 'refused', topic, reason }));
+    const { blob } = message;
+    if (typeof blob !== 'string' || blob.length === 0 || blob.length > MAX_BLOB_LENGTH || !/^[A-Za-z0-9_-]+$/.test(blob)) {
+      refuse('A knock is base64url, at most 12000 characters');
+      return;
+    }
+    const id = createHash('sha256').update(blob).digest('base64url');
+    const held = mailbox.get(topic) ?? [];
+    // The same knock twice is one knock: a sender retrying costs nothing.
+    if (held.some((item) => item.id === id)) {
+      send(client, JSON.stringify({ type: 'dropped', topic, id }));
+      return;
+    }
+    const now = Date.now();
+    const network = networkOf(client.ip);
+    const here = countOf(`${network}|${topic}`, now);
+    const everywhere = countOf(network, now);
+    if (here >= limits.dropsPerNetworkPerTopic) return refuse('Too many knocks on this door from here; try later');
+    if (everywhere >= limits.dropsPerNetwork) return refuse('Too many knocks from here; try later');
+    if (held.length >= MAX_MAIL_PER_TOPIC) return refuse('This door is full');
+    if (!mailbox.has(topic) && mailbox.size >= limits.maxTopics) return refuse('The mailbox is full');
+    const room = held.length < RESERVED_PER_TOPIC ? limits.maxChars + limits.reserveChars : limits.maxChars;
+    if (mailChars + blob.length > room) return refuse('The mailbox is full');
+
+    const ttl = Number.isFinite(message.ttl) && message.ttl > 0 ? Math.min(message.ttl, limits.ttlSeconds) : limits.ttlSeconds;
+    const item = { seq: ++mailSeq, id, at: now, expires: now + ttl * 1000, blob };
+    held.push(item);
+    mailbox.set(topic, held);
+    mailChars += blob.length;
+    counted(`${network}|${topic}`, now);
+    counted(network, now);
+    send(client, JSON.stringify({ type: 'dropped', topic, id }));
+    const news = JSON.stringify({ type: 'mail', topic, items: [mailItem(item)], more: false });
+    for (const watcher of watchers.get(topic) ?? []) {
+      if (watcher !== client) send(watcher, news);
+    }
+  }
+
+  const mailItem = ({ seq, id, at, blob }) => ({ seq, id, at, blob });
+
+  /** Drops counted under a key in the current hour */
+  function countOf(key, now) {
+    const recent = dropsBy.get(key);
+    return recent && now - recent.since < DROP_WINDOW_MS ? recent.count : 0;
+  }
+
+  function counted(key, now) {
+    const recent = dropsBy.get(key);
+    if (recent && now - recent.since < DROP_WINDOW_MS) recent.count += 1;
+    else dropsBy.set(key, { count: 1, since: now });
+  }
+
+  /**
+   * Clears a topic's knocks, all or some, for whoever proves they own the
+   * door: the signing key they show hashes to the topic, and they signed this
+   * socket's challenge with it. The challenge is used up either way.
+   */
+  function purge(client, message) {
+    const { topic, sign, sig } = message;
+    const refuse = (reason) => send(client, JSON.stringify({ type: 'refused', topic, reason }));
+    const nonce = client.nonce;
+    client.nonce = null;
+    const ids = message.ids === undefined ? null : message.ids;
+    if (!nonce) return refuse('Ask for a challenge first');
+    if (typeof sign !== 'string' || !/^[A-Za-z0-9_-]{44}$/.test(sign) || typeof sig !== 'string' || sig.length > 200) return refuse('Not a purge');
+    if (ids !== null && (!Array.isArray(ids) || ids.length > MAX_MAIL_PER_TOPIC || !ids.every((id) => typeof id === 'string' && id.length <= 64))) {
+      return refuse('Not a purge');
+    }
+    if (createHash('sha256').update(`weave/door-topic/v1|${sign}`).digest('base64url') !== topic) return refuse('That key is not this door’s');
+    let good = false;
+    try {
+      const key = createPublicKey({ key: Buffer.concat([PURGE_SPKI_PREFIX, Buffer.from(sign, 'base64url')]), format: 'der', type: 'spki' });
+      const signed = `weave/door-purge/v1|${topic}|${nonce}|${ids ? [...ids].sort().join(',') : '*'}`;
+      good = verify('sha256', Buffer.from(signed), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(sig, 'base64url'));
+    } catch {
+      good = false;
+    }
+    if (!good) return refuse('The signature does not check out');
+    const held = mailbox.get(topic) ?? [];
+    const gone = ids === null ? held : held.filter((item) => ids.includes(item.id));
+    for (const item of gone) mailChars -= item.blob.length;
+    const kept = ids === null ? [] : held.filter((item) => !ids.includes(item.id));
+    if (kept.length === 0) mailbox.delete(topic);
+    else mailbox.set(topic, kept);
+    send(client, JSON.stringify({ type: 'purged', topic, count: gone.length }));
+  }
+
+  function unwatch(client, topic) {
+    client.watching.delete(topic);
+    const watching = watchers.get(topic);
+    watching?.delete(client);
+    if (watching?.size === 0) watchers.delete(topic);
+  }
+
+  /** Lets go of knocks past their time, and of drop counts past their hour */
+  function sweepMail() {
+    const now = Date.now();
+    for (const [topic, held] of mailbox) {
+      const kept = held.filter((item) => item.expires > now);
+      for (const item of held) if (item.expires <= now) mailChars -= item.blob.length;
+      if (kept.length === 0) mailbox.delete(topic);
+      else if (kept.length !== held.length) mailbox.set(topic, kept);
+    }
+    for (const [key, recent] of dropsBy) {
+      if (now - recent.since >= DROP_WINDOW_MS) dropsBy.delete(key);
     }
   }
 
@@ -280,6 +502,7 @@ export function createRelay(options = {}) {
     for (const [network, held] of turnByNetwork) {
       if (held.expires <= now) turnByNetwork.delete(network);
     }
+    sweepMail();
     for (const client of clients) {
       if (!client.alive) {
         client.ws.terminate();

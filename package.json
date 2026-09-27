@@ -72,6 +72,10 @@
     "./calls": {
       "import": "./dist/calls/index.js",
       "types": "./dist/calls/index.d.ts"
+    },
+    "./doors": {
+      "import": "./dist/doors/index.js",
+      "types": "./dist/doors/index.d.ts"
     }
   },
   "scripts": {

@@ -45,7 +45,7 @@ The CLI (`cli/`, a separate package) has one runtime dependency:
 |---|---|---|
 | `ws` | `cli/src/serve.ts` | The standard WebSocket server for Node for over a decade, no dependencies, and runs unchanged under Bun — so the node serves browsers without a hand-written protocol implementation. |
 
-A host's pay page (BLOCK-23) is the one place a large library is allowed,
+A host's pay page ([06 — Nodes, sessions and apps](spec/06-nodes-and-sessions.md), Hosts) is the one place a large library is allowed,
 because it runs on the host's own address and never next to a key:
 
 | Package | Where | Why it's allowed there |

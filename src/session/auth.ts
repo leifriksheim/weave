@@ -1003,7 +1003,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         scope: whole ? 'account' : 'spaces',
         spaces,
         ...(whole ? { accountKey: base64UrlEncode(await deriveVaultKeyBytes(seed)) } : {}),
-        ...(whole || request.contacts ? { contactKey: base64UrlEncode(await deriveContactKeyBytes(seed)) } : {}),
+        // Never to an agent: the contact key opens contact requests and knocks on your doors.
+        ...(!agent && (whole || request.contacts) ? { contactKey: base64UrlEncode(await deriveContactKeyBytes(seed)) } : {}),
         ...(contactsSpace ? { contactsSpace } : {}),
         ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
         expiresAt,

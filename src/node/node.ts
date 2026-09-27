@@ -37,8 +37,35 @@ import { DEFAULT_ICE_SERVERS } from '../network/rtc-transport.js';
 import { deriveInviteKey } from '../space/space-access.js';
 import { base64UrlDecode, base64UrlEncode } from '../utils/encoding.js';
 import { onePerKey } from '../records/rules.js';
-import { contactKeyPair, deriveMemberKeyBytes, openSealed, sealFor } from '../identity/contact-key.js';
-import { contact as contactSchema, contactRequest as contactRequestSchema, type Contact, type ContactRequestRecord } from '../schemas/contacts.js';
+import { contactKeyPair, contactPublicKey, deriveDoorKeyBytes, deriveDoorSignKeyBytes, deriveMemberKeyBytes, openSealed, sealFor } from '../identity/contact-key.js';
+import {
+  contact as contactSchema,
+  contactRequest as contactRequestSchema,
+  door as doorSchema,
+  knock as knockSchema,
+  knockAnswer as knockAnswerSchema,
+  type Contact,
+  type ContactRequestRecord,
+  type Door,
+  type Knock,
+  type KnockAnswer,
+} from '../schemas/contacts.js';
+import {
+  checkAnswer,
+  clip,
+  doorTopic,
+  encodeDoorCode,
+  KNOCK_TTL_SECONDS,
+  knockId,
+  MAX_DOOR_RELAYS,
+  openKnock,
+  parseDoorCode,
+  sealKnock,
+  signAnswer,
+  signPurge,
+  type OpenedKnock,
+} from '../doors/doors.js';
+import { createMailboxClient } from '../network/mailbox.js';
 import { team } from '../space/presets.js';
 import {
   CARRIER_COLLECTION,
@@ -72,6 +99,9 @@ import { base32Encode, sha256 } from '../utils/hash.js';
 import type {
   ContactRequest,
   ContactView,
+  DoorView,
+  KnockView,
+  NodeDoors,
   DefineCollection,
   DelegateParams,
   InviteOptions,
@@ -1194,11 +1224,14 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       if (!contact.did.startsWith('did:')) throw new Error('A contact needs their account DID');
       const name = contact.name.trim().slice(0, 200);
       if (!name) throw new Error('A contact needs a name');
+      // An answer to their knock still to be written stays to be written.
+      const pending = (await contactRecords()).find((record) => record.body!.did === contact.did)?.body?.door;
       return writeContact({
         did: contact.did,
         name,
         ...(contact.space ? { space: contact.space } : {}),
         ...(contact.note ? { note: contact.note.slice(0, 2000) } : {}),
+        ...(pending ? { door: pending } : {}),
       });
     },
 
@@ -1280,6 +1313,302 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       const [{ members }, profiles, status] = await Promise.all([open.access(), open.profiles(), open.status()]);
       const seen = new Set([...members.map((member) => member.did), ...profiles.map((profile) => profile.did), ...Object.values(status.accounts)]);
       return [...seen].filter((account) => account !== config.signer.did && account !== did).sort();
+    },
+  });
+
+  // ─── Doors ─────────────────────────────────────────────────────────
+  //
+  // A door is a `std.door` in the contacts space; its keys are derived from
+  // the contact key and its id, so every device with the contact key opens the
+  // same doors. Knocks wait in the mailboxes of the relays a door names.
+  //
+  // A knock you left is a `std.knock` until the person behind the door
+  // answers in the space for two — a `std.knock-answer` signed with the
+  // door's signing key — when it becomes a contact and the invite is closed.
+  // Accepting a knock writes that answer as soon as this account's membership
+  // there has landed; until then the contact carries the door's id.
+  // See `src/doors/doors.ts`.
+
+  const mailbox = config.mailbox ?? createMailboxClient();
+  /** Knocks seen at this node's doors, by id: opened (null when they didn't check out), and until when to keep them */
+  const knockCache = new Map<string, { readonly opened: OpenedKnock | null; readonly door: string; readonly until: number }>();
+  const DAY_MS = 24 * 3600 * 1000;
+
+  function requireContactKey(what: string): Uint8Array {
+    // Agents never open doors or knock, even one a home gave the contact key.
+    if (agentSession) throw new Error(`An agent can't use doors. ${what} is the person's to do.`);
+    if (!config.contactKey) throw new Error(`${what} needs your contact key. Connect to your account home again, and allow contacts.`);
+    return config.contactKey;
+  }
+
+  /** A door's keys, from the contact key and its id */
+  async function doorKeys(id: string) {
+    const contactKey = requireContactKey('A door');
+    const key = await deriveDoorKeyBytes(contactKey, id);
+    const sign = await deriveDoorSignKeyBytes(contactKey, id);
+    const signPublic = contactPublicKey(sign);
+    return { key, sign, publicKey: contactPublicKey(key), signPublic, topic: await doorTopic(signPublic) };
+  }
+
+  async function doorRecords(): Promise<ReadonlyArray<NodeRecord<Door>>> {
+    if (!contactsSpaceId) return [];
+    return (await (await contactsRuntime()).list<Door>({ collection: doorSchema.name })).filter(
+      (record) => record.verified && record.root === config.signer.did && typeof record.body?.id === 'string' && Array.isArray(record.body.relays),
+    );
+  }
+
+  async function doorView(record: NodeRecord<Door>): Promise<DoorView> {
+    const body = record.body!;
+    const keys = await doorKeys(body.id);
+    return Object.freeze({
+      id: body.id,
+      ...(body.label ? { label: body.label } : {}),
+      ...(body.name ? { name: body.name } : {}),
+      key: keys.publicKey,
+      sign: keys.signPublic,
+      relays: Object.freeze([...body.relays]),
+      code: encodeDoorCode({ key: keys.publicKey, sign: keys.signPublic, relays: body.relays, ...(body.name ? { name: body.name } : {}) }),
+      createdAt: record.createdAt,
+    });
+  }
+
+  /** Clears knocks from every relay a door names, as its owner; how many relays did */
+  async function purgeDoor(door: Door, ids: ReadonlyArray<string> | null): Promise<number> {
+    const keys = await doorKeys(door.id);
+    const done = await Promise.allSettled(
+      door.relays.map((relay) => mailbox.purge(relay, keys.topic, keys.signPublic, ids, (nonce) => signPurge(keys.sign, keys.topic, nonce, ids))),
+    );
+    return done.filter((result) => result.status === 'fulfilled').length;
+  }
+
+  async function sentRecords(): Promise<ReadonlyArray<NodeRecord<Knock>>> {
+    if (!contactsSpaceId) return [];
+    return (await (await contactsRuntime()).list<Knock>({ collection: knockSchema.name })).filter(
+      (record) =>
+        record.verified &&
+        record.root === config.signer.did &&
+        typeof record.body?.space === 'string' &&
+        typeof record.body.sign === 'string' &&
+        typeof record.body.invite === 'string',
+    );
+  }
+
+  /**
+   * Knocks of yours: answered ones become contacts, and the invite is closed;
+   * ones nobody answered within the knock's life are let go, space and all.
+   */
+  async function settleSent(): Promise<void> {
+    for (const record of await sentRecords()) {
+      const { space, name, sign, invite } = record.body!;
+      if (!(await registry.get(space))) {
+        await (await contactsRuntime()).remove(record.key);
+        continue;
+      }
+      const open = await runtime(space);
+      const { members } = await open.access();
+      let answered: string | null = null;
+      for (const answer of await open.list<KnockAnswer>({ collection: knockAnswerSchema.name })) {
+        const did = answer.root;
+        if (!answer.verified || !did || did === config.signer.did || answer.createdBy !== did || typeof answer.body?.sig !== 'string') continue;
+        if (!members.some((member) => member.did === did)) continue;
+        if (await checkAnswer(sign, space, did, answer.body.sig)) {
+          answered = did;
+          break;
+        }
+      }
+      if (answered) {
+        // Whoever else the invite reached, nobody more joins with it.
+        await spaces.closeInvite(space, invite).catch(() => {});
+        const given = (await open.profiles()).find((profile) => profile.did === answered)?.name;
+        await writeContact({ did: answered, name: given ?? name, space });
+        await (await contactsRuntime()).remove(record.key);
+      } else if (Date.now() - Date.parse(record.createdAt) > KNOCK_TTL_SECONDS * 1000 + DAY_MS) {
+        await spaces.leave(space).catch(() => {});
+        await (await contactsRuntime()).remove(record.key);
+      }
+    }
+  }
+
+  /** Writes the answer to knocks this account accepted, once it can write in the space for two */
+  async function answerAccepted(): Promise<void> {
+    for (const record of await contactRecords()) {
+      const { did, space, door } = record.body!;
+      if (typeof door !== 'string' || typeof space !== 'string') continue;
+      if (!(await registry.get(space))) continue;
+      const open = await runtime(space);
+      if ((await open.access()).role === null) continue;
+      const { sign } = await doorKeys(door);
+      try {
+        await open.put<KnockAnswer>(knockAnswerSchema.name, { sig: await signAnswer(sign, space, config.signer.did) });
+      } catch {
+        continue; // The space's definition of answers hasn't arrived yet.
+      }
+      const { door: _answered, ...rest } = record.body!;
+      await writeContact({ ...rest, did });
+    }
+  }
+
+  /** What the mailboxes of this node's doors hold now, opened and cached */
+  async function readDoors(): Promise<ReadonlyArray<{ readonly id: string; readonly door: string; readonly opened: OpenedKnock }>> {
+    const now = Date.now();
+    for (const [id, cached] of knockCache) if (cached.until <= now) knockCache.delete(id);
+    const found: { id: string; door: string; opened: OpenedKnock }[] = [];
+    for (const record of await doorRecords()) {
+      const { id: doorId, relays } = record.body!;
+      const keys = await doorKeys(doorId);
+      // Every relay, in full: a door holds 64 knocks at most, and a knock
+      // cleared from another device should go from here too. What was opened
+      // once is not opened again.
+      const held = new Map<string, { blob: string; at: number }>();
+      for (const result of await Promise.allSettled(relays.map((relay) => mailbox.fetch(relay, keys.topic)))) {
+        if (result.status !== 'fulfilled') continue;
+        for (const item of result.value) {
+          // A relay's id is only its word: file the knock under the hash of what it is.
+          const id = await knockId(item.blob);
+          const seen = held.get(id);
+          if (!seen || item.at < seen.at) held.set(id, { blob: item.blob, at: item.at });
+        }
+      }
+      for (const [id, item] of held) {
+        let cached = knockCache.get(id);
+        if (!cached) {
+          cached = { opened: await openKnock(keys.key, item.blob, item.at, provider), door: doorId, until: item.at + KNOCK_TTL_SECONDS * 1000 };
+          knockCache.set(id, cached);
+        }
+        if (cached.opened) found.push({ id, door: doorId, opened: cached.opened });
+      }
+    }
+    return found;
+  }
+
+  const doors: NodeDoors = Object.freeze({
+    async list() {
+      if (!config.contactKey || agentSession) return [];
+      return Promise.all((await doorRecords()).map(doorView));
+    },
+
+    async open(options: { readonly relays?: ReadonlyArray<string>; readonly name?: string; readonly label?: string } = {}) {
+      requireContactKey('Opening a door');
+      if (!contactsSpaceId) await contactsRuntime();
+      const relays = [...(options.relays ?? (config.network?.relays ?? []).filter((url) => checkRelays([url]) === null))].slice(0, MAX_DOOR_RELAYS);
+      if (relays.length === 0) throw new Error('A door needs a relay to hold its knocks, and this node has none.');
+      const name = clip((options.name ?? (await ownName()) ?? '').trim(), 64);
+      const label = options.label ? clip(options.label.trim(), 64) : '';
+      const id = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+      // Checks the relays and name the way a knocker will.
+      const keys = await doorKeys(id);
+      encodeDoorCode({ key: keys.publicKey, sign: keys.signPublic, relays, ...(name ? { name } : {}) });
+      const open = await contactsRuntime();
+      await ensureDefined(open, doorSchema);
+      return doorView(await open.put<Door>(doorSchema.name, { id, relays, ...(name ? { name } : {}), ...(label ? { label } : {}) }));
+    },
+
+    async close(id: string) {
+      const found = (await doorRecords()).find((record) => record.body!.id === id);
+      if (found) await (await contactsRuntime()).remove(found.key);
+      for (const [knock, cached] of knockCache) if (cached.door === id) knockCache.delete(knock);
+    },
+
+    async clear(id: string) {
+      requireContactKey('Clearing a door');
+      const found = (await doorRecords()).find((record) => record.body!.id === id);
+      if (!found) throw new Error('There is no such door');
+      if ((await purgeDoor(found.body!, null)) === 0) throw new Error("None of the door's relays could be reached to clear it.");
+      for (const [knock, cached] of knockCache) if (cached.door === id) knockCache.delete(knock);
+    },
+
+    async knock(code: string, options: { readonly note?: string } = {}) {
+      requireContactKey('Knocking on a door');
+      requireEverywhere('Knocking on a door');
+      const door = parseDoorCode(code);
+      for (const mine of await doors.list()) if (mine.key === door.key) throw new Error('That is one of your own doors');
+      if (!contactsSpaceId) await contactsRuntime();
+      const mine = (await ownName()) ?? 'Someone';
+      const theirs = door.name ?? 'Contact';
+      const pair = await spaces.create({ name: `${clip(mine, 64)} & ${theirs}`, visibility: 'private', ...team });
+      let invite: string;
+      try {
+        // Defined now, by the one who may: the answer is written by someone who joins as an editor.
+        await ensureDefined(await runtime(pair.id), knockAnswerSchema);
+        invite = await spaces.invite(pair.id, { role: 'editor' });
+        const blob = await sealKnock(
+          door.key,
+          { from: config.signer.did, name: mine, invite, ...(options.note ? { note: options.note } : {}) },
+          { did: session.did, key: session.key, proof: session.proof() },
+          provider,
+        );
+        const topic = await doorTopic(door.sign);
+        const left = await Promise.allSettled(door.relays.map((relay) => mailbox.drop(relay, topic, blob, KNOCK_TTL_SECONDS)));
+        if (!left.some((result) => result.status === 'fulfilled')) {
+          const reasons = left.map((result) => (result.status === 'rejected' ? String((result.reason as Error)?.message ?? result.reason) : '')).filter(Boolean);
+          throw new Error(`None of their door's relays took the knock. ${reasons.join('; ')}`);
+        }
+      } catch (error) {
+        await spaces.leave(pair.id).catch(() => {});
+        throw error;
+      }
+      const open = await contactsRuntime();
+      await ensureDefined(open, knockSchema);
+      await open.put<Knock>(knockSchema.name, { space: pair.id, name: theirs, door: door.key, sign: door.sign, invite });
+      return { space: pair.id };
+    },
+
+    async knocks() {
+      requireContactKey('Reading knocks');
+      await settleSent().catch(() => {});
+      await answerAccepted().catch(() => {});
+      const blocked = new Set((await contactRecords()).filter((record) => record.body!.blocked === true).map((record) => record.body!.did));
+      const found: KnockView[] = [];
+      for (const { id, door, opened } of await readDoors()) {
+        if (opened.from === config.signer.did || blocked.has(opened.from)) continue;
+        // Already accepted, here or on another device.
+        if (await registry.get(opened.pairSpace)) continue;
+        found.push(
+          Object.freeze({
+            id,
+            door,
+            from: opened.from,
+            name: opened.name,
+            ...(opened.note ? { note: opened.note } : {}),
+            pairSpace: opened.pairSpace,
+            at: new Date(opened.at).toISOString(),
+          }),
+        );
+      }
+      return found.sort((a, b) => b.at.localeCompare(a.at));
+    },
+
+    async sent() {
+      await settleSent().catch(() => {});
+      return (await sentRecords()).map((record) => Object.freeze({ space: record.body!.space, name: record.body!.name, at: record.createdAt }));
+    },
+
+    async accept(id: string) {
+      requireContactKey('Opening the door to someone');
+      requireEverywhere('Opening the door to someone');
+      if (!knockCache.get(id)?.opened) await readDoors();
+      const cached = knockCache.get(id);
+      const knocked = cached?.opened;
+      if (!cached || !knocked) throw new Error('That knock is gone: it expired, or the door was closed or cleared.');
+      await spaces.join(knocked.invite);
+      const known = await contacts.get(knocked.from);
+      const contact = await writeContact({ did: knocked.from, name: known?.name ?? knocked.name, space: knocked.pairSpace, door: cached.door });
+      await answerAccepted().catch(() => {});
+      // Done with: nobody needs it in the mailboxes any more.
+      const door = (await doorRecords()).find((record) => record.body!.id === cached.door);
+      if (door) await purgeDoor(door.body!, [id]).catch(() => 0);
+      knockCache.delete(id);
+      return contact;
+    },
+
+    async dismiss(id: string) {
+      requireContactKey('Dismissing a knock');
+      if (!knockCache.has(id)) await readDoors();
+      const cached = knockCache.get(id);
+      if (!cached) return;
+      const door = (await doorRecords()).find((record) => record.body!.id === cached.door);
+      if (door) await purgeDoor(door.body!, [id]);
+      knockCache.delete(id);
     },
   });
 
@@ -1516,6 +1845,18 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         accept: person('accept contact requests'),
         others: person('look inside a contact\'s space'),
       }),
+      // Doors are the person's: an agent has none and knocks on none.
+      doors: Object.freeze({
+        list: async () => [],
+        open: person('open a door'),
+        close: person('close a door'),
+        knock: person('knock on anyone\'s door'),
+        clear: person('clear a door'),
+        knocks: person('read knocks'),
+        sent: person('look at knocks'),
+        accept: person('open the door to anyone'),
+        dismiss: person('dismiss a knock'),
+      }),
       delegation: () => note,
       iceServers: node.iceServers,
       delegate: person('pass its access on'),
@@ -1540,6 +1881,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     hosting,
     notifications,
     contacts,
+    doors,
     asAgent,
 
     delegation: () => current,

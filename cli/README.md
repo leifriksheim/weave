@@ -215,3 +215,20 @@ space anywhere leaves it everywhere.
 
 - **WebRTC on the node.** Browsers reach it over WebSocket. `node-datachannel`
   plugs into the same transport seam if measurement says it is needed.
+- **Publishing.** `weave-protocol-cli` on npm (or a built JS package), and
+  trying the Bun binary with `node-datachannel`.
+- **Hosting, before it's offered to anyone.**
+  - A load test with 1,000 spaces, with metrics. Check the pricing against those numbers, and decide on TURN from them.
+  - A real Stripe test-mode run end to end, and a decision on Stripe Tax or a merchant of record.
+  - A breach plan.
+- **The pay page.**
+  - A real Base Sepolia wallet payment.
+  - A Lightning route (BTCPay), and gasless USDC (EIP-3009).
+  - An optional email for reminders: SMTP, with double opt-in.
+- **TURN.** Run coturn with `use-auth-secret` and quotas, and set
+  `TURN_SECRET` and `TURN_URLS` on the relay and the node. Then test calls
+  across real networks, behind a strict NAT, in Safari, and on a phone
+  switching apps.
+
+What the protocol still has planned is in [the spec](../docs/spec/README.md),
+under **Planned** in each part.

@@ -143,6 +143,19 @@ src/
   site/                    # the landing pages
 ```
 
+## Still to do
+
+- **Contacts.** A screen over `node.contacts` and `node.doors`:
+  - requests waiting in a space, and "Add as a contact" on someone's name;
+  - your doors, with their codes, and knocks at them;
+  - when someone new turns up in a conversation, the choice between starting a group and inviting them anyway.
+- **The Apps tab.** A coded app wins over an agent-made one with the same collections.
+- **Hosting.** An "Always online" mark on spaces a host keeps.
+- **Chat.** "Notify me when I'm mentioned".
+- **Agents.** A connect dialog left open keeps a relay connection; it should let go.
+- **Compatible definitions in the Apps tab.** Open apps by compatibility (`readiness()` in `components/apps/index.ts`) and show what breaks, once definitions can be compared ([02](../docs/spec/02-records.md), compatible definitions).
+- **Typed queries.** Move `src/collections.ts` onto typed collections and drop the hand-written record interfaces.
+
 ## Not production
 
 Peer discovery depends on a relay being reachable by both sides, and there is
