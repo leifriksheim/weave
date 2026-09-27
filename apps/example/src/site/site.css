@@ -190,7 +190,67 @@
 .site footer a { color: var(--muted); text-decoration: none; }
 .site footer a:hover { color: var(--ink); }
 
+/* The front page: a badge over the hero, the story of a tool arriving, ideas, doors */
+.site .badge { display: inline-block; margin-bottom: 24px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: #fff; }
+.site .badge:hover { color: var(--ink); border-color: #c9c9c9; }
+.site .kicker-inline { font-size: 13px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; }
+
+.site .moments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.site .moment { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.site .moment-text { padding: 28px 28px 20px; }
+.site .moment-text .step-label { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.site .moment-text h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.03em; color: var(--ink); margin-bottom: 8px; }
+.site .moment-text p { font-size: 15px; color: var(--muted); }
+.site .mock { flex: 1; display: grid; place-items: center; padding: 24px; border-top: 1px solid var(--line); background: var(--sunken); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 16px 16px; font-size: 13px; }
+.site .mock > * { width: 100%; max-width: 360px; }
+.site .mock b { color: var(--ink); font-weight: 600; }
+
+.site .chat { display: flex; flex-direction: column; gap: 10px; }
+.site .bubble { max-width: 85%; padding: 10px 14px; border-radius: 14px; line-height: 1.45; }
+.site .bubble.me { align-self: flex-end; background: var(--ink); color: #fff; border-bottom-right-radius: 4px; }
+.site .bubble.agent { align-self: flex-start; background: #fff; border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+
+.site .proposal { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.site .proposal-head { display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
+.site .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.site .proposal .by { color: var(--faint); font-size: 12px; margin-top: 2px; }
+.site .proposal .allows { margin-top: 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.site .proposal ul { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.site .proposal li::before { content: '✓ '; color: var(--ink); }
+.site .proposal .sealed { margin-top: 10px; padding: 8px 10px; background: var(--sunken); border-radius: 6px; color: var(--muted); font-size: 12px; }
+.site .proposal-actions { display: flex; gap: 8px; margin-top: 12px; }
+.site .mini-btn { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: #fff; color: var(--ink); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.site .mini-btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+.site .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.site .tile { position: relative; display: grid; place-items: center; height: 64px; background: #fff; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); font-weight: 500; }
+.site .tile.new { border-color: var(--ink); color: var(--ink); box-shadow: 0 0 0 3px rgba(0,0,0,.06); }
+.site .tile span { position: absolute; top: -8px; right: -6px; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--ink); color: #fff; }
+
+.site .carpool { background: #fff; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.site .carpool-head { padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 600; color: var(--ink); }
+.site .ride { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; }
+.site .ride + .ride { border-top: 1px solid var(--line); }
+.site .seats { display: flex; gap: 4px; margin-top: 6px; }
+.site .seat { width: 14px; height: 14px; border-radius: 4px; border: 1px solid #c9c9c9; }
+.site .seat.taken { background: var(--ink); border-color: var(--ink); }
+
+.site .compare-one { grid-template-columns: 1fr; }
+
+.site .ideas { display: flex; flex-wrap: wrap; gap: 8px; }
+.site .ideas span { padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; font-size: 15px; color: var(--ink); background: #fff; }
+
+.site .doors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.site .door { display: flex; flex-direction: column; gap: 8px; padding: 28px; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; transition: border-color .15s ease; }
+.site .door:hover { border-color: var(--ink); }
+.site .door h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.03em; color: var(--ink); }
+.site .door p { flex: 1; font-size: 15px; color: var(--muted); }
+.site .door span { margin-top: 8px; font-size: 14px; font-weight: 500; color: var(--ink); }
+
 @media (max-width: 860px) {
+  .site .moments, .site .doors { grid-template-columns: 1fr; }
+  .site .moment-text { padding: 24px 20px 16px; }
+  .site .mock { padding: 16px; }
   .site .grid { grid-template-columns: 1fr; }
   .site .grid > .cell { border-right: none !important; border-bottom: 1px solid var(--line) !important; }
   .site .grid > .cell:last-child { border-bottom: none !important; }

@@ -2,21 +2,21 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { injectBaseStyles } from './styles';
 import { exposeToAgents } from './webmcp';
-import { Landing, Developers } from './site/Site';
+import { Developers } from './site/Site';
+import { Home } from './site/Home';
 import { WeaveProvider } from '@weaveprotocol/core/react';
 import { connection } from './weave';
 
 /**
- * Three pages: the landing page, for developers (`/`, and `/developers` for
- * older links), why Weave, for people (`/why`), and the app (`/app`). People
- * mostly meet Weave inside an app, so the front page speaks to whoever builds
- * one. A link made before the app
- * moved — an invite, a door, or a phone-pairing code, all in the fragment — still
- * opens the app wherever it lands.
+ * Three pages: the front page, for communities (`/`, and `/why` for older
+ * links), for developers (`/developers`), and the app (`/app`). The front page
+ * leads with a group that grows its own tools, because no platform offers that.
+ * A link made before the app moved — an invite, a door, or a phone-pairing
+ * code, all in the fragment — still opens the app wherever it lands.
  */
 const path = globalThis.location.pathname.replace(/\/+$/, '') || '/';
 const carriesAppLink = /[#&](invite|door)=/.test(globalThis.location.hash);
-const page = carriesAppLink ? 'app' : path === '/' || path === '/developers' ? 'developers' : path === '/why' ? 'why' : 'app';
+const page = carriesAppLink ? 'app' : path === '/' || path === '/why' ? 'home' : path === '/developers' ? 'developers' : 'app';
 
 // Hover, focus and placeholder states, plus the page background — the things
 // inline styles cannot express.
@@ -31,8 +31,8 @@ if (page === 'app') {
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
 createRoot(root).render(
-  page === 'why' ? (
-    <Landing />
+  page === 'home' ? (
+    <Home />
   ) : page === 'developers' ? (
     <Developers />
   ) : (
