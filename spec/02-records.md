@@ -370,7 +370,8 @@ Checks that depend on what else a peer holds are **not** shape checks:
 ### 4.7 Planned: versions whose history can be checked
 
 Fixes the known defect in §4.3 and settles the "not yet specified" in §4.6.
-Part of the audit in [#10](https://github.com/leifriksheim/weave/issues/10).
+Tracked in [#14](https://github.com/leifriksheim/weave/issues/14), part of
+the audit in [#10](https://github.com/leifriksheim/weave/issues/10).
 
 **Why.** `seq` is whatever the writer puts there, and superseded versions are
 dropped, so nobody can check that a version is one more than the one before.
@@ -1213,6 +1214,19 @@ not.
 
 A query is plain JSON data: it can be written by hand, sent over a wire, or
 produced by an agent. It runs against the records one node holds of one space.
+
+> **Planned: queries leave the protocol.** Peers never exchange queries, so
+> nothing in this section needs to be reproduced exactly by another
+> implementation, and a better query language later should not be a protocol
+> change. The plan marks this section non-normative, or moves it to the
+> library's documentation, and writes down the interface another query
+> language plugs into, which reports the collections it read so caches (05
+> §9.2) can keep them. Query syntax saved *inside* a space is protocol again:
+> a screen's `weave.list(collection, { where })` takes its own small filter
+> (field equality and `link:<rel>`, `packages/core/src/schemas/screens.ts`),
+> which is not yet specified. Either that filter is specified on its own, or
+> screens take this format and it stays normative. Tracked in
+> [#28](https://github.com/leifriksheim/weave/issues/28).
 
 ### 11.1 Grammar
 

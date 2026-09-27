@@ -47,8 +47,9 @@ Releasing is `npm run release`; see the README before running it.
   exists, and every such issue links back to the section. When the work lands,
   the Planned text becomes the specification and the note goes.
 - Cite code by its full path from the repository root (`packages/core/src/...`),
-  in the spec, in issues and in comments. Avoid `file:line` in the spec; it
-  goes stale.
+  in the spec, in issues and in comments, and name the function rather than a
+  line. The label registry in `spec/01-identity.md` §5 is the exception: its
+  `file:line` references must be kept current when the code moves.
 - Tests are the executable half of the spec. A rule a peer must check gets a
   test that shows a peer refusing the thing that breaks it.
 

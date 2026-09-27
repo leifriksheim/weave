@@ -152,7 +152,7 @@ returns `{ token, proofs: [<session note>] }`.
 The node's **registry** store lists every space it holds, with its key(s), its
 invite secret while one is waiting to be used, its role as last seen, the
 relays the space names and, for an app without the account key, its member
-key. Its storage format is an *implementation detail* of `space-manager.ts`
+key. Its storage format is an *implementation detail* of `packages/core/src/space/space-manager.ts`
 ([03](03-spaces.md)).
 
 Three kinds of space are the account's own machinery and are **hidden** from
@@ -846,7 +846,9 @@ its password or passkeys, or keep access past `expiresAt`.
 > space reads all of it until the space's key changes ([03](03-spaces.md),
 > `changeKey`). Grants per collection would need both a note capability per
 > collection (`with` narrower than `space:<id>`) and collection keys the home
-> can hand out alone. Not designed yet.
+> can hand out alone. Not designed yet. Under UCAN 1.0 the note half is a
+> policy on `.collection` rather than new resource syntax ([01 §7.1](01-identity.md),
+> [#19](https://github.com/leifriksheim/weave/issues/19)).
 
 ### 4.9 Expiry and renewal
 
@@ -1452,6 +1454,7 @@ rang.
 > **Planned: blocked people do not ring.** A device will ignore `call.ring`
 > from an account the person has blocked (`contacts.block`,
 > [03](03-spaces.md)). Today a ring is checked only for membership and rate.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 ### 7.3 Presence
 
