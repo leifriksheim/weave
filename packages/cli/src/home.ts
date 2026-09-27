@@ -26,6 +26,7 @@ import {
   unwrapSeedWithPassphrase,
   withWrap,
   wrapSeedWithPassphrase,
+  CLI_PASSPHRASE_LABEL,
   type AccountStore,
   type AccountSummary,
   type DirectoryHandleLike,
@@ -74,7 +75,7 @@ export async function createAccount(
   }
 
   let vault = createVault({ did, label: options.name, wraps: [] });
-  if (options.passphrase) vault = withWrap(vault, await wrapSeedWithPassphrase(seed, options.passphrase, 'CLI passphrase'));
+  if (options.passphrase) vault = withWrap(vault, await wrapSeedWithPassphrase(seed, options.passphrase, CLI_PASSPHRASE_LABEL));
 
   const id = newAccountId();
   const account: AccountSummary = {

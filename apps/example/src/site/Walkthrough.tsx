@@ -445,7 +445,7 @@ const STEPS: ReadonlyArray<Step> = [
   {
     tab: 'Account',
     title: 'Make an account',
-    body: 'Weave makes a strong password on your device, and your account comes from it. Save it in your password manager, or use a passkey. There’s no sign-up form, and no company keeps a copy.',
+    body: 'Weave makes your account on your device and gives you a recovery code to keep safe. Then sign in with a passkey or a password. There’s no sign-up form, and no company keeps a copy.',
     Scene: AccountScene,
     still: 0.8,
   },
@@ -459,7 +459,7 @@ const STEPS: ReadonlyArray<Step> = [
   {
     tab: 'Devices',
     title: 'Add your other devices',
-    body: 'Scan a code with your phone, or sign in there with your password. From then on, changes go straight between your devices and show up on both.',
+    body: 'Scan a code with your phone, or use your recovery code there. From then on, changes go straight between your devices and show up on both.',
     Scene: DevicesScene,
     still: 0.5,
   },

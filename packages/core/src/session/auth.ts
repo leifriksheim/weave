@@ -8,12 +8,20 @@
  * React hook follows it, and an app that wants its own screens can draw it
  * itself. None of them see the seed: it stays inside this object.
  *
- * The credential is a generated 26-character code. It is the seed, written out,
- * which is what makes it work on a domain that has never heard of you — there is
- * nothing stored for it to unlock. A password manager holds it exactly as it
- * holds any generated password. The passkey and the short password are
- * conveniences layered on top, local to one site, so the code only has to be
- * fetched once per site.
+ * Three things, each with one job:
+ *
+ * - **The recovery code** is the account: the seed, written out as 26
+ *   characters. It needs nothing stored to work, so it restores the account on
+ *   a device or home that has never seen it. Shown once when the account is
+ *   made, and kept somewhere safe rather than typed every day.
+ * - **A passkey or a password** is the everyday way in. Each wraps the seed in
+ *   the account's vault, so it works wherever the vault is — this browser, or
+ *   a pod — and nowhere else. Setting one up is part of making an account.
+ * - **Pairing** hands the account to a new device from one already signed in.
+ *
+ * So a new account goes: name → recovery code → passkey or password → (a pod,
+ * if this browser can open one) → in. Where the data lives is asked only of
+ * people who already have something somewhere, or offered at the end.
  *
  * The identity key never signs a record. Signing in starts a node, which makes
  * a throwaway session key and asks the identity for one note saying that key
@@ -29,12 +37,15 @@ import {
   withWrap,
   wrapSeedWithDeviceKey,
   unwrapSeedWithDeviceKey,
+  wrapSeedWithPassphrase,
   unwrapSeedWithPassphrase,
   deviceWrapsFor,
+  CLI_PASSPHRASE_LABEL,
   deriveVaultKey,
   deriveVaultKeyBytes,
   type AccountVault,
   type DeviceWrap,
+  type PassphraseWrap,
 } from '../identity/account-vault.js';
 import { deriveContactKeyBytes, deriveMemberKeyBytes } from '../identity/contact-key.js';
 import { createDeviceKey, getDeviceKey, deleteDeviceKey } from '../identity/device-key.js';
@@ -97,14 +108,42 @@ export interface WeaveAuthConfig {
 /**
  * Which screen the flow is on.
  *
- * `where` — where should your data live (a pod, or this browser); asked once.
  * `welcome` — the place holds no accounts: new here, or not?
+ * `existing` — "I already have one": open a pod, use the recovery code, or add this device from another.
  * `signIn` — choose an account and unlock it.
- * `create` — name a new account; then, with `freshCode` set, save its password.
+ * `restore` — type the recovery code.
+ * `create` — name a new account.
+ * `recovery` — signed in, and `freshCode` is the recovery code to keep safe.
+ * `unlock` — signed in, choosing a passkey or a password for every day. Required.
+ * `pod` — signed in, offered a pod to keep the new account in. Optional.
  * `pair` — opened from a phone-pairing QR code.
  * `ready` — signed in; `session` is set.
+ *
+ * `recovery`, `unlock` and `pod` already have a session, but the flow is not
+ * finished: a screen that waits for `ready` does not show the app halfway.
  */
-export type AuthStage = 'starting' | 'where' | 'welcome' | 'signIn' | 'create' | 'pair' | 'ready';
+export type AuthStage =
+  | 'starting'
+  | 'welcome'
+  | 'existing'
+  | 'signIn'
+  | 'restore'
+  | 'create'
+  | 'recovery'
+  | 'unlock'
+  | 'pod'
+  | 'pair'
+  | 'ready';
+
+/**
+ * Why the flow is setting an account up: made just now, opened with its
+ * recovery code where it had no everyday way in, or arrived from a pairing
+ * link. Decides which of the setup screens are shown.
+ */
+export type AuthSetup = 'new' | 'restored' | 'paired';
+
+/** The shortest password `setPassword` takes. It guards a copy of the seed in a folder that may be copied. */
+export const MIN_PASSWORD_LENGTH = 10;
 
 /** A failure, in the shape a screen needs to explain it */
 export interface AuthError {
@@ -124,7 +163,7 @@ export interface AccountEntry {
    * cleared — is listed by the vault but unopenable here.
    */
   readonly shortcuts: ReadonlyArray<DeviceWrap>;
-  /** Whether a short password was set here */
+  /** Whether a password unlocks it here */
   readonly hasPassword: boolean;
 }
 
@@ -191,8 +230,10 @@ export interface AuthState {
   /** Ways into the selected account */
   readonly entry: AccountEntry | null;
   readonly session: WeaveSession | null;
-  /** A new account's password, shown once until `codeSaved()` */
+  /** The recovery code, while the `recovery` screen shows it; cleared by `codeSaved()` */
   readonly freshCode: string | null;
+  /** Set while the account is being set up (`recovery`, `unlock`, `pod`) */
+  readonly setup: AuthSetup | null;
   /** Something is in progress; buttons should wait */
   readonly busy: boolean;
   readonly error: AuthError | null;
@@ -218,33 +259,46 @@ export interface WeaveAuth {
   choosePod(): Promise<void>;
   /** Keeps accounts in this browser, and stops using a pod if one was open */
   useBrowser(): Promise<void>;
-  /** Back to the where-should-your-data-live question */
-  changeStorage(): void;
 
   // Getting in
   select(accountId: string): Promise<void>;
+  /** Opens an account with its recovery code. Where it has no passkey or password yet, sets one up next. */
   signInWithCode(code: string): Promise<void>;
+  /** Opens the selected account with its password. A recovery code typed or filled here works too. */
   signInWithPassword(password: string): Promise<void>;
   signInWithPasskey(): Promise<void>;
   startCreating(): void;
   showSignIn(): void;
+  /** Back to "new here, or not?" */
+  showWelcome(): void;
+  /** "I already have an account": the ways to reach one from here */
+  showExisting(): void;
+  /** The recovery code form, for the selected account if there is one */
+  showRestore(): void;
   createAccount(name: string): Promise<void>;
-  /** The new password has been saved; carry on in */
+  /** The recovery code has been kept somewhere safe; on to choosing a way in */
   codeSaved(): void;
+  /** Leaves the optional `pod` step with the data in this browser */
+  finishSetup(): void;
   acceptPairing(): Promise<void>;
   dismissPairing(): void;
   clearError(): void;
 
   // Once in
   rename(name: string): Promise<boolean>;
+  /** Adds a passkey for this site. During setup, moves the flow on. */
   addPasskey(): Promise<boolean>;
+  /** Sets or replaces the account's password. During setup, moves the flow on. */
+  setPassword(password: string): Promise<boolean>;
   removeShortcut(kind: 'passkey' | 'passphrase'): Promise<boolean>;
   confirmPod(how: 'combine' | 'switch'): Promise<void>;
   cancelPod(): void;
   /** Removes the copy this browser kept after a move into a pod */
   forgetBrowserCopy(): Promise<void>;
   dismissMoved(): void;
-  /** The account password, for handing back to a password manager. Null when signed out. */
+  /** The recovery code of the open account. Null when signed out. */
+  recoveryCode(): string | null;
+  /** @deprecated The recovery code is no longer the everyday password. Use {@link WeaveAuth.recoveryCode}. */
   accountPassword(): string | null;
   /** Starts offering this account to a phone */
   offerToPhone(onStage: (stage: PairingStage) => void): Promise<PairingOffer>;
@@ -316,7 +370,6 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   const browserStores = config.browser?.stores ?? ((account: AccountSummary) => storesFor(account));
 
   const LAST_ACCOUNT = `${prefix}.last-account`;
-  const BROWSER_CHOSEN = `${prefix}.storage-choice`;
   const get = (key: string) => {
     try {
       return storage?.getItem(key) ?? null;
@@ -340,6 +393,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     entry: null,
     session: null,
     freshCode: null,
+    setup: null,
     busy: false,
     error: null,
     folderAvailable: isFolderStorageAvailable(),
@@ -354,7 +408,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     for (const listener of listeners) listener(state);
   };
 
-  /** The seed behind the open session. Never leaves this closure except as the account password. */
+  /** The seed behind the open session. Never leaves this closure except as the recovery code. */
   let seed: Uint8Array | null = null;
   let vaultKey: CryptoKey | null = null;
   let stopFollowingName: (() => void) | null = null;
@@ -486,12 +540,99 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     }
   }
 
-  /** Runs a way in, and goes to the app when it ends in a session. */
-  const enter = (open: () => Promise<WeaveSession>) =>
+  /** Whether an account can be opened here without its recovery code. */
+  const hasEverydayWay = (entry: AccountEntry | null): boolean =>
+    entry !== null && (entry.shortcuts.length > 0 || entry.hasPassword);
+
+  /**
+   * Lands a new session: in, or on through the setup screens.
+   *
+   * With no reason to set up, or a passkey or password already here, that is
+   * the app. Otherwise the recovery code is shown first — a new account's for
+   * the first time, a restored one's as a reminder to keep it apart from the
+   * password about to be set, which a password manager may file in its place —
+   * then a way in is chosen. A paired device skips the code: it was never
+   * shown one, and the device it came from keeps it.
+   */
+  async function arrive(session: WeaveSession, setup: AuthSetup | null): Promise<void> {
+    const place = state.place;
+    const entry = place ? await openEntry(place, session.account.id) : null;
+    const landed = {
+      session,
+      entry,
+      selectedId: session.account.id,
+      accounts: place ? await listAccounts(place) : state.accounts,
+    };
+    if (setup === null || hasEverydayWay(entry)) {
+      update({ ...landed, stage: 'ready', setup: null, freshCode: null });
+    } else if (setup === 'paired') {
+      update({ ...landed, stage: 'unlock', setup });
+    } else {
+      update({ ...landed, stage: 'recovery', setup, freshCode: seed ? seedToRecoveryCode(seed) : null });
+    }
+  }
+
+  /** After a way in is set up: offer a pod to a new account that could use one, or go in. */
+  function afterUnlock(): void {
+    const offerPod = state.setup === 'new' && state.folderAvailable && state.place?.kind === 'browser';
+    update(offerPod ? { stage: 'pod' } : { stage: 'ready', setup: null });
+  }
+
+  /** Runs a way in. One that took the recovery code may lead on to setting up an everyday one. */
+  const enter = (open: () => Promise<{ session: WeaveSession; byCode: boolean }>) =>
     run(async () => {
-      const session = await open();
-      update({ session, stage: 'ready' });
+      const { session, byCode } = await open();
+      await arrive(session, byCode ? 'restored' : null);
     }).then(() => undefined);
+
+  /**
+   * Opens an account from its recovery code, filing it here if this place has
+   * not seen it.
+   * @param code The code, as typed or filled
+   * @param expected The account the person meant, when they picked one
+   */
+  async function openWithCode(code: string, expected: AccountSummary | null): Promise<WeaveSession> {
+    const place = state.place;
+    if (!place) throw new Error('No place to sign in to yet.');
+    if (!isValidRecoveryCode(code)) {
+      throw protocolError(
+        'VAULT_UNLOCK_FAILED',
+        'That is not a recovery code.',
+        'A recovery code is 26 letters and digits, usually in groups of four. A password only opens the account where it was ' +
+          'set up — on a new device, use the recovery code, or add this device from one that is signed in.',
+      );
+    }
+    const unlocked = recoveryCodeToSeed(code);
+    const identity = await createIdentityManager().fromSeed(unlocked);
+
+    if (expected && identity.did !== expected.did) {
+      throw protocolError(
+        'VAULT_UNLOCK_FAILED',
+        `That recovery code opens a different account, not ${expected.name}.`,
+        `Check it is the code you kept for ${expected.name}, or restore the account it belongs to instead.`,
+      );
+    }
+
+    const known = (await listAccounts(place)).find((account) => account.did === identity.did);
+    if (known) return begin(place, known, unlocked);
+
+    // New to this place — a new device, or a new home. File it, so there is
+    // somewhere to keep the passkey or password set up next.
+    const id = newAccountId();
+    const summary: AccountSummary = {
+      id,
+      name: expected?.name ?? 'My account',
+      did: identity.did,
+      createdAt: new Date().toISOString(),
+      dataPath: accountDataPath(id),
+    };
+    await place.store.write(summary, createVault({ did: identity.did, label: summary.name, wraps: [] }));
+    return begin(place, summary, unlocked);
+  }
+
+  /** The account the person picked, if any */
+  const selectedAccount = (): AccountSummary | null =>
+    state.accounts.find((account) => account.id === state.selectedId) ?? null;
 
   // ─── Passkeys ──────────────────────────────────────────────────────
 
@@ -555,12 +696,13 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     return renamed;
   }
 
-  /** Changes to the open account's shortcuts, then re-reads them. */
+  /** Changes to the open account's shortcuts, then re-reads them. During setup, moves the flow on. */
   const changeShortcut = (apply: (unlocked: Uint8Array) => Promise<void>) =>
     run(async () => {
       if (!seed) throw new Error('Not signed in.');
       await apply(seed);
       await refreshEntry();
+      if (state.stage === 'unlock' && hasEverydayWay(state.entry)) afterUnlock();
     });
 
   /** Connected apps are remembered per account, on this device */
@@ -601,9 +743,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
             update({ stage: 'pair' });
             return;
           }
-          // Nothing here yet and the storage question never answered: ask it first.
-          const undecided = !pod && accounts.length === 0 && state.folderAvailable && get(BROWSER_CHOSEN) !== 'browser';
-          update({ stage: undecided ? 'where' : afterStorage(accounts) });
+          // Where the data lives is not asked up front: someone new has
+          // nothing anywhere, and someone who does finds their pod under
+          // "I already have an account".
+          update({ stage: afterStorage(accounts) });
         } catch (error) {
           update({ error: describe(error), stage: 'welcome' });
         }
@@ -612,7 +755,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     },
 
     async choosePod() {
-      await run(async () => {
+      const picked = await run(async () => {
         const pod = await pickPod();
         const { session, place } = state;
         // Signed in: look before leaping. The picker needed the click, but
@@ -626,19 +769,23 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         await rememberPod(pod);
         update({ stage: afterStorage(await refresh(pod)) });
       });
+
+      // Setting up a new account there is nothing to decide: no pod has it
+      // yet, so it moves, and the browser copy it leaves is only a shell.
+      if (picked && state.stage === 'pod' && state.podChoice) {
+        await auth.confirmPod('combine');
+        if (state.podChoice) return;
+        await auth.forgetBrowserCopy();
+        update({ stage: 'ready', setup: null });
+      }
     },
 
     async useBrowser() {
-      set(BROWSER_CHOSEN, 'browser');
       await run(async () => {
         if (state.place?.kind === 'folder') await forgetPod();
         const place = state.place?.kind === 'browser' ? state.place : await browserPlace();
         update({ stage: afterStorage(await refresh(place)) });
       });
-    },
-
-    changeStorage() {
-      update({ error: null, stage: 'where' });
     },
 
     async select(accountId) {
@@ -647,59 +794,29 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     },
 
     signInWithCode(code) {
-      return enter(async () => {
-        const place = state.place;
-        if (!place) throw new Error('No place to sign in to yet.');
-        if (!isValidRecoveryCode(code)) {
-          throw protocolError(
-            'VAULT_UNLOCK_FAILED',
-            'That does not look like an account password.',
-            'It is 26 letters and digits, usually shown in groups of four.',
-          );
-        }
-        const unlocked = recoveryCodeToSeed(code);
-        const identity = await createIdentityManager().fromSeed(unlocked);
-        const expected = state.accounts.find((account) => account.id === state.selectedId);
-
-        if (expected && identity.did !== expected.did) {
-          throw protocolError(
-            'VAULT_UNLOCK_FAILED',
-            `That password opens a different account, not ${expected.name}.`,
-            'With more than one account saved for this site, a password manager fills whichever it saw last ' +
-              `unless you pick. Choose the entry named ${expected.name}, or open the account it did fill.`,
-          );
-        }
-
-        const known = (await listAccounts(place)).find((account) => account.did === identity.did);
-        if (known) return begin(place, known, unlocked);
-
-        // New to this place — the second-site case. File it, so next time there
-        // is something to add a passkey to.
-        const id = newAccountId();
-        const summary: AccountSummary = {
-          id,
-          name: expected?.name ?? 'My account',
-          did: identity.did,
-          createdAt: new Date().toISOString(),
-          dataPath: accountDataPath(id),
-        };
-        await place.store.write(summary, createVault({ did: identity.did, label: summary.name, wraps: [] }));
-        return begin(place, summary, unlocked);
-      });
+      return enter(async () => ({ session: await openWithCode(code, selectedAccount()), byCode: true }));
     },
 
     signInWithPassword(password) {
       return enter(async () => {
         const { place, entry } = state;
-        const wrap = entry?.vault.wraps.find((candidate) => candidate.kind === 'passphrase');
-        if (!place || !entry || !wrap || wrap.kind !== 'passphrase') {
-          throw protocolError(
-            'VAULT_UNLOCK_FAILED',
-            'No password is set for this account here.',
-            'Use your account password instead.',
-          );
+        // The account's password, and the CLI's passphrase if a pod has one: either opens it.
+        const wraps = (entry?.vault.wraps ?? []).filter((candidate): candidate is PassphraseWrap => candidate.kind === 'passphrase');
+        // Before passwords, the recovery code was this site's login, and a
+        // password manager still fills it here. It opens the account either way.
+        const code = isValidRecoveryCode(password) ? password : null;
+        let failed: unknown = null;
+        for (const wrap of place && entry ? wraps : []) {
+          const unlocked = await unwrapSeedWithPassphrase(wrap, password).catch((error: unknown) => ((failed = error), null));
+          if (unlocked) return { session: await begin(place!, entry!.summary, unlocked), byCode: false };
         }
-        return begin(place, entry.summary, await unwrapSeedWithPassphrase(wrap, password));
+        if (failed && !code) throw failed;
+        if (code) return { session: await openWithCode(code, entry?.summary ?? selectedAccount()), byCode: true };
+        throw protocolError(
+          'VAULT_UNLOCK_FAILED',
+          'No password is set for this account here.',
+          'Use your recovery code, and you can set one up afterwards.',
+        );
       });
     },
 
@@ -711,7 +828,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           throw protocolError(
             'VAULT_UNLOCK_FAILED',
             'No passkey on this device can open that account.',
-            'Use your account password, and you can set one up afterwards.',
+            'Use your recovery code, and you can set one up afterwards.',
           );
         }
         // The gate first, so the key is never reached for without someone present.
@@ -722,10 +839,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           throw protocolError(
             'VAULT_UNLOCK_FAILED',
             'The key for that passkey is not in this browser any more.',
-            'Clearing site data removes it. Your account password still works, and a new passkey can be set up afterwards.',
+            'Clearing site data removes it. Your recovery code still works, and a new passkey can be set up afterwards.',
           );
         }
-        return begin(place, entry.summary, await unwrapSeedWithDeviceKey(target, key));
+        return { session: await begin(place, entry.summary, await unwrapSeedWithDeviceKey(target, key)), byCode: false };
       });
     },
 
@@ -737,13 +854,23 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       update({ error: null, stage: 'signIn' });
     },
 
+    showWelcome() {
+      update({ error: null, stage: 'welcome' });
+    },
+
+    showExisting() {
+      update({ error: null, stage: 'existing' });
+    },
+
+    showRestore() {
+      update({ error: null, stage: 'restore' });
+    },
+
     async createAccount(name) {
       await run(async () => {
         const place = state.place;
         if (!place) throw new Error('No place to keep the account yet.');
 
-        // The seed is random, and the password shown afterwards is that seed
-        // written out — not a backup of it.
         const unlocked = generateSeed();
         const identity = await createIdentityManager().fromSeed(unlocked);
         const id = newAccountId();
@@ -755,28 +882,38 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           dataPath: accountDataPath(id),
         };
 
-        // No wraps yet: the password is the way in, and it needs none.
+        // No wraps yet: the passkey or password comes after the recovery code.
         await place.store.write(summary, createVault({ did: identity.did, label: summary.name, wraps: [] }));
+        // Kept only in this browser, the account is only as safe as the
+        // browser's willingness to keep it. Asking costs nothing.
+        if (place.kind === 'browser') await globalThis.navigator?.storage?.persist?.().catch(() => false);
         const session = await begin(place, summary, unlocked);
         // The name travels with the account, so the next site it is opened on
         // shows it. Only at creation and on rename — never on a plain start,
         // where a device that has not synced yet would publish a stale name.
         await session.node.account.setName(summary.name).catch(() => {});
-        update({ session, freshCode: seedToRecoveryCode(unlocked), accounts: await listAccounts(place) });
+        await arrive(session, 'new');
       });
     },
 
     codeSaved() {
-      update({ freshCode: null, stage: 'ready' });
+      if (!state.session) return;
+      update({ freshCode: null, stage: 'unlock' });
+    },
+
+    finishSetup() {
+      if (!state.session) return;
+      update({ stage: 'ready', setup: null, error: null });
     },
 
     async acceptPairing() {
       const ticket = state.pairing;
       if (!ticket) return;
       if (!state.place) update({ place: await browserPlace() });
-      await auth.signInWithCode(ticket.code);
+      // The link says which account; whichever was last used here is beside the point.
+      const opened = await run(async () => arrive(await openWithCode(ticket.code, null), 'paired'));
       const session = state.session;
-      if (!session) return;
+      if (!opened || !session) return;
       clearPairingTicket();
       await collectFromDesktop(session.node, ticket, (stage) => update({ pairingStage: stage }));
       update({ pairing: null });
@@ -819,6 +956,19 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         for (const stale of previous) await deleteDeviceKey(stale.deviceKeyId);
       }),
 
+    setPassword: (password) =>
+      changeShortcut(async (unlocked) => {
+        if (password.length < MIN_PASSWORD_LENGTH) {
+          throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters. Your password manager can make one for you.`);
+        }
+        const wrap = await wrapSeedWithPassphrase(unlocked, password, 'Password');
+        // One password: the new one replaces the last. The CLI's passphrase is its own, and stays.
+        await updateVault(async (vault) => ({
+          ...vault,
+          wraps: [...vault.wraps.filter((kept) => kept.kind !== 'passphrase' || kept.label === CLI_PASSPHRASE_LABEL), wrap],
+        }));
+      }),
+
     removeShortcut: (kind) =>
       changeShortcut(async () => {
         const session = state.session!;
@@ -826,8 +976,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           const vault = await state.place!.store.read(session.account.id);
           for (const wrap of vault ? deviceWrapsFor(vault, rpId) : []) await deleteDeviceKey(wrap.deviceKeyId);
         }
-        // Removing every shortcut leaves the account as a new one starts:
-        // openable by its password. Another site's passkey is not this one's to remove.
+        // Removing every shortcut leaves the account openable by its recovery
+        // code alone. Another site's passkey is not this one's to remove.
         await updateVault(async (vault) => ({
           ...vault,
           wraps: vault.wraps.filter((wrap) =>
@@ -919,8 +1069,12 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       update({ moved: null });
     },
 
-    accountPassword() {
+    recoveryCode() {
       return seed ? seedToRecoveryCode(seed) : null;
+    },
+
+    accountPassword() {
+      return auth.recoveryCode();
     },
 
     offerToPhone(onStage) {
@@ -1109,7 +1263,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     async signOut() {
       await stay.forget();
       const leaving = state.session?.node;
-      update({ stage: 'starting', session: null, entry: null, freshCode: null, podChoice: null, moved: null });
+      update({ stage: 'starting', session: null, entry: null, freshCode: null, setup: null, podChoice: null, moved: null });
       await stopNode(leaving).catch(() => {});
       const place = state.place;
       update({ stage: place ? afterStorage(await refresh(place)) : 'welcome' });

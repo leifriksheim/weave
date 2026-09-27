@@ -7,12 +7,13 @@
  * API when used — so it lives on its own entry point, away from the
  * isomorphic core.
  */
-export { createWeaveAuth } from './auth.js';
+export { createWeaveAuth, MIN_PASSWORD_LENGTH } from './auth.js';
 export type {
   WeaveAuth,
   WeaveAuthConfig,
   AuthState,
   AuthStage,
+  AuthSetup,
   AuthError,
   AccountEntry,
   WeaveSession,
@@ -54,4 +55,4 @@ export { offerToPhone, collectFromDesktop, readPairingTicket, clearPairingTicket
 export type { PairingStage, PairingOffer } from './pairing.js';
 export { offerAgentLink, acceptAgentLink, checkAgentGrant, newAgentCode, readAgentCode } from './agent-link.js';
 export type { AgentLinkStage, AgentLinkOffer, AgentAsking } from './agent-link.js';
-export { offerToSave, accountCredentialName, deviceCredentialName } from './credentials.js';
+export { offerToSave, accountCredentialName, deviceCredentialName, recoveryKit } from './credentials.js';

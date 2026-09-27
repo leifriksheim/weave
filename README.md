@@ -347,7 +347,7 @@ The protocol ships it, so an app does not write it:
 The element fits whatever it is put in — a page, a modal, a side panel — by
 sizing to its container, and draws nothing once someone is in. It renders into
 the page rather than a shadow root, because password managers fill forms there
-reliably and the account password living in one is the point. Colours, font and
+reliably and the everyday password living in one is much of the point. Colours, font and
 radius are custom properties (`--weave-accent`, `--weave-font`, …).
 
 Underneath it is `createWeaveAuth` (`@weaveprotocol/core/session`): the same flow as
@@ -447,8 +447,8 @@ relays still meet. Underneath are
 
 1. The app makes its own key, kept in its own site's storage and never
    exportable (`appKey()`).
-2. The home opens in a popup. The person unlocks there — the account password
-   from their password manager, or a passkey — and picks which spaces the app
+2. The home opens in a popup. The person unlocks there — a passkey, or the
+   password their password manager keeps — and picks which spaces the app
    gets.
 3. The home signs a note from the account to the app's key: these spaces, read
    or change, for seven days. It hands the note back with invites for those

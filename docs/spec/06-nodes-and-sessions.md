@@ -507,10 +507,14 @@ recently used first. Account files and vault formats are in [01](01-identity.md)
 | Stage | Meaning |
 |---|---|
 | `starting` | Looking for accounts and a kept sign-in. |
-| `where` | Asking where data should live (a pod, or this browser). Asked once. |
-| `welcome` | The place holds no accounts. |
+| `welcome` | The place holds no accounts: create one, or "I already have one". |
+| `existing` | Ways to an account this place does not list: open a pod, add this device from another, or the recovery code. Where data lives is asked here, not up front. |
 | `signIn` | Choose an account and unlock it. |
-| `create` | Name a new account; then, with `freshCode` set, save its password. |
+| `restore` | Type the recovery code. |
+| `create` | Name a new account. |
+| `recovery` | Signed in; `freshCode` is the recovery code to keep safe. |
+| `unlock` | Signed in; choose a passkey or a password. Required. |
+| `pod` | Signed in; a new account is offered a pod. Optional. |
 | `pair` | Opened from a phone-pairing link ([01](01-identity.md)). |
 | `ready` | Signed in; `session` is set. |
 
@@ -520,18 +524,20 @@ Transitions:
 |---|---|---|
 | `starting` | `start()`, a kept sign-in for an account in the place (§3.4) | `ready` |
 | `starting` | `start()`, a pairing ticket in the URL | `pair` |
-| `starting` | `start()`, no pod, no accounts, folders available, browser never chosen | `where` |
 | `starting` | `start()`, otherwise | `signIn` if the place has accounts, else `welcome` |
 | `starting` | `start()` fails | `welcome` (with `error`) |
-| any | `changeStorage()` | `where` |
-| `where` etc. | `choosePod()` / `useBrowser()` while signed out | `signIn` or `welcome` |
+| any | `showWelcome()` / `showExisting()` / `showRestore()` / `showSignIn()` | `welcome` / `existing` / `restore` / `signIn` |
+| `existing`, `signIn` | `choosePod()` / `useBrowser()` while signed out | `signIn` or `welcome` |
 | `ready` | `choosePod()` while signed in | `ready`, with `podChoice` set; `confirmPod('combine' \| 'switch')` restarts the session in the pod |
-| `welcome`, `signIn` | `startCreating()` | `create` |
-| any | `showSignIn()` | `signIn` |
-| `signIn` | `signInWithCode` / `signInWithPassword` / `signInWithPasskey` succeeds | `ready` |
-| `create` | `createAccount(name)` | `create`, with `session` and `freshCode` set |
-| `create` | `codeSaved()` | `ready` |
-| `pair` | `acceptPairing()` | `ready` (signs in with the ticket's code, then collects from the desktop) |
+| `pod` | `choosePod()` | `ready`: the new account moves into the pod without asking, and its browser copy is removed |
+| `pod` | `finishSetup()` | `ready` |
+| `welcome`, `existing`, `signIn` | `startCreating()` | `create` |
+| `signIn` | `signInWithPassword` / `signInWithPasskey` succeeds | `ready` |
+| `signIn`, `restore` | `signInWithCode` (or a recovery code given to `signInWithPassword`) succeeds | `ready` if the account has a usable passkey or a password here; else `recovery` with `setup: 'restored'` |
+| `create` | `createAccount(name)` | `recovery`, with `session`, `freshCode` and `setup: 'new'` set |
+| `recovery` | `codeSaved()` | `unlock` |
+| `unlock` | `addPasskey()` / `setPassword(p)` succeeds | `pod` for a new account in a browser that can open folders, else `ready` |
+| `pair` | `acceptPairing()` | `unlock` with `setup: 'paired'` if the account has no way in here, else `ready`; then collects from the desktop |
 | `pair` | `dismissPairing()` | `ready` if signed in, else `signIn` / `welcome` |
 | `ready` | `signOut()` | `starting`, then `signIn` / `welcome` |
 
@@ -542,21 +548,31 @@ as it was. A dismissed passkey or folder prompt sets no error.
 
 ### 3.3 Ways in
 
-- **The account password** is the recovery code: the seed written out, 26
-  characters ([01](01-identity.md)). It works on any site without anything
-  stored there. If an account is selected and the code opens a different one,
-  sign-in fails with a reason. If the code's account is new to this place, it
-  is filed there with an empty vault (no wraps) under the selected account's
-  name or `My account`.
-- **A short password** unwraps the seed from the vault's `passphrase` wrap.
+- **The recovery code** is the seed written out, 26 characters
+  ([01](01-identity.md)). It works on any site without anything stored there,
+  and is for restoring, not for every day. If an account is selected and the
+  code opens a different one, sign-in fails with a reason. If the code's
+  account is new to this place, it is filed there with an empty vault (no
+  wraps) under the selected account's name or `My account`.
+- **A password** unwraps the seed from the vault's `passphrase` wrap. It
+  works wherever that vault is: this browser, or a pod on any origin. Setting
+  one replaces the last (but not the CLI's passphrase, which also opens it here). At least
+  `MIN_PASSWORD_LENGTH` (10) characters, since a copied pod can be attacked
+  offline. `signInWithPassword` also accepts a recovery code, which password
+  managers may hold as this site's login from before passwords existed.
 - **A passkey** is a gate, not a key: the WebAuthn ceremony proves presence,
   and the seed is unwrapped with a non-extractable device key kept in this
   site's storage, named by the vault's `device` wrap for this `rpId`. Only a
   wrap whose device key is present in this browser is offered.
 
 A new account's seed is random. Creating one writes its vault with no wraps,
-starts its session, writes its name to `sys.profile` in the account registry,
-and shows the account password once (`freshCode`).
+asks the browser to persist its storage (when kept in the browser), starts its
+session, writes its name to `sys.profile` in the account registry, and shows
+the recovery code (`freshCode`). Setting up a passkey or a password is
+required before `ready`: an account with no everyday way in would be opened
+with its recovery code every time, which is the habit this avoids. A page that
+waits for `ready` does not see the session during `recovery`, `unlock` or
+`pod`.
 
 *Source: `packages/core/src/session/auth.ts`, `packages/core/src/session/credentials.ts`. Tests: `packages/core/tests/auth.test.ts`, `packages/core/tests/account-vault.test.ts`.*
 

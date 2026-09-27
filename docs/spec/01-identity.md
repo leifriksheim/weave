@@ -61,9 +61,10 @@ as the account, and nothing else can.
 
 ## 2. Recovery codes
 
-The **recovery code** is the seed written out. The user interface calls it the
-account password. It is not a backup of the seed and does not unlock anything
-stored: it *is* the seed.
+The **recovery code** is the seed written out. It is not a backup of the seed
+and does not unlock anything stored: it *is* the seed. The interface shows it
+once, when the account is made, to be kept somewhere safe; everyday sign-in is
+a passkey or a password (§10.4).
 
 ### 2.1 Alphabet
 
@@ -868,10 +869,18 @@ Every wrap:
 - When two copies of a vault are merged, wraps are unioned by `id`, subject to
   the one-device-wrap-per-`rpId` rule.
 
-Passphrase wraps are the "device password" or "short password": the
-web sign-in flow can open them, and the CLI account home
-(`packages/cli/src/home.ts`) creates them. *The web sign-in flow does not currently
-create passphrase wraps.*
+- The web flow keeps one passphrase wrap as the account's password: setting
+  one replaces any other, except the CLI's (label `CLI passphrase`), which is
+  for unattended unlocking and kept. A client opening by passphrase tries
+  every passphrase wrap.
+
+A passphrase wrap is the account's **password**. The web sign-in flow asks for
+it, or a passkey, right after showing a new account's recovery code, and the
+CLI account home (`packages/cli/src/home.ts`) creates them too. Unlike a device
+wrap it is not tied to an origin: any origin that can read the vault — every
+app pointed at a pod — can open it. That is also its weakness: a copy of the
+vault can be attacked offline, so clients SHOULD require a minimum length (the
+web flow requires 10 characters).
 
 *Source:* `packages/core/src/identity/account-vault.ts`, `packages/core/src/identity/folder-account.ts` (`createVault`), `packages/core/src/session/auth.ts`.
 *Tests:* `packages/core/tests/account-vault.test.ts`, `packages/core/tests/auth.test.ts`.

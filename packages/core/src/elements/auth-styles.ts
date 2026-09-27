@@ -124,6 +124,19 @@ weave-auth .wa-code {
   word-break: break-all; user-select: all;
 }
 
+weave-auth .wa-code-large { font-size: 17px; letter-spacing: 0.04em; text-align: center; padding: 16px 12px; margin-top: 0; }
+weave-auth .wa-row { display: flex; gap: 8px; margin-top: 10px; }
+weave-auth .wa-secondary {
+  flex: 1; height: 36px; padding: 0 12px;
+  border-radius: var(--weave-radius); border: 1px solid var(--weave-line-strong);
+  background: var(--weave-surface); color: var(--weave-ink); font-size: 13px; font-weight: 500;
+}
+weave-auth .wa-secondary:not(:disabled):hover { background: var(--weave-sunken); }
+weave-auth .wa-check { display: flex; align-items: flex-start; gap: 10px; margin: 20px 0 16px; font-size: 14px; line-height: 1.5; color: var(--weave-body); cursor: pointer; }
+weave-auth .wa-check input { width: 16px; height: 16px; margin: 3px 0 0; padding: 0; flex-shrink: 0; accent-color: var(--weave-accent); box-shadow: none; }
+weave-auth .wa-label { font-size: 13px; color: var(--weave-muted); }
+weave-auth .wa-steps { margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.6; color: var(--weave-body); }
+
 weave-auth .wa-info { position: relative; display: inline; }
 weave-auth .wa-info-button {
   display: inline-flex; align-items: center; justify-content: center;
