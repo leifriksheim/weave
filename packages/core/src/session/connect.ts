@@ -34,6 +34,7 @@ import { indexedDBStores, type StoreFactory } from '../node/stores.js';
 import type { CacheConfig, NewSpace, NodeNetworkConfig, P2PNode } from '../node/types.js';
 import { checkStartingRoles } from '../space/space-access.js';
 import { parseSpaceInvite } from '../space/space-manager.js';
+import { checkProposal, MAX_PROPOSALS, type NotifyProposal } from '../space/notify.js';
 import type { KeyValueStore } from './stay-signed-in.js';
 
 /** Messages between an app and the home it opened */
@@ -83,6 +84,13 @@ export interface ConnectRequest {
   readonly agent?: boolean;
   /** How many days the note should last, 1–365. The home decides; default 7. */
   readonly days?: number;
+  /**
+   * "Let me know when…" subscriptions to offer the person, at most 8. Each
+   * one they say yes to, the home adds to the account's subscriptions,
+   * naming this app; the account's carriers do the noticing. Never from an
+   * agent or a carrier.
+   */
+  readonly notify?: ReadonlyArray<NotifyProposal>;
 }
 
 /** The longest a home gives a note for */
@@ -133,6 +141,8 @@ export interface Grant {
   readonly expiresAt: number;
   /** Present, and true, when the note is an agent's */
   readonly agent?: true;
+  /** The subscriptions made from the request's `notify`, by the person's yes: their ids and labels */
+  readonly notify?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
   /** The home that granted it, so the app can go back there */
   readonly home: string;
   /**
@@ -478,7 +488,7 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
 
       // A request this home cannot read — often an app newer than the home —
       // is answered, not ignored: otherwise both sides wait with nothing said.
-      if (!isRequest(data.request)) {
+      if (!isRequest(data.request, event.origin)) {
         opener.postMessage(
           { type: DENIED, reason: 'Your account home did not understand what was asked. It may be older than this app — update it, or use another home.' },
           event.origin,
@@ -512,7 +522,7 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
   });
 }
 
-function isRequest(value: unknown): value is ConnectRequest {
+function isRequest(value: unknown, origin: string): value is ConnectRequest {
   const request = value as ConnectRequest | null;
   return (
     !!request &&
@@ -525,11 +535,19 @@ function isRequest(value: unknown): value is ConnectRequest {
     (request.contacts === undefined || typeof request.contacts === 'boolean') &&
     (request.create === undefined || isNewSpaces(request.create)) &&
     (request.days === undefined || (Number.isInteger(request.days) && request.days >= 1 && request.days <= MAX_GRANT_DAYS)) &&
+    (request.notify === undefined || isProposals(request.notify, origin)) &&
     // An agent works in spaces that exist: none made for it, and no carrying.
     (request.agent === undefined ||
       request.agent === false ||
-      (request.agent === true && request.access !== 'carry' && request.create === undefined && !request.contacts))
+      (request.agent === true && request.access !== 'carry' && request.create === undefined && !request.contacts)) &&
+    // Subscriptions are the person's, proposed by an app they are looking at.
+    (request.notify === undefined || (request.access !== 'carry' && request.agent !== true))
   );
+}
+
+/** Subscriptions an app proposes: few, each one it could offer, each click leading back to it */
+function isProposals(value: unknown, origin: string): boolean {
+  return Array.isArray(value) && value.length <= MAX_PROPOSALS && value.every((proposal) => checkProposal(proposal, origin) === null);
 }
 
 /** At most this many spaces made for an app in one go */

@@ -17,6 +17,11 @@
  *
  * The same split as a query in a space held in part (spec/05-sync-and-storage.md, What a node holds): the part a
  * blind node can check runs there, the rest where the keys are.
+ *
+ * An app knows its own collections and topics better than the person does,
+ * so it may propose subscriptions when it connects (`NotifyProposal`). The
+ * person says yes to each on the home's approval screen, and the home writes
+ * them into the registry naming the app — the app never writes there itself.
  */
 import type { Expression } from '../types.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
@@ -48,7 +53,34 @@ export interface NotifyWhen {
   readonly paused?: boolean;
   /** When it was made: nothing written before it notifies */
   readonly since: string;
+  /** The app that proposed it, by the origin the browser reported. Absent: the person made it in the home. */
+  readonly app?: NotifyApp;
 }
+
+/** Who proposed a subscription */
+export interface NotifyApp {
+  readonly origin: string;
+  /** What the app called itself. Shown, never trusted. */
+  readonly name?: string;
+}
+
+/**
+ * A subscription an app asks for when it connects. Which spaces it looks at
+ * is the grant's: every space for a whole-account app, else the spaces it is
+ * given. `topic.me` stands for the account's DID, which the app does not
+ * know before it connects: "mentions me".
+ */
+export interface NotifyProposal {
+  readonly label: string;
+  readonly collection: string;
+  readonly topic?: { readonly field: string; readonly value: string | number | boolean } | { readonly field: string; readonly me: true };
+  readonly others?: boolean;
+  /** Must be on the app's own origin. Default: the app's origin. */
+  readonly open?: string;
+}
+
+/** At most this many proposals in one request */
+export const MAX_PROPOSALS = 8;
 
 /** A subscription as a carrier holds it: no values, only tags */
 export interface CarriedSubscription {
@@ -91,7 +123,81 @@ export function checkNotify(when: unknown): string | null {
     }
   }
   if (typeof w.since !== 'string' || !Number.isFinite(Date.parse(w.since))) return 'since must be a date';
+  if (w.app !== undefined) {
+    const a = w.app as Partial<NotifyApp> | null;
+    if (typeof a !== 'object' || a === null || typeof a.origin !== 'string' || !isOrigin(a.origin)) return 'app.origin must be a web origin';
+    if (a.name !== undefined && (typeof a.name !== 'string' || a.name.length > 80)) return 'app.name must be text, at most 80 characters';
+  }
   return null;
+}
+
+/** `https://chat.example`, nothing after it: what a browser reports as a message's origin */
+function isOrigin(value: string): boolean {
+  try {
+    return new URL(value).origin === value;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Why an app's proposal can't be offered, or null. `origin` is the app's, as
+ * the browser reported it: a click may only lead back to the app that asked.
+ */
+export function checkProposal(proposal: unknown, origin: string): string | null {
+  const p = proposal as Partial<NotifyProposal> | null;
+  if (typeof p !== 'object' || p === null) return 'A proposed subscription must be an object';
+  const topic = p.topic as { field?: unknown; value?: unknown; me?: unknown } | undefined;
+  if (topic !== undefined && (typeof topic !== 'object' || topic === null || ('me' in topic && (topic.me !== true || 'value' in topic)))) {
+    return 'topic is { field, value } or { field, me: true }';
+  }
+  const problem = checkNotify({
+    label: p.label,
+    collection: p.collection,
+    spaces: 'all',
+    ...(topic ? { topic: { field: topic.field, value: topic.me === true ? 'me' : topic.value } } : {}),
+    ...(p.others !== undefined ? { others: p.others } : {}),
+    ...(p.open !== undefined ? { open: p.open } : {}),
+    since: new Date(0).toISOString(),
+    app: { origin },
+  });
+  if (problem) return problem;
+  if (p.open !== undefined && new URL(p.open).origin !== origin) return 'open must be an address on the app’s own site';
+  return null;
+}
+
+/** The subscription a proposal becomes, once the person says yes to it */
+export function fromProposal(
+  proposal: NotifyProposal,
+  context: { readonly app: NotifyApp; readonly spaces: NotifySpaces; readonly account: string; readonly since?: string },
+): NotifyWhen {
+  const topic = proposal.topic;
+  const when: NotifyWhen = {
+    label: proposal.label.trim(),
+    collection: proposal.collection,
+    spaces: context.spaces,
+    ...(topic ? { topic: { field: topic.field, value: 'me' in topic ? context.account : topic.value } } : {}),
+    others: proposal.others ?? true,
+    open: proposal.open ?? `${context.app.origin}/`,
+    since: context.since ?? new Date().toISOString(),
+    app: context.app,
+  };
+  // An app on plain http elsewhere than this machine: a click goes to the home instead.
+  if (checkNotify(when) === null || proposal.open !== undefined) return when;
+  const { open: _open, ...rest } = when;
+  return rest;
+}
+
+/** Whether two subscriptions ask about the same thing: an app connecting again adds nothing twice */
+export function sameSubscription(a: NotifyWhen, b: NotifyWhen): boolean {
+  const spaces = (s: NotifySpaces) => (s === 'all' ? 'all' : [...s].sort().join(','));
+  return (
+    a.collection === b.collection &&
+    spaces(a.spaces) === spaces(b.spaces) &&
+    a.topic?.field === b.topic?.field &&
+    a.topic?.value === b.topic?.value &&
+    (a.others ?? true) === (b.others ?? true)
+  );
 }
 
 /** A space the account follows, as far as a subscription needs: its id, and its current key when private */

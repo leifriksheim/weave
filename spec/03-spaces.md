@@ -1150,14 +1150,22 @@ registry, sealed like everything there:
 ```
 sys.notify at notify:<id>
 NotifyWhen = { label, collection, spaces: "all" | spaceId[], topic?: { field, value },
-               others?: boolean (default true), open?: url, paused?: boolean, since: ISO date }
+               others?: boolean (default true), open?: url, paused?: boolean, since: ISO date,
+               app?: { origin, name? } }
 ```
 
 Valid (`checkNotify`) when: `label` 1–120 characters, not blank; `collection`
 matches `^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$` and does not start with `sys.`;
 `spaces` is `"all"` or 1–256 strings; `topic.field` is a valid topic field
 ([02](02-records.md)) and `topic.value` a string, number or boolean; `open`
-an `https://` URL (or `http://` on localhost / 127.0.0.1); `since` a date.
+an `https://` URL (or `http://` on localhost / 127.0.0.1); `since` a date;
+`app.origin`, when present, a web origin (scheme, host and port, nothing
+after) and `app.name` at most 80 characters.
+
+`app` names the app that proposed the subscription, by the origin the browser
+reported; the account home writes it on the app's behalf when the person says
+yes ([06](06-nodes-and-sessions.md) §4.5). A subscription without `app` was
+made in the home. `app` is not copied to the carried form.
 
 Carriers cannot read, so each device with the account key copies every
 subscription into every carry space with the value replaced by tags:
@@ -1182,10 +1190,10 @@ notification with `label`.
 
 *Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier").*
 
-> **Planned: apps propose subscriptions, devices deliver them.** Issue:
-> [#30](https://github.com/leifriksheim/weave/issues/30). `sys.notify` gains
-> the app origin that proposed it, and delivery moves to per-device receiver
-> records. Specified in [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) §6.4.
+> **Planned: devices deliver subscriptions.** Issue:
+> [#30](https://github.com/leifriksheim/weave/issues/30). Delivery moves to
+> per-device receiver records, apart from subscriptions. Specified in
+> [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) §6.4.
 
 ---
 
