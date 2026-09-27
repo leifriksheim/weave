@@ -86,6 +86,8 @@
 .site .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
 .site .step h3 { font-size: 16px; font-weight: 600; color: var(--ink); margin-bottom: 6px; letter-spacing: -0.02em; }
 .site .step p { font-size: 15px; color: var(--muted); }
+.site .step p a { color: var(--ink); }
+.site .step code { font-size: 13.5px; background: var(--sunken); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; color: var(--body); }
 
 /* Code */
 .site .code { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; overflow: hidden; border: 1px solid var(--code-line); }

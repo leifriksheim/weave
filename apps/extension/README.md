@@ -34,6 +34,11 @@ unpacked** → choose `extension/dist`. A welcome tab opens; connect it to your
 account home. With `npm run dev`, press the reload button on the extension's
 card after a change (and after a change to `static/`, restart `npm run dev`).
 
+The website offers it for download too, at `/extension`, until it is in the
+Chrome Web Store: `npm run package -w apps/extension -- <out.zip>` builds it
+with `.env.production` (the deployed home and relay) and zips it, and the
+site's build (`netlify.toml`) puts it at `/weave-chrome.zip`.
+
 Settings are read at build time, from `extension/.env.local` (not committed;
 copy `.env.example` to start). A variable set in the shell wins over the file.
 
@@ -86,4 +91,4 @@ The design, and what is still to be checked, is in
   - 20+ spaces.
 - **A real pod.** Test with the manual folder picker, and a run of the Drive mirror in the extension. The protocol side is in [05](../../spec/05-sync-and-storage.md), mirrors.
 - **Testing.** A browser-driven test of the popup and notifications.
-- **Publishing.** The Chrome Web Store listing.
+- **Publishing.** The Chrome Web Store listing. Until then the site's `/extension` page offers a zip to load unpacked; when the listing is live, point that page at it.

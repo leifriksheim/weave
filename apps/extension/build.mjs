@@ -3,11 +3,13 @@
  *
  *   npm run build            once
  *   npm run dev              rebuilds on change
+ *   npm run package -- out.zip   once, for the deployed home and relay, zipped
  *
  * The protocol is bundled straight from its source in the workspace
  * (packages/core/src, through the `@weaveprotocol/source` export condition),
  * as the home does, so a change there is a rebuild away. Settings are read at build time, from the shell
- * first, then `.env.local` (yours, not committed — copy `.env.example`):
+ * first, then `.env.local` (yours, not committed — copy `.env.example`), or
+ * `.env.production` with `--production`:
  *
  *   WEAVE_HOME     the account home offered first   (default http://localhost:5174)
  *   WEAVE_RELAYS   relays, comma separated          (default: this machine's, and the deployed one)
@@ -16,11 +18,18 @@
  * extension built for one home still meets peers on another.
  */
 import { build, context } from 'esbuild';
+import { execFileSync } from 'node:child_process';
 import { cp, mkdir, readFile, rm } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = (path) => fileURLToPath(new URL(path, import.meta.url));
-const watch = process.argv.includes('--watch');
+const args = process.argv.slice(2);
+const watch = args.includes('--watch');
+const production = args.includes('--production');
+// The site offers this zip for manual installs until the extension is in the Chrome Web Store.
+const zip = args.includes('--zip') ? args[args.indexOf('--zip') + 1] : undefined;
+if (args.includes('--zip') && !zip) throw new Error('--zip needs a path to write to');
 
 /** `KEY=value` lines; `#` comments and blank lines skipped, surrounding quotes dropped. */
 async function readEnvFile(path) {
@@ -33,7 +42,7 @@ async function readEnvFile(path) {
   return values;
 }
 
-const env = { ...(await readEnvFile('.env.local')), ...process.env };
+const env = { ...(await readEnvFile(production ? '.env.production' : '.env.local')), ...process.env };
 const setting = (name, fallback) => env[name] || fallback;
 
 const options = {
@@ -71,4 +80,11 @@ if (watch) {
   console.log('Watching. Load extension/dist as an unpacked extension, and reload it after a change.');
 } else {
   await build(options);
+  if (zip) {
+    const out = resolve(process.cwd(), zip);
+    await rm(out, { force: true });
+    // Files at the zip's top level, so it unzips to a folder "Load unpacked" takes as is.
+    execFileSync('zip', ['-rq', out, '.'], { cwd: here('dist') });
+    console.log(`Zipped: ${out}`);
+  }
 }
