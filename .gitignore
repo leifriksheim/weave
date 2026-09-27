@@ -10,3 +10,5 @@ dist/
 .weave-dev/
 # Copied in from the root README when the core package is packed
 packages/core/README.md
+
+.claude/worktrees
