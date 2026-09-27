@@ -1,121 +1,30 @@
 {
-  "name": "@weaveprotocol/core",
-  "version": "0.2.1",
+  "name": "weave",
+  "private": true,
   "type": "module",
-  "description": "Self-sovereign P2P protocol for the browser — identity, schemas, storage, networking, and gossip sync",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/leifriksheim/weave.git"
-  },
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "description": "Weave: the protocol, its CLI and relay, and the apps built on it",
   "workspaces": [
-    "cli"
+    "packages/core",
+    "packages/relay",
+    "packages/cli",
+    "apps/*"
   ],
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
-    "./identity": {
-      "import": "./dist/identity/index.js",
-      "types": "./dist/identity/index.d.ts"
-    },
-    "./schema": {
-      "import": "./dist/schema/index.js",
-      "types": "./dist/schema/index.d.ts"
-    },
-    "./storage": {
-      "import": "./dist/storage/index.js",
-      "types": "./dist/storage/index.d.ts"
-    },
-    "./network": {
-      "import": "./dist/network/index.js",
-      "types": "./dist/network/index.d.ts"
-    },
-    "./sync": {
-      "import": "./dist/sync/index.js",
-      "types": "./dist/sync/index.d.ts"
-    },
-    "./validation": {
-      "import": "./dist/validation/index.js",
-      "types": "./dist/validation/index.d.ts"
-    },
-    "./privacy": {
-      "import": "./dist/privacy/index.js",
-      "types": "./dist/privacy/index.d.ts"
-    },
-    "./node": {
-      "import": "./dist/node/index.js",
-      "types": "./dist/node/index.d.ts"
-    },
-    "./schemas": {
-      "import": "./dist/schemas/index.js",
-      "types": "./dist/schemas/index.d.ts"
-    },
-    "./session": {
-      "import": "./dist/session/index.js",
-      "types": "./dist/session/index.d.ts"
-    },
-    "./elements": {
-      "import": "./dist/elements/index.js",
-      "types": "./dist/elements/index.d.ts"
-    },
-    "./react": {
-      "import": "./dist/react/index.js",
-      "types": "./dist/react/index.d.ts"
-    },
-    "./calls": {
-      "import": "./dist/calls/index.js",
-      "types": "./dist/calls/index.d.ts"
-    },
-    "./doors": {
-      "import": "./dist/doors/index.js",
-      "types": "./dist/doors/index.d.ts"
-    }
-  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "weave": "node --env-file=cli/.env.dev --import tsx cli/src/main.ts",
-    "build": "rm -rf dist && tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "node --experimental-vm-modules --import tsx --test tests/**/*.test.ts",
-    "signal": "node server/signaling-server.mjs",
-    "prepublishOnly": "npm run build",
+    "weave": "node --env-file=packages/cli/.env.dev --conditions=@weaveprotocol/source --import tsx packages/cli/src/main.ts",
+    "signal": "node packages/relay/signaling-server.mjs",
+    "build": "npm run build -w @weaveprotocol/core && npm run bundle -w @weaveprotocol/cli",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
     "release": "node scripts/release.mjs"
   },
   "devDependencies": {
-    "@types/react": "^19.3.0",
-    "@types/ws": "^8.18.1",
     "bumpp": "^12.3.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "ws": "^8.21.3",
-    "zod": "^4.6.5"
+    "typescript": "^5.6.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
-  "license": "MIT",
-  "dependencies": {
-    "@cfworker/json-schema": "^4.1.1",
-    "@noble/curves": "^2.4.0",
-    "@scure/base": "^2.4.0",
-    "aws4fetch": "^1.0.20"
-  },
-  "peerDependencies": {
-    "react": ">=18"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
-  },
-  "publishConfig": {
-    "access": "public"
-  }
+  "license": "MIT"
 }

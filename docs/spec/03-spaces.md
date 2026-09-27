@@ -120,7 +120,7 @@ makes the creator a member.
 *Implementation detail:* with no roles given the `solo` preset is used; with
 roles but no `creatorRole`, the highest-ranked role is the creator's.
 
-*Source: `src/space/space-access.ts` (`spaceGenesis`, `spaceIdOf`, `checkSpace`, `checkStartingRoles`), `src/space/space-manager.ts` (`create`), `src/types.ts` (`Space`). Tests: `tests/space.test.ts`, `tests/space-access.test.ts` ("the space vouches for itself").*
+*Source: `packages/core/src/space/space-access.ts` (`spaceGenesis`, `spaceIdOf`, `checkSpace`, `checkStartingRoles`), `packages/core/src/space/space-manager.ts` (`create`), `packages/core/src/types.ts` (`Space`). Tests: `packages/core/tests/space.test.ts`, `packages/core/tests/space-access.test.ts` ("the space vouches for itself").*
 
 ---
 
@@ -171,7 +171,7 @@ preset's name. *Implementation detail.*
 | `team` | owner 100 `["*"]`; editor 10 `["invite","define"]` | owner |
 | `community` | admin 100 `["*"]`; moderator 50 `["invite","*/*"]`; member 0 `[]` | admin |
 
-*Source: `src/space/roles.ts` (`checkRole`, `permissionMatches`, `roleHolds`), `src/space/presets.ts`, `src/records/rules.ts` (`permissionName`). Tests: `tests/roles.test.ts` ("permissions").*
+*Source: `packages/core/src/space/roles.ts` (`checkRole`, `permissionMatches`, `roleHolds`), `packages/core/src/space/presets.ts`, `packages/core/src/records/rules.ts` (`permissionName`). Tests: `packages/core/tests/roles.test.ts` ("permissions").*
 
 ---
 
@@ -268,7 +268,7 @@ access version from outside (a peer, a folder) unless:
 > free. Only accounts the history has heard of can get anything stored, and
 > "named" only grows, so two peers never disagree for good.
 
-*Source: `src/space/roles.ts` (collection constants), `src/space/space-access.ts` (record keys), `src/node/space-runtime.ts` (`buildEvent`, `loadAccess`, `admissible`). Tests: `tests/space-access.test.ts` ("a stranger who knows the space cannot write in it"), `tests/attacks.test.ts`.*
+*Source: `packages/core/src/space/roles.ts` (collection constants), `packages/core/src/space/space-access.ts` (record keys), `packages/core/src/node/space-runtime.ts` (`buildEvent`, `loadAccess`, `admissible`). Tests: `packages/core/tests/space-access.test.ts` ("a stranger who knows the space cannot write in it"), `packages/core/tests/attacks.test.ts`.*
 
 ---
 
@@ -464,7 +464,7 @@ Alice's removal takes away with author rank 100 (`p1 = −100`); Bob's with rank
 so his removal of Carol is dropped. Every arrival order gives Bob: none,
 Carol: member.
 
-*Source: `src/space/roles.ts` (`replayAccess`, `takesAway`, `mayTakeAway`, `refusal`, `apply`). Tests: `tests/roles.test.ts` (all of "the rank rule", "invites", "offline conflicts"), `tests/key-change.test.ts` ("when a new key is due").*
+*Source: `packages/core/src/space/roles.ts` (`replayAccess`, `takesAway`, `mayTakeAway`, `refusal`, `apply`). Tests: `packages/core/tests/roles.test.ts` (all of "the rank rule", "invites", "offline conflicts"), `packages/core/tests/key-change.test.ts` ("when a new key is due").*
 
 ---
 
@@ -515,7 +515,7 @@ An access record stands when its event's status is `applied`.
 A non-member — including someone holding only a view-only invite — can
 therefore write nothing at all in a space, not even `sys.profile`.
 
-*Source: `src/space/roles.ts` (`judge`), `src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`). Tests: `tests/roles.test.ts` ("records against the history"), `tests/space-access.test.ts` ("who may write", "taking it back"), `tests/rules.test.ts`.*
+*Source: `packages/core/src/space/roles.ts` (`judge`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`). Tests: `packages/core/tests/roles.test.ts` ("records against the history"), `packages/core/tests/space-access.test.ts` ("who may write", "taking it back"), `packages/core/tests/rules.test.ts`.*
 
 ---
 
@@ -547,7 +547,7 @@ it and its keys. Whether a leave must also write the self-removal above is not
 yet specified (§17).
 
 > **Known defect:** the reference leave is local only. It writes no
-> `sys.member` self-removal (`src/node/node.ts`, `spaces.leave`), so the
+> `sys.member` self-removal (`packages/core/src/node/node.ts`, `spaces.leave`), so the
 > space's history still lists the account and no key change becomes due
 > (§9). A fix is expected to write the self-removal.
 > Tracked in [#15](https://github.com/leifriksheim/weave/issues/15).
@@ -591,7 +591,7 @@ versions written under that note that the revoker has seen and wants to stand.
 From the first applied revoke on, every version written under that note
 stands only if kept (§5.1 step 2) — whatever it saw.
 
-*Source: `src/node/space-runtime.ts` (`setMember`, `putRole`, `removeRole`, `revoke`, `keepFrom`), `src/node/node.ts` (`spaces.leave`). Tests: `tests/roles.test.ts` ("handing over…", "a revoked note…"), `tests/space-access.test.ts` ("taking it back").*
+*Source: `packages/core/src/node/space-runtime.ts` (`setMember`, `putRole`, `removeRole`, `revoke`, `keepFrom`), `packages/core/src/node/node.ts` (`spaces.leave`). Tests: `packages/core/tests/roles.test.ts` ("handing over…", "a revoked note…"), `packages/core/tests/space-access.test.ts` ("taking it back").*
 
 ---
 
@@ -628,7 +628,7 @@ view-only invite (§7.5) has no record and cannot be closed; only a key change
 > **Known defect:** deleting an invite record does not close it. A deleted
 > access version yields no event (§3.3), so the invite stays open as of its
 > last undeleted version. `closeInvite` writes `open: false`
-> (`src/node/space-runtime.ts`). Other implementations MUST NOT rely on a
+> (`packages/core/src/node/space-runtime.ts`). Other implementations MUST NOT rely on a
 > deleted invite staying open.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
@@ -735,7 +735,7 @@ A **preview** decodes without storing: `{ space: {id, name, visibility, creator,
 Closing an invite by its link: derive the invite DID from the link's secret
 (§7.1) and close that record.
 
-*Source: `src/space/space-access.ts` (`generateInviteSecret`, `deriveInviteKey`, `signInvite`, `verifyInvite`), `src/space/space-manager.ts` (`encodeSpaceInvite`, `parseSpaceInvite`, `join`), `src/node/space-runtime.ts` (`openInvite`, `closeInvite`, `join`), `src/node/node.ts` (`spaces.invite`, `preview`, `join`, `closeInvite`, `bareInvite`). Tests: `tests/space-access.test.ts` ("the keys", "invites"), `tests/space.test.ts` ("invites"), `tests/roles.test.ts` ("invites").*
+*Source: `packages/core/src/space/space-access.ts` (`generateInviteSecret`, `deriveInviteKey`, `signInvite`, `verifyInvite`), `packages/core/src/space/space-manager.ts` (`encodeSpaceInvite`, `parseSpaceInvite`, `join`), `packages/core/src/node/space-runtime.ts` (`openInvite`, `closeInvite`, `join`), `packages/core/src/node/node.ts` (`spaces.invite`, `preview`, `join`, `closeInvite`, `bareInvite`). Tests: `packages/core/tests/space-access.test.ts` ("the keys", "invites"), `packages/core/tests/space.test.ts` ("invites"), `packages/core/tests/roles.test.ts` ("invites").*
 
 ---
 
@@ -821,12 +821,12 @@ changed value. Inputs longer than 1 000 000 characters are not tried.
 
 ### 8.6 Legacy helpers
 
-`src/privacy/key-distribution.ts` (`wrapSpaceKey` — ECDH + AES-KW, algorithm
-`"ECDH-AES-KW"`) and `src/privacy/privacy-guard.ts` are exported but used by
+`packages/core/src/privacy/key-distribution.ts` (`wrapSpaceKey` — ECDH + AES-KW, algorithm
+`"ECDH-AES-KW"`) and `packages/core/src/privacy/privacy-guard.ts` are exported but used by
 nothing in the node. They are **not** part of the protocol; key distribution is
 §9.
 
-*Source: `src/privacy/space-encryption.ts`, `src/node/space-runtime.ts` (`IN_THE_CLEAR`, `write`, `openBody`), `src/space/space-access.ts` (`deriveReadKey`, `deriveReadSeed`). Tests: `tests/space.test.ts` ("private space expressions"), `tests/space-access.test.ts` ("a view-only invite to a private space reads everything and writes nothing"; the read-key vector).*
+*Source: `packages/core/src/privacy/space-encryption.ts`, `packages/core/src/node/space-runtime.ts` (`IN_THE_CLEAR`, `write`, `openBody`), `packages/core/src/space/space-access.ts` (`deriveReadKey`, `deriveReadSeed`). Tests: `packages/core/tests/space.test.ts` ("private space expressions"), `packages/core/tests/space-access.test.ts` ("a view-only invite to a private space reads everything and writes nothing"; the read-key vector).*
 
 ### 8.7 Planned: what a private space still shows
 
@@ -950,7 +950,7 @@ write, and proves it may read with the newest key it holds (see
 [04](04-network.md)). A view-only invite made before a change carries only the
 old key; its holder is not a reader and gets no box.
 
-*Source: `src/node/space-runtime.ts` (`learnKeys`, `rotateKey`, `boxForMembers`, `upkeep`, `loadMemberKeys`), `src/space/space-access.ts` (`MEMBER_KEY_COLLECTION`, `BOX_COLLECTION`, `boxKey`, `boxContext`, `earlierKeysContext`, `SPACE_KEY_RECORD`), `src/identity/contact-key.ts` (`deriveMemberKeyBytes`, `sealFor`). Tests: `tests/key-change.test.ts`.*
+*Source: `packages/core/src/node/space-runtime.ts` (`learnKeys`, `rotateKey`, `boxForMembers`, `upkeep`, `loadMemberKeys`), `packages/core/src/space/space-access.ts` (`MEMBER_KEY_COLLECTION`, `BOX_COLLECTION`, `boxKey`, `boxContext`, `earlierKeysContext`, `SPACE_KEY_RECORD`), `packages/core/src/identity/contact-key.ts` (`deriveMemberKeyBytes`, `sealFor`). Tests: `packages/core/tests/key-change.test.ts`.*
 
 ---
 
@@ -971,7 +971,7 @@ at most 200 characters, each `name` a string of at most 80 characters, no
 `did` twice, and `copies` is null or an integer 1–16. Only `manage` may set it.
 What keepers do is in [05 — Sync and storage](05-sync-and-storage.md).
 
-*Source: `src/space/roles.ts` (`checkRelays`, `checkKeepers`, `MAX_RELAYS`, `MAX_KEEPERS`), `src/node/space-runtime.ts` (`nameRelays`, `setRelays`, `setKeepers`). Tests: `tests/space-relays.test.ts`, `tests/carrier.test.ts` ("is named a keeper…").*
+*Source: `packages/core/src/space/roles.ts` (`checkRelays`, `checkKeepers`, `MAX_RELAYS`, `MAX_KEEPERS`), `packages/core/src/node/space-runtime.ts` (`nameRelays`, `setRelays`, `setKeepers`). Tests: `packages/core/tests/space-relays.test.ts`, `packages/core/tests/carrier.test.ts` ("is named a keeper…").*
 
 ---
 
@@ -1022,7 +1022,7 @@ agent sessions; a non-member publishes nothing.
 > whether nicknames for people who are not contacts get a collection of their
 > own. `profile:` keys may also change (§8.7).
 
-*Source: `src/node/space-runtime.ts` (`profileKey`, `loadProfiles`, `publishProfile`), `src/node/node.ts` (`publishProfile`). Tests: `tests/profiles.test.ts`, `tests/contacts.test.ts` ("the contact key"), `tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored").*
+*Source: `packages/core/src/node/space-runtime.ts` (`profileKey`, `loadProfiles`, `publishProfile`), `packages/core/src/node/node.ts` (`publishProfile`). Tests: `packages/core/tests/profiles.test.ts`, `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored").*
 
 ---
 
@@ -1043,7 +1043,7 @@ storage adapter (sealed at rest, see [05](05-sync-and-storage.md)):
 `remove` deletes all six. Joining again with a secret while one is waiting
 keeps the newer one.
 
-*Source: `src/space/space-manager.ts`. Tests: `tests/space.test.ts` ("space manager").*
+*Source: `packages/core/src/space/space-manager.ts`. Tests: `packages/core/tests/space.test.ts` ("space manager").*
 
 ---
 
@@ -1098,7 +1098,7 @@ record it. When a space's key changes, a device that learns the new key
 rewrites the membership with an invite carrying it, so new devices join with
 the current key.
 
-*Source: `src/space/account-registry.ts`, `src/node/node.ts` (`memberships`, `remember`, `forget`, `reconcileOnce`, `ownName`). Tests: `tests/node.test.ts` ("the account registry"), `tests/account.test.ts` ("the account name"), `tests/space-access.test.ts` ("invite secrets are never kept").*
+*Source: `packages/core/src/space/account-registry.ts`, `packages/core/src/node/node.ts` (`memberships`, `remember`, `forget`, `reconcileOnce`, `ownName`). Tests: `packages/core/tests/node.test.ts` ("the account registry"), `packages/core/tests/account.test.ts` ("the account name"), `packages/core/tests/space-access.test.ts` ("invite secrets are never kept").*
 
 ---
 
@@ -1130,7 +1130,7 @@ When the account stops using a carrier, it deletes the passes and writes
 reads it forgets everything. The account registry and contacts space are
 passed too.
 
-*Source: `src/space/pass.ts`, `src/node/node.ts` (`syncPasses`, `carriers`). Tests: `tests/carrier.test.ts` ("passes", "a carrier").*
+*Source: `packages/core/src/space/pass.ts`, `packages/core/src/node/node.ts` (`syncPasses`, `carriers`). Tests: `packages/core/tests/carrier.test.ts` ("passes", "a carrier").*
 
 ---
 
@@ -1172,7 +1172,7 @@ not the account; and if `tags` is present, the version's `tags` include one of
 `tags[spaceId]`. *Implementation detail:* the carrier then shows a
 notification with `label`.
 
-*Source: `src/space/notify.ts`, `src/node/node.ts` (`notifications`, `syncPasses`), `src/node/carrier.ts`. Tests: `tests/carrier.test.ts` ("notifications through a carrier").*
+*Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier").*
 
 ---
 
@@ -1274,7 +1274,7 @@ then reject the value unless `invite` parses as an invite (§7.4) to a
 - **others(did)** lists accounts other than the two seen in the space for two
   (members, profiles, connected peers).
 
-*Source: `src/schemas/contacts.ts`, `src/identity/contact-key.ts` (`sealFor`, `openSealed`, `deriveContactKeyBytes`), `src/node/node.ts` (contacts section: `requestContext`, `openRequest`, `contacts`), `src/space/account-registry.ts` (`deriveContactsSpace`). Tests: `tests/contacts.test.ts`, `tests/attacks.test.ts`.*
+*Source: `packages/core/src/schemas/contacts.ts`, `packages/core/src/identity/contact-key.ts` (`sealFor`, `openSealed`, `deriveContactKeyBytes`), `packages/core/src/node/node.ts` (contacts section: `requestContext`, `openRequest`, `contacts`), `packages/core/src/space/account-registry.ts` (`deriveContactsSpace`). Tests: `packages/core/tests/contacts.test.ts`, `packages/core/tests/attacks.test.ts`.*
 
 ---
 

@@ -8,3 +8,5 @@ dist/
 .env.*.local
 # The dev node's throwaway data folder
 .weave-dev/
+# Copied in from the root README when the core package is packed
+packages/core/README.md

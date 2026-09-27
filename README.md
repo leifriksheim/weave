@@ -225,7 +225,7 @@ await calls.answer(ringing.id);  calls.setMuted(true);  await calls.shareScreen(
   servers a relay hands out (see the relay, below), with passwords fresh for
   a while. A call asks for them when it starts.
 
-The messages, and the reasoning, are at the top of `src/calls/calls.ts`.
+The messages, and the reasoning, are at the top of `packages/core/src/calls/calls.ts`.
 
 ### Contacts
 
@@ -403,10 +403,10 @@ An app connected to an account home passes its node instead:
 
 An app does not have to sign anyone in at all. It can ask an **account home** —
 a page, at an address the person chose, that holds their account — for access,
-and never see the seed. `home/` is one, ready to deploy as your own:
+and never see the seed. `apps/home/` is one, ready to deploy as your own:
 
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/leifriksheim/weave&base=home)
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/leifriksheim/weave&root-directory=home)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/leifriksheim/weave&base=apps/home)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/leifriksheim/weave&root-directory=apps/home)
 
 An app connects with `createWeaveConnection` — the twin of `createWeaveAuth`,
 for apps:
@@ -471,7 +471,7 @@ still never holds the seed: it cannot sign in anywhere as the account, change
 its password or passkeys, or keep access past the note's date.
 
 The home side is `receiveConnectRequest()` and `auth.grant(…)`; see
-[home/README.md](home/README.md).
+[apps/home/README.md](apps/home/README.md).
 
 ### Apps hold what they use — keepers hold the rest
 
@@ -914,8 +914,8 @@ Browser-to-browser communication via WebRTC.
 
 #### Signaling relay
 
-`server/relay.mjs` is a dumb relay in a couple hundred lines of Node with no
-dependencies of its own. It runs on its own as `server/signaling-server.mjs`
+`packages/relay/relay.mjs` is a dumb relay in a couple hundred lines of Node with no
+dependencies of its own. It runs on its own as `packages/relay/signaling-server.mjs`
 (an HTTP server and the `ws` library around it), and inside every always-on
 node (`weave serve`), so the two are the same relay. A peer holds one socket and joins a room on it for
 each space, and the relay passes join notices and WebRTC offers, answers and
@@ -949,8 +949,8 @@ tell a Weave peer from anyone else, so set coturn's own quotas (`user-quota`,
 `total-quota`, `max-bps`). TURN only forwards encrypted packets; it can't
 see or hear a call.
 
-The relay's Docker image (`server/`, deployed to Fly) runs coturn beside it when
-`TURN_SECRET` is set, already capped that way: `server/fly.toml` says how.
+The relay's Docker image (`packages/relay/`, deployed to Fly) runs coturn beside it when
+`TURN_SECRET` is set, already capped that way: `packages/relay/fly.toml` says how.
 
 Only peers already in a room hear about a newcomer, so exactly one side creates
 the offer and the two never collide.
@@ -1125,7 +1125,7 @@ const wrap = await wrapSeedWithDeviceKey(seed, deviceKey, { rpId, credentialId }
 await accounts.write(account, withWrap(vault, wrap));
 ```
 
-`deviceWrapsFor(vault, rpId)` says which wraps this origin can even attempt; the rest name keys it cannot reach. The gate is enforced in application code rather than by cryptography — see `src/identity/device-key.ts` for what that does and does not protect against. The recovery code needs no wrap, because it *is* the seed in printable form — it opens the folder anywhere, including on a phone or in a browser with no File System Access API, and it is shown once and stored nowhere.
+`deviceWrapsFor(vault, rpId)` says which wraps this origin can even attempt; the rest name keys it cannot reach. The gate is enforced in application code rather than by cryptography — see `packages/core/src/identity/device-key.ts` for what that does and does not protect against. The recovery code needs no wrap, because it *is* the seed in printable form — it opens the folder anywhere, including on a phone or in a browser with no File System Access API, and it is shown once and stored nowhere.
 
 `createEncryptedAdapter` seals `space:`, `spacekey:`, `spaceinvite:` and `spacerole:` values under the vault key, which is what makes a private space genuinely unreadable to someone holding the folder. It is scoped deliberately narrowly: expressions and index entries pass through, so what stays legible is each record's author, timestamp and collection, plus anything in a space its owner made public. Sealing those too would mean an opaque blob store, which would cost the property that makes a folder worth having.
 
@@ -1199,7 +1199,7 @@ Both sides of a new pair learn of each other at once, so the lower identifier
 offers and the other waits — otherwise every introduction would open two
 connections. After that the mesh introduces itself and the relay can go away.
 
-`server/` has a Dockerfile and a `fly.toml` for running one.
+`packages/relay/` has a Dockerfile and a `fly.toml` for running one.
 
 ### Pairing a phone
 
@@ -1283,11 +1283,11 @@ schema.registerCollection({ name: 'app.example.post', schema: PostSchema });
 
 ## Command line, always-on node, and agents
 
-`cli/` is `weave`: every node operation from a terminal, `weave run` to keep an
+`packages/cli/` is `weave`: every node operation from a terminal, `weave run` to keep an
 account's spaces syncing on a server (browsers connect to it over WebSocket, and
 it doubles as a relay), and `weave mcp` to hand the same operations to an agent.
 It reads and writes the same data folder layout a browser does. See
-[cli/README.md](cli/README.md).
+[packages/cli/README.md](packages/cli/README.md).
 
 **Hosting.** `weave host` keeps many accounts' spaces online without being able
 to read them: it is the extension's carrier (`createCarrierNode`) with one carry
@@ -1312,13 +1312,13 @@ has **Keep my spaces online**.
 
 ## Example app
 
-`example/` is the Weave website — a landing page for developers at `/`, and
+`apps/example/` is the Weave website — a landing page for developers at `/`, and
 why Weave, for people, at `/why` — and, at `/app`, a general-purpose app for your spaces — Vite + React, consuming
-the protocol straight from `src/`. It knows no kinds of data in advance: every
+the protocol straight from `packages/core/src/`. It knows no kinds of data in advance: every
 screen is worked out from what a space says about itself (see *Derived UI* below):
 
 ```bash
-npm install && (cd example && npm install) && (cd home && npm install)   # the CLI is a workspace: the first one installs it
+npm install     # one install for the whole workspace: core, CLI, relay and the apps
 npm run dev
 ```
 
@@ -1328,13 +1328,13 @@ That starts everything, with coloured output per part, and Ctrl-C stops it all:
 |---|---|---|
 | app | http://localhost:5173 | The example app |
 | home | http://localhost:5174 | The account home it connects to |
-| node | port 8787 | An always-on node that is also the relay; a throwaway identity on first run (`cli/.env.dev`, data in `.weave-dev/`) |
-| host | http://localhost:8788 | `weave host`, what "Keep my spaces online" uses, with its pay page at `/pay`; settings in `cli/.env.host.dev` |
+| node | port 8787 | An always-on node that is also the relay; a throwaway identity on first run (`packages/cli/.env.dev`, data in `.weave-dev/`) |
+| host | http://localhost:8788 | `weave host`, what "Keep my spaces online" uses, with its pay page at `/pay`; settings in `packages/cli/.env.host.dev` |
 | stripe | — | Only when you add a Stripe test key (below): forwards Stripe's webhooks to the host |
 
-`example/.env.development` and `home/.env.development` point the app and home
+`apps/example/.env.development` and `apps/home/.env.development` point the app and home
 at the rest. Override any of them in a `.env.local`, and the host in
-`cli/.env.host.local`.
+`packages/cli/.env.host.local`.
 
 **Trying hosting and payments.** In the home: Settings, **Keep my spaces
 online**, **Keep online** (the dev host is filled in), then **Payment**, which
@@ -1346,8 +1346,8 @@ opens the host's pay page in a new tab. What you can pay with there:
   USDC from faucet.circle.com (choose Base Sepolia). Pay, and the pay page
   says "Payment received"; back in the home's tab, the host shows "paid until"
   and takes your spaces. To see payments arrive, set your own address as
-  `WEAVE_WALLET_ADDRESS` in `cli/.env.host.local`.
-- **A card, in Stripe's test mode.** In `cli/.env.host.local`, add
+  `WEAVE_WALLET_ADDRESS` in `packages/cli/.env.host.local`.
+- **A card, in Stripe's test mode.** In `packages/cli/.env.host.local`, add
   `STRIPE_SECRET_KEY=sk_test_…` and the price ids of a monthly and a yearly
   recurring test price (`STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY`, from the Stripe
   dashboard in test mode). With the Stripe CLI installed, `npm run dev`
@@ -1355,7 +1355,7 @@ opens the host's pay page in a new tab. What you can pay with there:
   4242 4242 4242 4242, any future date, any CVC.
 - **Phone wallets, by QR code.** Add `WEAVE_WALLETCONNECT_PROJECT_ID` (free at
   dashboard.reown.com, with localhost allowed in the project) to
-  `cli/.env.host.local`; `npm run dev` builds what the pay page needs. The
+  `packages/cli/.env.host.local`; `npm run dev` builds what the pay page needs. The
   wallet has to be on Base Sepolia too.
 
 `npm test` covers the same paths without any of this: a fake network, fake
@@ -1374,7 +1374,7 @@ npm run weave -- records list --space <id>
 
 Close every browser holding the space, open the link somewhere else, and the
 records come from the node. Or make the node your own account's — see
-[cli/README.md](cli/README.md) — and it serves every space you make, unasked.
+[packages/cli/README.md](packages/cli/README.md) — and it serves every space you make, unasked.
 
 Between them they exercise the stack end to end. At the home: choose where
 your data lives (a pod, or this browser), create an account (a password your
@@ -1402,7 +1402,7 @@ for fixed ones, and `x-choicesFrom: { rel: 'about', field: 'options' }` for a
 field that picks from a list in the linked record — so a vote stored as `1`
 shows as "Lisbon", its form offers the poll's options, and the poll shows a
 tally. The helpers that work this out are pure functions
-(`example/src/derive/schema-ui.ts`), with nothing DOM-specific in them. An
+(`apps/example/src/derive/schema-ui.ts`), with nothing DOM-specific in them. An
 empty space offers a small "define a collection" form; an agent can do the
 same over WebMCP.
 
@@ -1419,7 +1419,7 @@ above everything that changes as you move around.
 
 **Agents in the browser (WebMCP).** When `/app` loads, it registers
 every node operation as a WebMCP tool on `document.modelContext`
-(`example/src/webmcp.ts`, with `@mcp-b/webmcp-polyfill`: Chrome's own WebMCP
+(`apps/example/src/webmcp.ts`, with `@mcp-b/webmcp-polyfill`: Chrome's own WebMCP
 when present, a polyfill otherwise). A browser agent or extension sees the same
 tools as the CLI and `weave mcp` — `spaces_list`, `records_query`,
 `records_put`, `apps_propose`… — and works as the person, with nothing to
@@ -1439,7 +1439,7 @@ agent", in the account menu, shows one command:
 the tab through the relay, and the person allows it at their account home,
 which signs an agent's note for the whole account, for as long as they chose.
 Everything said on the way is sealed with a key from the code, so the relay
-learns nothing (`src/session/agent-link.ts`). The command then adds `weave` to
+learns nothing (`packages/core/src/session/agent-link.ts`). The command then adds `weave` to
 the agents it finds, and they start `weave mcp` themselves: a node of its own,
 over WebRTC (`node-datachannel`), that follows the account and keeps working
 with every tab closed. What it writes shows "via agent", and every peer
@@ -1458,14 +1458,35 @@ What the protocol still has planned is in [the spec](docs/spec/README.md), under
 - **Typed collections.** One TypeScript builder that emits the schema, the
   rules and the types, and typed handles (`node.use(space, Poll)`).
 - **Definitions that update themselves.** `useSchemas` and `addApp` applying
-  harmless changes, with `differences()` in `src/schemas/apps.ts` replaced by
+  harmless changes, with `differences()` in `packages/core/src/schemas/apps.ts` replaced by
   the planned `compare` ([02](docs/spec/02-records.md), compatible definitions).
 - **Web components** for the standard schemas.
 
+## Repository layout
+
+One npm workspace, installed once at the root (`npm install`):
+
+| Folder | Package | |
+|---|---|---|
+| `packages/core` | `@weaveprotocol/core` (published) | The protocol library, and its tests |
+| `packages/cli` | `@weaveprotocol/cli` (published) | `weave`: the always-on node, hosting, agents, MCP |
+| `packages/relay` | `@weaveprotocol/relay` (private) | The signaling relay and its mailbox, run alone on Fly and inside every node |
+| `apps/home` | — | The account home |
+| `apps/example` | — | The website and the example app |
+| `apps/extension` | — | The Chrome extension |
+| `docs/spec` | — | The protocol specification |
+
+Everything imports the protocol by name, `@weaveprotocol/core`, and only
+through what it exports. Inside the workspace, the `@weaveprotocol/source`
+export condition resolves those imports to `packages/core/src`, so the apps,
+the CLI and the tests run on the source with no build step; published copies
+use `dist`. The CLI bundles the protocol and the relay into one file, so
+`npx @weaveprotocol/cli` and the single-file binaries need nothing else.
+
 ## Releasing
 
-`@weaveprotocol/core` (this folder) and `@weaveprotocol/cli` (`cli/`, an npm
-workspace) are released together, always with the same version:
+`@weaveprotocol/core` (`packages/core/`) and `@weaveprotocol/cli`
+(`packages/cli/`) are released together, always with the same version:
 
 ```bash
 npm run release
@@ -1487,7 +1508,8 @@ yet and publishes what's missing, instead of bumping again. `npm run release
 ## Tests
 
 ```bash
-npm test
+npm test        # every workspace: core's tests, then the CLI's
+npm run typecheck
 ```
 
 Covers key derivation — checked against the public keys Web Crypto generates

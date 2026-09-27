@@ -10,7 +10,7 @@
  * 2. checks npm knows who you are, and runs `npm login` if not — before
  *    anything is changed;
  * 3. typechecks and tests;
- * 4. looks at npm: if the version in package.json isn't published yet (an
+ * 4. looks at npm: if the packages' version isn't published yet (an
  *    earlier release stopped after bumping), it releases that version as it
  *    stands; otherwise it asks bumpp for the next one (commit + tag, local);
  * 5. publishes each package not yet on npm at that version — so a publish that
@@ -25,8 +25,8 @@ import { readFileSync } from 'node:fs';
 
 const dryRun = process.argv.includes('--dry-run');
 const PACKAGES = [
-  { name: '@weaveprotocol/core', dir: '.', publish: ['publish'] },
-  { name: '@weaveprotocol/cli', dir: 'cli', publish: ['publish', '--workspace', 'cli'] },
+  { name: '@weaveprotocol/core', manifest: 'packages/core/package.json' },
+  { name: '@weaveprotocol/cli', manifest: 'packages/cli/package.json' },
 ];
 
 /** Runs a command where you can see it (and answer it: login, OTP); throws if it fails */
@@ -45,7 +45,8 @@ function read(command, args) {
   }
 }
 
-const version = () => JSON.parse(readFileSync('package.json', 'utf8')).version;
+const versionOf = (manifest) => JSON.parse(readFileSync(manifest, 'utf8')).version;
+const version = () => versionOf(PACKAGES[0].manifest);
 const published = (name, v) => read('npm', ['view', `${name}@${v}`, 'version']) === v;
 
 function main() {
@@ -73,8 +74,10 @@ function main() {
   const missing = PACKAGES.filter((pkg) => !published(pkg.name, v));
   if (missing.length > 0) {
     console.log(`\n${v} isn't fully on npm yet (${missing.map((pkg) => pkg.name).join(', ')}): releasing it as it stands.`);
-    const cli = JSON.parse(readFileSync('cli/package.json', 'utf8')).version;
-    if (cli !== v) throw new Error(`package.json says ${v} but cli/package.json says ${cli}. Make them match first.`);
+    for (const pkg of PACKAGES) {
+      const own = versionOf(pkg.manifest);
+      if (own !== v) throw new Error(`${PACKAGES[0].manifest} says ${v} but ${pkg.manifest} says ${own}. Make them match first.`);
+    }
     const tagged = read('git', ['rev-list', '-n', '1', `v${v}`]);
     const head = read('git', ['rev-parse', 'HEAD']);
     if (!tagged) {
@@ -99,7 +102,7 @@ function main() {
       console.log(`\n${pkg.name}@${v} is already on npm.`);
       continue;
     }
-    run('npm', [...pkg.publish, ...(dryRun ? ['--dry-run'] : [])]);
+    run('npm', ['publish', '--workspace', pkg.name, ...(dryRun ? ['--dry-run'] : [])]);
   }
 
   // 6. Only now does anything leave this machine.

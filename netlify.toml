@@ -1,9 +1,8 @@
-# Netlify installs dependencies at the repo root only. The example has its own
-# package.json, so install it too; the root install covers ../src, which the
-# example compiles straight from source.
+# The example app, from the repository root. One install covers the whole
+# workspace; the example compiles the protocol from packages/core/src.
 [build]
-  command = "npm ci --prefix example && npm run build --prefix example"
-  publish = "example/dist"
+  command = "npm ci && npm run build -w apps/example"
+  publish = "apps/example/dist"
 
 [build.environment]
   NODE_VERSION = "22"

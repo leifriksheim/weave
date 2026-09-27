@@ -54,10 +54,10 @@ in [04 — Network](04-network.md). This part only moves and keeps versions.
 
 > Rationale: cost follows the difference, not the size. Two stores of 2,000
 > versions that differ by one exchange under 8 KB in total
-> (`tests/reconcile.test.ts`).
+> (`packages/core/tests/reconcile.test.ts`).
 
-*Source: `src/sync/sync-engine.ts`, `src/sync/negentropy.ts`. Tests:
-`tests/reconcile.test.ts`, `tests/sync.test.ts`.*
+*Source: `packages/core/src/sync/sync-engine.ts`, `packages/core/src/sync/negentropy.ts`. Tests:
+`packages/core/tests/reconcile.test.ts`, `packages/core/tests/sync.test.ts`.*
 
 ---
 
@@ -85,9 +85,9 @@ Example: the version id
 `baeaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` has the item id
 `01 00 00 … 00` (0x01 followed by 31 zero bytes).
 
-*Source: `src/storage/storage-provider.ts` (`syncTime`, `parseItemKey`),
-`src/utils/hash.ts` (`cidDigest`, `cidOfDigest`). Tests:
-`tests/reconcile.test.ts` ("content ids as Negentropy ids").*
+*Source: `packages/core/src/storage/storage-provider.ts` (`syncTime`, `parseItemKey`),
+`packages/core/src/utils/hash.ts` (`cidDigest`, `cidOfDigest`). Tests:
+`packages/core/tests/reconcile.test.ts` ("content ids as Negentropy ids").*
 
 ---
 
@@ -95,7 +95,7 @@ Example: the version id
 
 This is Negentropy protocol version 1 as Nostr uses it (NIP-77), ported from
 Doug Hoyte's reference implementation. It is byte-for-byte compatible with
-the reference: `tests/reconcile.test.ts` pins a 40-item vector produced by
+the reference: `packages/core/tests/reconcile.test.ts` pins a 40-item vector produced by
 `hoytech/negentropy`'s JavaScript implementation.
 
 ### 3.1 Varints
@@ -232,7 +232,7 @@ With 40 items, A's first message instead starts
 1700000003 (encoded 1700000004), empty prefix, mode Fingerprint — the first of
 16 buckets.
 
-*Source: `src/sync/negentropy.ts`. Tests: `tests/reconcile.test.ts`
+*Source: `packages/core/src/sync/negentropy.ts`. Tests: `packages/core/tests/reconcile.test.ts`
 ("Negentropy": reference vector, exact have/need, equal sets, frame limit,
 malformed input, sums).*
 
@@ -346,8 +346,8 @@ know it is done.
 > (CBOR, or a fixed layout for `reconcile`/`reconciled` only), and whether
 > versions inside `versions` stay JSON.
 
-*Source: `src/sync/sync-messages.ts`, `src/sync/sync-engine.ts`. Tests:
-`tests/reconcile.test.ts`, `tests/sync.test.ts`.*
+*Source: `packages/core/src/sync/sync-messages.ts`, `packages/core/src/sync/sync-engine.ts`. Tests:
+`packages/core/tests/reconcile.test.ts`, `packages/core/tests/sync.test.ts`.*
 
 ---
 
@@ -370,8 +370,8 @@ see [03 — Spaces](03-spaces.md)).
 Which collections a node chooses to hold is the node's own choice; how this
 implementation chooses is in §9.
 
-*Source: `src/sync/sync-engine.ts` (`Holds`, `holdsCollection`, `readHolds`).
-Tests: `tests/reconcile.test.ts` ("holding part of a space").*
+*Source: `packages/core/src/sync/sync-engine.ts` (`Holds`, `holdsCollection`, `readHolds`).
+Tests: `packages/core/tests/reconcile.test.ts` ("holding part of a space").*
 
 ---
 
@@ -455,7 +455,7 @@ An unanswered `want` is meant to be dropped the same way; how long to wait is
 not yet specified (§18).
 
 > **Known defect:** the heartbeat sweep drops stale sessions but never
-> unanswered `want`s (`src/sync/sync-engine.ts`, `sweep`). A `want` whose
+> unanswered `want`s (`packages/core/src/sync/sync-engine.ts`, `sweep`). A `want` whose
 > answer is lost keeps the peer in flight, so it never becomes `synced`
 > (§6.5) until it disconnects. A fix will sweep stale `want`s too.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
@@ -472,7 +472,7 @@ Not yet specified: how a responder reports a `reconcile` whose `message` it
 cannot parse (§18).
 
 > **Known defect:** a responder that cannot parse a `reconcile` sends no reply
-> at all (`src/sync/sync-engine.ts`, `onReconcile`), so the initiator waits
+> at all (`packages/core/src/sync/sync-engine.ts`, `onReconcile`), so the initiator waits
 > until its session goes stale after 30 s (§6.3). A fix will answer at once.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
@@ -511,9 +511,9 @@ A (initiator: its DID sorts first)                       B
    ── hello {sums, reply:true} ──────────────────────────▶    A is level on app.note
 ```
 
-*Source: `src/sync/sync-engine.ts`, `src/node/space-runtime.ts` (wiring:
-heartbeat, `announceSoon`, peer connect). Tests: `tests/reconcile.test.ts`
-("sync by reconciliation"), `tests/sync.test.ts`.*
+*Source: `packages/core/src/sync/sync-engine.ts`, `packages/core/src/node/space-runtime.ts` (wiring:
+heartbeat, `announceSoon`, peer connect). Tests: `packages/core/tests/reconcile.test.ts`
+("sync by reconciliation"), `packages/core/tests/sync.test.ts`.*
 
 ---
 
@@ -528,8 +528,8 @@ A receiver treats the pushed version exactly like one in `versions` (§8),
 including answering with `stored` when it takes it in. A push that is lost is
 not retried: the next hello finds the difference.
 
-*Source: `src/sync/sync-engine.ts` (`onLocalChange`). Tests:
-`tests/sync.test.ts` ("pushes a local change to a peer").*
+*Source: `packages/core/src/sync/sync-engine.ts` (`onLocalChange`). Tests:
+`packages/core/tests/sync.test.ts` ("pushes a local change to a peer").*
 
 ---
 
@@ -553,7 +553,7 @@ The gatekeeper gives one of three answers:
 > Rationale: a refusal is keyed on peer and id, not id alone. A version id
 > does not cover the signature, so a stranger's mangled copy shares the real
 > version's id; refusing the id outright would stop the node fetching the
-> genuine one from someone else (`tests/attacks.test.ts`).
+> genuine one from someone else (`packages/core/tests/attacks.test.ts`).
 
 A batch of versions (one `versions` or `push-update`) is taken in this order:
 
@@ -583,10 +583,10 @@ taken. A `versions` without `id` is limited to its first 200 entries.
 > nothing a removed member wrote after the removal is taken in anywhere. The
 > gatekeeper and the `later` retry above are what it exercises.
 
-*Source: `src/sync/sync-engine.ts` (`admit`, `admitAll`, `retryWaiting`),
-`src/node/space-runtime.ts` (`admit`). Tests: `tests/sync.test.ts` (forged
-expression, no capability, schema), `tests/reconcile.test.ts` ("a refused
-version is not asked for again"), `tests/attacks.test.ts`.*
+*Source: `packages/core/src/sync/sync-engine.ts` (`admit`, `admitAll`, `retryWaiting`),
+`packages/core/src/node/space-runtime.ts` (`admit`). Tests: `packages/core/tests/sync.test.ts` (forged
+expression, no capability, schema), `packages/core/tests/reconcile.test.ts` ("a refused
+version is not asked for again"), `packages/core/tests/attacks.test.ts`.*
 
 ---
 
@@ -639,9 +639,9 @@ Implementation detail — the state is kept in the space's own store (§12):
 Completeness rests on trust: a keeper that withholds versions, or a peer
 holding `"all"` that lost some, still counts as level. A reader cannot tell.
 
-*Source: `src/node/space-runtime.ts` ("Holding part of the space"),
-`src/node/types.ts` (`CacheConfig`), `src/space/roles.ts` (`Keeper`,
-`checkKeepers`). Tests: `tests/caches.test.ts`, `tests/reconcile.test.ts`
+*Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"),
+`packages/core/src/node/types.ts` (`CacheConfig`), `packages/core/src/space/roles.ts` (`Keeper`,
+`checkKeepers`). Tests: `packages/core/tests/caches.test.ts`, `packages/core/tests/reconcile.test.ts`
 ("holding part of a space").*
 
 ### 9.1 Planned: completeness from signed writer logs
@@ -769,8 +769,8 @@ detail*).
 The store's overall **fingerprint** (for status and tests) is the §3.3
 fingerprint of the sum of every collection's sum, as hex.
 
-*Source: `src/storage/storage-provider.ts`, `src/records/version.ts`. Tests:
-`tests/versions.test.ts` ("a store of versions"), `tests/reconcile.test.ts`
+*Source: `packages/core/src/storage/storage-provider.ts`, `packages/core/src/records/version.ts`. Tests:
+`packages/core/tests/versions.test.ts` ("a store of versions"), `packages/core/tests/reconcile.test.ts`
 ("a superseded version leaves the set", "a store written by someone else is
 read again once told").*
 
@@ -797,8 +797,8 @@ The store runs over an adapter with this contract (all methods async):
 Entry keys are strings; values are bytes. Adapters: IndexedDB (§13), data
 folder (§14), the sealing wrapper (§15), and an in-memory one for tests.
 
-*Source: `src/types.ts` (`StorageAdapter`, `BatchOp`). Tests:
-`tests/folder-adapter.test.ts`, `tests/helpers/memory-adapter.ts`.*
+*Source: `packages/core/src/types.ts` (`StorageAdapter`, `BatchOp`). Tests:
+`packages/core/tests/folder-adapter.test.ts`, `packages/core/tests/helpers/memory-adapter.ts`.*
 
 ---
 
@@ -837,10 +837,10 @@ Forgetting a space deletes all six.
   folder; the `registry` store wrapped by the sealing adapter under the
   account's vault key.
 
-*Source: `src/node/stores.ts`, `src/session/places.ts` (`storesFor`),
-`src/space/space-manager.ts`, `src/node/node.ts`, `src/node/space-runtime.ts`.
-Tests: `tests/account-vault.test.ts` ("encryption at rest"),
-`tests/node.test.ts`.*
+*Source: `packages/core/src/node/stores.ts`, `packages/core/src/session/places.ts` (`storesFor`),
+`packages/core/src/space/space-manager.ts`, `packages/core/src/node/node.ts`, `packages/core/src/node/space-runtime.ts`.
+Tests: `packages/core/tests/account-vault.test.ts` ("encryption at rest"),
+`packages/core/tests/node.test.ts`.*
 
 ---
 
@@ -864,7 +864,7 @@ Accounts kept in a browser live in database `weave-accounts`, object store
 lives in database `weave-folder`, object store `handles`, key `data-folder`
 (§14.7).
 
-*Source: `src/storage/indexeddb-adapter.ts`, `src/storage/directory-access.ts`.
+*Source: `packages/core/src/storage/indexeddb-adapter.ts`, `packages/core/src/storage/directory-access.ts`.
 Tests: none directly (the adapter needs a browser).*
 
 ---
@@ -982,10 +982,10 @@ user gesture. The handle is remembered in IndexedDB (§13); on a later visit
 Browsers without the API (Firefox, Safari, mobile) keep data in IndexedDB
 instead.
 
-*Source: `src/storage/folder-adapter.ts`, `src/storage/folder-reconcile.ts`,
-`src/storage/directory-access.ts`, `src/identity/account-store.ts`,
-`cli/src/fs-directory.ts`, `src/node/space-runtime.ts` (watch loop). Tests:
-`tests/folder-adapter.test.ts`, `tests/path-safety.test.ts`.*
+*Source: `packages/core/src/storage/folder-adapter.ts`, `packages/core/src/storage/folder-reconcile.ts`,
+`packages/core/src/storage/directory-access.ts`, `packages/core/src/identity/account-store.ts`,
+`packages/cli/src/fs-directory.ts`, `packages/core/src/node/space-runtime.ts` (watch loop). Tests:
+`packages/core/tests/folder-adapter.test.ts`, `packages/cli/tests/path-safety.test.ts`.*
 
 ---
 
@@ -1018,15 +1018,15 @@ Every registry entry of §12 that belongs to one space is meant to be sealed,
 including `spacememberkey:` and `spacerelays:`.
 
 > **Known defect:** the sealing adapter's default prefixes leave out
-> `spacememberkey:` and `spacerelays:` (`src/storage/encrypted-adapter.ts`,
+> `spacememberkey:` and `spacerelays:` (`packages/core/src/storage/encrypted-adapter.ts`,
 > `DEFAULT_ENCRYPTED_PREFIXES`). So a copied data folder exposes each space's
 > member key in the clear — the key new space keys are sealed to (`sys.box`,
 > [03](03-spaces.md)) — and the space's relays. A fix will seal both. Other
 > implementations SHOULD NOT copy this.
 > Tracked in [#16](https://github.com/leifriksheim/weave/issues/16).
 
-*Source: `src/storage/encrypted-adapter.ts`, `src/node/stores.ts`. Tests:
-`tests/account-vault.test.ts` ("encryption at rest").*
+*Source: `packages/core/src/storage/encrypted-adapter.ts`, `packages/core/src/node/stores.ts`. Tests:
+`packages/core/tests/account-vault.test.ts` ("encryption at rest").*
 
 ---
 
@@ -1131,10 +1131,10 @@ delete the old ones. A reader in between sees duplicates, which are harmless.
 **Deleting a space** from a blob store deletes every key under
 `<space id>/`.
 
-*Source: `src/storage/blob-store.ts`, `src/storage/blob/memory.ts`,
-`src/storage/blob/s3.ts`, `src/storage/segment.ts`, `src/storage/mirror.ts`,
-`src/node/space-runtime.ts` ("Mirrors"), `src/node/host.ts`. Tests:
-`tests/mirror.test.ts`.*
+*Source: `packages/core/src/storage/blob-store.ts`, `packages/core/src/storage/blob/memory.ts`,
+`packages/core/src/storage/blob/s3.ts`, `packages/core/src/storage/segment.ts`, `packages/core/src/storage/mirror.ts`,
+`packages/core/src/node/space-runtime.ts` ("Mirrors"), `packages/core/src/node/host.ts`. Tests:
+`packages/core/tests/mirror.test.ts`.*
 
 ### 16.5 Planned: mirrors in your own storage
 

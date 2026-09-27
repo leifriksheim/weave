@@ -1,0 +1,62 @@
+import { defaultClientConditions, defineConfig, loadEnv } from 'vite';
+import react from '@vitejs/plugin-react';
+import type { Plugin } from 'vite';
+
+/**
+ * Security headers for the deployed home (Netlify's `_headers`; vercel.json
+ * sets the same).
+ *
+ * This page holds the account's seed while it signs, so a script that should
+ * not be here is a stolen account. The policy allows only this site's own
+ * scripts, and connections only to the relays, nodes and host the build was
+ * configured with. `frame-ancestors 'none'`: the home opens as a window of its
+ * own, never inside another site.
+ */
+function securityHeaders(mode: string): Plugin {
+  const env = loadEnv(mode, process.cwd(), 'VITE_');
+  const configured = [env.VITE_SIGNALING_URL ?? '', env.VITE_WEAVE_NODES ?? '']
+    .flatMap((list) => list.split(','))
+    .map((url) => url.trim())
+    .filter(Boolean)
+    .map((url) => new URL(url).origin.replace(/^http/, 'ws'));
+  // The host the home offers under "Keep my spaces online": its API is plain https.
+  const host = env.VITE_WEAVE_HOST ? [new URL(env.VITE_WEAVE_HOST).origin] : [];
+  const connect = [...new Set(["'self'", ...configured, ...host, 'ws://localhost:*', 'ws://127.0.0.1:*'])];
+  const policy = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    'font-src https://fonts.gstatic.com',
+    "img-src 'self' data: blob:",
+    `connect-src ${connect.join(' ')}`,
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+  ].join('; ');
+  return {
+    name: 'security-headers',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: '_headers',
+        source: ['/*', `  Content-Security-Policy: ${policy}`, '  Referrer-Policy: no-referrer', '  X-Content-Type-Options: nosniff', ''].join('\n'),
+      });
+    },
+  };
+}
+
+/**
+ * The protocol comes from the workspace, as source: the `@weaveprotocol/source`
+ * export condition points each entry at `packages/core/src`, so there is no
+ * build step and edits there hot-reload here.
+ */
+export default defineConfig(({ mode }) => ({
+  resolve: {
+    conditions: ['@weaveprotocol/source', ...defaultClientConditions],
+    dedupe: ['react', 'react-dom'],
+  },
+  plugins: [securityHeaders(mode), react()],
+  server: { port: 5174 },
+}));

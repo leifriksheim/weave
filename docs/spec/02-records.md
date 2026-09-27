@@ -77,7 +77,7 @@ sorts before lower case.)
 > independent writers produce the same bytes. Reusing ECMAScript's number and
 > string output means a browser gets it from `JSON.stringify` for free.
 
-*Source: `src/schema/expression.ts` (`canonicalize`). Tests: `tests/validation.test.ts`, `tests/versions.test.ts` (ids and signatures depend on it throughout).*
+*Source: `packages/core/src/schema/expression.ts` (`canonicalize`). Tests: `packages/core/tests/validation.test.ts`, `packages/core/tests/versions.test.ts` (ids and signatures depend on it throughout).*
 
 ---
 
@@ -109,7 +109,7 @@ CIDv1: there is no version, codec or multihash prefix before the digest.
 Example: `bh7mi3b35uek5zf46drxzvkhqopnu3z2y3dp3r6din5zfbubiro2a` (the id of the
 expression in §3.4).
 
-*Source: `src/utils/hash.ts` (`cidFromBytes`, `cidDigest`, `cidOfDigest`, `base32Encode`, `base32Decode`), `src/schema/expression.ts` (`getExpressionId`). Tests: `tests/validation.test.ts` ("rejects an id that does not match the content"), `tests/sync.test.ts`.*
+*Source: `packages/core/src/utils/hash.ts` (`cidFromBytes`, `cidDigest`, `cidOfDigest`, `base32Encode`, `base32Decode`), `packages/core/src/schema/expression.ts` (`getExpressionId`). Tests: `packages/core/tests/validation.test.ts` ("rejects an id that does not match the content"), `packages/core/tests/sync.test.ts`.*
 
 ---
 
@@ -227,7 +227,7 @@ Member order on the wire is irrelevant. The id is reproducible from the
 canonical text above; the signature is not (ECDSA uses a fresh nonce), but any
 valid signature verifies.
 
-*Source: `src/types.ts` (`Expression`, `UnsignedExpression`, `Link`), `src/schema/expression.ts` (`createExpression`, `signedPart`, `getExpressionId`, `serializeExpression`), `src/schema/signer.ts`, `src/validation/crypto-gate.ts`. Tests: `tests/validation.test.ts` ("crypto gate"), `tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `tests/links.test.ts` ("links are signed"), `tests/attacks.test.ts` ("a stranger sending a mangled copy first…").*
+*Source: `packages/core/src/types.ts` (`Expression`, `UnsignedExpression`, `Link`), `packages/core/src/schema/expression.ts` (`createExpression`, `signedPart`, `getExpressionId`, `serializeExpression`), `packages/core/src/schema/signer.ts`, `packages/core/src/validation/crypto-gate.ts`. Tests: `packages/core/tests/validation.test.ts` ("crypto gate"), `packages/core/tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `packages/core/tests/links.test.ts` ("links are signed"), `packages/core/tests/attacks.test.ts` ("a stranger sending a mangled copy first…").*
 
 ---
 
@@ -291,7 +291,7 @@ the one no other held version supersedes.
 > **Known defect:** readers never check `prev` and accept `seq` gaps, so a
 > writer allowed to edit a record can skip to any higher `seq` and win under
 > this rule. Nothing in the reference implementation reads `prev`
-> (`src/records/version.ts`). A fix will bind a later version to the version
+> (`packages/core/src/records/version.ts`). A fix will bind a later version to the version
 > it names in `prev`; other implementations MUST NOT rely on gaps being accepted.
 > Planned in §4.7.
 > Tracked in [#14](https://github.com/leifriksheim/weave/issues/14).
@@ -365,7 +365,7 @@ Checks that depend on what else a peer holds are **not** shape checks:
 *Not yet specified:* whether `prev` must name a held version, and whether a
 `seq` may skip. See the known defect in §4.3, and the plan in §4.7.
 
-*Source: `src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `RECORD_KEY_PATTERN`, `MAX_SEEN`), `src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepOrDrop`), `src/node/space-runtime.ts` (`firstOf`, `consistent`, `write`, `after`). Tests: `tests/versions.test.ts` (all), `tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first").*
+*Source: `packages/core/src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `RECORD_KEY_PATTERN`, `MAX_SEEN`), `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepOrDrop`), `packages/core/src/node/space-runtime.ts` (`firstOf`, `consistent`, `write`, `after`). Tests: `packages/core/tests/versions.test.ts` (all), `packages/core/tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first").*
 
 ### 4.7 Planned: versions whose history can be checked
 
@@ -500,7 +500,7 @@ a record on arrival** (§9.6): whether a link conforms depends on which
 definition and which target a peer holds. A writer SHOULD NOT write links that
 do not conform; the reference node refuses to.
 
-*Source: `src/records/links.ts` (`checkLinks`, `LINK_REL_PATTERN`, `MAX_LINKS`, `LinkDeclaration`), `src/node/space-runtime.ts` (`openBody`, `linkIssues`, `write`). Tests: `tests/links.test.ts` (all).*
+*Source: `packages/core/src/records/links.ts` (`checkLinks`, `LINK_REL_PATTERN`, `MAX_LINKS`, `LinkDeclaration`), `packages/core/src/node/space-runtime.ts` (`openBody`, `linkIssues`, `write`). Tests: `packages/core/tests/links.test.ts` (all).*
 
 ---
 
@@ -663,7 +663,7 @@ while its collection still has records.
 - Any other name is the space's to use. Records in a collection nobody has
   defined are still stored and synced; they simply have no schema or rules.
 
-*Source: `src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `validateJsonSchema`, `toJsonSchema`, `asStandardSchema`, `MAX_SCREEN_BYTES`), `src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`, `define`, `undefine`), `src/space/roles.ts` (`definition` events). Tests: `tests/space-catalog.test.ts` (all), `tests/schemas.test.ts` ("schemas from a validator you already use"), `tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write").*
+*Source: `packages/core/src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `validateJsonSchema`, `toJsonSchema`, `asStandardSchema`, `MAX_SCREEN_BYTES`), `packages/core/src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`, `define`, `undefine`), `packages/core/src/space/roles.ts` (`definition` events). Tests: `packages/core/tests/space-catalog.test.ts` (all), `packages/core/tests/schemas.test.ts` ("schemas from a validator you already use"), `packages/core/tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write").*
 
 ### 6.5 Planned: compatible definitions
 
@@ -908,7 +908,7 @@ key    = "one:" ‖ lowercase-hex( digest[0..20) )     // 44 characters
 and gives `field=null`.
 
 > **Known defect:** the reference writes `JSON(v)` with `JSON.stringify`, not
-> canonical JSON (`src/records/rules.ts`, `onePerKey`). For a string, number,
+> canonical JSON (`packages/core/src/records/rules.ts`, `onePerKey`). For a string, number,
 > boolean or `null` the two agree. For an object or array, `JSON.stringify`
 > keeps the member order of the parsed object, so the key depends on member
 > order. A fix will use canonical JSON; until then, use scalar fields.
@@ -974,7 +974,7 @@ canonical JSON (§1), with "absent" equal to "absent" — when it can read both
 bodies.
 
 > **Known defect:** the reference compares `JSON.stringify` output, not
-> canonical JSON (`src/records/rules.ts`, `changedFixedField`), so an object-
+> canonical JSON (`packages/core/src/records/rules.ts`, `changedFixedField`), so an object-
 > or array-valued field whose members are reordered counts as changed. A fix
 > will compare canonical JSON.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
@@ -990,7 +990,7 @@ invalid (§6.1).
 > (`creator`) or a permission a person decided (`can:…`). "Did a person have to
 > decide it?" is the test for which one to use.
 
-*Source: `src/records/rules.ts` (`checkRules`, `allows`, `onePerKey`, `changedFixedField`, `permissionName`, `PERMISSION_PATTERN`), `src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`, `mayNow`, `put`). Tests: `tests/rules.test.ts` (all), `tests/schemas.test.ts` ("a poll: one vote per person…").*
+*Source: `packages/core/src/records/rules.ts` (`checkRules`, `allows`, `onePerKey`, `changedFixedField`, `permissionName`, `PERMISSION_PATTERN`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`, `mayNow`, `put`). Tests: `packages/core/tests/rules.test.ts` (all), `packages/core/tests/schemas.test.ts` ("a poll: one vote per person…").*
 
 ---
 
@@ -1063,7 +1063,7 @@ To ask a keeper for records on a topic, a reader computes the tag the same way
 > Rationale: a blind index (as in CipherSweet) — equality only, never ranges or
 > substrings. The keeper learns co-occurrence and frequency, nothing more.
 
-*Source: `src/records/topics.ts` (`checkTopics`, `topicValues`, `topicKey`, `topicTag`, `tagsFor`, `sameTags`, `MAX_TOPICS`, `MAX_TAGS`), `src/node/space-runtime.ts` (`tagKey`, `tagProblem`, `write`). Tests: `tests/topics.test.ts` (all).*
+*Source: `packages/core/src/records/topics.ts` (`checkTopics`, `topicValues`, `topicKey`, `topicTag`, `tagsFor`, `sameTags`, `MAX_TOPICS`, `MAX_TAGS`), `packages/core/src/node/space-runtime.ts` (`tagKey`, `tagProblem`, `write`). Tests: `packages/core/tests/topics.test.ts` (all).*
 
 ---
 
@@ -1170,7 +1170,7 @@ hold, and refusing would leave peers disagreeing forever. Readers flag such a
 record instead (the node reports `conforms: false` with the issues). A writer
 checks them before signing and SHOULD NOT write what does not conform.
 
-*Source: `src/validation/validation-engine.ts`, `src/validation/structural-gate.ts`, `src/validation/crypto-gate.ts`, `src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `src/validation/stateful-gate.ts`, `src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `admit`, `currentOf`, `contentIssues`), `src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `tests/validation.test.ts` (all), `tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `tests/links.test.ts` ("declared links"), `tests/topics.test.ts` ("a record whose tags don't match…"), `tests/attacks.test.ts`.*
+*Source: `packages/core/src/validation/validation-engine.ts`, `packages/core/src/validation/structural-gate.ts`, `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/validation/stateful-gate.ts`, `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/attacks.test.ts`.*
 
 ---
 
@@ -1205,7 +1205,7 @@ This is presentation, not wire format; the exact wording is an
 *implementation detail*, but the rule that every rule produces a sentence is
 not.
 
-*Source: `src/records/describe.ts`. Tests: `tests/agents.test.ts` ("what a collection allows, in words").*
+*Source: `packages/core/src/records/describe.ts`. Tests: `packages/core/tests/agents.test.ts` ("what a collection allows, in words").*
 
 ---
 
@@ -1343,7 +1343,7 @@ subfilter does not hold.
   would have been" is found once the record is gone.
 
 > **Known defect:** when the cursor's key is gone, the reference starts again
-> from the first record (`src/query/engine.ts`), so a caller paging through
+> from the first record (`packages/core/src/query/engine.ts`), so a caller paging through
 > sees records twice. A fix will resume after the cursor's position.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
@@ -1375,7 +1375,7 @@ collection the query needs is still arriving
 ([05 — Sync and storage](05-sync-and-storage.md)). The shape of each record
 object is the node's record view ([06 — Nodes, sessions and apps](06-nodes-and-sessions.md)).
 
-*Source: `src/query/types.ts`, `src/query/filter.ts` (`checkQuery`, `matches`, `fieldValue`, `MAX_INCLUDE_DEPTH`), `src/query/engine.ts` (`runQuery`, `sortRecords`, `expand`). Tests: `tests/query.test.ts` (all), `tests/typed-query.test.ts`.*
+*Source: `packages/core/src/query/types.ts`, `packages/core/src/query/filter.ts` (`checkQuery`, `matches`, `fieldValue`, `MAX_INCLUDE_DEPTH`), `packages/core/src/query/engine.ts` (`runQuery`, `sortRecords`, `expand`). Tests: `packages/core/tests/query.test.ts` (all), `packages/core/tests/typed-query.test.ts`.*
 
 ---
 
@@ -1445,4 +1445,4 @@ never ends in `0`, so there is always room between two. Equal positions sort by
 key. A record without one goes at the end. `positionBetween(before, after)` in
 the library makes one; any string that sorts correctly is valid.
 
-*Source: `src/schemas/index.ts`, `src/schemas/contacts.ts`, `src/schemas/apps.ts`. Tests: `tests/schemas.test.ts`, `tests/contacts.test.ts`, `tests/agents.test.ts`.*
+*Source: `packages/core/src/schemas/index.ts`, `packages/core/src/schemas/contacts.ts`, `packages/core/src/schemas/apps.ts`. Tests: `packages/core/tests/schemas.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/agents.test.ts`.*

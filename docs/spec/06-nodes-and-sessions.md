@@ -53,7 +53,7 @@ A node MAY hold the **contact key** (`deriveContactKeyBytes(seed)`). With it the
 node opens contact requests sent to the account and publishes the contact key's
 public half on the account's profile in every space it writes in.
 
-*Source: `src/node/node.ts`, `src/node/types.ts`. Tests: `tests/node.test.ts`.*
+*Source: `packages/core/src/node/node.ts`, `packages/core/src/node/types.ts`. Tests: `packages/core/tests/node.test.ts`.*
 
 ### 1.2 Configuration
 
@@ -75,7 +75,7 @@ public half on the account's profile in every space it writes in.
 | `cache` | `CacheConfig`, optional | Hold only the collections used, in spaces that name a keeper (§1.8). |
 | `mailbox` | `MailboxClient`, optional | How doors reach relays' mailboxes ([07](07-doors.md)). Default: a WebSocket to each relay. |
 
-*Source: `src/node/types.ts` (`NodeConfig`, `NodeNetworkConfig`, `CacheConfig`). Tests: `tests/node.test.ts`, `tests/caches.test.ts`.*
+*Source: `packages/core/src/node/types.ts` (`NodeConfig`, `NodeNetworkConfig`, `CacheConfig`). Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/caches.test.ts`.*
 
 ### 1.3 Lifecycle
 
@@ -99,7 +99,7 @@ stopping sync and disconnecting its transports), closes the registry store,
 and drops all event listeners. After `close()`, any call that needs a space
 fails with `Node is closed`. Closing twice does nothing.
 
-*Source: `src/node/node.ts` (`createNode`, `close`). Tests: `tests/node.test.ts`.*
+*Source: `packages/core/src/node/node.ts` (`createNode`, `close`). Tests: `packages/core/tests/node.test.ts`.*
 
 ### 1.4 The session note, and renewing it
 
@@ -145,7 +145,7 @@ returns `{ token, proofs: [<session note>] }`.
 
 `node.delegation()` returns the note the session key writes under now.
 
-*Source: `src/node/node.ts` (`delegate`, `scheduleRenewal`, `SESSION_CAPABILITY`), `src/session/connect.ts` (`grantSigner`). Tests: `tests/node.test.ts` ("the delegation is renewed before it expires", "records outlive the session that wrote them").*
+*Source: `packages/core/src/node/node.ts` (`delegate`, `scheduleRenewal`, `SESSION_CAPABILITY`), `packages/core/src/session/connect.ts` (`grantSigner`). Tests: `packages/core/tests/node.test.ts` ("the delegation is renewed before it expires", "records outlive the session that wrote them").*
 
 ### 1.5 The spaces a node keeps
 
@@ -216,7 +216,7 @@ invite record has not reached this device yet, the space is held with
 space and forgets it with its key. It does not give up the account's role in
 the space; to do that, `setMember(id, self, null)` first.
 
-*Source: `src/node/node.ts` (`reconcileOnce`, `remember`, `forget`, `finishJoining`, `publishProfile`, `spaces`). Tests: `tests/node.test.ts` ("the account registry"), `tests/profiles.test.ts`, `tests/space-access.test.ts`.*
+*Source: `packages/core/src/node/node.ts` (`reconcileOnce`, `remember`, `forget`, `finishJoining`, `publishProfile`, `spaces`). Tests: `packages/core/tests/node.test.ts` ("the account registry"), `packages/core/tests/profiles.test.ts`, `packages/core/tests/space-access.test.ts`.*
 
 ### 1.6 Stores
 
@@ -253,12 +253,12 @@ sync ([02 — Records](02-records.md), validation) before they are stored.
 
 > **Known defect:** `copyAccountData` stores each version with
 > `addExpression` directly, without running it through the validation
-> pipeline (`src/node/copy.ts`). A pod or data folder that another origin
+> pipeline (`packages/core/src/node/copy.ts`). A pod or data folder that another origin
 > wrote to can bring versions this node would have refused from a peer. A fix
 > will validate on copy, as sync does.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
-*Source: `src/node/stores.ts`, `src/node/copy.ts`, `src/session/places.ts` (`storesFor`). Tests: `tests/account.test.ts`, `tests/folder-adapter.test.ts`.*
+*Source: `packages/core/src/node/stores.ts`, `packages/core/src/node/copy.ts`, `packages/core/src/session/places.ts` (`storesFor`). Tests: `packages/core/tests/account.test.ts`, `packages/core/tests/folder-adapter.test.ts`.*
 
 ### 1.7 Opening and holding spaces
 
@@ -282,7 +282,7 @@ that lets go of that one hold:
 > Rationale: anything that needs a space live holds it — a screen showing it, a
 > call in it — so a screen going away never cuts off a call in the same space.
 
-*Source: `src/node/node.ts` (`runtime`, `hold`, `closeRuntime`). Tests: `tests/live.test.ts` ("holding a space").*
+*Source: `packages/core/src/node/node.ts` (`runtime`, `hold`, `closeRuntime`). Tests: `packages/core/tests/live.test.ts` ("holding a space").*
 
 ### 1.8 Holding part of a space
 
@@ -310,7 +310,7 @@ node's own choice; how it tells peers what it holds is in
 The account registry, the contacts space and carry spaces are always held
 whole. Apps connected to an account home use `cache: {}` by default (§4.8).
 
-*Source: `src/node/space-runtime.ts` ("Holding part of the space"). Tests: `tests/caches.test.ts`.*
+*Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"). Tests: `packages/core/tests/caches.test.ts`.*
 
 ### 1.9 Events
 
@@ -327,7 +327,7 @@ function. A listener that throws does not stop the others.
 | `message` | `space`, `from`, `peer`, `agent`, `message` | A live message arrived (§1.10). |
 | `revoked` | `space` | The note this node writes under was revoked in that space. Emitted at most once per space per node. |
 
-*Source: `src/node/types.ts` (`NodeEvent`), `src/node/node.ts` (`fromRuntime`, `checkRevoked`). Tests: `tests/node.test.ts` ("events announce local writes"), `tests/connect.test.ts` ("disconnecting revokes the note").*
+*Source: `packages/core/src/node/types.ts` (`NodeEvent`), `packages/core/src/node/node.ts` (`fromRuntime`, `checkRevoked`). Tests: `packages/core/tests/node.test.ts` ("events announce local writes"), `packages/core/tests/connect.test.ts` ("disconnecting revokes the note").*
 
 ### 1.10 Live messages and status
 
@@ -365,7 +365,7 @@ A received live message is emitted as a `message` event:
 > Rationale: a peer's key does not say whose it is, but only the account's own
 > devices and apps can read its registry, so a peer there is one of ours.
 
-*Source: `src/node/node.ts` (`spaces.send`, `spaces.status`), `src/node/space-runtime.ts` ("Live messages", `status`, `send`). Tests: `tests/live.test.ts`.*
+*Source: `packages/core/src/node/node.ts` (`spaces.send`, `spaces.status`), `packages/core/src/node/space-runtime.ts` ("Live messages", `status`, `send`). Tests: `packages/core/tests/live.test.ts`.*
 
 ### 1.11 The rest of the node's surface
 
@@ -393,7 +393,7 @@ exposes them:
   offers ([04](04-network.md)); what calls use (§7).
 - `node.asAgent({ keys, note })` — §5.2.
 
-*Source: `src/node/types.ts`, `src/node/node.ts`. Tests: `tests/node.test.ts`, `tests/contacts.test.ts`, `tests/profiles.test.ts`.*
+*Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/profiles.test.ts`.*
 
 ---
 
@@ -472,7 +472,7 @@ records and is *Not yet specified* in this part.
   `collections_delete`, registered on `document.modelContext` at page load.
   *Implementation detail of the example.*
 
-*Source: `src/node/actions.ts`, `cli/src/mcp.ts`, `example/src/webmcp.ts`. Tests: `tests/node.test.ts` ("actions"), `tests/cli.test.ts` ("MCP").*
+*Source: `packages/core/src/node/actions.ts`, `packages/cli/src/mcp.ts`, `apps/example/src/webmcp.ts`. Tests: `packages/core/tests/node.test.ts` ("actions"), `packages/cli/tests/cli.test.ts` ("MCP").*
 
 ---
 
@@ -498,7 +498,7 @@ picked is remembered and re-opened without a prompt when permission is still
 granted. A place holds any number of accounts; `listAccounts` returns them most
 recently used first. Account files and vault formats are in [01](01-identity.md).
 
-*Source: `src/session/places.ts`. Tests: `tests/account-store.test.ts`.*
+*Source: `packages/core/src/session/places.ts`. Tests: `packages/core/tests/account-store.test.ts`.*
 
 ### 3.2 Stages
 
@@ -538,7 +538,7 @@ Transitions:
 A failed action sets `error` (`{ message, hint?, code? }`) and leaves the stage
 as it was. A dismissed passkey or folder prompt sets no error.
 
-*Source: `src/session/auth.ts`. Tests: `tests/auth.test.ts`.*
+*Source: `packages/core/src/session/auth.ts`. Tests: `packages/core/tests/auth.test.ts`.*
 
 ### 3.3 Ways in
 
@@ -558,7 +558,7 @@ A new account's seed is random. Creating one writes its vault with no wraps,
 starts its session, writes its name to `sys.profile` in the account registry,
 and shows the account password once (`freshCode`).
 
-*Source: `src/session/auth.ts`, `src/session/credentials.ts`. Tests: `tests/auth.test.ts`, `tests/account-vault.test.ts`.*
+*Source: `packages/core/src/session/auth.ts`, `packages/core/src/session/credentials.ts`. Tests: `packages/core/tests/auth.test.ts`, `packages/core/tests/account-vault.test.ts`.*
 
 ### 3.4 The session a sign-in starts
 
@@ -593,7 +593,7 @@ Other keys the flow keeps: `<prefix>.last-account`, `<prefix>.storage-choice`,
 and at an account home `<prefix>.connections:<accountId>` (§4.10). `prefix`
 defaults to `weave`.
 
-*Source: `src/session/stay-signed-in.ts`, `src/session/auth.ts`. Tests: none.*
+*Source: `packages/core/src/session/stay-signed-in.ts`, `packages/core/src/session/auth.ts`. Tests: none.*
 
 ### 3.6 Moving into a pod
 
@@ -605,7 +605,7 @@ into the pod, copies every space into it (`copyAccountData`, §1.6), and
 restarts the session there. `forgetBrowserCopy()` then deletes the browser's
 copy. Other accounts in the pod are never touched.
 
-*Source: `src/session/auth.ts` (`confirmPod`), `src/session/places.ts`. Tests: `tests/account.test.ts`.*
+*Source: `packages/core/src/session/auth.ts` (`confirmPod`), `packages/core/src/session/places.ts`. Tests: `packages/core/tests/account.test.ts`.*
 
 ---
 
@@ -674,7 +674,7 @@ The home (`receiveConnectRequest(timeoutMs = 10 000)`):
    `weave:denied` to that origin only, and closes itself 100 ms later.
 6. Gives up silently if no request arrives within the timeout.
 
-*Source: `src/session/connect.ts` (`connectToHome`, `askHome`, `receiveConnectRequest`, `homeAddress`). Tests: `tests/connect.test.ts` ("the home receiving a request", "an account home typed by a person").*
+*Source: `packages/core/src/session/connect.ts` (`connectToHome`, `askHome`, `receiveConnectRequest`, `homeAddress`). Tests: `packages/core/tests/connect.test.ts` ("the home receiving a request", "an account home typed by a person").*
 
 ### 4.4 The request
 
@@ -782,7 +782,7 @@ whose note's payload is
 > the space's key. Invites are view-only because what lets the app write is the
 > note, under the account's own role — never a secret of the space's.
 
-*Source: `src/session/auth.ts` (`grant`), `src/session/connect.ts` (`ConnectRequest`, `Grant`, `grantCapabilities`, `isRequest`). Tests: `tests/connect.test.ts`.*
+*Source: `packages/core/src/session/auth.ts` (`grant`), `packages/core/src/session/connect.ts` (`ConnectRequest`, `Grant`, `grantCapabilities`, `isRequest`). Tests: `packages/core/tests/connect.test.ts`.*
 
 ### 4.6 What the app checks
 
@@ -809,7 +809,7 @@ It then joins each granted space it does not hold yet, passing its `memberKey`.
 Without an account key it sees only the spaces it was given; with one it
 follows the whole account (§1.5).
 
-*Source: `src/session/connect.ts` (`startConnectedNode`, `grantSigner`, `grantStore`). Tests: `tests/connect.test.ts`.*
+*Source: `packages/core/src/session/connect.ts` (`startConnectedNode`, `grantSigner`, `grantStore`). Tests: `packages/core/tests/connect.test.ts`.*
 
 ### 4.8 Scope
 
@@ -863,7 +863,7 @@ had already seen. What the app could already read, it keeps. A node that sees
 its own note revoked in a space emits `revoked` (§1.9); the reference client
 then forgets the grant and the app key.
 
-*Source: `src/session/auth.ts` (`disconnect`, `connections`), `src/node/node.ts` (`checkRevoked`). Tests: `tests/connect.test.ts` ("disconnecting …").*
+*Source: `packages/core/src/session/auth.ts` (`disconnect`, `connections`), `packages/core/src/node/node.ts` (`checkRevoked`). Tests: `packages/core/tests/connect.test.ts` ("disconnecting …").*
 
 ### 4.11 The app-side client
 
@@ -873,7 +873,7 @@ app's twin of §3: statuses `starting`, `disconnected`, `connecting`, `ready`,
 person's chosen home under `weave.home` (`home` in the config is only a
 default). A client convenience, not protocol.
 
-*Source: `src/session/connection.ts`. Tests: none.*
+*Source: `packages/core/src/session/connection.ts`. Tests: none.*
 
 > **Planned: a wallet as the account home.** The same job — hold the root and
 > hand an app's key a note — done by a credential wallet through the Digital
@@ -910,7 +910,7 @@ Recipients additionally ignore:
 A node writing under an agent's note never names relays, seals member keys or
 rotates a space key; in a private space it only learns keys.
 
-*Source: `src/identity/agent-note.ts`, `src/node/space-runtime.ts` (`buildEvent`, `judgeStanding`, `write`, `upkeep`). Tests: `tests/agents.test.ts` ("a definition an agent signs by hand is ignored by every peer", "taking someone out of the space, signed by an agent, is ignored too", "it never writes the account itself").*
+*Source: `packages/core/src/identity/agent-note.ts`, `packages/core/src/node/space-runtime.ts` (`buildEvent`, `judgeStanding`, `write`, `upkeep`). Tests: `packages/core/tests/agents.test.ts` ("a definition an agent signs by hand is ignored by every peer", "taking someone out of the space, signed by an agent, is ignored too", "it never writes the account itself").*
 
 ### 5.2 A node acting as an agent
 
@@ -937,7 +937,7 @@ grant (§4.5), so the contact list is within its note to read. A home MUST NOT
 give an agent the contact key: with it, an agent could open contact requests
 and knocks on the account's doors ([07](07-doors.md)).
 
-*Source: `src/node/node.ts` (`asAgent`). Tests: `tests/agents.test.ts` ("an agent acting for a person").*
+*Source: `packages/core/src/node/node.ts` (`asAgent`). Tests: `packages/core/tests/agents.test.ts` ("an agent acting for a person").*
 
 ### 5.3 Connecting an agent with a code
 
@@ -997,7 +997,7 @@ Timeouts on the terminal: 60 s to hear `heard`, then 10 minutes for the answer.
 > typed, so it can be long enough that recording the traffic and guessing it
 > later gets nowhere.
 
-*Source: `src/session/agent-link.ts`, `example/src/components/ConnectAgent.tsx`. Tests: `tests/agents.test.ts` ("connecting an agent with a code").*
+*Source: `packages/core/src/session/agent-link.ts`, `apps/example/src/components/ConnectAgent.tsx`. Tests: `packages/core/tests/agents.test.ts` ("connecting an agent with a code").*
 
 ### 5.4 The agent on a computer
 
@@ -1010,7 +1010,7 @@ account key when present, relays = the grant's ∪ `$WEAVE_RELAYS` (default
 spaces it lacks; wraps the node with `asAgent`; holds every space; and serves
 MCP over stdio with the person-only tools removed (§2).
 
-*Source: `cli/src/agent.ts`, `cli/src/mcp.ts`. Tests: `tests/agents.test.ts` ("an agent running a node of its own"), `tests/cli.test.ts` ("MCP").*
+*Source: `packages/cli/src/agent.ts`, `packages/cli/src/mcp.ts`. Tests: `packages/core/tests/agents.test.ts` ("an agent running a node of its own"), `packages/cli/tests/cli.test.ts` ("MCP").*
 
 ### 5.5 Planned
 
@@ -1058,7 +1058,7 @@ The **read key** in a pass only proves to peers that the carrier may take part
 in a private space ([04](04-network.md)); it is derived one way from the space
 key and decrypts nothing ([03](03-spaces.md)).
 
-*Source: `src/space/pass.ts`, `src/node/carrier.ts`. Tests: `tests/carrier.test.ts` ("passes", "a carrier").*
+*Source: `packages/core/src/space/pass.ts`, `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("passes", "a carrier").*
 
 ### 6.2 Carry spaces and passes
 
@@ -1115,7 +1115,7 @@ its keepers (`{ did, name }`, at most 16, [03](03-spaces.md)) and stops naming
 carriers the account removed. Other keepers stay. So apps holding part of a
 space (§1.8) can rely on the carriers.
 
-*Source: `src/node/node.ts` (`carriers`, `syncPasses`, `nameKeepers`), `src/space/pass.ts`, `src/space/account-registry.ts`. Tests: `tests/carrier.test.ts`.*
+*Source: `packages/core/src/node/node.ts` (`carriers`, `syncPasses`, `nameKeepers`), `packages/core/src/space/pass.ts`, `packages/core/src/space/account-registry.ts`. Tests: `packages/core/tests/carrier.test.ts`.*
 
 ### 6.3 Connecting a carrier through the account home
 
@@ -1138,7 +1138,7 @@ its key; and that `pod.dataPath` has no empty or `..` segments. A carry
 connection has no expiry (`expiresAt: 0` in the home's record) and no note to
 revoke; disconnecting it removes the carrier (§6.2).
 
-*Source: `src/session/connect.ts` (`connectCarrier`, `checkCarryGrant`, `CarryGrant`), `src/session/auth.ts` (`grantCarry`). Tests: `tests/connect.test.ts` ("connecting a carrier to an account home").*
+*Source: `packages/core/src/session/connect.ts` (`connectCarrier`, `checkCarryGrant`, `CarryGrant`), `packages/core/src/session/auth.ts` (`grantCarry`). Tests: `packages/core/tests/connect.test.ts` ("connecting a carrier to an account home").*
 
 ### 6.4 Notifications through carriers
 
@@ -1160,7 +1160,7 @@ root is not the account; with `tags`, the record carries one of that space's
 tags. What it reports is only the subscription, the space and the record's key,
 collection and `createdAt`.
 
-*Source: `src/space/notify.ts`, `src/node/node.ts` (`notifications`, `syncPasses`), `src/node/carrier.ts` (`arrived`). Tests: `tests/carrier.test.ts` ("notifications through a carrier").*
+*Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts` (`arrived`). Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier").*
 
 > **Planned: Web Push, to a closed browser or a phone.** Today a match is
 > reported only to the carrier's own process (the extension shows it itself),
@@ -1338,7 +1338,7 @@ must be configured with as a node (`network.nodes`). *Not yet specified*: the
 host description does not advertise it, and `hosting.use` does not add it (see
 Planned, below).
 
-*Source: `src/session/hosting.ts`, `src/node/host.ts`, `src/node/node.ts` (`hosting`), `cli/src/host.ts`, `cli/src/pay-page.ts`. Tests: `tests/host.test.ts`.*
+*Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`), `packages/cli/src/host.ts`, `packages/cli/src/pay-page.ts`. Tests: `packages/cli/tests/host.test.ts`.*
 
 ### 6.6 Planned: hosts
 
@@ -1515,7 +1515,7 @@ Rules: `edit: creator`, `delete: creator` ([02](02-records.md)).
 under `weave-call` as `{ space, call }`, so after a reload the page can offer to
 rejoin while the call is still going on.
 
-*Source: `src/calls/calls.ts`, `src/schemas/index.ts` (`call`). Tests: `tests/calls.test.ts`.*
+*Source: `packages/core/src/calls/calls.ts`, `packages/core/src/schemas/index.ts` (`call`). Tests: `packages/core/tests/calls.test.ts`.*
 
 ### 7.9 Planned
 
@@ -1556,4 +1556,4 @@ likes.
   `useRecord`, `useLinked`, `useCollections`, `useProfiles`, `useAccess`,
   `useSpaceStatus`, `useCan`, `CallsProvider`, `useCalls`.
 
-*Source: `src/elements/weave-auth.ts`, `src/react/`. Tests: none.*
+*Source: `packages/core/src/elements/weave-auth.ts`, `packages/core/src/react/`. Tests: none.*

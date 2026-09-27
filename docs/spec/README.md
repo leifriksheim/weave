@@ -6,7 +6,7 @@ can build a client that interoperates with this implementation without
 reading its code, and so that an agent can understand the architecture from
 the spec and the tests alone.
 
-The code in `src/` is the reference implementation. Where this document and
+The code in `packages/core/src/` is the reference implementation. Where this document and
 the code disagree, that is a bug in one of them: open an issue, and say which.
 
 ## Parts
@@ -39,8 +39,8 @@ the code disagree, that is a bug in one of them: open an issue, and say which.
   bound to string labels. The full list is in [01 — Identity](01-identity.md),
   including the few places one label serves two uses today.
 - **Source.** Each section ends with the files that implement it and the
-  tests that pin it down, e.g. *Source: `src/sync/negentropy.ts`. Tests:
-  `tests/sync.test.ts`.* Tests are the executable half of this spec.
+  tests that pin it down, e.g. *Source: `packages/core/src/sync/negentropy.ts`. Tests:
+  `packages/core/tests/sync.test.ts`.* Tests are the executable half of this spec.
 - **Rationale** is kept short and set apart, so the rules can be read without it.
 - **Planned.** Work that is designed but not built lives in the part it
   belongs to, in a section or blockquote headed **Planned**, saying what it
