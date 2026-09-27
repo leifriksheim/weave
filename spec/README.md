@@ -75,6 +75,7 @@ they are described; the smaller ones share
 | Pairing without showing the account | [01 §14.4](01-identity.md), [#31](https://github.com/leifriksheim/weave/issues/31) |
 | Versions whose history can be checked (fixes a known defect) | [02 §4.7](02-records.md), [#14](https://github.com/leifriksheim/weave/issues/14) |
 | Merging inside one record | [02 §4.8](02-records.md) |
+| Deletes and edits that forget | [02 §4.9](02-records.md), [#47](https://github.com/leifriksheim/weave/issues/47) |
 | References to records in other spaces | [02 §5.3](02-records.md), [#38](https://github.com/leifriksheim/weave/issues/38) |
 | `pattern` and `format` in definitions | [02 §6](02-records.md) |
 | Compatible definitions; content-addressed definitions; definition tiers | [02 §6.5](02-records.md), [#11](https://github.com/leifriksheim/weave/issues/11), [#12](https://github.com/leifriksheim/weave/issues/12) |

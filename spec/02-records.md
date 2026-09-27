@@ -307,6 +307,11 @@ carries no `links` and no `tags`. It is judged under the collection's `delete`
 rule (§7). Writing the key again produces the next version after the delete,
 judged as an **edit** (only `seq 0` is a create).
 
+A delete hides a record; it does not forget what the record said. The first
+version is kept (§4.5) and synced ([05](05-sync-and-storage.md)), so a peer
+that was offline, or a member who joins later, still receives the deleted
+content beside the delete. Deletes that forget are planned in §4.9.
+
 ### 4.5 What is kept: `retain` and history `all`
 
 When a version is superseded, a peer keeps it only if:
@@ -435,6 +440,68 @@ Open questions: whether a merge is a new version any reader computes the same
 way (so every peer converges on it); which `prev` a merged version names when
 it has two parents (and how that meets §4.7's chain check); how merging meets
 `fixed` (§7.4) and encrypted bodies.
+
+### 4.9 Planned: deletes and edits that forget
+
+Changes what §4.4 and §4.5 keep. Tracked in
+[#47](https://github.com/leifriksheim/weave/issues/47).
+
+**Why.** The first version is kept whole as proof of who created a record,
+and sync sends it (§4.5, [05 §1](05-sync-and-storage.md)). So a message
+deleted before its recipient came online still reaches them, a member who
+joins after the delete receives it too, and editing a record to take
+something out (a pasted password) leaves the original in `seq 0`. Nothing
+shows it, because queries skip deleted records (§11), but every store holds
+it and every sync passes it on.
+
+**What it can promise.** Nothing can take content back from a peer that
+already had it. What the protocol can do is make honest software forget, so
+that nobody who did not have the content gets it: not a member who joins
+later, and not a device that was offline.
+
+**Design.**
+
+- **Sign the body's hash.** The signed part carries `bodyHash`, the content
+  id (§2) of the canonical body, in place of `body`. The body travels beside
+  the signed part, and a peer MUST refuse a version whose body does not hash
+  to `bodyHash`. A delete has no `bodyHash`. The envelope (author, key,
+  `seq`, `prev`, `genesis`, `links`, `tags`, `seen`) then verifies alone.
+- **Superseded versions keep a stub.** When a version is superseded and does
+  not carry `retain`, a peer drops its body. A first version is kept as a
+  **stub**, its signed part without the body, and still decides who created
+  the record (§4.5, §7.1). Everything else superseded is dropped, as now.
+- **Forgetting is enforced on arrival.** A peer that holds a later version
+  of a record MUST drop the body of an older one when it arrives, whoever
+  sends it and from wherever: a lagging peer, or an old blob-store segment
+  ([05 §16](05-sync-and-storage.md)). A peer MUST NOT send a body it would
+  not keep. A stub and a whole version have the same id, so sync is unchanged.
+
+In a private space `bodyHash` covers the encryption envelope, so a stub
+reveals nothing more than the version did. `links` stay in the envelope of a
+public space; they name records, not content.
+
+The stub is the header of §4.7 and the stub of signed writer logs
+([05 §9.1](05-sync-and-storage.md)): an envelope kept without its body.
+Design them together.
+
+Open questions:
+
+- **Checks that read a first body.** A peer that receives only a stub cannot
+  recompute a `onePer` key from body fields (§7.3), or check a first version
+  against its definition (§9). Either a stub is accepted only beside a later
+  version that passed, or such checks move into the envelope.
+- **Retained history.** Whether a delete also strips the bodies of retained
+  versions in a `history: "all"` collection (§6). Never in the access-history
+  collections, whose bodies are the access history.
+- **Blob stores.** Segments never change and only their writer compacts them
+  ([05 §16.4](05-sync-and-storage.md)), so a body deleted by someone else
+  stays in the bucket until its writer compacts. Readers drop it on the way
+  in; the bytes remain.
+- **Crypto-shredding.** A key per record, destroyed on delete, would reach
+  immutable storage too. The key record then has the same keep-or-drop
+  question, so it is a later addition, not a replacement.
+
+Pre-release: changing what is signed needs no migration.
 
 ---
 
