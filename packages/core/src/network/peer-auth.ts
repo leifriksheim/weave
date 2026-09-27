@@ -83,6 +83,11 @@ export interface ReadAccess {
   membership?(): Promise<string | null>;
   /** Whether a peer proving an older read key, with this sealed note, is still a member */
   admits?(peerDid: string, readKey: string, membership: unknown): Promise<boolean>;
+  /**
+   * Told the read key a peer was let in on — so a peer let in on a key that is
+   * no longer current can be let go once nothing else would let it in.
+   */
+  admitted?(peerDid: string, readKey: string): void;
 }
 
 /** What a caller may pass for a space's read access: the full thing, or a fixed key pair and the public half it must match */
@@ -117,15 +122,19 @@ async function proveRead(access: ReadAccess, label: Uint8Array, provider: Crypto
 /** Whether a proof shows a reader: the current read key, or an older one with a note from someone still a member */
 async function checkRead(access: ReadAccess, peerDid: string, label: Uint8Array, proof: Partial<HelloProof>, provider: CryptoProvider) {
   const current = access.current();
+  const admit = (readKey: string) => {
+    access.admitted?.(peerDid, readKey);
+    return true;
+  };
   const claimed = typeof proof.readKey === 'string' ? proof.readKey : current;
   if (claimed.startsWith('did:key:') && (await verifyBy(provider, claimed, proof.read, label))) {
-    if (claimed === current) return true;
-    if (access.admits && (await access.admits(peerDid, claimed, proof.member))) return true;
+    if (claimed === current) return admit(current);
+    if (access.admits && (await access.admits(peerDid, claimed, proof.member))) return admit(claimed);
   }
   // The reader may be ahead of us: then it proves the key we call current among its older ones.
   const earlier = Array.isArray(proof.earlier) ? proof.earlier.slice(0, MAX_EARLIER_READ_KEYS) : [];
   const ours = earlier.find((item) => item?.readKey === current);
-  return ours !== undefined && current.startsWith('did:key:') && verifyBy(provider, current, ours.read, label);
+  return ours !== undefined && current.startsWith('did:key:') && (await verifyBy(provider, current, ours.read, label)) && admit(current);
 }
 
 /** The connecting side: proves who it is and that it may read, and checks the node's welcome. */

@@ -28,6 +28,8 @@ export interface NetworkManager {
   readonly disconnect: () => void;
   readonly send: (peerId: string, message: NetworkMessage) => void;
   readonly broadcast: (message: NetworkMessage) => void;
+  /** Lets one peer go: it stops being a peer here, and must prove itself again to come back */
+  readonly drop: (peerId: string) => void;
   readonly getPeers: () => ReadonlyArray<PeerInfo>;
   readonly on: <K extends keyof NetworkEvents>(event: K, callback: NetworkEvents[K]) => void;
   readonly off: <K extends keyof NetworkEvents>(event: K, callback: NetworkEvents[K]) => void;
@@ -84,6 +86,9 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
     send,
     broadcast: (message: NetworkMessage) => {
       for (const peerId of peers.keys()) send(peerId, message);
+    },
+    drop: (peerId: string) => {
+      if (peers.has(peerId)) transport.close(peerId);
     },
     getPeers: () => [...peers.values()],
     on,

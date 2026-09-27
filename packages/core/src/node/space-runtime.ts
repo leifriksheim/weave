@@ -317,6 +317,10 @@ interface PeerAccount {
   readonly agent: boolean;
 }
 const NO_ACCOUNT: PeerAccount = Object.freeze({ account: null, agent: false });
+/** How long a peer checked here has to become a peer before the check is forgotten: past any handshake's timeout */
+const STALE_ADMISSION_MS = 60_000;
+/** How long a peer let in on an older key has to show its account before it counts as nobody's */
+const WHO_WAIT_MS = 10_000;
 
 /** A peer's note, sent once when it connects (see "Live messages") */
 const WHO_MESSAGE = 'who';
@@ -1125,6 +1129,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     for (const mirror of mirrors) mirror.changed();
     // The access history may name keepers now, or none.
     void refreshHolds().catch(() => {});
+    // Or a new key, which someone connected may not hold.
+    void letGoOfOutsiders().catch(() => {});
   };
 
   // ─── The space's keys ──────────────────────────────────────────────
@@ -1329,6 +1335,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     });
   }
 
+  /** The read key each peer checked here was let in on, by session DID, and when */
+  const admittedOn = new Map<string, { readonly readKey: string; readonly at: number }>();
+
   /** How this node proves it may read, and checks the peers that connect — against the history at that moment */
   const readAccess: ReadAccess | null =
     space.visibility !== 'private'
@@ -1357,6 +1366,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
             if (!held) return false;
             const { account } = await accountOf(peerDid, await openWith(held, membership, membershipContext(space.id)));
             return account !== null && readers(history.current).has(account);
+          },
+          admitted(peerDid: string, readKey: string) {
+            admittedOn.set(peerDid, { readKey, at: Date.now() });
           },
         };
 
@@ -1512,6 +1524,36 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     emit({ type: 'message', space: space.id, from: account, peer, agent, message: payload });
   }
 
+  /**
+   * Lets go of the peers a handshake would refuse now. A handshake checks a
+   * reader once, but the space's key changes when someone is removed: a peer
+   * let in on a key that is no longer current stays only while it acts for
+   * someone who may still read, as it would get in again (`checkRead`).
+   * Anyone else — someone removed, a view-only link from before — stops
+   * getting anything the moment this node knows the new key.
+   */
+  async function letGoOfOutsiders(): Promise<void> {
+    if (admittedOn.size === 0) return;
+    const connected = new Set(connectedPeers());
+    for (const [peer, { at }] of admittedOn) {
+      // Checked, and never let in: a handshake the other side refused.
+      if (!connected.has(peer) && Date.now() - at > STALE_ADMISSION_MS) admittedOn.delete(peer);
+    }
+    const allowed = readers((await access()).history.current);
+    for (const peer of connected) {
+      const admission = admittedOn.get(peer);
+      if (!admission || admission.readKey === currentReadKey) continue;
+      // Its note is said first, but may still be on its way; this runs again when it lands.
+      if (!peerAccounts.has(peer) && Date.now() - admission.at < WHO_WAIT_MS) continue;
+      const { account } = (await peerAccounts.get(peer)) ?? NO_ACCOUNT;
+      if (account !== null && allowed.has(account)) continue;
+      // Let in again meanwhile, on the key it holds now.
+      if (admittedOn.get(peer) !== admission) continue;
+      admittedOn.delete(peer);
+      for (const network of networks) network.drop(peer);
+    }
+  }
+
   for (const network of networks) {
     network.on('message', (message: NetworkMessage) => {
       if (message.type === 'sync') void sync.handleMessage(message.from, message.payload);
@@ -1523,6 +1565,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
           if (peerAccounts.get(message.from) !== checked) return;
           knownAccounts.set(message.from, known);
           emit({ type: 'status', space: space.id });
+          void letGoOfOutsiders().catch(() => {});
         });
       } else if (message.type === LIVE_MESSAGE) void onLive(message.from, message.payload);
     });
@@ -1534,6 +1577,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // Reconcile at once rather than waiting for the heartbeat.
       sync.notifyPeers([info.did]);
       emit({ type: 'status', space: space.id });
+      // The key may have changed between checking it and letting it in.
+      void letGoOfOutsiders().catch(() => {});
     });
     network.on('peer-disconnected', (info: PeerInfo) => {
       if (routes.get(info.did) === network) {
@@ -1543,6 +1588,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         knownAccounts.delete(info.did);
         liveAllowance.delete(info.did);
       }
+      if (!connectedPeers().includes(info.did)) admittedOn.delete(info.did);
       emit({ type: 'status', space: space.id });
     });
     network.on('error', () => {

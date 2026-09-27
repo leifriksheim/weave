@@ -311,6 +311,22 @@ describe('the mesh, through real relays', () => {
     for (const room of [a1, a2, a3, b1]) room.disconnect();
   });
 
+  test('letting a peer go in one room keeps it in the others, over the same connection', async () => {
+    const [meshA, meshB] = [mesh('did:key:zA', [relay], 'letting-go'), mesh('did:key:zB', [relay], 'letting-go')];
+    const [a1, a2, b1, b2] = [meshA.join('g1'), meshA.join('g2'), meshB.join('g1'), meshB.join('g2')];
+    const seen = { a1: collect(a1), a2: collect(a2), b1: collect(b1), b2: collect(b2) };
+    for (const room of [a1, a2, b1, b2]) await room.connect();
+    await until(() => Object.values(seen).every((room) => room.connected.length === 1), 5000, 'both rooms to meet, on both sides');
+
+    a2.drop('did:key:zB');
+    await until(() => seen.b2.disconnected.includes('did:key:zA'), 2000, 'B to be told it was let go in room two');
+    assert.deepEqual(a2.getPeers(), []);
+    b1.send('did:key:zA', { type: 'note', from: 'did:key:zB', payload: 'still here' });
+    await until(() => seen.a1.messages.some((m) => m.payload === 'still here'), 2000, 'room one to carry on');
+    assert.deepEqual(meshA.opened, ['did:key:zB'], 'over the same connection');
+    for (const room of [a1, a2, b1, b2]) room.disconnect();
+  });
+
   test('the relay still serves the older one-room sockets, as app versions before the mesh use them', async () => {
     const open = async (did: string) => {
       const socket = new WebSocket(`${relay}?room=legacy`);
@@ -413,7 +429,7 @@ describe('the mesh, through real relays', () => {
             return i >= 0 && held.includes(i) && members.has(peerDid) && (await openWith(keys[i]!, membership, context)) === note(peerDid);
           },
         });
-        return { access, members };
+        return { access, members, reads };
       };
 
       test('a peer that missed it and one that did not still meet, whoever greets first', async () => {
@@ -428,6 +444,22 @@ describe('the mesh, through real relays', () => {
         await until(() => seenA.connected.includes(bob.did) && seenB.connected.includes(alice.did), 5000, 'Alice and Bob to meet');
         a.disconnect();
         b.disconnect();
+      });
+
+      test('the key each peer was let in on is told: the current one, or the older one a member proved', async () => {
+        const { access, members, reads } = await changed();
+        const [alice, bob, dave] = [await identity(), await identity(), await identity()];
+        members.add(alice.did).add(bob.did).add(dave.did);
+        const told = new Map<string, string>();
+        const a = peer('told', alice, { ...access(alice, [0, 1, 2], 2), admitted: (did, readKey) => told.set(did, readKey) });
+        const b = peer('told', bob, access(bob, [0], 0));
+        const d = peer('told', dave, access(dave, [0, 1, 2], 2));
+        const seenA = collect(a);
+        for (const room of [a, b, d]) await room.connect();
+        await until(() => seenA.connected.length === 2, 5000, 'Alice to meet both');
+        assert.equal(told.get(bob.did), reads[0]!.did, 'Bob, behind, on the old key his note vouched for');
+        assert.equal(told.get(dave.did), reads[2]!.did, 'Dave on the current one');
+        for (const room of [a, b, d]) room.disconnect();
       });
 
       test('someone removed still never becomes a peer of those who moved on', async () => {

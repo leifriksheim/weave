@@ -24,12 +24,13 @@ import { createIdentityManager } from '../../core/src/identity/identity-manager.
 import { createLocalRootSigner } from '../../core/src/identity/root-signer.js';
 import { createSigner } from '../../core/src/schema/signer.js';
 import { createExpression } from '../../core/src/schema/expression.js';
-import { recoveryCodeToSeed } from '../../core/src/identity/recovery-code.js';
+import { generateSeed, recoveryCodeToSeed } from '../../core/src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../../core/src/identity/account-vault.js';
 import { NODE_ACTIONS } from '../../core/src/node/actions.js';
 import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
 import { team } from '../../core/src/space/presets.js';
 import { hold } from '../../core/tests/helpers/hold.js';
+import { joined } from '../../core/tests/helpers/joined.js';
 import { createFakeHub } from '../../core/tests/helpers/fake-transport.js';
 import { createMesh } from '../../core/src/network/mesh.js';
 
@@ -204,6 +205,54 @@ describe('the daemon', () => {
     await until(async () => (await daemon.node.spaces.get(space.id)) !== null, 5000, 'the node to join through the registry');
     await until(async () => (await daemon.node.records.get(space.id, written.key)) !== null, 5000, 'the note to reach the node');
     await laptop.close();
+  });
+
+  test('lets go of someone removed from a private space once the key changes, and never lets them back', async (t) => {
+    const space = (await daemon.node.spaces.create({ name: 'Crew', ...team, visibility: 'private' })).id;
+    const nodes: P2PNode[] = [];
+    t.after(() => Promise.all(nodes.map((node) => node.close())));
+    const person = async () => {
+      const manager = createIdentityManager();
+      const seed = generateSeed();
+      const me = await manager.fromSeed(seed);
+      // With the account key, so each has a member key the new space key is sealed to.
+      const node = await createNode({
+        signer: createLocalRootSigner(me, manager.getProvider()),
+        accountKey: await deriveVaultKeyBytes(seed),
+        stores: memoryStores(),
+        watchIntervalMs: 0,
+        network: { nodes: [peerUrl] },
+      });
+      nodes.push(node);
+      await node.spaces.join(await daemon.node.spaces.invite(space));
+      await hold(node, space);
+      await joined(node, space);
+      const heard: unknown[] = [];
+      node.subscribe((event) => {
+        if (event.type === 'message' && event.space === space) heard.push(event.message);
+      });
+      return { node, heard };
+    };
+    const [bob, carol] = [await person(), await person()];
+    const served = async () => Object.values((await daemon.node.spaces.status(space)).accounts);
+    const members = async () => (await daemon.node.spaces.access(space)).members.map((held) => held.did);
+    await until(async () => (await members()).includes(bob.node.did) && (await members()).includes(carol.node.did), 5000, 'both to be members, as the node sees it');
+    await until(async () => (await served()).includes(bob.node.did) && (await served()).includes(carol.node.did), 5000, 'the node to serve both');
+
+    await daemon.node.spaces.setMember(space, carol.node.did, null);
+    await until(async () => (await daemon.node.spaces.access(space)).key?.changes === 1, 5000, 'a new key');
+    await until(async () => !(await served()).includes(carol.node.did), 5000, 'the node to let Carol go');
+    assert.ok((await served()).includes(bob.node.did), 'Bob, still a member, stays');
+
+    await daemon.node.records.put(space, 'app.note', { text: 'after' });
+    await daemon.node.spaces.send(space, 'who is here?');
+    await until(() => bob.heard.includes('who is here?'), 5000, 'Bob to hear it');
+    await until(async () => (await bob.node.records.list<{ text: string }>(space, { collection: 'app.note' })).some((note) => note.body?.text === 'after'), 5000, 'Bob to read the note');
+    // Carol's socket redials, proves the old key with her note, and is refused.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    assert.equal((await served()).includes(carol.node.did), false);
+    assert.deepEqual(carol.heard, []);
+    assert.equal((await carol.node.records.list(space, { collection: 'app.note' })).length, 0, 'not even the ciphertext');
   });
 
   test('refuses a stranger to a private space, before sending anything', async () => {

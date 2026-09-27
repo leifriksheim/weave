@@ -453,6 +453,13 @@ export function createMesh(config: MeshConfig): Mesh {
         broadcast: (message: NetworkMessage) => {
           for (const peer of room.peers.keys()) send(peer, message);
         },
+        drop(peer: string) {
+          if (rooms.get(name) !== room || !room.peers.has(peer)) return;
+          // Only this room: the connection may still serve spaces the two share.
+          sendFrame(peer, { room: name, type: LEAVE_MESSAGE });
+          drop(room, peer);
+          closeIfIdle(peer);
+        },
         getPeers: () => [...room.peers.values()],
         on: room.events.on,
         off: room.events.off,
