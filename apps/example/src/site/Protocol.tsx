@@ -231,7 +231,7 @@ const PARTS: ReadonlyArray<Part> = [
   },
 ];
 
-/** Where it stops, each one said in the spec where it applies */
+/** What it gives up, and what isn't finished */
 const LIMITS: ReadonlyArray<Point> = [
   {
     title: 'What a relay sees',
@@ -306,8 +306,8 @@ export function Protocol() {
         <div className="wrap">
           <h1>How Weave works.</h1>
           <p>
-            The design on one page: what each piece does, why, and where it stops. Every section links to the part of
-            the specification it summarises, which says exactly what a peer must produce and check.
+            No company in the middle. An account is a key its owner keeps, data is signed records, and every device
+            checks the rules for itself. Here is each piece, and what it can’t do.
           </p>
           <div className="actions">
             <a href={SPEC} {...EXTERNAL} className="btn btn-primary">
@@ -350,7 +350,7 @@ export function Protocol() {
           <div className="section-head">
             <div className="kicker">Limits</div>
             <h2>What Weave doesn’t do.</h2>
-            <p>What the protocol hides, what it can’t, and what isn’t built yet, said plainly.</p>
+            <p>Every design gives something up. This is what Weave gives up, and what isn’t finished.</p>
           </div>
           <div className="points">
             {LIMITS.map((point) => (
@@ -369,9 +369,8 @@ export function Protocol() {
             <div className="kicker">Planned</div>
             <h2>Designed, not built yet.</h2>
             <p>
-              Work that’s designed lives in the spec as a Planned section, next to what it changes, and is listed in one
-              table with its issue: proof chains that travel, versions whose history can be checked, sealing with HPKE,
-              signed writer logs, handles that lead to a door, and more. Planned text isn’t normative until it’s built.
+              Proof chains that travel, versions whose history can be checked, sealing with HPKE, signed writer logs,
+              handles that lead to a door, and more. Each is written up in the spec, next to what it changes.
             </p>
           </div>
           <a href={specPart('README.md#planned-work')} {...EXTERNAL} className="spec-link">
@@ -383,7 +382,7 @@ export function Protocol() {
       <section className="cta">
         <div className="wrap">
           <h2>Read the spec.</h2>
-          <p>Seven parts: exact formats, what’s signed, what every peer checks, and the tests that pin each rule.</p>
+          <p>Seven parts: every format, every signature, every check a peer makes, and the tests behind each rule.</p>
           <div className="actions">
             <a href={SPEC} {...EXTERNAL} className="btn btn-primary">
               Read the spec
