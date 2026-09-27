@@ -1461,12 +1461,36 @@ there. All are `version` 1 when first defined. "About" below is
 |---|---|---|---|
 | `std.contact` | `did` ≤ 256 and `name` ≤ 200, required; `space` ≤ 256; `note` ≤ 2000; `blocked` boolean | `onePer: [did]` | [03 — Spaces](03-spaces.md) |
 | `std.contact-request` | `to` ≤ 256 and `sealed` ≤ 16000, required | edit, delete: `creator` | [03 — Spaces](03-spaces.md) |
-| `std.app` | `title` 1–100 and `needs` (1–10 objects), required; `description` ≤ 1000; `from` ≤ 300 | edit: `creator`; delete: `creator`, `can:moderate`; permission `moderate` | [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) |
+| `std.app` | `title` 1–100 and `needs` (1–10 objects), required; `description` ≤ 1000; `from` ≤ 300; `updates` 1–100 | edit: `creator`; delete: `creator`, `can:moderate`; permission `moderate` | [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) |
 
-> **Planned (open question): a version on `std.app`.** A changed proposal for
-> an app that is already added shows as a second app. A `version` member, or
-> a link to the proposal it updates, would let it show as an update instead.
-> Not decided. With §6.5, the update's review would list `compare`'s breaks.
+**App updates.** An app is changed by proposing a new `std.app` whose
+`updates` is the key of the app, in the same space, that it is a new version
+of. It is a body member rather than a link so that spaces which already hold
+a `std.app` definition without it accept it unchanged.
+
+```json
+{ "title": "Carpool", "needs": [ … ], "updates": "5vcfnlfrf7qnql2jhyl7erfqva" }
+```
+
+An app is **superseded** when an app that names it in `updates` is added
+(every collection it needs is in the space as it says), or is itself
+superseded. A superseded app would only undo its update:
+
+- A peer MUST NOT add a superseded app. `addApp` refuses one.
+- An app SHOULD NOT offer a superseded app to be added or opened; it is
+  history, which its proposer or a moderator may delete.
+- `updates` SHOULD name an app that is in the space; `proposeApp` and the
+  `apps_propose` action refuse one that is not. One that names nothing
+  supersedes nothing.
+
+Until its update is added, the app it names is still the one in use.
+Without `updates`, two apps that need the same collections differently each
+show as a change that undoes the other.
+
+> **Planned (open question):** with §6.5, an update's review would list
+> `compare`'s breaks.
+
+*Source: `packages/core/src/schemas/apps.ts` (`supersededApps`, `proposeApp`, `addApp`), `packages/core/src/node/actions.ts` (`apps_propose`, `apps_list`), `apps/example/src/components/apps/AppsView.tsx`. Tests: `packages/core/tests/agents.test.ts` ("an update replaces the app it names: once added, the old version is not offered again").*
 
 **Positions.** `position` is a string that sorts (by plain string comparison)
 where a record goes in a hand-made order. Digits are `0–9a–z`; a position

@@ -41,6 +41,9 @@ await addApp(node, space.id, proposal.key);
 - An agent can propose but never add: every peer ignores definitions signed
   under an agent's note.
 - At most 10 collections per app.
+- To change an app, propose a new one with `updates: <its key>`. Until the
+  update is added, the old one stays in use; after, `supersededApps` names the
+  old one, and `addApp` refuses it, since adding it would undo the update.
 
 ## Screens: a UI on a collection
 

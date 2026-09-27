@@ -53,12 +53,15 @@ export function isAdded(record: NodeRecord<App>, collections: ReadonlyArray<Node
 export function Proposals({
   space,
   apps,
+  all,
   collections,
   mayDefine,
   onAdded,
 }: {
   space: SpaceSummary;
   apps: ReadonlyArray<NodeRecord<App>>;
+  /** Every app in the space, to name the one an update replaces */
+  all: ReadonlyArray<NodeRecord<App>>;
   collections: ReadonlyArray<NodeCollection>;
   mayDefine: boolean;
   onAdded: (key: string) => void;
@@ -75,7 +78,15 @@ export function Proposals({
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {apps.map((record) => (
-          <Proposal key={record.key} space={space} record={record} collections={collections} mayDefine={mayDefine} onAdded={onAdded} />
+          <Proposal
+            key={record.key}
+            space={space}
+            record={record}
+            replaces={all.find((other) => other.key === record.body?.updates)}
+            collections={collections}
+            mayDefine={mayDefine}
+            onAdded={onAdded}
+          />
         ))}
       </div>
     </section>
@@ -85,12 +96,14 @@ export function Proposals({
 function Proposal({
   space,
   record,
+  replaces,
   collections,
   mayDefine,
   onAdded,
 }: {
   space: SpaceSummary;
   record: NodeRecord<App>;
+  replaces: NodeRecord<App> | undefined;
   collections: ReadonlyArray<NodeCollection>;
   mayDefine: boolean;
   onAdded: (key: string) => void;
@@ -138,6 +151,7 @@ function Proposal({
             Proposed by <Person did={record.createdBy} />
             {record.viaAgent && record.seq === 0 && <AgentBadge />} · {ago(record.createdAt)}
             {body?.from && ' · copied from another space'}
+            {replaces?.body && ` · an update to ${replaces.body.title}`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
