@@ -3,45 +3,26 @@ import react from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
 
 /**
- * Security policy for the deployed site.
+ * Security headers for the deployed site.
  *
- * The app's pages carry their policy in a `<meta>` tag, added at build: only
- * this site's own scripts. Connections may go to any secure websocket: a
- * person may bring their own account home, and it hands this app the relays
- * it meets peers on, which nobody knew at build time. That is safe to allow
- * because this app holds no seed — the most a rogue script could take is this
- * app's own note, limited and expiring. (The account home, which does hold
- * the seed, keeps a strict list.)
+ * The app's pages carry no content security policy. Browser agents such as
+ * Claude in Chrome run the code they write in the page with `eval`, which
+ * `script-src 'self'` blocks, and an agent in the page is what WebMCP
+ * (`src/webmcp.ts`) is for. What a policy would add is small: React escapes
+ * what it renders, the one raw-HTML path for records (the JSON highlighter in
+ * `QueryPlayground.tsx`) escapes too, and this app holds no seed, only its own
+ * limited, expiring note. (The account home, which does hold the seed, keeps
+ * a strict policy.)
  *
- * Not a site-wide header, because one page needs a different one:
- * `/screen.html`, where an app's own screen runs, allows its inline scripts
- * and takes the network away entirely (its own `<meta>`). Two policies on one
- * page both apply, so a site-wide one would block the screen. What only a
- * header can say — who may frame the site — is the one site-wide line: only
- * this site, which frames its own screen page.
+ * `/screen.html`, where an app's own screen runs, keeps its own `<meta>`
+ * policy: inline scripts, no network. What only a header can say, who may
+ * frame the site, is the one site-wide line: only this site, which frames its
+ * own screen page.
  */
 function securityHeaders(): Plugin {
-  const connect = ["'self'", 'wss:', 'ws://localhost:*', 'ws://127.0.0.1:*'];
-  const policy = [
-    "default-src 'self'",
-    "script-src 'self'",
-    // React sets inline style attributes; the base styles are one <style> tag.
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    'font-src https://fonts.gstatic.com',
-    "img-src 'self' data: blob:",
-    `connect-src ${connect.join(' ')}`,
-    // The desktop-agent relay's widget, and apps' own screens — both served from this site.
-    "frame-src 'self'",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'self'",
-  ].join('; ');
   return {
     name: 'security-headers',
     apply: 'build',
-    transformIndexHtml(html) {
-      return html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${policy}" />`);
-    },
     generateBundle() {
       this.emitFile({
         type: 'asset',
