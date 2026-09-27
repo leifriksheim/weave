@@ -83,6 +83,7 @@ they are described; the smaller ones share
 | Queries leave the protocol; queries that leave out non-conforming records; full-text search | [02 §11](02-records.md), [#28](https://github.com/leifriksheim/weave/issues/28) |
 | A standard library most apps can share | [02 Appendix A.1](02-records.md), [#36](https://github.com/leifriksheim/weave/issues/36) |
 | Leaving writes the self-removal (fixes a known defect) | [03 §6.2](03-spaces.md), [#15](https://github.com/leifriksheim/weave/issues/15) |
+| Contact requests that can be taken back; leaving a space for two updates the list | [03 §16.5](03-spaces.md), [#40](https://github.com/leifriksheim/weave/issues/40) |
 | Keep lists past the cap; deleted access records can't leave access standing | [03 §6.3, §7.2](03-spaces.md) |
 | What a private space still shows (hashed keys and collection names) | [03 §8.7](03-spaces.md) |
 | Profiles, round two | [03 §11](03-spaces.md) |

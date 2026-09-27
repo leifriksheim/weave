@@ -1289,6 +1289,24 @@ then reject the value unless `invite` parses as an invite (§7.4) to a
 - **others(did)** lists accounts other than the two seen in the space for two
   (members, profiles, connected peers).
 
+> **Planned:** requests that can be taken back, and a list that never names a
+> space the account left. Today `ask` does not record where it posted the
+> request, so `remove` and `block` leave it standing: the askee can still
+> accept it, into a space nobody holds. And `spaces.leave` on a space for two
+> leaves the `std.contact` naming it.
+>
+> - `std.contact` gains `asked?: { space: string ≤256, key: string ≤256 }`,
+>   the space and record key of the request. `ask` writes it.
+> - `remove(did)` and `block(did)` delete the `std.contact-request` at
+>   `asked` when the space is still held and the record still stands, before
+>   leaving the space for two.
+> - `spaces.leave(id)` on a space a `std.contact` names does what `remove`
+>   does for that contact.
+> - `ContactView` gains `waiting: boolean`, true while the other account has
+>   no member record in the space for two.
+>
+> Tracked in [#40](https://github.com/leifriksheim/weave/issues/40).
+
 *Source: `packages/core/src/schemas/contacts.ts`, `packages/core/src/identity/contact-key.ts` (`sealFor`, `openSealed`, `deriveContactKeyBytes`), `packages/core/src/node/node.ts` (contacts section: `requestContext`, `openRequest`, `contacts`), `packages/core/src/space/account-registry.ts` (`deriveContactsSpace`). Tests: `packages/core/tests/contacts.test.ts`, `packages/core/tests/attacks.test.ts`.*
 
 ---
