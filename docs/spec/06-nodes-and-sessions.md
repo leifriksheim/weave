@@ -248,6 +248,15 @@ the account registry too, when `accountKey` is given. It is a union: every
 version goes through the same ordering rule as sync, so copying into a store
 that holds some of it already is safe, and copying twice changes nothing.
 
+Copied versions are meant to pass the same checks as versions arriving by
+sync ([02 — Records](02-records.md), validation) before they are stored.
+
+> **Known defect:** `copyAccountData` stores each version with
+> `addExpression` directly, without running it through the validation
+> pipeline (`src/node/copy.ts`). A pod or data folder that another origin
+> wrote to can bring versions this node would have refused from a peer. A fix
+> will validate on copy, as sync does.
+
 *Source: `src/node/stores.ts`, `src/node/copy.ts`, `src/session/places.ts` (`storesFor`). Tests: `tests/account.test.ts`, `tests/folder-adapter.test.ts`.*
 
 ### 1.7 Opening and holding spaces
@@ -815,6 +824,13 @@ follows the whole account (§1.5).
 Either way the app never gets the seed: it cannot sign in as the account, change
 its password or passkeys, or keep access past `expiresAt`.
 
+> **Planned: grants narrower than a space.** A note is per space, and reading
+> a private space is holding its key, so an app or agent granted a private
+> space reads all of it until the space's key changes ([03](03-spaces.md),
+> `changeKey`). Grants per collection would need both a note capability per
+> collection (`with` narrower than `space:<id>`) and collection keys the home
+> can hand out alone. Not designed yet.
+
 ### 4.9 Expiry and renewal
 
 A note is never renewed in place. When `expiresAt` passes, the app's writes stop
@@ -857,6 +873,13 @@ person's chosen home under `weave.home` (`home` in the config is only a
 default). A client convenience, not protocol.
 
 *Source: `src/session/connection.ts`. Tests: none.*
+
+> **Planned: a wallet as the account home.** The same job — hold the root and
+> hand an app's key a note — done by a credential wallet through the Digital
+> Credentials API instead of a popup page. Nothing is designed beyond that: open
+> are what the wallet would hold (the seed, or a key the account's note
+> delegates to) and how the request and grant of §4.4–4.5 would map onto a
+> credential request.
 
 ---
 
@@ -988,6 +1011,23 @@ MCP over stdio with the person-only tools removed (§2).
 
 *Source: `cli/src/agent.ts`, `cli/src/mcp.ts`. Tests: `tests/agents.test.ts` ("an agent running a node of its own"), `tests/cli.test.ts` ("MCP").*
 
+### 5.5 Planned
+
+> **Planned.** Not normative.
+>
+> - **Renewing an agent's note.** Today, when the note runs out, the agent
+>   says to connect again (§5.3). It could instead ask an open tab of the
+>   person's for a new note, while one is open. Open: how the agent reaches the
+>   tab (an agent sends no live messages, §5.2), and whether the person must
+>   approve each renewal.
+> - **Naming the agent.** Records show only "via agent". The note could carry
+>   which agent it is (say "Claude in Chrome") as a second fact. That is the
+>   agent's own word, not a proof; open whether it is worth showing.
+> - **Agents that cannot run a program** (a hosted chat's connectors, a phone
+>   app) would need an HTTPS MCP endpoint somewhere else, such as on a relay,
+>   which would then see the traffic. If offered at all, it is a separate,
+>   clearly labelled option. Not designed.
+
 ---
 
 ## 6. Carriers and hosts
@@ -1063,6 +1103,11 @@ delete the `sys.carrier` record. A carrier that reads `carry:closed` from the
 account MUST stop carrying for it and forget what it held. The node keeps the
 carry space open for 30 days so the carrier hears it.
 
+A pass cannot be taken back. A removed carrier that does not forget keeps the
+read key seeds it was given, so it can still prove itself to peers and fetch
+ciphertext until each space's key changes ([03](03-spaces.md), `changeKey`).
+Removing a carrier does not change any key by itself.
+
 **Keepers.** When a space opens, and on every reconciliation, a node holding
 the account key that may `manage` a space names the account's live carriers as
 its keepers (`{ did, name }`, at most 16, [03](03-spaces.md)) and stops naming
@@ -1115,6 +1160,41 @@ tags. What it reports is only the subscription, the space and the record's key,
 collection and `createdAt`.
 
 *Source: `src/space/notify.ts`, `src/node/node.ts` (`notifications`, `syncPasses`), `src/node/carrier.ts` (`arrived`). Tests: `tests/carrier.test.ts` ("notifications through a carrier").*
+
+> **Planned: Web Push, to a closed browser or a phone.** Today a match is
+> reported only to the carrier's own process (the extension shows it itself),
+> so nothing reaches a device whose browser is closed. The plan:
+>
+> - A device adds its Web Push subscription to the account's subscriptions.
+>   `sys.subscription` gains `push: { endpoint, p256dh, auth }` (the browser's
+>   `PushSubscription`) and `device` (a name for people), per device.
+> - A carrier that stores a new version matching a subscription (the rules
+>   above) sends a Web Push to its endpoint: one HTTPS POST, VAPID-signed
+>   (RFC 8292), payload encrypted to the device (RFC 8291). The payload is the
+>   version as the carrier holds it (private body still encrypted) when it fits
+>   in about 3 KB, otherwise its id and space.
+> - The push carries RFC 8030's `Topic` header, derived from the version id,
+>   so when several carriers send the same record the push service replaces
+>   undelivered copies. The notification's `tag` is the record key, so
+>   duplicates that get through replace each other.
+> - The device's service worker opens the space key from its own storage,
+>   decrypts, checks the rest of the filter, and shows the notification.
+>   Browsers require every push to show one (`userVisibleOnly`), so a device
+>   cannot quietly drop most of a stream: a subscription whose carrier-side
+>   part is only a busy collection with no topic tag SHOULD be refused when
+>   made, naming the fields to mark as topics.
+> - An app with a narrower grant than the account key gets a `notify`
+>   permission in its grant, letting it write `sys.subscription` records for
+>   its own device and nothing else in the carry space.
+>
+> The push service (chosen by the browser) sees timing and size, never
+> content. A carrier learns a device's endpoint and how often a tag matches.
+> Depends on nothing else in this part.
+>
+> Open: a push subscription is bound to one sender's VAPID key
+> (`applicationServerKey`). Several carriers pushing to one device need either
+> one subscription per carrier (the device subscribes with each carrier's key;
+> a host's description would list it as `vapid`) or carriers sharing a key.
 
 ### 6.5 Hosts
 
@@ -1254,9 +1334,57 @@ anything. It runs the carrier of §6.1–6.2 for every carry space.
 How a device reaches a host's sockets is outside this protocol: the reference
 host takes peers at `wss://<host>/peer` ([04](04-network.md)), which a device
 must be configured with as a node (`network.nodes`). *Not yet specified*: the
-host description does not advertise it, and `hosting.use` does not add it.
+host description does not advertise it, and `hosting.use` does not add it (see
+Planned, below).
 
-*Source: `src/session/hosting.ts`, `src/node/host.ts`, `src/node/node.ts` (`hosting`), `cli/src/host.ts`, `cli/src/pay-page.ts`, `docs/blocks/BLOCK-23-paying-a-host.md`. Tests: `tests/host.test.ts`.*
+*Source: `src/session/hosting.ts`, `src/node/host.ts`, `src/node/node.ts` (`hosting`), `cli/src/host.ts`, `cli/src/pay-page.ts`. Tests: `tests/host.test.ts`.*
+
+### 6.6 Planned: hosts
+
+> **Planned.** Not normative.
+>
+> **Reaching a host, and restoring through it.** The host description names
+> where it takes peers, and `hosting.use` adds that to the node's always-on
+> nodes, on every device of the account. A new device that has only the
+> recovery code then tries a host by default (one its home was built with), so
+> it finds the account registry there — the registry has a pass like every
+> space (§6.2) — and from it every space. Open: the description field's name,
+> and whether a device should try a default host before it knows the account
+> uses one.
+>
+> **Storage the person already has.** When the account has connected its own
+> storage (a Dropbox or Drive folder, [05](05-sync-and-storage.md) mirrors),
+> the device seals the storage grant (for Dropbox, a refresh token) to the
+> host's key and hands it over with a new signed call on the subscription. The
+> host keeps it encrypted at rest under a key outside its database, never logs
+> it, and mirrors the carried spaces into that folder as well as its own
+> bucket, so moving to another host means handing it the same folder. A leaked
+> grant exposes only ciphertext, since mirrors hold records as they travel.
+> Depends on the mirror drivers for those services. Open: Google and OneDrive
+> give browser apps no lasting refresh token, so for them consent has to finish
+> on the host (or in the extension); and a grant shared by device and host
+> disconnects both when revoked at the provider, unless the host gets its own
+> consent.
+>
+> **Quotas.** A subscription has a storage quota (the reference plan: 10 GB),
+> and the host meters bytes stored, requests and bandwidth per subscription.
+> Open: how a device learns usage and the quota (a field of `HostStatus` is
+> the obvious place) and what a host answers when a subscription is over it.
+>
+> **A reminder before time runs out.** Time paid up front does not renew
+> itself (`renews: false`), so the host reminds the person 14 and 3 days before
+> `paidUntil` and once when the grace period starts, each once per date; a
+> payment moves the date and cancels reminders not yet sent. Email, opted into
+> on the pay page with double opt-in, is the host's own business. The other
+> route is Web Push through the carry space (§6.4, Planned): the home writes a
+> `sys.subscription` with no filter and `purpose: "hosting"` when the person
+> allows it, and the host pushes `{ kind: "hosting", host, paidUntil }`,
+> signed like a status. No new call between home and host. Depends on Web Push.
+>
+> **Paying without being linked to the account.** Today the host can tie a
+> payment to the carry space it is then handed. Privacy Pass tokens (RFC 9576)
+> — pay once, receive anonymous tokens, spend them for time — would cut that
+> link. Not designed.
 
 ---
 
@@ -1303,6 +1431,10 @@ caches the member list for 10 s and asks once more for someone not in it.
 A device MUST NOT ring for more than 3 `call.ring`s from one account in any 60 s;
 later ones are ignored. `call.cancel` is honoured only from the account that
 rang.
+
+> **Planned: blocked people do not ring.** A device will ignore `call.ring`
+> from an account the person has blocked (`contacts.block`,
+> [03](03-spaces.md)). Today a ring is checked only for membership and rate.
 
 ### 7.3 Presence
 
@@ -1383,6 +1515,26 @@ under `weave-call` as `{ space, call }`, so after a reload the page can offer to
 rejoin while the call is still going on.
 
 *Source: `src/calls/calls.ts`, `src/schemas/index.ts` (`call`). Tests: `tests/calls.test.ts`.*
+
+### 7.9 Planned
+
+> **Planned.** Not normative.
+>
+> - **Ringing with the app closed.** A ring reaches only devices with the
+>   space open. Reaching a closed browser or a phone needs Web Push from a
+>   carrier (§6.4, Planned); the extension, always running while the browser
+>   is, could ring too. Not designed: a live message is not a record, so a
+>   carrier has nothing to match a ring against today.
+> - **Big calls.** Past about 6 video streams a full mesh runs out of upload
+>   bandwidth. The known answer is a forwarding server (an SFU) with end-to-end
+>   encryption on top (SFrame), so it forwards media it cannot watch. A host
+>   could run one. Not designed.
+> - **Listening without talking.** View-only readers are kept out of calls
+>   (§7.2). A space where readers may listen could come as a role permission,
+>   e.g. `call: "listen" | "talk"` ([03](03-spaces.md)). Open.
+> - **Calls across apps.** A call lives in the app that started it; another
+>   app on another origin does not see it. Moving a call between apps would
+>   need the account home to hold it. No plan yet.
 
 ---
 

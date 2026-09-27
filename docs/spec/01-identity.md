@@ -105,6 +105,14 @@ spellings that decode to the same seed (see the example).
 > expects a particular account detects a wrong code by comparing the derived
 > DID with the one it expected (`session/auth.ts` does this).
 
+> **Planned: a check character.** A typo today signs in to a new, empty
+> account. The plan adds one Crockford check symbol, so a mistyped code is
+> refused instead of opening a different account. The format is pre-release
+> and may change; no migration is needed. *Open:* whether to reuse
+> Crockford's mod-37 check symbol (which adds `*~$=U` to the alphabet) or a
+> check computed over the 26 symbols in the existing alphabet, and whether to
+> add a version marker at the same time. Replaces the "checksum" line in §15.
+
 ### 2.4 Example
 
 | | |
@@ -215,6 +223,12 @@ Decoders SHOULD reject a multicodec other than `0x80 0x24`.
 > a token's `iss` (`src/identity/ucan.ts`). A non-P-256 key fails later, only
 > because it does not import as a P-256 point. A fix will reject any other
 > multicodec when decoding.
+
+> **Planned: one spelling per key.** Decoders will require the `0x80 0x24`
+> prefix **and** exactly 33 compressed bytes, refusing the uncompressed form.
+> Then a key has exactly one DID, and two DIDs never name the same key (which
+> matters wherever DIDs are compared as strings: roots, `createdBy`, members).
+> This fixes the known defect above.
 
 Example: see §3.3; the decoded bytes are
 `8024029084c70c6acbeb1bfbab099abb469443aa06c02bd1b02b830d846b1129d8c7fb`. The
@@ -418,11 +432,27 @@ Resources and abilities in use:
 What each ability permits in a space is specified in
 [02 — Records](02-records.md) and [06](06-nodes-and-sessions.md).
 
+> **Planned: grants narrower than a space.** The smallest resource is a whole
+> space, so an app or agent granted a private space can write in every
+> collection and read all of it for as long as its note lasts. A
+> per-collection resource would narrow writes. Narrowing reads also needs
+> keys per collection, which is [03 — Spaces](03-spaces.md)' question. Not
+> designed yet: the resource syntax, and how coverage (§7.6) treats it.
+
 ### 7.2 The token's CID
 
 A token is referred to (in `prf`, and by revocations) by
 `CID(UTF-8(token))` — the hash of the whole encoded string, signature
 included.
+
+> **Planned: one valid form per token.** ECDSA signatures are malleable: from
+> a valid `(r, s)` anyone can make `(r, n − s)`, which WebCrypto also accepts,
+> and a lenient base64url decoder accepts more than one spelling of the same
+> bytes. Either gives a token that still verifies under a different CID, so it
+> slips past a revocation that names the original CID. The plan: verifiers
+> refuse a signature with `s > n/2` (high-S), issuers produce low-S only, and
+> every base64url field is decoded strictly (no padding, no characters outside
+> the alphabet, no non-zero trailing bits).
 
 ### 7.3 Issuing
 
@@ -457,6 +487,12 @@ an `iss` whose multicodec is not `p256-pub` (§4).
 > (`alg`, `typ`, `ucv`) nor the issuer's multicodec (`src/identity/ucan.ts`,
 > `src/identity/did.ts`). A fix will reject both. Other implementations MUST
 > NOT rely on a token with a different header being accepted.
+
+> **Planned: strict token shape.** Besides the header and the multicodec
+> (the known defect above), verifiers will check the payload's shape: `att`
+> is an array of `{with, can}` string pairs, `prf` an array of CID strings,
+> `iss` and `aud` DIDs, `fct` (when present) an array of objects. A malformed
+> token is refused rather than failing somewhere later.
 
 `at` is the moment the token is being relied on:
 
@@ -504,6 +540,37 @@ the intended check for a chain of any length up to 10.
 > (`src/validation/capability-gate.ts`). So a chain deeper than one link never
 > validates on a record; only tokens issued directly by the root (`prf: []`)
 > do. A fix will define how parents travel and resolve them.
+
+#### Planned: proof chains that travel
+
+Fixes the known defect above; replaces the first line of §15.
+
+A record will carry, besides its leaf token, the intermediate tokens its chain
+needs, so any peer can resolve the chain from the record alone, with no lookup
+and no service. With that, delegations deeper than root → key work on records:
+a session key delegating on to a short-lived key, an app handing a narrower
+note to a helper.
+
+What it unblocks:
+
+- Agent notes today are signed **root → agent key** directly, only because
+  peers resolve one link (§8, [06](06-nodes-and-sessions.md)). With chains, an
+  app could delegate to its agent itself.
+- The older idea of **roles as delegations** ("anyone the owner made a
+  moderator" as a UCAN from the owner, carried in the record's proof) needed
+  this. Roles now live in the space's access history
+  ([03 — Spaces](03-spaces.md)) and `can:<p>` rules are built on them
+  ([02 — Records](02-records.md) §7.1), so this no longer depends on chains.
+
+Open questions:
+
+- Where parents go: a new optional expression member (for example
+  `proofs: [token, …]`, parents in order), or tokens stored once per space and
+  referred to by CID. The first is self-contained; the second is smaller when
+  one note signs many records.
+- Whether the chain depth limit of 10 (§7.5) stays, given the bytes each link
+  adds to every record.
+- How revocation (by CID, [03](03-spaces.md)) treats an intermediate token.
 
 ### 7.6 Capability coverage
 
@@ -563,6 +630,12 @@ account signs into the note:
 What agents may not do (change collections, roles, membership) and how peers
 enforce it is specified in [02 — Records](02-records.md),
 [03 — Spaces](03-spaces.md) and [06](06-nodes-and-sessions.md).
+
+> **Planned (open question): naming the agent.** Records show as "via agent",
+> without saying which. The note could carry a name (say
+> `{ "weave": "agent", "name": "Claude in Chrome" }`), but that is the
+> agent's own word, signed by the account on its say-so, not a proof. Not
+> decided whether that is worth showing.
 
 *Source:* `src/identity/agent-note.ts`, `src/session/auth.ts` (issuing with `AGENT_FACT`).
 *Tests:* `tests/agents.test.ts`.
@@ -762,6 +835,15 @@ Every wrap:
 - After unwrapping, a client SHOULD derive the DID and compare it with the
   vault's `did`.
 
+> **Planned: wraps bound to their account.** Today a wrap's ciphertext has no
+> additional data, and nothing stops a vault file being edited to a lower
+> `iterations`. The plan: (1) after every unwrap the client MUST derive the DID
+> and refuse a seed whose DID is not the vault's `did`; (2) new wraps use
+> UTF-8(`did ‖ "|" ‖ wrap id`) as AES-GCM additional data, so a wrap moved
+> between vaults or re-labelled fails to open; (3) a reader refuses a
+> passphrase wrap whose `iterations` is below a minimum (the current 600 000
+> is the natural floor). Pre-release, so old wraps need not stay openable.
+
 ### 10.4 Managing wraps
 
 - A vault holds at most one device wrap per `rpId`: adding one replaces any
@@ -881,6 +963,11 @@ with PRF, for diagnosis (*implementation detail*).
 default salt UTF-8 `default-weave-salt`. No normalization. This exists for
 tests and examples; clients SHOULD NOT use it for real accounts (a low-entropy
 root key with a fixed salt).
+
+> **Planned: removal.** Only tests call `fromPassword` and the password
+> helper in `src/identity/keys.ts` (100 000 PBKDF2 rounds, fixed salt). Both
+> will be removed from the public API, with this section and the
+> `default-weave-salt` row in §5.
 
 *Source:* `src/identity/webauthn.ts`, `src/identity/identity-manager.ts`, `src/identity/keys.ts`, `src/identity/passkey-diagnostics.ts`, `src/session/auth.ts` (`passkeyGate`).
 *Tests:* `tests/identity.test.ts` ("identity manager"). WebAuthn itself is not exercised by tests.
@@ -1057,6 +1144,37 @@ Offering device                                     Phone
 - There is no reply message and no authentication of the phone beyond knowing
   the room and key, which require the seed.
 
+### 14.4 Planned: pairing without showing the account
+
+**Why.** The QR carries the recovery code, so a photo of the screen, a screen
+share or a recording *is* the account, for good. The room is a hash of the
+seed, so a relay gets a tag that follows the account across pairings. The
+pairing key never changes, so a sealed handover can be replayed.
+
+**Design.**
+
+- The ticket carries a **one-time secret** (random, at least 16 bytes) and the
+  relay URL. Nothing about the account.
+- The room is a hash of the secret, under a new label. `weave-pairing-room-v1`
+  and `weave-pairing-key-v1` (§5) go away.
+- The two devices run a key exchange authenticated by the secret: ephemeral
+  ECDH, with each side proving it knows the secret (for example, an HMAC under
+  a key derived from the secret over both ephemeral public keys).
+- Both screens show a **short code** derived from the exchange. The offering
+  device sends the seed and the space invites over that channel only after the
+  person confirms the codes match.
+- The secret expires after a couple of minutes and after one use. The
+  offering device serves one phone per offer, not every peer that connects.
+- A page opened with a `#pair=` link while another account is already signed
+  in SHOULD warn clearly before switching. Today a link someone sends you can
+  sign you in to their account in one tap.
+
+**Open questions.** Whether to use a standard PAKE (for example CPace or
+SPAKE2) instead of an HMAC-authenticated ECDH, since the secret is
+high-entropy and a PAKE's main benefit is for low-entropy ones; how long the
+short code is; whether the phone sends anything back (an acknowledgement, so
+the offer can close itself).
+
 *Source:* `src/identity/pairing.ts`, `src/session/pairing.ts`, `src/session/auth.ts` (`acceptPairing`).
 *Tests:* `tests/pairing.test.ts`.
 
@@ -1064,11 +1182,15 @@ Offering device                                     Phone
 
 ## 15. Not yet specified
 
-- Transport of parent tokens for multi-link delegation chains (§7.5), and
-  whether records may carry them. See the known defect in §7.5.
-- A checksum or version marker for recovery codes (§2).
+- Transport of parent tokens for multi-link delegation chains: planned in
+  §7.5 ("Proof chains that travel").
+- A checksum or version marker for recovery codes: planned in §2.3.
 - Rotation of a compromised seed. Today an account *is* its seed; a new seed
-  is a new identity.
+  is a new identity. A proposal (KERI-style pre-rotation: the identifier is
+  the hash of an inception event committing to the next key, with a signed
+  key event log synced like records) is issue
+  [#9](https://github.com/leifriksheim/weave/issues/9). It would change
+  the DID format everywhere a root appears.
 - Account-level revocation of a root delegation is by CID (`noteCid`); its
   record format belongs to [03 — Spaces](03-spaces.md) and
   [06](06-nodes-and-sessions.md).

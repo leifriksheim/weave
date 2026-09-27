@@ -551,6 +551,19 @@ yet specified (§17).
 > space's history still lists the account and no key change becomes due
 > (§9). A fix is expected to write the self-removal.
 
+> **Planned:** leaving writes the self-removal. `node.spaces.leave` first
+> writes the account's own `sys.member` with `role: null`, then forgets the
+> space as today. The replay then drops the account from `readers`, a key
+> change becomes due (§9.2), and a manager's node changes the key. Anyone may
+> leave whatever their rank, so the last account at the top can leave too:
+> the space is then left with no one holding `manage`, and that is accepted.
+> Handing over (give your role, then leave) needs nothing new in the
+> protocol. Open questions: a node that cannot write (a view-only holder)
+> has nothing to remove; and whether a device that follows a deleted
+> membership in the registry (§13.2) should also write the self-removal, or
+> leave it to the device where the person pressed Leave. Part of the
+> convergence work in issue #10.
+
 ### 6.3 Keep lists
 
 A change that takes power from people — lowering or removing a member, lowering
@@ -563,6 +576,11 @@ change is refused, whatever point in history it claims.
 `keep` on an `invite` event is parsed but has no effect on judging (only
 `member` and `role` events produce reductions); an invite close decides who
 got in by replay order alone (§4.3).
+
+> **Planned:** keep lists past the cap. Someone removed after years of
+> writing may need more than 10 000 ids. If that cap is ever reached, `keep`
+> becomes the hash of the sorted list, with the list itself carried
+> separately. Not designed further; nothing needs it yet.
 
 ### 6.4 Revoking a note
 
@@ -611,6 +629,17 @@ view-only invite (§7.5) has no record and cannot be closed; only a key change
 > last undeleted version. `closeInvite` writes `open: false`
 > (`src/node/space-runtime.ts`). Other implementations MUST NOT rely on a
 > deleted invite staying open.
+
+> **Planned:** a deleted access record cannot leave access standing. The
+> original design took access back by deleting the record (a member, an
+> invite, a role); the build writes a change instead (`role: null`,
+> `removed: true`, `open: false`). What is left is to settle the delete
+> case, one of two ways: a deleted `sys.invite` version yields an `invite`
+> event with `open: false` (and likewise a deleted `sys.member` or
+> `sys.role` yields a removal), or a peer refuses to store a deleted version
+> in any access collection other than `sys.collection` (§3.4). The second is
+> simpler and keeps "access is taken away by writing a change" as the only
+> rule. Fixes the known defect above.
 
 ### 7.3 Joining with a secret
 
@@ -796,6 +825,45 @@ nothing in the node. They are **not** part of the protocol; key distribution is
 
 *Source: `src/privacy/space-encryption.ts`, `src/node/space-runtime.ts` (`IN_THE_CLEAR`, `write`, `openBody`), `src/space/space-access.ts` (`deriveReadKey`, `deriveReadSeed`). Tests: `tests/space.test.ts` ("private space expressions"), `tests/space-access.test.ts` ("a view-only invite to a private space reads everything and writes nothing"; the read-key vector).*
 
+### 8.7 Planned: what a private space still shows
+
+Encrypting bodies leaves the envelope readable to anyone holding the
+ciphertext: a relay-side peer, a carrier, a host, a mirror's storage
+provider. Two parts of it give away more than they need to.
+
+**Record keys that name people.** `onePer` keys ([02](02-records.md)) are
+plain hashes of the collection, the author, the link target and body fields,
+and `profile:` keys (§11) are `hex40` of the account. So anyone can guess and
+check who voted on which poll, work out a vote's value when a field has few
+possible values, and confirm which known accounts have a profile in a space.
+
+The fix: in a private space, derive these keys with HMAC under a key derived
+from a space key, as topic tags already are ([02](02-records.md) §8.2),
+so only readers can compute or check them. Every reader derives the same key,
+so rules still check the same way on every reader. A peer without the key
+already accepts rule verdicts it cannot check (§5.2 step 9).
+
+**Collection names.** `collection` travels in the clear, so the same peers
+see `app.todo.item`. Encrypting it, or replacing it with a keyed hash, would
+close that. `sys.*` names stay in the clear: a peer without the key must still
+recognise the access collections to replay the history.
+
+Depends on and touches: the envelope and the `onePer` rule
+([02](02-records.md)); the collections named in a sync hello and what a
+partial holder keeps ([05](05-sync-and-storage.md)); carried subscriptions,
+which a carrier matches by collection (§15).
+
+Open questions:
+
+- **Which space key.** A record key must not change when the space key does,
+  or one author could vote again after a key change. The genesis key is
+  stable, and every reader can open it (§9.3), but removed members keep it
+  too, so it hides keys only from peers that never read the space.
+- **Membership is public anyway.** `sys.member` bodies name each account in
+  the clear (§8.2), by design, so a blind peer can judge writes. Hiding
+  `profile:` keys hides nothing about who is a member until that changes.
+- Whether collection names are hashed or encrypted, and under which key.
+
 ---
 
 ## 9. Key changes, member keys and boxes
@@ -932,6 +1000,24 @@ A writer that does not hold the contact key **MUST** carry forward the
 publishes the account's name (from the registry, §13) into every space it
 opens and again on a rename, except the registry, the contacts space and
 agent sessions; a non-member publishes nothing.
+
+> **Planned:** profiles, round two.
+>
+> - **A name per space** ("in this space, call me…"). The record is already
+>   per space; what is missing is a way to say the name was chosen for this
+>   space, so the node's publishing of the account name (above) does not
+>   overwrite it on the next rename.
+> - **An avatar**, as a reference to an image on the profile. Depends on a
+>   way for a record to carry a file, which is not specified yet (the blob
+>   stores of [05](05-sync-and-storage.md) hold mirrors, not files records
+>   point to).
+> - **Private nicknames for others**: a name you give someone, seen only by
+>   you. It belongs in the account's own spaces, not in the shared one;
+>   `std.contact`'s `name` (§16.1) already does this for contacts.
+>
+> Open questions: the field names; the avatar's size limit and format; and
+> whether nicknames for people who are not contacts get a collection of their
+> own. `profile:` keys may also change (§8.7).
 
 *Source: `src/node/space-runtime.ts` (`profileKey`, `loadProfiles`, `publishProfile`), `src/node/node.ts` (`publishProfile`). Tests: `tests/profiles.test.ts`, `tests/contacts.test.ts` ("the contact key"), `tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored").*
 
@@ -1191,9 +1277,16 @@ then reject the value unless `invite` parses as an invite (§7.4) to a
 
 ## 17. Not yet specified
 
-- Whether leaving a space (§6.2) should also write a self-removal in its
-  history, so that a key change becomes due. See the known defect in §6.2.
-- Whether deleting an invite record closes it (§7.2, known defect).
+- Leaving a space (§6.2) writes no self-removal yet; planned in §6.2
+  (issue #10).
+- Deleting an invite record does not close it; planned in §7.2.
+- That every peer reaches the same access state under any interleaving is
+  pinned only by the conflict tests of §4; a randomized convergence test is
+  issue #10.
+- How a record is judged when its collection's definition changes: today by
+  the definition in force as of its `seen` (§5.2). Content-addressed
+  definitions (issue #11) would pin each record to one; see
+  [02](02-records.md).
 - Any bound on how many events a history may hold, or on the replay's cost.
 - Expiry or single use of invites: an open invite stays open until closed.
 - A way to re-establish a space's key for members who lost every key they held

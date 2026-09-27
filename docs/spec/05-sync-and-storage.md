@@ -339,6 +339,13 @@ know it is done.
 | `type` | `"stored"` | |
 | `ids` | `string[]` | Ids of versions the sender just took in from the receiver (from `versions` or `push-update`) and that passed its gatekeeper — newly stored or already held. A receiver considers at most the first 2,000 string entries. |
 
+> **Planned: binary sync messages.** Sync messages travel as JSON, and their
+> one binary part, the Negentropy `message`, as base64url, a third over its
+> size. A binary encoding would save that. It needs a new `v`, since peers
+> that disagree on `v` drop each other's messages. Open: which encoding
+> (CBOR, or a fixed layout for `reconcile`/`reconciled` only), and whether
+> versions inside `versions` stay JSON.
+
 *Source: `src/sync/sync-messages.ts`, `src/sync/sync-engine.ts`. Tests:
 `tests/reconcile.test.ts`, `tests/sync.test.ts`.*
 
@@ -467,6 +474,17 @@ cannot parse (§18).
 > at all (`src/sync/sync-engine.ts`, `onReconcile`), so the initiator waits
 > until its session goes stale after 30 s (§6.3). A fix will answer at once.
 
+> **Planned: limits per peer.** Every `hello` and every `reconcile` round
+> costs the answering side a pass over a collection's in-memory item set, as
+> often as a peer asks. Today only a session (64 rounds), a message (32,000
+> bytes), a `want` (200 ids) and a hello (1,000 collections) are bounded. A
+> node will also limit, per peer per minute, the hellos it answers and the
+> sessions it serves, and the collections one hello may make it compare. A
+> peer over its limit is ignored until the minute is out, not disconnected.
+> Open: the numbers, and whether a node says it is refusing (so the other
+> side does not wait out the 30 s stale timer). Byte rates per connection
+> belong to [04 — Network](04-network.md).
+
 ### 6.5 Done
 
 A node is **synced** with a peer when no session and no `want` is in flight
@@ -549,6 +567,20 @@ A `versions` with an `id` is only considered if it answers a `want` this node
 has in flight with that peer, and only versions whose `id` was asked for are
 taken. A `versions` without `id` is limited to its first 200 entries.
 
+> **Planned: bounding waiting versions.** The waiting set is capped by count
+> (1,000) but not by size, and every version stored retries all of it. A peer
+> can fill it with large versions that never become valid. A node will cap
+> the total bytes held waiting, and the retries done per version stored. Open:
+> the numbers, and whether waiting versions are counted per peer so one peer
+> cannot push out another's.
+
+> **Planned: access convergence** ([#10](https://github.com/leifriksheim/weave/issues/10)).
+> A randomized test with several peers, partitions and heals, role changes,
+> removals and key changes, asserting that every peer reaches the same access
+> state and current versions whatever order versions arrive in, and that
+> nothing a removed member wrote after the removal is taken in anywhere. The
+> gatekeeper and the `later` retry above are what it exercises.
+
 *Source: `src/sync/sync-engine.ts` (`admit`, `admitAll`, `retryWaiting`),
 `src/node/space-runtime.ts` (`admit`). Tests: `tests/sync.test.ts` (forged
 expression, no capability, schema), `tests/reconcile.test.ts` ("a refused
@@ -584,7 +616,8 @@ account home, [06](06-nodes-and-sessions.md)):
 - **What part.** The collections the app declared (`cache.collections`), plus
   every collection a query has used; a newly used collection triggers a hello
   to every peer. A query's result is **complete** only once each collection
-  it uses has been level with a peer holding `"all"`.
+  it uses has been level with a peer holding `"all"`. Signed writer logs
+  will replace this definition (planned, below).
 - **Pending writes.** Each of the node's own non-`sys.*` writes is pending
   until `target = min(number of keepers, max(copies ?? 2, cache.copies ?? 0))`
   distinct keepers have confirmed it.
@@ -601,10 +634,68 @@ Implementation detail — the state is kept in the space's own store (§12):
 | `cache` | `{ "settled": boolean, "used": { [collection]: ms }, "level": { [collection]: ms } }` — `settled`: has synced with a whole-space peer; `used`: when a query last used it; `level`: when it was first level with a whole-space peer |
 | `pending/<version id>` | `{ "collection": string, "by": [keeper DID…] }` — deleted once `by` reaches the target |
 
+Completeness rests on trust: a keeper that withholds versions, or a peer
+holding `"all"` that lost some, still counts as level. A reader cannot tell.
+
 *Source: `src/node/space-runtime.ts` ("Holding part of the space"),
 `src/node/types.ts` (`CacheConfig`), `src/space/roles.ts` (`Keeper`,
 `checkKeepers`). Tests: `tests/caches.test.ts`, `tests/reconcile.test.ts`
 ("holding part of a space").*
+
+### 9.1 Planned: completeness from signed writer logs
+
+> **Planned** ([#13](https://github.com/leifriksheim/weave/issues/13)). Not
+> normative. Replaces the definition of **complete** above.
+
+Every writer keeps a signed, append-only log per `(account, writer, space,
+collection)`, `sys.*` included; each version carries its writer id, its
+position `n`, and a Merkle Mountain Range root over entries `0..n` (the
+envelope fields are in [02 — Records](02-records.md)). Logs add checks; they
+do not change which version wins. What changes here:
+
+- **Heads in `hello`.** Peers exchange the highest signed `(n, root)` they
+  hold per log, for the collections both hold.
+- **Complete.** A collection is complete when, for every log, taking the
+  highest head seen from **any** peer, each entry `0..n` is held, or proven
+  superseded by a later version of the same record that is held. Superseded
+  entries are kept as **stubs** (the envelope without the body), so logs stay
+  checkable while bodies are dropped (§10 changes to keep them).
+- **What it guarantees.** One keeper can still hide a writer's newest entries
+  if no other peer has seen them. Withholding then needs every peer the reader
+  syncs with to collude. It is not a guarantee.
+- **`prove`.** A new message, `prove { log, n }` → `{ envelope, proof }`,
+  serves one version with an MMR proof against a signed head, so a cache can
+  check a single record without syncing the collection. Useful on its own.
+- **Legacy.** Versions without log fields are accepted, but a collection
+  holding any is never complete.
+
+Depends on: the log fields and the fork rule in 02. Open: how heads are
+encoded in `hello` without breaking its 1,000-collection bound, and how many
+heads a hello may carry.
+
+### 9.2 Planned: caches that fetch, widen and trim
+
+> **Planned.** Not normative. The policy above, extended. None of it changes
+> what other nodes see except the first item.
+
+- **Links outside what is held.** An `include` without `from` can reach any
+  collection. Today it finds only what the node already holds. A cache will
+  fetch the linked records by record key, keep them, and not keep them in
+  sync; the next run asks again. Sync has no way to ask for a record by key
+  (`want` takes version ids), so this needs a message, or `prove` above.
+- **Widening.** A node holding part of a space starts holding all of it when
+  too few keepers are online (Holochain's arcs: nodes grow their share when
+  others go missing). Opt-in only (`cache.widen: true`), since done on its own
+  it could fill a disk at a bad moment. Open: what "too few" is, and for how
+  long.
+- **Trimming by size.** `cache.maxBytes`: above it, drop least recently used
+  collections first, undeclared ones before declared. Also trim when
+  `navigator.storage.estimate()` says room is low, before the browser clears
+  the site. Pending writes are never dropped.
+- **Subsets smaller than a collection**, by topic tag ("only the channels I
+  opened"), which a blind keeper can serve ([02 — Records](02-records.md),
+  topics), or by count. Never by the writer's clock. Needs `holds` to name
+  more than collections.
 
 ---
 
@@ -953,7 +1044,7 @@ and without atomic operations:
 | `put(key, bytes)` | create or replace |
 | `delete(key)` | remove; absent is fine |
 | `list(prefix)` | every key under `prefix`, any order |
-| `changes?(prefix, cursor)` | optional: keys added/removed since `cursor`; not used by the mirror yet |
+| `changes?(prefix, cursor)` | optional: keys added/removed since `cursor`; not used by the mirror yet (§16.5) |
 
 Drivers:
 
@@ -979,6 +1070,11 @@ A **writer** is one store on one device, with its own random id: 32
 lower-case hex characters (128 random bits), never a DID. A writer MUST only
 create files under its own `<space id>/<writer id>/` prefix, so nothing is
 written twice, overwritten, or needs a lock.
+
+A host keeps its subscriptions in the same bucket, outside any space, under
+`host/subscriptions/` ([06](06-nodes-and-sessions.md)). A mirror carries
+spaces and nothing else: never an account file, whose wraps could be attacked
+offline by anyone holding the store.
 
 ### 16.3 Segment format
 
@@ -1034,7 +1130,62 @@ delete the old ones. A reader in between sees duplicates, which are harmless.
 
 *Source: `src/storage/blob-store.ts`, `src/storage/blob/memory.ts`,
 `src/storage/blob/s3.ts`, `src/storage/segment.ts`, `src/storage/mirror.ts`,
-`src/node/space-runtime.ts` ("Mirrors"). Tests: `tests/mirror.test.ts`.*
+`src/node/space-runtime.ts` ("Mirrors"), `src/node/host.ts`. Tests:
+`tests/mirror.test.ts`.*
+
+### 16.5 Planned: mirrors in your own storage
+
+> **Planned.** Not normative. Mirrors on any node, in storage the person
+> already has, and the rest of the mirror design.
+
+- **Any node, several mirrors.** Today only carriers and hosts mirror. A node
+  will take a list of blob stores (`NodeConfig.mirrors`), one per space each,
+  since a person may have their own Dropbox and a host's bucket at once. It
+  pulls when a space opens and on each change notice, and flushes after local
+  writes and on close. Two devices never online together then meet through
+  the store.
+- **Restore.** The account registry is a space, sealed under a key from the
+  seed, so it mirrors like any other. Recovery code, then connect storage, and
+  every space comes back. Segments are **not** sealed with the space key: a
+  blind host that must read the store to restart would then need the key.
+- **Absorbing a quiet writer.** A lost phone leaves its folder forever. Any
+  writer MAY absorb a writer whose newest segment is older than
+  `absorbAfterDays` (default 30): copy the versions its own store still keeps
+  from one of that writer's segments into a new segment of its own, then
+  delete that segment. Safe because segments never change; two writers
+  absorbing the same segment write the same versions, which is harmless.
+  Together with compaction, this is the only deleting there is. Open: how to
+  date a segment without trusting the store's modified times, which services
+  report differently.
+- **Change feeds.** Where the service has one, pull uses
+  `BlobStore.changes` instead of listing: Dropbox `list_folder/continue` with
+  long polling, Drive `changes.list`. S3 and directories list.
+- **More drivers**, each passing one contract suite (round-trips, absent is
+  null, a second delete is fine, `list` over several pages, keys with slashes
+  and unicode, a 1 MB blob), with shared backoff on 429 and 5xx that honours
+  `Retry-After`, never retries a delete that returned 404, and never logs a
+  token or signed URL:
+  - *Directory*: a directory handle or a directory on disk.
+  - *Google Drive*: everything in one app-created folder, `drive.file` scope
+    only (the app sees only its own files). Drive addresses files by id, not
+    name, so the driver keeps a name → file id map from one `files.list`,
+    updated on every `put` and invalidated on 404. Drive allows duplicate
+    names, so a `put` updates an existing file id rather than creating
+    another. Tokens come from a callback (`getAccessToken`); service accounts
+    do not work (they have no storage of their own).
+  - *Dropbox* and *OneDrive*, in their app folders, the narrowest grant each
+    offers. Dropbox first.
+  - Not iCloud: it has no usable web API; iCloud users keep a data folder
+    (§14) instead.
+- **Files and avatars** fit the same store later, as
+  `<space id>/files/<hash>`: content-addressed and immutable, so any writer
+  may write the same one. Not designed further.
+
+Budget: a store like Drive allows about 1,000 requests per 100 seconds. The
+segment, never the single version, is the unit fetched, and syncing 1,000
+records must fit that budget. Open: mirrors laid out per collection, so a
+cache (§9) could read only what it holds; today only whole-space nodes
+mirror.
 
 ---
 
@@ -1069,10 +1220,10 @@ delete the old ones. A reader in between sees duplicates, which are harmless.
   dropped. See the known defect in §6.3.
 - **Responder errors.** How a responder reports a `reconcile` it cannot
   parse. See the known defect in §6.4.
-- **Widening a cache** when too few keepers are online (BLOCK-22) is not
-  implemented; a cache only widens as queries use collections.
+- **Widening a cache** when too few keepers are online is not built; a cache
+  only widens as queries use collections. Planned in §9.2.
 - **`BlobStore.changes`** is defined but no mirror uses it; pull always lists.
-- **Other blob drivers** (Dropbox, OneDrive, Drive app folders) are not
-  implemented; only memory and S3-compatible.
+  Planned in §16.5, with the other blob drivers (directory, Drive, Dropbox,
+  OneDrive); only memory and S3-compatible exist.
 - **Member key at rest.** How to move `spacememberkey:` and `spacerelays:`
   entries written unsealed to sealed ones. See the known defect in §15.

@@ -42,12 +42,57 @@ the code disagree, that is a bug in one of them: open an issue, and say which.
   tests that pin it down, e.g. *Source: `src/sync/negentropy.ts`. Tests:
   `tests/sync.test.ts`.* Tests are the executable half of this spec.
 - **Rationale** is kept short and set apart, so the rules can be read without it.
+- **Planned.** Work that is designed but not built lives in the part it
+  belongs to, in a section or blockquote headed **Planned**, saying what it
+  will add, what it depends on, and its issue when one exists. Planned text is
+  not normative. This spec is the working document: when planned work is
+  built, its section becomes the specification; when plans change, it is
+  edited. (Earlier plans lived in `docs/blocks/`, kept in git history.)
 - **Not yet specified.** Where behaviour is left to the implementation, or is
   still moving, the spec says so rather than guessing.
 - **Known defect.** Where this implementation does something the protocol
   should not require, the spec says so in a blockquote starting
   "> **Known defect:**", describing current behaviour and what a fix will
   change. Other implementations MUST NOT rely on it, and SHOULD NOT copy it.
+
+## Planned work
+
+Designed but not built. Each entry is specified, as **Planned**, where it
+belongs. Issues track the larger ones.
+
+| Planned | Where |
+|---|---|
+| Key rotation (KERI-style pre-rotation) | [01 §15](01-identity.md), [#9](https://github.com/leifriksheim/weave/issues/9) |
+| A check character on recovery codes | [01 §2](01-identity.md) |
+| One spelling per key; one valid form per token; strict token shape | [01 §4, §7](01-identity.md) |
+| Proof chains that travel (fixes a known defect) | [01 §7.5](01-identity.md) |
+| Grants narrower than a space | [01 §7.1](01-identity.md), [06 §4](06-nodes-and-sessions.md) |
+| Wraps bound to their account; removing password derivation | [01 §10, §12](01-identity.md) |
+| Pairing without showing the account | [01 §14.4](01-identity.md) |
+| Versions whose history can be checked (fixes a known defect) | [02 §4.7](02-records.md) |
+| Merging inside one record | [02 §4.8](02-records.md) |
+| `pattern` and `format` in definitions | [02 §6](02-records.md) |
+| Compatible definitions; content-addressed definitions; definition tiers | [02 §6.5](02-records.md), [#11](https://github.com/leifriksheim/weave/issues/11), [#12](https://github.com/leifriksheim/weave/issues/12) |
+| Meaning-level hints on definitions | [02 §6.6](02-records.md) |
+| Private `onePer` keys; uniqueness that cannot be a key | [02 §7.3](02-records.md) |
+| Queries that leave out non-conforming records; full-text search | [02 §11](02-records.md) |
+| Leaving writes the self-removal (fixes a known defect) | [03 §6.2](03-spaces.md) |
+| Keep lists past the cap; deleted access records can't leave access standing | [03 §6.3, §7.2](03-spaces.md) |
+| What a private space still shows (hashed keys and collection names) | [03 §8.7](03-spaces.md) |
+| Profiles, round two | [03 §11](03-spaces.md) |
+| Access-control convergence | [05 §8](05-sync-and-storage.md), [#10](https://github.com/leifriksheim/weave/issues/10) |
+| A node you can pin; no plain `ws://` off this machine | [04 §5.2](04-network.md) |
+| Limits on what one peer can cost another | [04 §7.4](04-network.md), [05 §6.4, §8](05-sync-and-storage.md) |
+| Binary sync messages | [05 §4](05-sync-and-storage.md) |
+| Completeness from signed writer logs; fork proofs | [05 §9.1](05-sync-and-storage.md), [#13](https://github.com/leifriksheim/weave/issues/13) |
+| Caches that fetch, widen and trim | [05 §9.2](05-sync-and-storage.md) |
+| Mirrors in your own storage, and their drivers | [05 §16.5](05-sync-and-storage.md) |
+| A wallet as the account home | [06 §4](06-nodes-and-sessions.md) |
+| Agents: renewing notes, naming, agents that can't run a program | [06 §5.5](06-nodes-and-sessions.md) |
+| Web Push through carriers | [06 §6.4](06-nodes-and-sessions.md) |
+| Hosts: reachability, restore, user storage, quotas, reminders, private payments | [06 §6.6](06-nodes-and-sessions.md) |
+| Calls: blocked people don't ring, ringing a closed app, big calls, listen-only | [06 §7](06-nodes-and-sessions.md) |
+| Names: handles that lead to a door | [07 §10](07-doors.md) |
 
 ## The shape of it, in one page
 

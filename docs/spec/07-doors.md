@@ -408,11 +408,61 @@ an agent the contact key.
 - **Losing a relay.** A door names up to three relays, and knocks go to all of
   them. A relay can drop knocks but can't read, forge or alter them.
 
-## 10. Not yet specified
+## 10. Planned: names
 
-- **Names.** Handles that resolve to a door, e.g. an ATProto handle whose
-  repository holds a door record, so "@anna.example" can be pasted instead of a
-  code. See `docs/blocks/BLOCK-24-names.md`.
+> **Planned.** Not normative. A handle that leads to a door, so a person can
+> paste `@anna.bsky.social`, sent to them anywhere, where a code works today.
+
+A name is a pointer to a door, never to the identity. It resolves to a door
+code, and never to the account DID: that would link everything the account
+ever signed to the handle. The first name provider is ATProto, whose handles
+are domains checked both ways against a DID. ATProto is used only to publish
+one record, never to sign in: its signing keys usually live with the PDS, the
+opposite of "the seed is the account".
+
+**Resolving a handle** (read only, no sign-in):
+
+1. **Handle → DID.** DNS TXT `_atproto.<handle>` (`did=did:plc:…`), else
+   `https://<handle>/.well-known/atproto-did`. Browsers can't read TXT
+   records: use the HTTPS path, then a configurable DNS-over-HTTPS resolver.
+   The DID document's `alsoKnownAs` MUST name the handle back.
+2. **DID → PDS**, from the DID document's `AtprotoPersonalDataServer` service
+   (`did:plc` through the PLC directory, `did:web` through the domain).
+3. **PDS → door.** `com.atproto.repo.getRecord`, collection
+   `org.weaveprotocol.door`, key `self`:
+   `{ "$type": "org.weaveprotocol.door", "code": "<door code>", "createdAt": "…" }`.
+   The repository is signed, so the record is the handle owner's word.
+4. `node.doors.knock` accepts a handle wherever it takes a code.
+
+**A checked handle on a knock.** A knock gains an optional `handle` and a
+`handleProof`: the knocker's own door signing key over
+`weave/knock-handle/v1|<door knocked on>|<knock at>`. The owner resolves the
+handle, reads the knocker's own door record, and checks the proof against the
+`sign` key in that code. This proves the knocker controls the handle's
+repository and a door, without their account DID becoming public. Shown as
+"@leif.bsky.social ✓" when it checks out, as the plain name otherwise.
+
+**Linking a handle** happens at the account home: ATProto OAuth (PAR, PKCE,
+DPoP) asking only to write `org.weaveprotocol.door`; the home opens or picks a
+door and writes the record. Unlinking deletes it; rotating writes another
+door's code into it. The account registry remembers which door a handle points
+at.
+
+**Who may knock.** A door gains a policy in its `std.door` record (never
+published): `anyone` (default), `follows` or `mutuals` on the handle's network.
+Follows are `app.bsky.graph.follow` records in the owner's own repository, read
+from their PDS, with no AppView. Knocks that don't match are kept but shown
+apart.
+
+**Trade-offs.** The PLC directory, a DoH resolver and `bsky.social` owning its
+subdomains become dependencies of *discovery* only: contacts already made are
+Weave spaces and survive them. A door record makes "this handle uses Weave"
+public, which is opt-in. A second provider should follow: plain DNS,
+`_weave.<domain>` TXT holding a door code, for people with a domain and no
+ATProto account.
+
+## 11. Not yet specified
+
 - **Topics that change over time** (§4).
 - **Retrying a knock** that reached no relay, or whose relays lost it
   (restart), until it is answered or expires. A retry is a fresh knock, signed

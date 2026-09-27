@@ -645,7 +645,7 @@ export interface HostingView {
  * host is a carrier (`carriers`) the account pays for; every device of the
  * account hands it the spaces, with nothing to set up.
  *
- * Nothing here knows how a host is paid (BLOCK-23): a host takes payments on
+ * Nothing here knows how a host is paid (docs/spec/06-nodes-and-sessions.md, Hosts): a host takes payments on
  * its own page, which `payPage` links to, and says how the subscription stands
  * in a status it signs.
  */

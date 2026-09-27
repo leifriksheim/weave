@@ -323,7 +323,7 @@ await anna.doors.close(door.id);                   // the code leads nowhere now
   by its owner (`clear`), so its code keeps working.
 
 Next: handles that lead to a door, so `@anna.bsky.social` works where a code
-does ([BLOCK-24](docs/blocks/BLOCK-24-names.md)). The full design is
+does (planned in [07 — Doors](docs/spec/07-doors.md), Names). The full design is
 [docs/spec/07-doors.md](docs/spec/07-doors.md).
 
 ## Signing in — the element, and React
@@ -1050,7 +1050,7 @@ interface StorageAdapter {
 - `createIndexedDBAdapter(name)` — works in every browser. Origin-scoped.
 - `createFolderAdapter(directory, namespace)` — a directory the user picked, via the File System Access API. **Not** origin-scoped. Chrome, Edge and Opera on the desktop.
 
-The always-on node (`weave run`) uses the folder adapter on disk, in the same layout. **Planned**: mirrors, which keep a space in storage the user already pays for (a Dropbox app folder, Drive, S3) and sync with it like a peer — see `docs/blocks/BLOCK-03-mirrors.md`. OPFS is not on the list: it is origin-private, so it would inherit exactly the limitation a data folder exists to avoid.
+The always-on node (`weave run`) uses the folder adapter on disk, in the same layout. **Planned**: mirrors, which keep a space in storage the user already pays for (a Dropbox app folder, Drive, S3) and sync with it like a peer — see [05 — Sync and storage](docs/spec/05-sync-and-storage.md). OPFS is not on the list: it is origin-private, so it would inherit exactly the limitation a data folder exists to avoid.
 
 ### Data folders — storage that outlives the origin
 
@@ -1296,7 +1296,7 @@ members pay for it. A subscription is a key the account makes and keeps in its
 registry (`sys.hosting`), so every device signs as it; `node.hosting.use(url)`
 starts one, and whichever device notices it is paid hands the host the carry
 space. Every call to the host is signed over method, path, time and body.
-The home knows nothing about payment (BLOCK-23): a host describes itself at
+The home knows nothing about payment ([06 — Nodes, sessions and apps](docs/spec/06-nodes-and-sessions.md), Hosts): a host describes itself at
 `/.well-known/weave-host` (like a Nostr relay's NIP-11 document), signs every
 status it gives — the home keeps the latest in the registry as the person's
 proof — and takes payments on its own pay page, which `node.hosting.payPage(url)`
@@ -1444,7 +1444,23 @@ the agents it finds, and they start `weave mcp` themselves: a node of its own,
 over WebRTC (`node-datachannel`), that follows the account and keeps working
 with every tab closed. What it writes shows "via agent", and every peer
 ignores an agent changing collections, who may do what, or the account's own
-list of spaces. See BLOCK-20.
+list of spaces. See [06 — Nodes, sessions and apps](docs/spec/06-nodes-and-sessions.md), Agents.
+
+## Still to do in the library
+
+What the protocol still has planned is in [the spec](docs/spec/README.md), under
+**Planned** in each part. Library work that isn't protocol:
+
+- **Typed queries, further.** Typed field paths and operator values in
+  `where`, a misspelled collection name as a compile error, typed link roles,
+  types generated from a space's stored definitions, and a dev-time warning
+  when declared schemas differ from the space's catalogue.
+- **Typed collections.** One TypeScript builder that emits the schema, the
+  rules and the types, and typed handles (`node.use(space, Poll)`).
+- **Definitions that update themselves.** `useSchemas` and `addApp` applying
+  harmless changes, with `differences()` in `src/schemas/apps.ts` replaced by
+  the planned `compare` ([02](docs/spec/02-records.md), compatible definitions).
+- **Web components** for the standard schemas.
 
 ## Releasing
 

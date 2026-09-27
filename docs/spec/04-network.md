@@ -451,6 +451,14 @@ The proof fields and what is signed are in §6.1. The client:
 unexpected close, with backoff `base/2 + random·base/2` where
 `base = min(1 s · 2ⁿ, 30 s)`; a deliberate close is never redialled.
 
+> **Planned:** a node you can pin, and no plain `ws://` off this machine.
+> Today the client trusts whichever node DID the challenge names (§6.1). A
+> client will be able to pin the node's DID in the node URL, and refuse a
+> welcome from any other. It will refuse a `ws://` node URL except to
+> `localhost`, `127.0.0.1` or `[::1]`, as `sys.relays` already does (§4).
+> Open question: the form of the pin in the URL (a query parameter or the
+> fragment).
+
 *Source: `src/network/ws-transport.ts`, `src/node/space-runtime.ts` (network setup), `src/network/network-manager.ts`. Tests: `tests/ws-transport.test.ts`, `tests/host.test.ts`, `tests/cli.test.ts`.*
 
 ### 5.3 The `/peer` endpoint (node side)
@@ -720,6 +728,21 @@ second shared relay. See the known defect in §3.
 
 *Source: `src/network/mesh.ts`, `src/network/introductions.ts`. Tests: `tests/introductions.test.ts`.*
 
+> **Planned:** limits on how much one peer can cost another.
+>
+> - **A byte rate per peer on every transport** (WebRTC, node socket), on
+>   top of the per-message limits that exist for live messages (§9.2) and
+>   sync ([05](05-sync-and-storage.md)). Beyond it, messages are dropped or
+>   the connection closed.
+> - **A cap on half-open connections from introductions**: connections
+>   offered or answered because of `__peers` or `__signal` (§8) that have not
+>   yet been admitted in any room. Today each is bounded only by the 10 s
+>   timeouts above.
+>
+> Values are not chosen. Limits on the sync side (hellos and sessions per
+> peer, waiting records) are in [05](05-sync-and-storage.md). Together these
+> answer the open question on message size limits.
+
 ---
 
 ## 8. Introductions
@@ -881,7 +904,8 @@ of §6.1 on a node socket; attribute every message to the connection, not to
 - **Duplicate signals across relays.** How a receiver recognises and drops a
   duplicate offer. See the known defect in §3.
 - **Size limits on peer connections.** No maximum WebRTC message size is
-  specified or enforced; browsers' SCTP limits apply.
+  specified or enforced; browsers' SCTP limits apply. A byte rate per peer
+  is planned (§7.4).
 - **"64 KB"** for live messages is measured in UTF-16 code units of the JSON
   string, not bytes.
 - **Untested relay behaviour.** The `4009` DID-taken close, the rate limit,

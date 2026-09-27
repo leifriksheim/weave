@@ -173,3 +173,12 @@ IndexedDB. Choose the *same pod* in both and the second one arrives at the
 same DID and the same spaces. A change in one — a rename, a space an app made —
 shows up in the other within a couple of seconds: the folder is polled, because
 the web has no filesystem change notification.
+
+## Still to do
+
+- **Members and roles.** Screens to see who is in a space and what they hold, edit roles, make an invite link per role, hand over, and leave. So far only `example/` has these (`RolesView`). The copy should be honest: someone removed keeps what they already downloaded, and view-only links made before a removal stop working.
+- **Pairing.** Warn on the arrival screen when a `#pair=` link would sign in to a different account than the one here ([01](../docs/spec/01-identity.md), pairing).
+- **Notifications per device.** A list of this device's notification subscriptions.
+- **Hosting.**
+  - Say plainly, before a lapsed host deletes data, that it will.
+  - Remind people before time runs out. The protocol side is planned in [06](../docs/spec/06-nodes-and-sessions.md).

@@ -293,6 +293,7 @@ the one no other held version supersedes.
 > this rule. Nothing in the reference implementation reads `prev`
 > (`src/records/version.ts`). A fix will bind a later version to the version
 > it names in `prev`; other implementations MUST NOT rely on gaps being accepted.
+> Planned in §4.7.
 
 > Rationale: no clock is trusted, because every clock is whatever its writer
 > typed. The rule is load-bearing forever — two peers running different rules
@@ -361,9 +362,77 @@ Checks that depend on what else a peer holds are **not** shape checks:
   version is ignored when reading, as if absent.
 
 *Not yet specified:* whether `prev` must name a held version, and whether a
-`seq` may skip. See the known defect in §4.3.
+`seq` may skip. See the known defect in §4.3, and the plan in §4.7.
 
 *Source: `src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `RECORD_KEY_PATTERN`, `MAX_SEEN`), `src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepOrDrop`), `src/node/space-runtime.ts` (`firstOf`, `consistent`, `write`, `after`). Tests: `tests/versions.test.ts` (all), `tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first").*
+
+### 4.7 Planned: versions whose history can be checked
+
+Fixes the known defect in §4.3 and settles the "not yet specified" in §4.6.
+Part of the audit in [#10](https://github.com/leifriksheim/weave/issues/10).
+
+**Why.** `seq` is whatever the writer puts there, and superseded versions are
+dropped, so nobody can check that a version is one more than the one before.
+Two attacks follow, open to any member of a shared space:
+
+- **Freezing a record.** A member allowed to edit writes
+  `seq: 2^53 − 1`. Nothing can outrank it: `seq + 1` is not a safe integer,
+  and every peer refuses it (§4.6). With a `sys.*` or other foreign
+  `collection`, it also hides the record, because a version whose collection
+  differs from its first version is ignored on read (§4.6).
+- **Taking over a creator.** The first version kept is the `seq 0` with the
+  lowest id (§4.5). A member writes their own `seq 0` for someone else's key
+  and retries `createdAt` values until its id sorts lower; a few tries on
+  average. `@createdBy`, the `creator` rule (§7.1) and the "first defined by"
+  standing of a definition (§6.3) then name the attacker.
+
+**Design.**
+
+- **Checkable `seq`.** Every peer keeps a small signed header for every
+  version, even after its body is dropped: key, `seq`, `prev`, author, and the
+  id of the full version. A later version is accepted only if `prev` names a
+  held header with `seq − 1` whose own chain reaches the record's first
+  version. About a hundred bytes per edit. A long history might later be
+  compacted by a checkpoint the record's creator signs.
+- **Keys that belong to their creator.** A fresh key becomes
+  `hash(creator's root DID ‖ nonce)`, the nonce carried in the first version,
+  so a `seq 0` by anyone else fails the check. A key the caller chooses
+  (`collection:<name>`, `put({ key })`) gets the creator's root in its
+  namespace, as profile keys already do ([03 — Spaces](03-spaces.md)), or a
+  rule that the owner's first version beats everyone else's. Derived keys
+  (`one:…`, access-history keys) need a decision each.
+- **Refuse, not hide.** Once both hold, a version whose `collection` differs
+  from its first version can be refused on arrival instead of ignored on read.
+
+The ordering rule (§4.3) itself does not change, but which versions reach it
+does. Nodes running the old and new checks would disagree about what is
+current, so the new check is pinned by tests like the ordering rule. Pre-release:
+nothing to migrate.
+
+**Related.** Signed writer logs
+([#13](https://github.com/leifriksheim/weave/issues/13)) add a per-writer,
+per-collection log position and Merkle root to each version, to prove a copy
+complete and to detect a key signing two histories. They check a different
+thing (a writer's log, not a record's chain), and leave §4.3 unchanged too.
+Headers here and stubs there are the same idea: an envelope kept without its
+body. Design them together.
+
+**Open questions.** The header's exact format and whether it syncs as its own
+item ([05](05-sync-and-storage.md)); who may sign a checkpoint for a record
+anyone may edit; how derived keys prove their creator.
+
+### 4.8 Planned: merging inside one record
+
+Two devices editing different fields of one record while apart make two
+versions with the same `seq`, and one wins whole (§4.3): the other edit is
+lost. Field-level merging, or a text CRDT for long text, would keep both. It
+is a question about bodies only: storage, sync and the ordering rule stay as
+they are. Not designed.
+
+Open questions: whether a merge is a new version any reader computes the same
+way (so every peer converges on it); which `prev` a merged version names when
+it has two parents (and how that meets §4.7's chain check); how merging meets
+`fixed` (§7.4) and encrypted bodies.
 
 ---
 
@@ -527,6 +596,31 @@ Schema (Standard JSON Schema: Zod 4.2+, ArkType 2.1.28+, Valibot) is converted
 with target `draft-2020-12` before storing, and the result is checked like any
 other.
 
+> **Planned: `pattern` and `format`.** Left out on purpose: every member's
+> app checks every record, in whatever language, regex dialects differ, and a
+> slow regex such as `^(a+)+$` in a schema could freeze every member's app.
+> The plan to add them:
+>
+> - `pattern` accepts only **I-Regexp** (RFC 9485), the regex subset that
+>   means the same in every language (as JSONPath, RFC 9535, uses): no
+>   backreferences, no lookaround. A definition with nested repeats such as
+>   `(a+)+` is invalid, because backtracking engines can still stall on them
+>   in I-Regexp. (The alternative is a linear-time matcher, a dependency.)
+> - `format` accepts only formats with exact definitions: `date-time`
+>   (RFC 3339), `date`, `uri`. Not `email`.
+> - Compatibility (§6.5) treats two patterns as compatible only when they are
+>   identical.
+>
+> Older apps ignore unknown keywords when validating, and a record that does
+> not fit is still kept and flagged (§9.6), so a space using `pattern` stays
+> readable by an app that predates it.
+>
+> *Open:* the publishing check above makes a definition that uses `pattern`
+> **invalid** to an older peer, and an invalid definition counts as none
+> (§6.1), so that peer would enforce none of its rules. Either the publishing
+> check must tolerate these keywords before any app writes them, or such a
+> definition needs a higher protocol version that older peers recognise.
+
 ### 6.3 Versions of a definition
 
 A definition's `version` is a whole number from 1. Records do not name the
@@ -564,11 +658,151 @@ while its collection still has records.
 - **`std.*`** is a naming convention for the optional standard library
   (Appendix A), **not reserved**: any member allowed to define collections may
   define a `std.*` name with any shape. Apps agree by using the same
-  definitions, not by any privilege.
+  definitions, not by any privilege. (Planned to change: §6.5.)
 - Any other name is the space's to use. Records in a collection nobody has
   defined are still stored and synced; they simply have no schema or rules.
 
 *Source: `src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `validateJsonSchema`, `toJsonSchema`, `asStandardSchema`, `MAX_SCREEN_BYTES`), `src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`, `define`, `undefine`), `src/space/roles.ts` (`definition` events). Tests: `tests/space-catalog.test.ts` (all), `tests/schemas.test.ts` ("schemas from a validator you already use"), `tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write").*
+
+### 6.5 Planned: compatible definitions
+
+Issues: [#11](https://github.com/leifriksheim/weave/issues/11) (content-addressed
+definitions), [#12](https://github.com/leifriksheim/weave/issues/12) (definition
+tiers, additive-only). This section is the one plan for both, and for the
+compatibility check that was drafted separately; where they differ, it says so.
+
+**Why.** An app decides it can open a space by finding a collection with the
+right **name**. Chat opens any `std.message`, whatever its fields and whoever
+its rules let edit it. And a space whose definition is a little older than the
+app's (a `std.message` without the `shares` link) stays that way, because the
+library skips a collection the space already has.
+
+#### The check: `compare(held, wanted)`
+
+`held` is the definition the space has; `wanted` the one the app was built
+with. The result is two lists of breaks, each a path and a plain sentence:
+
+```ts
+interface Compatibility {
+  read:  Break[];   // why the app might meet a record it can't read; empty: it can read them all
+  write: Break[];   // why a record the app writes might not fit, or be refused; empty: it can write
+}
+interface Break { path: string; message: string }   // 'rules.edit', "Anyone can edit anyone's messages here; this app assumes only their author"
+```
+
+An app that only shows records needs `read` empty; one that writes needs both.
+Anything the checker cannot decide is a break.
+
+- **Fields.** Reading needs every body the space accepts to be one the app
+  accepts (held ⊆ wanted); writing needs wanted ⊆ held. Over the §6.2 keywords
+  this is a walk of both schemas: `type` sets contained (`integer` inside
+  `number`); a field one side relies on is `required` on the other; numeric
+  and length ranges contained; `enum`, `const` and `oneOf` value sets
+  contained; recurse into `properties` and `items`. `title`, `description`
+  and `x-choicesFrom` are ignored.
+- **Links.** A link role the app uses is declared in the space; where it may
+  point is contained (`["app.poll"]` is inside `"*"` for reading, not for
+  writing); `"one"` is inside `"many"`. Roles the app does not know are
+  ignored when reading.
+- **Rules: never looser.** Stricter rules are never a safety problem (at worst
+  the app cannot write, which `can` already reports), so rules are checked one
+  way: the space's rule must be an **attenuation** of the app's, as in UCAN.
+  For `create`, `edit`, `delete`, every who in the space's list is covered by
+  one in the app's (`member` covers everyone; `creator` and `can:<p>` cover
+  themselves; defaults count). `onePer`: the space promises at least the
+  uniqueness the app relies on (fewer parts is a stronger promise). `fixed`:
+  the space keeps at least the fields the app expects fixed. `permissions`: a
+  permission the app's rules name is declared.
+
+#### What uses it
+
+1. **Apps open by compatibility**, not by name. A collection that exists but
+   is not compatible is shown with its breaks instead of opened.
+2. **Harmless updates apply themselves.** When the library's definition is
+   newer and `compare(held, library)` finds no break in either direction and
+   the rules are no looser, a writer allowed to change the definition (§6.3)
+   writes it at the next version without asking. (Adding `shares` to an older `std.message` is this
+   case.)
+3. **Anything else asks a person.** The app review
+   ([06](06-nodes-and-sessions.md), `std.app`) shows the breaks ("lets anyone
+   edit messages; now only their author"), not only "changes who may do what".
+4. **`std.*` means the standard thing.** A writer MUST NOT define a `std.*`
+   name that is not compatible with the standard library's. Peers do not
+   refuse one on arrival (refusing depends on what each peer knows, and leaves
+   peers disagreeing, as in §9.6); instead an app treats an incompatible
+   `std.message` as not a message (point 1).
+
+Typed handles in the library (`node.use(space, Poll)`) would run the same
+check.
+
+#### Where #11 and #12 go further
+
+- **Content-addressed definitions (#11).** A definition's id is the hash of its
+  content and never changes; a new one names `supersedes: <hash>`, and
+  `sys.collection` becomes a pointer from a name to the current hash. Identical
+  hashes are trivially compatible, so `compare` runs only on a real change.
+  #11 also has each record store the hash it was written against and be
+  judged by it. That differs from today (§6.3: judged by the definition in
+  force as of `seen`), which was chosen because a writer-chosen pin let a
+  writer name an older, looser definition. Pinning by hash needs a rule that
+  the pinned definition is one in force as of `seen`, or no looser than it
+  (by `compare`), or it reopens that hole.
+- **Tiers and additive-only (#12).** `std.*` frozen by the spec; publisher
+  definitions under `<did>/name`, signed by the publisher and followed
+  automatically; space definitions changed by space roles. Under one name
+  only additive changes are valid, **enforced by peers**; a breaking change
+  needs a new name (`name/2`), and may ship upgrade steps as data. Apps declare
+  the names or hashes they support. Here the plan differs: the compatibility
+  draft keeps the check on the app side and lets a person approve a breaking
+  change; #12 makes "additive" a validation rule. Peers can enforce it only
+  on something every peer sees the same way, which content-addressed
+  definitions and their `supersedes` chain (#11) provide. `compare` is the
+  check "additive" needs. #12 depends on #11, and on key rotation
+  ([#9](https://github.com/leifriksheim/weave/issues/9)), because a stolen
+  publisher key could push "additive" versions spaces pick up automatically.
+
+#### Open questions
+
+- **Extra fields.** A stored schema accepts unknown fields unless it says
+  `additionalProperties: false`, so taken literally an app adding an optional
+  `mood` field could not read a space that lacks it. Proposed: a field only
+  one side mentions is ignored unless that side requires it or closes the
+  schema. Decide before building.
+- **Rules only apply from now on.** A space that was loose last month and
+  strict today holds records written under the loose rules. Either `compare`
+  looks at every definition the collection has had, or "compatible" is stated
+  to describe records written from now on. Probably the second.
+- **Which direction is "additive".** #12 calls looser constraints additive:
+  an app built on the new definition reads old records. An app still on the
+  old definition may not read new ones. `compare` gives both directions;
+  #12 must say which it requires.
+- **Translating instead of refusing** (lenses between versions, as in
+  Cambria), so an app can read a definition it is not compatible with. Later.
+
+Depends on: the app review of `std.app` (built). Everything else here is new.
+
+### 6.6 Planned: meaning-level hints
+
+A definition says what a record may hold and who may change it, not what it
+means to a screen. Screens derived from definitions (the app review, apps
+without a screen of their own; [06](06-nodes-and-sessions.md)) have to guess
+which field is the title or that votes are shown as counts. The plan adds
+optional hints to a definition:
+
+- which field is the record's **title**;
+- a field's **role** (a date, a person, an amount);
+- **tallies**: "show as a count" of records linking here, the way
+  `x-choicesFrom` already makes vote-style counts possible;
+- values **worked out on read**: "voting closes Friday", "who hasn't
+  answered". Each reader computes them from the records and its own clock, so
+  nothing has to run anywhere.
+
+Like `x-choicesFrom`, hints are display only and never checked when
+validating, and `compare` (§6.5) ignores them. They would go in a new
+top-level definition member rather than as schema keywords: unknown
+top-level members are ignored by today's peers, while an unknown schema
+keyword makes the definition invalid (§6.2). Added when a real agent-made app
+shows the derived screen falling short. *Open:* the format.
 
 ---
 
@@ -674,6 +908,34 @@ other checks. Later versions keep the key they have.
 A writer derives the key and writes the next version after whatever it holds
 at that key (§4.2) — so "adding another" is an edit of the existing record,
 and the `edit` rule decides whether it is allowed.
+
+> **Planned: private `onePer` keys.** The key is a plain hash of the
+> collection, the author, the link target and body fields, and it travels in
+> the clear even in a private space. So anyone holding the ciphertext (a relay
+> peer, a host, a mirror's provider) can guess and check who voted on which
+> poll, and, where a field has few possible values, the value too. The plan:
+> in a private space, derive the key with HMAC-SHA-256 under a key derived
+> from the space key (a new label in [01](01-identity.md) §5), so only readers
+> can compute or check it. Every reader derives the same key, so rules still
+> check the same everywhere; a peer without it already accepts `onePer` on the
+> other checks. The change is also the moment to fix the `JSON.stringify`
+> known defect above.
+> `profile` keys leak the same way (anyone can confirm which known accounts
+> are in a space; [03 — Spaces](03-spaces.md)). Pairs with encrypting
+> collection names. *Open:* which space key: a record's key must outlive key
+> changes, so it cannot simply be the key its body was sealed with (as topic
+> tags use, §8.2); and how a reader finds a record written under an earlier
+> key.
+
+> **Planned: uniqueness that cannot be a key.** `onePer` works only when the
+> unique parts can be known before writing ("one per person per poll").
+> Uniqueness over something that cannot be derived in advance ("one booking
+> per room per hour" with free-form times, a unique display name) would need a
+> **deterministic fold on read** instead: every reader keeps the same one of
+> the clashing records, by a rule like §4.3, and treats the rest as not
+> current. Not designed. *Open:* the rule's syntax; how a reader that holds
+> only part of a collection folds; and that a definition with an unknown rule
+> is invalid to older peers (§7.5), so a new rule needs care in rollout.
 
 ### 7.4 `fixed`
 
@@ -818,7 +1080,8 @@ The capability every write in space `S` needs is
 
 > **Known defect:** a chain deeper than one link never validates here, because
 > no proof resolver is wired and a record carries only its leaf token
-> ([01 — Identity](01-identity.md) §7.5).
+> ([01 — Identity](01-identity.md) §7.5). Planned there: "Proof chains that
+> travel".
 
 ### 9.4 Standing (the stateful check)
 
@@ -979,6 +1242,14 @@ A query considers the **current, non-deleted** version of every record in
 cannot open are left out — here and in every include — so a result's `body` is
 never `null`.
 
+> **Planned: leaving out records that do not conform.** Records whose body or
+> links do not fit the definition are kept and flagged (§9.6), but queries,
+> includes and counts use them like any other, so a tally can count a record
+> the definition says is malformed. The plan: queries and includes leave out
+> records with `conforms: false` unless the query asks for them (a new
+> optional member, e.g. `"nonconforming": true`). Rules are already enforced
+> on arrival (§9.4), so this is about shape, not about who wrote it.
+
 ### 11.3 Field values
 
 | Field | Value |
@@ -1009,6 +1280,14 @@ means deep equality: same JSON type; objects with the same member names
 | `$nin` | `x` is a list containing no element equal to `value` (false if `x` is not a list) |
 | `$exists` | `(value is not missing) == x`. `null` exists. |
 | `$contains` | `value` and `x` are strings and `lower(x)` is a substring of `lower(value)`; or `value` is a list with an element equal to `x`. Otherwise false. Not search. |
+
+> **Planned: full-text search.** `$contains` scans every candidate, which is
+> honest at browser scale but is not search. Ranking and prefix matching need
+> an inverted index kept beside the records, and a query operator or member
+> for it. Not designed. *Open:* whether the index is a node's local business
+> (specified here only as query syntax and result order) or something peers
+> share; and, for private spaces, that the index holds plaintext and must be
+> kept like the bodies it came from ([05](05-sync-and-storage.md)).
 
 Several operators on one field must all hold; several fields in one filter
 must all hold. `$and`: all subfilters hold; `$or`: at least one; `$not`: the
@@ -1123,6 +1402,11 @@ there. All are `version` 1 when first defined. "About" below is
 | `std.contact` | `did` ≤ 256 and `name` ≤ 200, required; `space` ≤ 256; `note` ≤ 2000; `blocked` boolean | `onePer: [did]` | [03 — Spaces](03-spaces.md) |
 | `std.contact-request` | `to` ≤ 256 and `sealed` ≤ 16000, required | edit, delete: `creator` | [03 — Spaces](03-spaces.md) |
 | `std.app` | `title` 1–100 and `needs` (1–10 objects), required; `description` ≤ 1000; `from` ≤ 300 | edit: `creator`; delete: `creator`, `can:moderate`; permission `moderate` | [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) |
+
+> **Planned (open question): a version on `std.app`.** A changed proposal for
+> an app that is already added shows as a second app. A `version` member, or
+> a link to the proposal it updates, would let it show as an update instead.
+> Not decided. With §6.5, the update's review would list `compare`'s breaks.
 
 **Positions.** `position` is a string that sorts (by plain string comparison)
 where a record goes in a hand-made order. Digits are `0–9a–z`; a position
