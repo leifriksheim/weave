@@ -111,8 +111,18 @@ export const SCREEN_CLIENT = `(() => {
     }
     bar.textContent = 'This screen hit an error: ' + message;
   };
-  addEventListener('error', (event) => report(event.message || String(event.error)));
-  addEventListener('unhandledrejection', (event) => report(event.reason && event.reason.message ? event.reason.message : String(event.reason)));
+  // Browser extensions inject their own scripts into every frame, this one too, and those
+  // fail here (MetaMask can't reach its wallet from a sealed frame). Not the screen's to report.
+  // chrome-extension://, moz-extension://, safari-web-extension://
+  const fromExtension = (...where) => where.some((text) => typeof text === 'string' && text.includes('-extension://'));
+  addEventListener('error', (event) => {
+    if (fromExtension(event.filename, event.error && event.error.stack)) return;
+    report(event.message || String(event.error));
+  });
+  addEventListener('unhandledrejection', (event) => {
+    if (fromExtension(event.reason && event.reason.stack)) return;
+    report(event.reason && event.reason.message ? event.reason.message : String(event.reason));
+  });
   // weave.me is who is looking; calling it — weave.me() — gives the same.
   // (defineProperty, because a function's own "name" can't be assigned)
   const me = () => ({ did: given.me.did, name: given.me.name });

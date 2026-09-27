@@ -558,6 +558,25 @@ describe('screens', () => {
     assert.deepEqual(weave.collections, ['app.chess.game']);
   });
 
+  test('the script in front of a screen shows the screen\'s own errors, not those of a browser extension in its frame', () => {
+    const listeners: Record<string, (event: unknown) => void> = {};
+    const shown: string[] = [];
+    const bar = { id: '', style: {}, setAttribute: () => {}, set textContent(text: string) { shown.push(text); } };
+    const document = { getElementById: () => null, createElement: () => bar, body: { appendChild: () => {} } };
+    const window: Record<string, unknown> = { __weave: { port: { postMessage: () => {} }, me: { did: 'did:key:zMe', name: 'Anna' }, collections: [] } };
+    new Function('window', 'addEventListener', 'document', SCREEN_CLIENT)(window, (type: string, listener: (event: unknown) => void) => (listeners[type] = listener), document);
+
+    const metamask = new Error('Failed to connect to MetaMask');
+    metamask.stack = 'Error: Failed to connect to MetaMask\n    at Object.connect (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/scripts/inpage.js:1:21277)';
+    listeners.unhandledrejection!({ reason: metamask });
+    listeners.error!({ message: 'Uncaught TypeError: x is undefined', filename: 'moz-extension://abc/content.js', error: null });
+    assert.deepEqual(shown, [], 'an extension\'s failures are not the screen\'s');
+
+    listeners.error!({ message: 'Uncaught ReferenceError: draw is not defined', filename: 'about:srcdoc', error: new ReferenceError('draw is not defined') });
+    listeners.unhandledrejection!({ reason: new Error('Only whoever added a ride can change it') });
+    assert.deepEqual(shown, ['This screen hit an error: Uncaught ReferenceError: draw is not defined', 'This screen hit an error: Only whoever added a ride can change it']);
+  });
+
   test('the bridge answers for its app\'s collections only, as the person looking, under the rules', async () => {
     const { alice, bob, space } = await setup();
     await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' }, rules: { edit: 'creator' } });
