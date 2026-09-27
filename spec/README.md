@@ -97,6 +97,7 @@ they are described; the smaller ones share
 | A wallet as the account home | [06 §4](06-nodes-and-sessions.md) |
 | Agents: renewing notes, naming, agents that can't run a program | [06 §5.5](06-nodes-and-sessions.md) |
 | Web Push through carriers | [06 §6.4](06-nodes-and-sessions.md) |
+| Subscriptions the account owns, apps propose and devices deliver | [03 §15](03-spaces.md), [06 §6.4](06-nodes-and-sessions.md), [#30](https://github.com/leifriksheim/weave/issues/30) |
 | Hosts: reachability, restore, user storage, quotas, reminders, private payments | [06 §6.6](06-nodes-and-sessions.md) |
 | Calls: blocked people don't ring, ringing a closed app, big calls, listen-only | [06 §7](06-nodes-and-sessions.md), [#20](https://github.com/leifriksheim/weave/issues/20) |
 | Names: handles that lead to a door | [07 §10](07-doors.md) |

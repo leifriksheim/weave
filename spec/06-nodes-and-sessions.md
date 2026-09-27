@@ -1215,6 +1215,33 @@ collection and `createdAt`.
 > one subscription per carrier (the device subscribes with each carrier's key;
 > a host's description would list it as `vapid`) or carriers sharing a key.
 
+> **Planned: the account owns subscriptions, apps propose them, devices
+> deliver them.** Issue: [#30](https://github.com/leifriksheim/weave/issues/30).
+> A subscription mixes what the person wants to hear about (the account's),
+> which collection, topic and label say it (the app's), and which device shows
+> it (the device's). Today only the account key can write one, so apps cannot
+> add their own, and the Web Push plan above puts per-device `push` and
+> `device` on each `sys.subscription`. The plan:
+>
+> - `sys.notify` in the registry stays the source of truth, and names the app
+>   origin that proposed it. The account home lists them by app and can pause
+>   or delete any.
+> - An app proposes a subscription only with the person's consent: a
+>   `notify` permission in its grant, or a prompt in the account home.
+> - Each device registers as a **receiver** in its own record, apart from
+>   subscriptions: the extension first (it already shows notifications), then
+>   any browser through Web Push. Subscription records hold no device or
+>   endpoint data; this replaces `push` and `device` on `sys.subscription`
+>   and the grant that writes `sys.subscription` in the plan above.
+> - By default every receiver gets every subscription; a device can opt out
+>   on its own.
+>
+> *Open:* whether an app writes `sys.notify` itself or the home writes it
+> after a prompt; which device copies subscriptions into carry spaces; where
+> receiver records live and which carrier sends to which endpoint (with the
+> VAPID question above); whether "not on this device" syncs; what happens to
+> an app's subscriptions when it is disconnected.
+
 ### 6.5 Hosts
 
 A **host** is a carrier for many accounts, run as a service. Each account that

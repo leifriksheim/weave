@@ -1182,6 +1182,11 @@ notification with `label`.
 
 *Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier").*
 
+> **Planned: apps propose subscriptions, devices deliver them.** Issue:
+> [#30](https://github.com/leifriksheim/weave/issues/30). `sys.notify` gains
+> the app origin that proposed it, and delivery moves to per-device receiver
+> records. Specified in [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) §6.4.
+
 ---
 
 ## 16. Contacts
