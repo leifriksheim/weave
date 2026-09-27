@@ -485,7 +485,7 @@ cannot parse (§18).
 > peer over its limit is ignored until the minute is out, not disconnected.
 > Open: the numbers, and whether a node says it is refusing (so the other
 > side does not wait out the 30 s stale timer). Byte rates per connection
-> belong to [04 — Network](04-network.md).
+> belong to [04 — Network](04-network.md). Tracked in [#33](https://github.com/leifriksheim/weave/issues/33).
 
 ### 6.5 Done
 
@@ -574,7 +574,7 @@ taken. A `versions` without `id` is limited to its first 200 entries.
 > can fill it with large versions that never become valid. A node will cap
 > the total bytes held waiting, and the retries done per version stored. Open:
 > the numbers, and whether waiting versions are counted per peer so one peer
-> cannot push out another's.
+> cannot push out another's. Tracked in [#33](https://github.com/leifriksheim/weave/issues/33).
 
 > **Planned: access convergence** ([#10](https://github.com/leifriksheim/weave/issues/10)).
 > A randomized test with several peers, partitions and heals, role changes,
@@ -651,8 +651,9 @@ holding `"all"` that lost some, still counts as level. A reader cannot tell.
 
 Every writer keeps a signed, append-only log per `(account, writer, space,
 collection)`, `sys.*` included; each version carries its writer id, its
-position `n`, and a Merkle Mountain Range root over entries `0..n` (the
-envelope fields are in [02 — Records](02-records.md)). Logs add checks; they
+position `n`, and a Merkle Mountain Range root over entries `0..n` (new
+envelope fields, to be specified in [02 — Records](02-records.md) with the
+version format; 02 §4.7 names the overlap). Logs add checks; they
 do not change which version wins. What changes here:
 
 - **Heads in `hello`.** Peers exchange the highest signed `(n, root)` they
@@ -671,7 +672,9 @@ do not change which version wins. What changes here:
 - **Legacy.** Versions without log fields are accepted, but a collection
   holding any is never complete.
 
-Depends on: the log fields and the fork rule in 02. Open: how heads are
+Depends on: the log fields, and a fork rule (two entries at the same `n`
+freeze the log, and the proof spreads as a `sys.fork` record), both still to
+be written into 02. Open: how heads are
 encoded in `hello` without breaking its 1,000-collection bound, and how many
 heads a hello may carry.
 
@@ -696,8 +699,12 @@ heads a hello may carry.
   the site. Pending writes are never dropped.
 - **Subsets smaller than a collection**, by topic tag ("only the channels I
   opened"), which a blind keeper can serve ([02 — Records](02-records.md),
-  topics), or by count. Never by the writer's clock. Needs `holds` to name
-  more than collections.
+  topics), or by count: the most recent by each keeper's own arrival order,
+  which a writer cannot forge. Never ordered by the writer's clock. A topic
+  may bucket a date field the writer chose (`start` → `2026-10`), which is
+  acceptable because a bucket only decides what is fetched, never what is
+  allowed. Needs `holds` to name more than collections, and sync a way to ask
+  for a subset. Tracked in [#27](https://github.com/leifriksheim/weave/issues/27).
 
 ---
 

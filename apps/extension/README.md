@@ -71,7 +71,7 @@ browser, and opens the home to add or change them. The worker shows the
 notification; the offscreen page, where the carrier runs, may not.
 
 The design, and what is still to be checked, is in
-[06 — Nodes, sessions and apps](../../docs/spec/06-nodes-and-sessions.md).
+[06 — Nodes, sessions and apps](../../spec/06-nodes-and-sessions.md).
 
 ## Still to do
 
@@ -80,6 +80,6 @@ The design, and what is still to be checked, is in
   - the folder permission after a restart, and "Allow on every visit";
   - the `background` permission;
   - 20+ spaces.
-- **A real pod.** Test with the manual folder picker, and a run of the Drive mirror in the extension. The protocol side is in [05](../../docs/spec/05-sync-and-storage.md), mirrors.
+- **A real pod.** Test with the manual folder picker, and a run of the Drive mirror in the extension. The protocol side is in [05](../../spec/05-sync-and-storage.md), mirrors.
 - **Testing.** A browser-driven test of the popup and notifications.
 - **Publishing.** The Chrome Web Store listing.

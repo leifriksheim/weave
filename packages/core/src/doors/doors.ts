@@ -29,7 +29,7 @@
  * ```
  *
  * The relay sees a topic and a sealed blob: not whose door it is, not who
- * knocked, not what they said. See `docs/spec/07-doors.md`.
+ * knocked, not what they said. See `spec/07-doors.md`.
  */
 import type { CryptoProvider } from '../types.js';
 import { contactKeyPair, contactPublicKey, isContactPublicKey, openSealed, sealFor, signWithScalar, verifyWithPoint } from '../identity/contact-key.js';

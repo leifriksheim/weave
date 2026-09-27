@@ -562,8 +562,9 @@ yet specified (§17).
 > protocol. Open questions: a node that cannot write (a view-only holder)
 > has nothing to remove; and whether a device that follows a deleted
 > membership in the registry (§13.2) should also write the self-removal, or
-> leave it to the device where the person pressed Leave. Part of the
-> convergence work in issue #10.
+> leave it to the device where the person pressed Leave. Tracked in
+> [#15](https://github.com/leifriksheim/weave/issues/15), part of the
+> convergence work in [#10](https://github.com/leifriksheim/weave/issues/10).
 
 ### 6.3 Keep lists
 
@@ -666,6 +667,13 @@ has not arrived yet, the joiner keeps the secret and tries again as records
 arrive; once joined it forgets the secret. *Implementation detail:* this is
 written even though the joiner is not yet a member (`joining: true`), and its
 `seen` is the joiner's heads, which must include the invite event.
+
+> **Known defect:** a joiner can count itself a member for a moment after the
+> invite was closed elsewhere, until the close reaches it. Other members
+> refuse its member record, and it converges, but the joiner's own view is
+> optimistic until then. Other implementations MUST NOT treat a join as
+> accepted before the invite's current state says it is open. Tracked in
+> [#10](https://github.com/leifriksheim/weave/issues/10).
 
 ### 7.4 The invite string
 
@@ -1238,7 +1246,9 @@ sealed  = sealFor(askee.contactKey, value, context)
 
 Opening reverses it; anything shorter than 78 bytes, the wrong key, a
 different context or a changed byte opens nothing. A sealed `{"invite":"x"}`
-is 65 + 12 + 14 + 16 = 107 bytes.
+is 65 + 12 + 14 + 16 = 107 bytes. This is the construction of
+[01 §9.4](01-identity.md), which is planned to move to HPKE
+([#24](https://github.com/leifriksheim/weave/issues/24)).
 
 The receiver **MUST** open a request only when: the record verifies and
 stands, is not written under an agent note, is in `std.contact-request`,
@@ -1281,16 +1291,20 @@ then reject the value unless `invite` parses as an invite (§7.4) to a
 ## 17. Not yet specified
 
 - Leaving a space (§6.2) writes no self-removal yet; planned in §6.2
-  (issue #10).
-- Deleting an invite record does not close it; planned in §7.2.
+  ([#15](https://github.com/leifriksheim/weave/issues/15)).
+- Deleting an invite record does not close it; planned in §7.2
+  ([#20](https://github.com/leifriksheim/weave/issues/20)).
 - That every peer reaches the same access state under any interleaving is
   pinned only by the conflict tests of §4; a randomized convergence test is
-  issue #10.
+  [#10](https://github.com/leifriksheim/weave/issues/10).
 - How a record is judged when its collection's definition changes: today by
   the definition in force as of its `seen` (§5.2). Content-addressed
-  definitions (issue #11) would pin each record to one; see
-  [02](02-records.md).
+  definitions ([#11](https://github.com/leifriksheim/weave/issues/11)) would
+  pin each record to one; see [02](02-records.md).
 - Any bound on how many events a history may hold, or on the replay's cost.
+  Signed checkpoints a new peer starts from, replaying the full history in
+  the background, are proposed in
+  [#25](https://github.com/leifriksheim/weave/issues/25).
 - Expiry or single use of invites: an open invite stays open until closed.
 - A way to re-establish a space's key for members who lost every key they held
   other than a fresh role invite.

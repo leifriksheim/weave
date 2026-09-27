@@ -458,7 +458,7 @@ unexpected close, with backoff `base/2 + random·base/2` where
 > welcome from any other. It will refuse a `ws://` node URL except to
 > `localhost`, `127.0.0.1` or `[::1]`, as `sys.relays` already does (§4).
 > Open question: the form of the pin in the URL (a query parameter or the
-> fragment).
+> fragment). Tracked in [#32](https://github.com/leifriksheim/weave/issues/32).
 
 *Source: `packages/core/src/network/ws-transport.ts`, `packages/core/src/node/space-runtime.ts` (network setup), `packages/core/src/network/network-manager.ts`. Tests: `packages/core/tests/ws-transport.test.ts`, `packages/cli/tests/host.test.ts`, `packages/cli/tests/cli.test.ts`.*
 
@@ -729,7 +729,8 @@ second shared relay. See the known defect in §3.
 
 *Source: `packages/core/src/network/mesh.ts`, `packages/core/src/network/introductions.ts`. Tests: `packages/core/tests/introductions.test.ts`.*
 
-> **Planned:** limits on how much one peer can cost another.
+> **Planned:** limits on how much one peer can cost another
+> ([#33](https://github.com/leifriksheim/weave/issues/33)).
 >
 > - **A byte rate per peer on every transport** (WebRTC, node socket), on
 >   top of the per-message limits that exist for live messages (§9.2) and

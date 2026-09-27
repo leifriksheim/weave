@@ -154,7 +154,7 @@ src/
 - **Hosting.** An "Always online" mark on spaces a host keeps.
 - **Chat.** "Notify me when I'm mentioned".
 - **Agents.** A connect dialog left open keeps a relay connection; it should let go.
-- **Compatible definitions in the Apps tab.** Open apps by compatibility (`readiness()` in `components/apps/index.ts`) and show what breaks, once definitions can be compared ([02](../../docs/spec/02-records.md), compatible definitions).
+- **Compatible definitions in the Apps tab.** Open apps by compatibility (`readiness()` in `components/apps/index.ts`) and show what breaks, once definitions can be compared ([02](../../spec/02-records.md), compatible definitions).
 - **Typed queries.** Move `src/collections.ts` onto typed collections and drop the hand-written record interfaces.
 
 ## Not production

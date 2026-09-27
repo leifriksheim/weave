@@ -113,6 +113,7 @@ spellings that decode to the same seed (see the example).
 > Crockford's mod-37 check symbol (which adds `*~$=U` to the alphabet) or a
 > check computed over the 26 symbols in the existing alphabet, and whether to
 > add a version marker at the same time. Replaces the "checksum" line in §15.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 ### 2.4 Example
 
@@ -285,7 +286,7 @@ keys, listed so new labels do not collide with them:
 | `weave/space-key-box/v1\|<spaceId>\|<keyId>\|<to>` | `sealFor` context | `space/space-access.ts:197` | 03 |
 | `weave/space-earlier-keys/v1\|<spaceId>\|<keyId>` | Sealing context | `space/space-access.ts:185` | 03 |
 | `weave/space-membership/v1\|<spaceId>` | Sealing context | `space/space-access.ts:187` | 03, 04 |
-| `weave/contact-request\|<spaceId>\|<from>\|<to>` | `sealFor` context | `node/node.ts:1101` | 03 |
+| `weave/contact-request\|<spaceId>\|<from>\|<to>` | `sealFor` context | `node/node.ts:1117` | 03 |
 | `weave/knock/v1\|<doorKey>` | `sealFor` context | `doors/doors.ts` (`sealKnock`) | 07 |
 | `weave/door-purge/v1\|<topic>\|<nonce>\|<ids>` | Signed by a door signing key, checked by a relay | `doors/doors.ts` (`purgeMessage`), `packages/relay/relay.mjs` | 07 |
 | `weave/knock-answer/v1\|<space>\|<account>` | Signed by a door signing key | `doors/doors.ts` (`signAnswer`) | 07 |
@@ -448,7 +449,9 @@ What each ability permits in a space is specified in
 > collection and read all of it for as long as its note lasts. A
 > per-collection resource would narrow writes. Narrowing reads also needs
 > keys per collection, which is [03 — Spaces](03-spaces.md)' question. Not
-> designed yet: the resource syntax, and how coverage (§7.6) treats it.
+> designed yet: how coverage (§7.6) treats it, and the resource syntax, which
+> UCAN 1.0 would make unnecessary: a policy on `.collection` narrows a
+> delegation with no new syntax ([#19](https://github.com/leifriksheim/weave/issues/19)).
 
 ### 7.2 The token's CID
 
@@ -514,6 +517,18 @@ an `iss` whose multicodec is not `p256-pub` (§4).
   future `createdAt` may be);
 - for anything else (an app checking its grant, an agent note), the current
   time.
+
+The cost: `createdAt` is whatever the writer typed, so a leaked session key
+can sign records backdated into its token's old window, for good. Only a
+`sys.revoke` of the note closes that window ([03 — Spaces](03-spaces.md)
+§5.1, §6.4), and today nothing writes one when a session ends.
+
+> **Planned: revoking a session's note when it ends.** Signing out, and
+> removing a device, revoke the session's note in every space it could write
+> in, with a `keep` list naming the versions it wrote, the way disconnecting
+> an app already does. *Open:* whether the issuer's key is at hand at sign-out,
+> how large the keep list gets, and whether the device key's note is revoked
+> too. Tracked in [#26](https://github.com/leifriksheim/weave/issues/26).
 
 ### 7.5 Delegation chains
 
@@ -736,6 +751,15 @@ openable (the implementation returns `null`). The context binds a sealed value
 to where it belongs; contexts in use are listed in §5.
 
 Example size: `{"hi":1}` seals to 65 + 12 + 8 + 16 = 101 bytes.
+
+> **Planned: HPKE.** This construction is homemade: the key is derived
+> without the recipient's public key, and the output has no version marker.
+> No attack on a single recipient is known, but another implementation has
+> to copy it byte for byte. The plan moves sealing to HPKE (RFC 9180) base
+> mode, DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, AES-256-GCM, with the context
+> as AAD, and gives the new format a version marker. Openers read both
+> formats; sealers write only the new one. Tracked in
+> [#24](https://github.com/leifriksheim/weave/issues/24).
 
 *Source:* `packages/core/src/identity/contact-key.ts`.
 *Tests:* `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/key-change.test.ts`, `packages/core/tests/doors.test.ts`.
@@ -1166,6 +1190,8 @@ Offering device                                     Phone
   the room and key, which require the seed.
 
 ### 14.4 Planned: pairing without showing the account
+
+Tracked in [#31](https://github.com/leifriksheim/weave/issues/31).
 
 **Why.** The QR carries the recovery code, so a photo of the screen, a screen
 share or a recording *is* the account, for good. The room is a hash of the

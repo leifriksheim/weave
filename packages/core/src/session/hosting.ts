@@ -14,7 +14,7 @@
  * way a signed HTTP request is (AWS SigV4, RFC 9421), and a host refuses one
  * more than five minutes off.
  *
- * What a device knows about paying is nothing (docs/spec/06-nodes-and-sessions.md, Hosts). A host describes
+ * What a device knows about paying is nothing (spec/06-nodes-and-sessions.md, Hosts). A host describes
  * itself at a well-known address (like a Nostr relay's NIP-11 document), signs
  * every status it gives, and takes payments on its own page, which the device
  * opens with a link signed by the subscription key — the way an S3 link is

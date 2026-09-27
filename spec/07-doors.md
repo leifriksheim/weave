@@ -206,6 +206,15 @@ push out real knocks; a full relay still takes a knock or two on every door,
 from the reserve. An owner whose door is flooded clears it (purge), which
 keeps its code working.
 
+> **Known defect:** both budgets are weaker than this section and §9 promise.
+> One IPv6 /64 counts as one address, so a home /56 (256 of them) can fill the
+> mailbox within an hour. And a topic holding no blobs may use the reserve, so
+> knocks on random new topics can spend it, after which a full relay takes no
+> knock on an existing door. A fix budgets IPv6 at /64, /56 and /48 together,
+> and keeps the reserve for topics that existed before the mailbox filled.
+> Other implementations SHOULD NOT copy these limits. Tracked in
+> [#23](https://github.com/leifriksheim/weave/issues/23).
+
 *Implementation detail:* this relay keeps the mailbox in memory, so a restart
 loses what it held. Senders drop to every relay a door names for that reason.
 
@@ -393,12 +402,15 @@ an agent the contact key.
   knocks on every door. A knock only shows as a request; nothing in it runs.
 - **Filling a relay.** The per-address budget across topics bounds what one
   address can hold; the reserve keeps every door able to take a knock or two
-  when the relay is full; the TTL can't be raised by clients.
+  when the relay is full; the TTL can't be raised by clients. Both budgets are
+  weaker than that today (see the known defect in §5).
 - **Authority.** Only a note for the whole account, to write, can knock (§6).
   A note that ran out can't be used by backdating (§6). *Known limitation:* a
   note that was **revoked** but hasn't run out yet (an app disconnected at the
   home, whose note lasts up to its grant's days) can still knock, because the
-  owner can't see the knocker's revocations.
+  owner can't see the knocker's revocations. Revoking a session's note when
+  it ends is planned in [01 §7.4](01-identity.md)
+  ([#26](https://github.com/leifriksheim/weave/issues/26)).
 - **Leaked invites.** The invite in a knock is multi-use until the knocker
   closes it. Only the answer, signed with the door's key, makes someone the
   knocker's contact; the invite is closed then. Anyone who joined with a leaked
