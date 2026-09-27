@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Feature, Page } from './Site';
-import { HeroMesh } from './HeroMesh';
+import { HeroSpace } from './HeroSpace';
 
 /**
  * The front page, for communities. Its story is the one thing no platform
@@ -112,8 +112,7 @@ const IDEAS = [
 export function Home() {
   return (
     <Page page="home">
-      <section className="hero has-mesh">
-        <HeroMesh />
+      <section className="hero">
         <div className="wrap">
           <h1>
             Every tool your group needs,
@@ -132,6 +131,7 @@ export function Home() {
               See how a tool arrives
             </a>
           </div>
+          <HeroSpace />
         </div>
       </section>
 
