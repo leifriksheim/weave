@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ContactRequest, ContactView, DoorView, KnockView, SentKnockView, SpaceSummary } from '@weaveprotocol/core';
 import { parseDoorCode } from '@weaveprotocol/core/doors';
-import { useNode } from '@weaveprotocol/core/react';
-import { clearDoorFromUrl, doorLink, readDoorFromUrl, useContacts } from '../contacts';
+import { useAccount, useNode } from '@weaveprotocol/core/react';
+import { clearDoorFromUrl, doorLink, readDoorFromUrl, takeBack, useContacts, useStanding } from '../contacts';
 import { nameOf, peopleFrom } from '../derive/people';
 import { ago } from '../derive/time';
 import { Avatar } from './Avatar';
@@ -99,6 +99,8 @@ export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSu
     };
   }, [node, tick]);
 
+  // Where a request of yours may be waiting, to take back with it.
+  const writable = shared.filter((space) => space.writable).map((space) => space.id);
   const spaceName = (id: string) => spaces.find((space) => space.id === id)?.name ?? 'a space';
   const listed = (contacts ?? []).filter((contact) => !contact.blocked);
   const blocked = (contacts ?? []).filter((contact) => contact.blocked);
@@ -174,7 +176,7 @@ export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSu
         ) : (
           <ul style={styles.todoList}>
             {listed.map((contact) => (
-              <ContactRow key={contact.did} contact={contact} onOpen={onOpen} act={act} />
+              <ContactRow key={contact.did} contact={contact} shared={writable} onOpen={onOpen} act={act} />
             ))}
           </ul>
         )}
@@ -232,10 +234,12 @@ function doorName(door: DoorView | undefined): string {
  * someone other than the two of you is in that space — the invite was passed
  * on — so the person can decide whether it is still just the two of them.
  */
-function ContactRow({ contact, onOpen, act }: { contact: ContactView; onOpen: (spaceId: string) => void; act: (action: () => Promise<unknown>) => Promise<void> }) {
+function ContactRow({ contact, shared, onOpen, act }: { contact: ContactView; shared: ReadonlyArray<string>; onOpen: (spaceId: string) => void; act: (action: () => Promise<unknown>) => Promise<void> }) {
   const node = useNode();
+  const account = useAccount();
   const [others, setOthers] = useState<ReadonlyArray<string>>([]);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const standing = useStanding(contact);
 
   useEffect(() => {
     let stopped = false;
@@ -276,7 +280,14 @@ function ContactRow({ contact, onOpen, act }: { contact: ContactView; onOpen: (s
           />
         )}
         <p style={styles.todoMeta}>
-          {contact.space ? 'Private space for the two of you' : 'No space for two yet'} · {contact.did.slice(-6)}
+          {standing === 'waiting'
+            ? 'Asked, waiting for them to accept'
+            : standing === 'gone'
+              ? 'You left your space for two: remove them to ask again'
+              : contact.space
+                ? 'Private space for the two of you'
+                : 'No space for two yet'}{' '}
+          · {contact.did.slice(-6)}
         </p>
         {others.length > 0 && (
           <p style={{ ...styles.todoMeta, color: palette.accent.danger }}>
@@ -284,7 +295,7 @@ function ContactRow({ contact, onOpen, act }: { contact: ContactView; onOpen: (s
           </p>
         )}
       </div>
-      {contact.space && (
+      {contact.space && standing !== 'gone' && (
         <button onClick={() => onOpen(contact.space!)} data-variant="quiet" style={styles.smallButton}>
           Open
         </button>
@@ -293,7 +304,11 @@ function ContactRow({ contact, onOpen, act }: { contact: ContactView; onOpen: (s
         Rename
       </button>
       <button
-        onClick={() => globalThis.confirm(`Remove ${contact.name}? You leave the space for two; they keep their copy.`) && void act(() => node.contacts.remove(contact.did))}
+        onClick={() => globalThis.confirm(
+            standing === 'waiting'
+              ? `Remove ${contact.name}? Your request is taken back and you leave the space for two.`
+              : `Remove ${contact.name}? You leave the space for two; they keep their copy.`,
+          ) && void act(() => takeBack(node, standing === 'waiting' ? shared : [], account.did, contact.did))}
         data-variant="ghost"
         style={styles.linkButton}
       >

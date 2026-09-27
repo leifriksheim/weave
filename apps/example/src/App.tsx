@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
-import { CallsProvider, useConnection, useSpaces } from '@weaveprotocol/core/react';
+import { CallsProvider, useAccount, useConnection, useNode, useSpaces } from '@weaveprotocol/core/react';
 import { AccountMenu } from './components/AccountMenu';
 import { ConnectScreen } from './components/ConnectScreen';
 import { ContactsView } from './components/ContactsView';
@@ -13,7 +13,7 @@ import { SpaceView } from './components/SpaceView';
 import { CallLayer } from './components/calls/Calls';
 import { Wordmark } from './components/Wordmark';
 import { inviteFrom } from './spaces';
-import { readDoorFromUrl } from './contacts';
+import { readDoorFromUrl, takeBack } from './contacts';
 import { styles, palette } from './styles';
 
 /**
@@ -50,6 +50,27 @@ function Workspace() {
     if (space) setOpen(space);
   };
   const joinLink = (link: string) => join(inviteFrom(link));
+
+  /**
+   * Leaving a space, after saying what it costs. A space for two goes through
+   * the contact list instead, so the list never names a space you left, and a
+   * request still waiting is taken back from the spaces you share.
+   */
+  const node = useNode();
+  const account = useAccount();
+  const forget = async (id: string) => {
+    const space = spaces.find((found) => found.id === id);
+    if (!space) return;
+    const pair = (await node.contacts.list().catch(() => [])).find((contact) => contact.space === id && !contact.blocked);
+    if (pair) {
+      if (!globalThis.confirm(`${space.name} is your space for two with ${pair.name}. Leaving it removes ${pair.name} from your contacts, and takes back your request if they haven't accepted. They keep their copy.`)) return;
+      const shared = spaces.filter((other) => other.id !== id && other.writable && !other.joining).map((other) => other.id);
+      await takeBack(node, shared, account.did, pair.did);
+      return;
+    }
+    if (!globalThis.confirm(`Leave ${space.name}? It goes from all your devices. Others in it keep it, and you need a new invite to come back. If no one else is in it, what's in it is gone.`)) return;
+    await leave(id);
+  };
 
   // Keep the opened space in step with the list, so a join that finishes, or
   // a role that changes, does not leave a stale copy on screen.
@@ -111,7 +132,7 @@ function Workspace() {
                   onOpen={setOpen}
                   onCreate={(params) => void create(params).then((space) => space && setOpen(space))}
                   onJoin={(link) => void joinLink(link).then((space) => space && setOpen(space))}
-                  onRemove={(id) => void leave(id)}
+                  onRemove={(id) => void forget(id)}
                 />
                 <HowItWorks />
               </>

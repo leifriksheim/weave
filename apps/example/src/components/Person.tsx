@@ -1,9 +1,9 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import type { SpaceSummary } from '@weaveprotocol/core';
+import type { ContactView, SpaceSummary } from '@weaveprotocol/core';
 import { useNode } from '@weaveprotocol/core/react';
 import { styles, palette } from '../styles';
 import { nameOf, type People } from '../derive/people';
-import { useContacts } from '../contacts';
+import { takeBack, useContacts, useStanding } from '../contacts';
 import { Avatar } from './Avatar';
 import { Modal } from './Modal';
 
@@ -104,21 +104,7 @@ function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; 
       ) : contact?.blocked ? (
         <p style={styles.hint}>You blocked {name}. Unblock them from Contacts to hear from them again.</p>
       ) : contact ? (
-        <>
-          <p style={styles.hint}>In your contacts{contact.name !== name && contact.name !== did ? ` as ${contact.name}` : ''}.</p>
-          {contact.space && openSpace && (
-            <button
-              onClick={() => {
-                onClose();
-                openSpace(contact.space!);
-              }}
-              data-variant="primary"
-              style={styles.addButton}
-            >
-              Open your space for two
-            </button>
-          )}
-        </>
+        <Standing contact={contact} name={name} scope={scope} onClose={onClose} />
       ) : !profile?.contactKey ? (
         <p style={styles.hint}>{name} can't be added as a contact yet: the app they use here wasn't given their contacts, so there is no key to seal a request to.</p>
       ) : !space.writable ? (
@@ -127,6 +113,81 @@ function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; 
         <AskContact space={space} did={did} name={name} onAsked={() => setAsked(true)} />
       )}
     </Modal>
+  );
+}
+
+/**
+ * Someone already on your list: whether they have joined your space for two
+ * yet, and what to do when they haven't, or when you left it.
+ */
+function Standing({ contact, name, scope, onClose }: { contact: ContactView; name: string; scope: PersonScope; onClose: () => void }) {
+  const node = useNode();
+  const standing = useStanding(contact);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { space, me, openSpace } = scope;
+  const act = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+    setBusy(false);
+  };
+  const called = contact.name !== name && contact.name !== contact.did ? ` as ${contact.name}` : '';
+
+  if (standing === undefined) return <p style={styles.hint}>Loading…</p>;
+  if (standing === 'gone') {
+    return (
+      <>
+        <p style={styles.hint}>
+          You left your space for two with {name}, so they are on your list{called} but you no longer share anything. Remove them to ask again.
+        </p>
+        {error && <p style={styles.bad}>{error}</p>}
+        <button disabled={busy} onClick={() => void act(() => takeBack(node, [space.id], me, contact.did))} data-variant="primary" style={styles.addButton}>
+          {busy ? 'Removing…' : 'Remove, and ask again'}
+        </button>
+      </>
+    );
+  }
+  if (standing === 'waiting') {
+    return (
+      <>
+        <p style={styles.hint}>
+          You asked {name}. Waiting for them to accept; they see your request in {space.name} and on their Contacts screen.
+        </p>
+        {error && <p style={styles.bad}>{error}</p>}
+        <button
+          disabled={busy}
+          onClick={() =>
+            globalThis.confirm(`Take back your request to ${name}? Your space for two is left and the request here is deleted.`) && void act(() => takeBack(node, [space.id], me, contact.did))
+          }
+          data-variant="quiet"
+          style={styles.smallButton}
+        >
+          {busy ? 'Taking back…' : 'Take back'}
+        </button>
+      </>
+    );
+  }
+  return (
+    <>
+      <p style={styles.hint}>In your contacts{called}.</p>
+      {contact.space && openSpace && (
+        <button
+          onClick={() => {
+            onClose();
+            openSpace(contact.space!);
+          }}
+          data-variant="primary"
+          style={styles.addButton}
+        >
+          Open your space for two
+        </button>
+      )}
+    </>
   );
 }
 

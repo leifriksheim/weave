@@ -7,8 +7,8 @@
  * so the server hosting this page never sees it.
  */
 import { useEffect, useState } from 'react';
-import type { ContactView } from '@weaveprotocol/core';
-import { useNode } from '@weaveprotocol/core/react';
+import type { ContactView, P2PNode } from '@weaveprotocol/core';
+import { useLive, useNode } from '@weaveprotocol/core/react';
 
 /** A link that knocks on a door: this app, with the code after `#door=` */
 export function doorLink(code: string): string {
@@ -56,4 +56,41 @@ export function useContacts(): ReadonlyArray<ContactView> | undefined {
   }, [node]);
 
   return contacts;
+}
+
+/**
+ * Where a contact stands: `joined` once they are a member of your space for
+ * two, `waiting` while your request or knock is unanswered, `gone` when you
+ * left that space and the list still names it, `none` with no space at all.
+ * Undefined while loading.
+ */
+export type Standing = 'joined' | 'waiting' | 'gone' | 'none';
+
+export function useStanding(contact: ContactView | undefined): Standing | undefined {
+  return useLive(
+    contact?.space ?? '',
+    async (node): Promise<Standing | undefined> => {
+      if (!contact) return undefined;
+      if (!contact.space) return 'none';
+      if (!(await node.spaces.list()).some((space) => space.id === contact.space)) return 'gone';
+      const { members } = await node.spaces.access(contact.space);
+      return members.some((member) => member.did === contact.did) ? 'joined' : 'waiting';
+    },
+    [contact?.did, contact?.space],
+  );
+}
+
+/**
+ * Takes back a request to become someone's contact: deletes the ones you left
+ * for them in the given spaces, so they can't accept into a space you are no
+ * longer in, then removes them, which leaves the space for two.
+ */
+export async function takeBack(node: P2PNode, spaceIds: ReadonlyArray<string>, me: string, did: string): Promise<void> {
+  for (const spaceId of spaceIds) {
+    const asked = await node.records.list<{ to?: string }>(spaceId, { collection: 'std.contact-request' }).catch(() => []);
+    for (const record of asked) {
+      if (record.root === me && record.body?.to === did) await node.records.delete(spaceId, record.key).catch(() => {});
+    }
+  }
+  await node.contacts.remove(did);
 }
