@@ -1,113 +1,317 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 /**
- * Under the front page's headline: a community's space, filling up with tools
- * its members asked for. Each one is asked for, proposed, then added by the
- * group, and when the space is full the next kind of group takes its turn.
- * It is the headline shown rather than told.
+ * Under the front page's headline: a group's space, and one tool arriving in
+ * it the way tools do in Weave. A member asks their AI, the proposal shows
+ * what it would allow, someone whose role allows it adds it, and then people
+ * use it. Four groups take turns, each with a tool drawn as a tiny working app.
  */
 
-interface Arrival {
+type Phase = 'ask' | 'proposal' | 'added' | 'open' | 'used';
+
+const PHASES: ReadonlyArray<readonly [Phase, number]> = [
+  ['ask', 2800],
+  ['proposal', 2400],
+  ['added', 1100],
+  ['open', 1500],
+  ['used', 2600],
+];
+
+interface Scene {
+  readonly group: string;
+  readonly people: string;
+  /** The tools the group already made, beside chat and polls */
+  readonly has: readonly string[];
   readonly tool: string;
   readonly who: string;
   readonly ask: string;
+  readonly admin: string;
+  readonly allows: readonly [string, string, string];
+  /** What happens once it's in use, for the caption */
+  readonly use: string;
+  readonly app: (used: boolean) => ReactNode;
 }
 
-interface Group {
-  readonly name: string;
-  readonly people: string;
-  readonly arrivals: readonly [Arrival, Arrival, Arrival, Arrival];
+function Initial({ name, dim }: { name: string; dim?: boolean }) {
+  return <span className={dim ? 'demo-initial dim' : 'demo-initial'}>{name[0]}</span>;
 }
 
-const BUILT_IN = ['Chat', 'Polls', 'Kanban', 'Calls'] as const;
-
-const GROUPS: readonly Group[] = [
+const SCENES: readonly Scene[] = [
   {
-    name: 'Riverside FC',
+    group: 'Riverside FC',
     people: '34 members',
-    arrivals: [
-      { tool: 'Carpool', who: 'Maya', ask: 'Can we sort out lifts to away games?' },
-      { tool: 'Kit rota', who: 'Joe', ask: 'Whose turn is it to wash the kit?' },
-      { tool: 'Availability', who: 'Sam', ask: 'Who can play on Saturday?' },
-      { tool: 'Subs', who: 'Anna', ask: 'Who has paid this season’s subs?' },
-    ],
+    has: ['Kit rota'],
+    tool: 'Carpool',
+    who: 'Maya',
+    ask: 'Can we sort out lifts to away games?',
+    admin: 'Anna',
+    allows: ['Any member can offer a ride', 'Only the driver changes their ride', 'One seat per person on each ride'],
+    use: 'Sam takes the last seat in Joe’s car.',
+    app: (used) => (
+      <div className="demo-app">
+        <div className="demo-app-head">
+          Saturday · away at Northside<span>2 rides</span>
+        </div>
+        {[
+          { driver: 'Anna', seats: ['Maya', 'Leo', ''] },
+          { driver: 'Joe', seats: ['Kai', 'Ola', used ? 'Sam' : ''] },
+        ].map((ride) => (
+          <div key={ride.driver} className="demo-row">
+            <span>
+              <b>{ride.driver}</b> is driving
+            </span>
+            <span className="demo-seats">
+              {ride.seats.map((name, i) =>
+                name ? (
+                  <Initial key={i} name={name} />
+                ) : (
+                  <span key={i} className="demo-seat" />
+                ),
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    ),
   },
   {
-    name: 'Elm Street',
+    group: 'Elm Street',
     people: '61 neighbours',
-    arrivals: [
-      { tool: 'Tool library', who: 'Priya', ask: 'Could we lend each other tools?' },
-      { tool: 'Bin rota', who: 'Tom', ask: 'Who’s putting the bins out this week?' },
-      { tool: 'Street party', who: 'Lena', ask: 'Let’s plan the summer party.' },
-      { tool: 'Lost and found', who: 'Ali', ask: 'Has anyone seen a grey cat?' },
-    ],
+    has: ['Bin rota'],
+    tool: 'Tool library',
+    who: 'Priya',
+    ask: 'Could we lend each other tools instead of all buying drills?',
+    admin: 'Tom',
+    allows: ['Anyone on the street can list a tool', 'Only its owner edits it', 'One borrower at a time'],
+    use: 'Ben borrows Ali’s ladder.',
+    app: (used) => (
+      <div className="demo-app">
+        <div className="demo-app-head">
+          Tools on the street<span>3 listed</span>
+        </div>
+        {[
+          { tool: 'Drill', owner: 'Tom', borrower: 'Lena' },
+          { tool: 'Ladder', owner: 'Ali', borrower: used ? 'Ben' : '' },
+          { tool: 'Pressure washer', owner: 'Priya', borrower: '' },
+        ].map((item) => (
+          <div key={item.tool} className="demo-row">
+            <span>
+              <b>{item.tool}</b> · {item.owner}
+            </span>
+            {item.borrower ? (
+              <span className="demo-pill">With {item.borrower}</span>
+            ) : (
+              <span className="demo-pill free">Borrow</span>
+            )}
+          </div>
+        ))}
+      </div>
+    ),
   },
   {
-    name: 'Thursday Book Club',
-    people: '12 readers',
-    arrivals: [
-      { tool: 'Next picks', who: 'Ruth', ask: 'What should we read next?' },
-      { tool: 'Host rota', who: 'Ben', ask: 'Whose place is it this month?' },
-      { tool: 'Book loans', who: 'Iris', ask: 'Who has my copy of Middlemarch?' },
-      { tool: 'Quotes', who: 'Kofi', ask: 'Somewhere to keep our favourite lines.' },
-    ],
+    group: 'Maple Court Tenants',
+    people: '80 households',
+    has: ['Meetings'],
+    tool: 'Repairs',
+    who: 'Dev',
+    ask: 'We need one list of everything the landlord hasn’t fixed.',
+    admin: 'Rosa',
+    allows: ['Any household can report a repair', 'One “us too” per household', 'Only the committee changes the status'],
+    use: 'Another household adds “us too”.',
+    app: (used) => (
+      <div className="demo-app">
+        <div className="demo-app-head">
+          Open repairs<span>3 open</span>
+        </div>
+        {[
+          { issue: 'Lift out of order', count: used ? 15 : 14, status: 'Sent to landlord' },
+          { issue: 'Damp in stairwell B', count: 9, status: 'Reported' },
+          { issue: 'Broken entry buzzer', count: 6, status: 'Reported' },
+        ].map((item) => (
+          <div key={item.issue} className="demo-row">
+            <span>
+              <b>{item.issue}</b>
+              <small>{item.status}</small>
+            </span>
+            <span className={used && item.count === 15 ? 'demo-pill bump' : 'demo-pill'}>{item.count} households</span>
+          </div>
+        ))}
+      </div>
+    ),
+  },
+  {
+    group: 'Northside Food Bank',
+    people: '25 volunteers',
+    has: ['Stock count'],
+    tool: 'Volunteer rota',
+    who: 'Kofi',
+    ask: 'A rota where people can grab a shift themselves?',
+    admin: 'Iris',
+    allows: ['Anyone can take an empty shift', 'One person per shift', 'Only you can drop your shift'],
+    use: 'Ruth takes Thursday afternoon.',
+    app: (used) => (
+      <div className="demo-app">
+        <div className="demo-app-head">
+          This week<span>{used ? 'All covered' : '1 shift open'}</span>
+        </div>
+        <div className="demo-rota">
+          <span />
+          <span className="demo-rota-label">Morning</span>
+          <span className="demo-rota-label">Afternoon</span>
+          {[
+            ['Mon', 'Kofi', 'Iris'],
+            ['Wed', 'Ben', 'Ola'],
+            ['Thu', 'Sam', used ? 'Ruth' : ''],
+          ].map(([day, morning, afternoon]) => (
+            <Rota key={day} day={day ?? ''} slots={[morning ?? '', afternoon ?? '']} />
+          ))}
+        </div>
+      </div>
+    ),
   },
 ];
 
-const BEAT = 1700; // ms per step: asked, then added
-const STEPS = 11; // four arrivals of two steps each, then a pause on the full space
+function Rota({ day, slots }: { day: string; slots: readonly string[] }) {
+  return (
+    <>
+      <span className="demo-rota-label">{day}</span>
+      {slots.map((name, i) =>
+        name ? (
+          <span key={i} className="demo-shift">
+            <Initial name={name} /> {name}
+          </span>
+        ) : (
+          <span key={i} className="demo-shift open">
+            Take it
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
+const CHAT = 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z';
+const POLL = 'M3 13V8M8 13V3M13 13V6';
+
+function AppIcon({ name }: { name: string }) {
+  const d = name === 'Chat' ? CHAT : name === 'Polls' ? POLL : null;
+  return d ? (
+    <svg className="demo-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={d} />
+    </svg>
+  ) : (
+    <span className="demo-icon letter">{name[0]}</span>
+  );
+}
+
+function caption(scene: Scene, phase: Phase): ReactNode {
+  switch (phase) {
+    case 'ask':
+      return (
+        <>
+          <b>{scene.who}</b> asks an AI for a {scene.tool.toLowerCase()}.
+        </>
+      );
+    case 'proposal':
+      return <>It arrives as a proposal. Everyone can see what it would allow.</>;
+    case 'added':
+      return (
+        <>
+          <b>{scene.admin}</b>, an admin, adds it.
+        </>
+      );
+    default:
+      return (
+        <>
+          Everyone in {scene.group} has it now. {phase === 'used' ? scene.use : ''}
+        </>
+      );
+  }
+}
 
 export function HeroSpace() {
   const still = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-  const [tick, setTick] = useState(still ? STEPS - 1 : 0);
+  const [at, setAt] = useState({ scene: 0, phase: still ? PHASES.length - 1 : 0 });
 
   useEffect(() => {
     if (still) return;
-    const timer = setInterval(() => setTick((t) => t + 1), BEAT);
-    return () => clearInterval(timer);
-  }, [still]);
+    const timer = setTimeout(
+      () =>
+        setAt(({ scene, phase }) =>
+          phase + 1 < PHASES.length ? { scene, phase: phase + 1 } : { scene: (scene + 1) % SCENES.length, phase: 0 },
+        ),
+      PHASES[at.phase]?.[1] ?? 2000,
+    );
+    return () => clearTimeout(timer);
+  }, [at, still]);
 
-  const group = GROUPS[Math.floor(tick / STEPS) % GROUPS.length] ?? GROUPS[0]!;
-  const step = tick % STEPS;
-  const current = step < 8 ? group.arrivals[Math.floor(step / 2)] : undefined;
-  const asking = step < 8 && step % 2 === 0;
+  const scene = SCENES[at.scene] ?? SCENES[0]!;
+  const phase = PHASES[at.phase]?.[0] ?? 'used';
+  const inSpace = phase === 'open' || phase === 'used';
+  const apps = ['Chat', 'Polls', ...scene.has, ...(phase === 'ask' || phase === 'proposal' ? [] : [scene.tool])];
 
   return (
-    <div className="space-demo" aria-hidden>
-      <div className="space-head">
-        <b>{group.name}</b>
-        <span>{group.people}</span>
-      </div>
-      <div className="space-tiles">
-        {BUILT_IN.map((tool) => (
-          <div key={tool} className="space-tile">
-            {tool}
-          </div>
-        ))}
-        {group.arrivals.map((arrival, i) => {
-          const state = step > 2 * i ? 'added' : step === 2 * i ? 'proposed' : 'empty';
-          return (
-            <div key={`${group.name}-${arrival.tool}`} className={`space-tile ${state}`}>
-              {state === 'empty' ? '' : arrival.tool}
-              {state === 'proposed' && <small>Proposed</small>}
+    <div className="demo" aria-hidden>
+      <div className="demo-side">
+        <div className="demo-group">
+          <b>{scene.group}</b>
+          <span>{scene.people}</span>
+        </div>
+        <div className="demo-apps">
+          {apps.map((name) => (
+            <div
+              key={`${scene.group}-${name}`}
+              className={['demo-app-link', name === scene.tool ? 'new' : '', name === scene.tool && inSpace ? 'current' : ''].join(' ')}
+            >
+              <AppIcon name={name} />
+              {name}
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
-      <div className="space-caption" key={`${group.name}-${step}`}>
-        {current ? (
-          asking ? (
-            <>
-              <b>{current.who}</b> asked their AI: “{current.ask}”
-            </>
+
+      <div className="demo-main">
+        <div className="demo-stage" key={`stage-${at.scene}-${inSpace ? 'app' : phase === 'ask' ? 'ask' : 'proposal'}`}>
+          {phase === 'ask' ? (
+            <div className="demo-assistant">
+              <div className="demo-assistant-head">{scene.who}’s AI assistant</div>
+              <div className="demo-bubble me">{scene.ask}</div>
+              <div className="demo-bubble ai">
+                I’ve proposed <b>{scene.tool}</b> to {scene.group}. Someone who can add apps there will see it.
+              </div>
+            </div>
+          ) : !inSpace ? (
+            <div className="demo-proposal">
+              <div className="demo-proposal-head">
+                <b>{scene.tool}</b>
+                <span className="demo-tag">{phase === 'added' ? 'Added' : 'Proposal'}</span>
+              </div>
+              <div className="demo-by">
+                {scene.who} · via AI
+              </div>
+              <div className="demo-allows">What it allows</div>
+              <ul>
+                {scene.allows.map((rule) => (
+                  <li key={rule}>{rule}</li>
+                ))}
+              </ul>
+              <div className="demo-actions">
+                <span className={phase === 'added' ? 'demo-btn primary pressed' : 'demo-btn primary'}>
+                  {phase === 'added' ? `Added by ${scene.admin}` : 'Add to space'}
+                </span>
+                <span className="demo-btn">Read the code</span>
+              </div>
+            </div>
           ) : (
-            <>
-              The group added <b>{current.tool}</b>. Everyone has it now.
-            </>
-          )
-        ) : (
-          <>Four new tools, and nobody had to build or host any of them.</>
-        )}
+            <div className="demo-app-frame">
+              <div className="demo-app-title">{scene.tool}</div>
+              {scene.app(phase === 'used')}
+            </div>
+          )}
+        </div>
+        <div className="demo-caption" key={`caption-${at.scene}-${phase}`}>
+          {caption(scene, phase)}
+        </div>
       </div>
     </div>
   );

@@ -58,7 +58,7 @@ function Footer() {
   return (
     <footer>
       <div className="wrap">
-        <span>Weave — software your group owns.</span>
+        <span>Weave — the internet, owned by its people.</span>
         <span style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <a href="/">Communities</a>
           <a href="/developers">Developers</a>

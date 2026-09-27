@@ -115,20 +115,20 @@ export function Home() {
       <section className="hero">
         <div className="wrap">
           <h1>
-            Every tool your group needs,
+            The internet was ours.
             <br />
-            made by your group.
+            Let’s take it back.
           </h1>
           <p>
-            A shared space for your community, with chat and polls to begin with. When you need something else, describe
-            it to your AI assistant. The group says yes, and everyone has it. No servers, and no platform in charge.
+            Big tech needs your community. Your community doesn’t need big tech. On Weave, your group owns the space,
+            builds its own tools and makes its own rules.
           </p>
           <div className="actions">
             <a href="/app" className="btn btn-primary">
-              Start a community
+              Build without them
             </a>
             <a href="#how" className="btn btn-secondary">
-              See how a tool arrives
+              See how it works
             </a>
           </div>
           <HeroSpace />
@@ -383,11 +383,11 @@ export function Home() {
 
       <section className="cta">
         <div className="wrap">
-          <h2>Give your group a home of its own.</h2>
-          <p>It takes a minute. Invite people with a link.</p>
+          <h2>Take it back, one group at a time.</h2>
+          <p>Make a space, invite your people with a link, and build what you need.</p>
           <div className="actions">
             <a href="/app" className="btn btn-primary">
-              Start a community
+              Build without them
             </a>
             <a href="/developers" className="btn btn-secondary">
               For developers
