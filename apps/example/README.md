@@ -129,6 +129,8 @@ VITE_SIGNALING_URL=wss://your-relay.example npm run dev
 | Sync by reconciliation | Peers compare a fingerprint per collection, and reconcile the ones that differ (Negentropy), over WebRTC data channels |
 | WebMCP | Every node operation as a tool an agent in the page can call |
 | Invites | Space and key encoded into a fragment-only link |
+| Contacts | A private space for two per person; asking someone in a space you share, sealed so only they can read it |
+| Doors | A link that lets someone you share no space with knock, without your account becoming an address |
 
 ## Layout
 
@@ -136,8 +138,9 @@ VITE_SIGNALING_URL=wss://your-relay.example npm run dev
 src/
   main.tsx                 # routes: / and /why (site/), /app (the app), /connect (the account home)
   weave.ts                 # this app's Weave setup: one sign-in flow, and where peers meet
-  App.tsx                  # sign in (<WeaveAuth />), then your spaces
+  App.tsx                  # sign in (<WeaveAuth />), then your spaces and contacts
   spaces.ts                # invite links
+  contacts.ts              # door links, and the contact list kept current
   webmcp.ts                # node operations as WebMCP tools
   derive/                  # pure helpers: UI from schemas and links, names from profiles
   components/              # spaces, collections, records, security (sign-in is <weave-auth>)
@@ -146,10 +149,7 @@ src/
 
 ## Still to do
 
-- **Contacts.** A screen over `node.contacts` and `node.doors`:
-  - requests waiting in a space, and "Add as a contact" on someone's name;
-  - your doors, with their codes, and knocks at them;
-  - when someone new turns up in a conversation, the choice between starting a group and inviting them anyway.
+- **Contacts.** The Contacts screen warns when someone else is in a space for two; it should offer the choice between starting a group and letting them stay. Door codes as QR codes too, not only links.
 - **The Apps tab.** A coded app wins over an agent-made one with the same collections.
 - **Hosting.** An "Always online" mark on spaces a host keeps.
 - **Chat.** "Notify me when I'm mentioned".

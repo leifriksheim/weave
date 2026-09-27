@@ -11,11 +11,11 @@ import { connection } from './weave';
  * older links), why Weave, for people (`/why`), and the app (`/app`). People
  * mostly meet Weave inside an app, so the front page speaks to whoever builds
  * one. A link made before the app
- * moved — an invite, or a phone-pairing code, both in the fragment — still
+ * moved — an invite, a door, or a phone-pairing code, all in the fragment — still
  * opens the app wherever it lands.
  */
 const path = globalThis.location.pathname.replace(/\/+$/, '') || '/';
-const carriesAppLink = /[#&]invite=/.test(globalThis.location.hash);
+const carriesAppLink = /[#&](invite|door)=/.test(globalThis.location.hash);
 const page = carriesAppLink ? 'app' : path === '/' || path === '/developers' ? 'developers' : path === '/why' ? 'why' : 'app';
 
 // Hover, focus and placeholder states, plus the page background — the things

@@ -17,6 +17,8 @@ import { Icon } from './Icon';
 import { WhoIsHere } from './WhoIsHere';
 import { CallButton } from './calls/Calls';
 import { nameOf, peopleFrom } from '../derive/people';
+import { useContacts } from '../contacts';
+import { Modal } from './Modal';
 
 /** Where in the space we are: which collection, and which record is open beside it */
 export interface Place {
@@ -147,7 +149,7 @@ export function SpaceView({ space }: { space: SpaceSummary }) {
               </button>
             )}
           </nav>
-          <People profiles={profiles} me={account.did} roles={roleOf} people={people} />
+          <People space={space} profiles={profiles} me={account.did} roles={roleOf} people={people} />
           <section style={{ ...styles.panelSection, gap: 10 }}>
             <button
               onClick={() => {
@@ -250,8 +252,23 @@ function MyName({ name }: { name: string }) {
   );
 }
 
-function People({ profiles, me, roles, people }: { profiles: ReadonlyArray<SpaceProfile>; me: string; roles: ReadonlyMap<string, string>; people: ReturnType<typeof peopleFrom> }) {
+function People({
+  space,
+  profiles,
+  me,
+  roles,
+  people,
+}: {
+  space: SpaceSummary;
+  profiles: ReadonlyArray<SpaceProfile>;
+  me: string;
+  roles: ReadonlyMap<string, string>;
+  people: ReturnType<typeof peopleFrom>;
+}) {
+  const contacts = useContacts();
+  const [asking, setAsking] = useState<SpaceProfile | null>(null);
   if (profiles.length === 0) return null;
+  const known = new Set((contacts ?? []).map((contact) => contact.did));
   return (
     <section style={styles.panelSection} aria-label="People">
       <h2 style={styles.sectionTitle}>People ({profiles.length})</h2>
@@ -262,9 +279,73 @@ function People({ profiles, me, roles, people }: { profiles: ReadonlyArray<Space
             {p.did === me ? <MyName name={p.name} /> : <span style={{ color: palette.ink.strong }}>{nameOf(p.did, people)}</span>}
             {p.did === me && <span style={{ color: palette.ink.faint }}>you</span>}
             {roles.has(p.did) && <span style={{ color: palette.ink.faint }}>{roles.get(p.did)?.toLowerCase()}</span>}
+            {/* A request is sealed with their contact key, so only someone whose profile here carries one can be asked. */}
+            {p.did !== me && p.contactKey && contacts && !known.has(p.did) && space.writable && (
+              <button onClick={() => setAsking(p)} data-variant="ghost" title="Add as a contact" aria-label={`Add ${nameOf(p.did, people)} as a contact`} style={{ ...styles.rowAction, fontSize: 14, padding: '0 4px' }}>
+                +
+              </button>
+            )}
           </span>
         ))}
       </div>
+      {asking && <AskContact space={space} person={asking} name={nameOf(asking.did, people)} onClose={() => setAsking(null)} />}
     </section>
+  );
+}
+
+/**
+ * Asking someone here to become a contact: a private space for the two of you,
+ * its invite posted in this space sealed so only they can open it. Everyone
+ * here can see that you asked them, not what you wrote.
+ */
+function AskContact({ space, person, name, onClose }: { space: SpaceSummary; person: SpaceProfile; name: string; onClose: () => void }) {
+  const node = useNode();
+  const [note, setNote] = useState('');
+  const [state, setState] = useState<'idle' | 'asking' | 'asked'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const ask = async () => {
+    setState('asking');
+    setError(null);
+    try {
+      await node.contacts.ask(space.id, person.did, note.trim() ? { note: note.trim() } : {});
+      setState('asked');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setState('idle');
+    }
+  };
+  return (
+    <Modal title={`Add ${name} as a contact`} onClose={onClose}>
+      {state === 'asked' ? (
+        <>
+          <p style={styles.hint}>
+            Asked. {name} is on your contacts now, and will see your request here in {space.name}. Once they accept, the two of you share a private space.
+          </p>
+          <button onClick={onClose} data-variant="primary" style={styles.addButton}>
+            Done
+          </button>
+        </>
+      ) : (
+        <form
+          style={styles.form}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void ask();
+          }}
+        >
+          <p style={{ ...styles.todoMeta, marginTop: 0 }}>
+            This makes a private space for the two of you and leaves its invite here, sealed so only {name} can open it. Others in {space.name} see that you asked, not what you wrote.
+          </p>
+          <label style={{ ...styles.fieldLabel, marginTop: 8 }} htmlFor="ask-note">
+            A note (optional)
+          </label>
+          <textarea id="ask-note" value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} style={{ ...styles.input, height: 'auto', padding: 10 }} />
+          {error && <p style={styles.bad}>{error}</p>}
+          <button type="submit" disabled={state === 'asking'} data-variant="primary" style={{ ...styles.addButton, marginTop: 12 }}>
+            {state === 'asking' ? 'Asking…' : 'Ask'}
+          </button>
+        </form>
+      )}
+    </Modal>
   );
 }
