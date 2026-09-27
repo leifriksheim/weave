@@ -13,7 +13,7 @@
  * subscription's label, the space and the time, and that is what is shown.
  * Several for one subscription close together become one: "3 new".
  */
-import { loadGrant, loadMuted, type CarrierStatus, type WorkerMessage } from './shared';
+import { accountPage, loadGrant, loadMuted, type CarrierStatus, type WorkerMessage } from './shared';
 
 const OFFSCREEN = 'offscreen.html';
 
@@ -77,7 +77,7 @@ async function notify(message: Extract<WorkerMessage, { type: 'notify' }>): Prom
   const burst = bursts.get(id);
   const count = burst && now - burst.since < BURST_MS ? burst.count + 1 : 1;
   bursts.set(id, { count, since: burst && count > 1 ? burst.since : now });
-  opens.set(id, subscription.open ?? message.home);
+  opens.set(id, subscription.open ?? accountPage(message.home));
   const when = new Date(record.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   await chrome.notifications.create(id, {
     type: 'basic',
@@ -91,7 +91,8 @@ async function notify(message: Extract<WorkerMessage, { type: 'notify' }>): Prom
 
 chrome.notifications.onClicked.addListener((id) => {
   void (async () => {
-    const url = opens.get(id) ?? (await loadGrant())?.home;
+    const home = (await loadGrant())?.home;
+    const url = opens.get(id) ?? (home && accountPage(home));
     bursts.delete(id);
     await chrome.notifications.clear(id);
     if (url) await chrome.tabs.create({ url });

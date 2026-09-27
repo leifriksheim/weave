@@ -18,6 +18,10 @@
  * Every peer checks the note, so the app cannot write anywhere it was not
  * given. It never holds the seed, so it cannot become the account.
  *
+ * Once connected, an app — or the account's carrier — can come back with a
+ * smaller ask: "notify them when…" (`proposeToHome`). The same popup, the
+ * same approval, and the home writes what the person keeps.
+ *
  * The popup and the app talk with `postMessage`. Each side checks the other's
  * origin as the browser reports it — never as a message claims it — and the
  * home only ever sends a grant to the origin that asked for it.
@@ -88,10 +92,36 @@ export interface ConnectRequest {
    * "Let me know when…" subscriptions to offer the person, at most 8. Each
    * one they say yes to, the home adds to the account's subscriptions,
    * naming this app; the account's carriers do the noticing. Never from an
-   * agent or a carrier.
+   * agent, and not when a carrier connects: it proposes later, with a
+   * {@link ProposeRequest}.
    */
   readonly notify?: ReadonlyArray<NotifyProposal>;
 }
+
+/**
+ * What an app or carrier already connected to a home asks for later:
+ * subscriptions, and nothing else. The home knows it by the origin the
+ * browser reports, and refuses one it has no connection for.
+ */
+export interface ProposeRequest {
+  readonly v: 1;
+  readonly kind: 'propose';
+  /** What it calls itself. Shown, never trusted. */
+  readonly name?: string;
+  /** 1 to 8 subscriptions to offer the person */
+  readonly notify: ReadonlyArray<NotifyProposal>;
+}
+
+/** What the home answers a {@link ProposeRequest} with, once the person decided */
+export interface Proposed {
+  readonly v: 1;
+  readonly kind: 'proposed';
+  /** The subscriptions added or found, by the person's yes: none when they kept none */
+  readonly notify: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+}
+
+/** Whether a request the home received is a proposal rather than a connection */
+export const isProposeRequest = (request: ConnectRequest | ProposeRequest): request is ProposeRequest => 'kind' in request && request.kind === 'propose';
 
 /** The longest a home gives a note for */
 export const MAX_GRANT_DAYS = 365;
@@ -329,6 +359,30 @@ export async function connectCarrier(options: {
   return { ...grant, home: homeUrl.href };
 }
 
+/**
+ * Offers the person subscriptions, from an app or carrier already connected
+ * to their home. Call it from a click, in a page that stays open: the home
+ * opens in a popup, and the person keeps the ones they want.
+ *
+ * @param options.home The home it connected to — a grant's `home`
+ * @returns What the home added or found; an empty list when the person kept none
+ * @throws When the popup is blocked, closed or denied, or the home knows no connection from here
+ */
+export async function proposeToHome(options: {
+  readonly home: string;
+  readonly notify: ReadonlyArray<NotifyProposal>;
+  readonly name?: string;
+  readonly timeoutMs?: number;
+}): Promise<Proposed> {
+  if (options.notify.length === 0 || options.notify.length > MAX_PROPOSALS) throw new Error(`Propose 1 to ${MAX_PROPOSALS} subscriptions.`);
+  const homeUrl = new URL(options.home, globalThis.location.href);
+  const popup = openHome(homeUrl);
+  const request: ProposeRequest = { v: 1, kind: 'propose', ...(options.name ? { name: options.name } : {}), notify: options.notify };
+  const answer = (await askHome(popup, homeUrl.origin, request, options.timeoutMs)) as Proposed | null;
+  if (answer?.kind !== 'proposed' || !Array.isArray(answer.notify)) throw new Error('Your account home did not answer the proposal.');
+  return answer;
+}
+
 /** Refuses a carry grant that is not an invite to a private space the account made. */
 function checkCarryGrant(grant: CarryGrant): void {
   if (grant?.kind !== 'carry' || typeof grant.did !== 'string' || typeof grant.carry?.invite !== 'string') {
@@ -350,7 +404,7 @@ function openHome(homeUrl: URL): Window {
 }
 
 /** Sends the request once the home says hello, and waits for its answer. */
-function askHome(popup: Window, homeOrigin: string, request: ConnectRequest, timeoutMs = 10 * 60_000): Promise<unknown> {
+function askHome(popup: Window, homeOrigin: string, request: ConnectRequest | ProposeRequest, timeoutMs = 10 * 60_000): Promise<unknown> {
   return new Promise<unknown>((resolve, reject) => {
     const done = (finish: () => void) => {
       globalThis.removeEventListener('message', onMessage);
@@ -461,11 +515,11 @@ export function grantStore(storage: KeyValueStore | null = globalThis.localStora
 
 /** A request as the home received it */
 export interface IncomingRequest {
-  readonly request: ConnectRequest;
+  readonly request: ConnectRequest | ProposeRequest;
   /** Where it came from, as the browser reports it — the only name to trust */
   readonly origin: string;
-  /** Sends the grant back to that origin, and closes the window */
-  approve(grant: Omit<Grant, 'home'> | Omit<CarryGrant, 'home'>): void;
+  /** Sends the answer back to that origin, and closes the window */
+  approve(answer: Omit<Grant, 'home'> | Omit<CarryGrant, 'home'> | Proposed): void;
   /** Says no, and closes the window */
   deny(reason?: string): void;
 }
@@ -481,7 +535,7 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
   return new Promise((resolve) => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== opener) return;
-      const data = event.data as { type?: string; request?: ConnectRequest } | null;
+      const data = event.data as { type?: string; request?: ConnectRequest | ProposeRequest } | null;
       if (data?.type !== REQUEST) return;
       globalThis.removeEventListener('message', onMessage);
       globalThis.clearTimeout(timer);
@@ -507,7 +561,7 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
       resolve({
         request: data.request,
         origin,
-        approve: (grant) => reply({ type: GRANT, grant }),
+        approve: (answer) => reply({ type: GRANT, grant: answer }),
         deny: (reason) => reply({ type: DENIED, reason: reason ?? 'Access was not given.' }),
       });
     };
@@ -522,7 +576,18 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
   });
 }
 
-function isRequest(value: unknown, origin: string): value is ConnectRequest {
+function isRequest(value: unknown, origin: string): value is ConnectRequest | ProposeRequest {
+  const proposal = value as Partial<ProposeRequest> | null;
+  if (proposal?.kind !== undefined) {
+    return (
+      proposal.v === 1 &&
+      proposal.kind === 'propose' &&
+      (proposal.name === undefined || (typeof proposal.name === 'string' && proposal.name.length <= 80)) &&
+      Array.isArray(proposal.notify) &&
+      proposal.notify.length > 0 &&
+      isProposals(proposal.notify, origin)
+    );
+  }
   const request = value as ConnectRequest | null;
   return (
     !!request &&

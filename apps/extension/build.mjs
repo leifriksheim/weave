@@ -42,6 +42,7 @@ const options = {
     offscreen: here('src/offscreen.ts'),
     welcome: here('src/welcome.ts'),
     popup: here('src/popup.ts'),
+    notify: here('src/notify.ts'),
   },
   outdir: here('dist'),
   bundle: true,

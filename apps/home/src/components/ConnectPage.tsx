@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
-import { receiveConnectRequest, type IncomingRequest } from '@weaveprotocol/core/session';
+import { isProposeRequest, receiveConnectRequest, type ConnectRequest, type IncomingRequest, type ProposeRequest } from '@weaveprotocol/core/session';
 import { WeaveAuth, useAuth, useSession, useWeave } from '@weaveprotocol/core/react';
 import { Wordmark } from './Wordmark';
 import { Avatar } from './Avatar';
@@ -12,6 +12,9 @@ import { styles, palette } from '../styles';
  * Sign in first, with `<weave-auth>` as anywhere else. Then say what the app
  * gets: which spaces, read or change, for how long. The account signs a note
  * for the app's own key; the seed never leaves this page.
+ *
+ * An app or extension already connected may come back to suggest what to
+ * notify the person about; that is a smaller screen of its own.
  *
  * What the app calls itself is shown, but its address is what is trusted —
  * the browser reports it, the app cannot make it up.
@@ -47,7 +50,9 @@ export function ConnectPage() {
     );
   }
 
-  return incoming.request.access === 'carry' ? <ApproveCarrier incoming={incoming} /> : <Approve incoming={incoming} />;
+  const { request } = incoming;
+  if (isProposeRequest(request)) return <ApproveProposal incoming={incoming} request={request} />;
+  return request.access === 'carry' ? <ApproveCarrier incoming={incoming} request={request} /> : <Approve incoming={incoming} request={request} />;
 }
 
 /** Who is asking, by the address the browser reports — an extension has no host name worth showing */
@@ -60,14 +65,15 @@ function asker(origin: string): string {
 function Asking({ incoming }: { incoming: IncomingRequest }) {
   return (
     <p style={{ ...styles.errorHint, marginTop: 0, marginBottom: 24, padding: '10px 12px', background: palette.surface.sunken, borderRadius: 8 }}>
-      <strong style={{ color: palette.ink.strong }}>{asker(incoming.origin)}</strong> wants to use your Weave account. Sign in to
-      decide what it gets.
+      <strong style={{ color: palette.ink.strong }}>{asker(incoming.origin)}</strong>{' '}
+      {isProposeRequest(incoming.request) ? 'suggests what to notify you about.' : 'wants to use your Weave account.'} Sign in to decide
+      {isProposeRequest(incoming.request) ? '.' : ' what it gets.'}
     </p>
   );
 }
 
-function Approve({ incoming }: { incoming: IncomingRequest }) {
-  const { request, origin } = incoming;
+function Approve({ incoming, request }: { incoming: IncomingRequest; request: ConnectRequest }) {
+  const { origin } = incoming;
   const { auth } = useAuth();
   const session = useSession();
   const host = new URL(origin).host;
@@ -286,8 +292,8 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
  * gets a pass for each space, never a key: it can hold and pass on what it
  * cannot read.
  */
-function ApproveCarrier({ incoming }: { incoming: IncomingRequest }) {
-  const { request, origin } = incoming;
+function ApproveCarrier({ incoming, request }: { incoming: IncomingRequest; request: ConnectRequest }) {
+  const { origin } = incoming;
   const { auth, state } = useAuth();
   const session = useSession();
   const [busy, setBusy] = useState(false);
@@ -367,6 +373,113 @@ function ApproveCarrier({ incoming }: { incoming: IncomingRequest }) {
         </button>
         <button onClick={() => incoming.deny()} disabled={busy} data-variant="quiet" style={{ ...styles.button, background: palette.surface.card, color: palette.ink.body, borderColor: palette.surface.lineStrong }}>
           Don't allow
+        </button>
+      </div>
+    </Frame>
+  );
+}
+
+/**
+ * An app or extension already connected, suggesting subscriptions. Nothing
+ * else changes: it gets no access it didn't have, and learns only which of
+ * its suggestions the person kept.
+ */
+function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; request: ProposeRequest }) {
+  const { origin } = incoming;
+  const { auth } = useAuth();
+  const session = useSession();
+  const connection = auth.connections().find((known) => known.origin === origin && !known.agent);
+  const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
+  const [kept, setKept] = useState<ReadonlySet<number>>(() => new Set(request.notify.map((_, index) => index)));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void session.node.spaces.list().then(setSpaces, () => {});
+  }, [session]);
+
+  const who = connection?.name ?? request.name ?? asker(origin);
+  const reachesAll = connection?.access === 'carry' || connection?.scope === 'account';
+  const where = (ids: ReadonlyArray<string> | undefined) => {
+    if (!ids) return reachesAll ? 'every space' : 'the spaces it has';
+    const names = ids.map((id) => spaces.find((space) => space.id === id)?.name ?? 'a space');
+    return names.join(', ');
+  };
+
+  const allow = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      incoming.approve(await auth.propose({ origin, request, notify: [...kept] }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not add them');
+      setBusy(false);
+    }
+  };
+
+  if (!connection) {
+    return (
+      <Frame>
+        <h1 style={styles.title}>Not connected here</h1>
+        <p style={styles.subtitle}>
+          {asker(origin)} suggested what to notify you about, but it isn't connected to your account, {session.account.name}, in this home.
+          Connect it first — or, if it keeps another account, switch to that one.
+        </p>
+        <button onClick={() => incoming.deny('It is not connected to this account here. Connect it first.')} data-variant="quiet" style={styles.button}>
+          Close
+        </button>
+      </Frame>
+    );
+  }
+
+  return (
+    <Frame>
+      <h1 style={styles.title}>Notify you when…</h1>
+      <p style={styles.subtitle}>
+        “{who}” suggests these for your account, <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>. Keep the ones you
+        want.
+      </p>
+
+      <section style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {request.notify.map((proposal, index) => (
+            <label key={index} style={choice}>
+              <input
+                type="checkbox"
+                checked={kept.has(index)}
+                onChange={() =>
+                  setKept((was) => {
+                    const next = new Set(was);
+                    if (next.has(index)) next.delete(index);
+                    else next.add(index);
+                    return next;
+                  })
+                }
+                style={{ ...styles.checkbox, marginTop: 0 }}
+              />
+              <span style={{ flex: 1 }}>{proposal.label}</span>
+              <span style={{ color: palette.ink.faint, fontSize: 12 }}>{where(proposal.spaces)}</span>
+            </label>
+          ))}
+        </div>
+        <p style={styles.errorHint}>
+          Your Weave extension lets you know, even with every app closed. It shows the label, the space and the time — never the message.
+          You can pause or remove these any time in your account.
+        </p>
+      </section>
+
+      {error && (
+        <div style={{ ...styles.errorBox, marginBottom: 16 }}>
+          <p style={styles.error}>{error}</p>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button onClick={() => void allow()} disabled={busy || kept.size === 0} data-variant="primary" style={styles.button}>
+          {busy ? 'Adding…' : kept.size === 1 ? 'Notify me' : `Notify me about ${kept.size}`}
+        </button>
+        <button onClick={() => incoming.deny('You chose not to.')} disabled={busy} data-variant="quiet" style={{ ...styles.button, background: palette.surface.card, color: palette.ink.body, borderColor: palette.surface.lineStrong }}>
+          Not now
         </button>
       </div>
     </Frame>

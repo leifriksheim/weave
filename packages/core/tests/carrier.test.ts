@@ -315,6 +315,31 @@ describe('notifications through a carrier', () => {
     assert.equal(matchesSubscription({ ...carried, paused: true }, 'club', version, 'did:key:zMe'), false, 'paused');
   });
 
+  test('what a carrier can offer to notify about: the kinds of record, by name; a title and topics only where it can read the definition', async () => {
+    const me = await account();
+    const hub = createFakeHub({ latencyMs: 1 });
+    const laptop = await device(me, hub);
+    const club = await laptop.spaces.create({ name: 'Club', visibility: 'private' });
+    const blog = await laptop.spaces.create({ name: 'Blog', visibility: 'public' });
+    for (const space of [club, blog]) {
+      await laptop.collections.define(space.id, { name: 'app.chat', title: 'Chat message', schema: { type: 'object' }, topics: ['mentions'] });
+      await laptop.records.put(space.id, 'app.chat', { text: 'hi' });
+    }
+
+    const added = await laptop.carriers.add({ did: (await carrierKey()).did, name: 'Chrome' });
+    const node = await carrier(me, added.invite, hub);
+    const settled = async (spaceId: string, title?: string) => {
+      const [found] = await node.collections(spaceId);
+      return found?.records === 1 && found.title === title;
+    };
+    await until(() => settled(club.id), 5000, 'the private space\'s record to be carried');
+    await until(() => settled(blog.id, 'Chat message'), 5000, 'the public space\'s record and definition to be carried');
+
+    assert.deepEqual(await node.collections(club.id), [{ name: 'app.chat', topics: [], records: 1 }], 'private: the name, from the outside of records');
+    assert.deepEqual(await node.collections(blog.id), [{ name: 'app.chat', title: 'Chat message', topics: ['mentions'], records: 1 }]);
+    assert.deepEqual(await node.collections(node.carrySpace), [], 'its carry space offers nothing');
+  });
+
   test('someone mentions you in a private space: the carrier says so, and nothing else', async () => {
     const me = await account();
     const anna = await account();

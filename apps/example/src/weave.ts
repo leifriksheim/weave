@@ -17,7 +17,17 @@ export const connection = createWeaveConnection({
   home: HOME,
   // A browser for every space in the account, so it asks for the whole account.
   // An app that needs less asks for less: `scope: 'spaces'`, or `create` a space of its own.
-  request: { name: 'Weave example', access: 'write', scope: 'account' },
+  request: {
+    name: 'Weave example',
+    access: 'write',
+    scope: 'account',
+    // Offered on the home's approval screen; the account's extension does the noticing, with this app closed.
+    notify: [
+      { label: 'New chat message', collection: 'std.message', others: true },
+      { label: 'New poll', collection: 'std.poll', others: true },
+      { label: 'Someone asks to be your contact', collection: 'std.contact-request', others: true },
+    ],
+  },
   network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
 });
 

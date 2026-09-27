@@ -20,12 +20,15 @@ export type {
   MovedToPod,
   Connection,
   GrantChoice,
+  ProposeChoice,
 } from './auth.js';
 export { createWeaveConnection } from './connection.js';
 export type { WeaveConnection, WeaveConnectionConfig, ConnectionState, ConnectionStatus } from './connection.js';
 export {
   connectToHome,
   connectCarrier,
+  proposeToHome,
+  isProposeRequest,
   homeAddress,
   receiveConnectRequest,
   startConnectedNode,
@@ -36,7 +39,7 @@ export {
   forgetAppKey,
   MAX_GRANT_DAYS,
 } from './connect.js';
-export type { ConnectRequest, ConnectOptions, Grant, CarryGrant, GrantedSpace, IncomingRequest, AppKey } from './connect.js';
+export type { ConnectRequest, ConnectOptions, ProposeRequest, Proposed, Grant, CarryGrant, GrantedSpace, IncomingRequest, AppKey } from './connect.js';
 export {
   browserPlace,
   folderPlace,

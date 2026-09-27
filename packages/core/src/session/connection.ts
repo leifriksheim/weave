@@ -29,10 +29,13 @@ import {
   homeAddress,
   forgetAppKey,
   grantStore,
+  proposeToHome,
   startConnectedNode,
   type ConnectRequest,
   type Grant,
+  type Proposed,
 } from './connect.js';
+import type { NotifyProposal } from '../space/notify.js';
 import type { KeyValueStore } from './stay-signed-in.js';
 
 export interface WeaveConnectionConfig {
@@ -78,6 +81,12 @@ export interface WeaveConnection {
   connect(home?: string): Promise<void>;
   /** Forgets the grant and this app's key, and stops the node. The account is untouched. */
   disconnect(): Promise<void>;
+  /**
+   * Offers the person subscriptions — "notify me when…" — once connected.
+   * Opens the home; call it from a click.
+   * @returns What they kept
+   */
+  propose(notify: ReadonlyArray<NotifyProposal>): Promise<Proposed>;
 }
 
 export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConnection {
@@ -198,6 +207,11 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
     },
 
     disconnect: () => end(null),
+
+    propose(notify) {
+      if (!state.grant) return Promise.reject(new Error('Connect to your account home first.'));
+      return proposeToHome({ home: state.grant.home, notify, ...(config.request.name ? { name: config.request.name } : {}) });
+    },
   };
 
   return connection;

@@ -20,6 +20,7 @@ import {
   type CarrierStatus,
   type PodState,
   type Request,
+  type SpaceCollections,
   type StatusChanged,
   type WorkerMessage,
 } from './shared';
@@ -175,8 +176,25 @@ async function forget(options: { byAccount: boolean }): Promise<void> {
   set({ state: 'not-connected', removed: options.byAccount, spaces: [], subscriptions: [], pod: { state: 'none', folder: null } });
 }
 
+/** What each carried space holds, for the notify page — never the account's own list, which holds nothing to notify about */
+async function collections(): Promise<ReadonlyArray<SpaceCollections>> {
+  const node = carrier;
+  if (!node) return [];
+  const found: SpaceCollections[] = [];
+  for (const space of await node.spaces()) {
+    if (space.carry) continue;
+    const held = await node.collections(space.id).catch(() => []);
+    if (held.length > 0) found.push({ space: { id: space.id, name: space.name }, collections: held });
+  }
+  return found;
+}
+
 chrome.runtime.onMessage.addListener((message: Request, _sender, respond) => {
   if (message?.to !== 'offscreen') return false;
+  if (message.type === 'collections') {
+    void collections().then(respond, () => respond([]));
+    return true;
+  }
   const answer = () => respond(status);
   if (message.type === 'status') answer();
   else if (message.type === 'reload') void start().then(answer, answer);
