@@ -4,6 +4,8 @@ import { styles, palette } from '../styles';
 
 /**
  * "Notify me when…": what the account's extension should let you know about.
+ * Some you add here; apps propose others when they connect, and those show
+ * under the app that proposed them.
  *
  * The extension can't read your spaces, so it never learns what you asked
  * for: it gets each subscription with the value you picked replaced by a tag
@@ -77,6 +79,17 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
 
   const noCarrier = carriers !== null && carriers.length === 0;
 
+  // Yours first, then each app's, by the app that proposed them.
+  const groups = useMemo(() => {
+    const byApp = new Map<string, [NotifyView['app'], NotifyView[]]>();
+    for (const sub of subscriptions ?? []) {
+      const at = sub.app?.origin ?? '';
+      if (!byApp.has(at)) byApp.set(at, [sub.app, []]);
+      byApp.get(at)![1].push(sub);
+    }
+    return [...byApp.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b))).map(([, group]) => group);
+  }, [subscriptions]);
+
   return (
     <section id="notifications" style={section}>
       <div>
@@ -90,30 +103,35 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
 
       {noCarrier && <p style={styles.errorHint}>Nothing will notify you until the Weave extension is connected to this account.</p>}
 
-      {subscriptions?.map((sub) => (
-        <div key={sub.id} style={row}>
-          <span style={{ opacity: sub.paused ? 0.55 : 1 }}>
-            {sub.label} · {sub.spaces === 'all' ? 'every space' : sub.spaces.map(spaceName).join(', ')}
-            {sub.paused ? ' · paused' : ''}
-          </span>
-          <span style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => void act(`pause:${sub.id}`, async () => void (await node.notifications.update(sub.id, { paused: !sub.paused })))}
-              disabled={busy !== null}
-              data-variant="quiet"
-              style={styles.smallButton}
-            >
-              {sub.paused ? 'Resume' : 'Pause'}
-            </button>
-            <button
-              onClick={() => void act(`remove:${sub.id}`, () => node.notifications.remove(sub.id))}
-              disabled={busy !== null}
-              data-variant="quiet"
-              style={styles.smallButton}
-            >
-              Remove
-            </button>
-          </span>
+      {groups.map(([app, subs]) => (
+        <div key={app?.origin ?? ''} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <p style={{ ...styles.fieldLabel, margin: 0 }}>{app ? `From ${app.name ?? new URL(app.origin).host}` : 'Added here'}</p>
+          {subs.map((sub) => (
+            <div key={sub.id} style={row}>
+              <span style={{ opacity: sub.paused ? 0.55 : 1 }}>
+                {sub.label} · {sub.spaces === 'all' ? 'every space' : sub.spaces.map(spaceName).join(', ')}
+                {sub.paused ? ' · paused' : ''}
+              </span>
+              <span style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => void act(`pause:${sub.id}`, async () => void (await node.notifications.update(sub.id, { paused: !sub.paused })))}
+                  disabled={busy !== null}
+                  data-variant="quiet"
+                  style={styles.smallButton}
+                >
+                  {sub.paused ? 'Resume' : 'Pause'}
+                </button>
+                <button
+                  onClick={() => void act(`remove:${sub.id}`, () => node.notifications.remove(sub.id))}
+                  disabled={busy !== null}
+                  data-variant="quiet"
+                  style={styles.smallButton}
+                >
+                  Remove
+                </button>
+              </span>
+            </div>
+          ))}
         </div>
       ))}
 

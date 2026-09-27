@@ -380,6 +380,59 @@ describe('connecting a carrier to an account home', () => {
   });
 });
 
+describe('an app proposing subscriptions', () => {
+  const proposals: ConnectRequest['notify'] = [
+    { label: 'Mentioned in chat', collection: 'app.chat.message', topic: { field: 'mentions', me: true } },
+    { label: 'Every new message', collection: 'app.chat.message', others: false, open: 'https://chat.test/inbox' },
+  ];
+
+  test('the ones the person says yes to become the account\'s, naming the app, looking at the spaces it was given', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node, did } = auth.getState().session!;
+    const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
+    const key = await appKey();
+    const request: ConnectRequest = { v: 1, audience: key.did, name: 'Chat', access: 'write', notify: proposals };
+
+    const grant = await auth.grant({ origin: 'https://chat.test', request, spaceIds: [club.id], notify: [0] });
+
+    const subs = await node.notifications.list();
+    assert.equal(subs.length, 1, 'only the one said yes to');
+    assert.deepEqual(grant.notify, [{ id: subs[0]!.id, label: 'Mentioned in chat' }]);
+    assert.deepEqual(subs[0]!.app, { origin: 'https://chat.test', name: 'Chat' });
+    assert.deepEqual(subs[0]!.topic, { field: 'mentions', value: did }, '"me" is the account');
+    assert.deepEqual(subs[0]!.spaces, [club.id]);
+    assert.equal(subs[0]!.open, 'https://chat.test/', 'a click goes back to the app');
+
+    // Connecting again, saying yes to both: the first is not made twice.
+    await auth.grant({ origin: 'https://chat.test', request, spaceIds: [club.id] });
+    assert.deepEqual((await node.notifications.list()).map((sub) => sub.label).sort(), ['Every new message', 'Mentioned in chat']);
+  });
+
+  test('a whole-account app\'s look at every space; an agent\'s are not made', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node } = auth.getState().session!;
+    await auth.grant({ origin: 'https://chat.test', request: { v: 1, audience: (await appKey()).did, access: 'write', scope: 'account', notify: proposals.slice(0, 1) }, spaceIds: [] });
+    assert.equal((await node.notifications.list())[0]?.spaces, 'all');
+
+    await auth.grant({ origin: 'https://other.test', request: { v: 1, audience: (await appKey()).did, access: 'write', scope: 'account', agent: true, notify: proposals.slice(1) }, spaceIds: [] });
+    assert.equal((await node.notifications.list()).length, 1);
+  });
+
+  test('disconnecting the app removes its subscriptions, and leaves the person\'s own', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node } = auth.getState().session!;
+    await node.notifications.add({ label: 'My own', collection: 'app.todo.item', spaces: 'all' });
+    await auth.grant({ origin: 'https://chat.test', request: { v: 1, audience: (await appKey()).did, access: 'write', scope: 'account', notify: proposals }, spaceIds: [] });
+    assert.equal((await node.notifications.list()).length, 3);
+
+    await auth.disconnect('https://chat.test');
+    assert.deepEqual((await node.notifications.list()).map((sub) => sub.label), ['My own']);
+  });
+});
+
 describe('the home receiving a request', () => {
   /** Stands in for the popup's window: an opener, and the page's message events. */
   function popupWindow() {
@@ -413,6 +466,35 @@ describe('the home receiving a request', () => {
       assert.equal(denied.origin, 'https://app.test', 'and only the app that asked');
       assert.match((denied.message as { reason: string }).reason, /did not understand/);
       await new Promise((resolve) => setTimeout(resolve, 150)); // the window closes itself a moment later
+    } finally {
+      popup.restore();
+    }
+  });
+
+  test('a proposed subscription whose click leads to another site, or one from an agent, is refused', async () => {
+    const { receiveConnectRequest } = await import('../src/session/connect.js');
+    const asked = [
+      { v: 1, audience: 'did:key:zApp', access: 'write', notify: [{ label: 'New', collection: 'app.chat.message', open: 'https://elsewhere.test/' }] },
+      { v: 1, audience: 'did:key:zApp', access: 'write', agent: true, notify: [{ label: 'New', collection: 'app.chat.message' }] },
+      { v: 1, audience: 'did:key:zApp', access: 'write', notify: [{ label: 'New', collection: 'sys.notify' }] },
+    ];
+    for (const request of asked) {
+      const popup = popupWindow();
+      try {
+        const received = receiveConnectRequest(1000);
+        popup.send({ type: 'weave:request', request });
+        assert.equal(await received, null);
+        assert.ok(popup.sent.some((m) => (m.message as { type?: string }).type === 'weave:denied'));
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      } finally {
+        popup.restore();
+      }
+    }
+    const popup = popupWindow();
+    try {
+      const received = receiveConnectRequest(1000);
+      popup.send({ type: 'weave:request', request: { v: 1, audience: 'did:key:zApp', access: 'write', notify: [{ label: 'New', collection: 'app.chat.message', open: 'https://app.test/inbox' }] } });
+      assert.equal((await received)?.request.notify?.length, 1, 'one leading back to the app is read');
     } finally {
       popup.restore();
     }

@@ -76,6 +76,8 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
 
   const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set(previous?.spaces.map((space) => space.id) ?? []));
+  const proposals = agent ? [] : (request.notify ?? []);
+  const [notify, setNotify] = useState<ReadonlySet<number>>(() => new Set(proposals.map((_, index) => index)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -122,7 +124,7 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
     setBusy(true);
     setError(null);
     try {
-      const grant = await auth.grant({ origin, request, spaceIds: [...chosen] });
+      const grant = await auth.grant({ origin, request, spaceIds: [...chosen], notify: [...notify] });
       incoming.approve(grant);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not give access');
@@ -218,6 +220,36 @@ function Approve({ incoming }: { incoming: IncomingRequest }) {
             ))}
           </div>
           <p style={styles.errorHint}>Made in your account, so your other devices and apps see them too.</p>
+        </section>
+      )}
+
+      {proposals.length > 0 && (
+        <section style={{ marginBottom: 20 }}>
+          <p style={styles.fieldLabel}>Notify you when…</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {proposals.map((proposal, index) => (
+              <label key={index} style={choice}>
+                <input
+                  type="checkbox"
+                  checked={notify.has(index)}
+                  onChange={() =>
+                    setNotify((was) => {
+                      const next = new Set(was);
+                      if (next.has(index)) next.delete(index);
+                      else next.add(index);
+                      return next;
+                    })
+                  }
+                  style={{ ...styles.checkbox, marginTop: 0 }}
+                />
+                <span style={{ flex: 1 }}>{proposal.label}</span>
+                <span style={{ color: palette.ink.faint, fontSize: 12 }}>{whole ? 'every space' : 'in the spaces it gets'}</span>
+              </label>
+            ))}
+          </div>
+          <p style={styles.errorHint}>
+            Your Weave extension lets you know, even with the app closed. You can pause or remove these any time in your account.
+          </p>
         </section>
       )}
 
