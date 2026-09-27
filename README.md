@@ -4,6 +4,11 @@ A peer-to-peer data protocol for the browser. You own your identity as a
 written-down code, keep your data in signed records that sync directly between
 devices, and every app is a view onto that data rather than its owner.
 
+> **Building an app?** Short guides — sign-in, collections and rules,
+> queries, screens, agents — are in [packages/core/docs](packages/core/docs/README.md),
+> and ship in the package as `node_modules/@weaveprotocol/core/docs/`, so a
+> coding agent finds the ones that match the installed version.
+>
 > **Building a client, or an agent that needs the architecture?** The
 > protocol is specified in [spec](spec/README.md): wire formats,
 > what is signed, and what every peer must check. The tests are its
@@ -459,7 +464,7 @@ relays still meet. Underneath are
 
 What the note limits: **writing**, per space, checked by every peer. What it
 cannot limit: **reading** a private space it was given — whoever holds a space's
-key can read all of it, and that key does not change yet. Spaces an app wants
+key can read all of it, until the space's key changes (`spaces.changeKey`). Spaces an app wants
 for itself are created by the home, as part of the approval, so they land in
 the account's list on every device.
 

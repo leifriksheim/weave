@@ -9,10 +9,10 @@ import './site.css';
 const LANGUAGES = { typescript: { ...typescript, typescript: true }, shell } as const;
 
 /**
- * The two landing pages — the front page, for communities, at `/` (in
- * `Home.tsx`), and for developers at `/developers` — living in the example app
- * for now, so they share its fonts, colours and deploy. The app itself is at
- * `/app`.
+ * The site's pages — the front page, for communities, at `/` (in `Home.tsx`),
+ * for developers at `/developers`, and how the protocol works at `/protocol`
+ * (in `Protocol.tsx`) — living in the example app for now, so they share its
+ * fonts, colours and deploy. The app itself is at `/app`.
  */
 
 export const GITHUB = 'https://github.com/leifriksheim/weave';
@@ -28,7 +28,7 @@ export function Mark({ size = 20 }: { size?: number }) {
   );
 }
 
-type PageName = 'home' | 'developers';
+type PageName = 'home' | 'developers' | 'protocol';
 
 function Nav({ page }: { page: PageName }) {
   return (
@@ -41,6 +41,9 @@ function Nav({ page }: { page: PageName }) {
         <nav className="nav-links">
           <a href="/developers" aria-current={page === 'developers' ? 'page' : undefined}>
             Developers
+          </a>
+          <a href="/protocol" aria-current={page === 'protocol' ? 'page' : undefined}>
+            Protocol
           </a>
           <a href={GITHUB} {...EXTERNAL} className="hide-sm">
             GitHub
@@ -62,6 +65,7 @@ function Footer() {
         <span style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <a href="/">Communities</a>
           <a href="/developers">Developers</a>
+          <a href="/protocol">Protocol</a>
           <a href={SPEC} {...EXTERNAL}>
             Spec
           </a>
@@ -743,8 +747,8 @@ export function Developers() {
             <a href="/app" className="btn btn-primary">
               Open the example app
             </a>
-            <a href={SPEC} {...EXTERNAL} className="btn btn-secondary">
-              Read the spec
+            <a href="/protocol" className="btn btn-secondary">
+              How it works
             </a>
           </div>
         </div>
