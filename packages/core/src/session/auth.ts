@@ -73,6 +73,7 @@ import {
 } from './places.js';
 import { createStaySignedIn, type KeyValueStore, type StaySignedIn } from './stay-signed-in.js';
 import { grantCapabilities, MAX_GRANT_DAYS, type CarryGrant, type ConnectRequest, type Grant, type GrantedSpace } from './connect.js';
+import { fromProposal, sameSubscription } from '../space/notify.js';
 import {
   clearPairingTicket,
   collectFromDesktop,
@@ -219,6 +220,8 @@ export interface GrantChoice {
   readonly spaceIds: ReadonlyArray<string>;
   /** How long the note lasts, overriding what the request asked for. Default: the request's `days`, or 7. */
   readonly days?: number;
+  /** Which of the request's `notify` proposals the person said yes to, by index. Default: all of them. */
+  readonly notify?: ReadonlyArray<number>;
 }
 
 export interface AuthState {
@@ -1148,6 +1151,21 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const replaced = (known: Connection) => (agent ? known.audience === request.audience : known.origin === choice.origin && !known.agent);
       writeConnections([connection, ...auth.connections().filter((known) => !replaced(known))]);
 
+      // Subscriptions the app proposed and the person kept, written by the home for it. Connecting again adds nothing twice.
+      const notify: Array<{ id: string; label: string }> = [];
+      const looked = whole ? ('all' as const) : ids.filter((id) => id !== contactsSpace);
+      if (!agent && (looked === 'all' || looked.length > 0)) {
+        const app = { origin: choice.origin, ...(request.name ? { name: request.name.slice(0, 80) } : {}) };
+        const existing = (await node.notifications.list()).filter((sub) => sub.app?.origin === choice.origin);
+        for (const [index, proposal] of (request.notify ?? []).entries()) {
+          if (choice.notify && !choice.notify.includes(index)) continue;
+          const when = fromProposal(proposal, { app, spaces: looked, account: session.did });
+          const same = existing.find((sub) => sameSubscription(sub, when));
+          const made = same ?? (await node.notifications.add(when));
+          notify.push({ id: made.id, label: made.label });
+        }
+      }
+
       return {
         v: 1,
         did: session.did,
@@ -1163,6 +1181,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
         expiresAt,
         ...(agent ? { agent: true as const } : {}),
+        ...(notify.length ? { notify } : {}),
       };
     },
 
@@ -1249,6 +1268,12 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           }
           // A whole-account app could also add spaces to the account's list, and rename it.
           if (connection.scope === 'account') await node.account.revoke(connection.token).catch(() => {});
+        }
+        // The app's own subscriptions go with it: what they look for is its to know.
+        if (!connection.agent && connection.access !== 'carry' && node) {
+          for (const sub of await node.notifications.list()) {
+            if (sub.app?.origin === connection.origin) await node.notifications.remove(sub.id).catch(() => {});
+          }
         }
       }
       writeConnections(auth.connections().filter((known) => !goes(known)));

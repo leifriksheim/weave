@@ -419,6 +419,8 @@ export type {
   NodeNotifications,
   NotifyView,
   NotifyWhen,
+  NotifyApp,
+  NotifyProposal,
   CarriedSubscriptionView,
 } from './node/index.js';
 
