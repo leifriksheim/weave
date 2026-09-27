@@ -1,7 +1,8 @@
 # The example app, from the repository root. One install covers the whole
-# workspace; the example compiles the protocol from packages/core/src.
+# workspace; the example compiles the protocol from packages/core/src. The
+# Chrome extension is zipped into the site first, for /extension to offer.
 [build]
-  command = "npm ci && npm run build -w apps/example"
+  command = "npm ci && npm run package -w apps/extension -- ../example/public/weave-chrome.zip && npm run build -w apps/example"
   publish = "apps/example/dist"
 
 [build.environment]

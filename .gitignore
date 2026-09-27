@@ -12,3 +12,5 @@ dist/
 packages/core/README.md
 
 .claude/worktrees
+# The extension the site offers, zipped at build time (netlify.toml)
+apps/example/public/weave-chrome.zip

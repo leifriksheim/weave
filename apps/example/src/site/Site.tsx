@@ -11,7 +11,8 @@ const LANGUAGES = { typescript: { ...typescript, typescript: true }, shell } as 
 /**
  * The site's pages — the front page, for communities, at `/` (in `Home.tsx`),
  * for developers at `/developers`, and how the protocol works at `/protocol`
- * (in `Protocol.tsx`) — living in the example app for now, so they share its
+ * (in `Protocol.tsx`), and the Chrome extension at `/extension` (in
+ * `Extension.tsx`) — living in the example app for now, so they share its
  * fonts, colours and deploy. The app itself is at `/app`.
  */
 
@@ -28,7 +29,7 @@ export function Mark({ size = 20 }: { size?: number }) {
   );
 }
 
-type PageName = 'home' | 'developers' | 'protocol';
+type PageName = 'home' | 'developers' | 'protocol' | 'extension';
 
 function Nav({ page }: { page: PageName }) {
   return (
@@ -44,6 +45,9 @@ function Nav({ page }: { page: PageName }) {
           </a>
           <a href="/protocol" aria-current={page === 'protocol' ? 'page' : undefined}>
             Protocol
+          </a>
+          <a href="/extension" aria-current={page === 'extension' ? 'page' : undefined} className="hide-sm">
+            Extension
           </a>
           <a href={GITHUB} {...EXTERNAL} className="hide-sm">
             GitHub
@@ -66,6 +70,7 @@ function Footer() {
           <a href="/">Communities</a>
           <a href="/developers">Developers</a>
           <a href="/protocol">Protocol</a>
+          <a href="/extension">Chrome extension</a>
           <a href={SPEC} {...EXTERNAL}>
             Spec
           </a>

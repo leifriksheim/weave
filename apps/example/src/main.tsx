@@ -5,13 +5,14 @@ import { exposeToAgents } from './webmcp';
 import { Developers } from './site/Site';
 import { Home } from './site/Home';
 import { Protocol } from './site/Protocol';
+import { Extension } from './site/Extension';
 import { WeaveProvider } from '@weaveprotocol/core/react';
 import { connection } from './weave';
 
 /**
- * Four pages: the front page, for communities (`/`, and `/why` for older
+ * Five pages: the front page, for communities (`/`, and `/why` for older
  * links), for developers (`/developers`), how the protocol works
- * (`/protocol`), and the app (`/app`). The front page
+ * (`/protocol`), the Chrome extension (`/extension`), and the app (`/app`). The front page
  * leads with a group that grows its own tools, because no platform offers that.
  * A link made before the app moved — an invite, a door, or a phone-pairing
  * code, all in the fragment — still opens the app wherever it lands.
@@ -26,7 +27,9 @@ const page = carriesAppLink
       ? 'developers'
       : path === '/protocol'
         ? 'protocol'
-        : 'app';
+        : path === '/extension'
+          ? 'extension'
+          : 'app';
 
 // Hover, focus and placeholder states, plus the page background — the things
 // inline styles cannot express.
@@ -47,6 +50,8 @@ createRoot(root).render(
     <Developers />
   ) : page === 'protocol' ? (
     <Protocol />
+  ) : page === 'extension' ? (
+    <Extension />
   ) : (
     // Every component in the app asks this for Weave.
     <WeaveProvider connection={connection}>
