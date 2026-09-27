@@ -897,7 +897,7 @@ function Details({
                 <div key={f.name} style={{ display: 'contents' }}>
                   <dt style={{ color: palette.ink.faint }}>{f.label}</dt>
                   <dd style={{ margin: 0, color: palette.ink.body, maxHeight: 54, overflow: 'hidden', wordBreak: 'break-word' }}>
-                    <Value field={f.field} value={body[f.name]} />
+                    <Value field={f.field} value={body[f.name]} compact />
                   </dd>
                 </div>
               ))}

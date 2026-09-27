@@ -104,7 +104,7 @@ function Meta({ collection, record }: { collection: NodeCollection; record: Node
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 13, color: palette.ink.muted }}>
       {fields.map((f) => (
         <span key={f.name}>
-          {f.label} <span style={{ color: palette.ink.strong }}><Value field={f} value={body[f.name]} /></span>
+          {f.label} <span style={{ color: palette.ink.strong }}><Value field={f} value={body[f.name]} compact /></span>
         </span>
       ))}
     </div>

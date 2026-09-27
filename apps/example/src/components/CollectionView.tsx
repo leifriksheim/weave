@@ -336,7 +336,7 @@ function TableLayout({ rows, schema, onOpen }: { rows: Row[]; schema: NodeCollec
               {columns.length ? (
                 columns.map((c) => (
                   <td key={c.name} style={td}>
-                    <Value field={c} value={(record.body as Record<string, unknown>)[c.name]} linked={linked} />
+                    <Value field={c} value={(record.body as Record<string, unknown>)[c.name]} linked={linked} compact />
                   </td>
                 ))
               ) : (
