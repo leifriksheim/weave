@@ -1,0 +1,22 @@
+{
+  "name": "@weaveprotocol/relay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Signaling relay for Weave: introduces peers, never sees their data.",
+  "exports": {
+    ".": {
+      "types": "./relay.d.mts",
+      "default": "./relay.mjs"
+    }
+  },
+  "scripts": {
+    "start": "node signaling-server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "8.21.3"
+  }
+}

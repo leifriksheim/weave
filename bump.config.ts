@@ -7,7 +7,7 @@ import { defineConfig } from 'bumpp';
  * version is already on npm, then publishes and pushes.
  */
 export default defineConfig({
-  files: ['package.json', 'cli/package.json'],
+  files: ['packages/core/package.json', 'packages/cli/package.json'],
   install: true,
   // The lockfile `install` refreshed goes in the same commit. The tree is clean beforehand (gitCheck), so it's the only other change.
   all: true,

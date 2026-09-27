@@ -1,12 +1,6 @@
-# What cli/Dockerfile never needs, and secrets that must never reach an image.
+# The CLI's image builds from the repository root (packages/cli/Dockerfile).
+.git
 **/node_modules
 **/dist
-**/.weave-dev
-**/.env
-**/.env.*
-.git
-docs
-tests
-home
-example
-extension
+**/.env*
+.weave-dev

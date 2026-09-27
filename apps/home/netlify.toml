@@ -1,0 +1,9 @@
+# For a Netlify site whose base directory is `apps/home`. The home compiles
+# the protocol from packages/core/src, so the whole workspace is installed,
+# from the repository root.
+[build]
+  command = "cd ../.. && npm ci && npm run build -w apps/home"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"

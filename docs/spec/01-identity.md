@@ -54,8 +54,8 @@ as the account, and nothing else can.
 > Rationale: one secret, everything derived, means recovery is "type 26
 > characters" on any device, with no server and no backup of anything else.
 
-*Source:* `src/identity/recovery-code.ts` (`generateSeed`, `RECOVERY_SEED_BYTES`).
-*Tests:* `tests/recovery-code.test.ts`, `tests/identity.test.ts`.
+*Source:* `packages/core/src/identity/recovery-code.ts` (`generateSeed`, `RECOVERY_SEED_BYTES`).
+*Tests:* `packages/core/tests/recovery-code.test.ts`, `packages/core/tests/identity.test.ts`.
 
 ---
 
@@ -122,8 +122,8 @@ spellings that decode to the same seed (see the example).
 | also decodes to the same seed | `008j 4ct4 ank7 f24s naxw sqfe zw`, `…-ZZ` (padding bits differ) |
 | recorded example (tests) | `K7N6-ERYP-68TZ-A7HN-VJW3-QWKN-CG` → seed `99ea6763d63235f51e35dcb83bf27564` |
 
-*Source:* `src/identity/recovery-code.ts`.
-*Tests:* `tests/recovery-code.test.ts`, `tests/identity.test.ts` ("a known recovery code derives its recorded DID").
+*Source:* `packages/core/src/identity/recovery-code.ts`.
+*Tests:* `packages/core/tests/recovery-code.test.ts`, `packages/core/tests/identity.test.ts` ("a known recovery code derives its recorded DID").
 
 ---
 
@@ -171,7 +171,7 @@ The resulting private key is imported non-extractable (JWK with `d`, `x`, `y`)
 for ECDSA signing; *implementation detail*.
 
 **Derivation is frozen.** Changing the label, the length, or the reduction
-changes every account's DID. The recorded vectors in `tests/identity.test.ts`
+changes every account's DID. The recorded vectors in `packages/core/tests/identity.test.ts`
 MUST keep passing.
 
 ### 3.3 Example (root key)
@@ -187,8 +187,8 @@ MUST keep passing.
 Other recorded vectors: 16 zero bytes → `did:key:zDnaebsZZSYuq5oaFMhu2qAaAygqtwPtZwuiVJpjenjA9GwQE`;
 16 `0xff` bytes → `did:key:zDnaexDGpQByMfPbsypSPAewepYNqS1yerAq5pEpDZwAmFQWS`.
 
-*Source:* `src/identity/crypto-p256.ts`, `src/identity/keys.ts`, `src/identity/identity-manager.ts` (`fromSeed`, `fromRecoveryCode`).
-*Tests:* `tests/identity.test.ts` ("deriveKeyPairFromSeed", "derivation is frozen", "noble computes the same public point Web Crypto does").
+*Source:* `packages/core/src/identity/crypto-p256.ts`, `packages/core/src/identity/keys.ts`, `packages/core/src/identity/identity-manager.ts` (`fromSeed`, `fromRecoveryCode`).
+*Tests:* `packages/core/tests/identity.test.ts` ("deriveKeyPairFromSeed", "derivation is frozen", "noble computes the same public point Web Crypto does").
 
 ---
 
@@ -219,8 +219,8 @@ Encoders MUST use the compressed point. Decoders:
 Decoders SHOULD reject a multicodec other than `0x80 0x24`.
 
 > **Known defect:** the reference decoder does not check the multicodec
-> (`src/identity/did.ts`, `didToPublicKey`), and neither does `verifyUCAN` for
-> a token's `iss` (`src/identity/ucan.ts`). A non-P-256 key fails later, only
+> (`packages/core/src/identity/did.ts`, `didToPublicKey`), and neither does `verifyUCAN` for
+> a token's `iss` (`packages/core/src/identity/ucan.ts`). A non-P-256 key fails later, only
 > because it does not import as a P-256 point. A fix will reject any other
 > multicodec when decoding.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20), [#19](https://github.com/leifriksheim/weave/issues/19).
@@ -239,14 +239,14 @@ did:key specification's own P-256 example,
 Public keys elsewhere in Weave that are not DIDs (the contact key, member keys)
 are the 33-byte compressed point, base64url.
 
-*Source:* `src/identity/did.ts`, `src/identity/crypto-p256.ts` (`exportPublicKey`, `importPublicKey`).
-*Tests:* `tests/identity.test.ts` ("did:key", "reads the did:key specification's P-256 example").
+*Source:* `packages/core/src/identity/did.ts`, `packages/core/src/identity/crypto-p256.ts` (`exportPublicKey`, `importPublicKey`).
+*Tests:* `packages/core/tests/identity.test.ts` ("did:key", "reads the did:key specification's P-256 example").
 
 ---
 
 ## 5. Derivation labels
 
-Every label under which bytes are derived anywhere in `src/`. No two
+Every label under which bytes are derived anywhere in `packages/core/src/`. No two
 *purposes* share a label, but see the notes below the table. Parts other than
 this one own the use; this table is the registry.
 
@@ -286,7 +286,7 @@ keys, listed so new labels do not collide with them:
 | `weave/space-membership/v1\|<spaceId>` | Sealing context | `space/space-access.ts:187` | 03, 04 |
 | `weave/contact-request\|<spaceId>\|<from>\|<to>` | `sealFor` context | `node/node.ts:1101` | 03 |
 | `weave/knock/v1\|<doorKey>` | `sealFor` context | `doors/doors.ts` (`sealKnock`) | 07 |
-| `weave/door-purge/v1\|<topic>\|<nonce>\|<ids>` | Signed by a door signing key, checked by a relay | `doors/doors.ts` (`purgeMessage`), `server/relay.mjs` | 07 |
+| `weave/door-purge/v1\|<topic>\|<nonce>\|<ids>` | Signed by a door signing key, checked by a relay | `doors/doors.ts` (`purgeMessage`), `packages/relay/relay.mjs` | 07 |
 | `weave/knock-answer/v1\|<space>\|<account>` | Signed by a door signing key | `doors/doors.ts` (`signAnswer`) | 07 |
 | `weave-peer/v3\|client\|…`, `weave-peer/v3\|server\|…` | Signed peer-auth messages | `network/peer-auth.ts:123,125` | 04 |
 | `weave-mesh/v1\|…` | Signed mesh proof | `network/peer-auth.ts:225` | 04 |
@@ -360,8 +360,8 @@ min(60, ttl/4) seconds. Every record the session key signs carries the
 encoded token as its `proof` ([02 — Records](02-records.md)). The node, its
 TTL, and app grants are specified in [06](06-nodes-and-sessions.md).
 
-*Source:* `src/identity/root-signer.ts`, `src/node/node.ts` (`SESSION_CAPABILITY`, `delegate`), `src/session/connect.ts` (`grantSigner`, `grantCapabilities`).
-*Tests:* `tests/node.test.ts`, `tests/connect.test.ts`.
+*Source:* `packages/core/src/identity/root-signer.ts`, `packages/core/src/node/node.ts` (`SESSION_CAPABILITY`, `delegate`), `packages/core/src/session/connect.ts` (`grantSigner`, `grantCapabilities`).
+*Tests:* `packages/core/tests/node.test.ts`, `packages/core/tests/connect.test.ts`.
 
 ---
 
@@ -494,8 +494,8 @@ verifier SHOULD reject a header other than the one in §7.1, and SHOULD reject
 an `iss` whose multicodec is not `p256-pub` (§4).
 
 > **Known defect:** the reference `verifyUCAN` checks neither the header
-> (`alg`, `typ`, `ucv`) nor the issuer's multicodec (`src/identity/ucan.ts`,
-> `src/identity/did.ts`). A fix will reject both. Other implementations MUST
+> (`alg`, `typ`, `ucv`) nor the issuer's multicodec (`packages/core/src/identity/ucan.ts`,
+> `packages/core/src/identity/did.ts`). A fix will reject both. Other implementations MUST
 > NOT rely on a token with a different header being accepted.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20), [#19](https://github.com/leifriksheim/weave/issues/19).
 
@@ -547,8 +547,8 @@ the intended check for a chain of any length up to 10.
 
 > **Known defect:** a record carries only its leaf token in `proof`, and the
 > reference wires no proof resolver for records — the capability gate and
-> `src/node/space-runtime.ts` pass `() => null`
-> (`src/validation/capability-gate.ts`). So a chain deeper than one link never
+> `packages/core/src/node/space-runtime.ts` pass `() => null`
+> (`packages/core/src/validation/capability-gate.ts`). So a chain deeper than one link never
 > validates on a record; only tokens issued directly by the root (`prf: []`)
 > do. A fix will define how parents travel and resolve them.
 > Tracked in [#17](https://github.com/leifriksheim/weave/issues/17), [#19](https://github.com/leifriksheim/weave/issues/19).
@@ -616,8 +616,8 @@ eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsInVjdiI6IjAuMTAuMCJ9.eyJhdHQiOlt7ImNhbiI6ImV
 
 Its CID (for this exact string): `bykutxpp5vpapg44f3cvy5vt3wiynyt2odlswcbez6dpt4u5fcera`.
 
-*Source:* `src/identity/ucan.ts`, `src/validation/capability-gate.ts`, `src/node/space-runtime.ts` (`writeCapability`, `noteCid`).
-*Tests:* `tests/ucan.test.ts`, `tests/validation.test.ts`, `tests/attacks.test.ts`.
+*Source:* `packages/core/src/identity/ucan.ts`, `packages/core/src/validation/capability-gate.ts`, `packages/core/src/node/space-runtime.ts` (`writeCapability`, `noteCid`).
+*Tests:* `packages/core/tests/ucan.test.ts`, `packages/core/tests/validation.test.ts`, `packages/core/tests/attacks.test.ts`.
 
 ---
 
@@ -649,8 +649,8 @@ enforce it is specified in [02 — Records](02-records.md),
 > agent's own word, signed by the account on its say-so, not a proof. Not
 > decided whether that is worth showing.
 
-*Source:* `src/identity/agent-note.ts`, `src/session/auth.ts` (issuing with `AGENT_FACT`).
-*Tests:* `tests/agents.test.ts`.
+*Source:* `packages/core/src/identity/agent-note.ts`, `packages/core/src/session/auth.ts` (issuing with `AGENT_FACT`).
+*Tests:* `packages/core/tests/agents.test.ts`.
 
 ---
 
@@ -736,8 +736,8 @@ to where it belongs; contexts in use are listed in §5.
 
 Example size: `{"hi":1}` seals to 65 + 12 + 8 + 16 = 101 bytes.
 
-*Source:* `src/identity/contact-key.ts`.
-*Tests:* `tests/contacts.test.ts` ("the contact key"), `tests/key-change.test.ts`, `tests/doors.test.ts`.
+*Source:* `packages/core/src/identity/contact-key.ts`.
+*Tests:* `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/key-change.test.ts`, `packages/core/tests/doors.test.ts`.
 
 ---
 
@@ -870,11 +870,11 @@ Every wrap:
 
 Passphrase wraps are the "device password" or "short password": the
 web sign-in flow can open them, and the CLI account home
-(`cli/src/home.ts`) creates them. *The web sign-in flow does not currently
+(`packages/cli/src/home.ts`) creates them. *The web sign-in flow does not currently
 create passphrase wraps.*
 
-*Source:* `src/identity/account-vault.ts`, `src/identity/folder-account.ts` (`createVault`), `src/session/auth.ts`.
-*Tests:* `tests/account-vault.test.ts`, `tests/auth.test.ts`.
+*Source:* `packages/core/src/identity/account-vault.ts`, `packages/core/src/identity/folder-account.ts` (`createVault`), `packages/core/src/session/auth.ts`.
+*Tests:* `packages/core/tests/account-vault.test.ts`, `packages/core/tests/auth.test.ts`.
 
 ---
 
@@ -910,8 +910,8 @@ Unix ms). The chosen duration (`never`, `1d`, `7d` (default), `30d`) is
 under `weave.stay-signed-in`. Each use pushes `expiresAt` forward; expiry or
 signing out deletes the record and its device key.
 
-*Source:* `src/identity/device-key.ts`, `src/session/stay-signed-in.ts`.
-*Tests:* `tests/account-vault.test.ts` ("wrapping a seed"), `tests/auth.test.ts`.
+*Source:* `packages/core/src/identity/device-key.ts`, `packages/core/src/session/stay-signed-in.ts`.
+*Tests:* `packages/core/tests/account-vault.test.ts` ("wrapping a seed"), `packages/core/tests/auth.test.ts`.
 
 ---
 
@@ -977,12 +977,12 @@ tests and examples; clients SHOULD NOT use it for real accounts (a low-entropy
 root key with a fixed salt).
 
 > **Planned: removal.** Only tests call `fromPassword` and the password
-> helper in `src/identity/keys.ts` (100 000 PBKDF2 rounds, fixed salt). Both
+> helper in `packages/core/src/identity/keys.ts` (100 000 PBKDF2 rounds, fixed salt). Both
 > will be removed from the public API, with this section and the
 > `default-weave-salt` row in §5.
 
-*Source:* `src/identity/webauthn.ts`, `src/identity/identity-manager.ts`, `src/identity/keys.ts`, `src/identity/passkey-diagnostics.ts`, `src/session/auth.ts` (`passkeyGate`).
-*Tests:* `tests/identity.test.ts` ("identity manager"). WebAuthn itself is not exercised by tests.
+*Source:* `packages/core/src/identity/webauthn.ts`, `packages/core/src/identity/identity-manager.ts`, `packages/core/src/identity/keys.ts`, `packages/core/src/identity/passkey-diagnostics.ts`, `packages/core/src/session/auth.ts` (`passkeyGate`).
+*Tests:* `packages/core/tests/identity.test.ts` ("identity manager"). WebAuthn itself is not exercised by tests.
 
 ---
 
@@ -1068,8 +1068,8 @@ Before the list, a folder held one account at its root:
   write it; it is not adopted silently — the user is asked to lock it.
 - Anything else is `FOLDER_ACCOUNT_UNREADABLE`.
 
-*Source:* `src/identity/account-store.ts`, `src/identity/folder-account.ts`.
-*Tests:* `tests/account-store.test.ts`, `tests/account-vault.test.ts` ("the account file"), `tests/path-safety.test.ts`.
+*Source:* `packages/core/src/identity/account-store.ts`, `packages/core/src/identity/folder-account.ts`.
+*Tests:* `packages/core/tests/account-store.test.ts`, `packages/core/tests/account-vault.test.ts` ("the account file"), `packages/cli/tests/path-safety.test.ts`.
 
 ---
 
@@ -1187,8 +1187,8 @@ high-entropy and a PAKE's main benefit is for low-entropy ones; how long the
 short code is; whether the phone sends anything back (an acknowledgement, so
 the offer can close itself).
 
-*Source:* `src/identity/pairing.ts`, `src/session/pairing.ts`, `src/session/auth.ts` (`acceptPairing`).
-*Tests:* `tests/pairing.test.ts`.
+*Source:* `packages/core/src/identity/pairing.ts`, `packages/core/src/session/pairing.ts`, `packages/core/src/session/auth.ts` (`acceptPairing`).
+*Tests:* `packages/core/tests/pairing.test.ts`.
 
 ---
 

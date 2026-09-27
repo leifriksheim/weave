@@ -57,7 +57,7 @@ Every device and app that holds the contact key derives the same door keys.
 The contact key's public half is published on the account's profile in every
 space it writes in; a door's keys are not, and nothing links them.
 
-*Source: `src/identity/contact-key.ts` (`deriveDoorKeyBytes`, `deriveDoorSignKeyBytes`, `signWithScalar`, `verifyWithPoint`). Tests: `tests/doors.test.ts` ("a door code").*
+*Source: `packages/core/src/identity/contact-key.ts` (`deriveDoorKeyBytes`, `deriveDoorSignKeyBytes`, `signWithScalar`, `verifyWithPoint`). Tests: `packages/core/tests/doors.test.ts` ("a door code").*
 
 ## 2. Doors as records
 
@@ -80,7 +80,7 @@ offered.
 Lengths here and throughout this part count Unicode code points; text MUST be
 shortened without splitting one.
 
-*Source: `src/schemas/contacts.ts` (`door`), `src/node/node.ts` (Doors).*
+*Source: `packages/core/src/schemas/contacts.ts` (`door`), `packages/core/src/node/node.ts` (Doors).*
 
 ## 3. The door code
 
@@ -104,7 +104,7 @@ are not valid P-256 points or whose relays fail the check above.
 > Rationale: a code in a URL goes in the fragment, like an invite, so it isn't
 > sent to the server that serves the page.
 
-*Source: `src/doors/doors.ts` (`encodeDoorCode`, `parseDoorCode`, `checkDoorCode`).*
+*Source: `packages/core/src/doors/doors.ts` (`encodeDoorCode`, `parseDoorCode`, `checkDoorCode`).*
 
 ## 4. Topics
 
@@ -121,7 +121,7 @@ blobs, which open only with the door key.
 *Not yet specified:* topics that change over time (e.g. per week), so a relay
 can't follow one door across months.
 
-*Source: `src/doors/doors.ts` (`doorTopic`).*
+*Source: `packages/core/src/doors/doors.ts` (`doorTopic`).*
 
 ## 5. The relay mailbox
 
@@ -209,7 +209,7 @@ keeps its code working.
 *Implementation detail:* this relay keeps the mailbox in memory, so a restart
 loses what it held. Senders drop to every relay a door names for that reason.
 
-*Source: `server/relay.mjs` (`handleMail`, `purge`, `sweepMail`, `MAILBOX_LIMITS`), `src/network/mailbox.ts`. Tests: `tests/doors.test.ts` ("the relay's mailbox").*
+*Source: `packages/relay/relay.mjs` (`handleMail`, `purge`, `sweepMail`, `MAILBOX_LIMITS`), `packages/core/src/network/mailbox.ts`. Tests: `packages/core/tests/doors.test.ts` ("the relay's mailbox").*
 
 ## 6. Knocks
 
@@ -285,7 +285,7 @@ another device).
 >   door's owner picked the keeper of, means a note that ran out can't be used
 >   by dating a knock back to when it was good.
 
-*Source: `src/doors/doors.ts` (`sealKnock`, `openKnock`, `knockId`). Tests: `tests/doors.test.ts` ("a knock").*
+*Source: `packages/core/src/doors/doors.ts` (`sealKnock`, `openKnock`, `knockId`). Tests: `packages/core/tests/doors.test.ts` ("a knock").*
 
 ## 7. The exchange
 
@@ -357,7 +357,7 @@ Doors are the person's: a node whose note is an agent's MUST refuse to open,
 close, clear, read, knock, accept or dismiss, and an account home MUST NOT give
 an agent the contact key.
 
-*Source: `src/node/node.ts` (Doors), `src/node/types.ts` (`NodeDoors`), `src/schemas/contacts.ts`, `src/session/auth.ts` (`grant`). Tests: `tests/doors.test.ts` ("node.doors"), `tests/agents.test.ts`.*
+*Source: `packages/core/src/node/node.ts` (Doors), `packages/core/src/node/types.ts` (`NodeDoors`), `packages/core/src/schemas/contacts.ts`, `packages/core/src/session/auth.ts` (`grant`). Tests: `packages/core/tests/doors.test.ts` ("node.doors"), `packages/core/tests/agents.test.ts`.*
 
 ## 8. API
 

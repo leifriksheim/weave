@@ -2,10 +2,10 @@
  * `npm run dev`: everything, together.
  *
  * - node (8787): the always-on node with the throwaway identity in
- *   cli/.env.dev (created on first run); it serves the relay and /peer.
+ *   packages/cli/.env.dev (created on first run); it serves the relay and /peer.
  * - host (8788): `weave host`, what "Keep my spaces online" talks to, with
- *   its pay page at http://localhost:8788/pay. Settings in cli/.env.host.dev,
- *   yours in cli/.env.host.local. Wallet payments on Base Sepolia by default.
+ *   its pay page at http://localhost:8788/pay. Settings in packages/cli/.env.host.dev,
+ *   yours in packages/cli/.env.host.local. Wallet payments on Base Sepolia by default.
  * - stripe: when .env.host.local has a Stripe test key, the Stripe CLI
  *   forwards Stripe's webhooks to the host, and the host gets its secret.
  * - home (5174) and app (5173); their .env.development point at the rest.
@@ -41,19 +41,22 @@ function start(name, command, args, cwd, env = {}) {
   return child;
 }
 
+/** The CLI from source, with the protocol from source too (the workspace's `@weaveprotocol/source` condition) */
+const fromSource = ['--conditions=@weaveprotocol/source', '--import', 'tsx'];
+
 const say = (name, line) => process.stderr.write(`${colour[name]}[${name}]${colour.reset} ${line}\n`);
 
 // The host's settings: the committed defaults, then yours.
-const hostFiles = ['cli/.env.host.dev', 'cli/.env.host.local'].filter((file) => existsSync(`${root}${file}`));
+const hostFiles = ['packages/cli/.env.host.dev', 'packages/cli/.env.host.local'].filter((file) => existsSync(`${root}${file}`));
 const hostSettings = Object.assign({}, ...hostFiles.map((file) => parseEnv(readFileSync(`${root}${file}`, 'utf8'))));
 const hostPort = hostSettings.PORT ?? '8788';
 const hostEnv = {};
 const extra = [];
 
 // Phone wallets: the WalletConnect bundle, built once.
-if (hostSettings.WEAVE_WALLETCONNECT_PROJECT_ID && !existsSync(`${root}cli/pay/dist/walletconnect.js`)) {
+if (hostSettings.WEAVE_WALLETCONNECT_PROJECT_ID && !existsSync(`${root}packages/cli/pay/dist/walletconnect.js`)) {
   say('host', 'building the WalletConnect bundle for the pay page…');
-  spawnSync('npm', ['run', 'bundle:pay', '-w', 'cli'], { cwd: root, stdio: 'inherit' });
+  spawnSync('npm', ['run', 'bundle:pay', '-w', '@weaveprotocol/cli'], { cwd: root, stdio: 'inherit' });
 }
 
 // Cards: Stripe in test mode, its webhooks forwarded here by the Stripe CLI.
@@ -74,11 +77,11 @@ if (hostSettings.STRIPE_SECRET_KEY && !hostSettings.STRIPE_WEBHOOK_SECRET) {
 }
 
 const children = [
-  start('node', process.execPath, ['--env-file=cli/.env.dev', '--import', 'tsx', 'cli/src/main.ts', 'run', '--create'], root),
-  start('host', process.execPath, [...hostFiles.map((file) => `--env-file=${file}`), '--import', 'tsx', 'cli/src/main.ts', 'host'], root, hostEnv),
+  start('node', process.execPath, ['--env-file=packages/cli/.env.dev', ...fromSource, 'packages/cli/src/main.ts', 'run', '--create'], root),
+  start('host', process.execPath, [...hostFiles.map((file) => `--env-file=${file}`), ...fromSource, 'packages/cli/src/main.ts', 'host'], root, hostEnv),
   ...extra.map((begin) => begin()),
-  start('home', 'npm', ['run', 'dev'], `${root}home`),
-  start('app', 'npm', ['run', 'dev'], `${root}example`),
+  start('home', 'npm', ['run', 'dev'], `${root}apps/home`),
+  start('app', 'npm', ['run', 'dev'], `${root}apps/example`),
 ];
 say('host', `pay page: http://localhost:${hostPort}/pay (open it from the home: Settings, Keep my spaces online, Payment)`);
 
