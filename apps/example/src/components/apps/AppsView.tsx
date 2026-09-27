@@ -95,7 +95,7 @@ export function AppsView({ space, collections, onOpen }: { space: SpaceSummary; 
           <div>
             <h2 style={styles.sectionTitle}>Add an app</h2>
             <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>
-              {mayDefine ? 'Adding one adds the collections it needs. They hold ordinary records: the Collections tab shows them too.' : 'Someone whose role lets them add collections can add these.'}
+              {mayDefine ? 'Adding one adds the collections it needs. They hold ordinary records: the Data tab shows them too.' : 'Someone whose role lets them add collections can add these.'}
             </p>
           </div>
           <div style={grid}>

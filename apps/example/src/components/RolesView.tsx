@@ -28,14 +28,14 @@ type SpaceAccess = NonNullable<ReturnType<typeof useAccess>>;
  * holds them. Everything is worked out from the roles and each collection's
  * rules — and anything you cannot do is shown switched off, with why.
  */
-export function RolesView({ space, collections, inviting = false }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection>; inviting?: boolean }) {
+export function RolesView({ space, collections }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection> }) {
   const access = useAccess(space.id);
   const account = useAccount();
   const people = peopleFrom(useProfiles(space.id));
   if (!access) return <p style={{ fontSize: 13, color: palette.ink.faint }}>Loading who's who…</p>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
-      <Members space={space} access={access} me={account.did} people={people} collections={collections} inviting={inviting} />
+      <Members space={space} access={access} me={account.did} people={people} collections={collections} />
       <Roles space={space} access={access} collections={collections} />
       <WhatYouCanDo access={access} collections={collections} />
     </div>
@@ -366,18 +366,16 @@ function Members({
   me,
   people,
   collections,
-  inviting,
 }: {
   space: SpaceSummary;
   access: SpaceAccess;
   me: string;
   people: People;
   collections: ReadonlyArray<NodeCollection>;
-  inviting: boolean;
 }) {
   const node = useNode();
   const [error, setError] = useState<string | null>(null);
-  const [inviteOpen, setInviteOpen] = useState(inviting);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const mine = access.role;
   const roleNamed = (name: string) => access.roles.find((r) => r.name === name) ?? null;
   const giveable = assignableRoles(mine, access.roles);
