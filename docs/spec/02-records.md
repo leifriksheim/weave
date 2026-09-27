@@ -741,12 +741,15 @@ check.
   content and never changes; a new one names `supersedes: <hash>`, and
   `sys.collection` becomes a pointer from a name to the current hash. Identical
   hashes are trivially compatible, so `compare` runs only on a real change.
-  #11 also has each record store the hash it was written against and be
-  judged by it. That differs from today (§6.3: judged by the definition in
-  force as of `seen`), which was chosen because a writer-chosen pin let a
-  writer name an older, looser definition. Pinning by hash needs a rule that
-  the pinned definition is one in force as of `seen`, or no looser than it
-  (by `compare`), or it reopens that hole.
+  #11 also has each record store the hash it was written against. Today a
+  record is judged by the definition in force as of `seen` (§6.3), and the
+  writer names none: a writer-chosen definition was removed because a writer
+  could name an older, looser one (vote ten times under a definition from
+  before "one vote per person"). So a pin **adds** a check and never removes
+  one: a pinned record is accepted only if it is valid under the pinned
+  definition **and** under the definition in force as of `seen`. The pin tells
+  readers what shape the writer meant; it can't let a record in that the
+  space's current definition refuses.
 - **Tiers and additive-only (#12).** `std.*` frozen by the spec; publisher
   definitions under `<did>/name`, signed by the publisher and followed
   automatically; space definitions changed by space roles. Under one name
@@ -757,25 +760,48 @@ check.
   change; #12 makes "additive" a validation rule. Peers can enforce it only
   on something every peer sees the same way, which content-addressed
   definitions and their `supersedes` chain (#11) provide. `compare` is the
-  check "additive" needs. #12 depends on #11, and on key rotation
+  check "additive" needs, in both directions (below). #12 depends on #11, and on key rotation
   ([#9](https://github.com/leifriksheim/weave/issues/9)), because a stolen
   publisher key could push "additive" versions spaces pick up automatically.
 
+#### Direction: what "additive" means
+
+Classified as **oasdiff** classifies OpenAPI changes, treating a collection's
+schema as a request body and a response body at once: apps write records
+(a request) and apps read them (a response).
+
+- **As a request**, a change must not **tighten**: a new required field, a
+  narrower type, a smaller range or length, fewer `enum`/`const`/`oneOf`
+  values, a link that may point at less. Apps on the old definition could no
+  longer write.
+- **As a response**, a change must not **loosen**: a field no longer
+  required, a wider type, a larger range, more `enum` values, a link that may
+  point at more. Apps on the old definition would meet records they misread
+  (a status they don't switch on).
+
+A change under the same name is **additive** when oasdiff would report no
+error-level break for it on either side. That leaves: new optional fields,
+new optional link roles, and changes to `title`, `description` and other
+annotations. Anything else needs a new name (`name/2`). Findings oasdiff
+reports as warnings or information stay that. The catalogue of checks is
+oasdiff's, mapped onto the §6.2 keywords and links; a keyword it has no check
+for is a break.
+
+**Rules are not shape.** `create`, `edit`, `delete`, `onePer`, `fixed` and
+`permissions` are the space's governance: a space may tighten them under the
+same name (at worst an app can't write, which `can` reports), and may never
+loosen them past what an app relies on (§6.5, "never looser").
+
+Unknown fields follow the same convention: a field only one side mentions is
+ignored, unless that side requires it or closes the schema
+(`additionalProperties: false`).
+
 #### Open questions
 
-- **Extra fields.** A stored schema accepts unknown fields unless it says
-  `additionalProperties: false`, so taken literally an app adding an optional
-  `mood` field could not read a space that lacks it. Proposed: a field only
-  one side mentions is ignored unless that side requires it or closes the
-  schema. Decide before building.
 - **Rules only apply from now on.** A space that was loose last month and
   strict today holds records written under the loose rules. Either `compare`
   looks at every definition the collection has had, or "compatible" is stated
   to describe records written from now on. Probably the second.
-- **Which direction is "additive".** #12 calls looser constraints additive:
-  an app built on the new definition reads old records. An app still on the
-  old definition may not read new ones. `compare` gives both directions;
-  #12 must say which it requires.
 - **Translating instead of refusing** (lenses between versions, as in
   Cambria), so an app can read a definition it is not compatible with. Later.
 
