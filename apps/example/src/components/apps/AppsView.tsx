@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { DEFINE, roleHolds } from '@weaveprotocol/core';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { useAccess, useNode } from '@weaveprotocol/core/react';
-import { useSchemas } from '@weaveprotocol/core/schemas';
+import { supersededApps, useSchemas } from '@weaveprotocol/core/schemas';
 import { APPS, readiness, has, type WeaveApp } from './index';
 import { isAdded, MadeAppScreen, MadeAppTiles, Proposals, useMadeApps } from './MadeApps';
 import { styles, palette } from '../../styles';
@@ -25,8 +25,11 @@ export function AppsView({ space, collections, onOpen }: { space: SpaceSummary; 
   const mayDefine = space.writable && roleHolds(access?.role, DEFINE);
   const made = useMadeApps(space);
   const [openMade, setOpenMade] = useState<string | null>(null);
-  const madeAdded = made.filter((record) => isAdded(record, collections));
-  const proposed = made.filter((record) => !isAdded(record, collections));
+  // A version a newer one replaced would only undo it: neither open nor offered.
+  const superseded = supersededApps(made, collections);
+  const current = made.filter((record) => !superseded.has(record.key));
+  const madeAdded = current.filter((record) => isAdded(record, collections));
+  const proposed = current.filter((record) => !isAdded(record, collections));
 
   const openRecordApp = madeAdded.find((record) => record.key === openMade);
   if (openRecordApp) {
@@ -88,7 +91,7 @@ export function AppsView({ space, collections, onOpen }: { space: SpaceSummary; 
         )}
       </section>
 
-      <Proposals space={space} apps={proposed} collections={collections} mayDefine={mayDefine} onAdded={setOpenMade} />
+      <Proposals space={space} apps={proposed} all={made} collections={collections} mayDefine={mayDefine} onAdded={setOpenMade} />
 
       {addable.length > 0 && (
         <section aria-label="Add an app" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

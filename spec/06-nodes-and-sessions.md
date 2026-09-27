@@ -435,9 +435,9 @@ The actions (R = readOnly, S = sensitive, D = destructive, P = peerContent):
 | `spaces_profiles` | R P | **`space`** | `spaces.profiles()` |
 | `collections_list` | R P | **`space`** | `collections.list()` |
 | `collections_define` | D | **`space`**, **`name`**, **`schema`**, `title`, `description`, `version`, `history` (`latest`\|`all`), `links`, `permissions`, `rules`, `screen`, `network` | The definition, plus `summary`: what its rules allow, in words. |
-| `apps_list` | R P | **`space`** | Proposed apps: `key`, `title`, `description`, `proposedBy`, `viaAgent?`, `screen?`, `added`, `problem`, `needs[]`. |
+| `apps_list` | R P | **`space`** | Proposed apps: `key`, `title`, `description`, `proposedBy`, `viaAgent?`, `screen?`, `updates?`, `added`, `superseded`, `problem`, `needs[]`. |
 | `apps_screen_guide` | R | — | The screen-writing guide text. |
-| `apps_propose` | | **`space`**, **`title`**, **`needs`** (array of definitions), `description` | Writes an app proposal record; returns `{ key, proposed, added: false, next, needs }`. |
+| `apps_propose` | | **`space`**, **`title`**, **`needs`** (array of definitions), `description`, `updates` (key of the app it replaces) | Writes an app proposal record; returns `{ key, proposed, added: false, next, needs }`. Refuses an `updates` that names no app in the space ([02](02-records.md) Appendix A, app updates). |
 | `collections_delete` | D | **`space`**, **`name`** | `collections.delete()` |
 | `records_list` | R P | **`space`**, `collection`, `limit`, `newestFirst` | `records.list()` |
 | `records_query` | R P | **`space`**, **`collection`**, `where`, `include`, `sort`, `limit`, `cursor` | `records.query()` ([02](02-records.md)) |

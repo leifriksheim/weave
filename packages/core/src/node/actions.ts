@@ -15,7 +15,7 @@
 import type { P2PNode } from './types.js';
 import { rolePresets } from '../space/presets.js';
 import type { Query } from '../query/types.js';
-import { app, appScreen, checkApp, proposeApp, reviewApp, type App, type AppDefinition } from '../schemas/apps.js';
+import { app, appScreen, checkApp, proposeApp, reviewApp, supersededApps, type App, type AppDefinition } from '../schemas/apps.js';
 import { SCREEN_GUIDE } from '../schemas/screens.js';
 import { describeCollection } from '../records/describe.js';
 
@@ -305,7 +305,8 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     description:
       'The apps proposed in a space: each with its title, who proposed it (viaAgent when an agent did), and for every collection ' +
       'it needs whether it is new, already there, or would change one — with what it allows, worked out from its rules. ' +
-      '"added" is true once a person has added it.',
+      '"added" is true once a person has added it. "updates" names the app it is a new version of; "superseded" is true ' +
+      'once a newer version of it has been added, so it is only history.',
     input: { type: 'object', properties: { space }, required: ['space'] },
     readOnly: true,
     peerContent: true,
@@ -313,6 +314,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       const spaceId = str(input, 'space');
       const collections = await node.collections.list(spaceId);
       const found = await node.records.list<App>(spaceId, { collection: app.name });
+      const superseded = supersededApps(found, collections);
       return found.map((record) => {
         const review = record.body ? reviewApp(record.body, collections) : null;
         return {
@@ -322,7 +324,9 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
           proposedBy: record.createdBy,
           ...(record.viaAgent ? { viaAgent: true } : {}),
           ...(record.body && appScreen(record.body) ? { screen: appScreen(record.body)!.collection } : {}),
+          ...(record.body?.updates ? { updates: record.body.updates } : {}),
           added: review?.added ?? false,
+          superseded: superseded.has(record.key),
           problem: review?.problem ?? (record.body ? null : 'It could not be read'),
           needs: review?.needs.map(({ definition, status, summary, changes }) => ({ name: definition.name, status, summary, changes })) ?? [],
         };
@@ -346,6 +350,8 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       '(name, title, description, schema, links, permissions, rules — no version). Nothing is defined yet: everyone in the ' +
       'space sees the proposal, with what it allows worked out from its rules, and a person who may define collections adds it. ' +
       'Read collections_list first and reuse what the space already has (std.poll, std.task…) rather than inventing a twin. ' +
+      'To change an app that is already here, read apps_list and pass the key of its newest version, the one not superseded, as "updates": ' +
+      'the change then shows as an update to it, and once it is added the old version is not offered again. ' +
       'For anything plain lists and forms can\'t show — a game board, a calendar, a whiteboard — give the main collection ' +
       'a "screen": its own HTML UI (one document, inline scripts and styles, no network unless the collection names exact origins in "network"). Inside it, use exactly: ' +
       'weave.me ({ did, name }), await weave.list("<collection>", { where: { "link:<rel>": key } }), ' +
@@ -358,6 +364,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         space,
         title: { type: 'string', description: 'What people will call it, e.g. "Carpool"' },
         description: { type: 'string', description: 'What it is for, in a sentence' },
+        updates: { type: 'string', description: 'The key of the app this is a new version of, from apps_list' },
         needs: {
           type: 'array',
           description: 'Collection definitions, as collections_define takes them — without version',
@@ -372,6 +379,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       const body: App = {
         title: str(input, 'title'),
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
+        ...(typeof input.updates === 'string' ? { updates: input.updates } : {}),
         needs: input.needs as ReadonlyArray<AppDefinition>,
       };
       const problem = checkApp(body);

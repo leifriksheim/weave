@@ -245,6 +245,44 @@ describe('apps an agent proposes', () => {
     await helper.records.put(space, 'app.carpool.seat', {}, { links: [{ rel: 'trip', to: trip.key }] });
   });
 
+  test('an update replaces the app it names: once added, the old version is not offered again', async () => {
+    const { alice, space } = await setup();
+    const agent = await agentFor(alice, [space]);
+    const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
+    type Listed = { key: string; added: boolean; superseded: boolean; updates?: string };
+    const list = async () => (await runAction(alice.node, 'apps_list', { space })) as Listed[];
+    const find = async (key: string) => (await list()).find((a) => a.key === key)!;
+    const withField = (field: string): App => ({
+      ...carpool,
+      needs: [{ ...carpool.needs[0]!, schema: { ...carpool.needs[0]!.schema, properties: { ...carpool.needs[0]!.schema.properties as object, [field]: { type: 'string' } } } }, carpool.needs[1]!],
+    });
+
+    const first = (await runAction(helper, 'apps_propose', { space, ...carpool })) as { key: string };
+    await addApp(alice.node, space, first.key);
+
+    // The agent changes it: a new proposal that names the one it updates.
+    const second = (await runAction(helper, 'apps_propose', { space, ...withField('from'), updates: first.key })) as { key: string };
+    assert.equal((await find(second.key)).updates, first.key);
+    assert.deepEqual([(await find(first.key)).added, (await find(first.key)).superseded], [true, false], 'the added app stays until its update is');
+
+    await addApp(alice.node, space, second.key);
+    assert.deepEqual([(await find(first.key)).added, (await find(first.key)).superseded], [false, true]);
+    assert.equal((await find(second.key)).added, true);
+
+    // Adding the old version again would only undo the update: refused.
+    await assert.rejects(() => addApp(alice.node, space, first.key), /newer version/);
+
+    // An update to the update replaces both before it.
+    const third = (await runAction(helper, 'apps_propose', { space, ...withField('note'), updates: second.key })) as { key: string };
+    await addApp(alice.node, space, third.key);
+    assert.deepEqual((await list()).filter((a) => a.superseded).map((a) => a.key).sort(), [first.key, second.key].sort());
+    await assert.rejects(() => addApp(alice.node, space, second.key), /newer version/);
+
+    // An update must name an app that is here.
+    await assert.rejects(() => runAction(helper, 'apps_propose', { space, ...carpool, updates: 'nothing' }), /names no app/);
+    assert.match(checkApp({ ...carpool, updates: '' })!, /updates/);
+  });
+
   test('a proposal that changes a collection the space has says so, and says how', async () => {
     const { alice, space } = await setup();
     await alice.node.collections.define(space, { ...carpool.needs[0]!, rules: {} });

@@ -11,6 +11,10 @@
  *
  * An agent can propose but never add: every peer ignores definitions signed
  * under an agent's note (see `identity/agent-note.ts`).
+ *
+ * A changed app is a new proposal that names the one it `updates`. Once the
+ * update is added, the app it replaced is superseded: it would only undo the
+ * update, so it is not offered again.
  */
 import type { DefineCollection, NodeCollection, NodeRecord, P2PNode } from '../node/types.js';
 import type { Typed } from '../query/types.js';
@@ -44,6 +48,8 @@ export interface App {
   readonly needs: ReadonlyArray<AppDefinition>;
   /** Where it was copied from: `<space id>/<record key>` */
   readonly from?: string;
+  /** The key of the app in this space that this one is a new version of */
+  readonly updates?: string;
 }
 
 /** At most this many collections in one app */
@@ -61,6 +67,7 @@ export const app: DefineCollection & Typed<App> = {
       description: { type: 'string', maxLength: 1000 },
       needs: { type: 'array', minItems: 1, maxItems: MAX_APP_COLLECTIONS, items: { type: 'object' } },
       from: { type: 'string', maxLength: 300 },
+      updates: { type: 'string', minLength: 1, maxLength: 100 },
     },
     required: ['title', 'needs'],
   },
@@ -75,6 +82,9 @@ export function checkApp(value: unknown): string | null {
   if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 100) return 'An app needs a title of 1–100 characters';
   if (body.description !== undefined && (typeof body.description !== 'string' || body.description.length > 1000)) {
     return 'An app\'s description is at most 1000 characters';
+  }
+  if (body.updates !== undefined && (typeof body.updates !== 'string' || !body.updates || body.updates.length > 100)) {
+    return 'An app\'s "updates" is the key of the app it replaces';
   }
   if (!Array.isArray(body.needs) || body.needs.length === 0 || body.needs.length > MAX_APP_COLLECTIONS) {
     return `An app needs 1–${MAX_APP_COLLECTIONS} collections`;
@@ -194,12 +204,35 @@ export function reviewApp(body: App, collections: ReadonlyArray<NodeCollection>)
 }
 
 /**
+ * The apps a newer version has replaced: each one that an added app
+ * `updates`, and, through it, each one that app replaced in turn. Adding one
+ * of these would only undo the update.
+ */
+export function supersededApps(records: ReadonlyArray<NodeRecord<App>>, collections: ReadonlyArray<NodeCollection>): ReadonlySet<string> {
+  const replaces = new Map<string, string>();
+  for (const record of records) {
+    if (record.body?.updates && record.body.updates !== record.key) replaces.set(record.key, record.body.updates);
+  }
+  const superseded = new Set<string>();
+  for (const record of records) {
+    if (!record.body || !reviewApp(record.body, collections).added) continue;
+    // Walk back from each added app; the guard stops at a loop.
+    for (let key = replaces.get(record.key); key && !superseded.has(key) && key !== record.key; key = replaces.get(key)) superseded.add(key);
+  }
+  return superseded;
+}
+
+/**
  * Proposes an app in a space: one `std.app` record. Anyone in the space may,
  * an agent included; nothing is defined until a person adds it.
  */
 export async function proposeApp(node: P2PNode, spaceId: string, body: App): Promise<NodeRecord<App>> {
   const problem = checkApp(body);
   if (problem) throw new Error(problem);
+  if (body.updates) {
+    const replaced = await node.records.get(spaceId, body.updates);
+    if (!replaced || replaced.collection !== app.name) throw new Error(`"updates" names no app in this space: ${body.updates}`);
+  }
   return node.records.put<App>(spaceId, app.name, body);
 }
 
@@ -217,6 +250,8 @@ export async function addApp(node: P2PNode, spaceId: string, key: string): Promi
   if (!known.some((c) => c.name === app.name && c.version !== null)) await node.collections.define(spaceId, app);
   const review = reviewApp(record.body, known);
   if (review.problem) throw new Error(review.problem);
+  const apps = await node.records.list<App>(spaceId, { collection: app.name });
+  if (supersededApps(apps, known).has(key)) throw new Error('A newer version of this app has been added; adding this one would undo it');
   for (const need of review.needs) {
     if (need.status === 'same') continue;
     await node.collections.define(spaceId, need.definition);
