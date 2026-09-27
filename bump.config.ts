@@ -1,9 +1,10 @@
 import { defineConfig } from 'bumpp';
 
 /**
- * `npm run release`: both packages share one version. bumpp asks for the
- * next one, writes it to both, refreshes the lockfile, and commits and tags
- * it (`v0.1.2`). The script then publishes both and pushes — see package.json.
+ * Both packages share one version. bumpp asks for the next one, writes it to
+ * both, refreshes the lockfile, and commits and tags it (`v0.1.2`), locally.
+ * `npm run release` (scripts/release.mjs) runs it only when the current
+ * version is already on npm, then publishes and pushes.
  */
 export default defineConfig({
   files: ['package.json', 'cli/package.json'],

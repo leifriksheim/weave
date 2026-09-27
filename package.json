@@ -86,7 +86,7 @@
     "test": "node --experimental-vm-modules --import tsx --test tests/**/*.test.ts",
     "signal": "node server/signaling-server.mjs",
     "prepublishOnly": "npm run build",
-    "release": "npm run typecheck && npm test && bumpp && npm publish --workspaces --include-workspace-root && git push --follow-tags"
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

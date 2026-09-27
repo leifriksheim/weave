@@ -1471,11 +1471,18 @@ workspace) are released together, always with the same version:
 npm run release
 ```
 
-It typechecks and runs the tests, then [bumpp](https://github.com/antfu-collective/bumpp)
+It checks you're logged in to npm first (and runs `npm login` if not),
+typechecks and runs the tests, then [bumpp](https://github.com/antfu-collective/bumpp)
 asks for the next version, writes it to both packages, and commits and tags
-it (`v0.1.2`). Both are published (each builds itself first: `dist/` for the
-core, one bundled file for the CLI), and only then is the commit pushed. The
-settings are in `bump.config.ts`.
+it (`v0.1.2`), locally. Both are published (each builds itself first: `dist/`
+for the core, one bundled file for the CLI), and only then are the commit and
+tag pushed.
+
+If a release stops partway — npm login, a one-time password, the network —
+fix it and run `npm run release` again. It sees the version isn't fully on npm
+yet and publishes what's missing, instead of bumping again. `npm run release
+-- --dry-run` does everything but publish and push. The script is
+`scripts/release.mjs`; bumpp's settings are in `bump.config.ts`.
 
 ## Tests
 
