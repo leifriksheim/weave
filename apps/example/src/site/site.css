@@ -190,9 +190,11 @@
 .site footer a { color: var(--muted); text-decoration: none; }
 .site footer a:hover { color: var(--ink); }
 
-/* The front page: a badge over the hero, the story of a tool arriving, ideas, doors */
-.site .badge { display: inline-block; margin-bottom: 24px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: #fff; }
-.site .badge:hover { color: var(--ink); border-color: #c9c9c9; }
+/* The front page: the hero's mesh, the story of a tool arriving, ideas, doors */
+.site .hero.has-mesh { position: relative; overflow: hidden; }
+.site .hero.has-mesh > .wrap { position: relative; }
+/* Fainter behind the words, so it never competes with them */
+.site .mesh { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-mask-image: radial-gradient(ellipse 42% 38% at 50% 48%, rgba(0,0,0,.15), #000 100%); mask-image: radial-gradient(ellipse 42% 38% at 50% 48%, rgba(0,0,0,.15), #000 100%); }
 .site .kicker-inline { font-size: 13px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; }
 
 .site .moments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }

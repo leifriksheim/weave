@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Feature, GITHUB, Page } from './Site';
+import { Feature, Page } from './Site';
+import { HeroMesh } from './HeroMesh';
 
 /**
  * The front page, for communities. Its story is the one thing no platform
@@ -111,19 +112,17 @@ const IDEAS = [
 export function Home() {
   return (
     <Page page="home">
-      <section className="hero">
+      <section className="hero has-mesh">
+        <HeroMesh />
         <div className="wrap">
-          <a href={GITHUB} className="badge">
-            Early and open source · v0.2
-          </a>
           <h1>
-            A home for your community
+            Every tool your group needs,
             <br />
-            that grows its own tools.
+            made by your group.
           </h1>
           <p>
-            Chat, polls and boards to begin with. When your group needs something else, anyone can describe it to their
-            AI assistant. The group says yes, and everyone has it. No servers, and no platform in charge.
+            A shared space for your community, with chat and polls to begin with. When you need something else, describe
+            it to your AI assistant. The group says yes, and everyone has it. No servers, and no platform in charge.
           </p>
           <div className="actions">
             <a href="/app" className="btn btn-primary">

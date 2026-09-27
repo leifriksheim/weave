@@ -17,6 +17,8 @@ const LANGUAGES = { typescript: { ...typescript, typescript: true }, shell } as 
 
 export const GITHUB = 'https://github.com/leifriksheim/weave';
 export const SPEC = `${GITHUB}/tree/main/spec`;
+/** Links off the site open in a tab of their own */
+export const EXTERNAL = { target: '_blank', rel: 'noreferrer' } as const;
 
 export function Mark({ size = 20 }: { size?: number }) {
   return (
@@ -40,7 +42,7 @@ function Nav({ page }: { page: PageName }) {
           <a href="/developers" aria-current={page === 'developers' ? 'page' : undefined}>
             Developers
           </a>
-          <a href={GITHUB} className="hide-sm">
+          <a href={GITHUB} {...EXTERNAL} className="hide-sm">
             GitHub
           </a>
           <a href="/app" className="btn btn-primary" style={{ color: '#fff', marginLeft: 8 }}>
@@ -60,8 +62,12 @@ function Footer() {
         <span style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <a href="/">Communities</a>
           <a href="/developers">Developers</a>
-          <a href={SPEC}>Spec</a>
-          <a href={GITHUB}>GitHub</a>
+          <a href={SPEC} {...EXTERNAL}>
+            Spec
+          </a>
+          <a href={GITHUB} {...EXTERNAL}>
+            GitHub
+          </a>
           <a href="/app">Open app</a>
         </span>
       </div>
@@ -737,7 +743,7 @@ export function Developers() {
             <a href="/app" className="btn btn-primary">
               Open the example app
             </a>
-            <a href={SPEC} className="btn btn-secondary">
+            <a href={SPEC} {...EXTERNAL} className="btn btn-secondary">
               Read the spec
             </a>
           </div>
