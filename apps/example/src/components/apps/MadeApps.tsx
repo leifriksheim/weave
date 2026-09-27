@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
-import { useLive, useNode, useProfiles, useSpaces } from '@weaveprotocol/core/react';
+import { useLive, useNode, useSpaces } from '@weaveprotocol/core/react';
 import { addApp, app as appSchema, appScreen, copyApp, reviewApp, type App, type AppReview } from '@weaveprotocol/core/schemas';
 import { AppBoard } from './AppBoard';
 import { ScreenFrame } from './ScreenFrame';
-import { nameOf, peopleFrom, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { styles, palette } from '../../styles';
+import { Person } from '../Person';
 
 /**
  * Apps someone made for this space, kept in it as `std.app` records — often
@@ -63,7 +63,6 @@ export function Proposals({
   mayDefine: boolean;
   onAdded: (key: string) => void;
 }) {
-  const people = peopleFrom(useProfiles(space.id));
   if (apps.length === 0) return null;
   return (
     <section aria-label="Proposed apps" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -76,7 +75,7 @@ export function Proposals({
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {apps.map((record) => (
-          <Proposal key={record.key} space={space} record={record} collections={collections} people={people} mayDefine={mayDefine} onAdded={onAdded} />
+          <Proposal key={record.key} space={space} record={record} collections={collections} mayDefine={mayDefine} onAdded={onAdded} />
         ))}
       </div>
     </section>
@@ -87,14 +86,12 @@ function Proposal({
   space,
   record,
   collections,
-  people,
   mayDefine,
   onAdded,
 }: {
   space: SpaceSummary;
   record: NodeRecord<App>;
   collections: ReadonlyArray<NodeCollection>;
-  people: People;
   mayDefine: boolean;
   onAdded: (key: string) => void;
 }) {
@@ -138,7 +135,7 @@ function Proposal({
         <div style={{ minWidth: 0 }}>
           <strong style={{ ...tileTitle, fontSize: 15 }}>{body?.title ?? 'An app that could not be read'}</strong>
           <p style={{ fontSize: 12, color: palette.ink.faint, marginTop: 2 }}>
-            Proposed by {nameOf(record.createdBy, people)}
+            Proposed by <Person did={record.createdBy} />
             {record.viaAgent && record.seq === 0 && <AgentBadge />} · {ago(record.createdAt)}
             {body?.from && ' · copied from another space'}
           </p>

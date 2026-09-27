@@ -7,6 +7,7 @@ import { ago } from '../derive/time';
 import { Avatar } from './Avatar';
 import { Value } from './Value';
 import { styles, palette } from '../styles';
+import { Person } from './Person';
 
 /** A dot on the map: a record, or — when people are shown — a person */
 interface Dot {
@@ -846,7 +847,7 @@ function Details({
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Avatar did={did} size={32} />
             <div>
-              <h3 style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong, letterSpacing: '-0.02em' }}>{nameOf(did, people)}</h3>
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong, letterSpacing: '-0.02em' }}><Person did={did} /></h3>
               <p style={{ fontSize: 12, color: palette.ink.faint }}>
                 Wrote {wrote.length} {wrote.length === 1 ? 'record' : 'records'} here
               </p>

@@ -7,6 +7,7 @@ import { ago } from '../../derive/time';
 import { Avatar } from '../Avatar';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
+import { Person } from '../Person';
 
 const MAX_OPTIONS = 10;
 
@@ -119,7 +120,7 @@ function PollCard({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: palette.ink.faint }}>
           <Avatar did={record.createdBy ?? record.author} size={18} />
           <span>
-            {nameOf(record.createdBy, people)} asked · {ago(record.createdAt)}
+            <Person did={record.createdBy} /> asked · {ago(record.createdAt)}
           </span>
           {closed && <span style={{ ...styles.badge, marginLeft: 'auto' }}>Closed</span>}
         </div>

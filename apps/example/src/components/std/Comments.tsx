@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { useNode } from '@weaveprotocol/core/react';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { comment } from '@weaveprotocol/core/schemas';
-import { nameOf, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { Avatar } from '../Avatar';
 import { styles, palette } from '../../styles';
+import { Person } from '../Person';
 
 /** `std.comment` on a record: a thread, oldest first, and a box to add to it. */
-export function Comments({ space, target, comments, people }: { space: SpaceSummary; target: string; comments: ReadonlyArray<NodeRecord>; people: People }) {
+export function Comments({ space, target, comments}: { space: SpaceSummary; target: string; comments: ReadonlyArray<NodeRecord> }) {
   const node = useNode();
   const [draft, setDraft] = useState('');
   const sorted = [...comments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -21,7 +21,7 @@ export function Comments({ space, target, comments, people }: { space: SpaceSumm
           <Avatar did={c.root ?? c.author} size={26} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13 }}>
-              <strong style={{ fontWeight: 600, color: palette.ink.strong }}>{nameOf(c.root, people)}</strong>
+              <Person did={c.root} style={{ fontWeight: 600, color: palette.ink.strong }} />
               <span style={{ color: palette.ink.faint }}> · {ago(c.createdAt)}</span>
             </div>
             <p style={{ fontSize: 14, lineHeight: 1.5, color: palette.ink.body, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{(c.body as { text?: string } | null)?.text}</p>

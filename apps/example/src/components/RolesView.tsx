@@ -18,6 +18,7 @@ import { Avatar } from './Avatar';
 import { RingButton } from './calls/Calls';
 import { createInviteLink } from '../spaces';
 import { styles, palette, variants } from '../styles';
+import { Person } from './Person';
 
 /** Who holds what in the space, as the node reports it */
 type SpaceAccess = NonNullable<ReturnType<typeof useAccess>>;
@@ -414,7 +415,7 @@ function Members({
         <Avatar did={did} size={28} />
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <span style={{ color: palette.ink.strong, fontSize: 14 }}>
-            {name} {self && <span style={{ color: palette.ink.faint, fontWeight: 400 }}>· you</span>}
+            <Person did={did} /> {self && <span style={{ color: palette.ink.faint, fontWeight: 400 }}>· you</span>}
           </span>
           {cannotChange && !self && mine && roleHolds(mine, 'manage') && <span style={{ fontSize: 12, color: palette.ink.faint }}>{cannotChange}</span>}
         </div>

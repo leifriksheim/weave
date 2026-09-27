@@ -82,7 +82,7 @@ function Workspace() {
         <RelayNotice />
 
         {open ? (
-          <SpaceView key={open.id} space={open} />
+          <SpaceView key={open.id} space={open} onOpenSpace={openById} />
         ) : (
           <>
             <header style={styles.headerRow}>

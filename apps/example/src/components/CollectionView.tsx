@@ -27,6 +27,7 @@ import { Avatar } from './Avatar';
 import { reactionSummary } from './std/Reactions';
 import { chip, labelOf as tagLabel } from './std/Tags';
 import { styles, palette } from '../styles';
+import { Person } from './Person';
 
 type Layout = 'list' | 'table' | 'board';
 
@@ -205,7 +206,7 @@ export function CollectionView({
       {rows && visible.length === 0 && <p style={styles.emptyState}>{search ? 'Nothing matches.' : `No ${label.toLowerCase()} yet.`}</p>}
 
       {visible.length > 0 && shownLayout === 'list' && <ListLayout rows={visible} schema={schema} people={people} space={space} onOpen={onOpen} />}
-      {visible.length > 0 && shownLayout === 'table' && <TableLayout rows={visible} schema={schema} people={people} onOpen={onOpen} />}
+      {visible.length > 0 && shownLayout === 'table' && <TableLayout rows={visible} schema={schema} onOpen={onOpen} />}
       {shownLayout === 'board' && !group && (
         <p style={styles.emptyState}>
           A board makes a column for each option of a choice field — like a status of To do, Doing and Done. {label} has no field like that yet{redefine.may ? ' — add one with Edit definition' : ''}.
@@ -313,7 +314,7 @@ function Check({ checked, disabled, label, onChange }: { checked: boolean; disab
   );
 }
 
-function TableLayout({ rows, schema, people, onOpen }: { rows: Row[]; schema: NodeCollection['schema']; people: People; onOpen: (r: NodeRecord) => void }) {
+function TableLayout({ rows, schema, onOpen }: { rows: Row[]; schema: NodeCollection['schema']; onOpen: (r: NodeRecord) => void }) {
   const columns = columnsOf(schema);
   return (
     <div style={{ border: `1px solid ${palette.surface.line}`, borderRadius: 12, overflowX: 'auto' }}>
@@ -341,7 +342,7 @@ function TableLayout({ rows, schema, people, onOpen }: { rows: Row[]; schema: No
               ) : (
                 <td style={td}>{recordLabel(record, schema)}</td>
               )}
-              <td style={{ ...td, color: palette.ink.muted, whiteSpace: 'nowrap' }}>{nameOf(record.createdBy ?? record.root, people)}</td>
+              <td style={{ ...td, color: palette.ink.muted, whiteSpace: 'nowrap' }}><Person did={record.createdBy ?? record.root} /></td>
               <td style={{ ...td, color: palette.ink.muted, textAlign: 'right', whiteSpace: 'nowrap' }}>{ago(record.createdAt)}</td>
             </tr>
           ))}

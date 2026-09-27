@@ -16,7 +16,7 @@ import {
   type Field,
   type LinkedByRel,
 } from '../derive/schema-ui';
-import { nameOf, peopleFrom, writerOf } from '../derive/people';
+import { peopleFrom, writerOf } from '../derive/people';
 import { ago } from '../derive/time';
 import { SchemaForm, FieldInput } from './SchemaForm';
 import { Value } from './Value';
@@ -26,6 +26,7 @@ import { Tags } from './std/Tags';
 import { Comments } from './std/Comments';
 import { LinkPicker } from './LinkPicker';
 import { styles, palette } from '../styles';
+import { Person } from './Person';
 
 /**
  * The standard schemas this app gives a place of their own on every record —
@@ -151,7 +152,7 @@ export function RecordPanel({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: palette.ink.muted }}>
                 <Avatar did={record.createdBy ?? record.root ?? record.author} size={20} />
                 <span>
-                  {nameOf(record.createdBy ?? record.root, people)}
+                  <Person did={record.createdBy ?? record.root} />
                   {record.viaAgent && record.seq === 0 && ' via agent'}
                 </span>
                 <span>· {ago(record.createdAt)}</span>
@@ -297,7 +298,7 @@ export function RecordPanel({
             {uses(comment.name) && (
               <>
                 <div style={{ height: 1, background: palette.surface.line }} />
-                <Comments space={space} target={record.key} comments={linked.filter((r) => r.collection === comment.name)} people={people} />
+                <Comments space={space} target={record.key} comments={linked.filter((r) => r.collection === comment.name)} />
               </>
             )}
 
