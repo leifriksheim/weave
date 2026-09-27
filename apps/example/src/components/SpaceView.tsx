@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { NodeRecord, SpaceProfile, SpaceSummary } from '@weaveprotocol/core';
-import { useAccess, useCollections, useNode, useHoldSpace, useProfiles, useAccount, useSpaceStatus } from '@weaveprotocol/core/react';
+import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
+import { useAccess, useCollections, useHoldSpace, useProfiles, useAccount, useSpaceStatus } from '@weaveprotocol/core/react';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
 import { RecordPanel } from './RecordPanel';
@@ -12,12 +12,11 @@ import { RolesView } from './RolesView';
 import { AppsView } from './apps/AppsView';
 import { spaceBadges } from './SpaceList';
 import { styles, palette } from '../styles';
-import { Avatar } from './Avatar';
 import { Icon } from './Icon';
 import { WhoIsHere } from './WhoIsHere';
 import { CallButton } from './calls/Calls';
 import { peopleFrom } from '../derive/people';
-import { Person, PersonScopeProvider } from './Person';
+import { PersonScopeProvider } from './Person';
 
 /** Where in the space we are: which collection, and which record is open beside it */
 export interface Place {
@@ -28,10 +27,10 @@ export interface Place {
 /** Defining a new collection, in the main area */
 const NEW = '__new__';
 
-/** The ways of looking at one space: apps made for its collections, the collections themselves, how it connects, asking of it, and who may do what */
+/** The ways of looking at one space: apps made for its collections, the data itself, how it connects, asking of it, and who may do what */
 const TABS = [
   { id: 'apps', label: 'Apps' },
-  { id: 'collections', label: 'Collections' },
+  { id: 'data', label: 'Data' },
   { id: 'explore', label: 'Explore' },
   { id: 'query', label: 'Query' },
   { id: 'roles', label: 'People & roles' },
@@ -48,8 +47,6 @@ export function SpaceView({ space, onOpenSpace }: { space: SpaceSummary; onOpenS
   const account = useAccount();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
   const [tab, setTab] = useState<Tab>('apps');
-  // Set when "Invite people" brought us to People & roles, so the invite is already open there.
-  const [inviting, setInviting] = useState(false);
 
   // Syncing while it is on screen. Opening writes nothing: standard schemas
   // are added only when someone picks them from the library.
@@ -98,10 +95,7 @@ export function SpaceView({ space, onOpenSpace }: { space: SpaceSummary; onOpenS
               key={t.id}
               role="tab"
               aria-selected={tab === t.id}
-              onClick={() => {
-                setTab(t.id);
-                setInviting(false);
-              }}
+              onClick={() => setTab(t.id)}
               style={{
                 flexShrink: 0,
                 height: 36,
@@ -123,9 +117,9 @@ export function SpaceView({ space, onOpenSpace }: { space: SpaceSummary; onOpenS
       {tab === 'apps' && <AppsView space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'explore' && <GraphView space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'query' && <QueryPlayground space={space} collections={collections} onOpen={openRecord} />}
-      {tab === 'roles' && <RolesView space={space} collections={collections} inviting={inviting} />}
+      {tab === 'roles' && <RolesView space={space} collections={collections} />}
 
-      {tab === 'collections' && <div className="space-layout">
+      {tab === 'data' && <div className="space-layout">
         <aside className="space-side">
           <nav aria-label="Collections" className="collection-nav">
             <span className="collection-nav-heading" style={sideHeading}>In this space</span>
@@ -148,17 +142,6 @@ export function SpaceView({ space, onOpenSpace }: { space: SpaceSummary; onOpenS
               </button>
             )}
           </nav>
-          <People profiles={profiles} me={account.did} roles={roleOf} />
-          <section style={{ ...styles.panelSection, gap: 10 }}>
-            <button
-              onClick={() => {
-                setInviting(true);
-                setTab('roles');
-              }}
-              data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start' }}>
-              Invite people
-            </button>
-          </section>
         </aside>
 
         <main style={{ minWidth: 0 }}>
@@ -211,69 +194,3 @@ const navItem = {
   textAlign: 'left' as const,
 };
 const navItemOn = { background: palette.surface.sunken, color: palette.ink.strong, fontWeight: 500 };
-
-/** Who is here: everyone who has said who they are in this space */
-const chip = { display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 4px', border: `1px solid ${palette.surface.line}`, borderRadius: 999, fontSize: 13 } as const;
-
-/**
- * Your own name, renamed in place. It goes on the account, and the node
- * republishes it into every space you are in — not just this one.
- */
-function MyName({ name }: { name: string }) {
-  const node = useNode();
-  const [draft, setDraft] = useState<string | null>(null);
-  const save = async () => {
-    const trimmed = draft?.trim();
-    setDraft(null);
-    if (trimmed && trimmed !== name) await node.account.setName(trimmed).catch(() => {});
-  };
-  if (draft === null) {
-    return (
-      <button onClick={() => setDraft(name)} data-variant="ghost" title="Rename — everyone in your spaces sees this name" style={{ ...styles.linkButton, fontSize: 13, color: palette.ink.strong }}>
-        {name}
-      </button>
-    );
-  }
-  return (
-    <input
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => void save()}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') void save();
-        if (event.key === 'Escape') setDraft(null);
-      }}
-      autoFocus
-      maxLength={64}
-      aria-label="Your name"
-      style={{ ...styles.input, height: 24, minHeight: 24, width: 140, padding: '0 6px', fontSize: 13 }}
-    />
-  );
-}
-
-function People({
-  profiles,
-  me,
-  roles,
-}: {
-  profiles: ReadonlyArray<SpaceProfile>;
-  me: string;
-  roles: ReadonlyMap<string, string>;
-}) {
-  if (profiles.length === 0) return null;
-  return (
-    <section style={styles.panelSection} aria-label="People">
-      <h2 style={styles.sectionTitle}>People ({profiles.length})</h2>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {profiles.map((p) => (
-          <span key={p.did} title={p.did} style={chip}>
-            <Avatar did={p.did} size={22} />
-            {p.did === me ? <MyName name={p.name} /> : <Person did={p.did} style={{ color: palette.ink.strong }} />}
-            {p.did === me && <span style={{ color: palette.ink.faint }}>you</span>}
-            {roles.has(p.did) && <span style={{ color: palette.ink.faint }}>{roles.get(p.did)?.toLowerCase()}</span>}
-          </span>
-        ))}
-      </div>
-    </section>
-  );
-}

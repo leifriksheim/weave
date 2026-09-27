@@ -17,7 +17,7 @@ export interface AppProps {
  * code in this example, not something stored in the space: it shows up in a
  * space as soon as the space holds the collections it needs, whoever
  * added them and however. What it writes are ordinary records, so the
- * Collections tab (or any other app that knows the same schemas) sees them too.
+ * Data tab (or any other app that knows the same schemas) sees them too.
  */
 export interface WeaveApp {
   readonly id: string;
