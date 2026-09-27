@@ -204,6 +204,8 @@ export { deriveAccountRegistry, deriveContactsSpace, MEMBERSHIP_COLLECTION } fro
 export {
   CATALOG_COLLECTION,
   checkStoredCollection,
+  checkScreenNetwork,
+  MAX_SCREEN_ORIGINS,
   checkPublishableSchema,
   validateJsonSchema,
   asStandardSchema,

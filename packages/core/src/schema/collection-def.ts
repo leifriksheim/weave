@@ -123,10 +123,43 @@ export interface StoredCollection {
    * space, and what they approved is exactly what runs.
    */
   readonly screen?: string;
+  /**
+   * Where its screen may connect, and load images from: exact origins,
+   * `https://api.example.com` or `wss://…`. None, the default, keeps it
+   * sealed. The app review names each one, and every person is asked before
+   * a screen they open is given them: it runs as them, so what it sends is
+   * what they can see.
+   */
+  readonly network?: ReadonlyArray<string>;
 }
 
 /** The largest screen a definition may carry, in bytes of UTF-8 — it travels with every copy of the definition */
 export const MAX_SCREEN_BYTES = 48 * 1024;
+
+/** At most this many origins a screen may reach */
+export const MAX_SCREEN_ORIGINS = 8;
+
+/** `https://api.example.com`, `wss://feed.example.com:8443`: a scheme, a lower-case host, maybe a port — no path, no wildcard */
+const SCREEN_ORIGIN = /^(https|wss):\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]{1,5})?$/;
+
+/**
+ * Checks a screen's `network`: why it is wrong, or null.
+ * An origin goes straight into the frame's security policy, so only exact
+ * origins pass — nothing that could widen it (`*`, `https:`) or break out of it.
+ */
+export function checkScreenNetwork(network: unknown, hasScreen: boolean): string | null {
+  if (network === undefined) return null;
+  if (!Array.isArray(network)) return 'network must be a list of origins, like ["https://api.example.com"]';
+  if (!hasScreen && network.length) return 'network is where a screen may connect; this definition has no screen';
+  if (network.length > MAX_SCREEN_ORIGINS) return `network may name at most ${MAX_SCREEN_ORIGINS} origins`;
+  for (const origin of network) {
+    if (typeof origin !== 'string' || !SCREEN_ORIGIN.test(origin)) {
+      return `"${String(origin)}" is not an origin a screen may reach: give https:// or wss:// and a host, lower case, no path — like "https://api.example.com"`;
+    }
+  }
+  if (new Set(network).size !== network.length) return 'network names an origin twice';
+  return null;
+}
 
 /** The reserved collection that collection definitions live in. */
 export const CATALOG_COLLECTION = 'sys.collection';
@@ -277,6 +310,8 @@ export function checkStoredCollection(definition: unknown): string | null {
     const bytes = new TextEncoder().encode(d.screen).length;
     if (bytes > MAX_SCREEN_BYTES) return `screen is ${Math.ceil(bytes / 1024)} KB; at most ${MAX_SCREEN_BYTES / 1024} KB`;
   }
+  const network = checkScreenNetwork(d.network, typeof d.screen === 'string');
+  if (network) return network;
   return checkPublishableSchema(d.schema);
 }
 

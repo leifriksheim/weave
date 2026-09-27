@@ -543,7 +543,8 @@ history. In a private space its body is encrypted like any other record's.
 | `permissions` | string[] | no | Permissions its rules may name, each `^[a-z][a-zA-Z0-9]{0,39}$` (§7.1) |
 | `rules` | object | no | §7 |
 | `topics` | string[] | no | §8 |
-| `screen` | string | no | One HTML document, at most 48 KiB of UTF-8, non-blank. What runs it: [06 — Nodes, sessions and apps](06-nodes-and-sessions.md). |
+| `screen` | string | no | One HTML document, at most 48 KiB of UTF-8, non-blank. What runs it: [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) §5.5. |
+| `network` | string[] | no | The exact origins its `screen` may reach: at most 8, distinct, each `^(https\|wss)://` + a lower-case host with at least one dot + an optional `:port`, no path (`https://api.open-meteo.com`). Only with a `screen`. How it is enforced: [06](06-nodes-and-sessions.md) §5.5. |
 
 A definition body that fails any check in this section is **invalid**. A peer
 MUST treat an invalid definition as no definition at all: its collection then
@@ -677,7 +678,7 @@ while its collection still has records.
 - Any other name is the space's to use. Records in a collection nobody has
   defined are still stored and synced; they simply have no schema or rules.
 
-*Source: `packages/core/src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `validateJsonSchema`, `toJsonSchema`, `asStandardSchema`, `MAX_SCREEN_BYTES`), `packages/core/src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`, `define`, `undefine`), `packages/core/src/space/roles.ts` (`definition` events). Tests: `packages/core/tests/space-catalog.test.ts` (all), `packages/core/tests/schemas.test.ts` ("schemas from a validator you already use"), `packages/core/tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write").*
+*Source: `packages/core/src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `validateJsonSchema`, `toJsonSchema`, `asStandardSchema`, `MAX_SCREEN_BYTES`, `checkScreenNetwork`, `MAX_SCREEN_ORIGINS`), `packages/core/src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`, `define`, `undefine`), `packages/core/src/space/roles.ts` (`definition` events). Tests: `packages/core/tests/space-catalog.test.ts` (all), `packages/core/tests/schemas.test.ts` ("schemas from a validator you already use"), `packages/core/tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write").*
 
 ### 6.5 Planned: compatible definitions
 
@@ -1418,6 +1419,7 @@ object is the node's record view ([06 — Nodes, sessions and apps](06-nodes-and
 | Tags per version | ≤ 64 |
 | Permission name | `^[a-z][a-zA-Z0-9]{0,39}$` |
 | Definition `screen` | ≤ 48 KiB UTF-8 |
+| Definition `network` | ≤ 8 origins |
 | Include nesting | ≤ 3 |
 | Future-dated `createdAt` (delegated writes) | ≤ 300 s ahead |
 | Size of a body or an expression | *Not yet specified* — no limit is enforced |

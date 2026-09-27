@@ -17,6 +17,7 @@
  */
 import type { NodeRecord, P2PNode } from '../node/types.js';
 import type { Link } from '../types.js';
+import { checkScreenNetwork } from '../schema/collection-def.js';
 
 /** What a screen sees of a record */
 export interface ScreenRecord {
@@ -48,6 +49,12 @@ export interface ScreenViewer {
 export const SCREEN_GUIDE = `A screen is one HTML document (scripts and styles inline, at most 48 KB) put on a collection definition as "screen".
 When the app is added, apps in the space can show it instead of plain lists. It runs sealed: no network (no fetch, no
 images from URLs, no fonts from URLs), no storage, no popups, no forms that submit. Keep state in records, never in the page.
+
+If it truly needs the network — weather, a map, a timetable — give its collection "network": the exact origins it may
+fetch from and load images from, like ["https://api.open-meteo.com"] (https:// or wss://, a host, no path; at most 8).
+Nothing else is reachable, and fonts never are. Each origin is named when people review the app, and each person is asked
+before a screen they open gets it: a person who says no gets the screen sealed, so it must still work without them.
+Ask for no more than it needs.
 
 Inside it, window.weave is:
   weave.me                          { did, name } — who is looking
@@ -144,10 +151,37 @@ export const SCREEN_CLIENT = `(() => {
   });
 })();`;
 
-/** The document a host page writes into its frame: the client, then the screen */
-export function screenDocument(screen: string): string {
-  // Before anything the screen says, so `weave` is there when its scripts run.
-  return `<script>${SCREEN_CLIENT}</script>\n${screen}`;
+/**
+ * The security policy a screen runs under: inline scripts and styles, and
+ * the network only to `network`'s exact origins — none, unless the person
+ * looking agreed to them. A host page's own frame policy may allow more
+ * (any `https:`); this one is always written too, and a page under two
+ * policies gets only what both allow. Origins that don't check out give none.
+ */
+export function screenPolicy(network: ReadonlyArray<string> = []): string {
+  const origins = checkScreenNetwork(network, true) === null ? network : [];
+  const images = origins.filter((origin) => origin.startsWith('https://'));
+  return [
+    "default-src 'none'",
+    "script-src 'unsafe-inline'",
+    "style-src 'unsafe-inline'",
+    `img-src data: blob:${images.map((origin) => ` ${origin}`).join('')}`,
+    `connect-src ${origins.length ? origins.join(' ') : "'none'"}`,
+    'font-src data:',
+    'media-src data: blob:',
+    "form-action 'none'",
+    "base-uri 'none'",
+  ].join('; ');
+}
+
+/**
+ * The document a host page writes into its frame: its policy, the client,
+ * then the screen.
+ * @param network The origins the person looking agreed to; none keeps it sealed
+ */
+export function screenDocument(screen: string, network: ReadonlyArray<string> = []): string {
+  // The policy first, so it is in force before any script runs; `weave` next, so it is there when the screen's run.
+  return `<meta http-equiv="Content-Security-Policy" content="${screenPolicy(network)}">\n<script>${SCREEN_CLIENT}</script>\n${screen}`;
 }
 
 const toScreen = (record: NodeRecord, viewer: string): ScreenRecord => ({

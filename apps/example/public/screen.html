@@ -4,13 +4,17 @@
     <meta charset="utf-8" />
     <!--
       Where an app's own screen runs. The frame holding this page is sandboxed
-      (scripts only: no same-origin, no popups, no forms), and this policy takes
-      the network away: nothing may be fetched, loaded or sent. It stays in
-      force after the screen is written in below, so the screen lives under it.
+      (scripts only: no same-origin, no popups, no forms). This policy is the
+      outer bound: secure connections and images at most, nothing else from
+      anywhere. It stays in force after the screen is written in below, and the
+      document written in always starts with its own, exact policy
+      (screenDocument in packages/core/src/schemas/screens.ts): no network, or
+      only the origins the app declared and the person looking agreed to. A
+      page under two policies gets only what both allow.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob: https:; connect-src https: wss:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>

@@ -33,6 +33,8 @@ export interface AppDefinition {
   readonly rules?: CollectionRules;
   /** Its own screen: one HTML document, run sealed (see `schemas/screens.ts`) */
   readonly screen?: string;
+  /** Exact origins that screen may connect to; none keeps it sealed */
+  readonly network?: ReadonlyArray<string>;
 }
 
 export interface App {
@@ -125,6 +127,7 @@ function essence(definition: {
   permissions?: ReadonlyArray<string> | undefined;
   rules?: unknown;
   screen?: string | undefined;
+  network?: ReadonlyArray<string> | undefined;
 }) {
   return {
     title: definition.title ?? '',
@@ -135,6 +138,7 @@ function essence(definition: {
     permissions: canonicalize([...(definition.permissions ?? [])].sort()),
     rules: canonicalize(definition.rules ?? {}),
     screen: definition.screen ?? '',
+    network: canonicalize([...(definition.network ?? [])].sort()),
   };
 }
 
@@ -156,14 +160,19 @@ function differences(held: NodeCollection, wanted: AppDefinition): string[] {
   if (a.links !== b.links) out.push('changes what it points at');
   if (a.history !== b.history) out.push(b.history === 'all' ? 'starts keeping every version' : 'stops keeping old versions');
   if (a.screen !== b.screen) out.push(!b.screen ? 'takes its screen away' : !a.screen ? 'gives it a screen' : 'changes its screen');
+  if (a.network !== b.network) {
+    const before = new Set(held.network ?? []);
+    const reached = (wanted.network ?? []).filter((origin) => !before.has(origin));
+    out.push(reached.length ? `lets its screen reach ${reached.join(', ')}` : 'lets its screen reach fewer places');
+  }
   if (a.title !== b.title || a.description !== b.description) out.push('renames or redescribes it');
   return out;
 }
 
-/** The screen an app brings, if any: the first of its collections that carries one */
-export function appScreen(body: App): { readonly collection: string; readonly screen: string } | null {
+/** The screen an app brings, if any: the first of its collections that carries one, and where it may connect */
+export function appScreen(body: App): { readonly collection: string; readonly screen: string; readonly network: ReadonlyArray<string> } | null {
   const found = body.needs.find((need) => typeof need.screen === 'string' && need.screen.trim());
-  return found ? { collection: found.name, screen: found.screen! } : null;
+  return found ? { collection: found.name, screen: found.screen!, network: found.network ?? [] } : null;
 }
 
 /**

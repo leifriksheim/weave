@@ -270,6 +270,13 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
             'keep their first value.',
         },
         screen: { type: 'string', description: 'Optional: its own screen, one HTML document — read apps_screen_guide first' },
+        network: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional, with a screen: the exact origins it may connect to and load images from, like ["https://api.open-meteo.com"]. ' +
+            'None keeps it sealed. Each is named when people review the app, and each person is asked before their screen gets them.',
+        },
       },
       required: ['space', 'name', 'schema'],
     },
@@ -287,6 +294,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         ...(Array.isArray(input.permissions) ? { permissions: input.permissions.filter((p): p is string => typeof p === 'string') } : {}),
         ...(typeof input.rules === 'object' && input.rules !== null ? { rules: input.rules as Record<string, never> } : {}),
         ...(typeof input.screen === 'string' ? { screen: input.screen } : {}),
+        ...(Array.isArray(input.network) ? { network: input.network.filter((o): o is string => typeof o === 'string') } : {}),
       });
       // What it allows, from its rules — worth repeating to the person as it is.
       return { ...defined, summary: describeCollection({ ...defined, schema: defined.schema ?? undefined }) };
@@ -325,7 +333,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     name: 'apps_screen_guide',
     description:
       'How to write a screen — an app\'s own HTML UI, kept on its main collection\'s definition as "screen" and run sealed ' +
-      'in the app: what it can use (window.weave: list, put, update, remove, onChange, me) and what it can\'t (network, storage).',
+      'in the app: what it can use (window.weave: list, put, update, remove, onChange, me) and what it can\'t (storage, and the network beyond the origins it names).',
     input: { type: 'object', properties: {} },
     readOnly: true,
     run: async () => SCREEN_GUIDE,
@@ -339,7 +347,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'space sees the proposal, with what it allows worked out from its rules, and a person who may define collections adds it. ' +
       'Read collections_list first and reuse what the space already has (std.poll, std.task…) rather than inventing a twin. ' +
       'For anything plain lists and forms can\'t show — a game board, a calendar, a whiteboard — give the main collection ' +
-      'a "screen": its own HTML UI (one document, inline scripts and styles, no network). Inside it, use exactly: ' +
+      'a "screen": its own HTML UI (one document, inline scripts and styles, no network unless the collection names exact origins in "network"). Inside it, use exactly: ' +
       'weave.me ({ did, name }), await weave.list("<collection>", { where: { "link:<rel>": key } }), ' +
       'await weave.put("<collection>", body, { links: [{ rel, to: key }] }), await weave.update(key, body), await weave.remove(key), ' +
       'weave.onChange(redraw). Records are { key, body, links, createdBy, mine }. Read apps_screen_guide for the rest. ' +

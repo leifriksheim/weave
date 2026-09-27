@@ -26,6 +26,8 @@ export interface Describable {
   readonly links?: Readonly<Record<string, LinkDeclaration>>;
   readonly permissions?: ReadonlyArray<string>;
   readonly rules?: CollectionRules;
+  /** Where its screen may connect */
+  readonly network?: ReadonlyArray<string>;
 }
 
 /** Every rule there is. A new one in `CollectionRules` must be added here, with its sentence. */
@@ -149,6 +151,12 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
   }
 
   if (definition.history === 'all') sentences.push(`Every earlier version of ${a} is kept.`);
+
+  // The network: said last and plainly, since it is the one way anything leaves the space.
+  if (definition.network?.length) {
+    const hosts = joinAnd(definition.network.map((origin) => origin.replace(/^[a-z]+:\/\//, '')));
+    sentences.push(`Its screen can connect to ${hosts}, and send there anything the person looking can see in it. Each person is asked first.`);
+  }
 
   return sentences;
 }

@@ -18,8 +18,10 @@ import { createSigner } from '../src/schema/signer.js';
 import { createExpression, type CreateExpressionParams } from '../src/schema/expression.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { describeCollection } from '../src/records/describe.js';
+import { checkStoredCollection } from '../src/schema/collection-def.js';
+import type { NodeCollection } from '../src/node/types.js';
 import { checkRules } from '../src/records/rules.js';
-import { addApp, checkApp, copyApp, createScreenBridge, reviewApp, SCREEN_CLIENT, vote, poll, type App } from '../src/schemas/index.js';
+import { addApp, checkApp, copyApp, createScreenBridge, reviewApp, SCREEN_CLIENT, screenDocument, screenPolicy, vote, poll, type App } from '../src/schemas/index.js';
 import { createWeaveAuth, type WeaveAuth } from '../src/session/auth.js';
 import { grantSigner, type Grant } from '../src/session/connect.js';
 import { acceptAgentLink, newAgentCode, offerAgentLink, readAgentCode } from '../src/session/agent-link.js';
@@ -529,6 +531,9 @@ describe('screens', () => {
     const { alice, bob, space } = await setup();
     await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' }, screen: board });
     await until(async () => (await bob.node.collections.list(space)).some((c) => c.name === 'app.chess.game' && c.screen === board), 4000, 'the screen to reach Bob');
+    // Where it may connect travels with it, through collections_define as an agent's tools give it.
+    await runAction(alice.node, 'collections_define', { space, name: 'app.chess.clock', schema: { type: 'object' }, screen: board, network: ['https://time.example.com'] });
+    await until(async () => (await bob.node.collections.list(space)).find((c) => c.name === 'app.chess.clock')?.network?.[0] === 'https://time.example.com', 4000, 'its network to reach Bob');
     await assert.rejects(
       () => alice.node.collections.define(space, { name: 'app.big', schema: { type: 'object' }, screen: 'x'.repeat(49 * 1024) }),
       /at most 48 KB/,
@@ -575,6 +580,30 @@ describe('screens', () => {
     listeners.error!({ message: 'Uncaught ReferenceError: draw is not defined', filename: 'about:srcdoc', error: new ReferenceError('draw is not defined') });
     listeners.unhandledrejection!({ reason: new Error('Only whoever added a ride can change it') });
     assert.deepEqual(shown, ['This screen hit an error: Uncaught ReferenceError: draw is not defined', 'This screen hit an error: Only whoever added a ride can change it']);
+  });
+
+  test('a screen reaches only the exact origins its definition names, and the review says so', () => {
+    const screen = '<p>Weather for the ride</p>';
+    const need = (network?: unknown) => ({ name: 'app.carpool.ride', schema: { type: 'object' }, screen, ...(network === undefined ? {} : { network }) });
+    assert.equal(checkStoredCollection({ ...need(['https://api.open-meteo.com', 'wss://feed.example.com:8443']), version: 1 }), null);
+    for (const wrong of [['*'], ['https:'], ['http://api.example.com'], ['https://api.example.com/v1'], ['https://API.example.com'], ['https://localhost'], ["https://a.example.com; connect-src *"], ['https://a.example.com', 'https://a.example.com'], Array.from({ length: 9 }, (_, i) => `https://h${i}.example.com`), 'https://api.example.com']) {
+      assert.notEqual(checkStoredCollection({ ...need(wrong), version: 1 }), null, `refuses ${JSON.stringify(wrong)}`);
+    }
+    assert.match(checkStoredCollection({ name: 'app.x.y', schema: { type: 'object' }, network: ['https://api.example.com'], version: 1 }) ?? '', /no screen/);
+
+    // The policy written in front of the screen: nothing, or exactly those origins — never more, even if handed junk.
+    assert.match(screenPolicy([]), /connect-src 'none'/);
+    assert.match(screenPolicy(['https://api.open-meteo.com']), /connect-src https:\/\/api\.open-meteo\.com;.*img-src|img-src data: blob: https:\/\/api\.open-meteo\.com/);
+    assert.match(screenPolicy(['https://api.open-meteo.com']), /connect-src https:\/\/api\.open-meteo\.com(;|$)/);
+    assert.match(screenPolicy(['*']), /connect-src 'none'/);
+    assert.ok(screenDocument(screen, ['https://api.open-meteo.com']).startsWith('<meta http-equiv="Content-Security-Policy"'), 'the policy comes before any script');
+
+    // Said in the review, worked out from the definition; and adding an origin later is a change someone must approve.
+    const summary = describeCollection(need(['https://api.open-meteo.com']));
+    assert.match(summary.at(-1)!, /Its screen can connect to api\.open-meteo\.com.*Each person is asked first/);
+    const held = { name: 'app.carpool.ride', schema: { type: 'object' }, screen, version: 1 } as unknown as NodeCollection;
+    const review = reviewApp({ title: 'Carpool', needs: [need(['https://api.open-meteo.com']) as never] }, [held]);
+    assert.deepEqual(review.needs[0]!.changes, ['lets its screen reach https://api.open-meteo.com']);
   });
 
   test('the bridge answers for its app\'s collections only, as the person looking, under the rules', async () => {

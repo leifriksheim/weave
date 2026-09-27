@@ -162,7 +162,7 @@ function Proposal({
 
       {review?.problem && <p style={styles.error}>This can't be added: {review.problem}</p>}
 
-      {body && appScreen(body) && <ScreenNote screen={appScreen(body)!.screen} />}
+      {body && appScreen(body) && <ScreenNote screen={appScreen(body)!.screen} network={appScreen(body)!.network} />}
 
       {review && !review.problem && (
         <>
@@ -214,16 +214,24 @@ function Proposal({
  * can, so this says what the screen is able to do at all — which the frame
  * enforces — and shows the code for anyone who wants to read it.
  */
-function ScreenNote({ screen }: { screen: string }) {
+function ScreenNote({ screen, network }: { screen: string; network: ReadonlyArray<string> }) {
   const [open, setOpen] = useState(false);
   const kb = Math.max(1, Math.round(new TextEncoder().encode(screen).length / 1024));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', background: palette.surface.sunken, borderRadius: 8 }}>
       <p style={{ fontSize: 13, color: palette.ink.body, lineHeight: 1.5 }}>
         <strong style={{ color: palette.ink.strong }}>It brings its own screen</strong> ({kb} KB of code). It runs sealed: it can read and
-        change only this app's records, in this space, as whoever is looking — under the rules below. It can't reach the internet or
-        anything else in the app. The rules below can't vouch for what the screen shows, so add it only if you trust whoever
-        proposed it.
+        change only this app's records, in this space, as whoever is looking — under the rules below.{' '}
+        {network.length ? (
+          <>
+            It can also connect to <strong style={{ color: palette.ink.strong }}>{network.map((origin) => origin.replace(/^[a-z]+:\/\//, '')).join(', ')}</strong>, and
+            send there anything the person looking can see in it. Each person is asked before their screen gets that; nothing else on the
+            internet is reachable.
+          </>
+        ) : (
+          <>It can't reach the internet or anything else in the app.</>
+        )}{' '}
+        The rules below can't vouch for what the screen shows, so add it only if you trust whoever proposed it.
       </p>
       <button onClick={() => setOpen((was) => !was)} data-variant="ghost" style={{ ...styles.linkButton, alignSelf: 'flex-start', padding: 0, fontSize: 13 }}>
         {open ? 'Hide the code' : 'Show the code'}
@@ -288,7 +296,7 @@ export function MadeAppScreen({
       </header>
       {body.description && <p style={{ fontSize: 14, color: palette.ink.muted, marginTop: -8 }}>{body.description}</p>}
       {withScreen?.screen && !plain ? (
-        <ScreenFrame spaceId={space.id} collections={names} screen={withScreen.screen} title={body.title} />
+        <ScreenFrame spaceId={space.id} collection={withScreen.name} collections={names} screen={withScreen.screen} network={withScreen.network ?? []} title={body.title} />
       ) : (
         <AppBoard space={space} names={names} collections={collections} onOpen={onOpen} />
       )}

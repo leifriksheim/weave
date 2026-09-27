@@ -434,7 +434,7 @@ The actions (R = readOnly, S = sensitive, D = destructive, P = peerContent):
 | `spaces_status` | R | **`space`** | `spaces.status()` |
 | `spaces_profiles` | R P | **`space`** | `spaces.profiles()` |
 | `collections_list` | R P | **`space`** | `collections.list()` |
-| `collections_define` | D | **`space`**, **`name`**, **`schema`**, `title`, `description`, `version`, `history` (`latest`\|`all`), `links`, `permissions`, `rules`, `screen` | The definition, plus `summary`: what its rules allow, in words. |
+| `collections_define` | D | **`space`**, **`name`**, **`schema`**, `title`, `description`, `version`, `history` (`latest`\|`all`), `links`, `permissions`, `rules`, `screen`, `network` | The definition, plus `summary`: what its rules allow, in words. |
 | `apps_list` | R P | **`space`** | Proposed apps: `key`, `title`, `description`, `proposedBy`, `viaAgent?`, `screen?`, `added`, `problem`, `needs[]`. |
 | `apps_screen_guide` | R | — | The screen-writing guide text. |
 | `apps_propose` | | **`space`**, **`title`**, **`needs`** (array of definitions), `description` | Writes an app proposal record; returns `{ key, proposed, added: false, next, needs }`. |
@@ -1132,7 +1132,61 @@ MCP over stdio with the person-only tools removed (§2).
 
 *Source: `packages/cli/src/agent.ts`, `packages/cli/src/mcp.ts`. Tests: `packages/core/tests/agents.test.ts` ("an agent running a node of its own"), `packages/cli/tests/cli.test.ts` ("MCP").*
 
-### 5.5 Planned
+### 5.5 App screens
+
+A collection definition may carry a `screen`, one HTML document, and a
+`network`, the exact origins that screen may reach ([02](02-records.md)
+§6.1). Agents propose them in `std.app` records; only a person who may define
+collections adds them. An app that shows a screen:
+
+- MUST run it in a frame with an opaque origin that may run scripts and
+  nothing else (the reference: `sandbox="allow-scripts"`), and hand it the
+  records only through a message port it answers as the person looking,
+  under the collection's rules;
+- MUST put this policy in front of everything the screen says, so it is in
+  force before any script runs:
+
+  ```
+  default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';
+  img-src data: blob: <each https origin>; connect-src <each origin, or 'none'>;
+  font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'
+  ```
+
+  Any other policy on the frame may only allow more, never less, since a page
+  under two policies gets what both allow. With no `network`, or before the
+  person agrees, the lists are empty and the screen is sealed:
+  `connect-src 'none'` and images from `data:` and `blob:` only;
+- MUST ask the person looking before giving a screen its `network`, naming
+  each origin, and run it sealed if they decline. The screen runs as them, so
+  what it can send is what they can see. The answer holds for that exact list;
+  a definition that names a new origin asks again. How an app remembers the
+  answer is its own.
+
+The app review names each origin, from the definition itself (`describeCollection`:
+"Its screen can connect to api.open-meteo.com, and send there anything the
+person looking can see in it. Each person is asked first."), and a proposal
+that adds an origin to a collection the space has is a change someone must
+approve ("lets its screen reach https://api.open-meteo.com").
+
+Example: a carpool ride's screen shows the weather at departure.
+
+```json
+{ "name": "app.carpool.ride", "screen": "<!doctype html>…", "network": ["https://api.open-meteo.com"], … }
+```
+
+A person who allows it gets `connect-src https://api.open-meteo.com` and
+`img-src data: blob: https://api.open-meteo.com`; one who declines gets the
+sealed policy, and the screen must still work, without the weather.
+
+> Rationale: whoever adds an app decides to trust its author, but the screen
+> reads, as each viewer, records only that viewer can open. So the network is
+> each viewer's to give. Exact origins keep what leaves visible: a screen
+> given `https://api.open-meteo.com` can't also reach a server its author
+> controls.
+
+*Source: `packages/core/src/schema/collection-def.ts` (`checkScreenNetwork`, `MAX_SCREEN_ORIGINS`), `packages/core/src/schemas/screens.ts` (`screenPolicy`, `screenDocument`, `SCREEN_GUIDE`), `packages/core/src/schemas/apps.ts` (`differences`, `appScreen`), `packages/core/src/records/describe.ts` (`describeCollection`), `apps/example/src/components/apps/ScreenFrame.tsx`, `apps/example/public/screen.html`. Tests: `packages/core/tests/agents.test.ts` ("a screen reaches only the exact origins its definition names, and the review says so"; "a definition carries its screen to every peer; one too large is refused").*
+
+### 5.6 Planned
 
 > **Planned.** Not normative.
 >

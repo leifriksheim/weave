@@ -259,6 +259,8 @@ export interface NodeCollection {
   readonly topics: ReadonlyArray<string>;
   /** A screen for its records, when its definer gave one: one HTML document, run sealed */
   readonly screen?: string;
+  /** Where that screen may connect, when its definer allowed any (`StoredCollection.network`) */
+  readonly network?: ReadonlyArray<string>;
   readonly records: number;
 }
 
@@ -286,6 +288,8 @@ export interface DefineCollection {
   readonly topics?: ReadonlyArray<string>;
   /** A screen for its records — one HTML document an app may run in a sealed frame (`StoredCollection.screen`) */
   readonly screen?: string;
+  /** Exact origins that screen may connect to, each named in the app review (`StoredCollection.network`) */
+  readonly network?: ReadonlyArray<string>;
 }
 
 export interface NodeCollections {
