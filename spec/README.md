@@ -75,11 +75,13 @@ they are described; the smaller ones share
 | Pairing without showing the account | [01 §14.4](01-identity.md), [#31](https://github.com/leifriksheim/weave/issues/31) |
 | Versions whose history can be checked (fixes a known defect) | [02 §4.7](02-records.md), [#14](https://github.com/leifriksheim/weave/issues/14) |
 | Merging inside one record | [02 §4.8](02-records.md) |
+| References to records in other spaces | [02 §5.3](02-records.md), [#38](https://github.com/leifriksheim/weave/issues/38) |
 | `pattern` and `format` in definitions | [02 §6](02-records.md) |
 | Compatible definitions; content-addressed definitions; definition tiers | [02 §6.5](02-records.md), [#11](https://github.com/leifriksheim/weave/issues/11), [#12](https://github.com/leifriksheim/weave/issues/12) |
 | Meaning-level hints on definitions | [02 §6.6](02-records.md) |
 | Private `onePer` keys; uniqueness that cannot be a key | [02 §7.3](02-records.md) |
 | Queries leave the protocol; queries that leave out non-conforming records; full-text search | [02 §11](02-records.md), [#28](https://github.com/leifriksheim/weave/issues/28) |
+| A standard library most apps can share | [02 Appendix A.1](02-records.md), [#36](https://github.com/leifriksheim/weave/issues/36) |
 | Leaving writes the self-removal (fixes a known defect) | [03 §6.2](03-spaces.md), [#15](https://github.com/leifriksheim/weave/issues/15) |
 | Keep lists past the cap; deleted access records can't leave access standing | [03 §6.3, §7.2](03-spaces.md) |
 | What a private space still shows (hashed keys and collection names) | [03 §8.7](03-spaces.md) |
@@ -91,6 +93,7 @@ they are described; the smaller ones share
 | Completeness from signed writer logs; fork proofs | [05 §9.1](05-sync-and-storage.md), [#13](https://github.com/leifriksheim/weave/issues/13) |
 | Caches that fetch, widen and trim; subsets smaller than a collection | [05 §9.2](05-sync-and-storage.md), [#27](https://github.com/leifriksheim/weave/issues/27) |
 | Mirrors in your own storage, and their drivers | [05 §16.5](05-sync-and-storage.md) |
+| Files: blob references, bytes synced by hash | [05 §16.6](05-sync-and-storage.md), [#37](https://github.com/leifriksheim/weave/issues/37) |
 | A wallet as the account home | [06 §4](06-nodes-and-sessions.md) |
 | Agents: renewing notes, naming, agents that can't run a program | [06 §5.5](06-nodes-and-sessions.md) |
 | Web Push through carriers | [06 §6.4](06-nodes-and-sessions.md) |

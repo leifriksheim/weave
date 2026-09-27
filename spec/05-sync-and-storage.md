@@ -1197,6 +1197,21 @@ records must fit that budget. Open: mirrors laid out per collection, so a
 cache (§9) could read only what it holds; today only whole-space nodes
 mirror.
 
+### 16.6 Planned: files
+
+> **Planned.** Not normative. Issue:
+> [#37](https://github.com/leifriksheim/weave/issues/37). Records cannot
+> carry file bytes today; `std.attachment` has only a `url`, outside the
+> space's access rules and sync. The plan is a **blob reference** in a body,
+> `{ hash, size, mime, name? }`, where `hash` is the SHA-256 of the bytes as
+> stored. The bytes are stored and synced by hash, apart from records, and
+> fetched only when wanted; the fetcher checks the hash. In a private space
+> they are encrypted under the space key before hashing, so keepers and
+> mirrors hold ciphertext. Bytes no current record references may be dropped.
+> *Open:* how a peer asks for bytes it lacks (the sync connection, a host, a
+> mirror); chunking large files so they resume and don't hold up a sync
+> round; which key when the space key changes; limits per blob and per space.
+
 ---
 
 ## 17. Constants

@@ -503,6 +503,19 @@ do not conform; the reference node refuses to.
 
 *Source: `packages/core/src/records/links.ts` (`checkLinks`, `LINK_REL_PATTERN`, `MAX_LINKS`, `LinkDeclaration`), `packages/core/src/node/space-runtime.ts` (`openBody`, `linkIssues`, `write`). Tests: `packages/core/tests/links.test.ts` (all).*
 
+### 5.3 Planned: references to other spaces
+
+> **Planned.** Not normative. Issue:
+> [#38](https://github.com/leifriksheim/weave/issues/38). A link points only
+> within its space, but following a public space, reposting from another
+> space, and a list whose items live in several spaces all point elsewhere.
+> The plan is a **reference**: a string naming a space and a key, such as
+> `weave:<space>/<key>`, carried in a body field rather than as a link, so
+> links stay same-space and checkable against the definitions (§5.2). A
+> reader resolves it only if it can read that space. *Open:* the exact form;
+> whether it may pin a version; whether a private space's id in a public
+> record says too much ([03 — Spaces](03-spaces.md) §8.7).
+
 ---
 
 ## 6. Collection definitions
@@ -1460,3 +1473,33 @@ key. A record without one goes at the end. `positionBetween(before, after)` in
 the library makes one; any string that sorts correctly is valid.
 
 *Source: `packages/core/src/schemas/index.ts`, `packages/core/src/schemas/contacts.ts`, `packages/core/src/schemas/apps.ts`. Tests: `packages/core/tests/schemas.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/agents.test.ts`.*
+
+### A.1 Planned: a library most apps can share
+
+> **Planned.** Not normative. Issue:
+> [#36](https://github.com/leifriksheim/weave/issues/36), which lists every
+> proposed definition. The aim is a library broad enough that most apps need
+> no definitions of their own: lists and list items, profiles, bookmarks,
+> ratings, events and RSVPs, notes, documents as blocks, files, photos and
+> albums, places, expenses, and more, drawn from atproto lexicons, Nostr NIPs,
+> JSContact and JSCalendar.
+>
+> It rests on a few conventions:
+>
+> - What several people edit is several records, not an array in one body,
+>   because a record resolves as a whole (§4.3).
+> - "One per person" or "one per slot" is `onePer` (§7.3), with scalar parts.
+> - Bodies carry no `createdAt`; the record has one.
+> - Times, money, places, people and files use the same fragments in every
+>   definition, exported by the library, since the dialect has no `$ref`
+>   (§6.2). Money is a decimal string and a currency code, never a float.
+> - Link roles share one vocabulary: `about`, `replyTo`, `root`, `parent`,
+>   `in`, `shares`.
+>
+> It changes some existing definitions: `std.attachment` gets a blob
+> reference, `std.task` a due date, status, assignees and a `parent` link,
+> `std.message` a `root` link, and `std.vote` more than one choice.
+>
+> *Depends on:* files ([05 — Sync and storage](05-sync-and-storage.md)
+> §16.6, [#37](https://github.com/leifriksheim/weave/issues/37)), references
+> to other spaces (§5.3), `format` (§6.2), and compatible definitions (§6.5).
