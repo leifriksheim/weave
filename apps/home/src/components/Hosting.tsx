@@ -12,7 +12,7 @@ const TOP_UP_DAYS = 30;
  * "Keep my spaces online": one host, paid for once, carrying every space of
  * the account — without being able to read them.
  *
- * This home knows nothing about how a host is paid (docs/spec/06-nodes-and-sessions.md, Hosts). **Payment**
+ * This home knows nothing about how a host is paid (spec/06-nodes-and-sessions.md, Hosts). **Payment**
  * opens the host's own page in a new tab, with a link signed for this
  * subscription; that page takes cards, wallets, whatever the host chose. The
  * home stays in its own tab, and never follows a link the host hands it, so

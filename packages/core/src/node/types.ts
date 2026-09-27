@@ -645,7 +645,7 @@ export interface HostingView {
  * host is a carrier (`carriers`) the account pays for; every device of the
  * account hands it the spaces, with nothing to set up.
  *
- * Nothing here knows how a host is paid (docs/spec/06-nodes-and-sessions.md, Hosts): a host takes payments on
+ * Nothing here knows how a host is paid (spec/06-nodes-and-sessions.md, Hosts): a host takes payments on
  * its own page, which `payPage` links to, and says how the subscription stands
  * in a status it signs.
  */
@@ -801,7 +801,7 @@ export interface SentKnockView {
  * says both and nothing about who you are. Someone with the code knocks: a
  * private space for the two of you, its invite sealed to the door and left in
  * those mailboxes. Accepting joins it. Close a door and its code stops
- * working; your contacts stay. See `docs/spec/07-doors.md`.
+ * working; your contacts stay. See `spec/07-doors.md`.
  */
 export interface NodeDoors {
   /** Your open doors */

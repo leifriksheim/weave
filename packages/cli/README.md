@@ -230,5 +230,5 @@ space anywhere leaves it everywhere.
   across real networks, behind a strict NAT, in Safari, and on a phone
   switching apps.
 
-What the protocol still has planned is in [the spec](../../docs/spec/README.md),
+What the protocol still has planned is in [the spec](../../spec/README.md),
 under **Planned** in each part.

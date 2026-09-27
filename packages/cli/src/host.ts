@@ -3,7 +3,7 @@
  *
  * A host node (`packages/core/src/node/host.ts`) carrying every subscription's spaces, served
  * the way `weave run` serves: sockets at `/peer?space=`, the relay on every
- * other path. Plus what a home and a person need (docs/spec/06-nodes-and-sessions.md, Hosts):
+ * other path. Plus what a home and a person need (spec/06-nodes-and-sessions.md, Hosts):
  *
  *   GET    /.well-known/weave-host                who the host is: key, name, price, pay page
  *   GET    /host/subscriptions/:id                its status, signed by the host

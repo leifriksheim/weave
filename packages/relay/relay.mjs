@@ -30,7 +30,7 @@
  * in all is capped in coturn itself (`bps-capacity`, `max-bps`).
  *
  * **The mailbox.** A relay also holds sealed knocks for doors (see
- * `docs/spec/07-doors.md`), so someone can ask to become your contact while
+ * `spec/07-doors.md`), so someone can ask to become your contact while
  * you are offline. It is the one thing a relay keeps, and it keeps as little
  * as it can: an opaque blob under an opaque topic, for a few weeks at most.
  *

@@ -1,5 +1,5 @@
 /**
- * The host's pay page (docs/spec/06-nodes-and-sessions.md, Hosts): where a subscription is paid, on the host's
+ * The host's pay page (spec/06-nodes-and-sessions.md, Hosts): where a subscription is paid, on the host's
  * own address, so no payment code ever runs next to an account's seed.
  *
  * The home opens it with a link signed by the subscription key, in the

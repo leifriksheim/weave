@@ -4,7 +4,7 @@
  * MinIO, Wasabi, AWS itself.
  *
  * Requests are signed with `aws4fetch` rather than the AWS SDK or hand-written
- * SigV4 (see docs/DEPENDENCIES.md): tiny, no dependencies, `fetch` and
+ * SigV4 (see CLAUDE.md, Dependencies): tiny, no dependencies, `fetch` and
  * `crypto.subtle` only, so it runs in browsers, Node and Bun alike.
  */
 import { AwsClient } from 'aws4fetch';

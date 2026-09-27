@@ -15,7 +15,7 @@
  * author and tag, all on the outside of a record, and says so; the extension
  * shows a notification. The label is the person's own words, shown as is.
  *
- * The same split as a query in a space held in part (docs/spec/05-sync-and-storage.md, What a node holds): the part a
+ * The same split as a query in a space held in part (spec/05-sync-and-storage.md, What a node holds): the part a
  * blind node can check runs there, the rest where the keys are.
  */
 import type { Expression } from '../types.js';
