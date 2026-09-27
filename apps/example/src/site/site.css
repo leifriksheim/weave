@@ -142,6 +142,9 @@
 .site .points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 64px; }
 .site .points h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.03em; color: var(--ink); margin-bottom: 8px; }
 .site .points p { color: var(--muted); font-size: 16px; }
+.site .points code { font-size: 14px; background: var(--sunken); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; color: var(--body); }
+.site .spec-link { display: inline-block; margin-top: 40px; font-size: 14px; font-weight: 500; color: var(--ink); text-decoration: none; }
+.site .spec-link:hover { text-decoration: underline; }
 
 /* Comparison: a plain table, scrolling sideways on its own on a phone */
 .site .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
@@ -185,6 +188,8 @@
 .site .cta h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 600; letter-spacing: -0.045em; color: var(--ink); }
 .site .cta p { color: var(--muted); margin-top: 12px; font-size: 17px; }
 .site .cta .actions { margin-top: 28px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.site .cta .aside-link { display: inline-block; margin-top: 20px; font-size: 14px; color: var(--muted); text-decoration: none; }
+.site .cta .aside-link:hover { color: var(--ink); }
 .site footer { border-top: 1px solid var(--line); padding: 32px 0; font-size: 14px; color: var(--faint); }
 .site footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .site footer a { color: var(--muted); text-decoration: none; }

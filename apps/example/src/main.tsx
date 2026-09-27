@@ -4,19 +4,29 @@ import { injectBaseStyles } from './styles';
 import { exposeToAgents } from './webmcp';
 import { Developers } from './site/Site';
 import { Home } from './site/Home';
+import { Protocol } from './site/Protocol';
 import { WeaveProvider } from '@weaveprotocol/core/react';
 import { connection } from './weave';
 
 /**
- * Three pages: the front page, for communities (`/`, and `/why` for older
- * links), for developers (`/developers`), and the app (`/app`). The front page
+ * Four pages: the front page, for communities (`/`, and `/why` for older
+ * links), for developers (`/developers`), how the protocol works
+ * (`/protocol`), and the app (`/app`). The front page
  * leads with a group that grows its own tools, because no platform offers that.
  * A link made before the app moved — an invite, a door, or a phone-pairing
  * code, all in the fragment — still opens the app wherever it lands.
  */
 const path = globalThis.location.pathname.replace(/\/+$/, '') || '/';
 const carriesAppLink = /[#&](invite|door)=/.test(globalThis.location.hash);
-const page = carriesAppLink ? 'app' : path === '/' || path === '/why' ? 'home' : path === '/developers' ? 'developers' : 'app';
+const page = carriesAppLink
+  ? 'app'
+  : path === '/' || path === '/why'
+    ? 'home'
+    : path === '/developers'
+      ? 'developers'
+      : path === '/protocol'
+        ? 'protocol'
+        : 'app';
 
 // Hover, focus and placeholder states, plus the page background — the things
 // inline styles cannot express.
@@ -35,6 +45,8 @@ createRoot(root).render(
     <Home />
   ) : page === 'developers' ? (
     <Developers />
+  ) : page === 'protocol' ? (
+    <Protocol />
   ) : (
     // Every component in the app asks this for Weave.
     <WeaveProvider connection={connection}>

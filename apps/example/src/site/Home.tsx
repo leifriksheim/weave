@@ -393,6 +393,9 @@ export function Home() {
               For developers
             </a>
           </div>
+          <a href="/protocol" className="aside-link">
+            How it works, for the curious →
+          </a>
         </div>
       </section>
     </Page>
