@@ -19,9 +19,11 @@
  * blind node can check runs there, the rest where the keys are.
  *
  * An app knows its own collections and topics better than the person does,
- * so it may propose subscriptions when it connects (`NotifyProposal`). The
- * person says yes to each on the home's approval screen, and the home writes
- * them into the registry naming the app — the app never writes there itself.
+ * so it may propose subscriptions (`NotifyProposal`): when it connects, or
+ * later, as a node already connected (`proposeToHome`). The carrier does the
+ * same from the collections it sees go by. The person says yes to each on the
+ * home's approval screen, and the home writes them into the registry naming
+ * the app — the app never writes there itself.
  */
 import type { Expression } from '../types.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
@@ -65,16 +67,18 @@ export interface NotifyApp {
 }
 
 /**
- * A subscription an app asks for when it connects. Which spaces it looks at
- * is the grant's: every space for a whole-account app, else the spaces it is
- * given. `topic.me` stands for the account's DID, which the app does not
- * know before it connects: "mentions me".
+ * A subscription an app asks for. It looks at the spaces the app may reach —
+ * every space for a whole-account app or a carrier, else the spaces it was
+ * given — or at `spaces`, some of those. `topic.me` stands for the account's
+ * DID, which the app does not know before it connects: "mentions me".
  */
 export interface NotifyProposal {
   readonly label: string;
   readonly collection: string;
   readonly topic?: { readonly field: string; readonly value: string | number | boolean } | { readonly field: string; readonly me: true };
   readonly others?: boolean;
+  /** Only these of the spaces the app may reach. Default: all of them. */
+  readonly spaces?: ReadonlyArray<string>;
   /** Must be on the app's own origin. Default: the app's origin. */
   readonly open?: string;
 }
@@ -131,8 +135,13 @@ export function checkNotify(when: unknown): string | null {
   return null;
 }
 
-/** `https://chat.example`, nothing after it: what a browser reports as a message's origin */
+/**
+ * `https://chat.example`, nothing after it: what a browser reports as a
+ * message's origin. A browser extension's origin (`chrome-extension://<id>`)
+ * is one too, though `URL` gives it none.
+ */
 function isOrigin(value: string): boolean {
+  if (/^(chrome|moz|safari-web)-extension:\/\/[a-z0-9-]{1,64}$/i.test(value)) return true;
   try {
     return new URL(value).origin === value;
   } catch {
@@ -154,7 +163,7 @@ export function checkProposal(proposal: unknown, origin: string): string | null 
   const problem = checkNotify({
     label: p.label,
     collection: p.collection,
-    spaces: 'all',
+    spaces: p.spaces ?? 'all',
     ...(topic ? { topic: { field: topic.field, value: topic.me === true ? 'me' : topic.value } } : {}),
     ...(p.others !== undefined ? { others: p.others } : {}),
     ...(p.open !== undefined ? { open: p.open } : {}),
@@ -164,6 +173,16 @@ export function checkProposal(proposal: unknown, origin: string): string | null 
   if (problem) return problem;
   if (p.open !== undefined && new URL(p.open).origin !== origin) return 'open must be an address on the app’s own site';
   return null;
+}
+
+/**
+ * The spaces a proposal looks at, given the ones the app may reach; null when
+ * it names one outside them.
+ */
+export function proposalSpaces(proposal: NotifyProposal, reach: NotifySpaces): NotifySpaces | null {
+  if (!proposal.spaces) return reach;
+  if (reach !== 'all' && proposal.spaces.some((id) => !reach.includes(id))) return null;
+  return [...new Set(proposal.spaces)];
 }
 
 /** The subscription a proposal becomes, once the person says yes to it */

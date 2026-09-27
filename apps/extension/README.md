@@ -54,6 +54,7 @@ the defaults too, so you only need the local one to work offline.
 | `src/offscreen.ts` | a hidden page | The carrier node (`createCarrierNode`): runs as long as Chrome does, over WebRTC. Attaches the pod when Chrome allows it. |
 | `src/welcome.ts` | a tab | Connecting to the home, picking the pod, status, disconnecting. Connecting has to happen here: the toolbar popup closes when the home's window takes focus. |
 | `src/popup.ts` | the toolbar popup | Status at a glance, **Resume pod sync** when Chrome wants a click, and "Notify me when…". |
+| `src/notify.ts` | a tab | Picking what to be notified about from the kinds of record your spaces hold, and asking the home to add them. A tab for the same reason as connecting. |
 
 Permissions: `offscreen`, `alarms`, `unlimitedStorage`, `notifications`. No
 host permissions and no content scripts, so installing it shows no warning
@@ -61,13 +62,16 @@ about reading your sites.
 
 ## Notifications
 
-In the account home, **Notify me when…** says what to hear about: new
-messages in a space, ones that mention you, ones in #design. The extension
+**Notify me when…** says what to hear about: new messages in a space, ones
+that mention you, ones in #design. You choose in the account home, or an app
+suggests some, or you pick in this extension: it offers the kinds of record it
+sees go by (it can't read them, but their kind is on the outside), and asks
+the home, where you confirm. The extension
 gets each of those with the value replaced by a code only your spaces' keys
 can produce, so it matches records as they arrive without learning what you
 asked for or reading the record. It shows the space, your label and the time;
 clicking opens the app, or the home. The popup lists them, mutes one in this
-browser, and opens the home to add or change them. The worker shows the
+browser, opens the tab to add more, and the home to pause or remove them. The worker shows the
 notification; the offscreen page, where the carrier runs, may not.
 
 The design, and what is still to be checked, is in

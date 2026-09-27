@@ -86,3 +86,8 @@ code { font-family: var(--mono); font-size: 12px; }
 .account { display: flex; align-items: center; gap: 10px; }
 .account .who { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
 .account .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.choices { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.choice { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 400; color: var(--ink-body); margin: 0; padding: 6px 0; cursor: pointer; }
+.choice input { width: auto; height: auto; margin: 0; box-shadow: none; }
+.choice .meta { margin-left: auto; color: var(--ink-faint); white-space: nowrap; }

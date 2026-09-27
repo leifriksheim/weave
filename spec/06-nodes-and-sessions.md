@@ -670,8 +670,9 @@ The app:
    popup it opened or whose `origin` is not the home's origin.
 3. On `{ type: "weave:hello" }`, posts `{ type: "weave:request", request }` to
    the popup with `targetOrigin` = the home's origin.
-4. On `{ type: "weave:grant", grant }`, checks the grant (§4.6) and resolves.
-   On `{ type: "weave:denied", reason? }`, fails with `reason`.
+4. On `{ type: "weave:grant", grant }`, checks the grant (§4.6) and resolves
+   (for a proposal, §4.12, `grant` is the `Proposed` answer instead). On
+   `{ type: "weave:denied", reason? }`, fails with `reason`.
 5. Fails if the popup is closed first (polled every 500 ms) or after a timeout
    (default 10 minutes).
 
@@ -710,10 +711,11 @@ The home (`receiveConnectRequest(timeoutMs = 10 000)`):
 | `days` | integer 1–365, optional | How long the note should last. The home decides; default 7. |
 | `notify` | `NotifyProposal[]`, optional | At most 8 subscriptions to offer the person (§6.4). |
 
-`NotifyProposal` is `{ label, collection, topic?, others?, open? }`, where
-`topic` is `{ field, value }` or `{ field, me: true }` (`me` stands for the
-account's DID, which the app does not know yet). Which spaces it looks at is
-not the app's to say: the grant's spaces decide (§4.5).
+`NotifyProposal` is `{ label, collection, topic?, others?, spaces?, open? }`,
+where `topic` is `{ field, value }` or `{ field, me: true }` (`me` stands for
+the account's DID, which the app does not know yet). It looks at the spaces the
+app may reach (§4.5 step 7, §4.12), or with `spaces` only those of them; it
+cannot widen them.
 
 A home MUST refuse a request (as in §4.3 step 4) unless: `v` is `1`; `audience`
 starts with `did:key:`; `access` is one of the three; `scope`, `name`,
@@ -721,8 +723,9 @@ starts with `did:key:`; `access` is one of the three; `scope`, `name`,
 `agent: true`, `access` is not `carry`, `create` is absent and `contacts` is
 not true; and `notify` is absent, or has at most 8 entries, `access` is not
 `carry`, `agent` is not true, and each entry would be a valid `NotifyWhen`
-([03](03-spaces.md) §15) with `app.origin` the request's origin and, when it
-has `open`, `open`'s origin is the request's origin. A click on a notification
+([03](03-spaces.md) §15) with `app.origin` the request's origin, `spaces` its
+`spaces` when given (else `"all"`) and, when it has `open`, `open`'s origin is
+the request's origin. A click on a notification
 leads only back to the app that proposed it.
 
 Example:
@@ -765,7 +768,9 @@ When the person approves, the home (`auth.grant({ origin, request, spaceIds, day
 7. Unless `agent: true`, adds each `notify` proposal the person kept (by
    default all) to the account's subscriptions ([03](03-spaces.md) §15):
    `spaces` is `"all"` under `scope: account`, else the granted spaces without
-   the contacts space (none: nothing is added); `me` becomes the account's
+   the contacts space (none: nothing is added); a proposal's own `spaces` MUST
+   all be among those, or the home refuses the grant before making or signing
+   anything, and is then used instead; `me` becomes the account's
    DID; `others` defaults to true; `open` defaults to `<origin>/`; `since` is
    now; `app` is `{ origin, name? }` with `name` the request's, cut to 80. A
    proposal equal to a subscription the same origin already has (same
@@ -825,7 +830,7 @@ whose note's payload is
 > hold, and a subscription is the person's intent: the app knows good
 > collections and labels, the person says yes.
 
-*Source: `packages/core/src/session/auth.ts` (`grant`), `packages/core/src/session/connect.ts` (`ConnectRequest`, `Grant`, `grantCapabilities`, `isRequest`), `packages/core/src/space/notify.ts` (`checkProposal`, `fromProposal`, `sameSubscription`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions").*
+*Source: `packages/core/src/session/auth.ts` (`grant`, `subscriptionsFrom`), `packages/core/src/session/connect.ts` (`ConnectRequest`, `Grant`, `grantCapabilities`, `isRequest`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions").*
 
 ### 4.6 What the app checks
 
@@ -902,8 +907,8 @@ app's connections (by default the app and every agent connected through it;
 - `scope: account`: in every space the account can write in, the contacts
   space, and the account registry.
 
-Disconnecting an app (not only its agents) also removes every subscription
-whose `app.origin` is its origin (§6.4).
+Disconnecting an app or a carrier (not only an app's agents) also removes
+every subscription whose `app.origin` is its origin (§4.12, §6.4).
 
 Revoking writes a `sys.revoke` record naming the note ([03](03-spaces.md)).
 From then on nothing written under the note counts, except versions the revoker
@@ -919,7 +924,8 @@ then forgets the grant and the app key.
 app's twin of §3: statuses `starting`, `disconnected`, `connecting`, `ready`,
 `expired`. It keeps the grant in `localStorage` under `weave.grant` and the
 person's chosen home under `weave.home` (`home` in the config is only a
-default). A client convenience, not protocol.
+default). `propose(notify)` sends a proposal to the grant's home (§4.12). A
+client convenience, not protocol.
 
 *Source: `packages/core/src/session/connection.ts`. Tests: none.*
 
@@ -929,6 +935,72 @@ default). A client convenience, not protocol.
 > are what the wallet would hold (the seed, or a key the account's note
 > delegates to) and how the request and grant of §4.4–4.5 would map onto a
 > credential request.
+
+### 4.12 Proposing subscriptions later
+
+An app or carrier already connected may offer subscriptions at any time, not
+only when it connects: an app from a "notify me about this" button, the
+browser extension from the kinds of record it sees go by (§6.4). It uses the
+exchange of §4.3 (`proposeToHome`) with a `ProposeRequest` in place of the
+`ConnectRequest`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `v` | `1` | |
+| `kind` | `"propose"` | Tells it apart from a `ConnectRequest`, which has no `kind`. |
+| `name` | string, ≤ 80, optional | What it calls itself. Shown, never trusted. |
+| `notify` | `NotifyProposal[]` | 1 to 8 subscriptions to offer the person (§4.4). |
+
+A home MUST refuse a request with a `kind` as malformed (§4.3 step 4) unless
+`v` is `1`, `kind` is `propose`, `name` is absent or valid, and `notify` has 1
+to 8 entries, each valid as in §4.4 for the request's origin.
+
+When the person approves (`auth.propose({ origin, request, notify? })`, where
+`notify` is the indices they kept, default all), the home:
+
+1. Finds the connection it keeps for the request's origin (§4.10), other than
+   an agent's. With none it MUST refuse: an origin it gave nothing has no
+   spaces for a subscription to look at.
+2. Works out what the proposer may reach: every space (`"all"`) for a carrier
+   or under `scope: account`, else the spaces granted without the contacts
+   space (none: it refuses).
+3. Checks every kept proposal before writing any. It MUST refuse the whole
+   proposal when one names in `spaces` a space outside that reach, or when the
+   proposer is a carrier and one has a `topic` with a `value` (`me` is
+   allowed).
+4. Adds each kept proposal as §4.5 step 7 does, with `app.name` the
+   connection's name, else the request's.
+5. Answers `weave:grant` with `Proposed`:
+   `{ v: 1, kind: "proposed", notify: { id, label }[] }`, the subscriptions
+   added or found; empty when the person kept none.
+
+Nothing else changes: the proposer gets no access it did not have, no note,
+and learns only which of its suggestions were kept.
+
+Example, from the extension:
+
+```json
+{ "type": "weave:request",
+  "request": { "v": 1, "kind": "propose", "name": "Weave for Chrome",
+               "notify": [{ "label": "New message in Club", "collection": "std.message", "others": true,
+                            "spaces": ["bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"] }] } }
+```
+
+answered with
+
+```json
+{ "type": "weave:grant",
+  "grant": { "v": 1, "kind": "proposed", "notify": [{ "id": "notify:k3v6mzq4ha2tmbyx", "label": "New message in Club" }] } }
+```
+
+> Rationale: a carrier cannot read, and the tag each subscription carries for
+> it (§6.4) is what lets it match records unread. Were it to choose a topic
+> value, the tag it got back would tell it which records hold that value —
+> reading by guessing. `me` is the account's own DID, and the person approves
+> it by name: the carrier learns what they asked to be told, as it would had
+> they made the subscription in the home.
+
+*Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`), `packages/core/src/space/notify.ts` (`proposalSpaces`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("proposing subscriptions later", "the home receiving a request").*
 
 ---
 
@@ -1184,7 +1256,8 @@ carrier MUST check that `kind` is `carry`, that the invite is to the named
 space, that the space is private, created by `did`, and that the invite carries
 its key; and that `pod.dataPath` has no empty or `..` segments. A carry
 connection has no expiry (`expiresAt: 0` in the home's record) and no note to
-revoke; disconnecting it removes the carrier (§6.2).
+revoke; disconnecting it removes the carrier (§6.2) and the subscriptions it
+proposed (§4.12).
 
 *Source: `packages/core/src/session/connect.ts` (`connectCarrier`, `checkCarryGrant`, `CarryGrant`), `packages/core/src/session/auth.ts` (`grantCarry`). Tests: `packages/core/tests/connect.test.ts` ("connecting a carrier to an account home").*
 
@@ -1195,10 +1268,14 @@ key) are kept in the account registry as `sys.notify` records, key
 `notify:<base32 of 10 random bytes>`, body `NotifyWhen`:
 `{ label (≤ 120), collection (not sys.*), spaces ("all" or 1–256 ids), topic?: { field, value }, others? (default true), open? (https URL), paused?, since (ISO date), app?: { origin, name? } }`.
 
-The person adds them in the account home, or an app proposes them when it
-connects and the home adds the ones the person keeps, naming the app (§4.4,
-§4.5). The home lists them by app; pausing or removing works the same for
-either. Disconnecting an app removes its subscriptions (§4.10).
+The person adds them in the account home, or an app proposes them, when it
+connects or later, and the home adds the ones the person keeps, naming the app
+(§4.4, §4.5, §4.12). The carrier proposes them too: it knows the kinds of
+record in each space it carries by the `collection` on their outside, and a
+title and topic fields only where a definition is readable, in a public space
+(`collections(spaceId)` on the carrier node). The home lists them by who
+proposed them; pausing or removing works the same for all. Disconnecting an app
+or carrier removes its subscriptions (§4.10).
 
 Each device copies every subscription into every carry space as
 `sys.subscription` (same key), with the topic value replaced by the tag it has
@@ -1213,7 +1290,7 @@ root is not the account; with `tags`, the record carries one of that space's
 tags. What it reports is only the subscription, the space and the record's key,
 collection and `createdAt`.
 
-*Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts` (`arrived`). Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier").*
+*Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts` (`arrived`, `collections`), `apps/extension/src/notify.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier").*
 
 > **Planned: Web Push, to a closed browser or a phone.** Today a match is
 > reported only to the carrier's own process (the extension shows it itself),

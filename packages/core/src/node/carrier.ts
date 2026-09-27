@@ -82,6 +82,20 @@ export type CarrierEvent =
       readonly record: { readonly key: string; readonly collection: string; readonly createdAt: string };
     };
 
+/**
+ * A kind of record a carried space holds, as far as the carrier can tell. Its
+ * name is on the outside of every record; a title and topic fields only where
+ * the definition is readable — a public space. In a private one it is sealed.
+ */
+export interface CarriedCollection {
+  readonly name: string;
+  readonly title?: string;
+  /** Topic fields, for "mentions me"; empty when there are none, or the definition is sealed */
+  readonly topics: ReadonlyArray<string>;
+  /** How many records it holds now */
+  readonly records: number;
+}
+
 /** A subscription as the carrier holds it: the person's label, what it looks at, where a click goes */
 export interface CarriedSubscriptionView {
   readonly id: string;
@@ -105,6 +119,8 @@ export interface CarrierNode {
   usePod(stores: StoreFactory | null): Promise<void>;
   /** The account's subscriptions, as this carrier holds them */
   subscriptions(): Promise<ReadonlyArray<CarriedSubscriptionView>>;
+  /** What a carried space holds, by kind — what the extension can offer to notify about. Empty for a space it doesn't carry. */
+  collections(spaceId: string): Promise<ReadonlyArray<CarriedCollection>>;
   subscribe(listener: (event: CarrierEvent) => void): () => void;
   close(): Promise<void>;
 }
@@ -381,6 +397,17 @@ export async function createCarryCore(config: CarryCoreConfig) {
       return [...carries.values()].flatMap((entry) => [...entry.subscriptions].map(([id, sub]) => view(id, sub)));
     },
 
+    async collections(spaceId: string): Promise<ReadonlyArray<CarriedCollection>> {
+      const entry = carried.get(spaceId);
+      if (!entry || carries.has(spaceId)) return [];
+      return (await entry.runtime.collections()).map((found) => ({
+        name: found.name,
+        ...(found.title ? { title: found.title } : {}),
+        topics: found.topics,
+        records: found.records,
+      }));
+    },
+
     async spaces(): Promise<ReadonlyArray<CarriedSpace>> {
       const found: CarriedSpace[] = [];
       for (const [spaceId, entry] of carried) {
@@ -440,6 +467,7 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
     spaces: core.spaces,
     usePod: core.setPod,
     subscriptions: core.subscriptions,
+    collections: core.collections,
 
     subscribe(listener: (event: CarrierEvent) => void) {
       listeners.add(listener);

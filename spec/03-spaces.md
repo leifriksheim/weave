@@ -1160,11 +1160,13 @@ matches `^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$` and does not start with `sys.`;
 ([02](02-records.md)) and `topic.value` a string, number or boolean; `open`
 an `https://` URL (or `http://` on localhost / 127.0.0.1); `since` a date;
 `app.origin`, when present, a web origin (scheme, host and port, nothing
-after) and `app.name` at most 80 characters.
+after) or a browser extension's (`chrome-extension://`, `moz-extension://` or
+`safari-web-extension://`, then 1–64 letters, digits or dashes), and
+`app.name` at most 80 characters.
 
-`app` names the app that proposed the subscription, by the origin the browser
-reported; the account home writes it on the app's behalf when the person says
-yes ([06](06-nodes-and-sessions.md) §4.5). A subscription without `app` was
+`app` names the app or carrier that proposed the subscription, by the origin
+the browser reported; the account home writes it on its behalf when the person
+says yes ([06](06-nodes-and-sessions.md) §4.5, §4.12). A subscription without `app` was
 made in the home. `app` is not copied to the carried form.
 
 Carriers cannot read, so each device with the account key copies every

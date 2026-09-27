@@ -15,8 +15,9 @@ const openTab = (url: string) => void chrome.tabs.create({ url }).then(() => win
 
 /**
  * "Notify me when…": what the account asked for, as this extension holds it.
- * Muting is for this browser only; changing what the account asks for — and
- * adding — happens in the home, which holds the keys this extension doesn't.
+ * Muting is for this browser only. Adding happens in a tab of this extension,
+ * which asks the home; pausing and removing in the home, which holds the keys
+ * this extension doesn't.
  */
 function notifications(current: CarrierStatus): HTMLElement | null {
   if (!current.account) return null;
@@ -31,7 +32,7 @@ function notifications(current: CarrierStatus): HTMLElement | null {
     {},
     h('h2', {}, 'Notify me when…'),
     current.subscriptions.length === 0
-      ? h('p', { class: 'hint' }, 'Nothing yet. Choose what to hear about in your account home.')
+      ? h('p', { class: 'hint' }, 'Nothing yet. Choose what to hear about.')
       : h(
           'ul',
           { class: 'spaces' },
@@ -51,7 +52,12 @@ function notifications(current: CarrierStatus): HTMLElement | null {
             ),
           ),
         ),
-    h('div', { class: 'actions' }, h('button', { class: 'quiet small', onClick: () => openTab(page) }, current.subscriptions.length ? 'Add or change' : 'Add')),
+    h(
+      'div',
+      { class: 'actions' },
+      h('button', { class: 'quiet small', onClick: () => openTab(chrome.runtime.getURL('notify.html')) }, 'Add'),
+      current.subscriptions.length ? h('button', { class: 'quiet small', onClick: () => openTab(page) }, 'Pause or remove') : null,
+    ),
   );
 }
 

@@ -6,7 +6,7 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createWeaveAuth, type WeaveAuth } from '../src/session/auth.js';
-import { homeAddress, startConnectedNode, type AppKey, type ConnectRequest, type Grant } from '../src/session/connect.js';
+import { homeAddress, startConnectedNode, type AppKey, type ConnectRequest, type Grant, type ProposeRequest } from '../src/session/connect.js';
 import { createFolderAccountStore } from '../src/identity/account-store.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
@@ -420,6 +420,27 @@ describe('an app proposing subscriptions', () => {
     assert.equal((await node.notifications.list()).length, 1);
   });
 
+  test('a proposal looking at a space the app is not given refuses the connection before anything is made', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node } = auth.getState().session!;
+    const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
+    const work = await node.spaces.create({ name: 'Work', visibility: 'private' });
+    const request: ConnectRequest = {
+      v: 1,
+      audience: (await appKey()).did,
+      access: 'write',
+      create: [{ name: 'Chat', visibility: 'private' }],
+      notify: [{ label: 'In Work', collection: 'app.chat.message', spaces: [work.id] }],
+    };
+    await assert.rejects(() => auth.grant({ origin: 'https://chat.test', request, spaceIds: [club.id] }), /not given/);
+    assert.deepEqual((await node.spaces.list()).map((space) => space.name).sort(), ['Club', 'Work'], 'no space made');
+    assert.deepEqual(auth.connections(), []);
+
+    await auth.grant({ origin: 'https://chat.test', request, spaceIds: [club.id, work.id] });
+    assert.deepEqual((await node.notifications.list())[0]?.spaces, [work.id], 'given Work, it looks only there');
+  });
+
   test('disconnecting the app removes its subscriptions, and leaves the person\'s own', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
@@ -430,6 +451,90 @@ describe('an app proposing subscriptions', () => {
 
     await auth.disconnect('https://chat.test');
     assert.deepEqual((await node.notifications.list()).map((sub) => sub.label), ['My own']);
+  });
+});
+
+describe('proposing subscriptions later', () => {
+  const EXTENSION = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+  const propose = (notify: ProposeRequest['notify']): ProposeRequest => ({ v: 1, kind: 'propose', notify });
+
+  test('a connected app\'s kept proposals become the account\'s, looking at the spaces it was given, or some of them', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node } = auth.getState().session!;
+    const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
+    const work = await node.spaces.create({ name: 'Work', visibility: 'private' });
+    await auth.grant({ origin: 'https://chat.test', request: { v: 1, audience: (await appKey()).did, name: 'Chat', access: 'write' }, spaceIds: [club.id, work.id] });
+
+    const request = propose([
+      { label: 'New message', collection: 'app.chat.message' },
+      { label: 'New message in Club', collection: 'app.chat.message', spaces: [club.id] },
+      { label: 'Not this one', collection: 'app.chat.poll' },
+    ]);
+    const answer = await auth.propose({ origin: 'https://chat.test', request, notify: [0, 1] });
+
+    const subs = await node.notifications.list();
+    assert.equal(answer.kind, 'proposed');
+    assert.deepEqual(answer.notify.map((sub) => sub.label).sort(), ['New message', 'New message in Club']);
+    assert.deepEqual(subs.find((sub) => sub.label === 'New message')?.spaces, [club.id, work.id], 'the grant\'s spaces');
+    assert.deepEqual(subs.find((sub) => sub.label === 'New message in Club')?.spaces, [club.id], 'or the ones it named');
+    assert.deepEqual(subs[0]!.app, { origin: 'https://chat.test', name: 'Chat' });
+
+    // Proposing again adds nothing twice.
+    await auth.propose({ origin: 'https://chat.test', request, notify: [0] });
+    assert.equal((await node.notifications.list()).length, 2);
+  });
+
+  test('refused: from nowhere connected here, or looking at a space the app was not given', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node } = auth.getState().session!;
+    const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
+    const work = await node.spaces.create({ name: 'Work', visibility: 'private' });
+    await auth.grant({ origin: 'https://chat.test', request: { v: 1, audience: (await appKey()).did, access: 'write' }, spaceIds: [club.id] });
+
+    await assert.rejects(() => auth.propose({ origin: 'https://stranger.test', request: propose([{ label: 'New', collection: 'app.chat.message' }]) }), /Connect it first/);
+    await assert.rejects(
+      () =>
+        auth.propose({
+          origin: 'https://chat.test',
+          request: propose([
+            { label: 'Fine', collection: 'app.chat.message' },
+            { label: 'In Work', collection: 'app.chat.message', spaces: [work.id] },
+          ]),
+        }),
+      /not given/,
+    );
+    assert.deepEqual(await node.notifications.list(), [], 'nothing written, not even the one that was fine');
+  });
+
+  test('a carrier proposes from what it sees: every space, "mentions me", but never a value; disconnecting takes them', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node, did } = auth.getState().session!;
+    const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
+    await auth.grantCarry({ origin: EXTENSION, request: { v: 1, audience: (await appKey()).did, name: 'Weave for Chrome', access: 'carry' } });
+
+    await assert.rejects(
+      () => auth.propose({ origin: EXTENSION, request: propose([{ label: 'Tagged design', collection: 'app.chat.message', topic: { field: 'channel', value: 'design' } }]) }),
+      /mentions me/,
+    );
+    await auth.propose({
+      origin: EXTENSION,
+      request: propose([
+        { label: 'New message in Club', collection: 'app.chat.message', spaces: [club.id] },
+        { label: 'Mentioned', collection: 'app.chat.message', topic: { field: 'mentions', me: true } },
+      ]),
+    });
+    const subs = await node.notifications.list();
+    assert.equal(subs.length, 2);
+    assert.deepEqual(subs.find((sub) => sub.label === 'Mentioned')?.topic, { field: 'mentions', value: did });
+    assert.equal(subs.find((sub) => sub.label === 'Mentioned')?.spaces, 'all', 'a carrier reaches every space');
+    assert.deepEqual(subs[0]!.app, { origin: EXTENSION, name: 'Weave for Chrome' });
+    assert.equal(subs[0]!.open, undefined, 'a click can only go to the home, not into the extension');
+
+    await auth.disconnect(EXTENSION);
+    assert.deepEqual(await node.notifications.list(), []);
   });
 });
 
@@ -509,6 +614,37 @@ describe('the home receiving a request', () => {
       const incoming = await received;
       assert.equal(incoming?.request.access, 'carry');
       assert.equal(incoming?.origin, 'chrome-extension://abc');
+    } finally {
+      popup.restore();
+    }
+  });
+
+  test('a proposal is read from an extension, and one with nothing in it, or asking for more, is refused', async () => {
+    const { receiveConnectRequest, isProposeRequest } = await import('../src/session/connect.js');
+    const origin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+    for (const request of [
+      { v: 1, kind: 'propose', notify: [] },
+      { v: 1, kind: 'propose', notify: [{ label: 'New', collection: 'sys.notify' }] },
+      { v: 1, kind: 'something-new', notify: [{ label: 'New', collection: 'app.chat.message' }] },
+    ]) {
+      const popup = popupWindow();
+      try {
+        const received = receiveConnectRequest(1000);
+        popup.send({ type: 'weave:request', request }, origin);
+        assert.equal(await received, null);
+        assert.ok(popup.sent.some((m) => (m.message as { type?: string }).type === 'weave:denied'));
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      } finally {
+        popup.restore();
+      }
+    }
+    const popup = popupWindow();
+    try {
+      const received = receiveConnectRequest(1000);
+      popup.send({ type: 'weave:request', request: { v: 1, kind: 'propose', notify: [{ label: 'New', collection: 'app.chat.message', spaces: ['s1'] }] } }, origin);
+      const incoming = await received;
+      assert.ok(incoming && isProposeRequest(incoming.request));
+      assert.equal(incoming.origin, origin);
     } finally {
       popup.restore();
     }
