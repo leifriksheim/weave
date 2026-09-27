@@ -6,13 +6,16 @@
  * tagged before finding out npm wasn't logged in. Running it again then
  * bumped again, or tripped over the tag it had made. This one:
  *
- * 1. checks the tree is clean and you're on main;
+ * 1. checks the tree is clean, you're on main, and main has everything
+ *    origin/main has — so the push at the end isn't turned away;
  * 2. checks npm knows who you are, and runs `npm login` if not — before
  *    anything is changed;
  * 3. typechecks and tests;
- * 4. looks at npm: if the packages' version isn't published yet (an
- *    earlier release stopped after bumping), it releases that version as it
- *    stands; otherwise it asks bumpp for the next one (commit + tag, local);
+ * 4. looks at npm and origin: if the version is published but main never
+ *    reached origin (the push failed), it only pushes; if the version isn't
+ *    published yet (an earlier release stopped after bumping), it releases
+ *    that version as it stands; otherwise it asks bumpp for the next one
+ *    (commit + tag, local);
  * 5. publishes each package not yet on npm at that version — so a publish that
  *    failed halfway only redoes what's missing;
  * 6. pushes main and the tag, only once both are on npm.
@@ -47,13 +50,16 @@ function read(command, args) {
 
 const versionOf = (manifest) => JSON.parse(readFileSync(manifest, 'utf8')).version;
 const version = () => versionOf(PACKAGES[0].manifest);
-const published = (name, v) => read('npm', ['view', `${name}@${v}`, 'version']) === v;
+const published = (name, v) => read('npm', ['view', '--prefer-online', `${name}@${v}`, 'version']) === v;
+const isAncestor = (a, b) => spawnSync('git', ['merge-base', '--is-ancestor', a, b]).status === 0;
 
 function main() {
   // 1. A clean tree on main.
   if (read('git', ['status', '--porcelain'])) throw new Error('The working tree has changes. Commit or stash them first.');
   const branch = read('git', ['branch', '--show-current']);
   if (branch !== 'main') throw new Error(`Releases are cut from main; this is ${branch}.`);
+  run('git', ['fetch', '--quiet', 'origin', 'main']);
+  if (!isAncestor('origin/main', 'HEAD')) throw new Error('origin/main has commits this main doesn’t. Pull them first.');
 
   // 2. Logged in to npm, before anything changes.
   let user = read('npm', ['whoami']);
@@ -69,16 +75,28 @@ function main() {
   run('npm', ['run', 'typecheck']);
   run('npm', ['test']);
 
-  // 4. Resume a release that stopped after bumping, or bump.
+  // 4. Finish a release that stopped, or bump.
   let v = version();
+  const tag = `v${v}`;
+  const tagged = read('git', ['rev-list', '-n', '1', tag]);
   const missing = PACKAGES.filter((pkg) => !published(pkg.name, v));
-  if (missing.length > 0) {
+  // The tag only leaves this machine after both publishes succeeded, so a tag
+  // on origin means they did, even while npm view hasn't caught up.
+  const tagOnOrigin = Boolean(tagged && read('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`]));
+  const done = missing.length === 0 || tagOnOrigin;
+  let publish = true;
+  if (tagged && done && !isAncestor(tag, 'origin/main')) {
+    console.log(`\n${v} is on npm, but main never reached origin: pushing it.`);
+    if (!isAncestor(tag, 'HEAD')) {
+      throw new Error(`HEAD doesn't contain ${tag} (${tagged.slice(0, 7)}). Merge origin/main into it rather than rebasing, so the tag stays on main.`);
+    }
+    publish = false;
+  } else if (!done) {
     console.log(`\n${v} isn't fully on npm yet (${missing.map((pkg) => pkg.name).join(', ')}): releasing it as it stands.`);
     for (const pkg of PACKAGES) {
       const own = versionOf(pkg.manifest);
       if (own !== v) throw new Error(`${PACKAGES[0].manifest} says ${v} but ${pkg.manifest} says ${own}. Make them match first.`);
     }
-    const tagged = read('git', ['rev-list', '-n', '1', `v${v}`]);
     const head = read('git', ['rev-parse', 'HEAD']);
     if (!tagged) {
       if (dryRun) console.log(`(dry run) would tag v${v}`);
@@ -97,7 +115,7 @@ function main() {
   }
 
   // 5. Publish what isn't there yet.
-  for (const pkg of PACKAGES) {
+  for (const pkg of publish ? PACKAGES : []) {
     if (published(pkg.name, v)) {
       console.log(`\n${pkg.name}@${v} is already on npm.`);
       continue;
