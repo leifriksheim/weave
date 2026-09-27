@@ -20,6 +20,42 @@ import { createInviteLink } from '../spaces';
 import { styles, palette, variants } from '../styles';
 import { Person } from './Person';
 
+/**
+ * Your own name, renamed in place. It goes on the account, and the node
+ * republishes it into every space you are in — not just this one.
+ */
+function MyName({ name }: { name: string }) {
+  const node = useNode();
+  const [draft, setDraft] = useState<string | null>(null);
+  const save = async () => {
+    const trimmed = draft?.trim();
+    setDraft(null);
+    if (trimmed && trimmed !== name) await node.account.setName(trimmed).catch(() => {});
+  };
+  if (draft === null) {
+    return (
+      <button onClick={() => setDraft(name)} data-variant="ghost" title="Rename — everyone in your spaces sees this name" style={{ ...styles.linkButton, fontSize: 14, color: palette.ink.strong }}>
+        {name}
+      </button>
+    );
+  }
+  return (
+    <input
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => void save()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') void save();
+        if (event.key === 'Escape') setDraft(null);
+      }}
+      autoFocus
+      maxLength={64}
+      aria-label="Your name"
+      style={{ ...styles.input, height: 26, minHeight: 26, width: 160, padding: '0 6px', fontSize: 14 }}
+    />
+  );
+}
+
 /** Who holds what in the space, as the node reports it */
 type SpaceAccess = NonNullable<ReturnType<typeof useAccess>>;
 
@@ -413,7 +449,7 @@ function Members({
         <Avatar did={did} size={28} />
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <span style={{ color: palette.ink.strong, fontSize: 14 }}>
-            <Person did={did} /> {self && <span style={{ color: palette.ink.faint, fontWeight: 400 }}>· you</span>}
+            {self ? <MyName name={people.get(did)?.name ?? name} /> : <Person did={did} />} {self && <span style={{ color: palette.ink.faint, fontWeight: 400 }}>· you</span>}
           </span>
           {cannotChange && !self && mine && roleHolds(mine, 'manage') && <span style={{ fontSize: 12, color: palette.ink.faint }}>{cannotChange}</span>}
         </div>
