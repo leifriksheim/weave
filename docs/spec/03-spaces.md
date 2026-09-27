@@ -550,6 +550,7 @@ yet specified (§17).
 > `sys.member` self-removal (`src/node/node.ts`, `spaces.leave`), so the
 > space's history still lists the account and no key change becomes due
 > (§9). A fix is expected to write the self-removal.
+> Tracked in [#15](https://github.com/leifriksheim/weave/issues/15).
 
 > **Planned:** leaving writes the self-removal. `node.spaces.leave` first
 > writes the account's own `sys.member` with `role: null`, then forgets the
@@ -629,6 +630,7 @@ view-only invite (§7.5) has no record and cannot be closed; only a key change
 > last undeleted version. `closeInvite` writes `open: false`
 > (`src/node/space-runtime.ts`). Other implementations MUST NOT rely on a
 > deleted invite staying open.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 > **Planned:** a deleted access record cannot leave access standing. The
 > original design took access back by deleting the record (a member, an
@@ -683,6 +685,7 @@ An invite is `base64url( UTF-8( JSON.stringify(SpaceInvite) ) )` — plain
 > is in the space's genesis (§1.2), and nothing signs the invite string, so
 > anyone passing the link on can change them. A reader MUST NOT treat them as
 > verified. A fix will authenticate them or drop them from the invite.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 Example (private space of §1.2, role invite with the secret of §7.1), decoded:
 

@@ -338,6 +338,7 @@ a receiver recognises one (§7.3).
 > started (`src/network/rtc-transport.ts`, `handleOffer`; `src/network/mesh.ts`).
 > Found by reading the code, not reproduced. A fix will drop a duplicate offer.
 > Other implementations SHOULD NOT copy this.
+> Tracked in [#18](https://github.com/leifriksheim/weave/issues/18).
 
 *Source: `src/network/multi-signaling.ts`. Tests: `tests/introductions.test.ts` ("several relays at once"), `tests/network-manager.test.ts` ("a relay connects the first pair…").*
 

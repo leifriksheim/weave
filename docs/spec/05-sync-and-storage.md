@@ -458,6 +458,7 @@ not yet specified (§18).
 > unanswered `want`s (`src/sync/sync-engine.ts`, `sweep`). A `want` whose
 > answer is lost keeps the peer in flight, so it never becomes `synced`
 > (§6.5) until it disconnects. A fix will sweep stale `want`s too.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 ### 6.4 Answering (responder)
 
@@ -473,6 +474,7 @@ cannot parse (§18).
 > **Known defect:** a responder that cannot parse a `reconcile` sends no reply
 > at all (`src/sync/sync-engine.ts`, `onReconcile`), so the initiator waits
 > until its session goes stale after 30 s (§6.3). A fix will answer at once.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 > **Planned: limits per peer.** Every `hello` and every `reconcile` round
 > costs the answering side a pass over a collection's in-memory item set, as
@@ -1021,6 +1023,7 @@ including `spacememberkey:` and `spacerelays:`.
 > member key in the clear — the key new space keys are sealed to (`sys.box`,
 > [03](03-spaces.md)) — and the space's relays. A fix will seal both. Other
 > implementations SHOULD NOT copy this.
+> Tracked in [#16](https://github.com/leifriksheim/weave/issues/16).
 
 *Source: `src/storage/encrypted-adapter.ts`, `src/node/stores.ts`. Tests:
 `tests/account-vault.test.ts` ("encryption at rest").*

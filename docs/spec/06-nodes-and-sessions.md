@@ -256,6 +256,7 @@ sync ([02 — Records](02-records.md), validation) before they are stored.
 > pipeline (`src/node/copy.ts`). A pod or data folder that another origin
 > wrote to can bring versions this node would have refused from a peer. A fix
 > will validate on copy, as sync does.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 *Source: `src/node/stores.ts`, `src/node/copy.ts`, `src/session/places.ts` (`storesFor`). Tests: `tests/account.test.ts`, `tests/folder-adapter.test.ts`.*
 

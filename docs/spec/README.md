@@ -58,25 +58,28 @@ the code disagree, that is a bug in one of them: open an issue, and say which.
 ## Planned work
 
 Designed but not built. Each entry is specified, as **Planned**, where it
-belongs. Issues track the larger ones.
+belongs. Issues track the larger ones. Known defects link their issue where
+they are described; the smaller ones share
+[#20](https://github.com/leifriksheim/weave/issues/20).
 
 | Planned | Where |
 |---|---|
 | Key rotation (KERI-style pre-rotation) | [01 §15](01-identity.md), [#9](https://github.com/leifriksheim/weave/issues/9) |
 | A check character on recovery codes | [01 §2](01-identity.md) |
 | One spelling per key; one valid form per token; strict token shape | [01 §4, §7](01-identity.md) |
-| Proof chains that travel (fixes a known defect) | [01 §7.5](01-identity.md) |
+| Proof chains that travel (fixes a known defect) | [01 §7.5](01-identity.md), [#17](https://github.com/leifriksheim/weave/issues/17) |
+| Delegations as UCAN 1.0 | [01 §7](01-identity.md), [#19](https://github.com/leifriksheim/weave/issues/19) |
 | Grants narrower than a space | [01 §7.1](01-identity.md), [06 §4](06-nodes-and-sessions.md) |
 | Wraps bound to their account; removing password derivation | [01 §10, §12](01-identity.md) |
 | Pairing without showing the account | [01 §14.4](01-identity.md) |
-| Versions whose history can be checked (fixes a known defect) | [02 §4.7](02-records.md) |
+| Versions whose history can be checked (fixes a known defect) | [02 §4.7](02-records.md), [#14](https://github.com/leifriksheim/weave/issues/14) |
 | Merging inside one record | [02 §4.8](02-records.md) |
 | `pattern` and `format` in definitions | [02 §6](02-records.md) |
 | Compatible definitions; content-addressed definitions; definition tiers | [02 §6.5](02-records.md), [#11](https://github.com/leifriksheim/weave/issues/11), [#12](https://github.com/leifriksheim/weave/issues/12) |
 | Meaning-level hints on definitions | [02 §6.6](02-records.md) |
 | Private `onePer` keys; uniqueness that cannot be a key | [02 §7.3](02-records.md) |
 | Queries that leave out non-conforming records; full-text search | [02 §11](02-records.md) |
-| Leaving writes the self-removal (fixes a known defect) | [03 §6.2](03-spaces.md) |
+| Leaving writes the self-removal (fixes a known defect) | [03 §6.2](03-spaces.md), [#15](https://github.com/leifriksheim/weave/issues/15) |
 | Keep lists past the cap; deleted access records can't leave access standing | [03 §6.3, §7.2](03-spaces.md) |
 | What a private space still shows (hashed keys and collection names) | [03 §8.7](03-spaces.md) |
 | Profiles, round two | [03 §11](03-spaces.md) |

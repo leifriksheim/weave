@@ -294,6 +294,7 @@ the one no other held version supersedes.
 > (`src/records/version.ts`). A fix will bind a later version to the version
 > it names in `prev`; other implementations MUST NOT rely on gaps being accepted.
 > Planned in §4.7.
+> Tracked in [#14](https://github.com/leifriksheim/weave/issues/14).
 
 > Rationale: no clock is trusted, because every clock is whatever its writer
 > typed. The rule is load-bearing forever — two peers running different rules
@@ -911,6 +912,7 @@ and gives `field=null`.
 > boolean or `null` the two agree. For an object or array, `JSON.stringify`
 > keeps the member order of the parsed object, so the key depends on member
 > order. A fix will use canonical JSON; until then, use scalar fields.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 Example — `std.vote` (`onePer: ["@author", "link:about"]`) by
 `did:key:zDnaeSm3GDBe3cfca4gaw8nchcuzkJ2LPQiZp9tYs2bRGfQRJ` about the record
@@ -975,6 +977,7 @@ bodies.
 > canonical JSON (`src/records/rules.ts`, `changedFixedField`), so an object-
 > or array-valued field whose members are reordered counts as changed. A fix
 > will compare canonical JSON.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 ### 7.5 Checking a definition's rules
 
@@ -1108,6 +1111,7 @@ The capability every write in space `S` needs is
 > no proof resolver is wired and a record carries only its leaf token
 > ([01 — Identity](01-identity.md) §7.5). Planned there: "Proof chains that
 > travel".
+> Tracked in [#17](https://github.com/leifriksheim/weave/issues/17).
 
 ### 9.4 Standing (the stateful check)
 
@@ -1341,6 +1345,7 @@ subfilter does not hold.
 > **Known defect:** when the cursor's key is gone, the reference starts again
 > from the first record (`src/query/engine.ts`), so a caller paging through
 > sees records twice. A fix will resume after the cursor's position.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 ### 11.6 Include
 

@@ -223,6 +223,7 @@ Decoders SHOULD reject a multicodec other than `0x80 0x24`.
 > a token's `iss` (`src/identity/ucan.ts`). A non-P-256 key fails later, only
 > because it does not import as a P-256 point. A fix will reject any other
 > multicodec when decoding.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20), [#19](https://github.com/leifriksheim/weave/issues/19).
 
 > **Planned: one spelling per key.** Decoders will require the `0x80 0x24`
 > prefix **and** exactly 33 compressed bytes, refusing the uncompressed form.
@@ -370,6 +371,15 @@ A **UCAN** (also called a *note* in the code and UI) is a JWT-shaped token by
 which an issuer key grants capabilities to an audience key for a time window.
 Weave uses a subset of UCAN 0.10.
 
+> **Planned: UCAN 1.0** ([#19](https://github.com/leifriksheim/weave/issues/19)).
+> Tokens move to the 1.0 format: a DAG-CBOR envelope signed with a varsig
+> header, delegations with `sub`, `cmd` and a policy (`pol`) in place of
+> `att`, invocations that carry their chain in `prf`, and specified
+> revocation. `space:<id>` becomes a policy on `.space`, which also gives
+> grants narrower than a space (§7.1) and proof chains that travel (§7.5)
+> without new syntax. Issuers switch outright; verifiers keep a read-only 0.10
+> path for versions already stored. Not normative until built.
+
 ### 7.1 Format
 
 ```
@@ -487,6 +497,7 @@ an `iss` whose multicodec is not `p256-pub` (§4).
 > (`alg`, `typ`, `ucv`) nor the issuer's multicodec (`src/identity/ucan.ts`,
 > `src/identity/did.ts`). A fix will reject both. Other implementations MUST
 > NOT rely on a token with a different header being accepted.
+> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20), [#19](https://github.com/leifriksheim/weave/issues/19).
 
 > **Planned: strict token shape.** Besides the header and the multicodec
 > (the known defect above), verifiers will check the payload's shape: `att`
@@ -540,6 +551,7 @@ the intended check for a chain of any length up to 10.
 > (`src/validation/capability-gate.ts`). So a chain deeper than one link never
 > validates on a record; only tokens issued directly by the root (`prf: []`)
 > do. A fix will define how parents travel and resolve them.
+> Tracked in [#17](https://github.com/leifriksheim/weave/issues/17), [#19](https://github.com/leifriksheim/weave/issues/19).
 
 #### Planned: proof chains that travel
 
