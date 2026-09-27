@@ -48,4 +48,8 @@ export type {
   NodeContacts,
   ContactView,
   ContactRequest,
+  NodeDoors,
+  DoorView,
+  KnockView,
+  SentKnockView,
 } from './types.js';

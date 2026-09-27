@@ -3,6 +3,7 @@ import type { SpaceSummary } from '@weaveprotocol/core';
 import { CallsProvider, useConnection, useSpaces } from '@weaveprotocol/core/react';
 import { AccountMenu } from './components/AccountMenu';
 import { ConnectScreen } from './components/ConnectScreen';
+import { ContactsView } from './components/ContactsView';
 import { RelayNotice } from './components/RelayNotice';
 import { HowItWorks } from './components/HowItWorks';
 import { InviteBanner } from './components/InviteBanner';
@@ -12,7 +13,8 @@ import { SpaceView } from './components/SpaceView';
 import { CallLayer } from './components/calls/Calls';
 import { Wordmark } from './components/Wordmark';
 import { inviteFrom } from './spaces';
-import { styles } from './styles';
+import { readDoorFromUrl } from './contacts';
+import { styles, palette } from './styles';
 
 /**
  * The app: connect to your account home, then your spaces.
@@ -34,10 +36,19 @@ export function App() {
   );
 }
 
-/** Connected: the list of spaces, or one space opened. */
+/** The two lists on the home screen */
+type Home = 'spaces' | 'contacts';
+
+/** Connected: your spaces or your contacts, or one space opened. */
 function Workspace() {
   const { spaces, loading, error, create, join, leave } = useSpaces();
   const [open, setOpen] = useState<SpaceSummary | null>(null);
+  // A door link is someone asking you to knock, which happens among your contacts.
+  const [home, setHome] = useState<Home>(() => (readDoorFromUrl() ? 'contacts' : 'spaces'));
+  const openById = (id: string) => {
+    const space = spaces.find((found) => found.id === id);
+    if (space) setOpen(space);
+  };
   const joinLink = (link: string) => join(inviteFrom(link));
 
   // Keep the opened space in step with the list, so a join that finishes, or
@@ -78,17 +89,35 @@ function Workspace() {
               <Wordmark compact />
               <AccountMenu />
             </header>
-            <h1 style={{ ...styles.appTitle, marginBottom: 20 }}>Spaces</h1>
-            <SpaceList
-              spaces={spaces}
-              loading={loading}
-              error={error}
-              onOpen={setOpen}
-              onCreate={(params) => void create(params).then((space) => space && setOpen(space))}
-              onJoin={(link) => void joinLink(link).then((space) => space && setOpen(space))}
-              onRemove={(id) => void leave(id)}
-            />
-            <HowItWorks />
+            <nav role="tablist" aria-label="Home" style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
+              {(['spaces', 'contacts'] as const).map((id) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={home === id}
+                  onClick={() => setHome(id)}
+                  style={{ ...styles.appTitle, border: 'none', background: 'none', padding: 0, color: home === id ? palette.ink.strong : palette.ink.faint }}
+                >
+                  {id === 'spaces' ? 'Spaces' : 'Contacts'}
+                </button>
+              ))}
+            </nav>
+            {home === 'spaces' ? (
+              <>
+                <SpaceList
+                  spaces={spaces}
+                  loading={loading}
+                  error={error}
+                  onOpen={setOpen}
+                  onCreate={(params) => void create(params).then((space) => space && setOpen(space))}
+                  onJoin={(link) => void joinLink(link).then((space) => space && setOpen(space))}
+                  onRemove={(id) => void leave(id)}
+                />
+                <HowItWorks />
+              </>
+            ) : (
+              <ContactsView spaces={spaces} onOpen={openById} />
+            )}
           </>
         )}
       </div>
