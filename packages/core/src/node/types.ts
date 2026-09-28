@@ -13,6 +13,7 @@ import type { CollectionRules } from '../records/rules.js';
 import type {
   CollectionDef,
   CryptoProvider,
+  Expression,
   Link,
   SpaceRole,
   SpaceVisibility,
@@ -661,6 +662,13 @@ export interface NodeNotifications {
   /** Changes its label, pauses or resumes it */
   update(id: string, changes: { readonly label?: string; readonly paused?: boolean }): Promise<NotifyView>;
   remove(id: string): Promise<void>;
+  /** Every version of these subscriptions, signed, for another device of the account to `take` */
+  versions(ids: ReadonlyArray<string>): Promise<ReadonlyArray<Expression>>;
+  /**
+   * Takes in subscriptions handed over outside sync — by the account home,
+   * answering a proposal — checked as a peer's would be. How many were new.
+   */
+  take(versions: ReadonlyArray<Expression>): Promise<number>;
 }
 
 /** A host the account uses, and what it says now */
@@ -730,12 +738,6 @@ export interface NodeAccount {
    * whole-account app can no longer add spaces or rename it. Needs an account key.
    */
   revoke(token: string): Promise<void>;
-  /**
-   * Waits until another device has stored what this node wrote to the account
-   * — a subscription, a rename — so a page about to close doesn't take it
-   * along. True once one has, false when `timeoutMs` runs out first.
-   */
-  delivered(timeoutMs: number): Promise<boolean>;
 }
 
 /** Someone in the account's contact list */

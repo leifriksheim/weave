@@ -138,11 +138,6 @@ export interface WeaveAuthConfig {
    * can't be handed.
    */
   readonly worker?: () => WorkerLike;
-  /**
-   * How long an answer to a proposal waits for another device to have its
-   * subscriptions, in milliseconds. Default 8000.
-   */
-  readonly deliverMs?: number;
 }
 
 /**
@@ -455,14 +450,7 @@ function subscriptionsFrom(
   return made;
 }
 
-/** How long a proposal's answer waits for another device to have its subscriptions */
-const DELIVER_MS = 8000;
-
-/**
- * Adds each, unless the same origin already has the same one. One it has is
- * written again, unchanged: it may never have left this device, and a new
- * version is what `node.account.delivered` waits to see stored elsewhere.
- */
+/** Adds each, unless the same origin already has the same one */
 async function addSubscriptions(
   node: P2PNode,
   origin: string,
@@ -472,8 +460,7 @@ async function addSubscriptions(
   const existing = (await node.notifications.list()).filter((sub) => sub.app?.origin === origin);
   const added: Array<{ id: string; label: string }> = [];
   for (const when of subscriptions) {
-    const found = existing.find((sub) => sameSubscription(sub, when));
-    const made = found ? await node.notifications.update(found.id, {}) : await node.notifications.add(when);
+    const made = existing.find((sub) => sameSubscription(sub, when)) ?? (await node.notifications.add(when));
     added.push({ id: made.id, label: made.label });
   }
   return added;
@@ -1391,10 +1378,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const adding = subscribing.then(() => addSubscriptions(node, origin, when));
       subscribing = adding.catch(() => {});
       const notify = await adding;
-      // The home's window closes once it answers. Until another device — the
-      // app asking, usually — has them, they would exist only here.
-      const delivered = notify.length === 0 || (await node.account.delivered(config.deliverMs ?? DELIVER_MS));
-      return { v: 1, kind: 'proposed', notify, delivered };
+      // An app with the account key reads them from its own node: handed over now, they are there on its next load.
+      if (reach !== 'all' || notify.length === 0) return { v: 1, kind: 'proposed', notify };
+      const versions = await node.notifications.versions(notify.map((sub) => sub.id));
+      return { v: 1, kind: 'proposed', notify, versions };
     },
 
     async grantCarry({ origin, request }) {

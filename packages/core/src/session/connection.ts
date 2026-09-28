@@ -216,13 +216,17 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
 
     disconnect: () => end(null),
 
-    propose(notify) {
-      if (!state.grant) return Promise.reject(new Error('Connect to your account home first.'));
-      return proposeToHome({
+    async propose(notify) {
+      if (!state.grant) throw new Error('Connect to your account home first.');
+      const answer = await proposeToHome({
         home: state.grant.home,
         notify,
         ...(config.request.name ? { name: config.request.name } : {}),
       });
+      // The home's window closes now: take what it wrote rather than wait to meet it over the network.
+      if (Array.isArray(answer.versions) && answer.versions.length > 0)
+        await state.node?.notifications.take(answer.versions).catch(() => 0);
+      return answer;
     },
   };
 

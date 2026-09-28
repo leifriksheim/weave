@@ -41,14 +41,8 @@ afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((close) => close()));
 });
 
-/** Each home's recovery code, for signing in to it again */
-const recoveryCodes = new WeakMap<WeaveAuth, string>();
-
-/**
- * The account home: a signed-in flow on the hub. A proposal's answer waits
- * `deliverMs` for another device, which a home alone never finds: kept short.
- */
-async function home(hub: FakeHub, deliverMs = 200): Promise<WeaveAuth> {
+/** The account home: a signed-in flow on the hub */
+async function home(hub: FakeHub): Promise<WeaveAuth> {
   const accounts = createFolderAccountStore(createMemoryDirectory().handle);
   const stores = memoryStores();
   const values = new Map<string, string>([['weave.stay-signed-in', '"never"']]);
@@ -61,11 +55,9 @@ async function home(hub: FakeHub, deliverMs = 200): Promise<WeaveAuth> {
     },
     browser: { accounts: async () => accounts, stores: () => stores },
     network: { transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)] },
-    deliverMs,
   });
   await auth.start();
   await auth.createAccount('Ada');
-  recoveryCodes.set(auth, auth.getState().freshCode!);
   auth.codeSaved();
   cleanup.push(() => auth.signOut());
   return auth;
@@ -548,34 +540,6 @@ describe('an app proposing subscriptions', () => {
     assert.equal((await node.notifications.list()).length, 2);
   });
 
-  test('one the home already has, which never left it, is written again and answered once the app has it', async () => {
-    const hub = createFakeHub({ latencyMs: 1 });
-    // Alone, the first answer waits all of it; the second comes as soon as the app has it, well before.
-    const auth = await home(hub, 4000);
-    const key = await appKey();
-    const grant = await connect(auth, { scope: 'account', audience: key.did });
-    const request = propose([{ label: 'New message', collection: 'app.chat.message' }]);
-
-    // Nobody else is there to take it: kept on the home alone, and it says so.
-    const first = await auth.propose({ origin: 'https://chat.test', request });
-    assert.equal(first.delivered, false);
-
-    // The home's window opens again later, a fresh page, while the app is running.
-    await auth.signOut();
-    auth.showRestore();
-    await auth.signInWithCode(recoveryCodes.get(auth)!);
-    const chat = await app(hub, grant, key);
-
-    const again = await auth.propose({ origin: 'https://chat.test', request });
-    assert.equal(again.delivered, true);
-    assert.deepEqual(again.notify, first.notify, 'the same subscription, not a second one');
-    assert.deepEqual(
-      (await chat.notifications.list()).map((sub) => sub.id),
-      [first.notify[0]!.id],
-      'the app has it once the answer comes',
-    );
-  });
-
   test('proposing the same thing several times at once adds it once', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
@@ -597,6 +561,75 @@ describe('an app proposing subscriptions', () => {
       request: propose([{ label: 'New message', collection: 'app.chat.message' }]),
     });
     assert.equal((await node.notifications.list())[0]?.spaces, 'all');
+  });
+
+  test('a whole-account app is handed the subscriptions in the answer: it holds them without ever meeting the home', async () => {
+    const auth = await home(createFakeHub({ latencyMs: 1 }));
+    const { node } = auth.getState().session!;
+    const key = await appKey();
+    const grant = await auth.grant({
+      origin: 'https://chat.test',
+      request: { v: 1, audience: key.did, access: 'write', scope: 'account' },
+      spaceIds: [],
+    });
+    // A hub of its own: the home's window closes before the two ever meet.
+    const chat = await app(createFakeHub({ latencyMs: 1 }), grant, key);
+    const request = propose([{ label: 'New message', collection: 'app.chat.message' }]);
+    const first = await auth.propose({ origin: 'https://chat.test', request });
+    const [made] = first.notify;
+    await node.notifications.update(made!.id, { paused: true });
+
+    // Asked again, the one it has is found, and every version of it handed over.
+    const answer = await auth.propose({ origin: 'https://chat.test', request });
+    const versions = answer.versions ?? [];
+    assert.equal(versions.length, 2, 'the first version and the pause');
+    assert.equal(await chat.notifications.take(versions), 2);
+    assert.deepEqual(
+      (await chat.notifications.list()).map((sub) => [sub.id, sub.paused]),
+      [[made!.id, true]],
+    );
+    assert.equal(await chat.notifications.take(versions), 0, 'nothing new the second time');
+  });
+
+  test('handed-over versions are refused when they are not subscriptions, or do not check out', async () => {
+    const auth = await home(createFakeHub({ latencyMs: 1 }));
+    const key = await appKey();
+    const grant = await auth.grant({
+      origin: 'https://chat.test',
+      request: { v: 1, audience: key.did, access: 'write', scope: 'account' },
+      spaceIds: [],
+    });
+    const chat = await app(createFakeHub({ latencyMs: 1 }), grant, key);
+    const answer = await auth.propose({
+      origin: 'https://chat.test',
+      request: propose([{ label: 'New message', collection: 'app.chat.message' }]),
+    });
+    const [version] = answer.versions!;
+
+    assert.equal(
+      await chat.notifications.take([{ ...version!, collection: 'sys.profile' }]),
+      0,
+      'another collection',
+    );
+    assert.equal(
+      await chat.notifications.take([{ ...version!, createdAt: new Date(0).toISOString() }]),
+      0,
+      'changed after signing',
+    );
+    assert.deepEqual(await chat.notifications.list(), []);
+  });
+
+  test('an app given only some spaces, which cannot read them, is handed none', async () => {
+    const auth = await home(createFakeHub({ latencyMs: 1 }));
+    const { node } = auth.getState().session!;
+    const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
+    await connect(auth, {}, [club.id]);
+    const answer = await auth.propose({
+      origin: 'https://chat.test',
+      request: propose([{ label: 'New message', collection: 'app.chat.message' }]),
+    });
+    assert.equal(answer.notify.length, 1);
+    assert.equal(answer.versions, undefined);
   });
 
   test('refused: from nowhere connected here, from a carrier or an agent, or looking at a space the app was not given', async () => {
