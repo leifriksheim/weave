@@ -9,6 +9,7 @@
  */
 import { createNode, type P2PNode } from '@weaveprotocol/core';
 import type { Unlocked } from './home.js';
+import { errorCode } from './json.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 
 export interface DaemonOptions {
@@ -97,7 +98,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   } catch (error) {
     clearInterval(timer);
     await node.close();
-    if ((error as { code?: string }).code === 'EADDRINUSE') {
+    if (errorCode(error) === 'EADDRINUSE') {
       throw new Error(
         `Port ${options.port} is already in use — is another "weave run" going? Stop it, or pick another port with --port.`,
       );

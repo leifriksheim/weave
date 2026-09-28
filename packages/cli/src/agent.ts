@@ -30,6 +30,7 @@ import { grantSigner, type Grant } from '@weaveprotocol/core/session';
 import { acceptAgentLink, checkAgentGrant } from '@weaveprotocol/core/session';
 import { base64UrlDecode } from '@weaveprotocol/core';
 import { openFsDirectory } from './fs-directory.js';
+import { errorCode, isRecord } from './json.js';
 
 /** The relay the apps meet on unless told otherwise */
 const DEFAULT_RELAYS: ReadonlyArray<string> = ['wss://p2p-web-relay.fly.dev'];
@@ -68,16 +69,17 @@ async function agentKey(home: string): Promise<Stored> {
   const algorithm = { name: 'ECDSA', namedCurve: 'P-256' };
   let keys: CryptoKeyPair;
   try {
-    const { privateKey, publicKey } = JSON.parse(await readFile(file, 'utf8')) as {
-      privateKey: JsonWebKey;
-      publicKey: JsonWebKey;
-    };
+    const stored: unknown = JSON.parse(await readFile(file, 'utf8'));
+    // importKey checks the rest of each key.
+    if (!isRecord(stored) || !isRecord(stored.privateKey) || !isRecord(stored.publicKey))
+      throw new Error('not a key pair');
+    const { privateKey, publicKey } = stored;
     keys = {
       privateKey: await subtle.importKey('jwk', privateKey, algorithm, false, ['sign']),
       publicKey: await subtle.importKey('jwk', publicKey, algorithm, true, ['verify']),
     };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+    if (errorCode(error) !== 'ENOENT')
       throw new Error(`${file} could not be read. Delete it and connect again.`);
     const made = await subtle.generateKey(algorithm, true, ['sign', 'verify']);
     await mkdir(agentDir(home), { recursive: true, mode: 0o700 });
@@ -98,6 +100,7 @@ async function agentKey(home: string): Promise<Stored> {
 /** The grant this computer's agent was given, or null before `weave connect` */
 async function loadAgentGrant(home: string): Promise<Grant | null> {
   try {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- written by connectAgent; startAgentNode checks it with checkAgentGrant before use
     return JSON.parse(await readFile(path.join(agentDir(home), 'grant.json'), 'utf8')) as Grant;
   } catch {
     return null;

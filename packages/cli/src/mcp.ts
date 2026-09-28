@@ -12,6 +12,7 @@
  */
 import { createInterface } from 'node:readline';
 import { NODE_ACTIONS, runAction, type P2PNode } from '@weaveprotocol/core';
+import { isRecord } from './json.js';
 
 const SUPPORTED_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 
@@ -20,6 +21,14 @@ interface JsonRpcRequest {
   readonly id?: string | number | null;
   readonly method: string;
   readonly params?: Record<string, unknown>;
+}
+
+/** The shape every request is checked against before anything reads it */
+function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
+  if (!isRecord(value) || value.jsonrpc !== '2.0' || typeof value.method !== 'string') return false;
+  const { id, params } = value;
+  const idOk = id === undefined || id === null || typeof id === 'string' || typeof id === 'number';
+  return idOk && (params === undefined || isRecord(params));
 }
 
 type JsonRpcResponse =
@@ -122,10 +131,7 @@ export async function handleMcpMessage(
         return fail(-32602, `Unknown tool: ${name}`);
       try {
         const result = await runAction(node, name, message.params?.arguments ?? {});
-        const structured =
-          result !== null && typeof result === 'object' && !Array.isArray(result)
-            ? (result as Record<string, unknown>)
-            : { result };
+        const structured = isRecord(result) ? result : { result };
         const fromPeers = NODE_ACTIONS.find((action) => action.name === name)?.peerContent === true;
         return reply({
           content: [
@@ -159,11 +165,15 @@ export async function runMcpStdio(
 
   for await (const line of lines) {
     if (!line.trim()) continue;
-    let message: JsonRpcRequest;
+    let message: unknown;
     try {
-      message = JSON.parse(line) as JsonRpcRequest;
+      message = JSON.parse(line);
     } catch {
       write({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
+      continue;
+    }
+    if (!isJsonRpcRequest(message)) {
+      write({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } });
       continue;
     }
     // Handled concurrently, answered as each finishes — ids tie them together.

@@ -8,7 +8,7 @@
  *
  * The entry has no top-level await, which `--bytecode` would reject.
  */
-import { $ } from 'bun';
+import { execFileSync } from 'node:child_process';
 
 const native = process.argv.includes('--native');
 const targets: ReadonlyArray<[string, string]> = native
@@ -21,6 +21,20 @@ const targets: ReadonlyArray<[string, string]> = native
 
 for (const [target, name] of targets) {
   const targetFlag = target ? [`--target=${target}`] : [];
-  await $`bun build src/main.ts --compile --minify --bytecode --conditions=@weaveprotocol/source ${targetFlag} --outfile dist/${name}`;
+  execFileSync(
+    'bun',
+    [
+      'build',
+      'src/main.ts',
+      '--compile',
+      '--minify',
+      '--bytecode',
+      '--conditions=@weaveprotocol/source',
+      ...targetFlag,
+      '--outfile',
+      `dist/${name}`,
+    ],
+    { stdio: 'inherit' },
+  );
   console.log(`built dist/${name}`);
 }

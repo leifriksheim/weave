@@ -127,7 +127,7 @@ function openDb(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE);
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error(`Could not open ${DB}`));
   });
 }
 
@@ -136,8 +136,9 @@ async function kv<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => I
   try {
     return await new Promise<T>((resolve, reject) => {
       const request = run(db.transaction(STORE, mode).objectStore(STORE));
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- each key only ever holds what its save function below put there
       request.onsuccess = () => resolve(request.result as T);
-      request.onerror = () => reject(request.error);
+      request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
     });
   } finally {
     db.close();

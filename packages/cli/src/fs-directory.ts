@@ -59,7 +59,7 @@ function fileHandle(file: string): FileHandleLike {
       const bytes = await fs.readFile(file);
       return {
         async arrayBuffer() {
-          return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+          return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
         },
       };
     },

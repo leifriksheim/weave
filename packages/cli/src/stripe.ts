@@ -14,6 +14,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { Billing } from './host.js';
+import { isRecord } from './json.js';
 
 export interface StripeConfig {
   readonly secretKey: string;
@@ -51,7 +52,7 @@ export function verifyStripeSignature(
   now = Math.floor(Date.now() / 1000),
 ): boolean {
   if (!header) return false;
-  const parts = header.split(',').map((part) => part.split('=') as [string, string]);
+  const parts = header.split(',').map((part) => part.split('='));
   const at = Number(parts.find(([key]) => key === 't')?.[1]);
   if (!Number.isFinite(at) || Math.abs(now - at) > TOLERANCE_SECONDS) return false;
   const expected = createHmac('sha256', secret).update(`${at}.${body}`).digest();
@@ -63,26 +64,16 @@ export function verifyStripeSignature(
     });
 }
 
-interface StripeSubscription {
-  readonly id: string;
-  readonly customer: string;
-  readonly metadata?: Record<string, string>;
-  /** Older API versions */
-  readonly current_period_end?: number;
-  /** Newer ones keep the period on each item */
-  readonly items?: { readonly data: ReadonlyArray<{ readonly current_period_end?: number }> };
-}
-
 export function createStripeBilling(config: StripeConfig): Billing {
   const call = config.fetch ?? fetch;
   const api = config.api ?? 'https://api.stripe.com';
   const now = config.now ?? (() => Math.floor(Date.now() / 1000));
 
-  async function stripe<T>(
+  async function stripe(
     method: 'GET' | 'POST',
     path: string,
     params: Record<string, string | undefined> = {},
-  ): Promise<T> {
+  ): Promise<Record<string, unknown>> {
     const response = await call(`${api}${path}`, {
       method,
       headers: {
@@ -91,9 +82,20 @@ export function createStripeBilling(config: StripeConfig): Billing {
       },
       ...(method === 'POST' ? { body: form(params) } : {}),
     });
-    const answer = (await response.json()) as T & { error?: { message?: string } };
-    if (!response.ok) throw new Error(`Stripe: ${answer.error?.message ?? response.status}`);
+    const answer: unknown = await response.json();
+    if (!response.ok) {
+      const message = isRecord(answer) && isRecord(answer.error) ? answer.error.message : undefined;
+      throw new Error(`Stripe: ${typeof message === 'string' ? message : response.status}`);
+    }
+    if (!isRecord(answer)) throw new Error('Stripe: an answer that is not an object');
     return answer;
+  }
+
+  /** Where Checkout or the Customer Portal sends the person */
+  async function sessionUrl(path: string, params: Record<string, string | undefined>): Promise<string> {
+    const { url } = await stripe('POST', path, params);
+    if (typeof url !== 'string') throw new Error('Stripe: a session without a url');
+    return url;
   }
 
   const plans = [
@@ -103,14 +105,14 @@ export function createStripeBilling(config: StripeConfig): Billing {
 
   /** What a Stripe subscription says: whose it is here, and paid until when */
   async function paidBy(subscriptionId: string) {
-    const subscription = await stripe<StripeSubscription>(
-      'GET',
-      `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
-    );
-    const ours = subscription.metadata?.[METADATA_KEY];
-    const until = subscription.items?.data[0]?.current_period_end ?? subscription.current_period_end;
-    if (!ours || !until) return null;
-    return { subscription: ours, until, customer: subscription.customer };
+    const subscription = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`);
+    const { metadata, items, customer } = subscription;
+    const ours = isRecord(metadata) ? metadata[METADATA_KEY] : undefined;
+    // Newer API versions keep the period on each item, older ones on the subscription.
+    const item: unknown = isRecord(items) && Array.isArray(items.data) ? items.data[0] : undefined;
+    const until = (isRecord(item) ? item.current_period_end : undefined) ?? subscription.current_period_end;
+    if (typeof ours !== 'string' || !ours || typeof until !== 'number' || !until) return null;
+    return { subscription: ours, until, ...(typeof customer === 'string' ? { customer } : {}) };
   }
 
   const billing: Billing = {
@@ -119,7 +121,7 @@ export function createStripeBilling(config: StripeConfig): Billing {
     async checkout({ subscription, plan, returnUrl, customer }) {
       const price = plans.find((known) => known.id === plan)?.price;
       if (!price) throw new Error(`No such plan: ${plan}`);
-      const session = await stripe<{ url: string }>('POST', '/v1/checkout/sessions', {
+      return sessionUrl('/v1/checkout/sessions', {
         mode: 'subscription',
         'line_items[0][price]': price,
         'line_items[0][quantity]': '1',
@@ -129,15 +131,10 @@ export function createStripeBilling(config: StripeConfig): Billing {
         'subscription_data[metadata][weave_subscription]': subscription,
         customer,
       });
-      return session.url;
     },
 
     async manage({ customer, returnUrl }) {
-      const session = await stripe<{ url: string }>('POST', '/v1/billing_portal/sessions', {
-        customer,
-        return_url: returnUrl,
-      });
-      return session.url;
+      return sessionUrl('/v1/billing_portal/sessions', { customer, return_url: returnUrl });
     },
 
     async webhook(body: string, headers: IncomingMessage['headers']) {
@@ -151,17 +148,20 @@ export function createStripeBilling(config: StripeConfig): Billing {
         )
       )
         return null;
-      const event = JSON.parse(body) as { type?: string; data?: { object?: Record<string, unknown> } };
-      const object = event.data?.object ?? {};
+      const event: unknown = JSON.parse(body);
+      if (!isRecord(event)) return null;
+      const object = isRecord(event.data) && isRecord(event.data.object) ? event.data.object : {};
       // Paying the first time, and every renewal: both lead to the subscription, whose period says until when.
       if (event.type === 'checkout.session.completed' && typeof object.subscription === 'string')
         return paidBy(object.subscription);
       if (event.type === 'invoice.paid') {
-        const parent = object.parent as { subscription_details?: { subscription?: unknown } } | undefined;
+        const { parent } = object;
         const id =
           typeof object.subscription === 'string'
             ? object.subscription
-            : parent?.subscription_details?.subscription;
+            : isRecord(parent) && isRecord(parent.subscription_details)
+              ? parent.subscription_details.subscription
+              : undefined;
         if (typeof id === 'string') return paidBy(id);
       }
       return null;

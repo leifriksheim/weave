@@ -25,12 +25,15 @@ export interface ConnectOptions {
   readonly name: string;
 }
 
-let modal: ReturnType<typeof createAppKit> | null = null;
+let shared: ReturnType<typeof createAppKit> | null = null;
+
+const isEip1193 = (value: unknown): value is Eip1193 =>
+  typeof value === 'object' && value !== null && 'request' in value && typeof value.request === 'function';
 
 /** Opens WalletConnect's wallet list; resolves with the wallet once the person connected one */
 export async function connect(options: ConnectOptions): Promise<Eip1193> {
   const network = options.chainId === base.id ? base : baseSepolia;
-  modal ??= createAppKit({
+  const modal = (shared ??= createAppKit({
     projectId: options.projectId,
     networks: [network],
     defaultNetwork: network,
@@ -46,10 +49,10 @@ export async function connect(options: ConnectOptions): Promise<Eip1193> {
       receive: false,
       history: false,
     },
-  });
+  }));
   const ready = () => {
-    const provider = modal!.getWalletProvider() as Eip1193 | undefined;
-    return modal!.getIsConnectedState() && provider ? provider : null;
+    const provider = modal.getWalletProvider();
+    return modal.getIsConnectedState() && isEip1193(provider) ? provider : null;
   };
   const already = ready();
   if (already) return already;
@@ -60,20 +63,20 @@ export async function connect(options: ConnectOptions): Promise<Eip1193> {
       offAccount();
       offState();
     };
-    const offAccount = modal!.subscribeAccount(() => {
+    const offAccount = modal.subscribeAccount(() => {
       const provider = ready();
       if (!provider) return;
       stop();
-      void modal!.close();
+      void modal.close();
       resolve(provider);
     });
-    const offState = modal!.subscribeState((state) => {
+    const offState = modal.subscribeState((state) => {
       if (state.open) opened = true;
       else if (opened && !ready()) {
         stop();
         reject(Object.assign(new Error('Closed without connecting a wallet'), { code: 4001 }));
       }
     });
-    void modal!.open({ view: 'Connect' });
+    void modal.open({ view: 'Connect' });
   });
 }

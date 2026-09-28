@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { errorCode, isRecord } from './json.js';
 
 const run = promisify(execFile);
 
@@ -60,15 +61,16 @@ function claudeDesktopConfig(): string {
 
 /** Puts the server in an `mcpServers` config file, keeping everything else in it */
 async function addToConfigFile(file: string, server: ServerCommand): Promise<void> {
-  let config: { mcpServers?: Record<string, unknown> } = {};
+  let config: Record<string, unknown> = {};
   try {
-    config = JSON.parse(await readFile(file, 'utf8')) as typeof config;
+    const parsed: unknown = JSON.parse(await readFile(file, 'utf8'));
+    if (!isRecord(parsed)) throw new Error('not an object');
+    config = parsed;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-      throw new Error(`${file} is not valid JSON, so it was left alone`);
+    if (errorCode(error) !== 'ENOENT') throw new Error(`${file} is not valid JSON, so it was left alone`);
   }
   config.mcpServers = {
-    ...config.mcpServers,
+    ...(isRecord(config.mcpServers) ? config.mcpServers : {}),
     [SERVER_NAME]: { command: server.command, args: [...server.args] },
   };
   await mkdir(path.dirname(file), { recursive: true });
@@ -92,10 +94,10 @@ export async function configureClients(server: ServerCommand): Promise<ReadonlyA
     await run('claude', ['mcp', 'add', SERVER_NAME, '--scope', 'user', '--', server.command, ...server.args]);
     done.push({ client: 'Claude Code', result: 'added — start a new session to use it', ok: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+    if (errorCode(error) !== 'ENOENT') {
       done.push({
         client: 'Claude Code',
-        result: `could not add it: ${(error as Error).message.split('\n')[0]}`,
+        result: `could not add it: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`,
         ok: false,
       });
     }

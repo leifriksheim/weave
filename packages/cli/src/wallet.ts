@@ -19,6 +19,8 @@
  * eth_getBlockByNumber), against any node for the network — a public one,
  * one from a provider, or one's own.
  */
+import { isRecord } from './json.js';
+
 /**
  * What the host takes from a wallet: USDC, sent straight to its own address
  * on one network, for a plan of time paid up front. The pay page shows it.
@@ -74,6 +76,8 @@ export const NETWORKS = {
 } as const;
 export type NetworkName = keyof typeof NETWORKS;
 
+export const isNetworkName = (name: string): name is NetworkName => Object.hasOwn(NETWORKS, name);
+
 /** keccak256("Transfer(address,address,uint256)"), the ERC-20 transfer event */
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const USDC_DECIMALS = 6;
@@ -123,6 +127,38 @@ export function toUnits(price: string): bigint {
   );
 }
 
+interface Log {
+  readonly address: string;
+  readonly topics: ReadonlyArray<string>;
+  readonly data: string;
+}
+
+interface Receipt {
+  readonly status: string;
+  readonly blockNumber: string;
+  readonly logs: ReadonlyArray<Log>;
+}
+
+const isLog = (value: unknown): value is Log =>
+  isRecord(value) &&
+  typeof value.address === 'string' &&
+  typeof value.data === 'string' &&
+  Array.isArray(value.topics) &&
+  value.topics.every((topic: unknown) => typeof topic === 'string');
+
+const isReceipt = (value: unknown): value is Receipt =>
+  isRecord(value) &&
+  typeof value.status === 'string' &&
+  typeof value.blockNumber === 'string' &&
+  Array.isArray(value.logs) &&
+  value.logs.every(isLog);
+
+/** A hex number the node sent, like a block number or a timestamp */
+function quantity(value: unknown): string {
+  if (typeof value !== 'string') throw new Error('The network node: a number that is not hex');
+  return value;
+}
+
 export function createWalletPayments(config: WalletConfig): WalletPayments {
   const network = NETWORKS[config.network];
   if (!network)
@@ -146,16 +182,19 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
   if (plans.length === 0) throw new Error('A wallet price is needed: monthly, yearly, or both');
 
   let id = 0;
-  async function rpc<T>(method: string, params: unknown[]): Promise<T> {
+  async function rpc(method: string, params: unknown[]): Promise<unknown> {
     const response = await call(rpcUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }),
     });
-    const answer = (await response.json()) as { result?: T; error?: { message?: string } };
-    if (!response.ok || answer.error)
-      throw new Error(`The network node: ${answer.error?.message ?? response.status}`);
-    return answer.result as T;
+    const answer: unknown = await response.json();
+    const error = isRecord(answer) ? answer.error : undefined;
+    if (!response.ok || error) {
+      const message = isRecord(error) ? error.message : undefined;
+      throw new Error(`The network node: ${typeof message === 'string' ? message : response.status}`);
+    }
+    return isRecord(answer) ? answer.result : undefined;
   }
 
   const offer: WalletOffer = Object.freeze({
@@ -195,15 +234,12 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
 
     async check(tx) {
       if (!TX_HASH.test(tx)) return { state: 'failed', reason: 'That is not a transaction hash' };
-      const receipt = await rpc<{
-        status: string;
-        blockNumber: string;
-        logs: ReadonlyArray<{ address: string; topics: ReadonlyArray<string>; data: string }>;
-      } | null>('eth_getTransactionReceipt', [tx]);
+      const receipt = await rpc('eth_getTransactionReceipt', [tx]);
       if (!receipt) return { state: 'waiting' };
+      if (!isReceipt(receipt)) throw new Error('The network node: a receipt that does not read as one');
       if (receipt.status !== '0x1')
         return { state: 'failed', reason: 'That transaction failed on the network' };
-      const latest = BigInt(await rpc<string>('eth_blockNumber', []));
+      const latest = BigInt(quantity(await rpc('eth_blockNumber', [])));
       if (latest - BigInt(receipt.blockNumber) + 1n < BigInt(confirmations)) return { state: 'waiting' };
       const amounts = receipt.logs
         .filter(
@@ -216,12 +252,10 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
         .map((log) => BigInt(log.data).toString());
       if (amounts.length === 0)
         return { state: 'failed', reason: `That transaction sent no ${offer.symbol} to this host` };
-      const block = await rpc<{ timestamp: string } | null>('eth_getBlockByNumber', [
-        receipt.blockNumber,
-        false,
-      ]);
+      const block = await rpc('eth_getBlockByNumber', [receipt.blockNumber, false]);
       if (!block) return { state: 'waiting' };
-      return { state: 'sent', amounts, at: Number(BigInt(block.timestamp)) };
+      if (!isRecord(block)) throw new Error('The network node: a block that does not read as one');
+      return { state: 'sent', amounts, at: Number(BigInt(quantity(block.timestamp))) };
     },
 
     extend(planId, from) {

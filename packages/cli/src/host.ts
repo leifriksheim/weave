@@ -42,6 +42,7 @@ import {
   type StoreFactory,
 } from '@weaveprotocol/core';
 import { PAY_PAGE_CSP, PAY_SCRIPT, payPageHtml } from './pay-page.js';
+import { isRecord } from './json.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 import type { WalletPayments } from './wallet.js';
 
@@ -147,6 +148,12 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
+}
+
+/** A request body's fields; anything but a JSON object has none, and each call checks the ones it needs */
+function jsonFields(body: string): Record<string, unknown> {
+  const parsed: unknown = body ? JSON.parse(body) : {};
+  return isRecord(parsed) ? parsed : {};
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {
@@ -324,7 +331,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       provider,
     );
     if (signer !== id) throw new Refusal(401, 'That call is not signed by the subscription');
-    const input = (body ? JSON.parse(body) : {}) as Record<string, unknown>;
+    const input = jsonFields(body);
 
     if (!carry && method === 'GET') return send(res, 200, await signedStatusOf(id));
 
@@ -390,7 +397,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     const id = await verifyPayLink(req.headers.authorization, node.did, provider);
     if (!id) throw new Refusal(401, 'This pay link has run out, or is not for this host');
     const body = await readBody(req);
-    const input = (body ? JSON.parse(body) : {}) as Record<string, unknown>;
+    const input = jsonFields(body);
 
     if (action === null && method === 'GET') {
       return send(res, 200, {
@@ -505,7 +512,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         log(`sweep failed: ${error instanceof Error ? error.message : String(error)}`),
       );
   }, options.sweepMs ?? 3600_000);
-  (sweeping as { unref?: () => void }).unref?.();
+  sweeping.unref();
 
   if (wallet) log(`taking ${wallet.offer.symbol} on ${wallet.offer.chainName} at ${wallet.offer.to}`);
   const who = options.allow

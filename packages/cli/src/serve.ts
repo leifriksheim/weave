@@ -22,12 +22,18 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import {
+  createEmitter,
   peerNonce,
   type PeerTransport,
   type PeerTransportEvents,
   type ServerAuth,
 } from '@weaveprotocol/core';
 import { createRelay, turnFromEnv, MAX_MESSAGE_BYTES as RELAY_MAX_MESSAGE_BYTES } from '@weaveprotocol/relay';
+import { isRecord } from './json.js';
+
+/** A WebSocket message's bytes, however `ws` delivered them */
+const bufferOf = (data: RawData): Buffer =>
+  Array.isArray(data) ? Buffer.concat(data) : data instanceof ArrayBuffer ? Buffer.from(data) : data;
 
 // ─── Inbound peers ─────────────────────────────────────────────────────
 
@@ -38,20 +44,7 @@ interface SpacePeers {
 
 function createSpacePeers(): SpacePeers {
   const sockets = new Map<string, WebSocket>();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const listeners: { [K in keyof PeerTransportEvents]?: Set<any> } = {};
-  const emit = <K extends keyof PeerTransportEvents>(
-    event: K,
-    ...args: Parameters<PeerTransportEvents[K]>
-  ) => {
-    for (const callback of listeners[event] ?? []) {
-      try {
-        callback(...args);
-      } catch (error) {
-        console.error(`inbound ${event} listener failed:`, error);
-      }
-    }
-  };
+  const events = createEmitter<PeerTransportEvents>();
 
   const transport: PeerTransport = {
     send(peerId, data) {
@@ -65,8 +58,8 @@ function createSpacePeers(): SpacePeers {
     closeAll() {
       for (const socket of sockets.values()) socket.close(1001, 'node shutting down');
     },
-    on: (event, callback) => void (listeners[event] ??= new Set()).add(callback),
-    off: (event, callback) => void listeners[event]?.delete(callback),
+    on: (event, callback) => events.on(event, callback),
+    off: (event, callback) => events.off(event, callback),
   };
 
   return {
@@ -77,16 +70,16 @@ function createSpacePeers(): SpacePeers {
       sockets.set(peerDid, socket);
       socket.on('message', (data: RawData, isBinary: boolean) => {
         if (!isBinary) return;
-        const bytes = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
-        emit('data', peerDid, new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+        const bytes = bufferOf(data);
+        events.emit('data', peerDid, new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
       });
       socket.on('close', () => {
         if (sockets.get(peerDid) !== socket) return;
         sockets.delete(peerDid);
-        emit('disconnected', peerDid);
+        events.emit('disconnected', peerDid);
       });
-      socket.on('error', (error: Error) => emit('error', peerDid, error));
-      emit('connected', peerDid);
+      socket.on('error', (error: Error) => events.emit('error', peerDid, error));
+      events.emit('connected', peerDid);
     },
   };
 }
@@ -154,17 +147,10 @@ function parseHello(
 ): { did: string; nonce: string; proof: Record<string, unknown> } | null {
   if (isBinary) return null;
   try {
-    const hello = JSON.parse(String(data)) as {
-      type?: unknown;
-      did?: unknown;
-      nonce?: unknown;
-      sig?: unknown;
-      read?: unknown;
-      readKey?: unknown;
-      member?: unknown;
-    };
+    const hello: unknown = JSON.parse(bufferOf(data).toString());
     // The whole proof: a reader behind on the space's key proves an older one, with its note sealed under it.
-    return hello.type === 'hello' &&
+    return isRecord(hello) &&
+      hello.type === 'hello' &&
       typeof hello.did === 'string' &&
       DID_PATTERN.test(hello.did) &&
       typeof hello.nonce === 'string'

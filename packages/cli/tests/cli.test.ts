@@ -33,8 +33,10 @@ import { hold } from '../../core/tests/helpers/hold.js';
 import { joined } from '../../core/tests/helpers/joined.js';
 import { createFakeHub } from '../../core/tests/helpers/fake-transport.js';
 import { createMesh } from '../../core/src/network/mesh.js';
+import { at } from './helpers/json.js';
 
 const run = promisify(execFile);
+
 const temporary: string[] = [];
 async function tempDir(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-cli-'));
@@ -79,7 +81,7 @@ describe('accounts in a home', () => {
     const { account, code } = await createAccount(home, { name: 'Leif', passphrase: 'correct horse' });
     assert.ok(code);
 
-    const byCode = await unlock(home, account, { code: code! });
+    const byCode = await unlock(home, account, { code });
     const byPassphrase = await unlock(home, account, { passphrase: 'correct horse' });
     assert.equal(byCode.signer.did, account.did);
     assert.equal(byPassphrase.signer.did, account.did);
@@ -123,7 +125,9 @@ describe('the daemon', () => {
 
   before(async () => {
     const home = await openHome(await tempDir());
-    ({ code } = (await createAccount(home, { name: 'Leif' })) as { code: string });
+    const created = await createAccount(home, { name: 'Leif' });
+    assert.ok(created.code);
+    code = created.code;
     const unlocked = await unlock(home, await chooseAccount(home), { code });
     signer = unlocked.signer;
     daemon = await startDaemon({ unlocked, port: 0, host: '127.0.0.1', rescanMs: 100 });
@@ -135,10 +139,7 @@ describe('the daemon', () => {
   });
 
   test('answers /health, and says nothing about whose node it is', async () => {
-    const health = (await (await fetch(`http://127.0.0.1:${daemon.port}/health`)).json()) as Record<
-      string,
-      unknown
-    >;
+    const health: unknown = await (await fetch(`http://127.0.0.1:${daemon.port}/health`)).json();
     assert.deepEqual(health, { ok: true });
   });
 
@@ -307,8 +308,7 @@ describe('the daemon', () => {
     const frames: string[] = [];
     socket.addEventListener('message', (event) => {
       frames.push(String(event.data));
-      const challenge = JSON.parse(String(event.data));
-      if (challenge.type === 'challenge')
+      if (at(JSON.parse(String(event.data)), 'type') === 'challenge')
         socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger', nonce: 'n', sig: 'forged' }));
     });
     const closed = await new Promise<number>((resolve) =>
@@ -326,7 +326,7 @@ describe('the daemon', () => {
       socket.addEventListener('close', (event) => resolve(event.code)),
     );
     socket.addEventListener('message', (event) => {
-      challenged ||= JSON.parse(String(event.data)).type === 'challenge';
+      challenged ||= at(JSON.parse(String(event.data)), 'type') === 'challenge';
       socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger', nonce: 'n' }));
     });
     assert.equal(await closed, 4003);
@@ -346,58 +346,53 @@ describe('MCP', () => {
       watchIntervalMs: 0,
     });
 
-    const init = (await handleMcpMessage(
+    const init = await handleMcpMessage(
       node,
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } },
       info,
-    )) as {
-      result: { protocolVersion: string; capabilities: { tools: unknown } };
-    };
-    assert.equal(init.result.protocolVersion, '2025-06-18');
-    assert.ok(init.result.capabilities.tools);
+    );
+    assert.equal(at(init, 'result', 'protocolVersion'), '2025-06-18');
+    assert.ok(at(init, 'result', 'capabilities', 'tools'));
     assert.equal(
       await handleMcpMessage(node, { jsonrpc: '2.0', method: 'notifications/initialized' }, info),
       null,
     );
 
-    const list = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, info)) as {
-      result: { tools: Array<{ name: string; annotations: { readOnlyHint: boolean } }> };
-    };
-    assert.equal(list.result.tools.length, NODE_ACTIONS.length);
-    assert.equal(list.result.tools.find((t) => t.name === 'records_list')?.annotations.readOnlyHint, true);
+    const tools = at(
+      await handleMcpMessage(node, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, info),
+      'result',
+      'tools',
+    );
+    assert.ok(Array.isArray(tools));
+    assert.equal(tools.length, NODE_ACTIONS.length);
+    const recordsList: unknown = tools.find((tool: unknown) => at(tool, 'name') === 'records_list');
+    assert.equal(at(recordsList, 'annotations', 'readOnlyHint'), true);
 
     const call = async (name: string, args: unknown) =>
-      (
-        (await handleMcpMessage(
+      at(
+        await handleMcpMessage(
           node,
           { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name, arguments: args } },
           info,
-        )) as {
-          result: {
-            isError: boolean;
-            structuredContent?: Record<string, unknown>;
-            content: Array<{ text: string }>;
-          };
-        }
-      ).result;
+        ),
+        'result',
+      );
 
     const space = await call('spaces_create', { name: 'Agent made this', visibility: 'public' });
-    assert.equal(space.isError, false);
+    assert.equal(at(space, 'isError'), false);
     const put = await call('records_put', {
-      space: space.structuredContent!.id,
+      space: at(space, 'structuredContent', 'id'),
       collection: 'app.agent.idea',
       body: { idea: 'polls' },
     });
-    assert.equal(put.isError, false);
+    assert.equal(at(put, 'isError'), false);
 
-    const bad = await call('records_put', { space: space.structuredContent!.id });
-    assert.equal(bad.isError, true);
-    assert.match(bad.content[0]!.text, /Missing "collection"/);
+    const bad = await call('records_put', { space: at(space, 'structuredContent', 'id') });
+    assert.equal(at(bad, 'isError'), true);
+    assert.match(String(at(bad, 'content', 0, 'text')), /Missing "collection"/);
 
-    const unknown = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 4, method: 'no/such' }, info)) as {
-      error: { code: number };
-    };
-    assert.equal(unknown.error.code, -32601);
+    const unknown = await handleMcpMessage(node, { jsonrpc: '2.0', id: 4, method: 'no/such' }, info);
+    assert.equal(at(unknown, 'error', 'code'), -32601);
     await node.close();
   });
 
@@ -411,24 +406,24 @@ describe('MCP', () => {
     });
     const agent = { agent: true };
 
-    const init = (await handleMcpMessage(
+    const init = await handleMcpMessage(
       node,
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
       info,
       agent,
-    )) as { result: { instructions: string } };
-    assert.match(init.result.instructions, /apps_propose/);
-    const list = (await handleMcpMessage(
-      node,
-      { jsonrpc: '2.0', id: 2, method: 'tools/list' },
-      info,
-      agent,
-    )) as { result: { tools: Array<{ name: string }> } };
-    const names = list.result.tools.map((tool) => tool.name);
+    );
+    assert.match(String(at(init, 'result', 'instructions')), /apps_propose/);
+    const tools = at(
+      await handleMcpMessage(node, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, info, agent),
+      'result',
+      'tools',
+    );
+    assert.ok(Array.isArray(tools));
+    const names = tools.map((tool: unknown) => at(tool, 'name'));
     for (const name of PERSON_ONLY) assert.ok(!names.includes(name), `${name} is not offered`);
     assert.ok(names.includes('apps_propose') && names.includes('records_put'));
 
-    const refused = (await handleMcpMessage(
+    const refused = await handleMcpMessage(
       node,
       {
         jsonrpc: '2.0',
@@ -438,10 +433,8 @@ describe('MCP', () => {
       },
       info,
       agent,
-    )) as {
-      error: { message: string };
-    };
-    assert.match(refused.error.message, /Unknown tool/);
+    );
+    assert.match(String(at(refused, 'error', 'message')), /Unknown tool/);
     await node.close();
   });
 });
@@ -458,25 +451,15 @@ describe('the weave command', () => {
     const { stderr } = await weave('init', '--name', 'Leif', '--passphrase');
     assert.match(stderr, /Recovery code: [0-9A-Z-]+/);
 
-    const created = JSON.parse(
+    const created: unknown = JSON.parse(
       (await weave('spaces', 'create', '--name', 'Notes', '--visibility', 'private')).stdout,
     );
-    await weave(
-      'records',
-      'put',
-      '--space',
-      created.id,
-      '--collection',
-      'app.note',
-      '--body',
-      '{"text":"hi"}',
-    );
-    const listed = JSON.parse((await weave('records', 'list', '--space', created.id)).stdout);
-    assert.equal(listed[0].body.text, 'hi');
+    const space = at(created, 'id');
+    assert.ok(typeof space === 'string');
+    await weave('records', 'put', '--space', space, '--collection', 'app.note', '--body', '{"text":"hi"}');
+    const listed: unknown = JSON.parse((await weave('records', 'list', '--space', space)).stdout);
+    assert.equal(at(listed, 0, 'body', 'text'), 'hi');
 
-    await assert.rejects(
-      weave('records', 'put', '--space', created.id, '--nonsense', 'x'),
-      /has no --nonsense/,
-    );
+    await assert.rejects(weave('records', 'put', '--space', space, '--nonsense', 'x'), /has no --nonsense/);
   });
 });

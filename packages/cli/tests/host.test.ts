@@ -37,6 +37,7 @@ import { createWalletPayments, NETWORKS, toUnits } from '../src/wallet.js';
 import { createMemoryBlobStore } from '../../core/src/storage/blob/memory.js';
 import { createFakeHub, type FakeHub } from '../../core/tests/helpers/fake-transport.js';
 import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
+import { at, bodyOf, urlOf } from './helpers/json.js';
 
 const provider = createP256Provider();
 const open: Array<{ close(): Promise<void> }> = [];
@@ -112,6 +113,7 @@ async function payPage(base: string, hostDid: string, key: SubscriptionKey) {
       headers: { authorization, ...(body ? { 'content-type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- each test names the answer it expects, and its assertions fail on any other
     return { status: response.status, answer: (await response.json()) as T };
   };
 }
@@ -227,7 +229,7 @@ describe('signed calls', () => {
 });
 
 describe('the host API', () => {
-  async function running(hub: FakeHub, options: Partial<Parameters<typeof startHost>[0]> = {}) {
+  async function running(options: Partial<Parameters<typeof startHost>[0]> = {}) {
     const served = await startHost({
       key: await provider.generateKeyPair(),
       stores: memoryStores(),
@@ -240,7 +242,7 @@ describe('the host API', () => {
 
   test('a free host takes any subscription; only the subscription itself may ask about it', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
-    const served = await running(hub, { free: true });
+    const served = await running({ free: true });
     const url = `http://127.0.0.1:${served.port}`;
     const key = await subscriptionKey(newSubscriptionSeed());
 
@@ -297,15 +299,12 @@ describe('the host API', () => {
       secretKey: 'sk_test_x',
       webhookSecret: 'whsec_test',
       monthlyPrice: 'price_month',
-      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
-        const target = String(input);
+      fetch: async (input: string | URL | Request, init?: RequestInit) => {
+        const target = urlOf(input);
         stripeCalls.push(`${init?.method ?? 'GET'} ${new URL(target).pathname}`);
         if (target.endsWith('/v1/checkout/sessions')) {
-          assert.match(
-            String(init?.body),
-            /subscription_data%5Bmetadata%5D%5Bweave_subscription%5D=did%3Akey/,
-          );
-          returnUrl = new URLSearchParams(String(init?.body)).get('success_url');
+          assert.match(bodyOf(init), /subscription_data%5Bmetadata%5D%5Bweave_subscription%5D=did%3Akey/);
+          returnUrl = new URLSearchParams(bodyOf(init)).get('success_url');
           return Response.json({ url: 'https://checkout.stripe.test/c/1' });
         }
         if (target.includes('/v1/subscriptions/sub_1')) {
@@ -319,9 +318,9 @@ describe('the host API', () => {
         if (target.endsWith('/v1/billing_portal/sessions'))
           return Response.json({ url: 'https://billing.stripe.test/p/1' });
         return Response.json({ error: { message: 'unexpected' } }, { status: 400 });
-      }) as typeof fetch,
+      },
     });
-    const served = await running(hub, { billing, name: 'Test Hosting', price: '$4 a month' });
+    const served = await running({ billing, name: 'Test Hosting', price: '$4 a month' });
     const url = `http://127.0.0.1:${served.port}`;
     const client = createHostClient(url, served.node.did, key);
 
@@ -449,10 +448,10 @@ describe('an account using a host, end to end over sockets', () => {
       secretKey: 'sk_test_x',
       webhookSecret: 'whsec_test',
       yearlyPrice: 'price_year',
-      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
-        const target = String(input);
+      fetch: async (input: string | URL | Request, init?: RequestInit) => {
+        const target = urlOf(input);
         if (target.endsWith('/v1/checkout/sessions')) {
-          paidFor = new URLSearchParams(String(init?.body)).get('client_reference_id');
+          paidFor = new URLSearchParams(bodyOf(init)).get('client_reference_id');
           return Response.json({ url: 'https://checkout.stripe.test/c/2' });
         }
         return Response.json({
@@ -461,7 +460,7 @@ describe('an account using a host, end to end over sockets', () => {
           metadata: { weave_subscription: paidFor },
           items: { data: [{ current_period_end: periodEnd }] },
         });
-      }) as typeof fetch,
+      },
     });
     const served = await startHost({
       key: await provider.generateKeyPair(),
@@ -495,7 +494,7 @@ describe('an account using a host, end to end over sockets', () => {
       headers: { authorization, 'content-type': 'application/json' },
       body: JSON.stringify({ plan: 'yearly' }),
     });
-    assert.equal(((await checkout.json()) as { url: string }).url, 'https://checkout.stripe.test/c/2');
+    assert.equal(at(await checkout.json(), 'url'), 'https://checkout.stripe.test/c/2');
     assert.equal(paidFor, before.subscription);
 
     const body = JSON.stringify({
@@ -770,17 +769,14 @@ function fakeChain() {
       });
       return tx;
     },
-    fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
+    fetch: (async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       chain.calls++;
-      const { id, method, params } = JSON.parse(String(init?.body)) as {
-        id: number;
-        method: string;
-        params: unknown[];
-      };
+      const request: unknown = JSON.parse(bodyOf(init));
+      const [id, method, first] = [at(request, 'id'), at(request, 'method'), at(request, 'params', 0)];
       const answer = (result: unknown) => Response.json({ jsonrpc: '2.0', id, result });
       if (method === 'eth_blockNumber') return answer(`0x${chain.latest.toString(16)}`);
       if (method === 'eth_getTransactionReceipt') {
-        const found = chain.txs.get(String(params[0]));
+        const found = chain.txs.get(String(first));
         if (!found || found.block > chain.latest) return answer(null);
         return answer({
           status: found.status,
@@ -789,11 +785,11 @@ function fakeChain() {
         });
       }
       if (method === 'eth_getBlockByNumber') {
-        const found = [...chain.txs.values()].find((tx) => `0x${tx.block.toString(16)}` === params[0]);
+        const found = [...chain.txs.values()].find((tx) => `0x${tx.block.toString(16)}` === first);
         return answer({ timestamp: `0x${(found?.time ?? nowSeconds()).toString(16)}` });
       }
-      return Response.json({ jsonrpc: '2.0', id, error: { message: `unexpected ${method}` } });
-    }) as typeof fetch,
+      return Response.json({ jsonrpc: '2.0', id, error: { message: `unexpected ${String(method)}` } });
+    }) satisfies typeof fetch,
   };
   const wallet = createWalletPayments({
     network: 'base-sepolia',
@@ -1002,10 +998,11 @@ describe('wallet payments', () => {
         headers: { authorization, 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-    const payment = (await (await call('/wallet', { plan: 'yearly' })).json()) as { amount: string };
+    const amount = at(await (await call('/wallet', { plan: 'yearly' })).json(), 'amount');
+    assert.ok(typeof amount === 'string');
     chain.latest = 200;
     assert.equal(
-      (await call('/wallet/claim', { tx: chain.send(BigInt(payment.amount), { block: 198 }) })).status,
+      (await call('/wallet/claim', { tx: chain.send(BigInt(amount), { block: 198 }) })).status,
       200,
     );
 

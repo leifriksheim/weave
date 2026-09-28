@@ -22,6 +22,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import {
   createNode,
@@ -90,15 +91,27 @@ Unlocking (never as a flag value):
 `;
 
 const stderr = (line: string) => process.stderr.write(`${line}\n`);
+const logLine = (line: string) => stderr(`[${new Date().toISOString()}] ${line}`);
+
+/** Serves until SIGINT or SIGTERM, then closes what was started and exits. */
+async function untilStopped(running: { close(): Promise<void> }): Promise<never> {
+  const stop = () => {
+    stderr('shutting down');
+    void running.close().then(() => process.exit(0));
+  };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+  return new Promise(() => {});
+}
 
 /** Reads a line without echoing it, for secrets. */
 async function askSecret(prompt: string): Promise<string> {
   if (!process.stdin.isTTY)
     throw new Error(`${prompt.trim()} — no terminal to ask on; set it in the environment`);
-  const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
-  const muted = rl as unknown as { _writeToOutput: (text: string) => void };
   process.stderr.write(prompt);
-  muted._writeToOutput = () => {};
+  // Readline echoes what is typed to its output; this one goes nowhere.
+  const nowhere = new Writable({ write: (_chunk, _encoding, done) => done() });
+  const rl = createInterface({ input: process.stdin, output: nowhere, terminal: true });
   const answer = await new Promise<string>((resolve) => rl.question('', resolve));
   rl.close();
   process.stderr.write('\n');
@@ -136,7 +149,7 @@ function inputFromFlags(action: NodeAction, args: ReadonlyArray<string>): Record
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (!arg.startsWith('--')) throw new Error(`Unexpected argument "${arg}"`);
-    const [rawKey, inline] = arg.slice(2).split(/=(.*)/s, 2) as [string, string | undefined];
+    const [rawKey = '', inline] = arg.slice(2).split(/=(.*)/s, 2);
 
     if (rawKey === 'json') {
       const value = inline ?? args[++i];
@@ -191,7 +204,7 @@ function splitGlobals(argv: ReadonlyArray<string>): { globals: Globals; rest: st
     '--passphrase-file': 'passphraseFile',
   };
   for (let i = 0; i < argv.length; i++) {
-    const [flag, inline] = argv[i]!.split(/=(.*)/s, 2) as [string, string | undefined];
+    const [flag = '', inline] = argv[i]!.split(/=(.*)/s, 2);
     const name = names[flag];
     if (name) globals[name] = inline ?? argv[++i] ?? '';
     else rest.push(argv[i]!);
@@ -304,16 +317,9 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       port: Number(values.port),
       ...(values.host ? { host: values.host } : {}),
       ...(values.node ? { nodes: values.node } : {}),
-      log: (line) => stderr(`[${new Date().toISOString()}] ${line}`),
+      log: logLine,
     });
-    const stop = () => {
-      stderr('shutting down');
-      void daemon.close().then(() => process.exit(0));
-    };
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
-    await new Promise(() => {}); // until a signal
-    return 0;
+    return untilStopped(daemon);
   }
 
   if (command === 'host') {
@@ -348,16 +354,9 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       billing,
       wallet,
       mirror: mirrorFromEnv(process.env),
-      log: (line) => stderr(`[${new Date().toISOString()}] ${line}`),
+      log: logLine,
     });
-    const stop = () => {
-      stderr('shutting down');
-      void running.close().then(() => process.exit(0));
-    };
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
-    await new Promise(() => {}); // until a signal
-    return 0;
+    return untilStopped(running);
   }
 
   if (command === 'connect') {

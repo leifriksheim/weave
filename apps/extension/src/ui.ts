@@ -7,18 +7,19 @@ import { ensureFolderPermission, recallDataFolder } from '@weaveprotocol/core/st
 import type { CarrierStatus } from './shared';
 
 type Child = Node | string | null | false | undefined;
+type Attribute = string | number | boolean | null | undefined | ((event: Event) => void);
 
 /** An element, with attributes (`on*` for listeners) and children */
 export function h<K extends keyof HTMLElementTagNameMap>(
   tag: K,
-  attributes: Record<string, unknown> = {},
+  attributes: Record<string, Attribute> = {},
   ...children: Child[]
 ): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
   for (const [name, value] of Object.entries(attributes)) {
     if (value === undefined || value === null || value === false) continue;
     if (name.startsWith('on') && typeof value === 'function')
-      element.addEventListener(name.slice(2).toLowerCase(), value as EventListener);
+      element.addEventListener(name.slice(2).toLowerCase(), value);
     else if (name === 'class') element.className = String(value);
     else if (value === true) element.setAttribute(name, '');
     else element.setAttribute(name, String(value));

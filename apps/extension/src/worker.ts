@@ -110,14 +110,13 @@ chrome.notifications.onClosed.addListener((id) => {
 });
 
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason === chrome.runtime.OnInstalledReason.INSTALL)
-    void chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+  if (details.reason === 'install') void chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
   void ensureOffscreen();
 });
 
 chrome.runtime.onStartup.addListener(() => void ensureOffscreen());
 
-chrome.alarms.create('keep-carrying', { periodInMinutes: 1 });
+void chrome.alarms.create('keep-carrying', { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'keep-carrying') void ensureOffscreen();
 });

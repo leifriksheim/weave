@@ -15,7 +15,7 @@ import {
 import { openFsDirectory } from './fs-directory.js';
 import type { Billing } from './host.js';
 import { createStripeBilling } from './stripe.js';
-import { createWalletPayments, NETWORKS, type NetworkName, type WalletPayments } from './wallet.js';
+import { createWalletPayments, isNetworkName, NETWORKS, type WalletPayments } from './wallet.js';
 
 /** Where a host keeps its data unless told: `~/.weave-host` */
 export function defaultHostData(): string {
@@ -66,8 +66,8 @@ export function billingFromEnv(env: NodeJS.ProcessEnv): Billing | null {
  */
 export function walletFromEnv(env: NodeJS.ProcessEnv): WalletPayments | null {
   if (!env.WEAVE_WALLET_ADDRESS) return null;
-  const network = (env.WEAVE_WALLET_NETWORK ?? 'base') as NetworkName;
-  if (!(network in NETWORKS))
+  const network = env.WEAVE_WALLET_NETWORK ?? 'base';
+  if (!isNetworkName(network))
     throw new Error(`WEAVE_WALLET_NETWORK must be ${Object.keys(NETWORKS).join(' or ')}, not "${network}"`);
   if (!env.WEAVE_WALLET_MONTHLY && !env.WEAVE_WALLET_YEARLY) {
     throw new Error(
