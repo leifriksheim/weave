@@ -7,35 +7,18 @@ import assert from 'node:assert/strict';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createSpaceManager, parseSpaceInvite } from '../src/space/space-manager.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
-import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../src/identity/did.js';
+import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { issueUCAN, type Capability } from '../src/identity/ucan.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
-import { createSchemaEngine } from '../src/schema/schema-engine.js';
-import { createCryptoGate } from '../src/validation/crypto-gate.js';
-import { createStructuralGate } from '../src/validation/structural-gate.js';
-import { createStatefulGate } from '../src/validation/stateful-gate.js';
 import { createCapabilityGate } from '../src/validation/capability-gate.js';
-import { createValidationEngine } from '../src/validation/validation-engine.js';
+import { createVersionCheck } from '../src/validation/check-version.js';
 import { encryptExpression, decryptExpression } from '../src/privacy/space-encryption.js';
-import type { StandardSchemaV1 } from '../src/types.js';
 import { team } from '../src/space/presets.js';
-import { isRecord } from '../src/utils/guards.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
 const OWNER = 'did:key:zOwnerPlaceholder';
-
-const noteSchema: StandardSchemaV1 = {
-  '~standard': {
-    version: 1,
-    vendor: 'test',
-    validate: (value: unknown) =>
-      isRecord(value) && typeof value.text === 'string'
-        ? { value }
-        : { issues: [{ message: 'text must be a string' }] },
-  },
-};
 
 async function makeKey() {
   const pair = await provider.generateKeyPair();
@@ -202,22 +185,11 @@ describe('private space expressions', () => {
     });
     const expression = await signer.sign(unsigned, session.privateKey);
 
-    const schemaEngine = createSchemaEngine();
-    schemaEngine.registerCollection({ name: 'app.test.note', schema: noteSchema });
+    const check = createVersionCheck({ provider, requiredCapability: () => required });
 
-    const validation = createValidationEngine({
-      cryptoGate: createCryptoGate(provider),
-      structuralGate: createStructuralGate(schemaEngine),
-      statefulGate: createStatefulGate(),
-      capabilityGate: createCapabilityGate({ provider, requiredCapability: () => required }),
-      resolvePublicKey: async (did) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes),
-      getExpression: async () => null,
-    });
-
-    // A peer with no key still verifies and relays it: the schema gate steps
-    // aside for an encrypted body, the signature and capability still hold.
-    const verdict = await validation.validate(expression);
-    assert.equal(verdict.valid, true, verdict.gates.find((g) => !g.passed)?.reason ?? 'no reason given');
+    // A peer with no key still verifies and relays it: the signature and capability hold.
+    const verdict = await check(expression);
+    assert.equal(verdict.passed, true, verdict.reason ?? 'no reason given');
     assert.equal(expression.space, spaceId);
     assert.equal('text' in expression.body, false);
 

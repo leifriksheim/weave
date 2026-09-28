@@ -105,7 +105,7 @@ await storage.addExpression(signed);
 ```
 
 Syncing it to other devices is a network manager plus a sync engine with the
-validation engine in front — see _Sync_ below. Or skip all of this and use a
+version check in front — see _Sync_ below. Or skip all of this and use a
 node, which does the wiring for you — next.
 
 ## The node — start here
@@ -926,8 +926,8 @@ field, which stops one being replayed into another.
 
 **Encrypt, then sign.** A private space encrypts the body _before_ the expression
 is signed, so the signature covers the ciphertext: peers without the key still
-verify and relay the data, they simply cannot read it. The structural gate steps
-aside for encrypted bodies — their shape is checked by members after decryption.
+verify and relay the data, they simply cannot read it. Body shape is never
+checked on arrival; members check it after decryption.
 
 ### Network (`@weaveprotocol/core/network`)
 
@@ -1012,21 +1012,19 @@ two peers reconcile only the collections both hold. A version for a collection
 a node doesn't hold is passed over; one it takes in, it tells the sender it has
 (`stored`). One peer's messages are handled in the order they came.
 
-The engine's `validate` hook is the seam where the validation engine sits.
+The engine's `validate` hook is the seam where the version check sits.
 Expressions a peer sends are only committed if it accepts them; the rest are
 dropped and surface as a `rejected` event with the reason.
 
 ### Validation (`@weaveprotocol/core/validation`)
 
-A pipeline of gates for incoming expressions.
+The checks every incoming version passes.
 
-| Export                     | Description                                  |
-| -------------------------- | -------------------------------------------- |
-| `createValidationEngine()` | Full gatekeeper pipeline                     |
-| `createCryptoGate()`       | Expression id + signature verification       |
-| `createStructuralGate()`   | Schema conformance via Standard Schema       |
-| `createCapabilityGate()`   | UCAN authorization: may this key write this? |
-| `createStatefulGate()`     | Custom Wasm rules                            |
+| Export                   | Description                                      |
+| ------------------------ | ------------------------------------------------ |
+| `createVersionCheck()`   | Shape, then signature, then capability, in order |
+| `createCryptoGate()`     | Expression id + signature verification           |
+| `createCapabilityGate()` | UCAN authorization: may this key write this?     |
 
 The crypto gate settles _who_ signed an expression. The capability gate answers
 the next question: were they allowed to? An expression signed by a delegated key
@@ -1036,18 +1034,12 @@ issued to a different key, broader than its parent, or rooted in an identity the
 application does not trust.
 
 ```typescript
-const validation = createValidationEngine({
-  cryptoGate: createCryptoGate(provider),
-  structuralGate: createStructuralGate(schema),
-  statefulGate: createStatefulGate(),
-  capabilityGate: createCapabilityGate({
-    provider,
-    requiredCapability: (expression) => ({ with: `space:${expression.collection}`, can: 'expression/write' }),
-    isTrustedRoot: (did) => spaceMembers.has(did),
-  }),
-  resolvePublicKey: async (did) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes),
-  getExpression: (id) => storage.getExpression(id),
+const check = createVersionCheck({
+  provider,
+  requiredCapability: (expression) => ({ with: `space:${expression.space}`, can: 'expression/write' }),
+  isTrustedRoot: (did) => spaceMembers.has(did),
 });
+const { passed, reason } = await check(expression);
 ```
 
 ### Privacy (`@weaveprotocol/core/privacy`)

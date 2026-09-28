@@ -287,14 +287,11 @@ export type { Item, Round, Sum } from './sync/negentropy.js';
 export { createSyncEngine } from './sync/sync-engine.js';
 export type { SyncEngine, SyncEngineConfig, IncomingValidation } from './sync/sync-engine.js';
 
-// Phase 6: Validation Engine
+// Phase 6: Validation
 export { createCryptoGate } from './validation/crypto-gate.js';
-export { createStructuralGate } from './validation/structural-gate.js';
-export { createStatefulGate } from './validation/stateful-gate.js';
 export { createCapabilityGate } from './validation/capability-gate.js';
 export type { CapabilityGate, CapabilityGateConfig } from './validation/capability-gate.js';
-export { createValidationEngine } from './validation/validation-engine.js';
-export type { ValidationEngine, ValidationEngineConfig } from './validation/validation-engine.js';
+export { createVersionCheck } from './validation/check-version.js';
 
 // Phase 7: Encryption & Privacy
 export { generateSpaceKey, encryptExpression, decryptExpression } from './privacy/space-encryption.js';

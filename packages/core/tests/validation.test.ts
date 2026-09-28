@@ -9,12 +9,10 @@ import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../src/identity
 import { issueUCAN, type Capability } from '../src/identity/ucan.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
-import { createSchemaEngine } from '../src/schema/schema-engine.js';
 import { createCryptoGate } from '../src/validation/crypto-gate.js';
-import { createStructuralGate } from '../src/validation/structural-gate.js';
 import { createCapabilityGate } from '../src/validation/capability-gate.js';
-import type { Expression, StandardSchemaV1 } from '../src/types.js';
-import { isRecord } from '../src/utils/guards.js';
+import { createVersionCheck } from '../src/validation/check-version.js';
+import type { Expression } from '../src/types.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -89,32 +87,30 @@ describe('crypto gate', () => {
   });
 });
 
-describe('structural gate', () => {
-  const noteSchema: StandardSchemaV1 = {
-    '~standard': {
-      version: 1,
-      vendor: 'test',
-      validate(value: unknown) {
-        return isRecord(value) && typeof value.text === 'string'
-          ? { value }
-          : { issues: [{ message: 'text must be a string' }] };
-      },
-    },
-  };
+describe('version check', () => {
+  const check = createVersionCheck({ provider, requiredCapability: () => WRITE });
 
-  const schemaEngine = createSchemaEngine();
-  schemaEngine.registerCollection({ name: COLLECTION, schema: noteSchema });
-  const gate = createStructuralGate(schemaEngine);
-
-  test('rejects a body that does not match the collection schema', async () => {
+  test('refuses a malformed version, however well signed', async () => {
     const author = await makeKey();
-    const expression = await signNote(author, 'fine');
-    assert.equal((await gate.validate(expression)).passed, true);
-
-    const broken = { ...expression, body: { text: 42 } };
-    const result = await gate.validate(broken);
+    const unsigned = createExpression({ author: author.did, collection: COLLECTION, body: { text: 'x' } });
+    const malformed = await signer.sign({ ...unsigned, seq: 2 }, author.privateKey);
+    const result = await check(malformed);
     assert.equal(result.passed, false);
-    assert.match(result.reason ?? '', /text must be a string/);
+    assert.match(result.reason ?? '', /later version/);
+  });
+
+  test('does not refuse a body for its shape: that depends on which definition a node has', async () => {
+    const author = await makeKey();
+    const unsigned = createExpression({ author: author.did, collection: COLLECTION, body: { text: 42 } });
+    assert.equal((await check(await signer.sign(unsigned, author.privateKey))).passed, true);
+  });
+
+  test('refuses a tampered version at the signature', async () => {
+    const author = await makeKey();
+    const note = await signNote(author, 'honest');
+    const result = await check({ ...note, body: { text: 'tampered' } });
+    assert.equal(result.passed, false);
+    assert.equal(result.gate, 'crypto');
   });
 });
 
