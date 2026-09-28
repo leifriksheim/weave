@@ -171,6 +171,10 @@ export interface VerifyOptions {
   readonly at?: number;
 }
 
+/** Tokens whose signature checked out, the oldest let go first */
+const signedTokens = new Set<string>();
+const MAX_SIGNED_TOKENS = 1000;
+
 /**
  * Verifies a UCAN token's signature and time bounds.
  * 
@@ -205,14 +209,19 @@ export async function verifyUCAN(encoded: string, provider: CryptoProvider, opti
       return { valid: false, issuer: payload.iss, audience: payload.aud, capabilities: payload.att, reason: 'Token not yet valid' };
     }
     
-    const { publicKeyBytes } = didToPublicKey(payload.iss);
-    const publicKey = await provider.importPublicKey(publicKeyBytes);
-    
-    const dataToVerify = `${parts[0]}.${parts[1]}`;
-    const signatureBytes = base64UrlDecode(signature);
-    
-    const isValid = await provider.verify(publicKey, signatureBytes, utf8Encode(dataToVerify));
-    
+    // The signature is part of the token, so a token that checked out once
+    // always does; only its time bounds, above, depend on when.
+    let isValid = signedTokens.has(encoded);
+    if (!isValid) {
+      const { publicKeyBytes } = didToPublicKey(payload.iss);
+      const publicKey = await provider.importPublicKey(publicKeyBytes);
+      isValid = await provider.verify(publicKey, base64UrlDecode(signature), utf8Encode(`${parts[0]}.${parts[1]}`));
+      if (isValid) {
+        signedTokens.add(encoded);
+        if (signedTokens.size > MAX_SIGNED_TOKENS) signedTokens.delete(signedTokens.values().next().value!);
+      }
+    }
+
     if (!isValid) {
       return { valid: false, issuer: payload.iss, audience: payload.aud, capabilities: payload.att, reason: 'Invalid signature' };
     }

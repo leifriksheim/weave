@@ -23,6 +23,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { hold, letGo } from './helpers/hold.js';
+import { stored } from './helpers/stored.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { contactPublicKey, deriveContactKeyBytes } from '../src/identity/contact-key.js';
 import { profileKey } from '../src/node/space-runtime.js';
@@ -125,8 +126,7 @@ describe('attacks on a shared space', () => {
     });
     await hold(bob.node, space);
     // It does arrive — and changes nothing.
-    const aliceStore = createStorageProvider(await alice.stores(`spaces/${space}`));
-    await until(async () => (await aliceStore.getCurrent('collection:app.poll'))?.seq === 50, 4000, 'the delete to arrive');
+    await until(async () => (await (await stored(alice.stores, space)).getCurrent('collection:app.poll'))?.seq === 50, 4000, 'the delete to arrive');
     const poll = (await alice.node.collections.list(space)).find((c) => c.name === 'app.poll');
     assert.equal(poll?.version, 1);
     assert.deepEqual(poll?.rules, { edit: 'creator', delete: 'creator', fixed: ['options'] });
@@ -209,8 +209,7 @@ describe('attacks on contacts', () => {
       version: { key: current!.key, seq: current!.seq + 1, prev: current!.id, genesis: current!.id },
     });
     await hold(carol.node, space);
-    const leifStore = createStorageProvider(await leif.stores(`spaces/${space}`));
-    await until(async () => (await leifStore.getCurrent(await profileKey(anna.node.did)))?.seq === current!.seq + 1, 4000, 'the forgery to arrive');
+    await until(async () => (await (await stored(leif.stores, space)).getCurrent(await profileKey(anna.node.did)))?.seq === current!.seq + 1, 4000, 'the forgery to arrive');
     const seen = (await leif.node.spaces.profiles(space)).find((profile) => profile.did === anna.node.did);
     assert.equal(seen?.contactKey, annasKey);
   });

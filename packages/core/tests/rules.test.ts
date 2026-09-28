@@ -22,6 +22,8 @@ import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
 import { team } from '../src/space/presets.js';
 import { hold, letGo } from './helpers/hold.js';
+import { stored } from './helpers/stored.js';
+import { SYNC_PROTOCOL_VERSION } from '../src/sync/sync-messages.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -254,6 +256,30 @@ describe('rules: arriving in any order', () => {
     await hold(carol.node, space);
     await until(async () => (await carol.node.records.get<{ question: string }>(space, poll.key))?.body?.question === 'v2', 4000, 'the latest version');
     assert.equal(rejected, 0);
+  });
+
+  test('an edit that came before its first version counts once the first version comes', async () => {
+    const { hub, alice, bob, space } = await pollSpace();
+    await letGo(bob.node, space);
+    const poll = await alice.node.records.put(space, 'app.poll', { question: 'v0', options: ['a'] });
+    const edit = await alice.node.records.update(space, poll.key, { question: 'v1', options: ['a'] });
+    const version = await (await stored(alice.stores, space)).getExpression(edit.version);
+    await letGo(alice.node, space);
+
+    // Someone passes Bob the edit alone. It waits for its first version, which nobody there has.
+    await hold(bob.node, space);
+    const stranger = hub.transport('did:key:zstranger', space);
+    stranger.on('connected', (peer: string) => {
+      const payload = { v: SYNC_PROTOCOL_VERSION, type: 'push-update', expression: version };
+      stranger.send(peer, new TextEncoder().encode(JSON.stringify({ type: 'sync', from: 'did:key:zstranger', payload })));
+    });
+    await stranger.connect();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(await bob.node.records.get(space, poll.key), null);
+
+    // Alice comes back with both. Nothing about who may do what changed meanwhile.
+    await hold(alice.node, space);
+    await until(async () => (await bob.node.records.get<{ question: string }>(space, poll.key))?.body?.question === 'v1', 4000, 'the edit');
   });
 
   test('records written before a collection had rules stand; changes to them after follow the rules', async () => {

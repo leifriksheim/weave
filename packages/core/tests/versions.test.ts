@@ -22,6 +22,7 @@ import { createFakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { hold } from './helpers/hold.js';
+import { joined } from './helpers/joined.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -216,6 +217,8 @@ describe('versioned records through the node', () => {
     await bob.spaces.join(await alice.spaces.invite(space));
     const made = await alice.records.put(space, 'app.todo.item', { text: 'milk', done: false });
     await hold(bob, space);
+    // Seeing the record is not having joined: Bob writes once his join is through.
+    await joined(bob, space);
     await until(async () => (await bob.records.get(space, made.key)) !== null, 3000, 'bob to see it');
 
     // Both edit before hearing from each other.

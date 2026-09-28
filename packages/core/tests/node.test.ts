@@ -149,6 +149,20 @@ describe('records', () => {
     await assert.rejects(node.records.put(space, 'sys.collection', {}), /written by the node itself/);
   });
 
+  test('a record read is the same for every reader: nobody can change it under the others', async () => {
+    const node = await startNode();
+    const { id: space } = await node.spaces.create({ name: 'Todos', visibility: 'private' });
+    await node.records.put(space, 'app.todo.item', { text: 'milk', done: false, tags: ['shop'] });
+
+    const [first] = await node.records.list<Todo & { tags: string[] }>(space, { collection: 'app.todo.item' });
+    assert.throws(() => {
+      (first!.body as { done: boolean }).done = true;
+    }, TypeError);
+    assert.throws(() => first!.body!.tags.push('home'), TypeError);
+    const [again] = await node.records.list<Todo & { tags: string[] }>(space, { collection: 'app.todo.item' });
+    assert.deepEqual(again!.body, { text: 'milk', done: false, tags: ['shop'] });
+  });
+
   test('events announce local writes', async () => {
     const node = await startNode();
     const { id: space } = await node.spaces.create({ name: 'Todos', visibility: 'public' });
