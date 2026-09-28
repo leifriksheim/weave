@@ -80,7 +80,7 @@ const USDC_DECIMALS = 6;
 /** The fraction of a cent that tells payments apart: 1 to 9999 millionths of a dollar */
 const MARKERS = 9999;
 
-export const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const TX_HASH = /^0x[0-9a-fA-F]{64}$/;
 
 export interface WalletConfig {

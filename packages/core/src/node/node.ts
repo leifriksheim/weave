@@ -40,7 +40,7 @@ import {
   createSpaceManager,
   encodeSpaceInvite,
   parseSpaceInvite,
-  type InviteOptions as InviteSecret,
+  type InviteLinkOptions,
   type SpaceRecord,
 } from '../space/space-manager.js';
 import { checkRelays, MANAGE, MAX_KEEPERS, MAX_RELAYS, roleHolds, type Keeper } from '../space/roles.js';
@@ -322,7 +322,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
    * names, or before it names any, this node's — so the joiner finds the
    * inviter even when their app uses other relays.
    */
-  async function inviteTo(spaceId: string, options: InviteSecret = {}): Promise<string> {
+  async function inviteTo(spaceId: string, options: InviteLinkOptions = {}): Promise<string> {
     const named = (await findRecord(spaceId))?.relays ?? [];
     const own = (config.network?.relays ?? [])
       .filter((url) => checkRelays([url]) === null)

@@ -32,7 +32,7 @@ import { base64UrlDecode } from '@weaveprotocol/core';
 import { openFsDirectory } from './fs-directory.js';
 
 /** The relay the apps meet on unless told otherwise */
-export const DEFAULT_RELAYS: ReadonlyArray<string> = ['wss://p2p-web-relay.fly.dev'];
+const DEFAULT_RELAYS: ReadonlyArray<string> = ['wss://p2p-web-relay.fly.dev'];
 
 /** Relays from `$WEAVE_RELAYS` (comma separated), or the default */
 export function configuredRelays(): string[] {
@@ -96,7 +96,7 @@ async function agentKey(home: string): Promise<Stored> {
 }
 
 /** The grant this computer's agent was given, or null before `weave connect` */
-export async function loadAgentGrant(home: string): Promise<Grant | null> {
+async function loadAgentGrant(home: string): Promise<Grant | null> {
   try {
     return JSON.parse(await readFile(path.join(agentDir(home), 'grant.json'), 'utf8')) as Grant;
   } catch {

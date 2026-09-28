@@ -31,7 +31,8 @@ import { isAgentNote } from '../identity/agent-note.js';
 import { didToPublicKey } from '../identity/did.js';
 import { createExpression } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
-import { newRecordKey, nextVersion, RECORD_KEY_PATTERN } from '../records/version.js';
+import { newRecordKey, nextVersion } from '../records/version.js';
+import { RECORD_KEY_PATTERN } from '../records/key.js';
 import { checkLinks } from '../records/links.js';
 import {
   allows,

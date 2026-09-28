@@ -38,6 +38,7 @@ export type {
   NewSpace,
   InvitePreview,
   ListOptions,
+  InviteOptions,
   ConnectionState,
   DelegateParams,
   Delegated,

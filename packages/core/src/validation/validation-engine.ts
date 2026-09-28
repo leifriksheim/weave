@@ -14,13 +14,13 @@ export interface ValidationEngineConfig {
   readonly getExpression: (id: string) => Promise<Expression | null>;
 }
 
-export interface ValidationResult {
+export interface ValidationReport {
   readonly valid: boolean;
   readonly gates: ReadonlyArray<GateResult>;
 }
 
 export interface ValidationEngine {
-  validate(expression: Expression): Promise<ValidationResult>;
+  validate(expression: Expression): Promise<ValidationReport>;
 }
 
 /**
@@ -33,7 +33,7 @@ export function createValidationEngine(config: ValidationEngineConfig): Validati
     config;
 
   return {
-    async validate(expression: Expression): Promise<ValidationResult> {
+    async validate(expression: Expression): Promise<ValidationReport> {
       const gates: GateResult[] = [];
 
       // 1. Structural Gate

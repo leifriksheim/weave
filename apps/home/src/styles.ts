@@ -149,13 +149,6 @@ const button: CSSProperties = {
   width: '100%',
 };
 
-const quietButton: CSSProperties = {
-  ...button,
-  backgroundColor: surface.card,
-  borderColor: surface.lineStrong,
-  color: ink.body,
-};
-
 /** Shared inline styles — kept in one place so the app has a single visual vocabulary. */
 export const styles = {
   container: {
@@ -546,12 +539,6 @@ export const styles = {
 
   ok: { color: accent.good, fontSize: 13, fontWeight: 500 },
   bad: { color: accent.danger, fontSize: 13, fontWeight: 500 },
-} satisfies Record<string, CSSProperties>;
-
-/** Quieter alternatives, for actions that should not compete with the main one. */
-export const variants = {
-  quiet: quietButton,
-  danger: { ...quietButton, color: accent.danger },
 } satisfies Record<string, CSSProperties>;
 
 export const palette = { ink, surface, accent, radius, font, mono };

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { ResultOf } from '@weaveprotocol/core';
-import { message, poll, reaction, vote, type Message, type Poll } from '@weaveprotocol/core/schemas';
-import { nameOf, peopleFrom, writerOf } from '../../derive/people';
+import { message, poll, reaction, vote } from '@weaveprotocol/core/schemas';
+import { peopleFrom, writerOf } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { Avatar } from '../Avatar';
 import { Reactions } from '../std/Reactions';

@@ -83,7 +83,7 @@ export const ACCESS_COLLECTIONS: ReadonlySet<string> = new Set([
   KEEPERS_COLLECTION,
 ]);
 
-export const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,39}$/;
+const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 
 /** Why a role is malformed, or null */
 export function checkRole(role: unknown): string | null {
@@ -362,18 +362,6 @@ function startState(genesis: AccessGenesis): MutableState {
     copies: null,
   };
 }
-
-const copyState = (state: MutableState): MutableState => ({
-  roles: new Map(state.roles),
-  members: new Map(state.members),
-  invites: new Map(state.invites),
-  definitions: new Map(state.definitions),
-  keys: [...state.keys],
-  keyDue: state.keyDue,
-  relays: state.relays,
-  keepers: state.keepers,
-  copies: state.copies,
-});
 
 /** Everyone holding a role that exists — who can read, as far as the history is concerned */
 export function readers(state: AccessState): Set<string> {
@@ -798,10 +786,4 @@ export function replayAccess(genesis: AccessGenesis, events: ReadonlyArray<Acces
   function seen(ids: ReadonlyArray<string>): boolean {
     return ids.every((id) => id === genesis.id || (byId.has(id) && !waiting.has(id)));
   }
-}
-
-/** Freezes a state for handing out */
-export function snapshot(state: AccessState): AccessState {
-  const copy = copyState(state as MutableState);
-  return Object.freeze(copy);
 }

@@ -13,14 +13,14 @@ import { collectionLabel, humanize } from './schema-ui';
 /** As much of a collection as these helpers read */
 export type RuledCollection = Pick<NodeCollection, 'name' | 'title' | 'permissions' | 'rules'>;
 type Rule = Who | ReadonlyArray<Who> | undefined;
-export type RecordAction = 'create' | 'edit' | 'delete';
+type RecordAction = 'create' | 'edit' | 'delete';
 
 // ─── Permissions ──────────────────────────────────────────────────────
 
 /** Every permission there is, now and later */
-export const EVERYTHING = '*';
+const EVERYTHING = '*';
 /** Every permission any collection declares, now and later — not the space's own three */
-export const EVERY_COLLECTION_PERMISSION = '*/*';
+const EVERY_COLLECTION_PERMISSION = '*/*';
 
 export interface PermissionOption {
   /** What a role holds: `invite`, `app.poll/moderate`, `*` */
@@ -36,7 +36,7 @@ export interface PermissionOption {
 }
 
 /** The three permissions the protocol checks itself */
-export const SPACE_PERMISSIONS: ReadonlyArray<PermissionOption & { readonly does: string }> = [
+const SPACE_PERMISSIONS: ReadonlyArray<PermissionOption & { readonly does: string }> = [
   {
     permission: MANAGE,
     label: 'Run the space',
@@ -91,8 +91,8 @@ const ruleFor = (c: RuledCollection, action: RecordAction): Rule =>
 
 const joinWith = (word: string) => (items: ReadonlyArray<string>) =>
   items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} ${word} ${items.at(-1)}`;
-export const joinAnd = joinWith('and');
-export const joinOr = joinWith('or');
+const joinAnd = joinWith('and');
+const joinOr = joinWith('or');
 
 /** Every permission a role could be given, with a label and what it does: the space's three, then each collection's */
 export function permissionOptions(
@@ -145,23 +145,10 @@ export function canGrant(role: SpaceRole | null | undefined, permission: string)
 
 // ─── Rules ────────────────────────────────────────────────────────────
 
-/** A rule in words: "anyone with a role", "whoever added it or those with Moderate on Comments" */
-export function describeRule(who: Rule, collection?: Pick<NodeCollection, 'name' | 'title'>): string {
-  return joinOr(
-    whoList(who).map((w) =>
-      w === 'member'
-        ? 'anyone with a role'
-        : w === 'creator'
-          ? 'whoever added it'
-          : `those with ${humanize(w.slice(4))}${collection ? ` on ${collectionLabel(collection)}` : ''}`,
-    ),
-  );
-}
-
 /** How far a role reaches for an action: on anything, only on what they added, or not at all */
-export type Reach = 'any' | 'own' | 'none';
+type Reach = 'any' | 'own' | 'none';
 
-export function reachOf(
+function reachOf(
   role: SpaceRole | null | undefined,
   collection: RuledCollection,
   action: RecordAction,
@@ -198,7 +185,7 @@ const FOLLOWING = "You only follow this space — you'd need a role to change an
  * Why this role cannot do an action in a collection, or null when it can.
  * @param mine Whether the record was added by them — ignored for `create`
  */
-export function whyCannot(
+function whyCannot(
   role: SpaceRole | null | undefined,
   roles: ReadonlyArray<SpaceRole>,
   collection: RuledCollection,

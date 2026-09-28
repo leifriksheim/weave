@@ -84,7 +84,7 @@ export interface SpaceInvite {
   readonly relays?: ReadonlyArray<string>;
 }
 
-export interface InviteOptions {
+export interface InviteLinkOptions {
   /** The secret behind an invite record already written for a role. Absent: a view-only invite. */
   readonly secret?: Uint8Array;
   readonly role?: string;
@@ -98,7 +98,7 @@ export interface SpaceManager {
   list(): Promise<ReadonlyArray<SpaceRecord>>;
   remove(spaceId: string): Promise<void>;
   /** Encodes a space, its key if private, and an invite's secret if given, as a shareable string */
-  createInvite(spaceId: string, invitedBy: string, options?: InviteOptions): Promise<string>;
+  createInvite(spaceId: string, invitedBy: string, options?: InviteLinkOptions): Promise<string>;
   /**
    * Stores a space received as an invite, so it can be opened and synced.
    * Refuses a space whose id does not match what it says about itself, and
@@ -283,7 +283,7 @@ export function createSpaceManager(
         await adapter.delete(`${prefix}${spaceId}`);
     },
 
-    async createInvite(spaceId: string, invitedBy: string, options: InviteOptions = {}): Promise<string> {
+    async createInvite(spaceId: string, invitedBy: string, options: InviteLinkOptions = {}): Promise<string> {
       const record = await load(spaceId);
       if (!record) throw new Error(`Unknown space: ${spaceId}`);
       return encodeSpaceInvite(record, invitedBy, options);
@@ -370,7 +370,7 @@ export function createSpaceManager(
 export async function encodeSpaceInvite(
   record: SpaceRecord,
   invitedBy: string,
-  options: InviteOptions = {},
+  options: InviteLinkOptions = {},
 ): Promise<string> {
   // The key rides along for private spaces — which is why an invite is a
   // secret, and why it belongs in a URL fragment rather than a path.

@@ -5,7 +5,7 @@ import { tag } from '@weaveprotocol/core/schemas';
 import { palette } from '../../styles';
 
 /** A tag's label, if the record is one */
-export const labelOf = (r: NodeRecord) => (r.body as { label?: string } | null)?.label ?? '';
+export const tagLabel = (r: NodeRecord) => (r.body as { label?: string } | null)?.label ?? '';
 
 /**
  * `std.tag` on a record: each tag is a small record of its own, pointing at
@@ -24,7 +24,7 @@ export function Tags({
   const node = useNode();
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
-  const labels = new Set(tags.map(labelOf));
+  const labels = new Set(tags.map(tagLabel));
 
   const add = () => {
     const label = draft.trim().toLowerCase();
@@ -95,11 +95,11 @@ function TagChip({ space, tag: t }: { space: SpaceSummary; tag: NodeRecord }) {
   const mayRemove = useCan(space.id, 'delete', t.key);
   return (
     <span style={chip}>
-      #{labelOf(t)}
+      #{tagLabel(t)}
       {mayRemove && (
         <button
           onClick={() => void node.records.delete(space.id, t.key)}
-          aria-label={`Remove tag ${labelOf(t)}`}
+          aria-label={`Remove tag ${tagLabel(t)}`}
           style={{ border: 'none', background: 'none', padding: 0, color: palette.ink.faint, fontSize: 12 }}
         >
           ✕

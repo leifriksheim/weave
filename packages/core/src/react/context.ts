@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { AuthState, WeaveAuth, WeaveSession } from '../session/auth.js';
-import type { ConnectionState, WeaveConnection } from '../session/connection.js';
+import type { WeaveConnectionState, WeaveConnection } from '../session/connection.js';
 import type { P2PNode } from '../node/types.js';
 
 interface WeaveContextValue {
@@ -65,7 +65,7 @@ export function WeaveProvider(props: WeaveProviderProps): ReactElement {
   const auth = props.auth ?? null;
   const connection = props.connection ?? null;
   const authState = useStore<AuthState>(auth);
-  const connectionState = useStore<ConnectionState>(connection);
+  const connectionState = useStore<WeaveConnectionState>(connection);
   const node =
     props.node ??
     authState?.session?.node ??
@@ -114,9 +114,9 @@ export function useSession(): WeaveSession {
  * button, and for "access ran out, connect again".
  * @throws Outside a `WeaveProvider` given `connection`
  */
-export function useConnection(): { connection: WeaveConnection; state: ConnectionState } {
+export function useConnection(): { connection: WeaveConnection; state: WeaveConnectionState } {
   const { connection } = useContext(WeaveContext);
-  const state = useSyncExternalStore<ConnectionState | null>(
+  const state = useSyncExternalStore<WeaveConnectionState | null>(
     connection ? connection.subscribe : never,
     connection ? connection.getState : nothing,
     connection ? connection.getState : nothing,
@@ -138,7 +138,7 @@ export function useAccount(): { did: string; name: string } {
     auth ? auth.getState : nothing,
     auth ? auth.getState : nothing,
   );
-  const connectionState = useSyncExternalStore<ConnectionState | null>(
+  const connectionState = useSyncExternalStore<WeaveConnectionState | null>(
     connection ? connection.subscribe : never,
     connection ? connection.getState : nothing,
     connection ? connection.getState : nothing,

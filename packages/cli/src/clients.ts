@@ -14,7 +14,7 @@ import { promisify } from 'node:util';
 const run = promisify(execFile);
 
 /** The name the server is added under */
-export const SERVER_NAME = 'weave';
+const SERVER_NAME = 'weave';
 
 export interface ServerCommand {
   readonly command: string;

@@ -44,7 +44,7 @@ export function mark(): HTMLElement {
  * so the account here and the account there are recognisably the same one — or
  * recognisably not.
  */
-export function avatar(did: string, size = 32): SVGSVGElement {
+function avatar(did: string, size = 32): SVGSVGElement {
   let seed = 2166136261;
   for (let i = 0; i < did.length; i++) {
     seed ^= did.charCodeAt(i);

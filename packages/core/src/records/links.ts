@@ -13,12 +13,12 @@
  * any other collection.
  */
 import type { Link } from '../types.js';
-import { RECORD_KEY_PATTERN } from './version.js';
+import { RECORD_KEY_PATTERN } from './key.js';
 
-export const LINK_REL_PATTERN = /^[a-z][a-zA-Z0-9]{0,63}$/;
+const LINK_REL_PATTERN = /^[a-z][a-zA-Z0-9]{0,63}$/;
 
 /** A record pointing at more than this is a list, and should be one. */
-export const MAX_LINKS = 32;
+const MAX_LINKS = 32;
 
 /** Why a set of links is malformed on its own, or null when it is not. */
 export function checkLinks(links: unknown): string | null {

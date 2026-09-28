@@ -6,5 +6,5 @@
     "bump.config.ts"
   ],
   "usedClassMembers": ["connectedCallback", "disconnectedCallback", "attributeChangedCallback"],
-  "ignoreUnresolvedImports": ["apps/extension/static/*.html"]
+  "ignoreUnresolvedImports": ["./notify.js", "./offscreen.js", "./popup.js", "./welcome.js"]
 }

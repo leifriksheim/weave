@@ -26,7 +26,7 @@ import { peopleFrom } from '../derive/people';
 import { PersonScopeProvider } from './Person';
 
 /** Where in the space we are: which collection, and which record is open beside it */
-export interface Place {
+interface Place {
   readonly collection: string | null;
   readonly key: string | null;
 }

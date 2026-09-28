@@ -76,35 +76,3 @@ export function Modal({
     </div>
   );
 }
-
-/** One question with two answers, which is every choice a list has. */
-export function Choice<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: ReadonlyArray<{ value: T; label: string }>;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div>
-      <p style={styles.fieldLabel}>{label}</p>
-      <div style={styles.segmented} role="group" aria-label={label}>
-        {options.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-            aria-pressed={option.value === value}
-            style={option.value === value ? styles.segmentActive : styles.segment}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}

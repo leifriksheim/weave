@@ -82,7 +82,7 @@ export function Person({
  * they can't, since the + that used to be the only way in gave no reason.
  */
 function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; onClose: () => void }) {
-  const { space, people, roles, me, openSpace } = scope;
+  const { space, people, roles, me } = scope;
   const contacts = useContacts();
   const [copied, setCopied] = useState(false);
   // Asking puts them on the list at once, which would swap the confirmation for "In your contacts".

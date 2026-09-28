@@ -26,7 +26,7 @@ export { createWeaveConnection } from './connection.js';
 export type {
   WeaveConnection,
   WeaveConnectionConfig,
-  ConnectionState,
+  WeaveConnectionState,
   ConnectionStatus,
 } from './connection.js';
 export {

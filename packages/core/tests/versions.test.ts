@@ -5,13 +5,8 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  supersedes,
-  nextVersion,
-  checkVersionShape,
-  newRecordKey,
-  RECORD_KEY_PATTERN,
-} from '../src/records/version.js';
+import { supersedes, nextVersion, checkVersionShape, newRecordKey } from '../src/records/version.js';
+import { RECORD_KEY_PATTERN } from '../src/records/key.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { createSigner } from '../src/schema/signer.js';

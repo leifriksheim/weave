@@ -11,7 +11,7 @@ import { createWeaveConnection } from '@weaveprotocol/core/session';
 import { CONFIGURED_NODES, relayUrls } from './relay';
 
 /** The account home's connect page — ours by default; anyone can run their own */
-export const HOME = import.meta.env.VITE_WEAVE_HOME ?? 'https://weave-home.netlify.app/connect';
+const HOME = import.meta.env.VITE_WEAVE_HOME ?? 'https://weave-home.netlify.app/connect';
 
 export const connection = createWeaveConnection({
   home: HOME,

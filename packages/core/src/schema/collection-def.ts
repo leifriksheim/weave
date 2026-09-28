@@ -134,7 +134,7 @@ export interface StoredCollection {
 }
 
 /** The largest screen a definition may carry, in bytes of UTF-8 — it travels with every copy of the definition */
-export const MAX_SCREEN_BYTES = 48 * 1024;
+const MAX_SCREEN_BYTES = 48 * 1024;
 
 /** At most this many origins a screen may reach */
 export const MAX_SCREEN_ORIGINS = 8;

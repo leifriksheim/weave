@@ -370,7 +370,7 @@ Checks that depend on what else a peer holds are **not** shape checks:
 _Not yet specified:_ whether `prev` must name a held version, and whether a
 `seq` may skip. See the known defect in §4.3, and the plan in §4.7.
 
-_Source: `packages/core/src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `RECORD_KEY_PATTERN`, `MAX_SEEN`), `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepOrDrop`), `packages/core/src/node/space-runtime.ts` (`firstOf`, `consistent`, `write`, `after`). Tests: `packages/core/tests/versions.test.ts` (all), `packages/core/tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first")._
+_Source: `packages/core/src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `MAX_SEEN`), `packages/core/src/records/key.ts` (`RECORD_KEY_PATTERN`), `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepOrDrop`), `packages/core/src/node/space-runtime.ts` (`firstOf`, `consistent`, `write`, `after`). Tests: `packages/core/tests/versions.test.ts` (all), `packages/core/tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first")._
 
 ### 4.7 Planned: versions whose history can be checked
 

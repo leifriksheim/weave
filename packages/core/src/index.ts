@@ -207,7 +207,7 @@ export type {
   SpaceManager,
   SpaceRecord,
   SpaceInvite,
-  InviteOptions,
+  InviteLinkOptions,
   CreateSpaceParams,
 } from './space/space-manager.js';
 export {
@@ -362,6 +362,7 @@ export type {
   NewSpace,
   InvitePreview,
   ListOptions,
+  InviteOptions,
   ConnectionState,
   DelegateParams,
   Delegated,

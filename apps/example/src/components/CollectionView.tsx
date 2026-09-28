@@ -25,7 +25,7 @@ import { DefinitionEditor, useMayRedefine } from './DefinitionEditor';
 import { Value } from './Value';
 import { Avatar } from './Avatar';
 import { reactionSummary } from './std/Reactions';
-import { chip, labelOf as tagLabel } from './std/Tags';
+import { chip, tagLabel } from './std/Tags';
 import { styles, palette } from '../styles';
 import { Person } from './Person';
 

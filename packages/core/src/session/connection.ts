@@ -60,7 +60,7 @@ export interface WeaveConnectionConfig {
  */
 export type ConnectionStatus = 'starting' | 'disconnected' | 'connecting' | 'ready' | 'expired';
 
-export interface ConnectionState {
+export interface WeaveConnectionState {
   readonly status: ConnectionStatus;
   /** The home this app connects to: the person's own, once they chose one, else the default */
   readonly home: string;
@@ -70,8 +70,8 @@ export interface ConnectionState {
 }
 
 export interface WeaveConnection {
-  getState(): ConnectionState;
-  subscribe(listener: (state: ConnectionState) => void): () => void;
+  getState(): WeaveConnectionState;
+  subscribe(listener: (state: WeaveConnectionState) => void): () => void;
   /** Picks up a grant from an earlier visit. Safe to call more than once. */
   start(): Promise<void>;
   /**
@@ -104,15 +104,15 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
     }
   })();
 
-  let state: ConnectionState = Object.freeze({
+  let state: WeaveConnectionState = Object.freeze({
     status: 'starting',
     home: rememberedHome ?? homeAddress(config.home),
     grant: null,
     node: null,
     error: null,
   });
-  const listeners = new Set<(state: ConnectionState) => void>();
-  const update = (patch: Partial<ConnectionState>) => {
+  const listeners = new Set<(state: WeaveConnectionState) => void>();
+  const update = (patch: Partial<WeaveConnectionState>) => {
     state = Object.freeze({ ...state, ...patch });
     for (const listener of listeners) listener(state);
   };

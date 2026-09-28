@@ -22,9 +22,9 @@ import { canonicalize } from '../schema/expression.js';
 import { base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 
 /** Topic fields one collection may name */
-export const MAX_TOPICS = 8;
+const MAX_TOPICS = 8;
 /** Tags one record may carry — a list field of mentions is the usual reason for more than one per field */
-export const MAX_TAGS = 64;
+const MAX_TAGS = 64;
 /** Bytes of HMAC kept per tag: 128 bits, as a truncated MAC */
 const TAG_BYTES = 16;
 

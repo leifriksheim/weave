@@ -22,9 +22,7 @@ const LOOPBACK = ['localhost', '127.0.0.1', '::1', '[::1]'];
  * adding more costs a websocket and removes a single point of failure. A
  * torrent client ships a tracker list for exactly this reason.
  */
-export const CONFIGURED_RELAYS: ReadonlyArray<string> = (
-  import.meta.env.VITE_SIGNALING_URL ?? 'ws://localhost:8787'
-)
+const CONFIGURED_RELAYS: ReadonlyArray<string> = (import.meta.env.VITE_SIGNALING_URL ?? 'ws://localhost:8787')
   .split(',')
   .map((url: string) => url.trim())
   .filter(Boolean);
@@ -40,7 +38,7 @@ export const CONFIGURED_NODES: ReadonlyArray<string> = (import.meta.env.VITE_WEA
   .filter(Boolean);
 
 /** The first configured relay, for messages that talk about one. */
-export const CONFIGURED_RELAY: string = CONFIGURED_RELAYS[0] ?? 'ws://localhost:8787';
+const CONFIGURED_RELAY: string = CONFIGURED_RELAYS[0] ?? 'ws://localhost:8787';
 
 /** Whether a hostname refers to this machine. */
 function isLoopback(host: string): boolean {
@@ -89,7 +87,7 @@ export function relayUrls(): ReadonlyArray<string> {
 }
 
 /** The first usable relay, for the pairing ticket, which carries only one. */
-export function relayUrl(): string {
+function relayUrl(): string {
   return resolveRelay(CONFIGURED_RELAY);
 }
 
@@ -159,9 +157,4 @@ export function relayOnlyLocal(): string | null {
     'computer can meet through it; a phone or another computer cannot. Set VITE_SIGNALING_URL to a ' +
     'public wss:// relay (or `weave run` on a server) and rebuild.'
   );
-}
-
-/** Whether this page is reachable from another device on the network. */
-export function servedOverLan(): boolean {
-  return !isLoopback(globalThis.location.hostname);
 }

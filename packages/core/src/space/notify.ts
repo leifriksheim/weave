@@ -309,7 +309,7 @@ export function readCarried(body: unknown): CarriedSubscription | null {
 }
 
 /** Who a version was written for: the account at the root of its note, else its own key */
-export function rootOf(version: Expression): string {
+function rootOf(version: Expression): string {
   if (!version.proof) return version.author;
   try {
     return parseUCAN(version.proof).payload.iss;
@@ -319,7 +319,7 @@ export function rootOf(version: Expression): string {
 }
 
 /** How long after it was written a record may still notify: a carrier catching up on last week stays quiet */
-export const NOTIFY_WITHIN_MS = 24 * 60 * 60 * 1000;
+const NOTIFY_WITHIN_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Whether a record that just arrived in a space is one a subscription asks

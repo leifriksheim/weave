@@ -7,6 +7,7 @@
 let nextId = 0;
 const id = (prefix: string) => `${prefix}-${++nextId}`;
 
+// fallow-ignore-file unused-class-member -- FakeTrack stands in for MediaStreamTrack, whose members the code under test reaches through the DOM type
 export class FakeTrack {
   readonly id = id('track');
   enabled = true;
@@ -37,7 +38,7 @@ class FakeTransceiver {
 /** Offers waiting for their answer, by the token in their SDP */
 const offers = new Map<string, FakeConnection>();
 
-export class FakeConnection {
+class FakeConnection {
   connectionState: RTCPeerConnectionState = 'new';
   onicecandidate: ((event: { candidate: { toJSON(): RTCIceCandidateInit } | null }) => void) | null = null;
   ontrack: ((event: { track: FakeTrack }) => void) | null = null;

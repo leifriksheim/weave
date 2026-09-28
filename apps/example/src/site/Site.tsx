@@ -21,7 +21,7 @@ export const SPEC = `${GITHUB}/tree/main/spec`;
 /** Links off the site open in a tab of their own */
 export const EXTERNAL = { target: '_blank', rel: 'noreferrer' } as const;
 
-export function Mark({ size = 20 }: { size?: number }) {
+function Mark({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" aria-hidden>
       <path
@@ -102,7 +102,7 @@ export function Page({ page, children }: { page: PageName; children: ReactNode }
 }
 
 /** A small line icon, drawn the same way as the mark */
-export function Icon({ d }: { d: string }) {
+function Icon({ d }: { d: string }) {
   return (
     <span className="icon">
       <svg
