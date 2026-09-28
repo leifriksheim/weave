@@ -9,16 +9,11 @@ import { styles } from '../styles';
 
 const count = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`);
 
-/** "Anna", "Anna and Bob", "Anna, Bob and 3 more" */
-function listed(names: ReadonlyArray<string>): string {
-  if (names.length <= 2) return names.join(' and ');
-  return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
-}
-
 /**
- * Who this space is syncing with right now, in words: the people here by
- * name, your own other devices, and carriers keeping it online — rather than
- * a count of "peers" that says nothing about whose they are. A peer's account
+ * Who this space is syncing with right now, in a few words: their faces and
+ * the one name, or how many people, else your own other devices or what
+ * keeps it online — rather than a count of "peers" that says nothing about
+ * whose they are. The whole list is in its tooltip and on the Network view. A peer's account
  * is the one its connection proved (`status.accounts`), so a name here is
  * someone actually connected, not someone claiming to be.
  */
@@ -87,12 +82,19 @@ export function WhoIsHere({
   ];
   const servers = others.filter((peer) => !status.accounts[peer]).length;
   const helpers = status.carriers.map((did) => carriers.find((c) => c.did === did)?.name ?? 'a carrier');
-  const parts = [
-    here.length > 0 && listed(here.map((did) => nameOf(did, people))),
-    ownDevices > 0 && count(ownDevices, 'your other device', 'of your devices'),
-    servers > 0 && count(servers, 'a server', 'servers'),
-    helpers.length > 0 && `kept online by ${helpers.join(', ')}`,
-  ].filter(Boolean);
+  // Short enough for a sidebar however many are here: who, or how many. The rest is in the tooltip.
+  const short =
+    here.length === 1
+      ? nameOf(here[0], people)
+      : here.length > 1
+        ? `${here.length} people`
+        : ownDevices > 0
+          ? count(ownDevices, 'your other device', 'of your devices')
+          : servers > 0
+            ? count(servers, 'a server', 'servers')
+            : helpers.length > 0
+              ? 'kept online'
+              : 'just you';
 
   return (
     <Badge
@@ -104,7 +106,7 @@ export function WhoIsHere({
         ...(servers > 0
           ? [`• ${servers} ${servers === 1 ? 'server' : 'servers'} that didn't say whose they are`]
           : []),
-        `• ${status.carriers.length} ${status.carriers.length === 1 ? 'carrier' : 'carriers'}, keeping your spaces online without reading them`,
+        `• ${status.carriers.length} ${status.carriers.length === 1 ? 'carrier' : 'carriers'}, keeping your spaces online without reading them${helpers.length ? ` (${helpers.join(', ')})` : ''}`,
         '',
         'Open Network for details',
       ].join('\n')}
@@ -128,14 +130,16 @@ export function WhoIsHere({
       ) : (
         <Dot color={HEALTH_COLOR.syncing} />
       )}
-      <span>online · {parts.length > 0 ? parts.join(' · ') : 'just you'}</span>
+      <span style={ellipsis}>online · {short}</span>
     </Badge>
   );
 }
 
+const ellipsis = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 } as const;
+
 /** The badge, which opens the Network tab when there is one to open */
 function Badge({ onOpen, title, children }: { onOpen?: () => void; title: string; children: ReactNode }) {
-  const style = { ...styles.badge, display: 'inline-flex', alignItems: 'center', gap: 6 };
+  const style = { ...styles.badge, display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%' };
   if (!onOpen)
     return (
       <span style={style} title={title}>

@@ -369,7 +369,14 @@ function SpaceRelays({
                     onClick={() => remove(url)}
                     disabled={busy || named.length === 1}
                     title={named.length === 1 ? 'Add another relay before removing the last one' : undefined}
-                    style={{ ...styles.smallButton, ...variants.danger }}
+                    style={{
+                      ...variants.danger,
+                      ...styles.smallButton,
+                      // The danger variant is a full-width button's; this one sits at the end of a row.
+                      width: 'auto',
+                      flexShrink: 0,
+                      color: palette.accent.danger,
+                    }}
                   >
                     Remove
                   </button>
