@@ -67,8 +67,8 @@ export function Chat({ space, collections, onOpen, since }: AppProps) {
     if (el && stuck.current) el.scrollTop = el.scrollHeight;
   }, [messages?.length]);
 
-  // Who the draft mentions, by the name it shows: filled only when someone is picked after "@",
-  // never guessed from the text, so a message names exactly the people its writer chose.
+  // Who the draft mentions, by the name it shows: whoever was picked after "@", and whoever's
+  // full name was typed after one. Names are shown unique (`nameOf`), so neither is a guess.
   const picked = useRef(new Map<string, string>());
   const [caret, setCaret] = useState(0);
   const [choice, setChoice] = useState(0);
@@ -113,8 +113,15 @@ export function Chat({ space, collections, onOpen, since }: AppProps) {
     const command = polls ? POLL_COMMAND.exec(text) : null;
     if (command) return setAsking(command[1]?.trim() ?? '');
     stuck.current = true;
+    const named = (label: string) =>
+      new RegExp(`(?:^|\\s)@${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s.,!?:;)])`, 'i').test(
+        text,
+      );
+    const typed = [...people.keys()]
+      .filter((did) => did !== me)
+      .map((did) => [nameOf(did, people), did] as const);
     const mentions = [
-      ...new Set([...picked.current].filter(([label]) => text.includes(`@${label}`)).map(([, did]) => did)),
+      ...new Set([...picked.current, ...typed].filter(([label]) => named(label)).map(([, did]) => did)),
     ];
     const to = replying;
     picked.current.clear();

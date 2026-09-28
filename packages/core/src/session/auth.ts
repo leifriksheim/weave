@@ -450,6 +450,9 @@ function subscriptionsFrom(
   return made;
 }
 
+/** How long a proposal's answer waits for another device to have its subscriptions */
+const DELIVER_MS = 8000;
+
 /** Adds each, unless the same origin already has the same one */
 async function addSubscriptions(
   node: P2PNode,
@@ -1377,7 +1380,11 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       // One at a time: two popups answered together would each find the other's not there yet.
       const adding = subscribing.then(() => addSubscriptions(node, origin, when));
       subscribing = adding.catch(() => {});
-      return { v: 1, kind: 'proposed', notify: await adding };
+      const notify = await adding;
+      // The home's window closes once it answers. Until another device — the
+      // app asking, usually — has them, they would exist only here.
+      await node.account.delivered(DELIVER_MS);
+      return { v: 1, kind: 'proposed', notify };
     },
 
     async grantCarry({ origin, request }) {

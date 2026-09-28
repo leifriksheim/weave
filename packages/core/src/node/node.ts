@@ -2000,6 +2000,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       if (!accountSpaceId) throw new Error('Revoking in the account registry needs the account key');
       await (await runtime(accountSpaceId)).revoke(token);
     },
+    async delivered(timeoutMs: number) {
+      if (!accountSpaceId) return true;
+      return (await runtime(accountSpaceId)).delivered(timeoutMs);
+    },
   });
 
   const records: NodeRecords = Object.freeze({
@@ -2240,6 +2244,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         profile: () => accountApi.profile(),
         setName: person('rename the account'),
         revoke: person('revoke notes'),
+        delivered: () => accountApi.delivered(0),
       }),
       carriers: Object.freeze({
         list: () => carriers.list(),

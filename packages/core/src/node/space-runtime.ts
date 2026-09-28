@@ -350,6 +350,11 @@ export interface SpaceRuntime {
   revoke(token: string): Promise<void>;
   /** Whether a note has been revoked here */
   isRevoked(token: string): Promise<boolean>;
+  /**
+   * Resolves true once some peer has said it stored every version this node
+   * wrote since it opened the space, or false when `timeoutMs` runs out first.
+   */
+  delivered(timeoutMs: number): Promise<boolean>;
   /** Uses an invite's secret, once its record has arrived. True when this account is a member. */
   join(secret: Uint8Array): Promise<boolean>;
   /**
@@ -2106,6 +2111,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
   }
 
+  /** Versions written here that no peer has said it stored yet, and who is waiting for that */
+  const undelivered = new Set<string>();
+  const deliveredWaiters = new Set<() => void>();
+
   sync.on('synced', (_peer: string, full: boolean) => {
     if (!cache || !full || cacheState.settled) return;
     // Caught up with a node holding everything: the access history here is the space's now.
@@ -2115,6 +2124,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   });
   sync.on('stored', (peer: string, ids: ReadonlyArray<string>) => {
     void confirm(peer, { ids: new Set(ids) }).catch(() => {});
+    for (const id of ids) undelivered.delete(id);
+    if (undelivered.size === 0) for (const done of deliveredWaiters) done();
   });
   sync.on('level', (peer: string, collection: string, full: boolean) => {
     if (cache && full && cacheState.level[collection] === undefined) {
@@ -2307,6 +2318,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (!stands.ok) throw new Error(stands.reason);
     }
     await storage.addExpression(signed);
+    undelivered.add(signed.id);
     await markPending(signed);
     channel?.postMessage('changed');
     sync.onLocalChange(signed);
@@ -2732,6 +2744,20 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     async isRevoked(token: string) {
       return (await access()).history.revoked(await noteCid(token)) !== null;
+    },
+
+    delivered(timeoutMs: number) {
+      if (undelivered.size === 0) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        const done = (result: boolean) => {
+          clearTimeout(timer);
+          deliveredWaiters.delete(finish);
+          resolve(result);
+        };
+        const finish = () => done(true);
+        const timer = setTimeout(() => done(false), timeoutMs);
+        deliveredWaiters.add(finish);
+      });
     },
 
     async join(secret: Uint8Array) {
