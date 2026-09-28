@@ -108,7 +108,7 @@ export function CreateApp({
         ))}
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <button
           onClick={copy}
           disabled={!what}
@@ -213,9 +213,8 @@ const chip = {
 } as const;
 
 const action = {
-  flex: '1 1 auto',
-  width: 'auto',
-  display: 'inline-flex',
+  width: '100%',
+  display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   gap: 8,
