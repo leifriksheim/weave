@@ -124,7 +124,22 @@ export function AccountMenu() {
           <Divider />
 
           <div style={{ padding: 6 }}>
-            {notifications.on === 0 ? (
+            {notifications.permission === 'denied' ? (
+              <p style={{ margin: '4px 10px 6px', fontSize: 12, lineHeight: 1.45, color: palette.ink.faint }}>
+                Notifications are blocked for this site. Allow them from the icon left of the address, then
+                come back here.
+              </p>
+            ) : notifications.permission === 'default' ? (
+              // Its own step: a browser prompt opened with the home's window easily goes unseen behind it.
+              <Item
+                onClick={notifications.allow}
+                hint={
+                  notifications.on > 0 ? `${notifications.on} on in your account` : 'First, in this browser'
+                }
+              >
+                Allow notifications here
+              </Item>
+            ) : notifications.on === 0 ? (
               <Item
                 onClick={notifications.turnOn}
                 disabled={notifications.asking}
@@ -132,7 +147,7 @@ export function AccountMenu() {
               >
                 {notifications.asking ? 'Asking your account home…' : 'Turn on notifications'}
               </Item>
-            ) : notifications.permission === 'granted' ? (
+            ) : (
               <Item
                 onClick={() => {
                   setOpen(false);
@@ -141,10 +156,6 @@ export function AccountMenu() {
                 hint={`${notifications.on} on · manage`}
               >
                 Notifications
-              </Item>
-            ) : (
-              <Item onClick={notifications.allow} hint={`${notifications.on} on in your account`}>
-                Allow notifications here
               </Item>
             )}
             {notifications.error && (

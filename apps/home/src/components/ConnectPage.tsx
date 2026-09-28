@@ -393,7 +393,12 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void session.node.spaces.list().then(setSpaces, () => {});
+    const load = () => void session.node.spaces.list().then(setSpaces, () => {});
+    load();
+    // A space the app made just now reaches this home a moment later.
+    return session.node.subscribe((event) => {
+      if (event.type === 'spaces' || event.type === 'account') load();
+    });
   }, [session]);
 
   const who = connection?.name ?? request.name ?? asker(origin);
