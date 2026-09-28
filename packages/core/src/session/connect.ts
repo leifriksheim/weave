@@ -114,6 +114,11 @@ export interface Proposed {
   readonly kind: 'proposed';
   /** The subscriptions added or found, by the person's yes: none when they kept none */
   readonly notify: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+  /**
+   * Whether another device has stored them. False: they are on the home alone
+   * and reach the app only when the two next meet; proposing again retries.
+   */
+  readonly delivered: boolean;
 }
 
 /** Whether a request the home received is a proposal rather than a connection */
@@ -408,7 +413,8 @@ export async function proposeToHome(options: {
   const answer = await askHome<Proposed | null>(popup, homeUrl.origin, request, options.timeoutMs);
   if (answer?.kind !== 'proposed' || !Array.isArray(answer.notify))
     throw new Error('Your account home did not answer the proposal.');
-  return answer;
+  // A home from before it said so answered without waiting: take it at its word.
+  return { ...answer, delivered: answer.delivered !== false };
 }
 
 /** Refuses a carry grant that is not an invite to a private space the account made. */

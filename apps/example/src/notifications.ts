@@ -103,6 +103,9 @@ function useAsk() {
       setAsking(true);
       proposing
         .then((answer) => {
+          // Kept, but only on the home: this app would lose them on refresh. Asking again hands them on.
+          if (!answer.delivered)
+            return setError('Your account home couldn’t pass this on to this app. Try again.');
           const labels = new Set(answer.notify.map((sub) => sub.label));
           const yes = proposals.filter((proposal) => labels.has(proposal.label.trim()));
           setKept((was) => new Set([...was, ...yes.map(proposalKey)]));

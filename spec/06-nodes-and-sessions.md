@@ -517,13 +517,22 @@ When the person approves (`auth.propose({ origin, request, notify? })`, where
    `since` is now; `app` is `{ origin, name? }` with `name` the connection's,
    else the request's, cut to 80. A proposal equal to a subscription the same
    origin already has (same collection, spaces, topic and `others`) is not
-   added again.
-5. Answers `weave:grant` with `Proposed`:
-   `{ v: 1, kind: "proposed", notify: { id, label }[] }`, the subscriptions
-   added or found; empty when the person kept none.
+   added again; the home MUST write that one again unchanged, as a new
+   version, since it may never have left the home.
+5. Waits, up to 8 seconds, until another device has stored every version it
+   wrote in step 4 (a `stored` acknowledgement, [05](05-sync-and-storage.md) §4).
+   It closes once it answers, so without the wait they could exist on the
+   home alone.
+6. Answers `weave:grant` with `Proposed`:
+   `{ v: 1, kind: "proposed", notify: { id, label }[], delivered }`, the
+   subscriptions added or found, empty when the person kept none, and
+   `delivered` true once another device has stored them (true when there
+   were none). False means they are on the home alone, and reach the app
+   only when the two next meet; proposing them again retries.
 
 Nothing else changes: the app gets no access it did not have, no note, and
-learns only which of its suggestions were kept.
+learns only which of its suggestions were kept, and whether they left the
+home.
 
 Example:
 
@@ -554,7 +563,8 @@ answered with
   "grant": {
     "v": 1,
     "kind": "proposed",
-    "notify": [{ "id": "notify:k3v6mzq4ha2tmbyx", "label": "New message in Club" }]
+    "notify": [{ "id": "notify:k3v6mzq4ha2tmbyx", "label": "New message in Club" }],
+    "delivered": true
   }
 }
 ```
@@ -575,7 +585,7 @@ it started is never news. How it shows a match is the app's to decide.
 > chose from the kinds of record it sees go by would be a guess at the
 > person's words. An app they are looking at knows what its records mean.
 
-_Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`, `matchesRecord`), `packages/core/src/node/watch-notifications.ts` (`watchNotifications`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions", "an app showing its own notifications", "the home receiving a request")._
+_Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`, `addSubscriptions`), `packages/core/src/node/space-runtime.ts` (`delivered`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`, `matchesRecord`), `packages/core/src/node/watch-notifications.ts` (`watchNotifications`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions", "an app showing its own notifications", "the home receiving a request")._
 
 > **Planned: a wallet as the account home.** The same job — hold the root and
 > hand an app's key a note — done by a credential wallet through the Digital
