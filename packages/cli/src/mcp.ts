@@ -110,7 +110,8 @@ export async function handleMcpMessage(
         serverInfo,
         instructions:
           `You are acting for the identity ${node.did}. Spaces hold signed records in named collections ` +
-          '(e.g. "app.todo.item"); start with spaces_list. Writes are signed and synced to every member of the space.' +
+          '(e.g. "std.event"); start with spaces_list. Writes are signed and synced to every member of the space. ' +
+          'Standard collections (collections_standard) are shared by every app that uses them; prefer them to shapes of your own.' +
           (options.agent
             ? ' You are an agent: what you write shows as the person\'s, "via agent". You cannot add collections or change ' +
               'who is in a space; to make something new, propose an app (apps_propose) and the person adds it.'

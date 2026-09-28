@@ -143,10 +143,19 @@ import { reaction, comment, poll, vote, useSchemas } from '@weaveprotocol/core/s
 await useSchemas(node, space.id, [poll, vote, reaction, comment]); // defines only what the space is missing
 ```
 
-Annotations that attach to any record: `reaction`, `comment`, `tag`,
-`attachment`, `reference`. Common nouns: `message`, `column`, `task`, `poll`,
-`vote`, `call`. They are ordinary collections. Using the same one is how two
-apps agree: a poll asked in one can be voted on in another.
+About seventy definitions, by area (`standardGroups`): annotations that attach
+to any record (`reaction`, `comment`, `rating`, `bookmark`, `claim`…), people
+(`profile`, `follow`…), messaging and publishing (`message`, `post`,
+`article`, `doc` and `docBlock`, `note`…), lists (`list`, `listItem`), files
+and media, time and planning (`event`, `rsvp`, `task`, `booking`…), places,
+home and life (`recipe`, `meal`…), money (`expense`, `settlement`…) and
+community (`poll`, `vote`, `proposal`…). The full list is Appendix A of
+[spec/02-records.md](../../../spec/02-records.md).
+
+They are ordinary collections. Using the same one is how two apps agree: a
+poll asked in one can be voted on in another. For shapes of your own, the
+`fragments` export builds times, money, places and files the same way the
+library does.
 
 Hand-made order (cards on a board) uses a `position` string.
 `positionBetween(before, after)` makes one that sorts between two others, so

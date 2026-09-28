@@ -31,6 +31,8 @@ import {
   SCREEN_CLIENT,
   screenDocument,
   screenPolicy,
+  standardDefinition,
+  standardSchemas,
   vote,
   poll,
   type App,
@@ -413,6 +415,102 @@ describe('apps an agent proposes', () => {
     assert.equal(review.needs[1]?.status, 'new');
   });
 
+  test('a change to a collection another app uses names that app, and warns the agent', async () => {
+    const { alice, space } = await setup();
+    const agent = await agentFor(alice, [space]);
+    const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
+    const Proposed = z.object({
+      key: z.string(),
+      warnings: z.array(z.string()).optional(),
+      needs: z.array(
+        z.object({ name: z.string(), status: z.string(), usedBy: z.array(z.string()).optional() }),
+      ),
+    });
+    const first = Proposed.parse(await runAction(helper, 'apps_propose', { space, ...carpool }));
+    await addApp(alice.node, space, first.key);
+
+    const [trip] = carpool.needs;
+    assert.ok(trip);
+    const rides = { title: 'Rides', needs: [{ ...trip, schema: { type: 'object', properties: {} } }] };
+    const clash = Proposed.parse(await runAction(helper, 'apps_propose', { space, ...rides }));
+    assert.deepEqual(clash.needs[0]?.usedBy, ['Carpool']);
+    assert.match(clash.warnings?.[0] ?? '', /app\.carpool\.trip, which Carpool uses/);
+
+    // As a new version of Carpool itself, it touches nothing else.
+    const update = Proposed.parse(
+      await runAction(helper, 'apps_propose', { space, ...rides, updates: first.key }),
+    );
+    assert.equal(update.warnings, undefined);
+    assert.equal(update.needs[0]?.usedBy, undefined);
+  });
+
+  test('a standard collection by name is exactly the library’s; a look-alike std.* is refused', async () => {
+    const { alice, space } = await setup();
+    const agent = await agentFor(alice, [space]);
+    const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
+    const host = { name: 'meetup.host', schema: { type: 'object', properties: {} } };
+    const Proposed = z.object({ key: z.string() });
+
+    const proposed = Proposed.parse(
+      await runAction(helper, 'apps_propose', {
+        space,
+        title: 'Meetups',
+        needs: ['std.event', 'std.rsvp', host],
+      }),
+    );
+    const record = await alice.node.records.get<App>(space, proposed.key);
+    const stored = record?.body?.needs ?? [];
+    assert.deepEqual(
+      stored.map((n) => n.name),
+      ['std.event', 'std.rsvp', 'meetup.host'],
+    );
+    assert.deepEqual(stored[0]?.rules, standardDefinition('std.event')?.rules);
+    assert.deepEqual(stored[1]?.links, standardDefinition('std.rsvp')?.links);
+
+    // Its own screen on a standard collection is fine; its own shape is not.
+    const event = standardDefinition('std.event')!;
+    await runAction(helper, 'apps_propose', {
+      space,
+      title: 'Calendar',
+      needs: [{ ...event, screen: '<p>A month</p>' }],
+    });
+    await assert.rejects(
+      () =>
+        runAction(helper, 'apps_propose', {
+          space,
+          title: 'Calendar',
+          needs: [{ ...event, rules: { edit: 'member' } }],
+        }),
+      /different shape/,
+    );
+    await assert.rejects(
+      () => runAction(helper, 'apps_propose', { space, title: 'X', needs: ['std.made-up'] }),
+      /not in the standard library/,
+    );
+  });
+
+  test('collections_standard lists the library by area, and gives definitions in full', async () => {
+    const { alice } = await setup();
+    const Areas = z.array(
+      z.object({ area: z.string(), collections: z.array(z.object({ name: z.string(), title: z.string() })) }),
+    );
+    const areas = Areas.parse(await runAction(alice.node, 'collections_standard', {}));
+    const listed = areas.flatMap((a) => a.collections.map((c) => c.name));
+    assert.equal(listed.length, standardSchemas.length);
+    assert.ok(listed.includes('std.event') && listed.includes('std.list-item'));
+
+    const Full = z.array(
+      z.object({ name: z.string(), schema: z.object({}).loose(), summary: z.array(z.string()) }),
+    );
+    const [rsvp] = Full.parse(await runAction(alice.node, 'collections_standard', { names: ['std.rsvp'] }));
+    assert.equal(rsvp?.name, 'std.rsvp');
+    assert.ok(rsvp?.summary.some((line) => /One rsvp per person per event/.test(line)));
+    await assert.rejects(
+      () => runAction(alice.node, 'collections_standard', { names: ['std.nope'] }),
+      /not in the standard library/,
+    );
+  });
+
   test('copying an app into another space proposes it there, and says where it came from', async () => {
     const { alice, space } = await setup();
     const { id: other } = await alice.node.spaces.create({ name: 'Other gym', visibility: 'public' });
@@ -445,8 +543,8 @@ describe('what a collection allows, in words', () => {
     assert.deepEqual(describeCollection(vote), [
       'Anyone in the space can add a vote.',
       'Only whoever added a vote can change or remove it.',
-      'One vote per person per poll — adding another changes the first.',
-      'Each vote points at one thing: a poll (“about”).',
+      'One vote per person per poll or proposal — adding another changes the first.',
+      'Each vote points at one thing: a poll or a proposal (“about”).',
     ]);
   });
 

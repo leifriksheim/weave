@@ -64,10 +64,10 @@ function fieldLabel(schema: unknown, field: string): string {
   return typeof title === 'string' && title.trim() ? title.trim().toLowerCase() : words(field);
 }
 
-/** What a link role points at, in words: "trip" when it names one collection, else the role's own name */
+/** What a link role points at, in words: "trip", or "poll or proposal", when it names collections, else the role's own name */
 function linkTarget(definition: Describable, rel: string): string {
   const to = definition.links?.[rel]?.to;
-  return to !== undefined && isList(to) && to.length === 1 ? words(to[0]!) : words(rel);
+  return to !== undefined && isList(to) ? joinOr(to.map(words)) : words(rel);
 }
 
 /**

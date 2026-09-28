@@ -1,0 +1,167 @@
+/**
+ * People: who someone is, who they follow, block and mute, what they are up to.
+ * Blocks and mutes are one person's choice, so they belong in that person's
+ * own space rather than in a space others read.
+ */
+import {
+  address,
+  blob,
+  day,
+  own,
+  person,
+  text,
+  typed,
+  url,
+  when,
+  words,
+  type Address,
+  type BlobRef,
+} from '../fragments.js';
+
+/**
+ * How someone presents themselves: more than the name every space keeps for
+ * them (`sys.profile`). One per person.
+ */
+export const profile = typed<Profile>()({
+  name: 'std.profile',
+  title: 'Profile',
+  description: 'How someone presents themselves: one per person.',
+  schema: {
+    type: 'object',
+    properties: {
+      name: text(100),
+      bio: text(2000),
+      avatar: blob(),
+      banner: blob(),
+      pronouns: text(50),
+      links: {
+        type: 'array',
+        maxItems: 16,
+        items: {
+          type: 'object',
+          properties: { title: text(100), url: url() },
+          required: ['url'],
+        },
+      },
+    },
+  },
+  rules: { ...own, onePer: ['@author'] },
+});
+export interface Profile {
+  readonly name?: string;
+  readonly bio?: string;
+  readonly avatar?: BlobRef;
+  readonly banner?: BlobRef;
+  readonly pronouns?: string;
+  readonly links?: ReadonlyArray<{ readonly title?: string; readonly url: string }>;
+}
+
+const labelled = (value: Record<string, unknown>, required: string) => ({
+  type: 'array',
+  maxItems: 16,
+  items: {
+    type: 'object',
+    properties: { ...value, label: text(50, 'Like "work" or "home"') },
+    required: [required],
+  },
+});
+
+/**
+ * A person who may not be on Weave: a subset of JSContact (RFC 9553). For
+ * people who are, `std.contact` keeps their DID.
+ */
+export const card = typed<Card>()({
+  name: 'std.card',
+  title: 'Contact card',
+  description: 'A person’s name, emails, phones and addresses, as an address book keeps them.',
+  schema: {
+    type: 'object',
+    properties: {
+      name: {
+        type: 'object',
+        properties: { full: text(200), given: text(100), family: text(100) },
+      },
+      emails: labelled({ address: words(320) }, 'address'),
+      phones: labelled({ number: words(64) }, 'number'),
+      addresses: labelled({ address: address() }, 'address'),
+      organization: text(200),
+      jobTitle: text(200),
+      birthday: day(),
+      photo: blob(),
+      urls: { type: 'array', maxItems: 16, items: url() },
+      note: text(10000),
+    },
+  },
+});
+export interface Card {
+  readonly name?: { readonly full?: string; readonly given?: string; readonly family?: string };
+  readonly emails?: ReadonlyArray<{ readonly address: string; readonly label?: string }>;
+  readonly phones?: ReadonlyArray<{ readonly number: string; readonly label?: string }>;
+  readonly addresses?: ReadonlyArray<{ readonly address: Address; readonly label?: string }>;
+  readonly organization?: string;
+  readonly jobTitle?: string;
+  readonly birthday?: string;
+  readonly photo?: BlobRef;
+  readonly urls?: ReadonlyArray<string>;
+  readonly note?: string;
+}
+
+/** Following someone: their DID, and the space they publish in if known. */
+export const follow = typed<Follow>()({
+  name: 'std.follow',
+  title: 'Follow',
+  description: 'Following a person: one per person followed.',
+  schema: {
+    type: 'object',
+    properties: { did: person('Who is followed'), space: text(256, 'The space they publish in') },
+    required: ['did'],
+  },
+  rules: { ...own, onePer: ['@author', 'did'] },
+});
+export interface Follow {
+  readonly did: string;
+  readonly space?: string;
+}
+
+const avoided = (name: string, title: string, description: string) =>
+  typed<Avoid>()({
+    name,
+    title,
+    description,
+    schema: {
+      type: 'object',
+      properties: { did: person(), until: when('Until when; forever without one') },
+      required: ['did'],
+    },
+    rules: { ...own, onePer: ['@author', 'did'] },
+  });
+export interface Avoid {
+  readonly did: string;
+  readonly until?: string;
+}
+
+/** Someone whose records an app hides and whose invitations it refuses. Keep it in your own space. */
+export const block = avoided(
+  'std.block',
+  'Block',
+  'Someone to hide and keep away. Keep it in your own space.',
+);
+/** Someone whose records an app quiets but still shows when asked. Keep it in your own space. */
+export const mute = avoided('std.mute', 'Mute', 'Someone to quiet for a while. Keep it in your own space.');
+
+/** What someone is up to right now: one per person, gone after `until`. */
+export const status = typed<Status>()({
+  name: 'std.status',
+  title: 'Status',
+  description: 'What someone is up to now: one per person.',
+  schema: {
+    type: 'object',
+    properties: { text: text(280), emoji: text(16), until: when('When it stops showing') },
+  },
+  rules: { ...own, onePer: ['@author'] },
+});
+export interface Status {
+  readonly text?: string;
+  readonly emoji?: string;
+  readonly until?: string;
+}
