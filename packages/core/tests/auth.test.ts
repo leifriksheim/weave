@@ -59,7 +59,7 @@ async function createAccount(auth: WeaveAuth, name: string, password = PASSWORD)
   await auth.createAccount(name);
   const code = auth.getState().freshCode!;
   auth.codeSaved();
-  assert.equal(await auth.setPassword(password), true, auth.getState().error?.message);
+  assert.equal(await auth.setPassword(password), true, auth.getState().error?.message ?? 'no reason given');
   return code;
 }
 
@@ -124,7 +124,7 @@ describe('createWeaveAuth', () => {
     assert.equal(back.stage, 'ready');
     assert.equal(back.session?.did, did);
     assert.deepEqual(
-      (await back.session!.node.spaces.list()).map((s) => s.id),
+      (await back.session.node.spaces.list()).map((s) => s.id),
       [space.id],
     );
   });

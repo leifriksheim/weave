@@ -4,6 +4,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import * as z from 'zod';
 
 import {
   asStandardSchema,
@@ -107,9 +108,8 @@ describe('stored schemas', () => {
     assert.deepEqual(await standard['~standard'].validate({ what: 'a', amount: 1 }), {
       value: { what: 'a', amount: 1 },
     });
-    const failed = (await standard['~standard'].validate({ what: 'a', amount: 'lots' })) as {
-      issues: Array<{ message: string }>;
-    };
+    const failed = await standard['~standard'].validate({ what: 'a', amount: 'lots' });
+    assert.ok(failed.issues);
     assert.match(failed.issues[0]!.message, /^\/amount:/);
   });
 });
@@ -288,11 +288,9 @@ describe('a space that describes itself', () => {
 
   test('an agent can discover and define collections through the actions', async () => {
     const me = await person();
-    const space = (await runAction(me, 'spaces_create', {
-      name: 'Friends',
-      roles: 'team',
-      visibility: 'private',
-    })) as { id: string };
+    const space = z
+      .object({ id: z.string() })
+      .parse(await runAction(me, 'spaces_create', { name: 'Friends', roles: 'team', visibility: 'private' }));
     await runAction(me, 'collections_define', {
       space: space.id,
       name: 'app.friends.poll',
@@ -304,10 +302,9 @@ describe('a space that describes itself', () => {
         required: ['question', 'options'],
       },
     });
-    const listed = (await runAction(me, 'collections_list', { space: space.id })) as Array<{
-      name: string;
-      title: string;
-    }>;
+    const listed = z
+      .array(z.object({ name: z.string(), title: z.string() }))
+      .parse(await runAction(me, 'collections_list', { space: space.id }));
     assert.deepEqual(
       listed.map((c) => [c.name, c.title]),
       [['app.friends.poll', 'Poll']],

@@ -3,6 +3,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import * as z from 'zod';
 
 import { createNode } from '../src/node/node.js';
 import { runAction } from '../src/node/actions.js';
@@ -279,31 +280,27 @@ describe('for agents', () => {
 
     await useSchemas(me, space, [reactionSchema, commentSchema]);
     await useSchemas(me, space, [reactionSchema, commentSchema]); // again: nothing redefined
-    const listed = (await runAction(me, 'collections_list', { space })) as Array<{
-      name: string;
-      version: number;
-      links: Record<string, unknown>;
-    }>;
+    const listed = z
+      .array(z.object({ name: z.string(), version: z.number(), links: z.record(z.string(), z.unknown()) }))
+      .parse(await runAction(me, 'collections_list', { space }));
     const comment = listed.find((c) => c.name === 'std.comment');
     assert.equal(comment?.version, 1);
     assert.deepEqual(Object.keys(comment?.links ?? {}), ['about', 'replyTo']);
 
-    const todo = (await runAction(me, 'records_put', {
-      space,
-      collection: 'app.todo.item',
-      body: { text: 'pack' },
-    })) as { key: string };
+    const todo = z
+      .object({ key: z.string() })
+      .parse(
+        await runAction(me, 'records_put', { space, collection: 'app.todo.item', body: { text: 'pack' } }),
+      );
     await runAction(me, 'records_put', {
       space,
       collection: 'std.comment',
       body: { text: 'bring the adapter' },
       links: [{ rel: 'about', to: todo.key }],
     });
-    const onIt = (await runAction(me, 'records_linked', {
-      space,
-      key: todo.key,
-      collection: 'std.comment',
-    })) as Array<{ body: { text: string } }>;
+    const onIt = z
+      .array(z.object({ body: z.object({ text: z.string() }) }))
+      .parse(await runAction(me, 'records_linked', { space, key: todo.key, collection: 'std.comment' }));
     assert.deepEqual(
       onIt.map((c) => c.body.text),
       ['bring the adapter'],

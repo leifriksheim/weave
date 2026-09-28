@@ -6,6 +6,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { isRecord } from './helpers/shape.js';
 
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
@@ -84,8 +85,11 @@ async function device(store: BlobStore, refuse: (version: Expression) => boolean
   return { storage, mirror };
 }
 
+/** A note's text, or undefined for a body that has none */
+const textOf = (body: unknown) => (isRecord(body) ? body.text : undefined);
+
 const texts = async (storage: StorageProvider) =>
-  (await storage.listCurrent()).map((version) => (version.body as { text: string }).text).sort();
+  (await storage.listCurrent()).map((version) => textOf(version.body)).sort();
 
 describe('a mirror', () => {
   test('two devices never online together meet through it — and no file is written twice', async () => {
@@ -137,10 +141,7 @@ describe('a mirror', () => {
     await writer.storage.addExpression(await note(who, 'junk'));
     await writer.mirror.flush();
 
-    const reader = await device(
-      shared.store,
-      (version) => (version.body as { text?: string }).text === 'junk',
-    );
+    const reader = await device(shared.store, (version) => textOf(version.body) === 'junk');
     await reader.mirror.pull();
     assert.deepEqual(await texts(reader.storage), ['fine']);
   });
@@ -210,10 +211,11 @@ describe('a mirror', () => {
 describe('the S3 driver', () => {
   /** A bucket answering the way S3 does, one listing page at a time */
   function fakeS3(pageSize = 2) {
-    const objects = new Map<string, Uint8Array>();
+    const objects = new Map<string, Uint8Array<ArrayBuffer>>();
     const seen: Request[] = [];
     let busyOnce = true;
-    const fetchS3 = (async (request: Request) => {
+    const fetchS3: typeof fetch = async (input, init) => {
+      const request = input instanceof Request && init === undefined ? input : new Request(input, init);
       seen.push(request);
       const url = new URL(request.url);
       const [, bucket, ...rest] = url.pathname.split('/');
@@ -246,7 +248,7 @@ describe('the S3 driver', () => {
       return found
         ? new Response(found, { status: 200 })
         : new Response('<Error><Code>NoSuchKey</Code></Error>', { status: 404 });
-    }) as unknown as typeof fetch;
+    };
     return { fetchS3, objects, seen };
   }
 

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { createNode } from '../src/node/node.js';
 import { createCarrierNode, type CarrierNode } from '../src/node/carrier.js';
-import { folderStores } from '../src/node/stores.js';
+import { folderStores, type StoreFactory } from '../src/node/stores.js';
 import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
@@ -53,7 +53,7 @@ const onHub = (hub: FakeHub) => ({
 async function device(
   me: Account,
   hub: FakeHub | null,
-  stores = memoryStores(),
+  stores: StoreFactory = memoryStores(),
   options: { accountKey?: boolean } = {},
 ): Promise<P2PNode> {
   const node = await createNode({

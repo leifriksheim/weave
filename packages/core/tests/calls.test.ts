@@ -17,7 +17,7 @@ import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { joined } from './helpers/joined.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
-import { fakeConnection, fakeStream, fakeUserMedia, FakeTrack } from './helpers/fake-rtc.js';
+import { fakeConnection, fakeDisplayMedia, fakeStream, fakeUserMedia } from './helpers/fake-rtc.js';
 import { team } from '../src/space/presets.js';
 import { hold, letGo } from './helpers/hold.js';
 
@@ -31,7 +31,7 @@ afterEach(async () => {
 const OPTIONS: CallsOptions = {
   createConnection: fakeConnection,
   getUserMedia: fakeUserMedia,
-  getDisplayMedia: async () => fakeStream([new FakeTrack('video') as unknown as MediaStreamTrack]),
+  getDisplayMedia: fakeDisplayMedia,
   createStream: (tracks) => fakeStream(tracks),
   storage: null,
   heartbeatMs: 100,
@@ -198,7 +198,7 @@ describe('calls', () => {
       await bob.node.records.list<{ status: string; people: string[] }>(id, { collection: 'std.call' })
     )[0]!;
     assert.equal(ended.body?.status, 'ended');
-    assert.deepEqual([...ended.body!.people].sort(), [alice.node.did, bob.node.did].sort());
+    assert.deepEqual([...ended.body.people].sort(), [alice.node.did, bob.node.did].sort());
   });
 
   test('the call goes on when the screen showing its space closes it', async () => {

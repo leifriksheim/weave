@@ -113,7 +113,7 @@ export interface MemoryDirectory {
  * @param name What to call it
  * @returns The directory, and a way to open further handles onto the same tree
  */
-export function createMemoryDirectory(name: string = 'data'): MemoryDirectory {
+export function createMemoryDirectory(name = 'data'): MemoryDirectory {
   const root = emptyNode();
 
   function walk(node: Node, prefix: string, out: string[]): void {

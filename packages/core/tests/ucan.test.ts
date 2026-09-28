@@ -42,7 +42,7 @@ describe('issueUCAN / verifyUCAN', () => {
     assert.equal(token.payload.aud, session.did);
 
     const result = await verifyUCAN(token.encoded, provider);
-    assert.equal(result.valid, true, result.reason);
+    assert.equal(result.valid, true, result.reason ?? 'no reason given');
     assert.deepEqual(result.capabilities, [WRITE]);
   });
 
@@ -138,7 +138,7 @@ describe('delegateCapabilities', () => {
     assert.equal(child.payload.exp <= parent.payload.exp, true);
 
     const chain = await validateDelegationChain(child.encoded, [parent.encoded], provider);
-    assert.equal(chain.valid, true, chain.reason);
+    assert.equal(chain.valid, true, chain.reason ?? 'no reason given');
   });
 
   test('refuses to escalate beyond the parent capabilities', async () => {
@@ -198,7 +198,7 @@ describe('validateDelegationChain', () => {
     const root = await makeKey();
     const token = await issueUCAN({ issuer: root, audience: root.did, capabilities: [ALL] }, provider);
     const chain = await validateDelegationChain(token.encoded, [], provider);
-    assert.equal(chain.valid, true, chain.reason);
+    assert.equal(chain.valid, true, chain.reason ?? 'no reason given');
   });
 
   test('reports a missing proof', async () => {

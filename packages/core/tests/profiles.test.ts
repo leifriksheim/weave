@@ -4,6 +4,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import * as z from 'zod';
 
 import { createNode } from '../src/node/node.js';
 import { runAction } from '../src/node/actions.js';
@@ -197,10 +198,9 @@ describe('profiles', () => {
       4000,
       'own profile',
     );
-    const listed = (await runAction(alice.node, 'spaces_profiles', { space })) as Array<{
-      did: string;
-      name: string;
-    }>;
+    const listed = z
+      .array(z.object({ did: z.string(), name: z.string() }))
+      .parse(await runAction(alice.node, 'spaces_profiles', { space }));
     assert.deepEqual(
       listed.map((p) => [p.did, p.name]),
       [[alice.node.did, 'Alice']],

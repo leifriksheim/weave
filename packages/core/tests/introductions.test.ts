@@ -15,6 +15,7 @@ import {
 } from '../src/network/introductions.js';
 import { createMultiSignalingClient } from '../src/network/multi-signaling.js';
 import type { SignalingClient } from '../src/network/signaling.js';
+import { isRecord } from './helpers/shape.js';
 
 describe('who opens the connection', () => {
   test('exactly one side of any pair initiates', () => {
@@ -91,7 +92,9 @@ interface FakeSocket {
 }
 
 let sockets: FakeSocket[] = [];
-const realWebSocket = (globalThis as { WebSocket?: unknown }).WebSocket;
+/** The global the signaling client opens sockets with, swapped for the fake */
+const global: { WebSocket?: unknown } = globalThis;
+const realWebSocket = global.WebSocket;
 
 /**
  * Clients to shut down after each test.
@@ -102,30 +105,23 @@ const realWebSocket = (globalThis as { WebSocket?: unknown }).WebSocket;
  */
 let created: SignalingClient[] = [];
 
-function makeClient(urls: ReadonlyArray<string>, did: string = 'did:key:zMe'): SignalingClient {
+function makeClient(urls: ReadonlyArray<string>, did = 'did:key:zMe'): SignalingClient {
   const client = createMultiSignalingClient(urls, did);
   created.push(client);
   return client;
 }
 
 /** A WebSocket that opens immediately and records what it was told to send. */
-function installFakeWebSocket(): void {
-  sockets = [];
+class FakeWebSocket implements FakeSocket {
+  static readonly OPEN = 1;
+  readyState = 0;
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  sent: string[] = [];
 
-  function FakeWebSocketCtor(this: FakeSocket, url: string) {
-    this.url = url;
-    this.readyState = 0;
-    this.onopen = null;
-    this.onmessage = null;
-    this.onerror = null;
-    this.onclose = null;
-    this.sent = [];
-    this.send = (data: string) => void this.sent.push(data);
-    this.close = () => {
-      this.readyState = 3;
-      this.onclose?.();
-    };
-
+  constructor(public url: string) {
     sockets.push(this);
     queueMicrotask(() => {
       this.readyState = 1;
@@ -133,9 +129,21 @@ function installFakeWebSocket(): void {
     });
   }
 
-  (FakeWebSocketCtor as unknown as { OPEN: number }).OPEN = 1;
-  (globalThis as { WebSocket?: unknown }).WebSocket = FakeWebSocketCtor;
+  send = (data: string) => void this.sent.push(data);
+
+  close = () => {
+    this.readyState = 3;
+    this.onclose?.();
+  };
 }
+
+function installFakeWebSocket(): void {
+  sockets = [];
+  global.WebSocket = FakeWebSocket;
+}
+
+/** What a socket was told to send, read back */
+const sentOn = (socket: FakeSocket) => socket.sent.map((m): unknown => JSON.parse(m)).filter(isRecord);
 
 /** Delivers a message as if it had arrived from a relay. */
 function deliver(socket: FakeSocket, message: unknown): void {
@@ -150,7 +158,7 @@ describe('several relays at once', () => {
 
   afterEach(() => {
     for (const client of created) client.disconnect();
-    (globalThis as { WebSocket?: unknown }).WebSocket = realWebSocket;
+    global.WebSocket = realWebSocket;
   });
 
   test('connects to every relay', async () => {
@@ -236,14 +244,13 @@ describe('several relays at once', () => {
     await client.connect();
     client.join('r2');
     const joins = (socket: FakeSocket) =>
-      socket.sent
-        .map((m) => JSON.parse(m))
+      sentOn(socket)
         .filter((m) => m.type === 'join')
         .map((m) => m.room);
     for (const socket of sockets) assert.deepEqual(joins(socket), ['r1', 'r2']);
 
     client.leave('r1');
-    assert.ok(sockets[0]!.sent.some((m) => JSON.parse(m).type === 'leave'));
+    assert.ok(sentOn(sockets[0]!).some((m) => m.type === 'leave'));
   });
 
   test('configuring no relay at all is refused', () => {

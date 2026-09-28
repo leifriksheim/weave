@@ -154,11 +154,11 @@ describe('the contact list', () => {
       (await leif.node.spaces.list()).some((listed) => listed.id === space),
       false,
     );
-    await assert.rejects(leif.node.spaces.leave(space!), /cannot be left/);
+    await assert.rejects(leif.node.spaces.leave(space), /cannot be left/);
 
     await leif.node.contacts.put({ did: 'did:key:zAnna', name: 'Anna', note: 'from book club' });
-    await leif.node.spaces.hold(space!);
-    await phone.spaces.hold(space!);
+    await leif.node.spaces.hold(space);
+    await phone.spaces.hold(space);
     await until(
       async () => (await phone.contacts.list()).length === 1,
       5000,

@@ -32,7 +32,7 @@ export interface FakeHub {
    * @param room Keeps spaces apart, as a real network does: one node holding
    *   two spaces has two transports, and they must not replace each other.
    */
-  transport(did: string, room?: string): PeerTransport;
+  transport(did: string, room?: string): PeerTransport & { readonly connect: () => Promise<void> };
   signalled(did: string, room?: string): SignalledTransport;
   /** Severs one link, as a network failure would — both sides see `disconnected`. */
   cut(a: string, b: string, room?: string): void;
@@ -85,7 +85,11 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
 
   const base = (did: string, room: string) => {
     const emitter = createEmitter<PeerTransportEvents>();
-    const endpoint: Endpoint = { did, links: new Set(), emit: emitter.emit };
+    const endpoint: Endpoint = {
+      did,
+      links: new Set(),
+      emit: (event, ...args) => emitter.emit(event, ...args),
+    };
     endpoints.set(at(room, did), endpoint);
 
     const send = (peerId: string, data: Uint8Array) => {
@@ -108,8 +112,10 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
         dialled.get(room)?.delete(did);
         for (const peer of [...endpoint.links]) unlink(room, did, peer);
       },
-      on: emitter.on,
-      off: emitter.off,
+      on: <K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]) =>
+        emitter.on(event, callback),
+      off: <K extends keyof PeerTransportEvents>(event: K, callback: PeerTransportEvents[K]) =>
+        emitter.off(event, callback),
     };
   };
 

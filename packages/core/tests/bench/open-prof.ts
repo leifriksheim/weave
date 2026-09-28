@@ -27,7 +27,7 @@ await node.collections.define(space, {
     required: ['x', 'y', 'color'],
   },
   rules: { create: 'member', edit: 'member', delete: 'member', fixed: ['x', 'y'] },
-} as never);
+});
 for (let i = 0; i < N; i++) {
   await node.records.put(
     space,

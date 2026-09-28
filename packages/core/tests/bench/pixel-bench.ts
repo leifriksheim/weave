@@ -22,17 +22,23 @@ const byName: Record<string, number> = {};
 const inner = memoryStores();
 const stores = async (path: string): Promise<StorageAdapter> => {
   const adapter = await inner(path);
-  return Object.fromEntries(
-    Object.entries(adapter).map(([name, fn]) => [
-      name,
-      async (...args: unknown[]) => {
-        calls++;
-        byName[name] = (byName[name] ?? 0) + 1;
-        if (DELAY) await new Promise((resolve) => setTimeout(resolve, DELAY));
-        return (fn as (...a: unknown[]) => unknown)(...args);
+  // Behind the proxy stands a copy: a proxy may not change what a frozen object's fields read as.
+  return new Proxy(
+    { ...adapter },
+    {
+      get(_copy, key) {
+        const method: unknown = Reflect.get(adapter, key);
+        if (typeof method !== 'function') return method;
+        const name = String(key);
+        return async (...args: unknown[]): Promise<unknown> => {
+          calls++;
+          byName[name] = (byName[name] ?? 0) + 1;
+          if (DELAY) await new Promise((resolve) => setTimeout(resolve, DELAY));
+          return Reflect.apply(method, adapter, args);
+        };
       },
-    ]),
-  ) as unknown as StorageAdapter;
+    },
+  );
 };
 
 const manager = createIdentityManager();
@@ -53,7 +59,7 @@ await node.collections.define(space, {
     required: ['x', 'y', 'color'],
   },
   rules: { create: 'member', edit: 'member', delete: 'member', fixed: ['x', 'y'] },
-} as never);
+});
 
 async function measure(what: string, run: () => Promise<unknown>, per = N) {
   calls = 0;

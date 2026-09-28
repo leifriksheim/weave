@@ -6,6 +6,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { isRecord } from './helpers/shape.js';
 
 import { createNode } from '../src/node/node.js';
 import type { P2PNode } from '../src/node/types.js';
@@ -87,9 +88,15 @@ async function forge(
 }
 
 /** Rewrites an invite, as whoever passes it along could */
-function tamper(invite: string, change: (parsed: Record<string, any>) => void): string {
-  const parsed = JSON.parse(utf8Decode(base64UrlDecode(invite)));
-  change(parsed);
+function tamper(
+  invite: string,
+  change: (parsed: Record<string, unknown> & { space: Record<string, unknown> }) => void,
+): string {
+  const parsed: unknown = JSON.parse(utf8Decode(base64UrlDecode(invite)));
+  assert.ok(isRecord(parsed));
+  const { space } = parsed;
+  assert.ok(isRecord(space));
+  change(Object.assign(parsed, { space }));
   return base64UrlEncode(utf8Encode(JSON.stringify(parsed)));
 }
 
@@ -240,9 +247,7 @@ describe('space access: who may write', () => {
     // Mallory still reads what Alice wrote.
     await until(
       async () =>
-        (await mallory.node.records.list(space)).some(
-          (r) => (r.body as { text?: string })?.text === 'from Alice',
-        ),
+        (await mallory.node.records.list<{ text: string }>(space)).some((r) => r.body?.text === 'from Alice'),
       4000,
       'Alice’s note to reach Mallory',
     );

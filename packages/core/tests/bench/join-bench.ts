@@ -41,7 +41,7 @@ await alice.collections.define(space, {
     required: ['x', 'y', 'color'],
   },
   rules: { create: 'member', edit: 'member', delete: 'member', fixed: ['x', 'y'] },
-} as never);
+});
 const key = (i: number) => `px.${i % 32}.${Math.floor(i / 32)}`;
 const body = (i: number, color: string) => ({ x: i % 32, y: Math.floor(i / 32), color });
 for (let i = 0; i < N; i++)

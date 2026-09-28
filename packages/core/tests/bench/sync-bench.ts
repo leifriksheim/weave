@@ -44,9 +44,7 @@ async function measure(n: number, differing = 1) {
   let messages = 0;
   let bytes = 0;
   const queue: Array<() => Promise<void>> = [];
-  let engineA: SyncEngine;
-  let engineB: SyncEngine;
-  engineA = createSyncEngine({
+  const engineA: SyncEngine = createSyncEngine({
     storageProvider: a,
     self: 'a',
     sendToPeer: (_peer, data) => {
@@ -55,7 +53,7 @@ async function measure(n: number, differing = 1) {
       queue.push(() => engineB.handleMessage('a', data));
     },
   });
-  engineB = createSyncEngine({
+  const engineB: SyncEngine = createSyncEngine({
     storageProvider: b,
     self: 'b',
     sendToPeer: (_peer, data) => {

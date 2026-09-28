@@ -5,8 +5,9 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { WebSocketServer, type WebSocket as ServerSocket } from 'ws';
-import type { AddressInfo } from 'node:net';
+import * as z from 'zod';
+import { WebSocketServer, type RawData, type WebSocket as ServerSocket } from 'ws';
+import { portOf, textOf } from './helpers/net.js';
 
 import { createWebSocketTransport } from '../src/network/ws-transport.js';
 import { createClientAuth, createServerAuth, peerNonce, type ServerAuth } from '../src/network/peer-auth.js';
@@ -40,6 +41,14 @@ async function until(predicate: () => boolean, ms = 3000, what = 'condition'): P
  * A node that runs the handshake and echoes every binary frame.
  * `authenticator` makes it demand and give proof; `welcome` overrides its reply.
  */
+/** What a browser says first, as the node reads it */
+const Hello = z.looseObject({
+  did: z.string(),
+  nonce: z.string(),
+  sig: z.string().optional(),
+  read: z.string().optional(),
+});
+
 function startNode(
   port = 0,
   options: {
@@ -57,9 +66,8 @@ function startNode(
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
     const nonce = peerNonce();
-    socket.once('message', async (data, isBinary) => {
-      if (isBinary) return;
-      const hello = JSON.parse(String(data)) as { did: string; nonce: string; sig?: string; read?: string };
+    const greet = async (data: RawData) => {
+      const hello = Hello.parse(JSON.parse(textOf(data)));
       if (options.authenticator && !(await options.authenticator.checkHello(hello.did, did, nonce, hello))) {
         refused.push(hello.did);
         socket.close(4003, 'not a reader');
@@ -75,12 +83,13 @@ function startNode(
       socket.on('message', (frame, binary) => {
         if (binary) socket.send(frame, { binary: true });
       });
+    };
+    socket.once('message', (data, isBinary) => {
+      if (!isBinary) void greet(data);
     });
     socket.send(JSON.stringify({ type: 'challenge', nonce, did }));
   });
-  const ready = new Promise<number>((resolve) =>
-    server.on('listening', () => resolve((server.address() as AddressInfo).port)),
-  );
+  const ready = new Promise<number>((resolve) => server.on('listening', () => resolve(portOf(server))));
   const stop = () =>
     new Promise<void>((resolve) => {
       for (const socket of sockets) socket.terminate();
@@ -90,11 +99,11 @@ function startNode(
 }
 
 function watch(transport: ReturnType<typeof createWebSocketTransport>) {
-  const seen = {
-    connected: [] as string[],
-    disconnected: [] as string[],
-    data: [] as Uint8Array[],
-    errors: [] as Error[],
+  const seen: { connected: string[]; disconnected: string[]; data: Uint8Array[]; errors: Error[] } = {
+    connected: [],
+    disconnected: [],
+    data: [],
+    errors: [],
   };
   transport.on('connected', (peer) => seen.connected.push(peer));
   transport.on('disconnected', (peer) => seen.disconnected.push(peer));

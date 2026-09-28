@@ -3,6 +3,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { isRecord } from './helpers/shape.js';
 
 import { createNode } from '../src/node/node.js';
 import type { P2PNode } from '../src/node/types.js';
@@ -157,8 +158,10 @@ describe('schemas from a validator you already use', () => {
 
     // Plain data, readable by any app in any language — no trace of Zod.
     assert.deepEqual(defined.schema, JSON.parse(JSON.stringify(defined.schema)));
-    assert.equal((defined.schema as Record<string, unknown>).$schema, undefined);
-    assert.deepEqual((defined.schema as any).properties.options, {
+    const { schema } = defined;
+    assert.ok(isRecord(schema) && isRecord(schema.properties));
+    assert.equal(schema.$schema, undefined);
+    assert.deepEqual(schema.properties.options, {
       minItems: 2,
       maxItems: 10,
       type: 'array',

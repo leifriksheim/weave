@@ -4,6 +4,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import * as z from 'zod';
 
 import { matches, checkQuery } from '../src/query/filter.js';
 import { createNode } from '../src/node/node.js';
@@ -13,17 +14,18 @@ import type { QueryResult, Typed } from '../src/query/types.js';
 
 /** The todos these tests write, named with their type */
 const todoItems: Typed<{ text: string; done: boolean; rank: number }> = { name: 'app.todo.item' };
+const comments: Typed<{ text: string }> = { name: 'std.comment' };
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
 import { memoryStores } from './helpers/memory-stores.js';
 
-function record(body: unknown, extra: Partial<NodeRecord> = {}): NodeRecord {
+function record(body: unknown): NodeRecord {
   return {
-    id: 'bafy',
     key: 'k1',
     version: 'bafy',
     seq: 0,
+    space: 'space-1',
     collection: 'app.x',
     body,
     author: 'did:key:session',
@@ -35,8 +37,7 @@ function record(body: unknown, extra: Partial<NodeRecord> = {}): NodeRecord {
     encrypted: false,
     links: [],
     conforms: true,
-    ...extra,
-  } as NodeRecord;
+  };
 }
 
 describe('filters', () => {
@@ -210,18 +211,15 @@ describe('queries on a node', () => {
         thumbs: { rel: 'about', from: 'std.reaction', where: { emoji: '👍' } },
         comments: {
           rel: 'about',
-          from: 'std.comment',
-          include: { replies: { rel: 'replyTo', from: 'std.comment' } },
+          from: comments,
+          include: { replies: { rel: 'replyTo', from: comments } },
         },
       },
     });
     const [todo] = result.records;
     assert.equal(todo?.included?.reactions, 2);
-    assert.equal((todo?.included?.thumbs as NodeRecord[]).length, 1);
-    const [first] = todo?.included?.comments as Array<{
-      body: { text: string };
-      included: { replies: Array<{ body: { text: string } }> };
-    }>;
+    assert.equal(todo?.included.thumbs.length, 1);
+    const [first] = todo?.included.comments ?? [];
     assert.equal(first?.body.text, 'oat milk?');
     assert.deepEqual(
       first?.included.replies.map((r) => r.body.text),
@@ -275,11 +273,15 @@ describe('queries on a node', () => {
   test('an agent queries through the action, and a bad query says what to fix', async () => {
     const me = await person();
     const { space } = await todos(me);
-    const result = (await runAction(me, 'records_query', {
-      space,
-      collection: 'app.todo.item',
-      where: { text: { $contains: 'CO' } },
-    })) as QueryResult<{ text: string }>;
+    const result = z
+      .object({ records: z.array(z.object({ body: z.object({ text: z.string() }).nullable() })) })
+      .parse(
+        await runAction(me, 'records_query', {
+          space,
+          collection: 'app.todo.item',
+          where: { text: { $contains: 'CO' } },
+        }),
+      );
     assert.deepEqual(
       result.records.map((r) => r.body?.text),
       ['coffee'],

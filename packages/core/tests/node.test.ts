@@ -7,12 +7,14 @@ import assert from 'node:assert/strict';
 
 import { createNode } from '../src/node/node.js';
 import { NODE_ACTIONS, runAction } from '../src/node/actions.js';
-import type { P2PNode, NodeRecord } from '../src/node/types.js';
+import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import type { StandardSchemaV1 } from '../src/types.js';
+import * as z from 'zod';
+import { isRecord } from './helpers/shape.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
@@ -35,14 +37,15 @@ interface Todo {
   readonly done: boolean;
 }
 
+const isTodo = (value: unknown): value is Todo =>
+  isRecord(value) && typeof value.text === 'string' && typeof value.done === 'boolean';
+
 const todoSchema: StandardSchemaV1<Todo> = {
   '~standard': {
     version: 1,
     vendor: 'test',
     validate: (value: unknown) =>
-      typeof (value as Todo)?.text === 'string' && typeof (value as Todo)?.done === 'boolean'
-        ? { value: value as Todo }
-        : { issues: [{ message: 'a todo needs text and done' }] },
+      isTodo(value) ? { value } : { issues: [{ message: 'a todo needs text and done' }] },
   },
 };
 
@@ -51,7 +54,7 @@ async function startNode(options: { hub?: FakeHub; seed?: Uint8Array; ttl?: numb
   const node = await createNode({
     signer,
     stores: memoryStores(),
-    collections: [{ name: 'app.todo.item', schema: todoSchema as StandardSchemaV1 }],
+    collections: [{ name: 'app.todo.item', schema: todoSchema }],
     watchIntervalMs: 0,
     ...(options.ttl ? { sessionTtlSeconds: options.ttl } : {}),
     ...(options.hub
@@ -172,8 +175,10 @@ describe('records', () => {
     const [first] = await node.records.list<Todo & { tags: string[] }>(space, {
       collection: 'app.todo.item',
     });
+    // Readonly in its type only: writing through a mutable view shows the object itself refuses.
+    const writable: { done: boolean } = first!.body!;
     assert.throws(() => {
-      (first!.body as { done: boolean }).done = true;
+      writable.done = true;
     }, TypeError);
     assert.throws(() => first!.body!.tags.push('home'), TypeError);
     const [again] = await node.records.list<Todo & { tags: string[] }>(space, {
@@ -220,7 +225,8 @@ describe('two nodes', () => {
       3000,
       'record to reach bob',
     );
-    const seen = (await bob.records.get<Todo>(space, written.key)) as NodeRecord<Todo>;
+    const seen = await bob.records.get<Todo>(space, written.key);
+    assert.ok(seen);
     assert.deepEqual(seen.body, { text: 'from alice', done: false });
     assert.equal(seen.root, alice.did);
     assert.equal(seen.verified, true);
@@ -430,7 +436,7 @@ describe('session', () => {
     const later = await createNode({ signer, stores, watchIntervalMs: 0 });
     open.push(later);
     const seen = await later.records.get(space, written.key);
-    assert.equal(seen?.verified, true, seen?.reason);
+    assert.equal(seen?.verified, true, seen?.reason ?? 'no reason given');
   });
 });
 
@@ -446,9 +452,9 @@ describe('actions', () => {
 
   test('run by name with checked input, returning plain JSON', async () => {
     const node = await startNode();
-    const space = (await runAction(node, 'spaces_create', { name: 'Via actions', visibility: 'public' })) as {
-      id: string;
-    };
+    const space = z
+      .object({ id: z.string() })
+      .parse(await runAction(node, 'spaces_create', { name: 'Via actions', visibility: 'public' }));
     await runAction(node, 'records_put', { space: space.id, collection: 'app.note', body: { text: 'hi' } });
     const records = await runAction(node, 'records_list', { space: space.id });
 

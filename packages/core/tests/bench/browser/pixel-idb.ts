@@ -23,21 +23,27 @@ const inStore: Record<string, number> = {};
 const inner = indexedDBStores(`bench-${Date.now()}`);
 const stores = async (path: string): Promise<StorageAdapter> => {
   const adapter = await inner(path);
-  return Object.fromEntries(
-    Object.entries(adapter).map(([name, fn]) => [
-      name,
-      async (...args: unknown[]) => {
-        calls++;
-        byName[name] = (byName[name] ?? 0) + 1;
-        const t = performance.now();
-        try {
-          return await (fn as (...a: unknown[]) => unknown)(...args);
-        } finally {
-          inStore[name] = (inStore[name] ?? 0) + performance.now() - t;
-        }
+  // Behind the proxy stands a copy: a proxy may not change what a frozen object's fields read as.
+  return new Proxy(
+    { ...adapter },
+    {
+      get(_copy, key) {
+        const method: unknown = Reflect.get(adapter, key);
+        if (typeof method !== 'function') return method;
+        const name = String(key);
+        return async (...args: unknown[]): Promise<unknown> => {
+          calls++;
+          byName[name] = (byName[name] ?? 0) + 1;
+          const t = performance.now();
+          try {
+            return await Reflect.apply(method, adapter, args);
+          } finally {
+            inStore[name] = (inStore[name] ?? 0) + performance.now() - t;
+          }
+        };
       },
-    ]),
-  ) as unknown as StorageAdapter;
+    },
+  );
 };
 
 async function measure(what: string, run: () => Promise<unknown>, per = N) {
@@ -67,7 +73,7 @@ async function main() {
       required: ['x', 'y', 'color'],
     },
     rules: { create: 'member', edit: 'member', delete: 'member', fixed: ['x', 'y'] },
-  } as never);
+  });
   const key = (i: number) => `px.${i % 32}.${Math.floor(i / 32)}`;
   const body = (i: number, color: string) => ({ x: i % 32, y: Math.floor(i / 32), color });
   const list = () => node.records.list(space, { collection: 'app.pixels.cell' });
@@ -105,4 +111,4 @@ async function main() {
   log('done');
 }
 
-main().catch((error) => log(`failed: ${error?.stack ?? error}`));
+main().catch((error: unknown) => log(`failed: ${error instanceof Error ? error.stack : String(error)}`));

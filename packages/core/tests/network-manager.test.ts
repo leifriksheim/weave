@@ -9,6 +9,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { createFakeHub } from './helpers/fake-transport.js';
+import { isRecord } from './helpers/shape.js';
+import { createEmitter } from '../src/utils/events.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createNetworkManager, type NetworkManager } from '../src/network/network-manager.js';
 import { createMesh } from '../src/network/mesh.js';
@@ -115,20 +117,18 @@ describe('over an unsignalled transport', () => {
   });
 
   test('a transport error becomes a manager error event, not a throw', async () => {
-    const errorListeners = new Set<PeerTransportEvents['error']>();
+    const events = createEmitter<PeerTransportEvents>();
     const broken: PeerTransport = {
       send: () => {},
       close: () => {},
       closeAll: () => {},
-      on: (event, callback) => {
-        if (event === 'error') errorListeners.add(callback as PeerTransportEvents['error']);
-      },
-      off: () => {},
+      on: (event, callback) => events.on(event, callback),
+      off: (event, callback) => events.off(event, callback),
     };
     const manager = createNetworkManager({ did: 'did:key:zA', createTransport: () => broken });
     const seen = collect(manager);
 
-    for (const callback of errorListeners) callback('did:key:zB', new Error('wire fell out'));
+    events.emit('error', 'did:key:zB', new Error('wire fell out'));
     assert.equal(seen.errors.length, 1);
     assert.match(seen.errors[0]!.message, /wire fell out/);
   });
@@ -200,8 +200,10 @@ describe('sync through a transport', () => {
 });
 
 describe('the mesh, through real relays', () => {
-  const ports = [0, 1].map(() => 20_000 + Math.floor(Math.random() * 20_000));
-  const [relay, otherRelay] = ports.map((port) => `ws://127.0.0.1:${port}`) as [string, string];
+  const randomPort = () => 20_000 + Math.floor(Math.random() * 20_000);
+  const ports = [randomPort(), randomPort()] as const;
+  const relay = `ws://127.0.0.1:${ports[0]}`;
+  const otherRelay = `ws://127.0.0.1:${ports[1]}`;
   let servers: ChildProcess[] = [];
 
   before(async () => {
@@ -379,7 +381,10 @@ describe('the mesh, through real relays', () => {
     const open = async (did: string) => {
       const socket = new WebSocket(`${relay}?room=legacy`);
       const heard: Array<Record<string, unknown>> = [];
-      socket.addEventListener('message', (event) => heard.push(JSON.parse(String(event.data))));
+      socket.addEventListener('message', (event) => {
+        const message: unknown = JSON.parse(String(event.data));
+        if (isRecord(message)) heard.push(message);
+      });
       await new Promise((resolve) => socket.addEventListener('open', resolve));
       socket.send(JSON.stringify({ type: 'join', from: did }));
       return { socket, heard };

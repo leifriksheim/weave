@@ -9,7 +9,7 @@ import { webcrypto } from 'node:crypto';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createReconciler, fingerprintOf, ItemSet, type Item } from '../src/sync/negentropy.js';
 import { createStorageProvider, type StorageProvider } from '../src/storage/storage-provider.js';
-import { createSyncEngine, type Holds, type SyncEngine } from '../src/sync/sync-engine.js';
+import { createSyncEngine, type Holds } from '../src/sync/sync-engine.js';
 import type { SyncMessage } from '../src/sync/sync-messages.js';
 import { base32Decode, base32Encode, cidDigest, cidFromBytes, cidOfDigest } from '../src/utils/hash.js';
 import { bytesToHex } from '../src/utils/encoding.js';
@@ -167,8 +167,6 @@ function pair(
 ) {
   const inFlight: Promise<void>[] = [];
   const sent = { bytes: 0, reconciles: new Map<string, number>() };
-  let a: { storage: StorageProvider; sync: SyncEngine };
-  let b: { storage: StorageProvider; sync: SyncEngine };
   const make = (self: string, deliver: (message: unknown) => void, holds?: () => Holds) => {
     const storage = createStorageProvider(createMemoryAdapter());
     const sync = createSyncEngine({
@@ -187,8 +185,8 @@ function pair(
     });
     return { storage, sync };
   };
-  a = make('a', (m) => inFlight.push(b.sync.handleMessage('a', m)), options.holdsA);
-  b = make('b', (m) => inFlight.push(a.sync.handleMessage('b', m)), options.holdsB);
+  const a = make('a', (m) => inFlight.push(b.sync.handleMessage('a', m)), options.holdsA);
+  const b = make('b', (m) => inFlight.push(a.sync.handleMessage('b', m)), options.holdsB);
   a.sync.addPeer('b');
   b.sync.addPeer('a');
   const settle = async () => {
@@ -273,7 +271,7 @@ describe('sync by reconciliation', () => {
 
   test('a refused version is not asked for again', async () => {
     let asked = 0;
-    const { a, b, settle } = pair({
+    const { b, settle } = pair({
       validate: async () => {
         asked++;
         return { valid: false, reason: 'no' };

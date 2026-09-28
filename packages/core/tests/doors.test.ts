@@ -8,8 +8,8 @@
 import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
+import * as z from 'zod';
 
 import { createRelay, MAX_MESSAGE_BYTES, type MailboxLimits } from '../../relay/relay.mjs';
 import { createNode } from '../src/node/node.js';
@@ -43,6 +43,8 @@ import { grantSigner } from '../src/session/connect.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
+import { portOf } from './helpers/net.js';
+import { isRecord } from './helpers/shape.js';
 
 // ─── Relays, for the mailbox ────────────────────────────────────────
 
@@ -54,7 +56,7 @@ async function startRelay(mailbox: Partial<MailboxLimits> = {}) {
   server.on('upgrade', (req, socket, head) => relay.upgrade(wss, req, socket, head));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    url: `ws://127.0.0.1:${portOf(server)}`,
     close: () => {
       relay.close();
       server.close();
@@ -242,9 +244,10 @@ describe("the relay's mailbox", () => {
     const ws = new WebSocket(relayUrl);
     await new Promise((resolve) => (ws.onopen = resolve));
     const heard: string[] = [];
+    const Mail = z.object({ type: z.literal('mail'), items: z.array(z.object({ blob: z.string() })) });
     ws.onmessage = (event) => {
-      const message = JSON.parse(String(event.data));
-      if (message.type === 'mail') heard.push(...message.items.map((item: { blob: string }) => item.blob));
+      const mail = Mail.safeParse(JSON.parse(String(event.data)));
+      if (mail.success) heard.push(...mail.data.items.map((item) => item.blob));
     };
     ws.send(JSON.stringify({ type: 'fetch', topic, watch: true }));
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -306,16 +309,15 @@ describe("the relay's mailbox", () => {
     await mailbox.drop(relayUrl, door.topic, 'cmVwbGF5');
     const ws = new WebSocket(relayUrl);
     await new Promise((resolve) => (ws.onopen = resolve));
-    const answers: Array<Record<string, unknown>> = [];
+    const answers: unknown[] = [];
     ws.onmessage = (event) => answers.push(JSON.parse(String(event.data)));
     ws.send(JSON.stringify({ type: 'challenge' }));
-    const { nonce } = (
-      await until(
-        async () => answers,
-        (a) => a.length === 1,
-        'the challenge',
-      )
-    )[0] as { nonce: string };
+    const [challenge] = await until(
+      async () => answers,
+      (a) => a.length === 1,
+      'the challenge',
+    );
+    const { nonce } = z.object({ nonce: z.string() }).parse(challenge);
     const purge = {
       type: 'purge',
       topic: door.topic,
@@ -330,8 +332,9 @@ describe("the relay's mailbox", () => {
       (a) => a.length === 3,
       'both answers',
     );
-    assert.equal(answers[1]!.type, 'purged');
-    assert.equal(answers[2]!.type, 'refused');
+    const typeOf = (answer: unknown) => (isRecord(answer) ? answer.type : undefined);
+    assert.equal(typeOf(answers[1]), 'purged');
+    assert.equal(typeOf(answers[2]), 'refused');
     ws.close();
   });
 });

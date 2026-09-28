@@ -237,7 +237,7 @@ describe('versioned records through the node', () => {
     assert.notEqual(ticked.version, made.version);
     assert.equal(ticked.createdBy, me.did);
     assert.deepEqual(
-      (await me.records.list(space)).map((r) => [r.key, (r.body as { done: boolean }).done]),
+      (await me.records.list<{ done: boolean }>(space)).map((r) => [r.key, r.body?.done]),
       [[made.key, true]],
     );
   });

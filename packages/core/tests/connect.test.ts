@@ -26,6 +26,7 @@ import { team } from '../src/space/presets.js';
 import { parseSpaceInvite } from '../src/space/space-manager.js';
 import { hold } from './helpers/hold.js';
 import { joined } from './helpers/joined.js';
+import { isRecord } from './helpers/shape.js';
 import { createNode } from '../src/node/node.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
@@ -165,7 +166,7 @@ describe('connecting an app to an account home', () => {
     );
 
     const todo = await app(hub, grant, key);
-    await todo.records.put(grant.spaces[0]!.id, 'app.todo.item', { text: 'first' });
+    await todo.records.put(grant.spaces[0].id, 'app.todo.item', { text: 'first' });
   });
 
   test('read access carries no write: the app cannot change a thing', async () => {
@@ -732,12 +733,22 @@ describe('proposing subscriptions later', () => {
 });
 
 describe('the home receiving a request', () => {
+  /** The fields of a message event the home reads */
+  type PageMessage = { source: unknown; data: unknown; origin: string };
+
+  const isDenied = (message: unknown) => isRecord(message) && message.type === 'weave:denied';
+
   /** Stands in for the popup's window: an opener, and the page's message events. */
   function popupWindow() {
     const sent: Array<{ message: unknown; origin: string }> = [];
-    const listeners = new Set<(event: MessageEvent) => void>();
+    const listeners = new Set<(event: PageMessage) => void>();
     const opener = { postMessage: (message: unknown, origin: string) => sent.push({ message, origin }) };
-    const g = globalThis as Record<string, unknown>;
+    const g: {
+      opener?: unknown;
+      addEventListener?: unknown;
+      removeEventListener?: unknown;
+      close?: unknown;
+    } = globalThis;
     const saved = {
       opener: g.opener,
       add: g.addEventListener,
@@ -745,15 +756,14 @@ describe('the home receiving a request', () => {
       close: g.close,
     };
     g.opener = opener;
-    g.addEventListener = (_type: string, listener: (event: MessageEvent) => void) => listeners.add(listener);
-    g.removeEventListener = (_type: string, listener: (event: MessageEvent) => void) =>
+    g.addEventListener = (_type: string, listener: (event: PageMessage) => void) => listeners.add(listener);
+    g.removeEventListener = (_type: string, listener: (event: PageMessage) => void) =>
       listeners.delete(listener);
     g.close = () => {};
     return {
       sent,
       send: (data: unknown, origin = 'https://app.test') => {
-        for (const listener of [...listeners])
-          listener({ source: opener, data, origin } as unknown as MessageEvent);
+        for (const listener of [...listeners]) listener({ source: opener, data, origin });
       },
       restore: () =>
         Object.assign(g, {
@@ -775,10 +785,11 @@ describe('the home receiving a request', () => {
         request: { v: 1, audience: 'did:key:zApp', access: 'something-new' },
       });
       assert.equal(await received, null);
-      const denied = popup.sent.find((m) => (m.message as { type?: string }).type === 'weave:denied');
+      const denied = popup.sent.find((m) => isDenied(m.message));
       assert.ok(denied, 'the app is told');
       assert.equal(denied.origin, 'https://app.test', 'and only the app that asked');
-      assert.match((denied.message as { reason: string }).reason, /did not understand/);
+      assert.ok(isRecord(denied.message) && typeof denied.message.reason === 'string');
+      assert.match(denied.message.reason, /did not understand/);
       await new Promise((resolve) => setTimeout(resolve, 150)); // the window closes itself a moment later
     } finally {
       popup.restore();
@@ -814,7 +825,7 @@ describe('the home receiving a request', () => {
         const received = receiveConnectRequest(1000);
         popup.send({ type: 'weave:request', request });
         assert.equal(await received, null);
-        assert.ok(popup.sent.some((m) => (m.message as { type?: string }).type === 'weave:denied'));
+        assert.ok(popup.sent.some((m) => isDenied(m.message)));
         await new Promise((resolve) => setTimeout(resolve, 150));
       } finally {
         popup.restore();
@@ -841,7 +852,7 @@ describe('the home receiving a request', () => {
   test('a carry request is read', async () => {
     const popup = popupWindow();
     try {
-      const { receiveConnectRequest } = await import('../src/session/connect.js');
+      const { receiveConnectRequest, isProposeRequest } = await import('../src/session/connect.js');
       const received = receiveConnectRequest(1000);
       popup.send(
         {
@@ -851,7 +862,8 @@ describe('the home receiving a request', () => {
         'chrome-extension://abc',
       );
       const incoming = await received;
-      assert.equal(incoming?.request.access, 'carry');
+      assert.ok(incoming && !isProposeRequest(incoming.request));
+      assert.equal(incoming.request.access, 'carry');
       assert.equal(incoming?.origin, 'chrome-extension://abc');
     } finally {
       popup.restore();
@@ -871,7 +883,7 @@ describe('the home receiving a request', () => {
         const received = receiveConnectRequest(1000);
         popup.send({ type: 'weave:request', request }, origin);
         assert.equal(await received, null);
-        assert.ok(popup.sent.some((m) => (m.message as { type?: string }).type === 'weave:denied'));
+        assert.ok(popup.sent.some((m) => isDenied(m.message)));
         await new Promise((resolve) => setTimeout(resolve, 150));
       } finally {
         popup.restore();

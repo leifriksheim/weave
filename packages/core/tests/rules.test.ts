@@ -4,6 +4,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import * as z from 'zod';
 
 import { createNode } from '../src/node/node.js';
 import { runAction } from '../src/node/actions.js';
@@ -66,7 +67,7 @@ async function forge(who: Person, space: string, fields: Parameters<typeof creat
     capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
     expiration: Math.floor(Date.now() / 1000) + 3600,
   });
-  const authored = await createSigner(provider).sign(
+  const signed = await createSigner(provider).sign(
     createExpression({
       seen: await seenBy(who.node, space),
       ...fields,
@@ -77,7 +78,6 @@ async function forge(who: Person, space: string, fields: Parameters<typeof creat
     pair.privateKey,
   );
   // A member forging: they may write here, so the rules are what must stop them.
-  const signed = authored;
   await createStorageProvider(await who.stores(`spaces/${space}`)).addExpression(signed);
   return signed;
 }
@@ -289,10 +289,6 @@ describe('rules: one per something', () => {
     const def = (await bob.node.collections.list(space)).find((c) => c.name === 'app.poll.vote');
     assert.deepEqual(def?.rules.onePer, ['@author', 'link:about']);
 
-    // The definition version to pin, as a modified app would.
-    const pinned = (await createStorageProvider(await bob.stores(`spaces/${space}`)).getCurrent(
-      'collection:app.poll.vote',
-    ))!.id;
     await letGo(bob.node, space);
     await forge(bob, space, {
       author: '',
@@ -300,7 +296,6 @@ describe('rules: one per something', () => {
       body: { choice: 0 },
       links: [{ rel: 'about', to: poll.key }],
       version: { key: 'stuffing-the-ballot', seq: 0 },
-      def: pinned,
     });
     let rejected = '';
     alice.node.subscribe((event) => {
@@ -406,10 +401,9 @@ describe('rules: arriving in any order', () => {
 
   test('agents see the rules, and can ask before acting', async () => {
     const { alice, bob, space } = await pollSpace();
-    const listed = (await runAction(bob.node, 'collections_list', { space })) as Array<{
-      name: string;
-      rules: { edit?: string };
-    }>;
+    const listed = z
+      .array(z.object({ name: z.string(), rules: z.object({ edit: z.unknown() }) }))
+      .parse(await runAction(bob.node, 'collections_list', { space }));
     assert.equal(listed.find((c) => c.name === 'app.poll')?.rules.edit, 'creator');
     const poll = await alice.node.records.put(space, 'app.poll', { question: 'Where?' });
     await until(async () => (await bob.node.records.get(space, poll.key)) !== null, 4000, 'the poll');

@@ -18,8 +18,9 @@ import { createStatefulGate } from '../src/validation/stateful-gate.js';
 import { createCapabilityGate } from '../src/validation/capability-gate.js';
 import { createValidationEngine } from '../src/validation/validation-engine.js';
 import { encryptExpression, decryptExpression } from '../src/privacy/space-encryption.js';
-import type { Expression, StandardSchemaV1 } from '../src/types.js';
+import type { StandardSchemaV1 } from '../src/types.js';
 import { team } from '../src/space/presets.js';
+import { isRecord } from './helpers/shape.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -30,7 +31,7 @@ const noteSchema: StandardSchemaV1 = {
     version: 1,
     vendor: 'test',
     validate: (value: unknown) =>
-      typeof (value as { text?: unknown })?.text === 'string'
+      isRecord(value) && typeof value.text === 'string'
         ? { value }
         : { issues: [{ message: 'text must be a string' }] },
   },
@@ -118,6 +119,8 @@ describe('invites', () => {
         author: OWNER,
         collection: 'app.test.note',
         createdAt: 'now',
+        key: 'x',
+        seq: 0,
         body: { text: 'secret' },
         signature: '',
       },
@@ -160,7 +163,12 @@ describe('private space expressions', () => {
   test('encrypt-then-sign survives validation without the key', async () => {
     const spaces = createSpaceManager(createMemoryAdapter());
     const owner = await makeKey();
-    const record = await spaces.create({ name: 'Secrets', ...team, visibility: 'private', owner: owner.did });
+    const record = await spaces.create({
+      name: 'Secrets',
+      ...team,
+      visibility: 'private',
+      creator: owner.did,
+    });
     const spaceId = record.space.id;
 
     const required: Capability = { with: `space:${spaceId}`, can: 'expression/write' };
@@ -178,6 +186,8 @@ describe('private space expressions', () => {
         author: '',
         collection: 'app.test.note',
         createdAt: '',
+        key: '',
+        seq: 0,
         body: { text: 'dinner at eight' },
         signature: '',
       },
@@ -190,7 +200,7 @@ describe('private space expressions', () => {
       body: sealed.body,
       proof: ucan.encoded,
     });
-    const expression = (await signer.sign(unsigned, session.privateKey)) as Expression;
+    const expression = await signer.sign(unsigned, session.privateKey);
 
     const schemaEngine = createSchemaEngine();
     schemaEngine.registerCollection({ name: 'app.test.note', schema: noteSchema });
@@ -207,12 +217,12 @@ describe('private space expressions', () => {
     // A peer with no key still verifies and relays it: the schema gate steps
     // aside for an encrypted body, the signature and capability still hold.
     const verdict = await validation.validate(expression);
-    assert.equal(verdict.valid, true, verdict.gates.find((g) => !g.passed)?.reason);
+    assert.equal(verdict.valid, true, verdict.gates.find((g) => !g.passed)?.reason ?? 'no reason given');
     assert.equal(expression.space, spaceId);
-    assert.equal((expression.body as { text?: string }).text, undefined);
+    assert.equal('text' in expression.body, false);
 
     // A member opens it
-    const opened = await decryptExpression(expression as never, record.key!);
+    const opened = await decryptExpression(expression, record.key!);
     assert.deepEqual(opened.body, { text: 'dinner at eight' });
   });
 
@@ -240,7 +250,7 @@ describe('private space expressions', () => {
       body: { text: 'let me in' },
       proof: ucan.encoded,
     });
-    const expression = (await signer.sign(unsigned, strangerSession.privateKey)) as Expression;
+    const expression = await signer.sign(unsigned, strangerSession.privateKey);
 
     const result = await gate.validate(expression);
     assert.equal(result.passed, false);

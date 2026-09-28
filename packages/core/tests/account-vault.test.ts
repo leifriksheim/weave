@@ -341,7 +341,7 @@ describe('encryption at rest', () => {
 
     const fromBytes = await globalThis.crypto.subtle.importKey(
       'raw',
-      await deriveVaultKeyBytes(seed),
+      new Uint8Array(await deriveVaultKeyBytes(seed)),
       { name: 'AES-GCM', length: 256 },
       false,
       ['encrypt', 'decrypt'],

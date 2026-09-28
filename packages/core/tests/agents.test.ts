@@ -5,9 +5,10 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { compileFunction } from 'node:vm';
+import * as z from 'zod';
 
 import { createNode } from '../src/node/node.js';
-import type { P2PNode } from '../src/node/types.js';
 import { runAction } from '../src/node/actions.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
@@ -20,7 +21,7 @@ import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { describeCollection } from '../src/records/describe.js';
 import { checkStoredCollection } from '../src/schema/collection-def.js';
 import type { NodeCollection } from '../src/node/types.js';
-import { checkRules } from '../src/records/rules.js';
+import { checkRules, type CollectionRules } from '../src/records/rules.js';
 import {
   addApp,
   checkApp,
@@ -33,6 +34,7 @@ import {
   vote,
   poll,
   type App,
+  type AppDefinition,
 } from '../src/schemas/index.js';
 import { createWeaveAuth, type WeaveAuth } from '../src/session/auth.js';
 import { grantSigner, type Grant } from '../src/session/connect.js';
@@ -50,6 +52,7 @@ import { team } from '../src/space/presets.js';
 import { memberKey } from '../src/space/space-access.js';
 import { nextVersion } from '../src/records/version.js';
 import { hold, letGo } from './helpers/hold.js';
+import { isRecord } from './helpers/shape.js';
 
 const open: Array<{ close(): Promise<unknown> }> = [];
 afterEach(async () => {
@@ -274,10 +277,12 @@ describe('apps an agent proposes', () => {
     const agent = await agentFor(alice, [space]);
     const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
 
-    const proposed = (await runAction(helper, 'apps_propose', { space, ...carpool })) as {
-      key: string;
-      needs: Array<{ status: string; summary: string[] }>;
-    };
+    const proposed = z
+      .object({
+        key: z.string(),
+        needs: z.array(z.object({ status: z.string(), summary: z.array(z.string()) })),
+      })
+      .parse(await runAction(helper, 'apps_propose', { space, ...carpool }));
     assert.deepEqual(
       proposed.needs.map((n) => n.status),
       ['new', 'new'],
@@ -297,12 +302,16 @@ describe('apps an agent proposes', () => {
       4000,
       'the proposal to reach Bob',
     );
-    const listed = (await runAction(bob.node, 'apps_list', { space })) as Array<{
-      title: string;
-      viaAgent?: boolean;
-      added: boolean;
-      proposedBy: string;
-    }>;
+    const listed = z
+      .array(
+        z.object({
+          title: z.string(),
+          viaAgent: z.boolean().optional(),
+          added: z.boolean(),
+          proposedBy: z.string(),
+        }),
+      )
+      .parse(await runAction(bob.node, 'apps_list', { space }));
     assert.equal(listed[0]?.title, 'Carpool');
     assert.equal(listed[0]?.viaAgent, true);
     assert.equal(listed[0]?.added, false);
@@ -330,32 +339,35 @@ describe('apps an agent proposes', () => {
     const { alice, space } = await setup();
     const agent = await agentFor(alice, [space]);
     const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
-    type Listed = { key: string; added: boolean; superseded: boolean; updates?: string };
-    const list = async () => (await runAction(alice.node, 'apps_list', { space })) as Listed[];
+    const Listed = z.array(
+      z.object({
+        key: z.string(),
+        added: z.boolean(),
+        superseded: z.boolean(),
+        updates: z.string().optional(),
+      }),
+    );
+    const Proposed = z.object({ key: z.string() });
+    const list = async () => Listed.parse(await runAction(alice.node, 'apps_list', { space }));
     const find = async (key: string) => (await list()).find((a) => a.key === key)!;
+    const [trip, seat] = carpool.needs;
+    assert.ok(trip && seat && isRecord(trip.schema.properties));
+    const properties = trip.schema.properties;
     const withField = (field: string): App => ({
       ...carpool,
       needs: [
-        {
-          ...carpool.needs[0]!,
-          schema: {
-            ...carpool.needs[0]!.schema,
-            properties: { ...(carpool.needs[0]!.schema.properties as object), [field]: { type: 'string' } },
-          },
-        },
-        carpool.needs[1]!,
+        { ...trip, schema: { ...trip.schema, properties: { ...properties, [field]: { type: 'string' } } } },
+        seat,
       ],
     });
 
-    const first = (await runAction(helper, 'apps_propose', { space, ...carpool })) as { key: string };
+    const first = Proposed.parse(await runAction(helper, 'apps_propose', { space, ...carpool }));
     await addApp(alice.node, space, first.key);
 
     // The agent changes it: a new proposal that names the one it updates.
-    const second = (await runAction(helper, 'apps_propose', {
-      space,
-      ...withField('from'),
-      updates: first.key,
-    })) as { key: string };
+    const second = Proposed.parse(
+      await runAction(helper, 'apps_propose', { space, ...withField('from'), updates: first.key }),
+    );
     assert.equal((await find(second.key)).updates, first.key);
     assert.deepEqual(
       [(await find(first.key)).added, (await find(first.key)).superseded],
@@ -371,11 +383,9 @@ describe('apps an agent proposes', () => {
     await assert.rejects(() => addApp(alice.node, space, first.key), /newer version/);
 
     // An update to the update replaces both before it.
-    const third = (await runAction(helper, 'apps_propose', {
-      space,
-      ...withField('note'),
-      updates: second.key,
-    })) as { key: string };
+    const third = Proposed.parse(
+      await runAction(helper, 'apps_propose', { space, ...withField('note'), updates: second.key }),
+    );
     await addApp(alice.node, space, third.key);
     assert.deepEqual(
       (await list())
@@ -474,12 +484,12 @@ describe('what a collection allows, in words', () => {
   test('every rule the protocol accepts adds a sentence, and one it does not know is refused', () => {
     // The rule names checkRules lists in its error — the source of truth for what a rule can be.
     const known = /use ([^)]+)\)/.exec(checkRules({ nope: 1 })!)![1]!.split(', ');
-    const samples: Record<string, unknown> = {
-      create: 'creator',
-      edit: 'creator',
-      delete: 'creator',
-      onePer: ['@author'],
-      fixed: ['x'],
+    const samples: Record<string, CollectionRules> = {
+      create: { create: 'can:post' },
+      edit: { edit: 'creator' },
+      delete: { delete: 'creator' },
+      onePer: { onePer: ['@author'] },
+      fixed: { fixed: ['x'] },
     };
     const baseline = describeCollection({ name: 'app.thing' });
     for (const rule of known) {
@@ -487,21 +497,16 @@ describe('what a collection allows, in words', () => {
         rule in samples,
         `describe.ts has no sample for the rule "${rule}" — add one, and a sentence for it`,
       );
-      const said = describeCollection({
-        name: 'app.thing',
-        rules: { [rule]: rule === 'create' ? 'can:post' : samples[rule] } as never,
-        permissions: ['post'],
-      });
+      const said = describeCollection({ name: 'app.thing', rules: samples[rule]!, permissions: ['post'] });
       assert.notDeepEqual(
         said.filter((s) => !s.includes('permission')),
         baseline,
         `the rule "${rule}" changes nothing in the summary`,
       );
     }
-    assert.throws(
-      () => describeCollection({ name: 'app.thing', rules: { someday: true } as never }),
-      /No way to describe/,
-    );
+    // A rule from some later version, beside one this version knows.
+    const later = { edit: 'creator' as const, someday: true };
+    assert.throws(() => describeCollection({ name: 'app.thing', rules: later }), /No way to describe/);
   });
 });
 
@@ -808,7 +813,11 @@ describe('connecting an agent with a code', () => {
   });
 });
 
-void (null as unknown as P2PNode);
+/** Runs the script put in front of a screen, compiled as a function of the globals it reads so a test can hand it fakes. */
+function runScreenClient(window: unknown, addEventListener: unknown, document: unknown): void {
+  const script = compileFunction(SCREEN_CLIENT, ['window', 'addEventListener', 'document']);
+  Reflect.apply(script, undefined, [window, addEventListener, document]);
+}
 
 describe('screens', () => {
   const board = '<!doctype html><div id="board"></div><script>weave.list("app.chess.game")</script>';
@@ -861,10 +870,9 @@ describe('screens', () => {
       needs: [{ name: 'app.chess.game', schema: { type: 'object' }, screen: board }],
     };
     const proposed = await alice.node.records.put(space, 'std.app', chess);
-    const listed = (await runAction(alice.node, 'apps_list', { space })) as Array<{
-      key: string;
-      screen?: string;
-    }>;
+    const listed = z
+      .array(z.object({ key: z.string(), screen: z.string().optional() }))
+      .parse(await runAction(alice.node, 'apps_list', { space }));
     assert.equal(listed.find((a) => a.key === proposed.key)?.screen, 'app.chess.game');
     await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' } });
     assert.deepEqual(reviewApp(chess, await alice.node.collections.list(space)).needs[0]?.changes, [
@@ -874,19 +882,19 @@ describe('screens', () => {
   });
 
   test('the script in front of a screen sets up weave, with me readable both ways', () => {
-    const port = { postMessage: () => {}, onmessage: null as unknown };
+    const port: { postMessage: () => void; onmessage: unknown } = { postMessage: () => {}, onmessage: null };
     const window: Record<string, unknown> = {
       __weave: { port, me: { did: 'did:key:zMe', name: 'Anna' }, collections: ['app.chess.game'] },
     };
-    new Function('window', 'addEventListener', 'document', SCREEN_CLIENT)(window, () => {}, {});
-    const weave = window.weave as {
-      me: { did: string; name: string } & (() => { did: string; name: string });
-      collections: string[];
-    };
+    runScreenClient(window, () => {}, {});
+    const weave = window.weave;
+    assert.ok(isRecord(weave));
+    const { me } = weave;
+    assert.ok(typeof me === 'function' && 'did' in me);
     assert.equal(window.__weave, undefined, 'the port is not left lying around');
-    assert.equal(weave.me.did, 'did:key:zMe');
-    assert.equal(weave.me.name, 'Anna');
-    assert.deepEqual(weave.me(), { did: 'did:key:zMe', name: 'Anna' });
+    assert.equal(me.did, 'did:key:zMe');
+    assert.equal(me.name, 'Anna');
+    assert.deepEqual(Reflect.apply(me, undefined, []), { did: 'did:key:zMe', name: 'Anna' });
     assert.deepEqual(weave.collections, ['app.chess.game']);
   });
 
@@ -909,7 +917,7 @@ describe('screens', () => {
     const window: Record<string, unknown> = {
       __weave: { port: { postMessage: () => {} }, me: { did: 'did:key:zMe', name: 'Anna' }, collections: [] },
     };
-    new Function('window', 'addEventListener', 'document', SCREEN_CLIENT)(
+    runScreenClient(
       window,
       (type: string, listener: (event: unknown) => void) => (listeners[type] = listener),
       document,
@@ -940,6 +948,12 @@ describe('screens', () => {
 
   test('a screen reaches only the exact origins its definition names, and the review says so', () => {
     const screen = '<p>Weather for the ride</p>';
+    const ride: AppDefinition = {
+      name: 'app.carpool.ride',
+      schema: { type: 'object' },
+      screen,
+      network: ['https://api.open-meteo.com'],
+    };
     const need = (network?: unknown) => ({
       name: 'app.carpool.ride',
       schema: { type: 'object' },
@@ -1000,20 +1014,25 @@ describe('screens', () => {
     );
 
     // Said in the review, worked out from the definition; and adding an origin later is a change someone must approve.
-    const summary = describeCollection(need(['https://api.open-meteo.com']));
+    const summary = describeCollection(ride);
     assert.match(
       summary.at(-1)!,
       /Its screen can connect to api\.open-meteo\.com.*Each person is asked first/,
     );
-    const held = {
+    const held: NodeCollection = {
       name: 'app.carpool.ride',
       schema: { type: 'object' },
       screen,
       version: 1,
-    } as unknown as NodeCollection;
-    const review = reviewApp({ title: 'Carpool', needs: [need(['https://api.open-meteo.com']) as never] }, [
-      held,
-    ]);
+      history: 'latest',
+      links: {},
+      definedBy: null,
+      permissions: [],
+      rules: {},
+      topics: [],
+      records: 0,
+    };
+    const review = reviewApp({ title: 'Carpool', needs: [ride] }, [held]);
     assert.deepEqual(review.needs[0]!.changes, ['lets its screen reach https://api.open-meteo.com']);
   });
 
@@ -1041,14 +1060,15 @@ describe('screens', () => {
       collections: ['app.chess.game'],
       port: channel.port1,
     });
+    const Answer = z.object({ ok: z.boolean(), value: z.unknown().optional(), error: z.string().optional() });
     let next = 0;
     const call = (method: string, ...args: unknown[]) =>
-      new Promise<{ ok: boolean; value?: unknown; error?: string }>((resolve) => {
+      new Promise<z.infer<typeof Answer>>((resolve) => {
         const id = ++next;
-        const listen = (event: MessageEvent) => {
-          if (event.data?.id !== id) return;
+        const listen = (event: MessageEvent<unknown>) => {
+          if (!isRecord(event.data) || event.data.id !== id) return;
           channel.port2.removeEventListener('message', listen);
-          resolve(event.data);
+          resolve(Answer.parse(event.data));
         };
         channel.port2.addEventListener('message', listen);
         channel.port2.start();
@@ -1061,8 +1081,9 @@ describe('screens', () => {
 
       const game = await call('put', 'app.chess.game', { white: 'bob' });
       assert.equal(game.ok, true);
-      assert.equal((game.value as { mine: boolean }).mine, true);
-      const created = await bob.node.records.get(space, (game.value as { key: string }).key);
+      const written = z.object({ mine: z.boolean(), key: z.string() }).parse(game.value);
+      assert.equal(written.mine, true);
+      const created = await bob.node.records.get(space, written.key);
       assert.equal(created?.root, bob.node.did, 'written as the person looking');
 
       // Alice's game: Bob may not change it, and the screen hears why.
@@ -1076,7 +1097,9 @@ describe('screens', () => {
       const guessed = await call('put', { collection: 'app.chess.game', body: { status: 'open' } });
       assert.equal(guessed.ok, true);
       const listed = await call('list', { collection: 'app.chess.game', where: { status: 'open' } });
-      const open = listed.value as Array<{ id: string; key: string; data: { status: string } }>;
+      const open = z
+        .array(z.object({ id: z.string(), key: z.string(), data: z.object({ status: z.string() }) }))
+        .parse(listed.value);
       assert.equal(open.length, 1);
       assert.equal(open[0]!.id, open[0]!.key);
       assert.equal(open[0]!.data.status, 'open');

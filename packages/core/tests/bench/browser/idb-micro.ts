@@ -16,7 +16,7 @@ function open(name: string, indexed: boolean): Promise<IDBDatabase> {
           store.createIndex(index, index, { unique: false });
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB would not open'));
   });
 }
 
@@ -38,7 +38,7 @@ function write(db: IDBDatabase, put: number[], remove: number[]): Promise<void> 
     for (const i of put) store.put(version(i));
     for (const i of remove) store.delete(version(i).id);
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error ?? new Error('The transaction failed'));
   });
 }
 
@@ -61,3 +61,6 @@ async function run(indexed: boolean) {
 await run(true);
 await run(false);
 log('done');
+
+// A module, for the top-level await.
+export {};

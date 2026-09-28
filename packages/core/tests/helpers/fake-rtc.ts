@@ -8,7 +8,7 @@ let nextId = 0;
 const id = (prefix: string) => `${prefix}-${++nextId}`;
 
 // fallow-ignore-file unused-class-member -- FakeTrack stands in for MediaStreamTrack, whose members the code under test reaches through the DOM type
-export class FakeTrack {
+class FakeTrack {
   readonly id = id('track');
   enabled = true;
   stopped = false;
@@ -87,8 +87,8 @@ class FakeConnection {
     const [first, rest] = String(description.sdp).split('|');
     if (description.type === 'offer') {
       this.remoteToken = first!;
-      for (const kind of (rest ?? '').split(',').filter(Boolean))
-        this.transceivers.push(new FakeTransceiver(kind as 'audio' | 'video', null));
+      for (const kind of (rest ?? '').split(','))
+        if (kind === 'audio' || kind === 'video') this.transceivers.push(new FakeTransceiver(kind, null));
       return;
     }
     // An answer: the offer it answers names who we're now connected to.
@@ -120,10 +120,19 @@ class FakeConnection {
 
 const connections = new Set<FakeConnection>();
 
+// The fakes implement only the members the calls code reaches, so where they
+// pass for the browser's own objects is where the type system has to be told.
+
 export function fakeConnection(config: RTCConfiguration): RTCPeerConnection {
   const connection = new FakeConnection(config);
   connections.add(connection);
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a fake with only the members the calls code reaches
   return connection as unknown as RTCPeerConnection;
+}
+
+function asTracks(tracks: FakeTrack[]): MediaStreamTrack[] {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- fakes with only the members the calls code reaches
+  return tracks as unknown as MediaStreamTrack[];
 }
 
 /** A camera and microphone that always say yes, and hand out fresh tracks */
@@ -132,14 +141,21 @@ export async function fakeUserMedia(constraints: MediaStreamConstraints): Promis
     constraints.audio ? new FakeTrack('audio') : null,
     constraints.video ? new FakeTrack('video') : null,
   ].filter((t): t is FakeTrack => t !== null);
-  return fakeStream(tracks as unknown as MediaStreamTrack[]);
+  return fakeStream(asTracks(tracks));
+}
+
+/** A screen to share, always granted */
+export async function fakeDisplayMedia(): Promise<MediaStream> {
+  return fakeStream(asTracks([new FakeTrack('video')]));
 }
 
 export function fakeStream(tracks: ReadonlyArray<MediaStreamTrack>): MediaStream {
   const list = [...tracks];
-  return {
+  const stream: Pick<MediaStream, 'getTracks' | 'getAudioTracks' | 'getVideoTracks'> = {
     getTracks: () => list,
     getAudioTracks: () => list.filter((t) => t.kind === 'audio'),
     getVideoTracks: () => list.filter((t) => t.kind === 'video'),
-  } as unknown as MediaStream;
+  };
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a fake with only the members the calls code reaches
+  return stream as MediaStream;
 }
