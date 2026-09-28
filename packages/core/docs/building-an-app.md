@@ -15,11 +15,11 @@ import { createWeaveConnection } from '@weaveprotocol/core/session';
 import { WeaveProvider, useConnection } from '@weaveprotocol/core/react';
 
 const connection = createWeaveConnection({
-  home: 'https://weave-home.netlify.app/connect',  // a suggestion: the person may use their own
+  home: 'https://weave-home.netlify.app/connect', // a suggestion: the person may use their own
   request: {
     name: 'Todo',
-    access: 'write',                                // or 'read'
-    scope: 'spaces',                                // or 'account', for every space
+    access: 'write', // or 'read'
+    scope: 'spaces', // or 'account', for every space
     create: [{ name: 'Todos', visibility: 'private' }],
   },
   network: { relays: ['wss://p2p-web-relay.fly.dev'] },
@@ -33,7 +33,8 @@ createRoot(root).render(
 
 function App() {
   const { connection, state } = useConnection();
-  if (state.status !== 'ready') return <button onClick={() => connection.connect()}>Connect with Weave</button>;
+  if (state.status !== 'ready')
+    return <button onClick={() => connection.connect()}>Connect with Weave</button>;
   return <Todos />;
 }
 ```
@@ -58,7 +59,7 @@ element and as a React component.
 <script type="module">
   import '@weaveprotocol/core/elements';
   document.querySelector('weave-auth').addEventListener('weave-session', (event) => {
-    const session = event.detail.session;   // { account, did, sessionDid, node }, or null
+    const session = event.detail.session; // { account, did, sessionDid, node }, or null
     if (session) start(session.node);
   });
 </script>
@@ -76,7 +77,11 @@ function App() {
   return <Todos />;
 }
 
-createRoot(root).render(<WeaveProvider auth={auth}><App /></WeaveProvider>);
+createRoot(root).render(
+  <WeaveProvider auth={auth}>
+    <App />
+  </WeaveProvider>,
+);
 ```
 
 ## A node by hand
@@ -84,7 +89,13 @@ createRoot(root).render(<WeaveProvider auth={auth}><App /></WeaveProvider>);
 For scripts, tests and servers:
 
 ```typescript
-import { createNode, createIdentityManager, createLocalRootSigner, indexedDBStores, rolePresets } from '@weaveprotocol/core';
+import {
+  createNode,
+  createIdentityManager,
+  createLocalRootSigner,
+  indexedDBStores,
+  rolePresets,
+} from '@weaveprotocol/core';
 
 const manager = createIdentityManager();
 const me = await manager.fromRecoveryCode(code);
@@ -103,10 +114,10 @@ Leave out `network` to stay offline. Call `node.close()` when done.
 ```typescript
 const space = await node.spaces.create({ name: 'Groceries', visibility: 'private', ...rolePresets.team });
 
-const invite = await node.spaces.invite(space.id);                 // a link-safe string; treat it as a secret
+const invite = await node.spaces.invite(space.id); // a link-safe string; treat it as a secret
 const view = await node.spaces.invite(space.id, { write: false }); // read-only
-await node.spaces.join(invite);                                    // on the friend's side
-await node.spaces.closeInvite(space.id, invite);                   // nobody else joins with it
+await node.spaces.join(invite); // on the friend's side
+await node.spaces.closeInvite(space.id, invite); // nobody else joins with it
 ```
 
 - `rolePresets`: `solo` (just you; invites are view-only), `team` (everyone
@@ -122,17 +133,17 @@ await node.spaces.closeInvite(space.id, invite);                   // nobody els
 
 All from `@weaveprotocol/core/react`, below a `WeaveProvider`:
 
-| Hook | Gives |
-|---|---|
-| `useNode()` | The node, to write with |
-| `useSpaces()` | The spaces, kept current, with `create`, `join`, `leave` |
-| `useQuery(space, query)` | `{ result, error }`, re-run as records change here or arrive from peers |
-| `useRecord(space, key)` / `useLinked(space, key)` | One record; the records pointing at it |
-| `useCollections(space)` / `useProfiles(space)` / `useAccess(space)` | What a space holds; who is in it; roles and members |
-| `useSpaceStatus(space)` | Connection and peers |
-| `useCan(space, action, target)` | Whether to show an edit or delete button |
-| `useHoldSpace(space)` | Keeps a space syncing while the view is on screen |
-| `useLive(space, load, deps)` | Anything else, reloaded as the space changes |
+| Hook                                                                | Gives                                                                   |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `useNode()`                                                         | The node, to write with                                                 |
+| `useSpaces()`                                                       | The spaces, kept current, with `create`, `join`, `leave`                |
+| `useQuery(space, query)`                                            | `{ result, error }`, re-run as records change here or arrive from peers |
+| `useRecord(space, key)` / `useLinked(space, key)`                   | One record; the records pointing at it                                  |
+| `useCollections(space)` / `useProfiles(space)` / `useAccess(space)` | What a space holds; who is in it; roles and members                     |
+| `useSpaceStatus(space)`                                             | Connection and peers                                                    |
+| `useCan(space, action, target)`                                     | Whether to show an edit or delete button                                |
+| `useHoldSpace(space)`                                               | Keeps a space syncing while the view is on screen                       |
+| `useLive(space, load, deps)`                                        | Anything else, reloaded as the space changes                            |
 
 ```tsx
 function Todos({ space }: { space: string }) {
@@ -155,7 +166,7 @@ like typing or presence:
 ```typescript
 await node.spaces.send(space.id, { type: 'typing' });
 node.subscribe((event) => {
-  if (event.type === 'message') console.log(event.from, event.message);  // from: the sender's account
+  if (event.type === 'message') console.log(event.from, event.message); // from: the sender's account
 });
 ```
 

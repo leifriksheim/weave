@@ -8,8 +8,8 @@
 import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
+import * as z from 'zod';
 
 import { createRelay, MAX_MESSAGE_BYTES, type MailboxLimits } from '../../relay/relay.mjs';
 import { createNode } from '../src/node/node.js';
@@ -18,17 +18,33 @@ import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
-import { contactPublicKey, deriveContactKeyBytes, deriveDoorKeyBytes, deriveDoorSignKeyBytes } from '../src/identity/contact-key.js';
+import {
+  contactPublicKey,
+  deriveContactKeyBytes,
+  deriveDoorKeyBytes,
+  deriveDoorSignKeyBytes,
+} from '../src/identity/contact-key.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import type { Capability } from '../src/identity/ucan.js';
-import { clip, doorTopic, encodeDoorCode, knockId, openKnock, parseDoorCode, sealKnock, signPurge } from '../src/doors/doors.js';
+import {
+  clip,
+  doorTopic,
+  encodeDoorCode,
+  knockId,
+  openKnock,
+  parseDoorCode,
+  sealKnock,
+  signPurge,
+} from '../src/doors/doors.js';
 import { createMailboxClient } from '../src/network/mailbox.js';
 import { AGENT_FACT } from '../src/identity/agent-note.js';
 import { grantSigner } from '../src/session/connect.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
+import { portOf } from './helpers/net.js';
+import { isRecord } from '../src/utils/guards.js';
 
 // ─── Relays, for the mailbox ────────────────────────────────────────
 
@@ -40,7 +56,7 @@ async function startRelay(mailbox: Partial<MailboxLimits> = {}) {
   server.on('upgrade', (req, socket, head) => relay.upgrade(wss, req, socket, head));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    url: `ws://127.0.0.1:${portOf(server)}`,
     close: () => {
       relay.close();
       server.close();
@@ -69,14 +85,22 @@ async function person(hub: FakeHub, name: string, seed = generateSeed()) {
     accountKey: await deriveVaultKeyBytes(seed),
     contactKey: await deriveContactKeyBytes(seed),
     watchIntervalMs: 0,
-    network: { relays: [relayUrl], transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
+    network: {
+      relays: [relayUrl],
+      transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)],
+    },
   });
   open.push(node);
   await node.account.setName(name);
   return node;
 }
 
-async function until<T>(get: () => Promise<T>, ok: (value: T) => boolean, what: string, ms = 5000): Promise<T> {
+async function until<T>(
+  get: () => Promise<T>,
+  ok: (value: T) => boolean,
+  what: string,
+  ms = 5000,
+): Promise<T> {
   const deadline = Date.now() + ms;
   for (;;) {
     const value = await get();
@@ -101,7 +125,13 @@ describe('a door code', () => {
   test('carries two keys, 1–3 relays and a name, and reads back from a bare code or a link', async () => {
     const { publicKey: key, signPublic: sign } = await someDoor();
     const code = encodeDoorCode({ key, sign, relays: ['wss://a.example', 'wss://b.example'], name: 'Anna' });
-    assert.deepEqual(parseDoorCode(code), { v: 1, key, sign, relays: ['wss://a.example', 'wss://b.example'], name: 'Anna' });
+    assert.deepEqual(parseDoorCode(code), {
+      v: 1,
+      key,
+      sign,
+      relays: ['wss://a.example', 'wss://b.example'],
+      name: 'Anna',
+    });
     assert.equal(parseDoorCode(`https://chat.example/#door=${code}`).key, key);
     assert.equal(parseDoorCode(`  ${code}\n`).key, key);
   });
@@ -109,7 +139,10 @@ describe('a door code', () => {
   test('refuses what could not be knocked on', async () => {
     const { publicKey: key, signPublic: sign } = await someDoor();
     assert.throws(() => encodeDoorCode({ key, sign, relays: [] }), /1–3 relays/);
-    assert.throws(() => encodeDoorCode({ key, sign, relays: ['wss://a', 'wss://b', 'wss://c', 'wss://d'] }), /1–3 relays/);
+    assert.throws(
+      () => encodeDoorCode({ key, sign, relays: ['wss://a', 'wss://b', 'wss://c', 'wss://d'] }),
+      /1–3 relays/,
+    );
     assert.throws(() => encodeDoorCode({ key, sign, relays: ['ws://relay.example'] }), /not a wss/);
     assert.throws(() => encodeDoorCode({ key: 'not-a-point', sign, relays: ['wss://a.example'] }), /P-256/);
     assert.throws(() => encodeDoorCode({ key, sign: key, relays: ['wss://a.example'] }), /signing key/);
@@ -156,7 +189,10 @@ describe("the relay's mailbox", () => {
     await assert.rejects(mailbox.drop(relayUrl, topic, 'not base64url!'), /refused/);
     await assert.rejects(mailbox.drop(relayUrl, topic, 'a'.repeat(12_001)), /refused/);
     // A malformed topic gets no answer at all.
-    await assert.rejects(createMailboxClient({ timeoutMs: 300 }).drop(relayUrl, 'short', 'abc'), /did not answer/);
+    await assert.rejects(
+      createMailboxClient({ timeoutMs: 300 }).drop(relayUrl, 'short', 'abc'),
+      /did not answer/,
+    );
   });
 
   test('takes only a few knocks on one door from one address an hour', async () => {
@@ -169,8 +205,12 @@ describe("the relay's mailbox", () => {
   test('takes only so many knocks from one address in all, whatever the topics', async () => {
     const own = await startRelay({ dropsPerNetwork: 5 });
     try {
-      for (let i = 0; i < 5; i++) await mailbox.drop(own.url, (await someDoor(`many-topics-${i}-00000`)).topic, `b${i}`);
-      await assert.rejects(mailbox.drop(own.url, (await someDoor('many-topics-6-00000')).topic, 'b6'), /Too many knocks from here/);
+      for (let i = 0; i < 5; i++)
+        await mailbox.drop(own.url, (await someDoor(`many-topics-${i}-00000`)).topic, `b${i}`);
+      await assert.rejects(
+        mailbox.drop(own.url, (await someDoor('many-topics-6-00000')).topic, 'b6'),
+        /Too many knocks from here/,
+      );
     } finally {
       own.close();
     }
@@ -204,37 +244,63 @@ describe("the relay's mailbox", () => {
     const ws = new WebSocket(relayUrl);
     await new Promise((resolve) => (ws.onopen = resolve));
     const heard: string[] = [];
+    const Mail = z.object({ type: z.literal('mail'), items: z.array(z.object({ blob: z.string() })) });
     ws.onmessage = (event) => {
-      const message = JSON.parse(String(event.data));
-      if (message.type === 'mail') heard.push(...message.items.map((item: { blob: string }) => item.blob));
+      const mail = Mail.safeParse(JSON.parse(String(event.data)));
+      if (mail.success) heard.push(...mail.data.items.map((item) => item.blob));
     };
     ws.send(JSON.stringify({ type: 'fetch', topic, watch: true }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     await mailbox.drop(relayUrl, topic, 'bmV3cw');
-    await until(async () => heard, (h) => h.includes('bmV3cw'), 'the watcher to hear the knock');
+    await until(
+      async () => heard,
+      (h) => h.includes('bmV3cw'),
+      'the watcher to hear the knock',
+    );
     ws.close();
   });
 
   test("is cleared only by the door's owner: the key that hashes to the topic, signing this socket's challenge", async () => {
     const door = await someDoor('purged-door-000000');
     const stranger = await someDoor('someone-else-00000');
-    const ids = [await mailbox.drop(relayUrl, door.topic, 'b25l'), await mailbox.drop(relayUrl, door.topic, 'dHdv'), await mailbox.drop(relayUrl, door.topic, 'dGhyZWU')];
+    const ids = [
+      await mailbox.drop(relayUrl, door.topic, 'b25l'),
+      await mailbox.drop(relayUrl, door.topic, 'dHdv'),
+      await mailbox.drop(relayUrl, door.topic, 'dGhyZWU'),
+    ];
 
     // Someone else's key, or the right key and a signature over the wrong thing, clear nothing.
     await assert.rejects(
-      mailbox.purge(relayUrl, door.topic, stranger.signPublic, null, (nonce) => signPurge(stranger.sign, door.topic, nonce, null)),
+      mailbox.purge(relayUrl, door.topic, stranger.signPublic, null, (nonce) =>
+        signPurge(stranger.sign, door.topic, nonce, null),
+      ),
       /not this door/,
     );
     await assert.rejects(
-      mailbox.purge(relayUrl, door.topic, door.signPublic, null, (nonce) => signPurge(door.sign, door.topic, `${nonce}x`, null)),
+      mailbox.purge(relayUrl, door.topic, door.signPublic, null, (nonce) =>
+        signPurge(door.sign, door.topic, `${nonce}x`, null),
+      ),
       /does not check out/,
     );
     assert.equal((await mailbox.fetch(relayUrl, door.topic)).length, 3);
 
     // One knock, then the rest.
-    assert.equal(await mailbox.purge(relayUrl, door.topic, door.signPublic, [ids[0]!], (nonce) => signPurge(door.sign, door.topic, nonce, [ids[0]!])), 1);
-    assert.deepEqual((await mailbox.fetch(relayUrl, door.topic)).map((item) => item.id).sort(), [ids[1]!, ids[2]!].sort());
-    assert.equal(await mailbox.purge(relayUrl, door.topic, door.signPublic, null, (nonce) => signPurge(door.sign, door.topic, nonce, null)), 2);
+    assert.equal(
+      await mailbox.purge(relayUrl, door.topic, door.signPublic, [ids[0]!], (nonce) =>
+        signPurge(door.sign, door.topic, nonce, [ids[0]!]),
+      ),
+      1,
+    );
+    assert.deepEqual(
+      (await mailbox.fetch(relayUrl, door.topic)).map((item) => item.id).sort(),
+      [ids[1]!, ids[2]!].sort(),
+    );
+    assert.equal(
+      await mailbox.purge(relayUrl, door.topic, door.signPublic, null, (nonce) =>
+        signPurge(door.sign, door.topic, nonce, null),
+      ),
+      2,
+    );
     assert.deepEqual(await mailbox.fetch(relayUrl, door.topic), []);
   });
 
@@ -243,16 +309,32 @@ describe("the relay's mailbox", () => {
     await mailbox.drop(relayUrl, door.topic, 'cmVwbGF5');
     const ws = new WebSocket(relayUrl);
     await new Promise((resolve) => (ws.onopen = resolve));
-    const answers: Array<Record<string, unknown>> = [];
+    const answers: unknown[] = [];
     ws.onmessage = (event) => answers.push(JSON.parse(String(event.data)));
     ws.send(JSON.stringify({ type: 'challenge' }));
-    const { nonce } = (await until(async () => answers, (a) => a.length === 1, 'the challenge'))[0] as { nonce: string };
-    const purge = { type: 'purge', topic: door.topic, sign: door.signPublic, ids: ['nothing'], sig: await signPurge(door.sign, door.topic, nonce, ['nothing']) };
+    const [challenge] = await until(
+      async () => answers,
+      (a) => a.length === 1,
+      'the challenge',
+    );
+    const { nonce } = z.object({ nonce: z.string() }).parse(challenge);
+    const purge = {
+      type: 'purge',
+      topic: door.topic,
+      sign: door.signPublic,
+      ids: ['nothing'],
+      sig: await signPurge(door.sign, door.topic, nonce, ['nothing']),
+    };
     ws.send(JSON.stringify(purge));
     ws.send(JSON.stringify(purge));
-    await until(async () => answers, (a) => a.length === 3, 'both answers');
-    assert.equal(answers[1]!.type, 'purged');
-    assert.equal(answers[2]!.type, 'refused');
+    await until(
+      async () => answers,
+      (a) => a.length === 3,
+      'both answers',
+    );
+    const typeOf = (answer: unknown) => (isRecord(answer) ? answer.type : undefined);
+    assert.equal(typeOf(answers[1]), 'purged');
+    assert.equal(typeOf(answers[2]), 'refused');
     ws.close();
   });
 });
@@ -261,7 +343,11 @@ describe("the relay's mailbox", () => {
 
 describe('a knock', () => {
   /** Leif's account, a session under it with a note saying `capabilities`, and a space for two he made */
-  async function leifWith(hub: FakeHub, capabilities: Capability[] = [{ with: '*', can: 'expression/*' }], expiresIn = 3600) {
+  async function leifWith(
+    hub: FakeHub,
+    capabilities: Capability[] = [{ with: '*', can: 'expression/*' }],
+    expiresIn = 3600,
+  ) {
     const seed = generateSeed();
     const leif = await person(hub, 'Leif', seed);
     const provider = createP256Provider();
@@ -269,10 +355,20 @@ describe('a knock', () => {
     const root = createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider());
     const keys = await provider.generateKeyPair();
     const sessionDid = publicKeyToDid(await provider.exportPublicKey(keys.publicKey), P256_MULTICODEC);
-    const token = await root.delegate({ audience: sessionDid, capabilities, expiration: Math.floor(Date.now() / 1000) + expiresIn });
+    const token = await root.delegate({
+      audience: sessionDid,
+      capabilities,
+      expiration: Math.floor(Date.now() / 1000) + expiresIn,
+    });
     const pair = await leif.spaces.create({ name: 'Leif & Anna', visibility: 'private' });
     const invite = await leif.spaces.invite(pair.id);
-    return { leif, provider, invite, pair, session: { did: sessionDid, key: keys.privateKey, proof: token.encoded } };
+    return {
+      leif,
+      provider,
+      invite,
+      pair,
+      session: { did: sessionDid, key: keys.privateKey, proof: token.encoded },
+    };
   }
 
   test('opens only with its door, and only as from the account whose note signed it', async () => {
@@ -282,7 +378,12 @@ describe('a knock', () => {
     const door = await someDoor('door-aaaaaaaaaaaa');
     const other = await someDoor('door-bbbbbbbbbbbb');
 
-    const blob = await sealKnock(door.publicKey, { from: leif.did, name: 'Leif', invite, note: 'hi from the gig' }, session, provider);
+    const blob = await sealKnock(
+      door.publicKey,
+      { from: leif.did, name: 'Leif', invite, note: 'hi from the gig' },
+      session,
+      provider,
+    );
     const opened = await openKnock(door.key, blob, Date.now(), provider);
     assert.equal(opened?.from, leif.did);
     assert.equal(opened?.name, 'Leif');
@@ -292,17 +393,35 @@ describe('a knock', () => {
     // Another door's key can't open it.
     assert.equal(await openKnock(other.key, blob, Date.now(), provider), null);
     // Claiming to be Anna under Leif's note doesn't check out.
-    const forged = await sealKnock(door.publicKey, { from: anna.did, name: 'Anna', invite }, session, provider);
+    const forged = await sealKnock(
+      door.publicKey,
+      { from: anna.did, name: 'Anna', invite },
+      session,
+      provider,
+    );
     assert.equal(await openKnock(door.key, forged, Date.now(), provider), null);
     // Nor does inviting to a space someone else made.
     const annas = await anna.spaces.create({ name: 'Not Leif’s', visibility: 'private' });
-    const stolen = await sealKnock(door.publicKey, { from: leif.did, name: 'Leif', invite: await anna.spaces.invite(annas.id) }, session, provider);
+    const stolen = await sealKnock(
+      door.publicKey,
+      { from: leif.did, name: 'Leif', invite: await anna.spaces.invite(annas.id) },
+      session,
+      provider,
+    );
     assert.equal(await openKnock(door.key, stolen, Date.now(), provider), null);
     // A note passed on again (root → session → another key) is not the account's own: knocks carry one link.
     const deeper = await provider.generateKeyPair();
     const deeperDid = publicKeyToDid(await provider.exportPublicKey(deeper.publicKey), P256_MULTICODEC);
-    const { token: passedOn } = await leif.delegate({ audience: deeperDid, capabilities: [{ with: '*', can: 'expression/*' }] });
-    const relayed = await sealKnock(door.publicKey, { from: leif.did, name: 'Leif', invite }, { did: deeperDid, key: deeper.privateKey, proof: passedOn.encoded }, provider);
+    const { token: passedOn } = await leif.delegate({
+      audience: deeperDid,
+      capabilities: [{ with: '*', can: 'expression/*' }],
+    });
+    const relayed = await sealKnock(
+      door.publicKey,
+      { from: leif.did, name: 'Leif', invite },
+      { did: deeperDid, key: deeper.privateKey, proof: passedOn.encoded },
+      provider,
+    );
     assert.equal(await openKnock(door.key, relayed, Date.now(), provider), null);
   });
 
@@ -314,7 +433,12 @@ describe('a knock', () => {
       [{ with: '*', can: 'expression/read' }],
     ]) {
       const { leif, provider, invite, session } = await leifWith(hub, capabilities);
-      const blob = await sealKnock(door.publicKey, { from: leif.did, name: 'Leif', invite }, session, provider);
+      const blob = await sealKnock(
+        door.publicKey,
+        { from: leif.did, name: 'Leif', invite },
+        session,
+        provider,
+      );
       assert.equal(await openKnock(door.key, blob, Date.now(), provider), null, JSON.stringify(capabilities));
     }
   });
@@ -336,8 +460,17 @@ describe('a knock', () => {
     Date.now = () => realNow() - 3600_000;
     let blob: string;
     try {
-      const token = await root.delegate({ audience: sessionDid, capabilities: [{ with: '*', can: 'expression/*' }], expiration: Math.floor(Date.now() / 1000) + 1800 });
-      blob = await sealKnock(door.publicKey, { from: leif.did, name: 'Leif', invite }, { did: sessionDid, key: keys.privateKey, proof: token.encoded }, provider);
+      const token = await root.delegate({
+        audience: sessionDid,
+        capabilities: [{ with: '*', can: 'expression/*' }],
+        expiration: Math.floor(Date.now() / 1000) + 1800,
+      });
+      blob = await sealKnock(
+        door.publicKey,
+        { from: leif.did, name: 'Leif', invite },
+        { did: sessionDid, key: keys.privateKey, proof: token.encoded },
+        provider,
+      );
     } finally {
       Date.now = realNow;
     }
@@ -352,7 +485,12 @@ describe('a knock', () => {
 describe('node.doors', () => {
   /** Anna's knocks, read until `ok` — each read also writes answers she owes */
   const annaSees = (anna: P2PNode, ok: (count: number) => boolean, what: string, ms?: number) =>
-    until(() => anna.doors.knocks(), (knocks) => ok(knocks.length), what, ms);
+    until(
+      () => anna.doors.knocks(),
+      (knocks) => ok(knocks.length),
+      what,
+      ms,
+    );
 
   test('two people who share no space become contacts through a door code', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
@@ -362,11 +500,19 @@ describe('node.doors', () => {
     const door = await anna.doors.open({ label: 'bio' });
     assert.equal(door.name, 'Anna');
     assert.deepEqual(door.relays, [relayUrl]);
-    assert.deepEqual((await anna.doors.list()).map((d) => d.id), [door.id]);
+    assert.deepEqual(
+      (await anna.doors.list()).map((d) => d.id),
+      [door.id],
+    );
 
     // Anna posts the code somewhere; Leif pastes it.
-    const { space } = await leif.doors.knock(`https://chat.example/#door=${door.code}`, { note: 'We met at the gig' });
-    assert.deepEqual((await leif.doors.sent()).map((k) => [k.space, k.name]), [[space, 'Anna']]);
+    const { space } = await leif.doors.knock(`https://chat.example/#door=${door.code}`, {
+      note: 'We met at the gig',
+    });
+    assert.deepEqual(
+      (await leif.doors.sent()).map((k) => [k.space, k.name]),
+      [[space, 'Anna']],
+    );
 
     const [knock] = await annaSees(anna, (n) => n === 1, 'the knock to arrive');
     assert.equal(knock!.from, leif.did);
@@ -407,7 +553,11 @@ describe('node.doors', () => {
 
     // Carol gets hold of the invite (say, from Anna's lost laptop) and joins first.
     const keys = await someDoor(door.id, await deriveContactKeyBytes(annaSeed));
-    const [item] = await until(() => createMailboxClient().fetch(relayUrl, keys.topic), (items) => items.length === 1, 'the knock');
+    const [item] = await until(
+      () => createMailboxClient().fetch(relayUrl, keys.topic),
+      (items) => items.length === 1,
+      'the knock',
+    );
     const invite = (await openKnock(keys.key, item!.blob, item!.at, createP256Provider()))!.invite;
     await carol.spaces.join(invite);
     await joined(carol, space);
@@ -418,15 +568,27 @@ describe('node.doors', () => {
     const [knock] = await annaSees(anna, (n) => n === 1, 'the knock');
     await anna.doors.accept(knock!.id);
     await anna.spaces.hold(space);
-    await until(async () => (await anna.doors.knocks(), leif.doors.sent()), (sent) => sent.length === 0, 'the answer');
+    await until(
+      async () => (await anna.doors.knocks(), leif.doors.sent()),
+      (sent) => sent.length === 0,
+      'the answer',
+    );
     assert.equal((await leif.contacts.get(anna.did))?.space, space);
     assert.equal(await leif.contacts.get(carol.did), null);
     // Anyone else it reached is refused now: the space's members don't count them in.
     await dave.spaces.join(invite);
-    await until(async () => (await dave.spaces.access(space)).role, (role) => role === null, 'Dave to be refused', 3000);
+    await until(
+      async () => (await dave.spaces.access(space)).role,
+      (role) => role === null,
+      'Dave to be refused',
+      3000,
+    );
     await new Promise((resolve) => setTimeout(resolve, 300));
     for (const member of [leif, anna]) {
-      assert.equal((await member.spaces.access(space)).members.some((m) => m.did === dave.did), false);
+      assert.equal(
+        (await member.spaces.access(space)).members.some((m) => m.did === dave.did),
+        false,
+      );
     }
   });
 
@@ -501,7 +663,10 @@ describe('node.doors', () => {
     await annaSees(anna, (n) => n === 2, 'both knocks');
 
     await anna.contacts.block(carol.did);
-    assert.deepEqual((await anna.doors.knocks()).map((k) => k.from), [leif.did]);
+    assert.deepEqual(
+      (await anna.doors.knocks()).map((k) => k.from),
+      [leif.did],
+    );
 
     await anna.doors.close(door.id);
     assert.deepEqual(await anna.doors.list(), []);
@@ -523,7 +688,12 @@ describe('node.doors', () => {
     const leif = await person(hub, 'Leif');
     const door = await phone.doors.open();
     await leif.doors.knock(door.code);
-    const [onLaptop] = await annaSees(laptop, (n) => n === 1, 'the laptop to see the door and its knock', 10_000);
+    const [onLaptop] = await annaSees(
+      laptop,
+      (n) => n === 1,
+      'the laptop to see the door and its knock',
+      10_000,
+    );
     assert.equal(onLaptop!.from, leif.did);
   });
 
@@ -544,13 +714,27 @@ describe('node.doors', () => {
       facts: [AGENT_FACT],
     });
     const agent = await createNode({
-      signer: grantSigner({ v: 1, did: (await manager.fromSeed(seed)).did, name: 'Ada', token: note.encoded, access: 'write', scope: 'account', spaces: [], expiresAt: Math.floor(Date.now() / 1000) + 3600, agent: true, home: 'https://home.test/connect' }),
+      signer: grantSigner({
+        v: 1,
+        did: (await manager.fromSeed(seed)).did,
+        name: 'Ada',
+        token: note.encoded,
+        access: 'write',
+        scope: 'account',
+        spaces: [],
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        agent: true,
+        home: 'https://home.test/connect',
+      }),
       sessionKey: keys,
       stores: memoryStores(),
       accountKey: await deriveVaultKeyBytes(seed),
       contactKey: await deriveContactKeyBytes(seed),
       watchIntervalMs: 0,
-      network: { relays: [relayUrl], transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
+      network: {
+        relays: [relayUrl],
+        transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)],
+      },
     });
     open.push(agent);
     assert.deepEqual(await agent.doors.list(), []);

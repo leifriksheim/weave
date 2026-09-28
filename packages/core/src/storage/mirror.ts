@@ -33,6 +33,7 @@ import type { BlobStore } from './blob-store.js';
 import type { StorageProvider } from './storage-provider.js';
 import { packSegment, segmentName, SEGMENT_SUFFIX, unpackSegment, versionSize } from './segment.js';
 import { utf8Decode, utf8Encode } from '../utils/encoding.js';
+import { unref } from '../utils/guards.js';
 
 /** What became of a version handed over from the store */
 export type Taken = 'stored' | 'later' | 'refused';
@@ -86,7 +87,11 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
   // 128 random bits, never a DID: a folder listing must not say whose device wrote it.
   let writerBytes = await state.get(WRITER_KEY);
   if (!writerBytes) {
-    writerBytes = utf8Encode(Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''));
+    writerBytes = utf8Encode(
+      Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), (b) =>
+        b.toString(16).padStart(2, '0'),
+      ).join(''),
+    );
     await state.put(WRITER_KEY, writerBytes);
   }
   const writer = utf8Decode(writerBytes);
@@ -145,7 +150,8 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
       if (size >= flushBytes) await send();
     }
     await send();
-    if ((await store.list(mine)).filter((key) => key.endsWith(SEGMENT_SUFFIX)).length >= compactAt) await compactNow();
+    if ((await store.list(mine)).filter((key) => key.endsWith(SEGMENT_SUFFIX)).length >= compactAt)
+      await compactNow();
   }
 
   async function compactNow(): Promise<void> {
@@ -155,7 +161,8 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
     const keep = new Map<string, Expression>();
     for (const key of old) {
       const bytes = await store.get(key);
-      for (const version of bytes ? unpackSegment(bytes) : []) if (wanted.has(version.id)) keep.set(version.id, version);
+      for (const version of bytes ? unpackSegment(bytes) : [])
+        if (wanted.has(version.id)) keep.set(version.id, version);
     }
     // New first, then delete: a reader in between sees each version twice, which is harmless.
     let batch: Expression[] = [];
@@ -188,7 +195,7 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
       let pending = unpackSegment(bytes);
       // Versions can depend on each other — a record on its first version, on the access changes it saw.
       // Pass over the rest until nothing more goes in.
-      for (let progress = true; pending.length > 0 && progress; ) {
+      for (let progress = true; pending.length > 0 && progress;) {
         progress = false;
         const later: Expression[] = [];
         for (const version of pending) {
@@ -222,7 +229,7 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
           // The store is out of reach; the next change tries again, and nothing is lost meanwhile.
         });
       }, flushMs);
-      (timer as { unref?: () => void }).unref?.();
+      unref(timer);
     },
 
     async close() {

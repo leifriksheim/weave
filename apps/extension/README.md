@@ -42,9 +42,9 @@ site's build (`netlify.toml`) puts it at `/weave-chrome.zip`.
 Settings are read at build time, from `extension/.env.local` (not committed;
 copy `.env.example` to start). A variable set in the shell wins over the file.
 
-| Variable | Default | What |
-|---|---|---|
-| `WEAVE_HOME` | `http://localhost:5174` | The account home offered first. People can type their own. |
+| Variable       | Default                                           | What                                                                               |
+| -------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `WEAVE_HOME`   | `http://localhost:5174`                           | The account home offered first. People can type their own.                         |
 | `WEAVE_RELAYS` | `ws://localhost:8787,wss://p2p-web-relay.fly.dev` | Relays, comma separated. The home's relays arrive with the grant and are used too. |
 
 For local development run the home (`npm run dev -w apps/home`). The relay on
@@ -53,13 +53,13 @@ the defaults too, so you only need the local one to work offline.
 
 ## How it's put together
 
-| File | Runs in | Does |
-|---|---|---|
-| `src/worker.ts` | the service worker | Keeps the offscreen page alive (on start, install, and a one-minute alarm) and sets the badge. Chrome stops it after 30 quiet seconds, so nothing else lives here. |
-| `src/offscreen.ts` | a hidden page | The carrier node (`createCarrierNode`): runs as long as Chrome does, over WebRTC. Attaches the pod when Chrome allows it. |
-| `src/welcome.ts` | a tab | Connecting to the home, picking the pod, status, disconnecting. Connecting has to happen here: the toolbar popup closes when the home's window takes focus. |
-| `src/popup.ts` | the toolbar popup | Status at a glance, **Resume pod sync** when Chrome wants a click, and "Notify me when…". |
-| `src/notify.ts` | a tab | Picking what to be notified about from the kinds of record your spaces hold, and asking the home to add them. A tab for the same reason as connecting. |
+| File               | Runs in            | Does                                                                                                                                                               |
+| ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/worker.ts`    | the service worker | Keeps the offscreen page alive (on start, install, and a one-minute alarm) and sets the badge. Chrome stops it after 30 quiet seconds, so nothing else lives here. |
+| `src/offscreen.ts` | a hidden page      | The carrier node (`createCarrierNode`): runs as long as Chrome does, over WebRTC. Attaches the pod when Chrome allows it.                                          |
+| `src/welcome.ts`   | a tab              | Connecting to the home, picking the pod, status, disconnecting. Connecting has to happen here: the toolbar popup closes when the home's window takes focus.        |
+| `src/popup.ts`     | the toolbar popup  | Status at a glance, **Resume pod sync** when Chrome wants a click, and "Notify me when…".                                                                          |
+| `src/notify.ts`    | a tab              | Picking what to be notified about from the kinds of record your spaces hold, and asking the home to add them. A tab for the same reason as connecting.             |
 
 Permissions: `offscreen`, `alarms`, `unlimitedStorage`, `notifications`. No
 host permissions and no content scripts, so installing it shows no warning

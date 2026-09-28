@@ -1,0 +1,27 @@
+{
+  "name": "@weave/app-shared",
+  "private": true,
+  "type": "module",
+  "description": "What the example app and the account home share: the visual vocabulary, the relay configuration and a few components. Source only; each app's Vite build compiles it.",
+  "exports": {
+    "./styles": "./src/styles.ts",
+    "./relay": "./src/relay.ts",
+    "./Avatar": "./src/Avatar.tsx",
+    "./Info": "./src/Info.tsx",
+    "./Modal": "./src/Modal.tsx",
+    "./Wordmark": "./src/Wordmark.tsx",
+    "./useDismiss": "./src/useDismiss.ts",
+    "./hash": "./src/hash.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}

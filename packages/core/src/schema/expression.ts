@@ -1,6 +1,7 @@
 import type { Expression, Link, UnsignedExpression } from '../types.js';
 import { utf8Encode } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
+import { isRecord } from '../utils/guards.js';
 import { newRecordKey } from '../records/version.js';
 
 /**
@@ -35,27 +36,29 @@ export interface CreateExpressionParams<T> {
 /**
  * Deterministically serializes an object into a JSON string with sorted keys.
  * Recursively processes nested objects.
- * 
+ *
  * @param obj The object to canonicalize
  * @returns Deterministic JSON string representation
  */
 export function canonicalize(obj: unknown): string {
-  if (obj === null || typeof obj !== 'object') {
+  if (Array.isArray(obj)) {
+    return `[${obj.map((item) => canonicalize(item)).join(',')}]`;
+  }
+
+  if (!isRecord(obj)) {
     return JSON.stringify(obj) ?? 'null';
   }
-  
-  if (Array.isArray(obj)) {
-    return `[${obj.map(item => canonicalize(item)).join(',')}]`;
-  }
-  
+
   const keys = Object.keys(obj).sort();
-  const pairs = keys.map(key => {
-    const value = (obj as Record<string, unknown>)[key];
-    // Remove undefined values to match standard JSON.stringify behavior
-    if (value === undefined) return undefined;
-    return `${JSON.stringify(key)}:${canonicalize(value)}`;
-  }).filter((pair): pair is string => pair !== undefined);
-  
+  const pairs = keys
+    .map((key) => {
+      const value = obj[key];
+      // Remove undefined values to match standard JSON.stringify behavior
+      if (value === undefined) return undefined;
+      return `${JSON.stringify(key)}:${canonicalize(value)}`;
+    })
+    .filter((pair): pair is string => pair !== undefined);
+
   return `{${pairs.join(',')}}`;
 }
 
@@ -93,7 +96,7 @@ export function createExpression<T>(params: CreateExpressionParams<T>): Unsigned
  */
 export function signedPart<T>(expression: Expression<T>): UnsignedExpression<T> {
   const { id: _id, signature: _signature, ...payload } = expression;
-  return payload as UnsignedExpression<T>;
+  return payload;
 }
 
 /**
@@ -126,5 +129,7 @@ export function serializeExpression(expr: Expression): Uint8Array {
 export function deserializeExpression(bytes: Uint8Array): Expression {
   const decoder = new TextDecoder('utf-8');
   const json = decoder.decode(bytes);
+  // Unchecked here: an expression off the wire goes through the validation gates before anything trusts it.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checked by the validation gates
   return Object.freeze(JSON.parse(json) as Expression);
 }

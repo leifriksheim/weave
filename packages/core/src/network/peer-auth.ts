@@ -49,6 +49,7 @@
 import type { CryptoProvider } from '../types.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { didToPublicKey } from '../identity/did.js';
+import { isObject } from '../utils/guards.js';
 
 /** What a client sends to prove itself: its own signature, and in a private space the read key's */
 export interface HelloProof {
@@ -93,13 +94,19 @@ export interface ReadAccess {
 /** What a caller may pass for a space's read access: the full thing, or a fixed key pair and the public half it must match */
 export type ReadAccessInput =
   | ReadAccess
-  | { readonly key: { readonly privateKey: CryptoKey; readonly did?: string } | null; readonly publicDid: string };
+  | {
+      readonly key: { readonly privateKey: CryptoKey; readonly did?: string } | null;
+      readonly publicDid: string;
+    };
 
 function readAccessOf(read: ReadAccessInput | null): ReadAccess | null {
   if (!read) return null;
   if ('current' in read) return read;
   const { key, publicDid } = read;
-  return { key: async () => (key ? { did: key.did ?? publicDid, privateKey: key.privateKey } : null), current: () => publicDid };
+  return {
+    key: async () => (key ? { did: key.did ?? publicDid, privateKey: key.privateKey } : null),
+    current: () => publicDid,
+  };
 }
 
 /**
@@ -107,20 +114,37 @@ function readAccessOf(read: ReadAccessInput | null): ReadAccess | null {
  * note, since it cannot know whether the other side has moved on; and with
  * the older keys it holds, for another side that has not.
  */
-async function proveRead(access: ReadAccess, label: Uint8Array, provider: CryptoProvider): Promise<Omit<HelloProof, 'sig'> | null> {
+async function proveRead(
+  access: ReadAccess,
+  label: Uint8Array,
+  provider: CryptoProvider,
+): Promise<Omit<HelloProof, 'sig'> | null> {
   const key = await access.key();
   if (!key) return null;
   const read = base64UrlEncode(await provider.sign(key.privateKey, label));
   // A bare key pair has no name to give; the other side takes it as its current one.
   if (!key.did) return { read };
   const member = (await access.membership?.()) ?? null;
-  const older = ((await access.earlier?.()) ?? []).filter((held) => held.did !== key.did).slice(0, MAX_EARLIER_READ_KEYS);
-  const earlier = await Promise.all(older.map(async (held) => ({ readKey: held.did, read: base64UrlEncode(await provider.sign(held.privateKey, label)) })));
+  const older = ((await access.earlier?.()) ?? [])
+    .filter((held) => held.did !== key.did)
+    .slice(0, MAX_EARLIER_READ_KEYS);
+  const earlier = await Promise.all(
+    older.map(async (held) => ({
+      readKey: held.did,
+      read: base64UrlEncode(await provider.sign(held.privateKey, label)),
+    })),
+  );
   return { read, readKey: key.did, ...(member ? { member } : {}), ...(earlier.length ? { earlier } : {}) };
 }
 
 /** Whether a proof shows a reader: the current read key, or an older one with a note from someone still a member */
-async function checkRead(access: ReadAccess, peerDid: string, label: Uint8Array, proof: Partial<HelloProof>, provider: CryptoProvider) {
+async function checkRead(
+  access: ReadAccess,
+  peerDid: string,
+  label: Uint8Array,
+  proof: Record<string, unknown>,
+  provider: CryptoProvider,
+) {
   const current = access.current();
   const admit = (readKey: string) => {
     access.admitted?.(peerDid, readKey);
@@ -132,9 +156,18 @@ async function checkRead(access: ReadAccess, peerDid: string, label: Uint8Array,
     if (access.admits && (await access.admits(peerDid, claimed, proof.member))) return admit(claimed);
   }
   // The reader may be ahead of us: then it proves the key we call current among its older ones.
-  const earlier = Array.isArray(proof.earlier) ? proof.earlier.slice(0, MAX_EARLIER_READ_KEYS) : [];
-  const ours = earlier.find((item) => item?.readKey === current);
-  return ours !== undefined && current.startsWith('did:key:') && (await verifyBy(provider, current, ours.read, label)) && admit(current);
+  const earlier: unknown[] = Array.isArray(proof.earlier)
+    ? proof.earlier.slice(0, MAX_EARLIER_READ_KEYS)
+    : [];
+  const ours = earlier.find(
+    (item): item is Record<string, unknown> => isObject(item) && item.readKey === current,
+  );
+  return (
+    ours !== undefined &&
+    current.startsWith('did:key:') &&
+    (await verifyBy(provider, current, ours.read, label)) &&
+    admit(current)
+  );
 }
 
 /** The connecting side: proves who it is and that it may read, and checks the node's welcome. */
@@ -159,7 +192,12 @@ const helloLabel = (spaceId: string, clientDid: string, nodeDid: string, nonce: 
 const welcomeLabel = (spaceId: string, nodeDid: string, nonce: string) =>
   utf8Encode(`weave-peer/v3|server|${spaceId}|${nodeDid}|${nonce}`);
 
-async function verifyBy(provider: CryptoProvider, did: string, sig: unknown, data: Uint8Array): Promise<boolean> {
+async function verifyBy(
+  provider: CryptoProvider,
+  did: string,
+  sig: unknown,
+  data: Uint8Array,
+): Promise<boolean> {
   if (typeof sig !== 'string') return false;
   try {
     const publicKey = await provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
@@ -182,7 +220,11 @@ export function createClientAuth(
   provider: CryptoProvider,
 ): ClientAuth {
   // A bare key pair proves itself as whatever the node names now.
-  const access: ReadAccess | null = !read ? null : 'current' in read ? read : { key: async () => ({ did: '', privateKey: read.privateKey }), current: () => '' };
+  const access: ReadAccess | null = !read
+    ? null
+    : 'current' in read
+      ? read
+      : { key: async () => ({ did: '', privateKey: read.privateKey }), current: () => '' };
   return Object.freeze({
     async hello(clientDid: string, nodeDid: string, nodeNonce: string) {
       const label = helloLabel(spaceId, clientDid, nodeDid, nodeNonce);
@@ -202,13 +244,20 @@ export function createClientAuth(
  * @param read In a private space, who may read it — or just its public read key; null in a public one
  * @param nodeKey The private key of the DID the node introduces itself as
  */
-export function createServerAuth(spaceId: string, read: ReadAccess | string | null, nodeKey: CryptoKey, provider: CryptoProvider): ServerAuth {
-  const access: ReadAccess | null = read === null ? null : typeof read === 'string' ? { key: async () => null, current: () => read } : read;
+export function createServerAuth(
+  spaceId: string,
+  read: ReadAccess | string | null,
+  nodeKey: CryptoKey,
+  provider: CryptoProvider,
+): ServerAuth {
+  const access: ReadAccess | null =
+    read === null ? null : typeof read === 'string' ? { key: async () => null, current: () => read } : read;
   return Object.freeze({
     async checkHello(clientDid: string, nodeDid: string, nodeNonce: string, proof: unknown) {
-      const given = (proof ?? {}) as Partial<HelloProof>;
+      const given: Record<string, unknown> = isObject(proof) ? proof : {};
       const label = helloLabel(spaceId, clientDid, nodeDid, nodeNonce);
-      if (!clientDid.startsWith('did:key:') || !(await verifyBy(provider, clientDid, given.sig, label))) return false;
+      if (!clientDid.startsWith('did:key:') || !(await verifyBy(provider, clientDid, given.sig, label)))
+        return false;
       return access ? checkRead(access, clientDid, label, given, provider) : true;
     },
     async welcome(nodeDid: string, clientNonce: string) {
@@ -256,8 +305,14 @@ export interface MeshAuth {
   check(peerDid: string, ourNonce: string, binding: ChannelBinding | null, proof: unknown): Promise<boolean>;
 }
 
-const meshLabel = (spaceId: string, prover: string, verifier: string, nonce: string, proverCert: string, verifierCert: string) =>
-  utf8Encode(`weave-mesh/v1|${spaceId}|${prover}|${verifier}|${nonce}|${proverCert}|${verifierCert}`);
+const meshLabel = (
+  spaceId: string,
+  prover: string,
+  verifier: string,
+  nonce: string,
+  proverCert: string,
+  verifierCert: string,
+) => utf8Encode(`weave-mesh/v1|${spaceId}|${prover}|${verifier}|${nonce}|${proverCert}|${verifierCert}`);
 
 /**
  * One side of the handshake between peers.
@@ -274,7 +329,14 @@ export function createMeshAuth(
   const access = readAccessOf(read);
   return Object.freeze({
     async prove(peerDid: string, peerNonce: string, binding: ChannelBinding | null) {
-      const label = meshLabel(spaceId, session.did, peerDid, peerNonce, binding?.local ?? '', binding?.remote ?? '');
+      const label = meshLabel(
+        spaceId,
+        session.did,
+        peerDid,
+        peerNonce,
+        binding?.local ?? '',
+        binding?.remote ?? '',
+      );
       const sig = base64UrlEncode(await provider.sign(session.key, label));
       if (!access) return { sig };
       const proof = await proveRead(access, label, provider);
@@ -283,10 +345,18 @@ export function createMeshAuth(
       return { sig, ...proof };
     },
     async check(peerDid: string, ourNonce: string, binding: ChannelBinding | null, proof: unknown) {
-      const given = (proof ?? {}) as Partial<HelloProof>;
+      const given: Record<string, unknown> = isObject(proof) ? proof : {};
       // What they signed, seen from this end: their certificate is our remote one.
-      const label = meshLabel(spaceId, peerDid, session.did, ourNonce, binding?.remote ?? '', binding?.local ?? '');
-      if (!peerDid.startsWith('did:key:') || !(await verifyBy(provider, peerDid, given.sig, label))) return false;
+      const label = meshLabel(
+        spaceId,
+        peerDid,
+        session.did,
+        ourNonce,
+        binding?.remote ?? '',
+        binding?.local ?? '',
+      );
+      if (!peerDid.startsWith('did:key:') || !(await verifyBy(provider, peerDid, given.sig, label)))
+        return false;
       return access ? checkRead(access, peerDid, label, given, provider) : true;
     },
   });

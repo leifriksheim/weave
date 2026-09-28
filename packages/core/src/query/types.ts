@@ -7,6 +7,7 @@
  * answers queries instead of the tab.
  */
 import type { NodeRecord } from '../node/types.js';
+import { isRecord, isObject } from '../utils/guards.js';
 
 /** Predicates on one field. Absent operators do not constrain. */
 export interface Operators {
@@ -68,7 +69,11 @@ type OutputOf<S> = S extends { readonly '~standard': { readonly types?: infer Ty
  * The body type of a collection reference: declared with {@link Typed}, or
  * the output of its definition's validator. `unknown` for a bare name.
  */
-export type BodyOf<C> = C extends { readonly '~body'?: infer T } ? (unknown extends T ? FromSchema<C> : T) : FromSchema<C>;
+export type BodyOf<C> = C extends { readonly '~body'?: infer T }
+  ? unknown extends T
+    ? FromSchema<C>
+    : T
+  : FromSchema<C>;
 type FromSchema<C> = C extends { readonly schema: infer S } ? OutputOf<S> : unknown;
 
 /**
@@ -77,7 +82,7 @@ type FromSchema<C> = C extends { readonly schema: infer S } ? OutputOf<S> : unkn
  * {@link AnyIncluded}.
  */
 export type IncludedOf<I> = [I] extends [undefined]
-  ? {}
+  ? Record<never, never>
   : string extends keyof NonNullable<I>
     ? AnyIncluded
     : {
@@ -149,11 +154,36 @@ export interface QueryResult<T = unknown, I = AnyIncluded> {
 /** The result a query gives, typed from the query itself */
 export type ResultOf<Q extends Query> = QueryResult<
   BodyOf<Q['collection']>,
-  Q extends { readonly include: infer I } ? IncludedOf<I> : 'include' extends keyof Q ? AnyIncluded : {}
+  Q extends { readonly include: infer I }
+    ? IncludedOf<I>
+    : 'include' extends keyof Q
+      ? AnyIncluded
+      : Record<never, never>
 >;
 
 /** The name a collection reference stands for */
-export const nameOf = (ref: CollectionRef): string => (typeof ref === 'object' && ref !== null && typeof ref.name === 'string' ? ref.name : (ref as string));
+export const nameOf = (ref: CollectionRef): string =>
+  isObject(ref) && typeof ref.name === 'string'
+    ? ref.name
+    : // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a malformed reference passes through, for the checker to explain
+      (ref as string);
+
+/** Every `from` in an include map replaced by its name, at every depth */
+function plainIncludes(map: Readonly<Record<string, Include>>): Readonly<Record<string, Include>> {
+  if (!isRecord(map)) return map;
+  return Object.fromEntries(
+    Object.entries(map).map(([name, inc]) => [
+      name,
+      isRecord(inc)
+        ? {
+            ...inc,
+            ...(inc.from !== undefined ? { from: nameOf(inc.from) } : {}),
+            ...(inc.include !== undefined ? { include: plainIncludes(inc.include) } : {}),
+          }
+        : inc,
+    ]),
+  );
+}
 
 /**
  * The query as plain data: every collection reference replaced by its name.
@@ -161,18 +191,10 @@ export const nameOf = (ref: CollectionRef): string => (typeof ref === 'object' &
  * Anything malformed is passed through untouched, for the checker to explain.
  */
 export function plainQuery(query: Query): Query {
-  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-  const includes = (map: unknown): unknown =>
-    isObject(map)
-      ? Object.fromEntries(
-          Object.entries(map).map(([name, inc]) => [
-            name,
-            isObject(inc)
-              ? { ...inc, ...(inc.from !== undefined ? { from: nameOf(inc.from as CollectionRef) } : {}), ...(inc.include !== undefined ? { include: includes(inc.include) } : {}) }
-              : inc,
-          ]),
-        )
-      : map;
-  if (!isObject(query)) return query;
-  return { ...query, collection: nameOf(query.collection), ...(query.include !== undefined ? { include: includes(query.include) as Query['include'] } : {}) };
+  if (!isRecord(query)) return query;
+  return {
+    ...query,
+    collection: nameOf(query.collection),
+    ...(query.include !== undefined ? { include: plainIncludes(query.include) } : {}),
+  };
 }

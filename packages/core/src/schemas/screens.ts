@@ -18,6 +18,7 @@
 import type { NodeRecord, P2PNode } from '../node/types.js';
 import type { Link } from '../types.js';
 import { checkScreenNetwork } from '../schema/collection-def.js';
+import { isObject, isRecord } from '../utils/guards.js';
 
 /** What a screen sees of a record */
 export interface ScreenRecord {
@@ -205,13 +206,19 @@ function plain(value: unknown, what: string): unknown {
   return JSON.parse(text);
 }
 
+/** A field of whatever a screen sent, or undefined when it sent no object */
+const fieldOf = (value: unknown, key: string): unknown => (isObject(value) ? value[key] : undefined);
+
+const isLinkLike = (link: unknown): link is Link =>
+  isObject(link) && typeof link.rel === 'string' && typeof link.to === 'string';
+
 function linksOf(options: unknown): { links?: ReadonlyArray<Link> } {
-  const links = (options as { links?: unknown } | null)?.links;
+  const links = fieldOf(options, 'links');
   if (links === undefined) return {};
-  if (!Array.isArray(links) || !links.every((l) => typeof l?.rel === 'string' && typeof l?.to === 'string')) {
-    throw new Error('links must be a list of { rel, to }');
-  }
-  return { links: links.map((l) => ({ rel: l.rel, to: l.to })) };
+  if (!Array.isArray(links)) throw new Error('links must be a list of { rel, to }');
+  const list: unknown[] = links;
+  if (!list.every(isLinkLike)) throw new Error('links must be a list of { rel, to }');
+  return { links: list.map((l) => ({ rel: l.rel, to: l.to })) };
 }
 
 export interface ScreenBridge {
@@ -238,40 +245,45 @@ export function createScreenBridge(params: {
 
   const names = [...allowed].map((name) => `"${name}"`).join(', ');
   const collectionOf = (name: unknown) => {
-    if (typeof name !== 'string') throw new Error(`Name the collection as text, like weave.list("${[...allowed][0] ?? 'app.example.thing'}"). This screen may use ${names}.`);
+    if (typeof name !== 'string')
+      throw new Error(
+        `Name the collection as text, like weave.list("${[...allowed][0] ?? 'app.example.thing'}"). This screen may use ${names}.`,
+      );
     if (!allowed.has(name)) throw new Error(`This screen can't use "${name}". It may use ${names}.`);
     return name;
   };
   const ownRecord = async (key: unknown) => {
-    if (typeof key !== 'string') throw new Error('Name the record by its key, as text: weave.update(record.key, body)');
+    if (typeof key !== 'string')
+      throw new Error('Name the record by its key, as text: weave.update(record.key, body)');
     const record = await node.records.get(spaceId, key);
     if (!record || !allowed.has(record.collection)) throw new Error(`No record ${key} this screen can use`);
     return record;
   };
 
   /** `f(a, b)` or `f({ a, b })`: a screen written by guessing may use either */
-  const spread = <K extends string>(args: unknown[], keys: ReadonlyArray<K>): Record<K, unknown> => {
+  const spread = (args: unknown[], keys: ReadonlyArray<string>): Record<string, unknown> => {
     const first = args[0];
-    if (first && typeof first === 'object' && !Array.isArray(first) && keys.some((k) => k in first)) {
-      return Object.fromEntries(keys.map((k) => [k, (first as Record<string, unknown>)[k]])) as Record<K, unknown>;
+    if (isRecord(first) && keys.some((k) => k in first)) {
+      return Object.fromEntries(keys.map((k) => [k, first[k]]));
     }
-    return Object.fromEntries(keys.map((k, i) => [k, args[i]])) as Record<K, unknown>;
+    return Object.fromEntries(keys.map((k, i) => [k, args[i]]));
   };
   /** `{ "link:game": key }` for records linking there, `{ field: value }` for a field's value */
   const matches = (record: NodeRecord, where: unknown) => {
-    if (!where || typeof where !== 'object') return true;
-    return Object.entries(where as Record<string, unknown>).every(([field, value]) =>
+    if (!isObject(where)) return true;
+    return Object.entries(where).every(([field, value]) =>
       field.startsWith('link:')
         ? record.links.some((link) => link.rel === field.slice(5) && link.to === value)
-        : (record.body as Record<string, unknown> | null)?.[field] === value,
+        : fieldOf(record.body, field) === value,
     );
   };
 
   const methods: Record<string, (...args: unknown[]) => Promise<unknown>> = {
     list: async (...args) => {
-      const first = args[0] as { collection?: unknown; where?: unknown } | undefined;
-      const { collection, where } =
-        first && typeof first === 'object' ? { collection: first.collection, where: first.where } : { collection: first, where: (args[1] as { where?: unknown } | undefined)?.where };
+      const first = args[0];
+      const { collection, where } = isObject(first)
+        ? { collection: first.collection, where: first.where }
+        : { collection: first, where: fieldOf(args[1], 'where') };
       const records = await node.records.list(spaceId, { collection: collectionOf(collection) });
       return records.filter((record) => matches(record, where)).map((record) => toScreen(record, node.did));
     },
@@ -284,23 +296,28 @@ export function createScreenBridge(params: {
       }
     },
     put: async (...args) => {
-      const first = args[0] as { collection?: unknown; body?: unknown; links?: unknown; key?: unknown } | undefined;
+      const first = args[0];
       const [collection, body, options] =
-        first && typeof first === 'object' && 'collection' in first ? [first.collection, first.body, { links: first.links, key: first.key }] : args;
-      const key = (options as { key?: unknown } | null)?.key;
+        isObject(first) && 'collection' in first
+          ? [first.collection, first.body, { links: first.links, key: first.key }]
+          : args;
+      const key = fieldOf(options, 'key');
       if (key !== undefined && typeof key !== 'string') throw new Error('key must be text');
       const record = await node.records.put(spaceId, collectionOf(collection), plain(body, 'The record'), {
-        ...linksOf(options === null || typeof options !== 'object' || (options as { links?: unknown }).links === undefined ? {} : options),
+        ...linksOf(options),
         ...(key !== undefined ? { key } : {}),
       });
       return toScreen(record, node.did);
     },
     update: async (...args) => {
-      const first = args[0] as { key?: unknown; body?: unknown; links?: unknown } | undefined;
-      const [key, body, options] = first && typeof first === 'object' && 'key' in first ? [first.key, first.body, { links: first.links }] : args;
+      const first = args[0];
+      const [key, body, options] =
+        isObject(first) && 'key' in first ? [first.key, first.body, { links: first.links }] : args;
       const record = await ownRecord(key);
-      const links = (options as { links?: unknown } | null)?.links === undefined ? {} : linksOf(options);
-      return toScreen(await node.records.update(spaceId, record.key, plain(body, 'The record'), links), node.did);
+      return toScreen(
+        await node.records.update(spaceId, record.key, plain(body, 'The record'), linksOf(options)),
+        node.did,
+      );
     },
     remove: async (...args) => {
       const { key } = spread(args, ['key']);
@@ -308,17 +325,31 @@ export function createScreenBridge(params: {
       await node.records.delete(spaceId, record.key);
       return null;
     },
-    people: async () => (await node.spaces.profiles(spaceId)).map((profile) => ({ did: profile.did, name: profile.name })),
+    people: async () =>
+      (await node.spaces.profiles(spaceId)).map((profile) => ({ did: profile.did, name: profile.name })),
   };
 
   port.onmessage = (event: MessageEvent) => {
     if (closed) return;
-    const message = event.data as { id?: unknown; method?: unknown; args?: unknown } | null;
-    if (typeof message?.id !== 'number' || typeof message.method !== 'string' || !Object.hasOwn(methods, message.method)) return;
-    const args = Array.isArray(message.args) ? message.args : [];
+    const message: unknown = event.data;
+    if (
+      !isObject(message) ||
+      typeof message.id !== 'number' ||
+      typeof message.method !== 'string' ||
+      !Object.hasOwn(methods, message.method)
+    )
+      return;
+    const { id } = message;
+    const args: unknown[] = Array.isArray(message.args) ? message.args : [];
     methods[message.method]!(...args).then(
-      (value) => !closed && port.postMessage({ id: message.id, ok: true, value: plain(value, 'The answer') }),
-      (error: unknown) => !closed && port.postMessage({ id: message.id, ok: false, error: error instanceof Error ? error.message : String(error) }),
+      (value) => !closed && port.postMessage({ id, ok: true, value: plain(value, 'The answer') }),
+      (error: unknown) =>
+        !closed &&
+        port.postMessage({
+          id,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }),
     );
   };
 

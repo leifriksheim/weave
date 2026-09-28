@@ -59,7 +59,7 @@ async function createAccount(auth: WeaveAuth, name: string, password = PASSWORD)
   await auth.createAccount(name);
   const code = auth.getState().freshCode!;
   auth.codeSaved();
-  assert.equal(await auth.setPassword(password), true, auth.getState().error?.message);
+  assert.equal(await auth.setPassword(password), true, auth.getState().error?.message ?? 'no reason given');
   return code;
 }
 
@@ -123,7 +123,10 @@ describe('createWeaveAuth', () => {
     const back = auth.getState();
     assert.equal(back.stage, 'ready');
     assert.equal(back.session?.did, did);
-    assert.deepEqual((await back.session!.node.spaces.list()).map((s) => s.id), [space.id]);
+    assert.deepEqual(
+      (await back.session.node.spaces.list()).map((s) => s.id),
+      [space.id],
+    );
   });
 
   test('a wrong password is refused', async () => {
@@ -177,7 +180,11 @@ describe('createWeaveAuth', () => {
 
     const restored = elsewhere.getState();
     assert.equal(restored.session?.did, did);
-    assert.equal(restored.stage, 'recovery', 'a reminder to keep the code apart from the password about to be set');
+    assert.equal(
+      restored.stage,
+      'recovery',
+      'a reminder to keep the code apart from the password about to be set',
+    );
     assert.equal(restored.setup, 'restored');
     elsewhere.codeSaved();
     assert.equal(elsewhere.getState().stage, 'unlock');
@@ -246,11 +253,18 @@ describe('passwords beside the CLI', () => {
     const code = await createAccount(auth, 'Ada');
     const { place, session } = auth.getState();
     const vault = (await place!.store.read(session!.account.id))!;
-    const cli = await wrapSeedWithPassphrase(recoveryCodeToSeed(code), 'unattended secret', CLI_PASSPHRASE_LABEL);
+    const cli = await wrapSeedWithPassphrase(
+      recoveryCodeToSeed(code),
+      'unattended secret',
+      CLI_PASSPHRASE_LABEL,
+    );
     await place!.store.write(session!.account, { ...vault, wraps: [...vault.wraps, cli] });
 
     assert.equal(await auth.setPassword('a brand new password'), true);
-    const labels = auth.getState().entry!.vault.wraps.filter((wrap) => wrap.kind === 'passphrase').map((wrap) => wrap.label);
+    const labels = auth
+      .getState()
+      .entry!.vault.wraps.filter((wrap) => wrap.kind === 'passphrase')
+      .map((wrap) => wrap.label);
     assert.deepEqual(labels.sort(), [CLI_PASSPHRASE_LABEL, 'Password'].sort());
 
     await auth.signOut();

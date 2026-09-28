@@ -40,6 +40,7 @@ import { checkStartingRoles } from '../space/space-access.js';
 import { parseSpaceInvite } from '../space/space-manager.js';
 import { checkProposal, MAX_PROPOSALS, type NotifyProposal } from '../space/notify.js';
 import type { KeyValueStore } from './stay-signed-in.js';
+import { isObject } from '../utils/guards.js';
 
 /** Messages between an app and the home it opened */
 const HELLO = 'weave:hello';
@@ -121,7 +122,8 @@ export interface Proposed {
 }
 
 /** Whether a request the home received is a proposal rather than a connection */
-export const isProposeRequest = (request: ConnectRequest | ProposeRequest): request is ProposeRequest => 'kind' in request && request.kind === 'propose';
+export const isProposeRequest = (request: ConnectRequest | ProposeRequest): request is ProposeRequest =>
+  'kind' in request && request.kind === 'propose';
 
 /** The longest a home gives a note for */
 export const MAX_GRANT_DAYS = 365;
@@ -218,7 +220,9 @@ export function homeAddress(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) throw new Error('Type the address of your account home.');
   const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/.test(trimmed);
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `${local ? 'http' : 'https'}://${trimmed}`;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : `${local ? 'http' : 'https'}://${trimmed}`;
   let url: URL;
   try {
     url = new URL(withScheme);
@@ -241,7 +245,10 @@ export function homeAddress(input: string): string {
 }
 
 /** The capabilities a grant carries, for these spaces */
-export function grantCapabilities(access: 'read' | 'write', spaceIds: ReadonlyArray<string> | 'all'): Capability[] {
+export function grantCapabilities(
+  access: 'read' | 'write',
+  spaceIds: ReadonlyArray<string> | 'all',
+): Capability[] {
   const can = access === 'write' ? 'expression/*' : 'expression/read';
   return spaceIds === 'all' ? [{ with: '*', can }] : spaceIds.map((id) => ({ with: `space:${id}`, can }));
 }
@@ -261,17 +268,20 @@ function openKeyDb(): Promise<IDBDatabase> {
     const request = globalThis.indexedDB.open(KEY_DB, 1);
     request.onupgradeneeded = () => request.result.createObjectStore('keys');
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('Could not open the app key store'));
   });
 }
 
-async function keyStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+async function keyStore(
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest,
+): Promise<unknown> {
   const db = await openKeyDb();
   try {
-    return await new Promise<T>((resolve, reject) => {
+    return await new Promise<unknown>((resolve, reject) => {
       const request = run(db.transaction('keys', mode).objectStore('keys'));
       request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onerror = () => reject(request.error ?? new Error('The app key store refused a request'));
     });
   } finally {
     db.close();
@@ -285,13 +295,18 @@ async function keyStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore
  */
 export async function appKey(name = 'default'): Promise<AppKey> {
   const provider = createP256Provider();
-  let keys = await keyStore<CryptoKeyPair | undefined>('readonly', (store) => store.get(name));
+  const stored = await keyStore('readonly', (store) => store.get(name));
+  let keys = isKeyPair(stored) ? stored : null;
   if (!keys) {
     const made = await provider.generateKeyPair();
     keys = { privateKey: made.privateKey, publicKey: made.publicKey };
     await keyStore('readwrite', (store) => store.put(keys, name));
   }
   return { keys, did: publicKeyToDid(await provider.exportPublicKey(keys.publicKey), P256_MULTICODEC) };
+}
+
+function isKeyPair(value: unknown): value is CryptoKeyPair {
+  return isObject(value) && value.privateKey instanceof CryptoKey && value.publicKey instanceof CryptoKey;
 }
 
 /** Forgets this app's key. The next connection makes a new one. */
@@ -329,10 +344,16 @@ export async function connectToHome(options: ConnectOptions): Promise<Grant> {
   // Opened before anything is awaited, so it still counts as the click's.
   const popup = openHome(homeUrl);
   const audience = options.audience ?? (options.key ?? (await appKey(options.keyName))).did;
-  const grant = (await askHome(popup, homeUrl.origin, { v: 1, audience, ...options.request }, options.timeoutMs)) as Grant;
+  const grant = await askHome<Grant>(
+    popup,
+    homeUrl.origin,
+    { v: 1, audience, ...options.request },
+    options.timeoutMs,
+  );
   await checkGrant(grant, audience);
   // An agent's note must say so, or its writes would pass as the person's own.
-  if (options.request.agent && !isAgentNote(grant.token)) throw new Error('The home gave an ordinary note, not an agent\'s. Update your account home.');
+  if (options.request.agent && !isAgentNote(grant.token))
+    throw new Error("The home gave an ordinary note, not an agent's. Update your account home.");
   return { ...grant, home: homeUrl.href };
 }
 
@@ -353,8 +374,13 @@ export async function connectCarrier(options: {
 }): Promise<CarryGrant> {
   const homeUrl = new URL(options.home, globalThis.location.href);
   const popup = openHome(homeUrl);
-  const request: ConnectRequest = { v: 1, audience: options.key.did, access: 'carry', ...(options.name ? { name: options.name } : {}) };
-  const grant = (await askHome(popup, homeUrl.origin, request, options.timeoutMs)) as CarryGrant;
+  const request: ConnectRequest = {
+    v: 1,
+    audience: options.key.did,
+    access: 'carry',
+    ...(options.name ? { name: options.name } : {}),
+  };
+  const grant = await askHome<CarryGrant>(popup, homeUrl.origin, request, options.timeoutMs);
   checkCarryGrant(grant);
   return { ...grant, home: homeUrl.href };
 }
@@ -374,12 +400,19 @@ export async function proposeToHome(options: {
   readonly name?: string;
   readonly timeoutMs?: number;
 }): Promise<Proposed> {
-  if (options.notify.length === 0 || options.notify.length > MAX_PROPOSALS) throw new Error(`Propose 1 to ${MAX_PROPOSALS} subscriptions.`);
+  if (options.notify.length === 0 || options.notify.length > MAX_PROPOSALS)
+    throw new Error(`Propose 1 to ${MAX_PROPOSALS} subscriptions.`);
   const homeUrl = new URL(options.home, globalThis.location.href);
   const popup = openHome(homeUrl);
-  const request: ProposeRequest = { v: 1, kind: 'propose', ...(options.name ? { name: options.name } : {}), notify: options.notify };
-  const answer = (await askHome(popup, homeUrl.origin, request, options.timeoutMs)) as Proposed | null;
-  if (answer?.kind !== 'proposed' || !Array.isArray(answer.notify)) throw new Error('Your account home did not answer the proposal.');
+  const request: ProposeRequest = {
+    v: 1,
+    kind: 'propose',
+    ...(options.name ? { name: options.name } : {}),
+    notify: options.notify,
+  };
+  const answer = await askHome<Proposed | null>(popup, homeUrl.origin, request, options.timeoutMs);
+  if (answer?.kind !== 'proposed' || !Array.isArray(answer.notify))
+    throw new Error('Your account home did not answer the proposal.');
   return answer;
 }
 
@@ -389,10 +422,19 @@ function checkCarryGrant(grant: CarryGrant): void {
     throw new Error('The home did not answer with a way to carry your spaces.');
   }
   const invite = parseSpaceInvite(grant.carry.invite);
-  if (invite.space.id !== grant.carry.space || invite.space.creator !== grant.did || invite.space.visibility !== 'private' || !invite.key) {
+  if (
+    invite.space.id !== grant.carry.space ||
+    invite.space.creator !== grant.did ||
+    invite.space.visibility !== 'private' ||
+    !invite.key
+  ) {
     throw new Error('The carry space the home named does not check out.');
   }
-  if (grant.pod !== null && (typeof grant.pod?.dataPath !== 'string' || grant.pod.dataPath.split('/').some((part) => !part || part === '..'))) {
+  if (
+    grant.pod !== null &&
+    (typeof grant.pod?.dataPath !== 'string' ||
+      grant.pod.dataPath.split('/').some((part) => !part || part === '..'))
+  ) {
     throw new Error('The pod the home named does not check out.');
   }
 }
@@ -403,9 +445,14 @@ function openHome(homeUrl: URL): Window {
   return popup;
 }
 
-/** Sends the request once the home says hello, and waits for its answer. */
-function askHome(popup: Window, homeOrigin: string, request: ConnectRequest | ProposeRequest, timeoutMs = 10 * 60_000): Promise<unknown> {
-  return new Promise<unknown>((resolve, reject) => {
+/** Sends the request once the home says hello, and waits for its answer, which the caller checks. */
+function askHome<T>(
+  popup: Window,
+  homeOrigin: string,
+  request: ConnectRequest | ProposeRequest,
+  timeoutMs = 10 * 60_000,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
     const done = (finish: () => void) => {
       globalThis.removeEventListener('message', onMessage);
       globalThis.clearInterval(watch);
@@ -415,15 +462,24 @@ function askHome(popup: Window, homeOrigin: string, request: ConnectRequest | Pr
     const onMessage = (event: MessageEvent) => {
       // Only the popup we opened, at the address we opened it on.
       if (event.source !== popup || event.origin !== homeOrigin) return;
-      const data = event.data as { type?: string; grant?: unknown; reason?: string } | null;
-      if (data?.type === HELLO) popup.postMessage({ type: REQUEST, request }, homeOrigin);
-      else if (data?.type === GRANT && data.grant) done(() => resolve(data.grant!));
-      else if (data?.type === DENIED) done(() => reject(new Error(data.reason ?? 'Access was not given.')));
+      const data: unknown = event.data;
+      if (!isObject(data)) return;
+      if (data.type === HELLO) popup.postMessage({ type: REQUEST, request }, homeOrigin);
+      else if (data.type === GRANT && data.grant)
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checkGrant, checkCarryGrant and proposeToHome check it
+        done(() => resolve(data.grant as T));
+      else if (data.type === DENIED)
+        done(() =>
+          reject(new Error(typeof data.reason === 'string' ? data.reason : 'Access was not given.')),
+        );
     };
     const watch = globalThis.setInterval(() => {
       if (popup.closed) done(() => reject(new Error('The window was closed before access was given.')));
     }, 500);
-    const timer = globalThis.setTimeout(() => done(() => reject(new Error('No answer from your account home.'))), timeoutMs);
+    const timer = globalThis.setTimeout(
+      () => done(() => reject(new Error('No answer from your account home.'))),
+      timeoutMs,
+    );
     globalThis.addEventListener('message', onMessage);
   });
 }
@@ -447,7 +503,11 @@ export function grantSigner(grant: Grant): RootSigner {
       if (grant.expiresAt <= Math.floor(Date.now() / 1000)) {
         throw new Error('Access has run out. Connect to your account home again.');
       }
-      token ??= cidFromBytes(utf8Encode(grant.token)).then((cid) => ({ ...parseUCAN(grant.token), encoded: grant.token, cid }));
+      token ??= cidFromBytes(utf8Encode(grant.token)).then((cid) => ({
+        ...parseUCAN(grant.token),
+        encoded: grant.token,
+        cid,
+      }));
       return token;
     },
   };
@@ -486,16 +546,24 @@ export async function startConnectedNode(params: {
   });
   const held = new Set((await node.spaces.list()).map((space) => space.id));
   for (const space of params.grant.spaces) {
-    if (!held.has(space.id)) await node.spaces.join(space.invite, space.memberKey ? { memberKey: base64UrlDecode(space.memberKey) } : {});
+    if (!held.has(space.id))
+      await node.spaces.join(
+        space.invite,
+        space.memberKey ? { memberKey: base64UrlDecode(space.memberKey) } : {},
+      );
   }
   return node;
 }
 
 /** Where an app keeps its grant between visits */
-export function grantStore(storage: KeyValueStore | null = globalThis.localStorage ?? null, key = 'weave.grant') {
+export function grantStore(
+  storage: KeyValueStore | null = globalThis.localStorage ?? null,
+  key = 'weave.grant',
+) {
   return {
     load(): Grant | null {
       try {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only save writes this key
         const grant = JSON.parse(storage?.getItem(key) ?? 'null') as Grant | null;
         return grant && grant.expiresAt > Math.floor(Date.now() / 1000) ? grant : null;
       } catch {
@@ -529,14 +597,15 @@ export interface IncomingRequest {
  * @returns The request, or null when this page was not opened by an app
  */
 export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingRequest | null> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- lib.dom has it as any, and an opener on another origin is no instanceof Window here
   const opener = globalThis.opener as Window | null;
   if (!opener) return Promise.resolve(null);
 
   return new Promise((resolve) => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== opener) return;
-      const data = event.data as { type?: string; request?: ConnectRequest | ProposeRequest } | null;
-      if (data?.type !== REQUEST) return;
+      const data: unknown = event.data;
+      if (!isObject(data) || data.type !== REQUEST) return;
       globalThis.removeEventListener('message', onMessage);
       globalThis.clearTimeout(timer);
 
@@ -544,7 +613,11 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
       // is answered, not ignored: otherwise both sides wait with nothing said.
       if (!isRequest(data.request, event.origin)) {
         opener.postMessage(
-          { type: DENIED, reason: 'Your account home did not understand what was asked. It may be older than this app — update it, or use another home.' },
+          {
+            type: DENIED,
+            reason:
+              'Your account home did not understand what was asked. It may be older than this app — update it, or use another home.',
+          },
           event.origin,
         );
         globalThis.setTimeout(() => globalThis.close(), 100);
@@ -577,8 +650,9 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
 }
 
 function isRequest(value: unknown, origin: string): value is ConnectRequest | ProposeRequest {
-  const proposal = value as Partial<ProposeRequest> | null;
-  if (proposal?.kind !== undefined) {
+  if (!isObject(value)) return false;
+  const proposal = value;
+  if (proposal.kind !== undefined) {
     return (
       proposal.v === 1 &&
       proposal.kind === 'propose' &&
@@ -588,9 +662,8 @@ function isRequest(value: unknown, origin: string): value is ConnectRequest | Pr
       isProposals(proposal.notify, origin)
     );
   }
-  const request = value as ConnectRequest | null;
+  const request = value;
   return (
-    !!request &&
     request.v === 1 &&
     typeof request.audience === 'string' &&
     request.audience.startsWith('did:key:') &&
@@ -599,12 +672,19 @@ function isRequest(value: unknown, origin: string): value is ConnectRequest | Pr
     (request.name === undefined || (typeof request.name === 'string' && request.name.length <= 80)) &&
     (request.contacts === undefined || typeof request.contacts === 'boolean') &&
     (request.create === undefined || isNewSpaces(request.create)) &&
-    (request.days === undefined || (Number.isInteger(request.days) && request.days >= 1 && request.days <= MAX_GRANT_DAYS)) &&
+    (request.days === undefined ||
+      (typeof request.days === 'number' &&
+        Number.isInteger(request.days) &&
+        request.days >= 1 &&
+        request.days <= MAX_GRANT_DAYS)) &&
     (request.notify === undefined || isProposals(request.notify, origin)) &&
     // An agent works in spaces that exist: none made for it, and no carrying.
     (request.agent === undefined ||
       request.agent === false ||
-      (request.agent === true && request.access !== 'carry' && request.create === undefined && !request.contacts)) &&
+      (request.agent === true &&
+        request.access !== 'carry' &&
+        request.create === undefined &&
+        !request.contacts)) &&
     // Subscriptions are the person's, proposed by an app they are looking at.
     (request.notify === undefined || (request.access !== 'carry' && request.agent !== true))
   );
@@ -612,7 +692,11 @@ function isRequest(value: unknown, origin: string): value is ConnectRequest | Pr
 
 /** Subscriptions an app proposes: few, each one it could offer, each click leading back to it */
 function isProposals(value: unknown, origin: string): boolean {
-  return Array.isArray(value) && value.length <= MAX_PROPOSALS && value.every((proposal) => checkProposal(proposal, origin) === null);
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_PROPOSALS &&
+    value.every((proposal) => checkProposal(proposal, origin) === null)
+  );
 }
 
 /** At most this many spaces made for an app in one go */
@@ -630,7 +714,11 @@ function isNewSpaces(value: unknown): boolean {
         space.name.trim().length > 0 &&
         space.name.length <= 80 &&
         (space.visibility === 'private' || space.visibility === 'public') &&
-        (space.roles === undefined || checkStartingRoles(space.roles, space.creatorRole ?? [...space.roles].sort((a, b) => b.rank - a.rank)[0]?.name) === null),
+        (space.roles === undefined ||
+          checkStartingRoles(
+            space.roles,
+            space.creatorRole ?? [...space.roles].sort((a, b) => b.rank - a.rank)[0]?.name,
+          ) === null),
     )
   );
 }

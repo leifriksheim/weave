@@ -12,14 +12,16 @@ import { issueUCAN, type Capability } from '../src/identity/ucan.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
 import { createSchemaEngine } from '../src/schema/schema-engine.js';
-import { createStorageProvider, type StorageProvider } from '../src/storage/storage-provider.js';
+import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { createCryptoGate } from '../src/validation/crypto-gate.js';
 import { createStructuralGate } from '../src/validation/structural-gate.js';
 import { createStatefulGate } from '../src/validation/stateful-gate.js';
 import { createCapabilityGate } from '../src/validation/capability-gate.js';
 import { createValidationEngine } from '../src/validation/validation-engine.js';
-import { createSyncEngine, type SyncEngine } from '../src/sync/sync-engine.js';
+import { createSyncEngine } from '../src/sync/sync-engine.js';
+import type { SyncMessage } from '../src/sync/sync-messages.js';
 import type { Expression, StandardSchemaV1 } from '../src/types.js';
+import { isRecord } from '../src/utils/guards.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -32,7 +34,7 @@ const noteSchema: StandardSchemaV1 = {
     version: 1,
     vendor: 'test',
     validate: (value: unknown) =>
-      typeof (value as { text?: unknown })?.text === 'string'
+      isRecord(value) && typeof value.text === 'string'
         ? { value }
         : { issues: [{ message: 'text must be a string' }] },
   },
@@ -45,7 +47,7 @@ async function makeKey() {
 }
 
 /** A storage provider plus the validating sync engine in front of it. */
-function createPeer(send: (peerId: string, data: Uint8Array) => void) {
+function createPeer(send: (peerId: string, message: SyncMessage) => void) {
   const storage = createStorageProvider(createMemoryAdapter());
 
   const schemaEngine = createSchemaEngine();
@@ -78,14 +80,11 @@ function createPeer(send: (peerId: string, data: Uint8Array) => void) {
 /** Two peers wired directly to each other, with deterministic message delivery. */
 function createPair() {
   const inFlight: Promise<void>[] = [];
-  let a: { storage: StorageProvider; sync: SyncEngine };
-  let b: { storage: StorageProvider; sync: SyncEngine };
-
-  a = createPeer((_peerId, data) => {
-    inFlight.push(b.sync.handleMessage('a', data));
+  const a = createPeer((_peerId, message) => {
+    inFlight.push(b.sync.handleMessage('a', message));
   });
-  b = createPeer((_peerId, data) => {
-    inFlight.push(a.sync.handleMessage('b', data));
+  const b = createPeer((_peerId, message) => {
+    inFlight.push(a.sync.handleMessage('b', message));
   });
 
   a.sync.addPeer('b');
@@ -117,17 +116,14 @@ function createPair() {
 /** Signs a note carrying a UCAN from `root` to the signing key. */
 async function delegatedNote(root: { did: string; privateKey: CryptoKey }, text: string) {
   const session = await makeKey();
-  const ucan = await issueUCAN(
-    { issuer: root, audience: session.did, capabilities: [WRITE] },
-    provider,
-  );
+  const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [WRITE] }, provider);
   const unsigned = createExpression({
     author: session.did,
     collection: COLLECTION,
     body: { text },
     proof: ucan.encoded,
   });
-  return (await signer.sign(unsigned, session.privateKey)) as Expression;
+  return await signer.sign(unsigned, session.privateKey);
 }
 
 describe('sync engine', () => {
@@ -166,7 +162,7 @@ describe('sync engine', () => {
     const root = await makeKey();
 
     const note = await delegatedNote(root, 'honest');
-    const forged = { ...note, body: { text: 'tampered in transit' } } as Expression;
+    const forged = { ...note, body: { text: 'tampered in transit' } };
 
     const rejected: string[] = [];
     b.sync.on('rejected', (_peer: string, _expression: Expression, reason: string) => {
@@ -203,7 +199,7 @@ describe('sync engine', () => {
       body: { text: 'not mine to write' },
       proof: ucan.encoded,
     });
-    const note = (await signer.sign(unsigned, stranger.privateKey)) as Expression;
+    const note = await signer.sign(unsigned, stranger.privateKey);
 
     const rejected: string[] = [];
     b.sync.on('rejected', (_peer: string, _expression: Expression, reason: string) => {
@@ -223,17 +219,14 @@ describe('sync engine', () => {
     const root = await makeKey();
     const session = await makeKey();
 
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [WRITE] },
-      provider,
-    );
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [WRITE] }, provider);
     const unsigned = createExpression({
       author: session.did,
       collection: COLLECTION,
       body: { text: 12345 },
       proof: ucan.encoded,
     });
-    const note = (await signer.sign(unsigned, session.privateKey)) as Expression;
+    const note = await signer.sign(unsigned, session.privateKey);
 
     const rejected: string[] = [];
     b.sync.on('rejected', (_peer: string, _expression: Expression, reason: string) => {

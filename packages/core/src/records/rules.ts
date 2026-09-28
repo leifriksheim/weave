@@ -21,7 +21,8 @@
  * them all). It is made true by construction: the record's key is derived from
  * what must be unique, so a second vote *is* the first one's next version.
  */
-import { sha256 } from '../utils/hash.js';
+import { hashedKey } from '../utils/hash.js';
+import { isList, isRecord, readField } from '../utils/guards.js';
 import type { Link } from '../types.js';
 
 /**
@@ -55,18 +56,26 @@ export interface CollectionRules {
   readonly fixed?: ReadonlyArray<string>;
 }
 
-const isWho = (w: unknown): w is Who => w === 'member' || w === 'creator' || (typeof w === 'string' && w.startsWith('can:') && PERMISSION_PATTERN.test(w.slice(4)));
+const isWho = (w: unknown): w is Who =>
+  w === 'member' ||
+  w === 'creator' ||
+  (typeof w === 'string' && w.startsWith('can:') && PERMISSION_PATTERN.test(w.slice(4)));
 
 /**
  * Why a set of rules is malformed, or null when it is not.
  * @param permissions The permissions the collection declares — the only ones its rules may name
  */
-export function checkRules(rules: unknown, at = 'rules', permissions: ReadonlyArray<string> = []): string | null {
+export function checkRules(
+  rules: unknown,
+  at = 'rules',
+  permissions: ReadonlyArray<string> = [],
+): string | null {
   if (rules === undefined) return null;
-  if (typeof rules !== 'object' || rules === null || Array.isArray(rules)) return `${at} must be an object`;
-  const r = rules as Record<string, unknown>;
+  if (!isRecord(rules)) return `${at} must be an object`;
+  const r = rules;
   for (const key of Object.keys(r)) {
-    if (!['create', 'edit', 'delete', 'onePer', 'fixed'].includes(key)) return `${at}.${key} is not a rule (use create, edit, delete, onePer, fixed)`;
+    if (!['create', 'edit', 'delete', 'onePer', 'fixed'].includes(key))
+      return `${at}.${key} is not a rule (use create, edit, delete, onePer, fixed)`;
   }
   for (const action of ['create', 'edit', 'delete']) {
     const who = r[action];
@@ -76,7 +85,8 @@ export function checkRules(rules: unknown, at = 'rules', permissions: ReadonlyAr
       return `${at}.${action} must be "member", "creator" or "can:<permission>", or a list of them`;
     }
     const undeclared = list.find((w) => w.startsWith('can:') && !permissions.includes(w.slice(4)));
-    if (undeclared) return `${at}.${action} names ${undeclared}, but the collection does not declare "${undeclared.slice(4)}" in its permissions`;
+    if (undeclared)
+      return `${at}.${action} names ${undeclared}, but the collection does not declare "${undeclared.slice(4)}" in its permissions`;
   }
   if (r.create !== undefined && (Array.isArray(r.create) ? r.create : [r.create]).includes('creator')) {
     return `${at}.create cannot be "creator" — a record has no creator until it is created`;
@@ -84,7 +94,11 @@ export function checkRules(rules: unknown, at = 'rules', permissions: ReadonlyAr
   for (const list of ['onePer', 'fixed']) {
     const value = r[list];
     if (value === undefined) continue;
-    if (!Array.isArray(value) || value.length === 0 || !value.every((v) => typeof v === 'string' && v.length > 0)) {
+    if (
+      !Array.isArray(value) ||
+      value.length === 0 ||
+      !value.every((v) => typeof v === 'string' && v.length > 0)
+    ) {
       return `${at}.${list} must be a non-empty list of names`;
     }
   }
@@ -103,14 +117,18 @@ export interface RuleContext {
 
 /** Whether a writer is among `who` */
 export function allows(who: Who | ReadonlyArray<Who> | undefined, context: RuleContext): boolean {
-  const list: ReadonlyArray<Who> = who === undefined ? ['member'] : Array.isArray(who) ? who : [who as Who];
-  return list.some((w) => (w === 'member' ? context.member : w === 'creator' ? context.creator : context.can(w.slice(4))));
+  const list: ReadonlyArray<Who> = who === undefined ? ['member'] : isList(who) ? who : [who];
+  return list.some((w) =>
+    w === 'member' ? context.member : w === 'creator' ? context.creator : context.can(w.slice(4)),
+  );
 }
 
 /** "Only whoever created it or those allowed to moderate" — for error messages */
 export function describeWho(who: Who | ReadonlyArray<Who> | undefined): string {
-  const list: ReadonlyArray<Who> = who === undefined ? ['member'] : Array.isArray(who) ? who : [who as Who];
-  const words = list.map((w) => (w === 'member' ? 'members' : w === 'creator' ? 'whoever created it' : `those allowed to ${w.slice(4)}`));
+  const list: ReadonlyArray<Who> = who === undefined ? ['member'] : isList(who) ? who : [who];
+  const words = list.map((w) =>
+    w === 'member' ? 'members' : w === 'creator' ? 'whoever created it' : `those allowed to ${w.slice(4)}`,
+  );
   return words.length === 1 ? words[0]! : `${words.slice(0, -1).join(', ')} or ${words.at(-1)}`;
 }
 
@@ -134,20 +152,23 @@ export async function onePerKey(
       if (!link) return null;
       parts.push(`${part}=${link.to}`);
     } else {
-      const value = (record.body as Record<string, unknown> | null)?.[part];
+      const value = readField(record.body, part);
       if (value === undefined) return null;
       parts.push(`${part}=${JSON.stringify(value)}`);
     }
   }
-  const digest = await sha256(new TextEncoder().encode(parts.join('\n')));
-  return `one:${Array.from(digest.subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return hashedKey('one', parts.join('\n'));
 }
 
 /** The first fixed field whose value differs from the record's first version, or null */
-export function changedFixedField(fixed: ReadonlyArray<string> | undefined, first: unknown, next: unknown): string | null {
+export function changedFixedField(
+  fixed: ReadonlyArray<string> | undefined,
+  first: unknown,
+  next: unknown,
+): string | null {
   for (const field of fixed ?? []) {
-    const a = (first as Record<string, unknown> | null)?.[field];
-    const b = (next as Record<string, unknown> | null)?.[field];
+    const a = readField(first, field);
+    const b = readField(next, field);
     if (JSON.stringify(a) !== JSON.stringify(b)) return field;
   }
   return null;

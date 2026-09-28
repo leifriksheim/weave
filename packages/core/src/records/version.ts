@@ -19,12 +19,10 @@
 import type { Expression } from '../types.js';
 import { base32Encode } from '../utils/hash.js';
 import { checkLinks } from './links.js';
+import { RECORD_KEY_PATTERN } from './key.js';
 
 /** How many access changes a version may say it saw — normally one or two */
-export const MAX_SEEN = 64;
-
-/** Keys a caller may choose: `profile`, `collection:app.todo.item`, `space:b7…` */
-export const RECORD_KEY_PATTERN = /^[a-z0-9:._-]{1,128}$/;
+const MAX_SEEN = 64;
 
 /** A fresh key: 128 random bits. Random rather than time-based, so it says nothing about when. */
 export function newRecordKey(): string {
@@ -77,14 +75,21 @@ export function nextVersion(current: Pick<Expression, 'id' | 'key' | 'seq' | 'ge
 export function checkVersionShape(expression: Partial<Expression>): string | null {
   const { key, seq, prev, genesis, deleted, retain, body, seen } = expression;
   if (typeof key !== 'string' || !RECORD_KEY_PATTERN.test(key)) return 'Record key is missing or malformed';
-  if (!Number.isSafeInteger(seq) || (seq as number) < 0) return 'Version number must be a whole number from 0';
+  if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0)
+    return 'Version number must be a whole number from 0';
   if (seq === 0) {
     if (prev !== undefined || genesis !== undefined) return 'A first version cannot name a previous one';
   } else {
-    if (typeof prev !== 'string' || typeof genesis !== 'string') return 'A later version must name its previous and first versions';
+    if (typeof prev !== 'string' || typeof genesis !== 'string')
+      return 'A later version must name its previous and first versions';
     if (prev === expression.id || genesis === expression.id) return 'A version cannot name itself';
   }
-  if (seen !== undefined && (!Array.isArray(seen) || seen.length > MAX_SEEN || !seen.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 128))) {
+  if (
+    seen !== undefined &&
+    (!Array.isArray(seen) ||
+      seen.length > MAX_SEEN ||
+      !seen.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 128))
+  ) {
     return `seen must be a list of at most ${MAX_SEEN} version ids`;
   }
   if (deleted !== undefined && deleted !== true) return 'deleted must be true when present';

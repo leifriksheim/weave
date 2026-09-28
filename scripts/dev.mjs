@@ -18,10 +18,21 @@ import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const colour = { node: '\x1b[35m', host: '\x1b[32m', stripe: '\x1b[34m', home: '\x1b[33m', app: '\x1b[36m', reset: '\x1b[0m' };
+const colour = {
+  node: '\x1b[35m',
+  host: '\x1b[32m',
+  stripe: '\x1b[34m',
+  home: '\x1b[33m',
+  app: '\x1b[36m',
+  reset: '\x1b[0m',
+};
 
 function start(name, command, args, cwd, env = {}) {
-  const child = spawn(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...env } });
+  const child = spawn(command, args, {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, ...env },
+  });
   const prefix = `${colour[name]}[${name}]${colour.reset} `;
   const forward = (stream, out) => {
     let buffered = '';
@@ -47,14 +58,22 @@ const fromSource = ['--conditions=@weaveprotocol/source', '--import', 'tsx'];
 const say = (name, line) => process.stderr.write(`${colour[name]}[${name}]${colour.reset} ${line}\n`);
 
 // The host's settings: the committed defaults, then yours.
-const hostFiles = ['packages/cli/.env.host.dev', 'packages/cli/.env.host.local'].filter((file) => existsSync(`${root}${file}`));
-const hostSettings = Object.assign({}, ...hostFiles.map((file) => parseEnv(readFileSync(`${root}${file}`, 'utf8'))));
+const hostFiles = ['packages/cli/.env.host.dev', 'packages/cli/.env.host.local'].filter((file) =>
+  existsSync(`${root}${file}`),
+);
+const hostSettings = Object.assign(
+  {},
+  ...hostFiles.map((file) => parseEnv(readFileSync(`${root}${file}`, 'utf8'))),
+);
 const hostPort = hostSettings.PORT ?? '8788';
 const hostEnv = {};
 const extra = [];
 
 // Phone wallets: the WalletConnect bundle, built once.
-if (hostSettings.WEAVE_WALLETCONNECT_PROJECT_ID && !existsSync(`${root}packages/cli/pay/dist/walletconnect.js`)) {
+if (
+  hostSettings.WEAVE_WALLETCONNECT_PROJECT_ID &&
+  !existsSync(`${root}packages/cli/pay/dist/walletconnect.js`)
+) {
   say('host', 'building the WalletConnect bundle for the pay page…');
   spawnSync('npm', ['run', 'bundle:pay', '-w', '@weaveprotocol/cli'], { cwd: root, stdio: 'inherit' });
 }
@@ -66,24 +85,56 @@ if (hostSettings.STRIPE_SECRET_KEY && !hostSettings.STRIPE_WEBHOOK_SECRET) {
     say('stripe', 'STRIPE_SECRET_KEY is not a test key: not forwarding webhooks for it in dev.');
   } else {
     try {
-      hostEnv.STRIPE_WEBHOOK_SECRET = execFileSync('stripe', ['listen', '--api-key', key, '--print-secret'], { encoding: 'utf8' }).trim();
+      hostEnv.STRIPE_WEBHOOK_SECRET = execFileSync('stripe', ['listen', '--api-key', key, '--print-secret'], {
+        encoding: 'utf8',
+      }).trim();
       extra.push(() =>
-        start('stripe', 'stripe', ['listen', '--api-key', key, '--events', 'checkout.session.completed,invoice.paid', '--forward-to', `localhost:${hostPort}/host/billing/webhook`], root),
+        start(
+          'stripe',
+          'stripe',
+          [
+            'listen',
+            '--api-key',
+            key,
+            '--events',
+            'checkout.session.completed,invoice.paid',
+            '--forward-to',
+            `localhost:${hostPort}/host/billing/webhook`,
+          ],
+          root,
+        ),
       );
     } catch {
-      say('stripe', 'The Stripe CLI is needed to forward webhooks (brew install stripe/stripe-cli/stripe). Cards are off.');
+      say(
+        'stripe',
+        'The Stripe CLI is needed to forward webhooks (brew install stripe/stripe-cli/stripe). Cards are off.',
+      );
     }
   }
 }
 
 const children = [
-  start('node', process.execPath, ['--env-file=packages/cli/.env.dev', ...fromSource, 'packages/cli/src/main.ts', 'run', '--create'], root),
-  start('host', process.execPath, [...hostFiles.map((file) => `--env-file=${file}`), ...fromSource, 'packages/cli/src/main.ts', 'host'], root, hostEnv),
+  start(
+    'node',
+    process.execPath,
+    ['--env-file=packages/cli/.env.dev', ...fromSource, 'packages/cli/src/main.ts', 'run', '--create'],
+    root,
+  ),
+  start(
+    'host',
+    process.execPath,
+    [...hostFiles.map((file) => `--env-file=${file}`), ...fromSource, 'packages/cli/src/main.ts', 'host'],
+    root,
+    hostEnv,
+  ),
   ...extra.map((begin) => begin()),
   start('home', 'npm', ['run', 'dev'], `${root}apps/home`),
   start('app', 'npm', ['run', 'dev'], `${root}apps/example`),
 ];
-say('host', `pay page: http://localhost:${hostPort}/pay (open it from the home: Settings, Keep my spaces online, Payment)`);
+say(
+  'host',
+  `pay page: http://localhost:${hostPort}/pay (open it from the home: Settings, Keep my spaces online, Payment)`,
+);
 
 let stopping = false;
 function stopAll(code) {

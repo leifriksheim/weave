@@ -1,4 +1,4 @@
-import { relayOnlyLocal, relayProblem } from '../relay';
+import { relayOnlyLocal, relayProblem } from '@weave/app-shared/relay';
 import { styles } from '../styles';
 
 /**
@@ -12,7 +12,10 @@ export function RelayNotice() {
       <div style={styles.errorBox}>
         <p style={styles.error}>Peers cannot find each other</p>
         <p style={styles.errorHint}>{problem}</p>
-        <p style={styles.errorHint}>Your spaces still work, and still save. They just will not reach your other devices until this is set.</p>
+        <p style={styles.errorHint}>
+          Your spaces still work, and still save. They just will not reach your other devices until this is
+          set.
+        </p>
       </div>
     );
   }

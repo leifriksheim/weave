@@ -13,7 +13,7 @@ export interface Signer {
    * @returns Promise resolving to the signed Expression
    */
   sign<T>(payload: UnsignedExpression<T>, privateKey: CryptoKey): Promise<Expression<T>>;
-  
+
   /**
    * Verifies the signature and ID of an Expression.
    * @param expression The expression to verify
@@ -33,33 +33,33 @@ export function createSigner(provider: CryptoProvider): Signer {
     async sign<T>(payload: UnsignedExpression<T>, privateKey: CryptoKey): Promise<Expression<T>> {
       const canonicalStr = canonicalize(payload);
       const payloadBytes = utf8Encode(canonicalStr);
-      
+
       const signatureBytes = await provider.sign(privateKey, payloadBytes);
       const signature = base64UrlEncode(signatureBytes);
-      
+
       const id = await getExpressionId(payload);
-      
+
       // Everything that was signed, and nothing else: listing fields one by
       // one would silently drop any field added later from the record.
       return Object.freeze({ id, ...payload, signature });
     },
-    
+
     async verify<T>(expression: Expression<T>, publicKey: CryptoKey): Promise<boolean> {
       const { id, signature } = expression;
       const unsignedPayload = signedPart(expression);
-      
+
       // Verify ID
       const expectedId = await getExpressionId(unsignedPayload);
       if (id !== expectedId) {
         return false;
       }
-      
+
       // Verify Signature
       const canonicalStr = canonicalize(unsignedPayload);
       const payloadBytes = utf8Encode(canonicalStr);
       const signatureBytes = base64UrlDecode(signature);
-      
+
       return await provider.verify(publicKey, signatureBytes, payloadBytes);
-    }
+    },
   });
 }

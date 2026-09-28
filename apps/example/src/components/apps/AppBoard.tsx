@@ -3,7 +3,17 @@ import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/co
 import { useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import { SchemaForm } from '../SchemaForm';
 import { Value } from '../Value';
-import { choicesFrom, choicesOf, collectionLabel, fieldsOf, metaFields, recordLabel, titleField, type Field } from '../../derive/schema-ui';
+import {
+  choicesFrom,
+  choicesOf,
+  collectionLabel,
+  bodyOf,
+  fieldsOf,
+  metaFields,
+  recordLabel,
+  titleField,
+  type Field,
+} from '../../derive/schema-ui';
 import { nameOf, peopleFrom, writerOf, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { styles, palette } from '../../styles';
@@ -33,8 +43,14 @@ export function AppBoard({
   onOpen: (record: NodeRecord) => void;
 }) {
   const people = peopleFrom(useProfiles(space.id));
-  const held = names.map((name) => collections.find((c) => c.name === name)).filter((c): c is NodeCollection => !!c && c.version !== null);
-  const records = useLive(space.id, (node) => Promise.all(held.map((c) => node.records.list(space.id, { collection: c.name }))), [space.id, held.map((c) => c.name).join('|')]);
+  const held = names
+    .map((name) => collections.find((c) => c.name === name))
+    .filter((c): c is NodeCollection => !!c && c.version !== null);
+  const records = useLive(
+    space.id,
+    (node) => Promise.all(held.map((c) => node.records.list(space.id, { collection: c.name }))),
+    [space.id, held.map((c) => c.name).join('|')],
+  );
 
   /** Collections of this app that point at `parent`, with the link role they use */
   const childrenOf = (parent: NodeCollection) =>
@@ -43,7 +59,10 @@ export function AppBoard({
         .filter(([, link]) => link.to !== '*' && link.to.includes(parent.name))
         .map(([rel]) => ({ child, rel })),
     );
-  const pointsIntoApp = (c: NodeCollection) => Object.values(c.links).some((link) => link.to !== '*' && link.to.some((to) => names.includes(to) && to !== c.name));
+  const pointsIntoApp = (c: NodeCollection) =>
+    Object.values(c.links).some(
+      (link) => link.to !== '*' && link.to.some((to) => names.includes(to) && to !== c.name),
+    );
   const main = held.filter((c) => !pointsIntoApp(c));
 
   if (!records) return <p style={styles.emptyState}>Opening…</p>;
@@ -52,12 +71,20 @@ export function AppBoard({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
       {main.map((parent) => (
-        <section key={parent.name} aria-label={collectionLabel(parent)} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <section
+          key={parent.name}
+          aria-label={collectionLabel(parent)}
+          style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+        >
           <AddForm space={space} collection={parent} label={`Add ${noun(parent)}`} />
-          {(byName.get(parent.name) ?? []).length === 0 && <div style={{ ...styles.emptyState, padding: '24px 16px' }}>No {noun(parent)} yet.</div>}
+          {(byName.get(parent.name) ?? []).length === 0 && (
+            <div style={{ ...styles.emptyState, padding: '24px 16px' }}>No {noun(parent)} yet.</div>
+          )}
           {(byName.get(parent.name) ?? []).map((record) => (
             <article key={record.key} style={card}>
-              <header style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+              <header
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}
+              >
                 <button onClick={() => onOpen(record)} data-variant="ghost" style={cardTitle}>
                   {recordLabel(record, parent.schema)}
                 </button>
@@ -73,7 +100,9 @@ export function AppBoard({
                   child={child}
                   rel={rel}
                   parent={record}
-                  records={(byName.get(child.name) ?? []).filter((r) => r.links.some((l) => l.rel === rel && l.to === record.key))}
+                  records={(byName.get(child.name) ?? []).filter((r) =>
+                    r.links.some((l) => l.rel === rel && l.to === record.key),
+                  )}
                   people={people}
                   onOpen={onOpen}
                 />
@@ -91,20 +120,27 @@ const noun = (c: NodeCollection) => collectionLabel(c).toLowerCase();
 /** What a record says in its title field, when it says anything — "Can take a bike", not a made-up label */
 function said(record: NodeRecord, collection: NodeCollection): string | null {
   const title = titleField(collection.schema);
-  const value = title ? (record.body as Record<string, unknown> | null)?.[title] : undefined;
+  const value = title ? bodyOf(record)[title] : undefined;
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 /** The short fields beside a title */
 function Meta({ collection, record }: { collection: NodeCollection; record: NodeRecord }) {
-  const body = (record.body ?? {}) as Record<string, unknown>;
-  const fields = metaFields(collection.schema).filter((f) => body[f.name] !== undefined && body[f.name] !== '');
+  const body = bodyOf(record);
+  const fields = metaFields(collection.schema).filter(
+    (f) => body[f.name] !== undefined && body[f.name] !== '',
+  );
   if (fields.length === 0) return null;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 13, color: palette.ink.muted }}>
+    <div
+      style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 13, color: palette.ink.muted }}
+    >
       {fields.map((f) => (
         <span key={f.name}>
-          {f.label} <span style={{ color: palette.ink.strong }}><Value field={f} value={body[f.name]} compact /></span>
+          {f.label}{' '}
+          <span style={{ color: palette.ink.strong }}>
+            <Value field={f} value={body[f.name]} compact />
+          </span>
         </span>
       ))}
     </div>
@@ -153,18 +189,18 @@ function Children({
   const picker: Field | undefined = fields.find((f) => choicesFrom(f.schema)?.rel === rel);
   const choices = picker ? choicesOf(picker, { [rel]: parent }) : null;
   if (picker && choices) {
-    const chosen = (mine?.body as Record<string, unknown> | null)?.[picker.name];
+    const chosen = bodyOf(mine)[picker.name];
     const pick = (value: unknown) =>
       run(() =>
         mine && !onePerMe
-          ? node.records.update(space.id, mine.key, { ...(mine.body as object), [picker.name]: value })
+          ? node.records.update(space.id, mine.key, { ...bodyOf(mine), [picker.name]: value })
           : node.records.put(space.id, child.name, { [picker.name]: value }, { links }),
       );
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {choices.map((choice) => {
-            const count = records.filter((r) => (r.body as Record<string, unknown> | null)?.[picker.name] === choice.value).length;
+            const count = records.filter((r) => bodyOf(r)[picker.name] === choice.value).length;
             const on = chosen === choice.value;
             return (
               <button
@@ -177,7 +213,9 @@ function Children({
                   ...styles.smallButton,
                   height: 30,
                   gap: 8,
-                  ...(on ? { background: palette.ink.strong, color: '#fff', borderColor: palette.ink.strong } : {}),
+                  ...(on
+                    ? { background: palette.ink.strong, color: '#fff', borderColor: palette.ink.strong }
+                    : {}),
                 }}
               >
                 {choice.label} <span style={{ opacity: 0.7 }}>{count}</span>
@@ -188,7 +226,11 @@ function Children({
         {mine && (
           <span style={{ fontSize: 12, color: palette.ink.faint }}>
             You picked — pick again to change{' '}
-            <button onClick={() => void run(() => node.records.delete(space.id, mine.key))} data-variant="ghost" style={{ ...styles.linkButton, padding: 0, fontSize: 12 }}>
+            <button
+              onClick={() => void run(() => node.records.delete(space.id, mine.key))}
+              data-variant="ghost"
+              style={{ ...styles.linkButton, padding: 0, fontSize: 12 }}
+            >
               or take it back
             </button>
           </span>
@@ -201,18 +243,36 @@ function Children({
   const nothingToFill = fields.every((f) => !f.required);
   const label = noun(child);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 8, borderTop: `1px solid ${palette.surface.line}` }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        paddingTop: 8,
+        borderTop: `1px solid ${palette.surface.line}`,
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 12, color: palette.ink.muted }}>
           {records.length} {records.length === 1 ? label : `${label}s`}
         </span>
         {onePerMe && nothingToFill ? (
           mine ? (
-            <button onClick={() => void run(() => node.records.delete(space.id, mine.key))} disabled={busy} data-variant="quiet" style={{ ...styles.smallButton, height: 28 }}>
+            <button
+              onClick={() => void run(() => node.records.delete(space.id, mine.key))}
+              disabled={busy}
+              data-variant="quiet"
+              style={{ ...styles.smallButton, height: 28 }}
+            >
               Remove your {label}
             </button>
           ) : (
-            <button onClick={() => void run(() => node.records.put(space.id, child.name, {}, { links }))} disabled={busy} data-variant="primary" style={{ ...styles.smallButton, height: 28 }}>
+            <button
+              onClick={() => void run(() => node.records.put(space.id, child.name, {}, { links }))}
+              disabled={busy}
+              data-variant="primary"
+              style={{ ...styles.smallButton, height: 28 }}
+            >
               Add your {label}
             </button>
           )
@@ -254,7 +314,15 @@ function AddForm({
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} data-variant="quiet" style={{ ...styles.smallButton, height: compact ? 28 : 32, alignSelf: compact ? 'auto' : 'flex-start' }}>
+      <button
+        onClick={() => setOpen(true)}
+        data-variant="quiet"
+        style={{
+          ...styles.smallButton,
+          height: compact ? 28 : 32,
+          alignSelf: compact ? 'auto' : 'flex-start',
+        }}
+      >
         {label}
       </button>
     );
@@ -283,5 +351,23 @@ const card = {
   borderRadius: 10,
   background: palette.surface.card,
 };
-const cardTitle = { border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: 15, fontWeight: 600, color: palette.ink.strong, textAlign: 'left' as const, cursor: 'pointer' };
-const chip = { border: `1px solid ${palette.surface.line}`, borderRadius: 999, background: palette.surface.sunken, padding: '3px 10px', fontSize: 12, color: palette.ink.body, cursor: 'pointer' };
+const cardTitle = {
+  border: 'none',
+  background: 'none',
+  padding: 0,
+  font: 'inherit',
+  fontSize: 15,
+  fontWeight: 600,
+  color: palette.ink.strong,
+  textAlign: 'left' as const,
+  cursor: 'pointer',
+};
+const chip = {
+  border: `1px solid ${palette.surface.line}`,
+  borderRadius: 999,
+  background: palette.surface.sunken,
+  padding: '3px 10px',
+  fontSize: 12,
+  color: palette.ink.body,
+  cursor: 'pointer',
+};

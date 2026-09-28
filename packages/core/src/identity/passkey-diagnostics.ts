@@ -5,7 +5,8 @@
  * than guessed at.
  */
 
-import { base64UrlEncode, base64UrlDecode } from '../utils/encoding.js';
+import { base64UrlEncode, base64UrlDecode, bytesToHex } from '../utils/encoding.js';
+import { bufferSource, isPublicKeyCredential } from '../utils/guards.js';
 
 /** Where a ceremony's PRF request ended up */
 export interface CeremonyReport {
@@ -62,7 +63,7 @@ const KNOWN_AAGUIDS: Record<string, string> = {
 function readAaguid(authenticatorData: ArrayBuffer | undefined): string | null {
   if (!authenticatorData || authenticatorData.byteLength < 53) return null;
   const bytes = new Uint8Array(authenticatorData).slice(37, 53);
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  const hex = bytesToHex(bytes);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
@@ -80,11 +81,11 @@ function summarizeExtensions(results: unknown): Record<string, unknown> | null {
     return value;
   };
 
-  return walk(results) as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(results).map(([k, v]) => [k, walk(v)]));
 }
 
-function prfOutputLength(results: unknown): number | null {
-  const first = (results as { prf?: { results?: { first?: ArrayBuffer } } })?.prf?.results?.first;
+function prfOutputLength(results: AuthenticationExtensionsClientOutputs): number | null {
+  const first = results.prf?.results?.first;
   return first ? first.byteLength : null;
 }
 
@@ -100,7 +101,8 @@ function prfOutputLength(results: unknown): number | null {
 export async function inspectPasskeyPrf(options?: DiagnosticsOptions): Promise<PasskeyDiagnostics> {
   const webauthnAvailable = !!globalThis.navigator?.credentials?.create;
   const rpId =
-    options?.rpId ?? (typeof globalThis.location !== 'undefined' ? globalThis.location.hostname : 'localhost');
+    options?.rpId ??
+    (typeof globalThis.location !== 'undefined' ? globalThis.location.hostname : 'localhost');
 
   let platformAuthenticatorAvailable = false;
   try {
@@ -146,11 +148,11 @@ export async function inspectPasskeyPrf(options?: DiagnosticsOptions): Promise<P
   if (!credentialId) {
     create.attempted = true;
     try {
-      const credential = (await globalThis.navigator.credentials.create({
+      const credential = await globalThis.navigator.credentials.create({
         publicKey: {
           rp: { id: rpId, name: options?.rpName ?? 'PRF diagnostic' },
           user: {
-            id: globalThis.crypto.getRandomValues(new Uint8Array(32)) as BufferSource,
+            id: globalThis.crypto.getRandomValues(new Uint8Array(32)),
             name: options?.userName ?? 'prf-diagnostic',
             displayName: options?.userName ?? 'PRF diagnostic (safe to delete)',
           },
@@ -164,17 +166,19 @@ export async function inspectPasskeyPrf(options?: DiagnosticsOptions): Promise<P
             requireResidentKey: true,
             userVerification: 'required',
           },
-          extensions: { prf: { eval: { first: PRF_SALT } } } as AuthenticationExtensionsClientInputs,
+          extensions: { prf: { eval: { first: PRF_SALT } } },
         },
-      })) as PublicKeyCredential;
+      });
+      if (!isPublicKeyCredential(credential)) throw new Error('No credential came back');
 
       const results = credential.getClientExtensionResults();
       create.extensionResults = summarizeExtensions(results);
       create.prfOutputBytes = prfOutputLength(results);
-      prfDeclaredAtCreate = (results as { prf?: { enabled?: boolean } }).prf?.enabled;
+      prfDeclaredAtCreate = results.prf?.enabled;
       credentialId = base64UrlEncode(new Uint8Array(credential.rawId));
 
-      const response = credential.response as AuthenticatorAttestationResponse;
+      const response: AuthenticatorResponse &
+        Partial<Pick<AuthenticatorAttestationResponse, 'getAuthenticatorData'>> = credential.response;
       aaguid = readAaguid(response.getAuthenticatorData?.());
     } catch (error) {
       create.error = error instanceof Error ? `${error.name}: ${error.message}` : 'Creation failed';
@@ -185,15 +189,16 @@ export async function inspectPasskeyPrf(options?: DiagnosticsOptions): Promise<P
   if (credentialId) {
     assert.attempted = true;
     try {
-      const credential = (await globalThis.navigator.credentials.get({
+      const credential = await globalThis.navigator.credentials.get({
         publicKey: {
           challenge: globalThis.crypto.getRandomValues(new Uint8Array(32)),
           rpId,
           userVerification: 'required',
-          allowCredentials: [{ type: 'public-key', id: base64UrlDecode(credentialId) as BufferSource }],
-          extensions: { prf: { eval: { first: PRF_SALT } } } as AuthenticationExtensionsClientInputs,
+          allowCredentials: [{ type: 'public-key', id: bufferSource(base64UrlDecode(credentialId)) }],
+          extensions: { prf: { eval: { first: PRF_SALT } } },
         },
-      })) as PublicKeyCredential;
+      });
+      if (!isPublicKeyCredential(credential)) throw new Error('No credential came back');
 
       const results = credential.getClientExtensionResults();
       assert.extensionResults = summarizeExtensions(results);
@@ -233,8 +238,7 @@ function describe(facts: {
   if (facts.prfWorks) return `${who}supports PRF — identity derivation will work with this passkey.`;
   if (facts.assert.error) return `The assertion failed before PRF could be evaluated: ${facts.assert.error}`;
 
-  const sawPrfKey =
-    facts.create.extensionResults !== null && 'prf' in facts.create.extensionResults;
+  const sawPrfKey = facts.create.extensionResults !== null && 'prf' in facts.create.extensionResults;
 
   if (!sawPrfKey) {
     return `${who}returned no \`prf\` entry at all, which usually means the extension was dropped before reaching the authenticator — the provider handling the ceremony does not implement PRF.`;

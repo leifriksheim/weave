@@ -29,13 +29,7 @@ function notFound(name: string): Error {
  * way a browser would stop it.
  */
 function checkName(name: string): void {
-  if (
-    typeof name !== 'string' ||
-    name === '' ||
-    name === '.' ||
-    name === '..' ||
-    /[/\\\0]/.test(name)
-  ) {
+  if (typeof name !== 'string' || name === '' || name === '.' || name === '..' || /[/\\\0]/.test(name)) {
     throw new TypeError(`Name is not allowed: ${JSON.stringify(name)}`);
   }
 }
@@ -65,7 +59,7 @@ function fileHandle(file: string): FileHandleLike {
       const bytes = await fs.readFile(file);
       return {
         async arrayBuffer() {
-          return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+          return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
         },
       };
     },

@@ -27,17 +27,17 @@ export function didToPublicKey(did: string): { publicKeyBytes: Uint8Array; multi
   if (!did.startsWith('did:key:z')) {
     throw new Error('Invalid did:key format');
   }
-  
+
   const base58Str = did.slice(9);
   const bytes = base58.decode(base58Str);
-  
+
   let prefixLen = 1;
   while (prefixLen < bytes.length && (bytes[prefixLen - 1]! & 0x80) !== 0) {
     prefixLen++;
   }
-  
+
   const multicodecPrefix = bytes.slice(0, prefixLen);
   const publicKeyBytes = bytes.slice(prefixLen);
-  
+
   return { multicodecPrefix, publicKeyBytes };
 }

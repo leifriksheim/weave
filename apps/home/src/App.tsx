@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { WeaveAuth, useWeave } from '@weaveprotocol/core/react';
 import { AccountNotices } from './components/AccountNotices';
 import { Settings } from './components/Settings';
-import { Wordmark } from './components/Wordmark';
+import { Wordmark } from '@weave/app-shared/Wordmark';
 import { styles } from './styles';
 
 /** The account home: sign in, then the account and everything about it. */

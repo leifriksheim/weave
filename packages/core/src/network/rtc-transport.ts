@@ -4,6 +4,7 @@
 
 import type { CandidateSink, PeerTransportEvents, SignalledTransport } from './transport.js';
 import { createEmitter } from '../utils/events.js';
+import { bufferSource } from '../utils/guards.js';
 
 export interface RTCTransportConfig {
   /** Fixed, or asked for each new connection — TURN passwords a relay hands out change */
@@ -28,12 +29,12 @@ function fingerprintOf(description: RTCSessionDescription | null): string | null
 
 export const DEFAULT_ICE_SERVERS: ReadonlyArray<RTCIceServer> = [
   { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' }
+  { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
 /**
  * Creates a new WebRTC transport manager.
- * 
+ *
  * @param config - Optional configuration for ICE servers.
  * @returns The RTC transport instance.
  */
@@ -54,7 +55,7 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
       close(peerId);
     };
     channel.onerror = (ev) => {
-      const errEvent = ev as RTCErrorEvent;
+      const errEvent = ev;
       emit('error', peerId, errEvent.error || new Error('Data channel error'));
     };
     channel.onmessage = (event) => {
@@ -89,11 +90,14 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     return connection;
   };
 
-  const createOffer = async (peerId: string, onCandidate: CandidateSink): Promise<RTCSessionDescriptionInit> => {
+  const createOffer = async (
+    peerId: string,
+    onCandidate: CandidateSink,
+  ): Promise<RTCSessionDescriptionInit> => {
     const connection = createConnection(peerId, onCandidate);
     const channel = connection.createDataChannel('data', { ordered: true });
     setupDataChannel(peerId, channel);
-    
+
     const peerData = connections.get(peerId);
     if (peerData) {
       peerData.channel = channel;
@@ -111,7 +115,7 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     onCandidate: CandidateSink,
   ): Promise<RTCSessionDescriptionInit> => {
     const connection = createConnection(peerId, onCandidate);
-    
+
     connection.ondatachannel = (event) => {
       const channel = event.channel;
       setupDataChannel(peerId, channel);
@@ -149,7 +153,8 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     if (!peerData || !peerData.channel || peerData.channel.readyState !== 'open') {
       throw new Error(`Data channel not open for peer ${peerId}`);
     }
-    peerData.channel.send(data.buffer as ArrayBuffer);
+    // The whole buffer, not just the view: callers pass bytes that fill theirs.
+    peerData.channel.send(bufferSource(data).buffer);
   };
 
   const close = (peerId: string): void => {
@@ -187,6 +192,6 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     closeAll,
     binding,
     on,
-    off
+    off,
   });
 }

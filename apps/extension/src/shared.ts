@@ -19,7 +19,12 @@
  * The offscreen page may only use `chrome.runtime`, so everything it keeps is
  * in IndexedDB, which every page of the extension shares.
  */
-import type { CarriedCollection, CarriedSpace, CarriedSubscriptionView, CarrierEvent } from '@weaveprotocol/core/node';
+import type {
+  CarriedCollection,
+  CarriedSpace,
+  CarriedSubscriptionView,
+  CarrierEvent,
+} from '@weaveprotocol/core/node';
 import type { CarryGrant } from '@weaveprotocol/core/session';
 
 declare const __WEAVE_HOME__: string;
@@ -86,7 +91,12 @@ export type WorkerMessage =
   | { readonly to: 'worker'; readonly type: 'ensure' }
   | { readonly to: 'worker'; readonly type: 'badge'; readonly status: CarrierStatus }
   /** Something a subscription asks about arrived: show it, unless it's muted here */
-  | { readonly to: 'worker'; readonly type: 'notify'; readonly event: Extract<CarrierEvent, { type: 'notify' }>; readonly home: string };
+  | {
+      readonly to: 'worker';
+      readonly type: 'notify';
+      readonly event: Extract<CarrierEvent, { type: 'notify' }>;
+      readonly home: string;
+    };
 
 /** Broadcast by the offscreen page whenever the status changes */
 export interface StatusChanged {
@@ -117,7 +127,7 @@ function openDb(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE);
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error(`Could not open ${DB}`));
   });
 }
 
@@ -126,25 +136,31 @@ async function kv<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => I
   try {
     return await new Promise<T>((resolve, reject) => {
       const request = run(db.transaction(STORE, mode).objectStore(STORE));
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- each key only ever holds what its save function below put there
       request.onsuccess = () => resolve(request.result as T);
-      request.onerror = () => reject(request.error);
+      request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
     });
   } finally {
     db.close();
   }
 }
 
-export const loadGrant = () => kv<CarryGrant | undefined>('readonly', (store) => store.get('grant')).then((grant) => grant ?? null);
+export const loadGrant = () =>
+  kv<CarryGrant | undefined>('readonly', (store) => store.get('grant')).then((grant) => grant ?? null);
 export const saveGrant = (grant: CarryGrant) => kv<void>('readwrite', (store) => store.put(grant, 'grant'));
 export const forgetGrant = () => kv<void>('readwrite', (store) => store.delete('grant'));
 
 /** Whether the account removed this extension last time — shown once, until it connects again */
-export const loadRemoved = () => kv<boolean | undefined>('readonly', (store) => store.get('removed')).then(Boolean);
-export const setRemoved = (removed: boolean) => kv<void>('readwrite', (store) => store.put(removed, 'removed'));
+export const loadRemoved = () =>
+  kv<boolean | undefined>('readonly', (store) => store.get('removed')).then(Boolean);
+export const setRemoved = (removed: boolean) =>
+  kv<void>('readwrite', (store) => store.put(removed, 'removed'));
 
 /** Subscriptions muted in this browser only — the account's own pause is in the home */
-export const loadMuted = () => kv<string[] | undefined>('readonly', (store) => store.get('muted')).then((muted) => new Set(muted ?? []));
-export const setMuted = (muted: ReadonlySet<string>) => kv<void>('readwrite', (store) => store.put([...muted], 'muted'));
+export const loadMuted = () =>
+  kv<string[] | undefined>('readonly', (store) => store.get('muted')).then((muted) => new Set(muted ?? []));
+export const setMuted = (muted: ReadonlySet<string>) =>
+  kv<void>('readwrite', (store) => store.put([...muted], 'muted'));
 
 /**
  * The account page of a home. A grant's `home` is the connect page

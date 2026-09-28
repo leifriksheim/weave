@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNode } from '@weaveprotocol/core/react';
 import type { NodeCollection, SpaceSummary } from '@weaveprotocol/core';
-import { standardAnnotations, useSchemas } from '@weaveprotocol/core/schemas';
+// `useSchemas` defines collections in a space; it is not a React hook, whatever its name says.
+import { standardAnnotations, useSchemas as addSchemas } from '@weaveprotocol/core/schemas';
 import { styles, palette } from '../styles';
 
 const WHAT_IT_ADDS: Record<string, string> = {
@@ -37,20 +38,37 @@ export function Library({
   if (!space.writable || missing.length === 0) return null;
 
   return (
-    <section aria-label="Standard schemas" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 24 }}>
+    <section
+      aria-label="Standard schemas"
+      style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 24 }}
+    >
       <div>
         <h3 style={styles.sectionTitle}>{title}</h3>
-        <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>Shared shapes, so other apps understand them too.</p>
+        <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>
+          Shared shapes, so other apps understand them too.
+        </p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
         {missing.map((schema) => (
-          <div key={schema.name} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 14, border: `1px solid ${palette.surface.line}`, borderRadius: 10 }}>
+          <div
+            key={schema.name}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              padding: 14,
+              border: `1px solid ${palette.surface.line}`,
+              borderRadius: 10,
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <strong style={{ fontSize: 14, fontWeight: 600, color: palette.ink.strong }}>{schema.title}</strong>
+              <strong style={{ fontSize: 14, fontWeight: 600, color: palette.ink.strong }}>
+                {schema.title}
+              </strong>
               <button
                 onClick={() => {
                   setBusy(schema.name);
-                  void useSchemas(node, space.id, [schema])
+                  void addSchemas(node, space.id, [schema])
                     .then(() => onAdded?.(schema.name))
                     .finally(() => setBusy(null));
                 }}
@@ -62,7 +80,9 @@ export function Library({
                 {busy === schema.name ? 'Adding…' : 'Add'}
               </button>
             </div>
-            <span style={{ fontSize: 13, lineHeight: 1.5, color: palette.ink.muted }}>{WHAT_IT_ADDS[schema.name] ?? schema.description}</span>
+            <span style={{ fontSize: 13, lineHeight: 1.5, color: palette.ink.muted }}>
+              {WHAT_IT_ADDS[schema.name] ?? schema.description}
+            </span>
             <code style={{ fontSize: 11, color: palette.ink.faint }}>{schema.name}</code>
           </div>
         ))}

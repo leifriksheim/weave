@@ -10,7 +10,9 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
+import * as z from 'zod';
 import { NODE_ACTIONS } from '../src/node/actions.js';
+import { isRecord } from '../src/utils/guards.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const docs = join(root, 'docs');
@@ -27,7 +29,9 @@ const sourceOf = (specifier: string) => {
 
 describe('Package docs', () => {
   test('ship with the package', () => {
-    const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { files: string[] };
+    const manifest = z
+      .object({ files: z.array(z.string()) })
+      .parse(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')));
     assert.ok(manifest.files.includes('docs'), 'package.json "files" must include docs');
     assert.ok(guides.includes('README.md'));
   });
@@ -35,12 +39,14 @@ describe('Package docs', () => {
   for (const guide of guides) {
     test(`${guide}: every name it imports is exported`, async () => {
       for (const [, names, specifier] of read(guide).matchAll(IMPORT)) {
-        const exported = (await import(sourceOf(specifier!))) as Record<string, unknown>;
+        const exported: unknown = await import(sourceOf(specifier!));
+        assert.ok(isRecord(exported));
         const values = names!
           .split(',')
           .map((name) => name.trim())
           .filter((name) => name && !name.startsWith('type '));
-        for (const name of values) assert.ok(name in exported, `${guide} imports ${name} from ${specifier}, which doesn't export it`);
+        for (const name of values)
+          assert.ok(name in exported, `${guide} imports ${name} from ${specifier}, which doesn't export it`);
       }
     });
 

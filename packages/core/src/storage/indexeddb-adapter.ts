@@ -4,6 +4,7 @@
  */
 
 import type { StorageAdapter, BatchOp, Expression } from '../types.js';
+import { isStoredExpression } from '../utils/guards.js';
 
 /**
  * Bumped to 3 when the Merkle tree gave way to plain entries and sync by
@@ -20,8 +21,14 @@ const DB_VERSION = 3;
 function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
   });
+}
+
+/** A stored expression, or null for a miss */
+async function readExpression(request: IDBRequest<unknown>): Promise<Expression | null> {
+  const value = await idbRequest(request);
+  return isStoredExpression(value) ? value : null;
 }
 
 /**
@@ -34,12 +41,12 @@ function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
 function idbTransaction(
   db: IDBDatabase,
   stores: string[],
-  mode: IDBTransactionMode
+  mode: IDBTransactionMode,
 ): { tx: IDBTransaction; complete: Promise<void> } {
   const tx = db.transaction(stores, mode);
   const complete = new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'));
     tx.onabort = () => reject(new Error('Transaction aborted'));
   });
   return { tx, complete };
@@ -50,13 +57,13 @@ function idbTransaction(
  * @param dbName The name of the database (defaults to 'weave-storage')
  * @returns A promise resolving to the StorageAdapter
  */
-export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): Promise<StorageAdapter> {
+export async function createIndexedDBAdapter(dbName = 'weave-storage'): Promise<StorageAdapter> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = globalThis.indexedDB.open(dbName, DB_VERSION);
 
     request.onupgradeneeded = (event) => {
       const db = request.result;
-      const previousVersion = (event as IDBVersionChangeEvent).oldVersion;
+      const previousVersion = event.oldVersion;
 
       // Older versions indexed records in a Merkle tree this store no longer
       // has. The local copy is dropped and rebuilt by syncing with peers.
@@ -81,15 +88,15 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
     };
 
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error(`Could not open ${dbName}`));
   });
 
   return Object.freeze({
     async get(key: string): Promise<Uint8Array | null> {
       const { tx } = idbTransaction(db, ['kv'], 'readonly');
       const store = tx.objectStore('kv');
-      const result = await idbRequest(store.get(key));
-      return result ? new Uint8Array(result) : null;
+      const result = await idbRequest<unknown>(store.get(key));
+      return result instanceof ArrayBuffer ? new Uint8Array(result) : null;
     },
 
     async put(key: string, value: Uint8Array): Promise<void> {
@@ -113,65 +120,62 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
       return count > 0;
     },
 
-    async list(prefix: string = ''): Promise<string[]> {
+    async list(prefix = ''): Promise<string[]> {
       const { tx } = idbTransaction(db, ['kv'], 'readonly');
       const store = tx.objectStore('kv');
       const keys: string[] = [];
-      
-      let request;
-      if (prefix) {
-        const bound = prefix + '\uFFFF';
-        request = store.openCursor(IDBKeyRange.bound(prefix, bound, false, false));
-      } else {
-        request = store.openCursor();
-      }
+
+      const request = prefix
+        ? store.openCursor(IDBKeyRange.bound(prefix, prefix + '\uFFFF', false, false))
+        : store.openCursor();
 
       await new Promise<void>((resolve, reject) => {
-        request.onsuccess = (event) => {
-          const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+        request.onsuccess = () => {
+          const cursor = request.result;
           if (cursor) {
-            keys.push(cursor.key as string);
+            if (typeof cursor.key === 'string') keys.push(cursor.key);
             cursor.continue();
           } else {
             resolve();
           }
         };
-        request.onerror = () => reject(request.error);
+        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
       });
       return keys;
     },
 
-    async queryExpressions(collection: string, limit: number = 50, cursor?: string): Promise<Expression[]> {
+    async queryExpressions(collection: string, limit = 50, cursor?: string): Promise<Expression[]> {
       const { tx } = idbTransaction(db, ['expressions'], 'readonly');
       const store = tx.objectStore('expressions');
       const index = store.index('collection');
-      
+
       const range = IDBKeyRange.only(collection);
       const request = index.openCursor(range);
-      
+
       const results: Expression[] = [];
       let advanced = !cursor;
 
       await new Promise<void>((resolve, reject) => {
-        request.onsuccess = (event) => {
-          const idbCursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+        request.onsuccess = () => {
+          const idbCursor = request.result;
           if (!idbCursor || results.length >= limit) {
             resolve();
             return;
           }
-          
+
           if (!advanced && cursor && idbCursor.primaryKey === cursor) {
             advanced = true;
             idbCursor.continue();
             return;
           }
-          
-          if (advanced) {
-            results.push(idbCursor.value);
+
+          const value: unknown = idbCursor.value;
+          if (advanced && isStoredExpression(value)) {
+            results.push(value);
           }
           idbCursor.continue();
         };
-        request.onerror = () => reject(request.error);
+        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
       });
 
       return results;
@@ -182,11 +186,23 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
       const store = tx.objectStore('kv');
       const range = IDBKeyRange.bound(prefix, prefix + '\uFFFF', false, false);
       // Both in key order, from one transaction: they line up.
-      const [keys, values] = await Promise.all([idbRequest(store.getAllKeys(range)), idbRequest(store.getAll(range))]);
-      return keys.map((key, i) => [key as string, new Uint8Array(values[i] as ArrayBuffer)] as const);
+      const [keys, values] = await Promise.all([
+        idbRequest(store.getAllKeys(range)),
+        idbRequest(store.getAll(range)),
+      ]);
+      return keys.flatMap((key, i) => {
+        const value: unknown = values[i];
+        return typeof key === 'string' && value instanceof ArrayBuffer
+          ? [[key, new Uint8Array(value)] as const]
+          : [];
+      });
     },
 
-    async commit(write: { readonly store: ReadonlyArray<Expression>; readonly ops: ReadonlyArray<BatchOp>; readonly remove: ReadonlyArray<string> }): Promise<void> {
+    async commit(write: {
+      readonly store: ReadonlyArray<Expression>;
+      readonly ops: ReadonlyArray<BatchOp>;
+      readonly remove: ReadonlyArray<string>;
+    }): Promise<void> {
       const { tx, complete } = idbTransaction(db, ['kv', 'expressions'], 'readwrite');
       const expressions = tx.objectStore('expressions');
       const kv = tx.objectStore('kv');
@@ -203,7 +219,7 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
       if (ids.length === 0) return [];
       const { tx } = idbTransaction(db, ['expressions'], 'readonly');
       const store = tx.objectStore('expressions');
-      return Promise.all(ids.map(async (id) => ((await idbRequest(store.get(id))) as Expression | undefined) ?? null));
+      return Promise.all(ids.map((id) => readExpression(store.get(id))));
     },
 
     async putExpression(expression: Expression): Promise<void> {
@@ -215,9 +231,7 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
 
     async getExpression(id: string): Promise<Expression | null> {
       const { tx } = idbTransaction(db, ['expressions'], 'readonly');
-      const store = tx.objectStore('expressions');
-      const result = await idbRequest(store.get(id));
-      return result || null;
+      return readExpression(tx.objectStore('expressions').get(id));
     },
 
     async deleteExpression(id: string): Promise<void> {
@@ -242,6 +256,6 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
 
     async close(): Promise<void> {
       db.close();
-    }
+    },
   });
 }

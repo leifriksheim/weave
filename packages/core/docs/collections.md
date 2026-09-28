@@ -5,7 +5,7 @@ the space as a signed record, so another app, or an agent, can open the space
 and know what its data means without your code.
 
 ```typescript
-import * as z from 'zod';   // or Valibot, ArkType, or plain JSON Schema
+import * as z from 'zod'; // or Valibot, ArkType, or plain JSON Schema
 import { collection } from '@weaveprotocol/core';
 
 const Poll = z.object({
@@ -78,13 +78,13 @@ A link role is lower camel case. Queries follow links with `include`
 
 ## Rules
 
-| Rule | Means | Default |
-|---|---|---|
-| `create` | Who may create a record | `member` |
-| `edit` | Who may write later versions | `member` |
-| `delete` | Who may delete | same as `edit` |
-| `onePer` | At most one record per combination of these | none |
-| `fixed` | Fields that keep the value the record was created with | none |
+| Rule     | Means                                                  | Default        |
+| -------- | ------------------------------------------------------ | -------------- |
+| `create` | Who may create a record                                | `member`       |
+| `edit`   | Who may write later versions                           | `member`       |
+| `delete` | Who may delete                                         | same as `edit` |
+| `onePer` | At most one record per combination of these            | none           |
+| `fixed`  | Fields that keep the value the record was created with | none           |
 
 Who is one of these, or a list meaning any of them:
 
@@ -110,7 +110,9 @@ of permissions:
 
 ```typescript
 await node.spaces.putRole(space.id, {
-  name: 'host', title: 'Host', rank: 50,
+  name: 'host',
+  title: 'Host',
+  rank: 50,
   permissions: ['invite', 'app.poll/moderate'],
 });
 await node.spaces.setMember(space.id, did, 'host');
@@ -138,7 +140,7 @@ await node.spaces.setMember(space.id, did, 'host');
 ```typescript
 import { reaction, comment, poll, vote, useSchemas } from '@weaveprotocol/core/schemas';
 
-await useSchemas(node, space.id, [poll, vote, reaction, comment]);  // defines only what the space is missing
+await useSchemas(node, space.id, [poll, vote, reaction, comment]); // defines only what the space is missing
 ```
 
 Annotations that attach to any record: `reaction`, `comment`, `tag`,

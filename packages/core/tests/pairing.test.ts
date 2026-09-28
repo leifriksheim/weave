@@ -13,7 +13,7 @@ import {
   openPairingPayload,
 } from '../src/identity/pairing.js';
 import { generateSeed, seedToRecoveryCode, recoveryCodeToSeed } from '../src/identity/recovery-code.js';
-import { utf8Encode, utf8Decode } from '../src/utils/encoding.js';
+import { base64UrlEncode, utf8Encode, utf8Decode } from '../src/utils/encoding.js';
 import { isProtocolError } from '../src/utils/errors.js';
 
 describe('the meeting room', () => {
@@ -53,10 +53,7 @@ describe('the handover', () => {
   });
 
   test('someone else in the room learns nothing', async () => {
-    const sealed = await sealPairingPayload(
-      utf8Encode('the lists'),
-      await derivePairingKey(generateSeed()),
-    );
+    const sealed = await sealPairingPayload(utf8Encode('the lists'), await derivePairingKey(generateSeed()));
 
     const strangersKey = await derivePairingKey(generateSeed());
     await assert.rejects(
@@ -92,7 +89,9 @@ describe('the ticket in the QR code', () => {
   });
 
   test('a mangled ticket is rejected with something a UI can say', () => {
-    for (const bad of ['', 'not-base64!!', encodePairingTicket({ v: 2 } as never)]) {
+    // A ticket from some later version, packed the way the encoder packs one.
+    const later = base64UrlEncode(utf8Encode(JSON.stringify({ v: 2 })));
+    for (const bad of ['', 'not-base64!!', later]) {
       assert.throws(
         () => decodePairingTicket(bad),
         (error: unknown) => isProtocolError(error, 'PAIRING_TICKET_UNREADABLE'),

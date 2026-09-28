@@ -2,21 +2,33 @@ import { useState } from 'react';
 import { useCan, useNode } from '@weaveprotocol/core/react';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { tag } from '@weaveprotocol/core/schemas';
+import { bodyOf } from '../../derive/schema-ui';
 import { palette } from '../../styles';
 
 /** A tag's label, if the record is one */
-export const labelOf = (r: NodeRecord) => (r.body as { label?: string } | null)?.label ?? '';
+export function tagLabel(r: NodeRecord): string {
+  const label = bodyOf(r).label;
+  return typeof label === 'string' ? label : '';
+}
 
 /**
  * `std.tag` on a record: each tag is a small record of its own, pointing at
  * the thing it labels — so removing one is deleting it, and anyone's app that
  * uses `std.tag` sees the same labels.
  */
-export function Tags({ space, target, tags }: { space: SpaceSummary; target: string; tags: ReadonlyArray<NodeRecord> }) {
+export function Tags({
+  space,
+  target,
+  tags,
+}: {
+  space: SpaceSummary;
+  target: string;
+  tags: ReadonlyArray<NodeRecord>;
+}) {
   const node = useNode();
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
-  const labels = new Set(tags.map(labelOf));
+  const labels = new Set(tags.map(tagLabel));
 
   const add = () => {
     const label = draft.trim().toLowerCase();
@@ -46,11 +58,21 @@ export function Tags({ space, target, tags }: { space: SpaceSummary; target: str
               onBlur={add}
               placeholder="tag"
               aria-label="New tag"
-              style={{ height: 26, width: 110, padding: '0 8px', border: `1px solid ${palette.surface.lineStrong}`, borderRadius: 999, fontSize: 12 }}
+              style={{
+                height: 26,
+                width: 110,
+                padding: '0 8px',
+                border: `1px solid ${palette.surface.lineStrong}`,
+                borderRadius: 999,
+                fontSize: 12,
+              }}
             />
           </form>
         ) : (
-          <button onClick={() => setAdding(true)} style={{ ...chip, color: palette.ink.muted, background: 'none', borderStyle: 'dashed' }}>
+          <button
+            onClick={() => setAdding(true)}
+            style={{ ...chip, color: palette.ink.muted, background: 'none', borderStyle: 'dashed' }}
+          >
             + Tag
           </button>
         ))}
@@ -77,9 +99,13 @@ function TagChip({ space, tag: t }: { space: SpaceSummary; tag: NodeRecord }) {
   const mayRemove = useCan(space.id, 'delete', t.key);
   return (
     <span style={chip}>
-      #{labelOf(t)}
+      #{tagLabel(t)}
       {mayRemove && (
-        <button onClick={() => void node.records.delete(space.id, t.key)} aria-label={`Remove tag ${labelOf(t)}`} style={{ border: 'none', background: 'none', padding: 0, color: palette.ink.faint, fontSize: 12 }}>
+        <button
+          onClick={() => void node.records.delete(space.id, t.key)}
+          aria-label={`Remove tag ${tagLabel(t)}`}
+          style={{ border: 'none', background: 'none', padding: 0, color: palette.ink.faint, fontSize: 12 }}
+        >
           ✕
         </button>
       )}

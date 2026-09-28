@@ -21,6 +21,7 @@ import type { CryptoProvider, StorageAdapter } from '../types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 import { createServerAuth, type ServerAuth } from '../network/peer-auth.js';
 import { utf8Decode, utf8Encode } from '../utils/encoding.js';
+import { isRecord } from '../utils/guards.js';
 import { createCarryCore, type CarriedSpace, type CarrierEvent } from './carrier.js';
 import type { StoreFactory } from './stores.js';
 import type { NodeNetworkConfig } from './types.js';
@@ -146,6 +147,8 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
 
   const read = async (id: string): Promise<Subscription | null> => {
     const bytes = await store.get(`${SUBSCRIPTION_PREFIX}${id}`);
+    // Only `write` below puts anything here; a check would turn a damaged record into a missing one.
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- this host's own writes
     return bytes ? (JSON.parse(utf8Decode(bytes)) as Subscription) : null;
   };
   const bucketKey = (id: string) => `${BUCKET_PREFIX}${encodeURIComponent(id)}.json`;
@@ -162,7 +165,9 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
   };
   const list = async (): Promise<Subscription[]> => {
     const keys = await store.list(SUBSCRIPTION_PREFIX);
-    return (await Promise.all(keys.map((key) => read(key.slice(SUBSCRIPTION_PREFIX.length))))).filter((s): s is Subscription => s !== null);
+    return (await Promise.all(keys.map((key) => read(key.slice(SUBSCRIPTION_PREFIX.length))))).filter(
+      (s): s is Subscription => s !== null,
+    );
   };
 
   const state = (subscription: Subscription): SubscriptionState => {
@@ -175,8 +180,9 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     for (const key of await config.mirror.list(BUCKET_PREFIX)) {
       const bytes = await config.mirror.get(key);
       if (!bytes) continue;
-      const subscription = JSON.parse(utf8Decode(bytes)) as Subscription;
-      if (typeof subscription.id === 'string') await store.put(`${SUBSCRIPTION_PREFIX}${subscription.id}`, bytes);
+      const subscription: unknown = JSON.parse(utf8Decode(bytes));
+      if (isRecord(subscription) && typeof subscription.id === 'string')
+        await store.put(`${SUBSCRIPTION_PREFIX}${subscription.id}`, bytes);
     }
   }
 
@@ -189,7 +195,9 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     provider,
     ...(config.watchIntervalMs !== undefined ? { watchIntervalMs: config.watchIntervalMs } : {}),
     emit,
-    ...(config.mirror ? { mirror: config.mirror, onRelease: (spaceId: string) => deleteMirrored(config.mirror!, spaceId) } : {}),
+    ...(config.mirror
+      ? { mirror: config.mirror, onRelease: (spaceId: string) => deleteMirrored(config.mirror!, spaceId) }
+      : {}),
     onClosed: (carrySpace) => {
       // The account stopped using this host: forget its carry space; the subscription stays paid.
       closing = closing.then(async () => {
@@ -206,7 +214,8 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
   // Carry again what was carried before a restart — the store is only a cache of the spaces, but the list is ours.
   for (const subscription of await list()) {
     // An account taken off the list since is not carried again.
-    if (!subscription.carry || state(subscription) === 'lapsed' || !allowed(subscription.carry.account)) continue;
+    if (!subscription.carry || state(subscription) === 'lapsed' || !allowed(subscription.carry.account))
+      continue;
     await core.addCarry(subscription.carry.account, subscription.carry.invite).catch((error: unknown) => {
       console.error(`Could not carry for subscription ${subscription.id}:`, error);
     });
@@ -230,7 +239,11 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
 
     async extend(id: string, until: number, customer?: string) {
       const subscription = await host.subscribe(id);
-      const extended = { ...subscription, paidUntil: Math.max(subscription.paidUntil, until), ...(customer ? { customer } : {}) };
+      const extended = {
+        ...subscription,
+        paidUntil: Math.max(subscription.paidUntil, until),
+        ...(customer ? { customer } : {}),
+      };
       await write(extended);
       // Paid again in time: carry again what the grace period had kept.
       if (extended.carry && !core.carries.has(extended.carry.space)) {
@@ -246,13 +259,15 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
 
     async attach(id: string, account: string, invite: string) {
       const subscription = await read(id);
-      if (!subscription || state(subscription) === 'lapsed') throw new Error('That subscription is not paid for');
+      if (!subscription || state(subscription) === 'lapsed')
+        throw new Error('That subscription is not paid for');
       if (!account.startsWith('did:key:')) throw new Error('An account is named by its DID');
       if (!allowed(account)) throw new NotAllowedError();
       const space = await core.addCarry(account, invite);
       const before = subscription.carry;
       const attached = await write({ ...subscription, carry: { account, space, invite } });
-      if (before && before.space !== space && !(await carriedByOther(before.space, id))) await core.removeCarry(before.space);
+      if (before && before.space !== space && !(await carriedByOther(before.space, id)))
+        await core.removeCarry(before.space);
       return attached;
     },
 
@@ -277,7 +292,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       return dropped;
     },
 
-    spaces: core.spaces,
+    spaces: () => core.spaces(),
 
     async carriedFor(id: string) {
       const space = (await read(id))?.carry?.space;

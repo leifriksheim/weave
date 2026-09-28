@@ -16,29 +16,48 @@ const ATTRIBUTES = new Set(['class', 'style', 'role', 'spellcheck', 'autocomplet
  * `style` are set as attributes, booleans toggle attributes, anything else is
  * set as a property when the element has one and an attribute otherwise.
  */
+export function h<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  props?: Props | null,
+  ...children: Child[]
+): HTMLElementTagNameMap[K];
+export function h(tag: string, props?: Props | null, ...children: Child[]): HTMLElement;
 export function h(tag: string, props: Props | null = null, ...children: Child[]): HTMLElement {
   const element = globalThis.document.createElement(tag);
   for (const [name, value] of Object.entries(props ?? {})) {
     if (value === undefined || value === null || value === false) continue;
     if (name.startsWith('on') && typeof value === 'function') {
-      element.addEventListener(name.slice(2), value as EventListener);
+      element.addEventListener(name.slice(2), (event) => {
+        Reflect.apply(value, element, [event]);
+      });
     } else if (value === true) {
       element.setAttribute(name, '');
-    } else if (ATTRIBUTES.has(name) || name.startsWith('data-') || name.startsWith('aria-') || !(name in element)) {
+    } else if (
+      ATTRIBUTES.has(name) ||
+      name.startsWith('data-') ||
+      name.startsWith('aria-') ||
+      !(name in element)
+    ) {
+      // What setAttribute would make of it anyway; props hold text and numbers.
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the DOM's own conversion
       element.setAttribute(name, String(value));
-    } else {
-      (element as unknown as Record<string, unknown>)[name] = value;
+    } else if (!Reflect.set(element, name, value)) {
+      throw new TypeError(`Cannot set ${name} on <${tag}>`);
     }
   }
   append(element, children);
   return element;
 }
 
+// Array.isArray does not narrow a readonly array out of a union.
+const isChildList = (child: Child): child is ReadonlyArray<Child> => Array.isArray(child);
+
 function append(parent: Node, children: ReadonlyArray<Child>): void {
   for (const child of children) {
     if (child === null || child === undefined || child === false) continue;
-    if (Array.isArray(child)) append(parent, child);
-    else parent.appendChild(typeof child === 'object' ? (child as Node) : globalThis.document.createTextNode(String(child)));
+    if (isChildList(child)) append(parent, child);
+    else if (typeof child === 'object') parent.appendChild(child);
+    else parent.appendChild(globalThis.document.createTextNode(String(child)));
   }
 }
 
@@ -49,6 +68,15 @@ export function svg(markup: string): Element {
   return template.content.firstElementChild!;
 }
 
+/** Kept on the document itself, so two copies of this library on one page still add each sheet once */
+function adoptedIds(doc: Document): Set<unknown> {
+  const found: unknown = Reflect.get(doc, '__weaveStyles');
+  if (found instanceof Set) return found;
+  const ids = new Set<unknown>();
+  Reflect.set(doc, '__weaveStyles', ids);
+  return ids;
+}
+
 /**
  * Adds a stylesheet to the document once, by id.
  *
@@ -57,12 +85,16 @@ export function svg(markup: string): Element {
  * element otherwise.
  */
 export function adoptStyles(id: string, css: string): void {
-  const doc = globalThis.document as Document & { __weaveStyles?: Set<string> };
-  doc.__weaveStyles ??= new Set();
-  if (doc.__weaveStyles.has(id)) return;
-  doc.__weaveStyles.add(id);
+  const doc = globalThis.document;
+  const adopted = adoptedIds(doc);
+  if (adopted.has(id)) return;
+  adopted.add(id);
 
-  if ('adoptedStyleSheets' in doc && typeof CSSStyleSheet === 'function' && 'replaceSync' in CSSStyleSheet.prototype) {
+  if (
+    'adoptedStyleSheets' in doc &&
+    typeof CSSStyleSheet === 'function' &&
+    'replaceSync' in CSSStyleSheet.prototype
+  ) {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
     doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];

@@ -10,6 +10,7 @@
 import type { Expression } from '../types.js';
 import { sha256 } from '../utils/hash.js';
 import { utf8Decode, utf8Encode } from '../utils/encoding.js';
+import { isObject, isStoredExpression } from '../utils/guards.js';
 
 export const SEGMENT_SUFFIX = '.seg';
 
@@ -21,9 +22,9 @@ export function packSegment(versions: ReadonlyArray<Expression>): Uint8Array {
 /** The versions in a segment; none for bytes that are not one */
 export function unpackSegment(bytes: Uint8Array): Expression[] {
   try {
-    const parsed = JSON.parse(utf8Decode(bytes)) as { v?: unknown; versions?: unknown };
-    if (parsed.v !== 1 || !Array.isArray(parsed.versions)) return [];
-    return parsed.versions.filter((version): version is Expression => typeof version === 'object' && version !== null && typeof (version as Expression).id === 'string');
+    const parsed: unknown = JSON.parse(utf8Decode(bytes));
+    if (!isObject(parsed) || parsed.v !== 1 || !Array.isArray(parsed.versions)) return [];
+    return parsed.versions.filter(isStoredExpression);
   } catch {
     return [];
   }
@@ -31,7 +32,9 @@ export function unpackSegment(bytes: Uint8Array): Expression[] {
 
 /** A segment's file name: `000042-<first 16 hex of its hash>.seg` */
 export async function segmentName(counter: number, bytes: Uint8Array): Promise<string> {
-  const hash = Array.from((await sha256(bytes)).subarray(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
+  const hash = Array.from((await sha256(bytes)).subarray(0, 8), (b) => b.toString(16).padStart(2, '0')).join(
+    '',
+  );
   return `${String(counter).padStart(6, '0')}-${hash}${SEGMENT_SUFFIX}`;
 }
 

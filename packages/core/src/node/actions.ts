@@ -15,15 +15,32 @@
 import type { P2PNode } from './types.js';
 import { rolePresets } from '../space/presets.js';
 import type { Query } from '../query/types.js';
-import { app, appScreen, checkApp, proposeApp, reviewApp, supersededApps, type App, type AppDefinition } from '../schemas/apps.js';
+import {
+  app,
+  appScreen,
+  checkApp,
+  proposeApp,
+  reviewApp,
+  supersededApps,
+  type App,
+} from '../schemas/apps.js';
 import { SCREEN_GUIDE } from '../schemas/screens.js';
 import { describeCollection } from '../records/describe.js';
+import { isRecord } from '../utils/guards.js';
 
 /** The subset of JSON Schema these inputs use */
 export interface ActionSchema {
   readonly type: 'object';
   readonly properties: Readonly<
-    Record<string, { readonly type?: string; readonly enum?: ReadonlyArray<string>; readonly description?: string; readonly items?: unknown }>
+    Record<
+      string,
+      {
+        readonly type?: string;
+        readonly enum?: ReadonlyArray<string>;
+        readonly description?: string;
+        readonly items?: unknown;
+      }
+    >
   >;
   readonly required?: ReadonlyArray<string>;
   readonly additionalProperties?: boolean;
@@ -59,18 +76,43 @@ export interface NodeAction {
 const space = { type: 'string', description: 'Space id, from spaces_list' } as const;
 const key = { type: 'string', description: 'Record key — stays the same when the record is edited' } as const;
 
-const str = (input: Record<string, unknown>, key: string) => input[key] as string;
+// Inputs reach `run` only after `checkActionInput`, so these find what the schema promised.
+function str(input: Record<string, unknown>, key: string): string {
+  const value = input[key];
+  if (typeof value !== 'string') throw new TypeError(`"${key}" must be text`);
+  return value;
+}
+
+function oneOf<const T extends string>(input: Record<string, unknown>, key: string, values: readonly T[]): T {
+  const found = values.find((value) => value === input[key]);
+  if (found === undefined) throw new TypeError(`"${key}" must be one of ${values.join(', ')}`);
+  return found;
+}
+
+function obj(input: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = input[key];
+  if (!isRecord(value)) throw new TypeError(`"${key}" must be an object`);
+  return value;
+}
+
+const isApp = (value: unknown): value is App => checkApp(value) === null;
 
 const links = {
   type: 'array',
-  description: 'What this record points at: [{ "rel": "about", "to": "<record key>" }]. Roles come from the collection\'s declared links.',
+  description:
+    'What this record points at: [{ "rel": "about", "to": "<record key>" }]. Roles come from the collection\'s declared links.',
   items: {
     type: 'object',
     properties: { rel: { type: 'string' }, to: { type: 'string' } },
     required: ['rel', 'to'],
   },
 } as const;
-const linksOf = (input: Record<string, unknown>) => (Array.isArray(input.links) ? { links: input.links as Array<{ rel: string; to: string }> } : {});
+// Links are checked where the record is written, like every other writer's.
+const linksOf = (input: Record<string, unknown>) =>
+  Array.isArray(input.links)
+    ? // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checked by the write
+      { links: input.links as Array<{ rel: string; to: string }> }
+    : {};
 
 export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[]>([
   {
@@ -98,7 +140,11 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       properties: {
         name: { type: 'string' },
         visibility: { type: 'string', enum: ['private', 'public'] },
-        roles: { type: 'string', enum: ['solo', 'team', 'community'], description: 'The roles it starts with' },
+        roles: {
+          type: 'string',
+          enum: ['solo', 'team', 'community'],
+          description: 'The roles it starts with',
+        },
       },
       required: ['name', 'visibility'],
     },
@@ -106,7 +152,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: (node, input) =>
       node.spaces.create({
         name: str(input, 'name'),
-        visibility: input.visibility as 'private' | 'public',
+        visibility: oneOf(input, 'visibility', ['private', 'public']),
         ...rolePresets[input.roles === 'team' || input.roles === 'community' ? input.roles : 'solo'],
       }),
   },
@@ -130,7 +176,11 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: async (node, input) => ({
       invite: await node.spaces.invite(
         str(input, 'space'),
-        input.viewOnly === true ? { write: false } : typeof input.role === 'string' ? { role: input.role } : {},
+        input.viewOnly === true
+          ? { write: false }
+          : typeof input.role === 'string'
+            ? { role: input.role }
+            : {},
       ),
     }),
   },
@@ -143,7 +193,8 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
   },
   {
     name: 'spaces_join',
-    description: 'Join a space from an invite or an invite link, storing it (and its key, if private) on this node.',
+    description:
+      'Join a space from an invite or an invite link, storing it (and its key, if private) on this node.',
     input: { type: 'object', properties: { invite: { type: 'string' } }, required: ['invite'] },
     readOnly: false,
     destructive: true,
@@ -186,7 +237,11 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     readOnly: false,
     destructive: true,
     run: async (node, input) => {
-      await node.spaces.setMember(str(input, 'space'), str(input, 'did'), typeof input.role === 'string' && input.role !== '' ? input.role : null);
+      await node.spaces.setMember(
+        str(input, 'space'),
+        str(input, 'did'),
+        typeof input.role === 'string' && input.role !== '' ? input.role : null,
+      );
       return node.spaces.access(str(input, 'space'));
     },
   },
@@ -239,7 +294,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'from its poll\'s options — add "x-choicesFrom": { "rel": "about", "field": "options" } to the field (a number is a ' +
       'position in that list; text is the option itself), so apps can show labels and tallies. Name it reverse-DNS, e.g. "app.trip.expense". ' +
       'Redefining bumps the version; only whoever first defined it, or someone who can manage the space, may. Records are then checked against it when written. ' +
-      'An agent acting for someone can\'t define collections: every peer ignores it. Propose an app with apps_propose instead.',
+      "An agent acting for someone can't define collections: every peer ignores it. Propose an app with apps_propose instead.",
     input: {
       type: 'object',
       properties: {
@@ -249,7 +304,11 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         description: { type: 'string' },
         schema: { type: 'object' },
         version: { type: 'integer' },
-        history: { type: 'string', enum: ['latest', 'all'], description: 'Keep every version of its records ("all"), or only the current one' },
+        history: {
+          type: 'string',
+          enum: ['latest', 'all'],
+          description: 'Keep every version of its records ("all"), or only the current one',
+        },
         links: {
           type: 'object',
           description:
@@ -258,7 +317,8 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         permissions: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Permissions its rules may name, like ["moderate"]. A space\'s roles hold them as "<collection>/<permission>".',
+          description:
+            'Permissions its rules may name, like ["moderate"]. A space\'s roles hold them as "<collection>/<permission>".',
         },
         rules: {
           type: 'object',
@@ -269,7 +329,10 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
             'above). onePer makes at most one record per author + linked record (+ body field): writing again changes it. fixed fields ' +
             'keep their first value.',
         },
-        screen: { type: 'string', description: 'Optional: its own screen, one HTML document — read apps_screen_guide first' },
+        screen: {
+          type: 'string',
+          description: 'Optional: its own screen, one HTML document — read apps_screen_guide first',
+        },
         network: {
           type: 'array',
           items: { type: 'string' },
@@ -285,16 +348,24 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: async (node, input) => {
       const defined = await node.collections.define(str(input, 'space'), {
         name: str(input, 'name'),
-        schema: input.schema as Record<string, unknown>,
+        schema: obj(input, 'schema'),
         ...(typeof input.title === 'string' ? { title: input.title } : {}),
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
         ...(typeof input.version === 'number' ? { version: input.version } : {}),
         ...(input.history === 'all' || input.history === 'latest' ? { history: input.history } : {}),
-        ...(typeof input.links === 'object' && input.links !== null ? { links: input.links as Record<string, never> } : {}),
-        ...(Array.isArray(input.permissions) ? { permissions: input.permissions.filter((p): p is string => typeof p === 'string') } : {}),
-        ...(typeof input.rules === 'object' && input.rules !== null ? { rules: input.rules as Record<string, never> } : {}),
+        // Links and rules are checked with the rest of the definition, by `define`.
+        ...(typeof input.links === 'object' && input.links !== null
+          ? // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checked by define
+            { links: input.links as Record<string, never> }
+          : {}),
+        ...(Array.isArray(input.permissions)
+          ? { permissions: input.permissions.filter((p): p is string => typeof p === 'string') }
+          : {}),
+        ...(typeof input.rules === 'object' && input.rules !== null ? { rules: input.rules } : {}),
         ...(typeof input.screen === 'string' ? { screen: input.screen } : {}),
-        ...(Array.isArray(input.network) ? { network: input.network.filter((o): o is string => typeof o === 'string') } : {}),
+        ...(Array.isArray(input.network)
+          ? { network: input.network.filter((o): o is string => typeof o === 'string') }
+          : {}),
       });
       // What it allows, from its rules — worth repeating to the person as it is.
       return { ...defined, summary: describeCollection({ ...defined, schema: defined.schema ?? undefined }) };
@@ -328,7 +399,13 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
           added: review?.added ?? false,
           superseded: superseded.has(record.key),
           problem: review?.problem ?? (record.body ? null : 'It could not be read'),
-          needs: review?.needs.map(({ definition, status, summary, changes }) => ({ name: definition.name, status, summary, changes })) ?? [],
+          needs:
+            review?.needs.map(({ definition, status, summary, changes }) => ({
+              name: definition.name,
+              status,
+              summary,
+              changes,
+            })) ?? [],
         };
       });
     },
@@ -337,7 +414,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     name: 'apps_screen_guide',
     description:
       'How to write a screen — an app\'s own HTML UI, kept on its main collection\'s definition as "screen" and run sealed ' +
-      'in the app: what it can use (window.weave: list, put, update, remove, onChange, me) and what it can\'t (storage, and the network beyond the origins it names).',
+      "in the app: what it can use (window.weave: list, put, update, remove, onChange, me) and what it can't (storage, and the network beyond the origins it names).",
     input: { type: 'object', properties: {} },
     readOnly: true,
     run: async () => SCREEN_GUIDE,
@@ -352,7 +429,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'Read collections_list first and reuse what the space already has (std.poll, std.task…) rather than inventing a twin. ' +
       'To change an app that is already here, read apps_list and pass the key of its newest version, the one not superseded, as "updates": ' +
       'the change then shows as an update to it, and once it is added the old version is not offered again. ' +
-      'For anything plain lists and forms can\'t show — a game board, a calendar, a whiteboard — give the main collection ' +
+      "For anything plain lists and forms can't show — a game board, a calendar, a whiteboard — give the main collection " +
       'a "screen": its own HTML UI (one document, inline scripts and styles, no network unless the collection names exact origins in "network"). Inside it, use exactly: ' +
       'weave.me ({ did, name }), await weave.list("<collection>", { where: { "link:<rel>": key } }), ' +
       'await weave.put("<collection>", body, { links: [{ rel, to: key }] }), await weave.update(key, body), await weave.remove(key), ' +
@@ -364,7 +441,10 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         space,
         title: { type: 'string', description: 'What people will call it, e.g. "Carpool"' },
         description: { type: 'string', description: 'What it is for, in a sentence' },
-        updates: { type: 'string', description: 'The key of the app this is a new version of, from apps_list' },
+        updates: {
+          type: 'string',
+          description: 'The key of the app this is a new version of, from apps_list',
+        },
         needs: {
           type: 'array',
           description: 'Collection definitions, as collections_define takes them — without version',
@@ -376,14 +456,13 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     readOnly: false,
     run: async (node, input) => {
       const spaceId = str(input, 'space');
-      const body: App = {
+      const body = {
         title: str(input, 'title'),
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
         ...(typeof input.updates === 'string' ? { updates: input.updates } : {}),
-        needs: input.needs as ReadonlyArray<AppDefinition>,
+        needs: input.needs,
       };
-      const problem = checkApp(body);
-      if (problem) throw new Error(problem);
+      if (!isApp(body)) throw new Error(checkApp(body) ?? 'Not an app');
       const record = await proposeApp(node, spaceId, body);
       const review = reviewApp(body, await node.collections.list(spaceId));
       return {
@@ -391,14 +470,19 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         proposed: true,
         added: false,
         next: 'A person in the space who may define collections adds it from the Apps tab.',
-        needs: review.needs.map(({ definition, status, summary, changes }) => ({ name: definition.name, status, summary, changes })),
+        needs: review.needs.map(({ definition, status, summary, changes }) => ({
+          name: definition.name,
+          status,
+          summary,
+          changes,
+        })),
       };
     },
   },
   {
     name: 'collections_delete',
     description:
-      'Remove a collection\'s definition from a space. Refused while it still has records — delete those first. ' +
+      "Remove a collection's definition from a space. Refused while it still has records — delete those first. " +
       'Only whoever first defined it, or someone who can manage the space, may.',
     input: {
       type: 'object',
@@ -457,8 +541,11 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     readOnly: true,
     peerContent: true,
     run: (node, input) => {
-      const { space: spaceId, ...query } = input;
-      return node.records.query(spaceId as string, query as unknown as Query);
+      const { space: _space, ...rest } = input;
+      const query: unknown = rest;
+      // runQuery refuses a malformed query, after resolving collection references.
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checked by runQuery
+      return node.records.query(str(input, 'space'), query as Query);
     },
   },
   {
@@ -524,18 +611,28 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     name: 'records_can',
     description:
       'Whether you may do something before trying: "create" in a collection (target = its name), or "edit" / "delete" a record ' +
-      '(target = its key). Follows the collection\'s rules and the space\'s.',
+      "(target = its key). Follows the collection's rules and the space's.",
     input: {
       type: 'object',
-      properties: { space, action: { type: 'string', enum: ['create', 'edit', 'delete'] }, target: { type: 'string' } },
+      properties: {
+        space,
+        action: { type: 'string', enum: ['create', 'edit', 'delete'] },
+        target: { type: 'string' },
+      },
       required: ['space', 'action', 'target'],
     },
     readOnly: true,
-    run: (node, input) => node.records.can(str(input, 'space'), str(input, 'action') as 'create' | 'edit' | 'delete', str(input, 'target')),
+    run: (node, input) =>
+      node.records.can(
+        str(input, 'space'),
+        oneOf(input, 'action', ['create', 'edit', 'delete']),
+        str(input, 'target'),
+      ),
   },
   {
     name: 'records_update',
-    description: 'Write the next version of a record: a new body under the same key. Its links are kept unless given.',
+    description:
+      'Write the next version of a record: a new body under the same key. Its links are kept unless given.',
     input: {
       type: 'object',
       properties: { space, key, body: { type: 'object' }, links },
@@ -543,11 +640,13 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     },
     readOnly: false,
     destructive: true,
-    run: (node, input) => node.records.update(str(input, 'space'), str(input, 'key'), input.body, linksOf(input)),
+    run: (node, input) =>
+      node.records.update(str(input, 'space'), str(input, 'key'), input.body, linksOf(input)),
   },
   {
     name: 'records_delete',
-    description: 'Delete a record for every member of the space. Anyone who may write in the space may delete in it.',
+    description:
+      'Delete a record for every member of the space. Anyone who may write in the space may delete in it.',
     input: { type: 'object', properties: { space, key }, required: ['space', 'key'] },
     readOnly: false,
     destructive: true,
@@ -560,18 +659,19 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
 
 /** Why an input does not fit an action's schema, or null when it does. */
 export function checkActionInput(action: NodeAction, input: unknown): string | null {
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) return 'Input must be an object';
-  const record = input as Record<string, unknown>;
+  if (!isRecord(input)) return 'Input must be an object';
   for (const key of action.input.required ?? []) {
-    if (record[key] === undefined) return `Missing "${key}"`;
+    if (input[key] === undefined) return `Missing "${key}"`;
   }
-  for (const [key, value] of Object.entries(record)) {
+  for (const [key, value] of Object.entries(input)) {
     const spec = action.input.properties[key];
     if (!spec) return `Unknown field "${key}"`;
-    if (spec.enum && !spec.enum.includes(value as string)) return `"${key}" must be one of ${spec.enum.join(', ')}`;
+    if (spec.enum && (typeof value !== 'string' || !spec.enum.includes(value)))
+      return `"${key}" must be one of ${spec.enum.join(', ')}`;
     const actual = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
     const expected = spec.type === 'integer' ? 'number' : spec.type;
-    if (expected && actual !== expected) return `"${key}" must be ${spec.type === 'object' ? 'an object' : `a ${spec.type}`}`;
+    if (expected && actual !== expected)
+      return `"${key}" must be ${spec.type === 'object' ? 'an object' : `a ${spec.type}`}`;
     if (spec.type === 'integer' && !Number.isInteger(value)) return `"${key}" must be a whole number`;
   }
   return null;
@@ -585,6 +685,7 @@ export async function runAction(node: P2PNode, name: string, input: unknown = {}
   const action = NODE_ACTIONS.find((candidate) => candidate.name === name);
   if (!action) throw new Error(`Unknown action: ${name}`);
   const problem = checkActionInput(action, input);
-  if (problem) throw new Error(`${name}: ${problem}`);
-  return action.run(node, input as Record<string, unknown>);
+  if (problem !== null || !isRecord(input))
+    throw new Error(`${name}: ${problem ?? 'Input must be an object'}`);
+  return action.run(node, input);
 }

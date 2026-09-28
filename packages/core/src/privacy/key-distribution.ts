@@ -27,36 +27,27 @@ export interface MemberPublicKey {
  * @returns {Promise<WrappedKey>} A promise resolving to the wrapped key.
  */
 export async function wrapSpaceKey(
-  spaceKey: CryptoKey, 
-  recipientPublicKey: CryptoKey, 
-  recipientDid: string
+  spaceKey: CryptoKey,
+  recipientPublicKey: CryptoKey,
+  recipientDid: string,
 ): Promise<WrappedKey> {
   const ephemeralPair = await globalThis.crypto.subtle.generateKey(
     { name: 'ECDH', namedCurve: 'P-256' },
     true,
-    ['deriveBits']
+    ['deriveBits'],
   );
 
   const sharedSecret = await globalThis.crypto.subtle.deriveBits(
     { name: 'ECDH', public: recipientPublicKey },
     ephemeralPair.privateKey,
-    256
+    256,
   );
 
-  const kek = await globalThis.crypto.subtle.importKey(
-    'raw',
-    sharedSecret,
-    { name: 'AES-KW' },
-    false,
-    ['wrapKey']
-  );
+  const kek = await globalThis.crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-KW' }, false, [
+    'wrapKey',
+  ]);
 
-  const wrappedKeyBuffer = await globalThis.crypto.subtle.wrapKey(
-    'raw',
-    spaceKey,
-    kek,
-    { name: 'AES-KW' }
-  );
+  const wrappedKeyBuffer = await globalThis.crypto.subtle.wrapKey('raw', spaceKey, kek, { name: 'AES-KW' });
 
   const ephemeralRaw = await globalThis.crypto.subtle.exportKey('raw', ephemeralPair.publicKey);
 
@@ -64,7 +55,7 @@ export async function wrapSpaceKey(
     recipientDid,
     ephemeralPublicKey: base64UrlEncode(new Uint8Array(ephemeralRaw)),
     wrappedKeyData: base64UrlEncode(new Uint8Array(wrappedKeyBuffer)),
-    algorithm: 'ECDH-AES-KW'
+    algorithm: 'ECDH-AES-KW',
   });
 }
 
@@ -76,42 +67,38 @@ export async function wrapSpaceKey(
  * @returns {Promise<CryptoKey>} A promise resolving to the unwrapped space key.
  */
 export async function unwrapSpaceKey(
-  wrapped: WrappedKey, 
-  recipientPrivateKey: CryptoKey
+  wrapped: WrappedKey,
+  recipientPrivateKey: CryptoKey,
 ): Promise<CryptoKey> {
   const ephemeralRaw = base64UrlDecode(wrapped.ephemeralPublicKey);
   const ephemeralPublicKey = await globalThis.crypto.subtle.importKey(
     'raw',
-    ephemeralRaw as BufferSource,
+    ephemeralRaw,
     { name: 'ECDH', namedCurve: 'P-256' },
     true,
-    []
+    [],
   );
 
   const sharedSecret = await globalThis.crypto.subtle.deriveBits(
     { name: 'ECDH', public: ephemeralPublicKey },
     recipientPrivateKey,
-    256
+    256,
   );
 
-  const kek = await globalThis.crypto.subtle.importKey(
-    'raw',
-    sharedSecret,
-    { name: 'AES-KW' },
-    false,
-    ['unwrapKey']
-  );
+  const kek = await globalThis.crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-KW' }, false, [
+    'unwrapKey',
+  ]);
 
   const wrappedKeyData = base64UrlDecode(wrapped.wrappedKeyData);
 
   return globalThis.crypto.subtle.unwrapKey(
     'raw',
-    wrappedKeyData as BufferSource,
+    wrappedKeyData,
     kek,
     { name: 'AES-KW' },
     { name: 'AES-GCM', length: 256 },
     true,
-    ['encrypt', 'decrypt']
+    ['encrypt', 'decrypt'],
   );
 }
 
@@ -124,11 +111,9 @@ export async function unwrapSpaceKey(
  */
 export async function distributeSpaceKey(
   spaceKey: CryptoKey,
-  memberPublicKeys: ReadonlyArray<MemberPublicKey>
+  memberPublicKeys: ReadonlyArray<MemberPublicKey>,
 ): Promise<ReadonlyArray<WrappedKey>> {
-  const promises = memberPublicKeys.map(member => 
-    wrapSpaceKey(spaceKey, member.publicKey, member.did)
-  );
+  const promises = memberPublicKeys.map((member) => wrapSpaceKey(spaceKey, member.publicKey, member.did));
   const wrappedKeys = await Promise.all(promises);
   return Object.freeze([...wrappedKeys]);
 }

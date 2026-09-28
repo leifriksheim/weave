@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { styles } from '../styles';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { styles } from './styles';
+import { useDismiss } from './useDismiss';
 
 /**
  * An explanation, folded away until asked for.
@@ -17,23 +18,11 @@ export function Info({ label, children }: { label: string; children: ReactNode }
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-
-    const dismiss = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-
-    globalThis.document.addEventListener('mousedown', dismiss);
-    globalThis.document.addEventListener('keydown', onKey);
-    return () => {
-      globalThis.document.removeEventListener('mousedown', dismiss);
-      globalThis.document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  useDismiss(
+    open,
+    root,
+    useCallback(() => setOpen(false), []),
+  );
 
   return (
     <span ref={root} style={{ position: 'relative', display: 'inline' }}>
@@ -48,7 +37,7 @@ export function Info({ label, children }: { label: string; children: ReactNode }
         i
       </button>
       {open && (
-        <span role="note" style={styles.popover}>
+        <span role="note" className="popover" style={styles.popover}>
           {children}
         </span>
       )}

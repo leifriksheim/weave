@@ -20,11 +20,10 @@ describe('P-256 keys', () => {
     // Web Crypto can sign with a scalar but not compute its public point, so
     // derived keys rely on noble for that one step. The two must agree.
     for (let i = 0; i < 5; i++) {
-      const pair = await globalThis.crypto.subtle.generateKey(
-        { name: 'ECDSA', namedCurve: 'P-256' },
-        true,
-        ['sign', 'verify'],
-      );
+      const pair = await globalThis.crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+        'sign',
+        'verify',
+      ]);
       const jwk = await globalThis.crypto.subtle.exportKey('jwk', pair.privateKey);
       const point = p256.getPublicKey(base64UrlDecode(jwk.d!), false);
 
@@ -46,7 +45,7 @@ describe('P-256 keys', () => {
     assert.equal(await provider.verify(fromFull, signature, message), true);
   });
 
-  test('reads the did:key specification\'s P-256 example', async () => {
+  test("reads the did:key specification's P-256 example", async () => {
     // https://w3c-ccg.github.io/did-key-spec/#p-256
     const did = 'did:key:zDnaerDaTF5BXEavCrfRZEk316dpbLsfPDZ3WJ5hRTPFU2169';
     const { publicKeyBytes, multicodecPrefix } = didToPublicKey(did);
@@ -91,7 +90,10 @@ describe('derivation is frozen', () => {
   const golden: ReadonlyArray<readonly [Uint8Array, string]> = [
     [new Uint8Array(16), 'did:key:zDnaebsZZSYuq5oaFMhu2qAaAygqtwPtZwuiVJpjenjA9GwQE'],
     [new Uint8Array(16).fill(0xff), 'did:key:zDnaexDGpQByMfPbsypSPAewepYNqS1yerAq5pEpDZwAmFQWS'],
-    [Uint8Array.from({ length: 16 }, (_, i) => i * 17), 'did:key:zDnaeaA7BcVxAiLdNP15wLvS6SC1vaQc9zpeVxrUpEC48yxkr'],
+    [
+      Uint8Array.from({ length: 16 }, (_, i) => i * 17),
+      'did:key:zDnaeaA7BcVxAiLdNP15wLvS6SC1vaQc9zpeVxrUpEC48yxkr',
+    ],
   ];
 
   test('known seeds derive their recorded DIDs', async () => {

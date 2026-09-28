@@ -19,7 +19,9 @@ export function nameOf(did: string | null | undefined, people: People): string {
   if (!did) return 'someone';
   const profile = people.get(did);
   if (!profile) return tail(did);
-  const shared = [...people.values()].some((other) => other.did !== did && other.name.toLowerCase() === profile.name.toLowerCase());
+  const shared = [...people.values()].some(
+    (other) => other.did !== did && other.name.toLowerCase() === profile.name.toLowerCase(),
+  );
   return shared ? `${profile.name} · ${tail(did)}` : profile.name;
 }
 
@@ -28,6 +30,9 @@ export function nameOf(did: string | null | undefined, people: People): string {
  * for them. The account signed that into the agent's note, so it can't be
  * left out by the agent.
  */
-export function writerOf(record: { readonly root: string | null; readonly viaAgent?: true }, people: People): string {
+export function writerOf(
+  record: { readonly root: string | null; readonly viaAgent?: true },
+  people: People,
+): string {
   return record.viaAgent ? `${nameOf(record.root, people)} via agent` : nameOf(record.root, people);
 }

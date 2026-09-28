@@ -21,6 +21,8 @@
  */
 import { p256 } from '@noble/curves/nist.js';
 import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../utils/encoding.js';
+import { bufferSource } from '../utils/guards.js';
+import { hkdf } from './hkdf.js';
 
 /** Domain separation for the contact key. Changing it changes every account's contact key. */
 const CONTACT_KEY_INFO = 'weave/p256-contact-key/v1';
@@ -41,14 +43,32 @@ export interface ContactKeyPair {
   readonly privateKey: CryptoKey;
 }
 
-async function hkdf(ikm: Uint8Array, info: string, length: number): Promise<Uint8Array> {
-  const key = await globalThis.crypto.subtle.importKey('raw', ikm as BufferSource, 'HKDF', false, ['deriveBits']);
-  const bits = await globalThis.crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8Encode(info) as BufferSource },
-    key,
-    length * 8,
+/** A P-256 scalar from key material, under its own label */
+async function deriveScalar(ikm: Uint8Array, info: string): Promise<Uint8Array> {
+  return p256.utils.randomSecretKey(await hkdf(ikm, utf8Encode(info), P256_SEED_BYTES));
+}
+
+/** A private scalar as a Web Crypto key; the JWK form needs its public point too */
+function importScalar(
+  secret: Uint8Array,
+  algorithm: 'ECDSA' | 'ECDH',
+  usages: KeyUsage[],
+): Promise<CryptoKey> {
+  const point = p256.getPublicKey(secret, false);
+  return globalThis.crypto.subtle.importKey(
+    'jwk',
+    {
+      kty: 'EC',
+      crv: 'P-256',
+      x: base64UrlEncode(point.subarray(1, 33)),
+      y: base64UrlEncode(point.subarray(33, 65)),
+      d: base64UrlEncode(secret),
+      ext: false,
+    },
+    { name: algorithm, namedCurve: 'P-256' },
+    false,
+    usages,
   );
-  return new Uint8Array(bits);
 }
 
 /**
@@ -56,7 +76,7 @@ async function hkdf(ikm: Uint8Array, info: string, length: number): Promise<Uint
  * what an account home hands an app it lets handle contacts.
  */
 export async function deriveContactKeyBytes(seed: Uint8Array): Promise<Uint8Array> {
-  return p256.utils.randomSecretKey(await hkdf(seed, CONTACT_KEY_INFO, P256_SEED_BYTES));
+  return deriveScalar(seed, CONTACT_KEY_INFO);
 }
 
 /**
@@ -70,7 +90,7 @@ export async function deriveContactKeyBytes(seed: Uint8Array): Promise<Uint8Arra
  * @param accountKey The vault key bytes (`deriveVaultKeyBytes(seed)`)
  */
 export async function deriveMemberKeyBytes(accountKey: Uint8Array, spaceId: string): Promise<Uint8Array> {
-  return p256.utils.randomSecretKey(await hkdf(accountKey, `${MEMBER_KEY_INFO}|${spaceId}`, P256_SEED_BYTES));
+  return deriveScalar(accountKey, `${MEMBER_KEY_INFO}|${spaceId}`);
 }
 
 /**
@@ -85,7 +105,7 @@ export async function deriveMemberKeyBytes(accountKey: Uint8Array, spaceId: stri
  * @param doorId The door's id, as its `std.door` record names it
  */
 export async function deriveDoorKeyBytes(contactKey: Uint8Array, doorId: string): Promise<Uint8Array> {
-  return p256.utils.randomSecretKey(await hkdf(contactKey, `${DOOR_KEY_INFO}|${doorId}`, P256_SEED_BYTES));
+  return deriveScalar(contactKey, `${DOOR_KEY_INFO}|${doorId}`);
 }
 
 /**
@@ -95,7 +115,7 @@ export async function deriveDoorKeyBytes(contactKey: Uint8Array, doorId: string)
  * knocks: one key should not both sign and decrypt.
  */
 export async function deriveDoorSignKeyBytes(contactKey: Uint8Array, doorId: string): Promise<Uint8Array> {
-  return p256.utils.randomSecretKey(await hkdf(contactKey, `${DOOR_SIGN_KEY_INFO}|${doorId}`, P256_SEED_BYTES));
+  return deriveScalar(contactKey, `${DOOR_SIGN_KEY_INFO}|${doorId}`);
 }
 
 /**
@@ -103,30 +123,35 @@ export async function deriveDoorSignKeyBytes(contactKey: Uint8Array, doorId: str
  * base64url — for door signing keys.
  */
 export async function signWithScalar(secret: Uint8Array, data: Uint8Array): Promise<string> {
-  const point = p256.getPublicKey(secret, false);
-  const key = await globalThis.crypto.subtle.importKey(
-    'jwk',
-    {
-      kty: 'EC',
-      crv: 'P-256',
-      x: base64UrlEncode(point.subarray(1, 33)),
-      y: base64UrlEncode(point.subarray(33, 65)),
-      d: base64UrlEncode(secret),
-      ext: false,
-    },
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    false,
-    ['sign'],
+  const key = await importScalar(secret, 'ECDSA', ['sign']);
+  return base64UrlEncode(
+    new Uint8Array(
+      await globalThis.crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, bufferSource(data)),
+    ),
   );
-  return base64UrlEncode(new Uint8Array(await globalThis.crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, data as BufferSource)));
 }
 
 /** Checks what `signWithScalar` signed, against a compressed public key (base64url) */
-export async function verifyWithPoint(publicKey: string, data: Uint8Array, signature: string): Promise<boolean> {
+export async function verifyWithPoint(
+  publicKey: string,
+  data: Uint8Array,
+  signature: string,
+): Promise<boolean> {
   try {
     const point = p256.Point.fromBytes(base64UrlDecode(publicKey)).toBytes(false);
-    const key = await globalThis.crypto.subtle.importKey('raw', point as BufferSource, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-    return await globalThis.crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, base64UrlDecode(signature) as BufferSource, data as BufferSource);
+    const key = await globalThis.crypto.subtle.importKey(
+      'raw',
+      bufferSource(point),
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['verify'],
+    );
+    return await globalThis.crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      key,
+      bufferSource(base64UrlDecode(signature)),
+      bufferSource(data),
+    );
   } catch {
     return false;
   }
@@ -150,29 +175,21 @@ export function isContactPublicKey(value: unknown): value is string {
 
 /** The key pair, from the private scalar (`deriveContactKeyBytes`) */
 export async function contactKeyPair(secret: Uint8Array): Promise<ContactKeyPair> {
-  const point = p256.getPublicKey(secret, false);
-  const privateKey = await globalThis.crypto.subtle.importKey(
-    'jwk',
-    {
-      kty: 'EC',
-      crv: 'P-256',
-      x: base64UrlEncode(point.subarray(1, 33)),
-      y: base64UrlEncode(point.subarray(33, 65)),
-      d: base64UrlEncode(secret),
-      ext: false,
-    },
-    { name: 'ECDH', namedCurve: 'P-256' },
-    false,
-    ['deriveBits'],
-  );
+  const privateKey = await importScalar(secret, 'ECDH', ['deriveBits']);
   return Object.freeze({ publicKey: contactPublicKey(secret), privateKey });
 }
 
 /** The AES key two sides agree on, bound to the ephemeral key it came from */
 async function sealKey(shared: ArrayBuffer, ephemeral: Uint8Array, usage: KeyUsage): Promise<CryptoKey> {
   const ikm = new Uint8Array([...new Uint8Array(shared), ...ephemeral]);
-  const material = await hkdf(ikm, SEAL_INFO, 32);
-  return globalThis.crypto.subtle.importKey('raw', material as BufferSource, { name: 'AES-GCM', length: 256 }, false, [usage]);
+  const material = await hkdf(ikm, utf8Encode(SEAL_INFO), 32);
+  return globalThis.crypto.subtle.importKey(
+    'raw',
+    bufferSource(material),
+    { name: 'AES-GCM', length: 256 },
+    false,
+    [usage],
+  );
 }
 
 /**
@@ -185,21 +202,27 @@ async function sealKey(shared: ArrayBuffer, ephemeral: Uint8Array, usage: KeyUsa
 export async function sealFor(recipient: string, value: unknown, context: string): Promise<string> {
   const recipientKey = await globalThis.crypto.subtle.importKey(
     'raw',
-    p256.Point.fromBytes(base64UrlDecode(recipient)).toBytes(false) as BufferSource,
+    bufferSource(p256.Point.fromBytes(base64UrlDecode(recipient)).toBytes(false)),
     { name: 'ECDH', namedCurve: 'P-256' },
     false,
     [],
   );
-  const ephemeral = await globalThis.crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const ephemeral = await globalThis.crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
+    'deriveBits',
+  ]);
   const ephemeralPoint = new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', ephemeral.publicKey));
-  const shared = await globalThis.crypto.subtle.deriveBits({ name: 'ECDH', public: recipientKey }, ephemeral.privateKey, 256);
+  const shared = await globalThis.crypto.subtle.deriveBits(
+    { name: 'ECDH', public: recipientKey },
+    ephemeral.privateKey,
+    256,
+  );
   const key = await sealKey(shared, ephemeralPoint, 'encrypt');
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const ciphertext = new Uint8Array(
     await globalThis.crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv: iv as BufferSource, additionalData: utf8Encode(context) as BufferSource },
+      { name: 'AES-GCM', iv, additionalData: bufferSource(utf8Encode(context)) },
       key,
-      utf8Encode(JSON.stringify(value)) as BufferSource,
+      bufferSource(utf8Encode(JSON.stringify(value))),
     ),
   );
   return base64UrlEncode(new Uint8Array([...ephemeralPoint, ...iv, ...ciphertext]));
@@ -216,23 +239,27 @@ export async function openSealed(privateKey: CryptoKey, sealed: string, context:
     const ephemeralPoint = bytes.subarray(0, POINT_BYTES);
     const ephemeral = await globalThis.crypto.subtle.importKey(
       'raw',
-      ephemeralPoint as BufferSource,
+      bufferSource(ephemeralPoint),
       { name: 'ECDH', namedCurve: 'P-256' },
       false,
       [],
     );
-    const shared = await globalThis.crypto.subtle.deriveBits({ name: 'ECDH', public: ephemeral }, privateKey, 256);
+    const shared = await globalThis.crypto.subtle.deriveBits(
+      { name: 'ECDH', public: ephemeral },
+      privateKey,
+      256,
+    );
     const key = await sealKey(shared, ephemeralPoint, 'decrypt');
     const plain = await globalThis.crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv: bytes.subarray(POINT_BYTES, POINT_BYTES + IV_BYTES) as BufferSource,
-        additionalData: utf8Encode(context) as BufferSource,
+        iv: bufferSource(bytes.subarray(POINT_BYTES, POINT_BYTES + IV_BYTES)),
+        additionalData: bufferSource(utf8Encode(context)),
       },
       key,
-      bytes.subarray(POINT_BYTES + IV_BYTES) as BufferSource,
+      bufferSource(bytes.subarray(POINT_BYTES + IV_BYTES)),
     );
-    return JSON.parse(utf8Decode(new Uint8Array(plain))) as unknown;
+    return JSON.parse(utf8Decode(new Uint8Array(plain)));
   } catch {
     return null;
   }

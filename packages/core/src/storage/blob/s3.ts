@@ -9,6 +9,7 @@
  */
 import { AwsClient } from 'aws4fetch';
 import type { BlobStore } from '../blob-store.js';
+import { bufferSource } from '../../utils/guards.js';
 
 export interface S3Config {
   /** https://<account>.r2.cloudflarestorage.com, https://s3.us-west-004.backblazeb2.com, … */
@@ -47,7 +48,10 @@ export function createS3BlobStore(config: S3Config): BlobStore {
       if (response.status !== 429 && response.status < 500) return response;
       if (attempt >= ATTEMPTS) return response;
       const after = Number(response.headers.get('retry-after'));
-      const wait = Number.isFinite(after) && after > 0 ? after * 1000 : Math.min(200 * 2 ** attempt, 5000) * (0.5 + Math.random() / 2);
+      const wait =
+        Number.isFinite(after) && after > 0
+          ? after * 1000
+          : Math.min(200 * 2 ** attempt, 5000) * (0.5 + Math.random() / 2);
       await new Promise((resolve) => setTimeout(resolve, wait));
     }
   }
@@ -66,7 +70,7 @@ export function createS3BlobStore(config: S3Config): BlobStore {
     },
 
     async put(key: string, bytes: Uint8Array) {
-      const response = await send(objectUrl(key), { method: 'PUT', body: bytes as BodyInit });
+      const response = await send(objectUrl(key), { method: 'PUT', body: bufferSource(bytes) });
       if (!response.ok) await fail('put', response);
     },
 
@@ -85,8 +89,11 @@ export function createS3BlobStore(config: S3Config): BlobStore {
         const response = await send(`${base}?${query}`);
         if (!response.ok) await fail('list', response);
         const xml = await response.text();
-        for (const match of xml.matchAll(/<Key>([^<]*)<\/Key>/g)) keys.push(unescapeXml(match[1]!).slice(prefix.length));
-        token = /<IsTruncated>true<\/IsTruncated>/.test(xml) ? (/<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(xml)?.[1] ?? null) : null;
+        for (const match of xml.matchAll(/<Key>([^<]*)<\/Key>/g))
+          keys.push(unescapeXml(match[1]!).slice(prefix.length));
+        token = /<IsTruncated>true<\/IsTruncated>/.test(xml)
+          ? (/<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(xml)?.[1] ?? null)
+          : null;
         if (token) token = unescapeXml(token);
       } while (token);
       return keys;
@@ -95,5 +102,8 @@ export function createS3BlobStore(config: S3Config): BlobStore {
 }
 
 function unescapeXml(text: string): string {
-  return text.replace(/&(lt|gt|quot|apos|amp);/g, (_, name: string) => ({ lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' })[name]!);
+  return text.replace(
+    /&(lt|gt|quot|apos|amp);/g,
+    (_, name: string) => ({ lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' })[name]!,
+  );
 }

@@ -1,4 +1,11 @@
-import { createElement, useEffect, useRef, type CSSProperties, type ReactElement } from 'react';
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+} from 'react';
 import type { WeaveAuth as Auth, WeaveSession } from '../session/auth.js';
 import '../elements/weave-auth.js';
 import { useWeave } from './context.js';
@@ -21,27 +28,28 @@ export function WeaveAuth({ auth: given, onSession, className, style }: WeaveAut
   const fromProvider = useWeave().auth;
   const auth = given ?? fromProvider;
   if (!auth) throw new Error('<WeaveAuth> needs an auth prop, or a WeaveProvider with one.');
-  const ref = useRef<WeaveAuthElement | null>(null);
+  const [element, setElement] = useState<WeaveAuthElement | null>(null);
+
+  // Sets the flow before the element connects, so it draws this one rather
+  // than making one of its own from attributes; and again when it changes.
+  const attach = useCallback(
+    (attached: WeaveAuthElement | null) => {
+      if (attached) attached.auth = auth;
+      setElement(attached);
+    },
+    [auth],
+  );
 
   useEffect(() => {
-    if (ref.current) ref.current.auth = auth;
-  }, [auth]);
-
-  useEffect(() => {
-    const element = ref.current;
     if (!element || !onSession) return;
-    const listener = (event: CustomEvent<{ session: WeaveSession | null }>) => onSession(event.detail.session);
+    const listener = (event: CustomEvent<{ session: WeaveSession | null }>) =>
+      onSession(event.detail.session);
     element.addEventListener('weave-session', listener);
     return () => element.removeEventListener('weave-session', listener);
-  }, [onSession]);
+  }, [element, onSession]);
 
   return createElement('weave-auth', {
-    // Set before the element connects, so it draws this flow rather than
-    // making one of its own from attributes.
-    ref: (element: WeaveAuthElement | null) => {
-      if (element) element.auth = auth;
-      ref.current = element;
-    },
+    ref: attach,
     ...(className ? { class: className } : {}),
     ...(style ? { style } : {}),
   });

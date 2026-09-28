@@ -36,6 +36,8 @@
  */
 import type { P2PNode, NodeEvent } from '../node/types.js';
 import { call as callSchema } from '../schemas/index.js';
+import { isObject, unref } from '../utils/guards.js';
+import { bytesToHex } from '../utils/encoding.js';
 
 export interface CallsOptions {
   /** How a WebRTC connection is made. `new RTCPeerConnection` by default. */
@@ -82,7 +84,11 @@ export interface CurrentCall {
   readonly sharing: boolean;
   readonly people: ReadonlyArray<CallPeer>;
   /** Who you're ringing, while it rings — and what came of it, for a moment after */
-  readonly outgoing: { readonly to: string; readonly since: number; readonly state: 'ringing' | 'declined' | 'missed' } | null;
+  readonly outgoing: {
+    readonly to: string;
+    readonly since: number;
+    readonly state: 'ringing' | 'declined' | 'missed';
+  } | null;
   /** Something went wrong that you should hear about: no microphone, say */
   readonly problem: string | null;
 }
@@ -144,9 +150,22 @@ export interface Calls {
 type CallMessage =
   | { type: 'call.here'; call: string; since?: unknown; camera?: unknown; muted?: unknown }
   | { type: 'call.ring' | 'call.answered' | 'call.declined' | 'call.cancel' | 'call.leave'; call: string }
-  | { type: 'call.signal'; call: string; description?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
+  | {
+      type: 'call.signal';
+      call: string;
+      description?: RTCSessionDescriptionInit;
+      candidate?: RTCIceCandidateInit;
+    };
 
-const CALL_TYPES = new Set(['call.here', 'call.ring', 'call.answered', 'call.declined', 'call.cancel', 'call.signal', 'call.leave']);
+const CALL_TYPES = new Set([
+  'call.here',
+  'call.ring',
+  'call.answered',
+  'call.declined',
+  'call.cancel',
+  'call.signal',
+  'call.leave',
+]);
 /** Rings one account may make you hear in a minute */
 const RINGS_PER_MINUTE = 3;
 const REJOIN_KEY = 'weave-call';
@@ -158,9 +177,10 @@ const LEAVE_LINGER_MS = 1000;
 const MEMBERS_MS = 10_000;
 
 function isCallMessage(value: unknown): value is CallMessage {
-  const message = value as { type?: unknown; call?: unknown } | null;
+  const message = value;
   return (
-    typeof message?.type === 'string' &&
+    isObject(message) &&
+    typeof message.type === 'string' &&
     CALL_TYPES.has(message.type) &&
     typeof message.call === 'string' &&
     message.call.length > 0 &&
@@ -170,7 +190,7 @@ function isCallMessage(value: unknown): value is CallMessage {
 
 const randomId = () => {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return bytesToHex(bytes);
 };
 
 interface Link {
@@ -221,18 +241,27 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
   const heartbeatMs = options.heartbeatMs ?? 5000;
   const goneMs = options.goneMs ?? 15_000;
   const ringMs = options.ringMs ?? 45_000;
-  const createConnection = options.createConnection ?? ((config: RTCConfiguration) => new RTCPeerConnection(config));
-  const getUserMedia = options.getUserMedia ?? ((constraints: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(constraints));
-  const getDisplayMedia = options.getDisplayMedia ?? ((constraints: DisplayMediaStreamOptions) => navigator.mediaDevices.getDisplayMedia(constraints));
+  const createConnection =
+    options.createConnection ?? ((config: RTCConfiguration) => new RTCPeerConnection(config));
+  const getUserMedia =
+    options.getUserMedia ??
+    ((constraints: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(constraints));
+  const getDisplayMedia =
+    options.getDisplayMedia ??
+    ((constraints: DisplayMediaStreamOptions) => navigator.mediaDevices.getDisplayMedia(constraints));
   const createStream =
     options.createStream ??
-    ((tracks: ReadonlyArray<MediaStreamTrack>) => (typeof MediaStream === 'function' ? new MediaStream([...tracks]) : null));
+    ((tracks: ReadonlyArray<MediaStreamTrack>) =>
+      typeof MediaStream === 'function' ? new MediaStream([...tracks]) : null);
   const storage = options.storage === undefined ? safeSessionStorage() : options.storage;
 
   const listeners = new Set<() => void>();
   /** Who is in which call, by space, call and device */
   const around = new Map<string, Map<string, Map<string, Presence>>>();
-  const ringing = new Map<string, IncomingCall & { readonly peer: string; readonly timer: ReturnType<typeof setTimeout> }>();
+  const ringing = new Map<
+    string,
+    IncomingCall & { readonly peer: string; readonly timer: ReturnType<typeof setTimeout> }
+  >();
   const ringsFrom = new Map<string, number[]>();
   const members = new Map<string, { readonly at: number; readonly dids: Promise<ReadonlySet<string>> }>();
   let active: Active | null = null;
@@ -267,7 +296,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
 
   function later(fn: () => void, ms: number): ReturnType<typeof setTimeout> {
     const timer = setTimeout(fn, ms);
-    (timer as { unref?: () => void }).unref?.();
+    unref(timer);
     return timer;
   }
 
@@ -280,7 +309,8 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     if (was) changed();
   }
 
-  const send = (space: string, message: CallMessage, to?: string) => node.spaces.send(space, message, to).catch(() => {});
+  const send = (space: string, message: CallMessage, to?: string) =>
+    node.spaces.send(space, message, to).catch(() => {});
 
   // ─── Who may take part ─────────────────────────────────────────────
 
@@ -289,7 +319,10 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     if (!account) return false;
     let known = members.get(space);
     if (!known || Date.now() - known.at > MEMBERS_MS) {
-      known = { at: Date.now(), dids: node.spaces.access(space).then((access) => new Set(access.members.map((m) => m.did))) };
+      known = {
+        at: Date.now(),
+        dids: node.spaces.access(space).then((access) => new Set(access.members.map((m) => m.did))),
+      };
       members.set(space, known);
     }
     try {
@@ -317,13 +350,23 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
 
   const inCall = (space: string, call: string) => around.get(space)?.get(call);
 
-  function notePresence(space: string, call: string, peer: string, account: string, message: { since?: unknown; camera?: unknown; muted?: unknown }): boolean {
+  function notePresence(
+    space: string,
+    call: string,
+    peer: string,
+    account: string,
+    message: { since?: unknown; camera?: unknown; muted?: unknown },
+  ): boolean {
     const calls = around.get(space) ?? around.set(space, new Map()).get(space)!;
     // A device is in one call at a time.
-    for (const [id, peers] of calls) if (id !== call && peers.delete(peer) && peers.size === 0) calls.delete(id);
+    for (const [id, peers] of calls)
+      if (id !== call && peers.delete(peer) && peers.size === 0) calls.delete(id);
     const peers = calls.get(call) ?? calls.set(call, new Map()).get(call)!;
     const known = peers.get(peer);
-    const since = typeof message.since === 'number' && Number.isFinite(message.since) ? Math.min(message.since, Date.now()) : Date.now();
+    const since =
+      typeof message.since === 'number' && Number.isFinite(message.since)
+        ? Math.min(message.since, Date.now())
+        : Date.now();
     peers.set(peer, {
       account,
       since: known?.since ?? since,
@@ -359,7 +402,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     if (dropped) changed();
   }
   const sweeper = setInterval(sweep, Math.max(250, Math.min(heartbeatMs, goneMs / 3)));
-  (sweeper as { unref?: () => void }).unref?.();
+  unref(sweeper);
 
   // ─── Connections ───────────────────────────────────────────────────
 
@@ -371,18 +414,39 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
   }
 
   function hereMessage(call: Active): CallMessage {
-    return { type: 'call.here', call: call.id, since: call.joinedAt, camera: videoTrack(call) !== null, muted: call.muted };
+    return {
+      type: 'call.here',
+      call: call.id,
+      since: call.joinedAt,
+      camera: videoTrack(call) !== null,
+      muted: call.muted,
+    };
   }
 
   function linkFor(call: Active, peer: string, account: string, offerer: boolean): Link {
     closeLink(peer);
     const pc = createConnection({ iceServers: [...call.ice] });
-    const link: Link = { peer, account, pc, offerer, tracks: [], stream: null, state: 'connecting', pending: [], described: false };
+    const link: Link = {
+      peer,
+      account,
+      pc,
+      offerer,
+      tracks: [],
+      stream: null,
+      state: 'connecting',
+      pending: [],
+      described: false,
+    };
     call.links.set(peer, link);
     call.seen.add(account);
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && active === call) void send(call.space, { type: 'call.signal', call: call.id, candidate: event.candidate.toJSON() }, peer);
+      if (event.candidate && active === call)
+        void send(
+          call.space,
+          { type: 'call.signal', call: call.id, candidate: event.candidate.toJSON() },
+          peer,
+        );
     };
     pc.ontrack = (event) => {
       if (call.links.get(peer) !== link) return;
@@ -393,7 +457,8 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     pc.onconnectionstatechange = () => {
       if (call.links.get(peer) !== link) return;
       const now = pc.connectionState;
-      const next = now === 'connected' ? 'connected' : now === 'failed' || now === 'closed' ? 'failed' : link.state;
+      const next =
+        now === 'connected' ? 'connected' : now === 'failed' || now === 'closed' ? 'failed' : link.state;
       if (next === link.state) return;
       link.state = next;
       changed();
@@ -401,7 +466,8 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
       if (next === 'failed' && link.offerer) {
         call.timers.add(
           later(() => {
-            if (active === call && call.links.get(peer) === link && inCall(call.space, call.id)?.has(peer)) void offer(call, peer, account);
+            if (active === call && call.links.get(peer) === link && inCall(call.space, call.id)?.has(peer))
+              void offer(call, peer, account);
           }, 2000),
         );
       }
@@ -428,14 +494,27 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
       const description = await link.pc.createOffer();
       await link.pc.setLocalDescription(description);
       if (active !== call || call.links.get(peer) !== link) return;
-      await send(call.space, { type: 'call.signal', call: call.id, description: { type: description.type, sdp: description.sdp ?? '' } }, peer);
+      await send(
+        call.space,
+        {
+          type: 'call.signal',
+          call: call.id,
+          description: { type: description.type, sdp: description.sdp ?? '' },
+        },
+        peer,
+      );
     } catch {
       link.state = 'failed';
       changed();
     }
   }
 
-  async function onSignal(call: Active, peer: string, account: string, message: Extract<CallMessage, { type: 'call.signal' }>): Promise<void> {
+  async function onSignal(
+    call: Active,
+    peer: string,
+    account: string,
+    message: Extract<CallMessage, { type: 'call.signal' }>,
+  ): Promise<void> {
     const { description, candidate } = message;
     if (description && typeof description === 'object') {
       if (description.type === 'offer') {
@@ -454,7 +533,11 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
           const answer = await link.pc.createAnswer();
           await link.pc.setLocalDescription(answer);
           if (active !== call || call.links.get(peer) !== link) return;
-          await send(call.space, { type: 'call.signal', call: call.id, description: { type: answer.type, sdp: answer.sdp ?? '' } }, peer);
+          await send(
+            call.space,
+            { type: 'call.signal', call: call.id, description: { type: answer.type, sdp: answer.sdp ?? '' } },
+            peer,
+          );
           await flush(link);
         } catch {
           link.state = 'failed';
@@ -521,7 +604,10 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
         if (call && call.space === space) {
           if (call.id === message.call) {
             call.seen.add(from);
-            call.startedAt = Math.min(call.startedAt, inCall(space, call.id)?.get(peer)?.since ?? call.startedAt);
+            call.startedAt = Math.min(
+              call.startedAt,
+              inCall(space, call.id)?.get(peer)?.since ?? call.startedAt,
+            );
             // Someone just arrived: tell them we're here now, not at our next heartbeat.
             if (isNew) void send(space, hereMessage(call), peer);
             if (!call.links.has(peer) && node.sessionDid < peer) void offer(call, peer, from);
@@ -563,7 +649,13 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
           return;
         }
         const call = active;
-        if (!call || call.id !== message.call || call.outgoing?.to !== from || call.outgoing.state !== 'ringing') return;
+        if (
+          !call ||
+          call.id !== message.call ||
+          call.outgoing?.to !== from ||
+          call.outgoing.state !== 'ringing'
+        )
+          return;
         if (message.type === 'call.answered') {
           call.outgoing = null;
         } else {
@@ -599,7 +691,8 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
   function giveUpIfAlone(call: Active) {
     call.timers.add(
       later(() => {
-        if (active === call && call.links.size === 0 && (inCall(call.space, call.id)?.size ?? 0) === 0) void leave();
+        if (active === call && call.links.size === 0 && (inCall(call.space, call.id)?.size ?? 0) === 0)
+          void leave();
       }, GIVE_UP_MS),
     );
   }
@@ -608,7 +701,9 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
 
   async function remember(space: string, body: Record<string, unknown>) {
     try {
-      const defined = (await node.collections.list(space)).some((c) => c.name === callSchema.name && c.version !== null);
+      const defined = (await node.collections.list(space)).some(
+        (c) => c.name === callSchema.name && c.version !== null,
+      );
       if (defined) await node.records.put(space, callSchema.name, body);
     } catch {
       // History is a nicety; a space that won't take it still had the call.
@@ -619,8 +714,10 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
 
   function readRejoin(): { space: string; call: string } | null {
     try {
-      const saved = JSON.parse(storage?.getItem(REJOIN_KEY) ?? 'null') as { space?: unknown; call?: unknown } | null;
-      return typeof saved?.space === 'string' && typeof saved.call === 'string' ? { space: saved.space, call: saved.call } : null;
+      const saved: unknown = JSON.parse(storage?.getItem(REJOIN_KEY) ?? 'null');
+      return isObject(saved) && typeof saved.space === 'string' && typeof saved.call === 'string'
+        ? { space: saved.space, call: saved.call }
+        : null;
     } catch {
       return null;
     }
@@ -643,7 +740,10 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     } catch {
       if (video) {
         try {
-          return { stream: await getUserMedia({ audio: true, video: false }), problem: 'The camera isn’t available, so you joined with sound only.' };
+          return {
+            stream: await getUserMedia({ audio: true, video: false }),
+            problem: 'The camera isn’t available, so you joined with sound only.',
+          };
         } catch {
           // Neither: fall through.
         }
@@ -661,7 +761,9 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
       const release = await node.spaces.hold(space);
       try {
         const { stream, problem } = await media(opts.video === true);
-        const going = [...(around.get(space) ?? new Map<string, Map<string, Presence>>())].sort(([a], [b]) => (a < b ? -1 : 1))[0]?.[0];
+        const going = [...(around.get(space) ?? new Map<string, Map<string, Presence>>())].sort(([a], [b]) =>
+          a < b ? -1 : 1,
+        )[0]?.[0];
         const call: Active = {
           id: opts.call ?? going ?? randomId(),
           space,
@@ -690,7 +792,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
         forgetRejoin();
         writeRejoin(call);
         call.heartbeat = setInterval(() => void send(space, hereMessage(call)), heartbeatMs);
-        (call.heartbeat as { unref?: () => void }).unref?.();
+        unref(call.heartbeat);
         await send(space, hereMessage(call));
         for (const [peer, presence] of inCall(space, call.id) ?? []) {
           call.seen.add(presence.account);
@@ -730,7 +832,11 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     await send(call.space, { type: 'call.leave', call: call.id });
     if (call.outgoing?.state === 'ringing') {
       await send(call.space, { type: 'call.cancel', call: call.id }, call.outgoing.to);
-      await remember(call.space, { status: 'missed', to: call.outgoing.to, startedAt: new Date(call.outgoing.since).toISOString() });
+      await remember(call.space, {
+        status: 'missed',
+        to: call.outgoing.to,
+        startedAt: new Date(call.outgoing.since).toISOString(),
+      });
     }
     // The last one out writes down who was there — if anyone else ever was.
     const stillIn = inCall(call.space, call.id)?.size ?? 0;
@@ -777,7 +883,12 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
       for (const [id, peers] of calls) {
         if (peers.size === 0) continue;
         const present = [...peers.values()];
-        all.push({ id, space, people: [...new Set(present.map((p) => p.account))], since: Math.min(...present.map((p) => p.since)) });
+        all.push({
+          id,
+          space,
+          people: [...new Set(present.map((p) => p.account))],
+          since: Math.min(...present.map((p) => p.since)),
+        });
       }
     }
     const was = remembered;

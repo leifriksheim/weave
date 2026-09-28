@@ -6,11 +6,32 @@ import { describe, test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { WebSocket, WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { createRelay, MAX_MESSAGE_BYTES } from '../../relay/relay.mjs';
+import { isRecord } from '../src/utils/guards.js';
+import { portOf, textOf } from './helpers/net.js';
 
 const secret = 'test-secret';
+
+interface IceOffer {
+  readonly servers: ReadonlyArray<{ readonly username: string; readonly credential: string }>;
+  readonly expiresAt: number;
+}
+
+/** The TURN offer a relay message carries, or null for any other message. */
+function iceOffer(data: RawData): IceOffer | null {
+  const message: unknown = JSON.parse(textOf(data));
+  if (!isRecord(message) || message.type !== 'ice') return null;
+  const { payload } = message;
+  assert.ok(isRecord(payload) && typeof payload.expiresAt === 'number' && Array.isArray(payload.servers));
+  const servers = payload.servers.map((server: unknown) => {
+    assert.ok(
+      isRecord(server) && typeof server.username === 'string' && typeof server.credential === 'string',
+    );
+    return { username: server.username, credential: server.credential };
+  });
+  return { servers, expiresAt: payload.expiresAt };
+}
 
 describe('TURN passwords from the relay', () => {
   const relay = createRelay({ turn: { secret, urls: ['turn:127.0.0.1:3478'], ttlSeconds: 3600 } });
@@ -22,7 +43,7 @@ describe('TURN passwords from the relay', () => {
     server = createServer();
     server.on('upgrade', (req, socket, head) => relay.upgrade(wss, req, socket, head));
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    url = `ws://127.0.0.1:${portOf(server)}`;
   });
 
   after(() => {
@@ -34,10 +55,10 @@ describe('TURN passwords from the relay', () => {
   const firstOffer = async (did: string) => {
     const ws = new WebSocket(url);
     await new Promise((resolve) => ws.once('open', resolve));
-    const offer = new Promise<{ servers: { username: string; credential: string }[]; expiresAt: number }>((resolve) =>
+    const offer = new Promise<IceOffer>((resolve) =>
       ws.on('message', (data) => {
-        const message = JSON.parse(String(data));
-        if (message.type === 'ice') resolve(message.payload);
+        const found = iceOffer(data);
+        if (found) resolve(found);
       }),
     );
     ws.send(JSON.stringify({ type: 'join', from: did, room: 'room' }));
@@ -49,19 +70,20 @@ describe('TURN passwords from the relay', () => {
     const b = await firstOffer('did:key:zB');
     const [serverA] = a.offer.servers;
     const [serverB] = b.offer.servers;
+    assert.ok(serverA && serverB);
     assert.equal(serverA.username, serverB.username);
 
     // coturn's use-auth-secret: the part before the colon is when it expires.
     const [expiry, holder] = serverA.username.split(':');
     assert.equal(Number(expiry) * 1000, a.offer.expiresAt);
-    assert.ok(holder.length > 0);
+    assert.ok(holder !== undefined && holder.length > 0);
     assert.equal(serverA.credential, createHmac('sha1', secret).update(serverA.username).digest('base64'));
 
     // Asking again gets the same one back, not a fresh one.
     const again = new Promise<string>((resolve) =>
       a.ws.on('message', (data) => {
-        const message = JSON.parse(String(data));
-        if (message.type === 'ice') resolve(message.payload.servers[0].username);
+        const username = iceOffer(data)?.servers[0]?.username;
+        if (username !== undefined) resolve(username);
       }),
     );
     a.ws.send(JSON.stringify({ type: 'ice' }));

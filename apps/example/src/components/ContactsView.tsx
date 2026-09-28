@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ContactRequest, ContactView, DoorView, KnockView, SentKnockView, SpaceSummary } from '@weaveprotocol/core';
+import type {
+  ContactRequest,
+  ContactView,
+  DoorView,
+  KnockView,
+  SentKnockView,
+  SpaceSummary,
+} from '@weaveprotocol/core';
 import { parseDoorCode } from '@weaveprotocol/core/doors';
 import { useAccount, useNode } from '@weaveprotocol/core/react';
 import { clearDoorFromUrl, doorLink, readDoorFromUrl, takeBack, useContacts, useStanding } from '../contacts';
 import { nameOf, peopleFrom } from '../derive/people';
 import { ago } from '../derive/time';
-import { Avatar } from './Avatar';
-import { Modal } from './Modal';
+import { Avatar } from '@weave/app-shared/Avatar';
+import { Modal } from '@weave/app-shared/Modal';
 import { styles, palette } from '../styles';
 
 /** How often to look in the doors' mailboxes: knocks wait on relays, which tell nobody */
@@ -23,7 +30,13 @@ const nobody = peopleFrom([]);
  * who doesn't knocks on a door whose link you gave them. Either way, accepting
  * joins the space for two they made.
  */
-export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSummary>; onOpen: (spaceId: string) => void }) {
+export function ContactsView({
+  spaces,
+  onOpen,
+}: {
+  spaces: ReadonlyArray<SpaceSummary>;
+  onOpen: (spaceId: string) => void;
+}) {
   const node = useNode();
   const contacts = useContacts();
   const [requests, setRequests] = useState<ReadonlyArray<ContactRequest>>([]);
@@ -53,9 +66,9 @@ export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSu
   const sharedIds = shared.map((space) => space.id).join(',');
   useEffect(() => {
     let stopped = false;
-    void Promise.all(shared.map((space) => node.contacts.requests(space.id).catch(() => [] as ContactRequest[]))).then(
-      (found) => !stopped && setRequests(found.flat()),
-    );
+    void Promise.all(
+      shared.map((space) => node.contacts.requests(space.id).catch((): ContactRequest[] => [])),
+    ).then((found) => !stopped && setRequests(found.flat()));
     return () => {
       stopped = true;
     };
@@ -117,7 +130,10 @@ export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSu
       <KnockFromLink onKnock={(code, note) => act(() => node.doors.knock(code, note ? { note } : {}))} />
 
       {asking > 0 && (
-        <section style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 16 }} aria-label="Asking to be your contact">
+        <section
+          style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 16 }}
+          aria-label="Asking to be your contact"
+        >
           <h2 style={styles.sectionTitle}>Asking to be your contact</h2>
           <ul style={styles.todoList}>
             {requests.map((request) => (
@@ -128,12 +144,23 @@ export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSu
                   <p style={styles.todoMeta}>
                     Asked in {spaceName(request.space)} · {ago(request.createdAt)}
                   </p>
-                  {request.note && <p style={{ ...styles.todoMeta, color: palette.ink.body }}>“{request.note}”</p>}
+                  {request.note && (
+                    <p style={{ ...styles.todoMeta, color: palette.ink.body }}>“{request.note}”</p>
+                  )}
                 </div>
-                <button onClick={() => void act(() => node.contacts.accept(request.space, request.key))} data-variant="primary" style={{ ...styles.addButton, height: 32 }}>
+                <button
+                  onClick={() => void act(() => node.contacts.accept(request.space, request.key))}
+                  data-variant="primary"
+                  style={{ ...styles.addButton, height: 32 }}
+                >
                   Accept
                 </button>
-                <button onClick={() => void act(() => node.contacts.block(request.from))} data-variant="ghost" style={styles.linkButton} title="Hide their requests, in every space">
+                <button
+                  onClick={() => void act(() => node.contacts.block(request.from))}
+                  data-variant="ghost"
+                  style={styles.linkButton}
+                  title="Hide their requests, in every space"
+                >
                   Block
                 </button>
               </li>
@@ -143,20 +170,40 @@ export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSu
                 <Avatar did={knock.from} size={32} />
                 <div style={styles.todoContent}>
                   <p style={styles.todoText}>
-                    {knock.name} <span style={{ color: palette.ink.faint, fontWeight: 400 }}>· {knock.from.slice(-6)}</span>
+                    {knock.name}{' '}
+                    <span style={{ color: palette.ink.faint, fontWeight: 400 }}>
+                      · {knock.from.slice(-6)}
+                    </span>
                   </p>
                   <p style={styles.todoMeta}>
-                    Knocked on {doorName(doors.find((door) => door.id === knock.door))} · {ago(knock.at)} · the name is theirs to choose; the code after it is who they are
+                    Knocked on {doorName(doors.find((door) => door.id === knock.door))} · {ago(knock.at)} ·
+                    the name is theirs to choose; the code after it is who they are
                   </p>
-                  {knock.note && <p style={{ ...styles.todoMeta, color: palette.ink.body }}>“{knock.note}”</p>}
+                  {knock.note && (
+                    <p style={{ ...styles.todoMeta, color: palette.ink.body }}>“{knock.note}”</p>
+                  )}
                 </div>
-                <button onClick={() => void act(() => node.doors.accept(knock.id))} data-variant="primary" style={{ ...styles.addButton, height: 32 }}>
+                <button
+                  onClick={() => void act(() => node.doors.accept(knock.id))}
+                  data-variant="primary"
+                  style={{ ...styles.addButton, height: 32 }}
+                >
                   Accept
                 </button>
-                <button onClick={() => void act(() => node.doors.dismiss(knock.id))} data-variant="ghost" style={styles.linkButton} title="Let this knock go; they can knock again">
+                <button
+                  onClick={() => void act(() => node.doors.dismiss(knock.id))}
+                  data-variant="ghost"
+                  style={styles.linkButton}
+                  title="Let this knock go; they can knock again"
+                >
                   Dismiss
                 </button>
-                <button onClick={() => void act(() => node.contacts.block(knock.from))} data-variant="ghost" style={styles.linkButton} title="Hide their knocks and requests from now on">
+                <button
+                  onClick={() => void act(() => node.contacts.block(knock.from))}
+                  data-variant="ghost"
+                  style={styles.linkButton}
+                  title="Hide their knocks and requests from now on"
+                >
                   Block
                 </button>
               </li>
@@ -171,7 +218,8 @@ export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSu
           <p style={styles.todoMeta}>Loading…</p>
         ) : listed.length === 0 ? (
           <div style={styles.emptyState}>
-            No contacts yet. Add someone from a space you share — their name under People — or give them a link to one of your doors below.
+            No contacts yet. Add someone from a space you share — their name under People — or give them a
+            link to one of your doors below.
           </div>
         ) : (
           <ul style={styles.todoList}>
@@ -188,7 +236,9 @@ export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSu
                   …
                 </span>
                 <span style={{ flex: 1 }}>
-                  Waiting for <strong style={{ color: palette.ink.strong, fontWeight: 500 }}>{knock.name}</strong> to open their door · knocked {ago(knock.at)}
+                  Waiting for{' '}
+                  <strong style={{ color: palette.ink.strong, fontWeight: 500 }}>{knock.name}</strong> to open
+                  their door · knocked {ago(knock.at)}
                 </span>
               </li>
             ))}
@@ -205,7 +255,9 @@ export function ContactsView({ spaces, onOpen }: { spaces: ReadonlyArray<SpaceSu
             {blocked.map((contact) => (
               <li key={contact.did} style={styles.row}>
                 <Avatar did={contact.did} size={24} />
-                <span style={{ flex: 1, fontSize: 14 }}>{contact.name === contact.did ? nameOf(contact.did, nobody) : contact.name}</span>
+                <span style={{ flex: 1, fontSize: 14 }}>
+                  {contact.name === contact.did ? nameOf(contact.did, nobody) : contact.name}
+                </span>
                 <button
                   onClick={() => void act(() => node.contacts.remove(contact.did))}
                   data-variant="ghost"
@@ -234,7 +286,17 @@ function doorName(door: DoorView | undefined): string {
  * someone other than the two of you is in that space — the invite was passed
  * on — so the person can decide whether it is still just the two of them.
  */
-function ContactRow({ contact, shared, onOpen, act }: { contact: ContactView; shared: ReadonlyArray<string>; onOpen: (spaceId: string) => void; act: (action: () => Promise<unknown>) => Promise<void> }) {
+function ContactRow({
+  contact,
+  shared,
+  onOpen,
+  act,
+}: {
+  contact: ContactView;
+  shared: ReadonlyArray<string>;
+  onOpen: (spaceId: string) => void;
+  act: (action: () => Promise<unknown>) => Promise<void>;
+}) {
   const node = useNode();
   const account = useAccount();
   const [others, setOthers] = useState<ReadonlyArray<string>>([]);
@@ -255,7 +317,15 @@ function ContactRow({ contact, shared, onOpen, act }: { contact: ContactView; sh
   const rename = () => {
     const name = renaming?.trim();
     setRenaming(null);
-    if (name && name !== contact.name) void act(() => node.contacts.put({ did: contact.did, name, space: contact.space, ...(contact.note ? { note: contact.note } : {}) }));
+    if (name && name !== contact.name)
+      void act(() =>
+        node.contacts.put({
+          did: contact.did,
+          name,
+          space: contact.space,
+          ...(contact.note ? { note: contact.note } : {}),
+        }),
+      );
   };
 
   return (
@@ -291,7 +361,8 @@ function ContactRow({ contact, shared, onOpen, act }: { contact: ContactView; sh
         </p>
         {others.length > 0 && (
           <p style={{ ...styles.todoMeta, color: palette.accent.danger }}>
-            {others.length === 1 ? 'Someone else is' : `${others.length} others are`} in your space with {contact.name} ({others.map((did) => did.slice(-6)).join(', ')}): the invite was passed on.
+            {others.length === 1 ? 'Someone else is' : `${others.length} others are`} in your space with{' '}
+            {contact.name} ({others.map((did) => did.slice(-6)).join(', ')}): the invite was passed on.
           </p>
         )}
       </div>
@@ -300,22 +371,33 @@ function ContactRow({ contact, shared, onOpen, act }: { contact: ContactView; sh
           Open
         </button>
       )}
-      <button onClick={() => setRenaming(contact.name)} data-variant="ghost" style={styles.linkButton} title="Only you see what you call them">
+      <button
+        onClick={() => setRenaming(contact.name)}
+        data-variant="ghost"
+        style={styles.linkButton}
+        title="Only you see what you call them"
+      >
         Rename
       </button>
       <button
-        onClick={() => globalThis.confirm(
+        onClick={() =>
+          globalThis.confirm(
             standing === 'waiting'
               ? `Remove ${contact.name}? Your request is taken back and you leave the space for two.`
               : `Remove ${contact.name}? You leave the space for two; they keep their copy.`,
-          ) && void act(() => takeBack(node, standing === 'waiting' ? shared : [], account.did, contact.did))}
+          ) && void act(() => takeBack(node, standing === 'waiting' ? shared : [], account.did, contact.did))
+        }
         data-variant="ghost"
         style={styles.linkButton}
       >
         Remove
       </button>
       <button
-        onClick={() => globalThis.confirm(`Block ${contact.name}? You leave the space for two, and their requests and knocks are hidden from now on.`) && void act(() => node.contacts.block(contact.did))}
+        onClick={() =>
+          globalThis.confirm(
+            `Block ${contact.name}? You leave the space for two, and their requests and knocks are hidden from now on.`,
+          ) && void act(() => node.contacts.block(contact.did))
+        }
         data-variant="ghost"
         style={{ ...styles.linkButton, color: palette.accent.danger }}
       >
@@ -330,7 +412,13 @@ function ContactRow({ contact, shared, onOpen, act }: { contact: ContactView; sh
  * sharing a space with you first. Each has its own link, so one that gets
  * around too far can be closed without the others.
  */
-function Doors({ doors, act }: { doors: ReadonlyArray<DoorView>; act: (action: () => Promise<unknown>) => Promise<void> }) {
+function Doors({
+  doors,
+  act,
+}: {
+  doors: ReadonlyArray<DoorView>;
+  act: (action: () => Promise<unknown>) => Promise<void>;
+}) {
   const node = useNode();
   const [opening, setOpening] = useState(false);
   const [knocking, setKnocking] = useState(false);
@@ -347,7 +435,8 @@ function Doors({ doors, act }: { doors: ReadonlyArray<DoorView>; act: (action: (
     <section style={{ ...styles.panelSection, marginTop: 24 }} aria-label="Your doors">
       <h2 style={styles.sectionTitle}>Your doors</h2>
       <p style={{ ...styles.todoMeta, marginTop: 0 }}>
-        A door link lets someone you share no space with ask to become your contact. It says nothing about who you are; close it and it leads nowhere, while your contacts stay.
+        A door link lets someone you share no space with ask to become your contact. It says nothing about who
+        you are; close it and it leads nowhere, while your contacts stay.
       </p>
       {doors.length > 0 && (
         <ul style={styles.todoList}>
@@ -356,17 +445,26 @@ function Doors({ doors, act }: { doors: ReadonlyArray<DoorView>; act: (action: (
               <div style={styles.todoContent}>
                 <p style={styles.todoText}>{door.label ?? door.name ?? 'A door'}</p>
                 <p style={styles.todoMeta}>
-                  {door.name ? `Shows “${door.name}” to whoever knocks` : 'Shows no name'} · opened {ago(door.createdAt)}
+                  {door.name ? `Shows “${door.name}” to whoever knocks` : 'Shows no name'} · opened{' '}
+                  {ago(door.createdAt)}
                 </p>
               </div>
               <button onClick={() => copy(door)} data-variant="quiet" style={styles.smallButton}>
                 {copied === door.id ? 'Copied' : 'Copy link'}
               </button>
-              <button onClick={() => void act(() => node.doors.clear(door.id))} data-variant="ghost" style={styles.linkButton} title="Clear every knock waiting here, for a door someone is flooding">
+              <button
+                onClick={() => void act(() => node.doors.clear(door.id))}
+                data-variant="ghost"
+                style={styles.linkButton}
+                title="Clear every knock waiting here, for a door someone is flooding"
+              >
                 Clear knocks
               </button>
               <button
-                onClick={() => globalThis.confirm('Close this door? Its link stops working everywhere it was shared.') && void act(() => node.doors.close(door.id))}
+                onClick={() =>
+                  globalThis.confirm('Close this door? Its link stops working everywhere it was shared.') &&
+                  void act(() => node.doors.close(door.id))
+                }
                 data-variant="ghost"
                 style={{ ...styles.linkButton, color: palette.accent.danger }}
               >
@@ -406,7 +504,13 @@ function Doors({ doors, act }: { doors: ReadonlyArray<DoorView>; act: (action: (
   );
 }
 
-function OpenDoor({ onClose, onOpen }: { onClose: () => void; onOpen: (label: string, name: string) => void }) {
+function OpenDoor({
+  onClose,
+  onOpen,
+}: {
+  onClose: () => void;
+  onOpen: (label: string, name: string) => void;
+}) {
   const [label, setLabel] = useState('');
   const [name, setName] = useState('');
   return (
@@ -421,11 +525,24 @@ function OpenDoor({ onClose, onOpen }: { onClose: () => void; onOpen: (label: st
         <label style={styles.fieldLabel} htmlFor="door-label">
           What you call it — only you see this
         </label>
-        <input id="door-label" value={label} onChange={(event) => setLabel(event.target.value)} maxLength={64} placeholder="On my website" style={styles.input} />
+        <input
+          id="door-label"
+          value={label}
+          onChange={(event) => setLabel(event.target.value)}
+          maxLength={64}
+          placeholder="On my website"
+          style={styles.input}
+        />
         <label style={{ ...styles.fieldLabel, marginTop: 8 }} htmlFor="door-name">
           The name it shows whoever knocks — leave empty for your account's name
         </label>
-        <input id="door-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={64} style={styles.input} />
+        <input
+          id="door-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          maxLength={64}
+          style={styles.input}
+        />
         <button type="submit" data-variant="primary" style={{ ...styles.addButton, marginTop: 12 }}>
           Open door
         </button>
@@ -434,7 +551,15 @@ function OpenDoor({ onClose, onOpen }: { onClose: () => void; onOpen: (label: st
   );
 }
 
-function KnockDialog({ initial = '', onClose, onKnock }: { initial?: string; onClose: () => void; onKnock: (code: string, note: string) => void }) {
+function KnockDialog({
+  initial = '',
+  onClose,
+  onKnock,
+}: {
+  initial?: string;
+  onClose: () => void;
+  onKnock: (code: string, note: string) => void;
+}) {
   const [code, setCode] = useState(initial);
   const [note, setNote] = useState('');
   let problem: string | null = null;
@@ -460,18 +585,37 @@ function KnockDialog({ initial = '', onClose, onKnock }: { initial?: string; onC
             <label style={styles.fieldLabel} htmlFor="door-code">
               Their door link or code
             </label>
-            <input id="door-code" value={code} onChange={(event) => setCode(event.target.value)} style={styles.input} />
+            <input
+              id="door-code"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              style={styles.input}
+            />
             {problem && <p style={styles.bad}>{problem}</p>}
           </>
         )}
         <label style={{ ...styles.fieldLabel, marginTop: 8 }} htmlFor="knock-note">
           A note, so they know who is knocking
         </label>
-        <textarea id="knock-note" value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} rows={3} style={{ ...styles.input, height: 'auto', padding: 10 }} />
+        <textarea
+          id="knock-note"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          maxLength={500}
+          rows={3}
+          style={{ ...styles.input, height: 'auto', padding: 10 }}
+        />
         <p style={styles.todoMeta}>
-          This makes a private space for the two of you and leaves its invite at their door. They see your account and the name you go by. The name a door shows is the owner's to choose, so be sure the link came from them.
+          This makes a private space for the two of you and leaves its invite at their door. They see your
+          account and the name you go by. The name a door shows is the owner's to choose, so be sure the link
+          came from them.
         </p>
-        <button type="submit" disabled={!code.trim() || !!problem} data-variant="primary" style={{ ...styles.addButton, marginTop: 12 }}>
+        <button
+          type="submit"
+          disabled={!code.trim() || !!problem}
+          data-variant="primary"
+          style={{ ...styles.addButton, marginTop: 12 }}
+        >
           Knock
         </button>
       </form>

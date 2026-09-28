@@ -21,6 +21,7 @@
 import type { PeerTransport, PeerTransportEvents } from './transport.js';
 import { peerNonce, type ClientAuth } from './peer-auth.js';
 import { createEmitter } from '../utils/events.js';
+import { isObject } from '../utils/guards.js';
 
 export interface WebSocketTransportConfig {
   /** `wss://node.example.com/peer` */
@@ -36,8 +37,8 @@ export interface WebSocketTransportConfig {
 }
 
 interface Frame {
-  readonly type?: unknown;
-  readonly did?: unknown;
+  readonly type: string;
+  readonly did: string;
   readonly nonce?: unknown;
   readonly sig?: unknown;
 }
@@ -45,8 +46,10 @@ interface Frame {
 function parseFrame(data: unknown, type: string): Frame | null {
   if (typeof data !== 'string') return null;
   try {
-    const parsed = JSON.parse(data) as Frame;
-    return parsed?.type === type && typeof parsed.did === 'string' && parsed.did.length > 0 ? parsed : null;
+    const parsed: unknown = JSON.parse(data);
+    return isObject(parsed) && parsed.type === type && typeof parsed.did === 'string' && parsed.did.length > 0
+      ? { type, did: parsed.did, nonce: parsed.nonce, sig: parsed.sig }
+      : null;
   } catch {
     return null;
   }
@@ -126,8 +129,9 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
       const handle = async (event: MessageEvent) => {
         if (stage === 'challenge') {
           const challenge = parseFrame(event.data, 'challenge');
-          if (!challenge || typeof challenge.nonce !== 'string') return refuse('Expected a challenge from the node');
-          nodeDid = challenge.did as string;
+          if (!challenge || typeof challenge.nonce !== 'string')
+            return refuse('Expected a challenge from the node');
+          nodeDid = challenge.did;
           const proof = authenticator ? await authenticator.hello(config.did, nodeDid, challenge.nonce) : {};
           socket.send(JSON.stringify({ type: 'hello', did: config.did, nonce: ourNonce, ...proof }));
           stage = 'welcome';
@@ -137,8 +141,11 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
         if (stage === 'welcome') {
           const welcome = parseFrame(event.data, 'welcome');
           if (!welcome) return refuse('Expected a welcome from the node');
-          const did = welcome.did as string;
-          if (authenticator && (did !== nodeDid || !(await authenticator.checkWelcome(did, ourNonce, welcome.sig)))) {
+          const did = welcome.did;
+          if (
+            authenticator &&
+            (did !== nodeDid || !(await authenticator.checkWelcome(did, ourNonce, welcome.sig)))
+          ) {
             return refuse('The node could not prove it is the node that answered');
           }
           stage = 'open';

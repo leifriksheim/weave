@@ -9,7 +9,7 @@ edit is a new version.
 ```typescript
 const todo = await node.records.put(space.id, todos, { text: 'milk', done: false });
 
-await node.records.update(space.id, todo.key, { text: 'milk', done: true });  // the whole body, not a patch
+await node.records.update(space.id, todo.key, { text: 'milk', done: true }); // the whole body, not a patch
 await node.records.delete(space.id, todo.key);
 ```
 
@@ -32,9 +32,14 @@ people edit different ones: one record per vote, per card, per reaction.
 ## Links
 
 ```typescript
-await node.records.put(space.id, votes, { choice: 0 }, {
-  links: [{ rel: 'about', to: poll.key }],
-});
+await node.records.put(
+  space.id,
+  votes,
+  { choice: 0 },
+  {
+    links: [{ rel: 'about', to: poll.key }],
+  },
+);
 
 const all = await node.records.linked(space.id, poll.key, { rel: 'about' });
 ```
@@ -72,7 +77,7 @@ const { records, cursor, complete } = await node.records.query(space.id, {
   sort: { '@createdAt': 'desc' },
   limit: 20,
   include: {
-    votes: { rel: 'about', from: votes },           // records linking to each poll
+    votes: { rel: 'about', from: votes }, // records linking to each poll
     reactions: { rel: 'about', from: 'std.reaction', count: true },
   },
 });

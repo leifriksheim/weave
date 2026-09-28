@@ -25,7 +25,7 @@ async function makeExpression(text: string): Promise<Expression> {
   const keys = await provider.generateKeyPair();
   const did = publicKeyToDid(await provider.exportPublicKey(keys.publicKey), P256_MULTICODEC);
   const unsigned = createExpression({ author: did, collection: COLLECTION, body: { text } });
-  return (await signer.sign(unsigned, keys.privateKey)) as Expression;
+  return await signer.sign(unsigned, keys.privateKey);
 }
 
 describe('folder adapter — key/value storage', () => {
@@ -110,10 +110,7 @@ describe('folder adapter — expressions', () => {
 
     const found = await adapter.queryExpressions(COLLECTION, 50);
     assert.equal(found.length, 2);
-    assert.deepEqual(
-      found.map((expression) => expression.id).sort(),
-      [first.id, second.id].sort(),
-    );
+    assert.deepEqual(found.map((expression) => expression.id).sort(), [first.id, second.id].sort());
 
     assert.deepEqual(await adapter.getExpression(first.id), first);
     assert.equal(await adapter.getExpression('nope'), null);
@@ -193,8 +190,11 @@ describe('two origins, one folder', () => {
     assert.deepEqual(result.added, [expression.id]);
     assert.equal(result.changed, true);
 
-    const seen = await b.storage.queryExpressions(COLLECTION, 50);
-    assert.deepEqual(seen.map((item) => item.id), [expression.id]);
+    const seen = await b.storage.queryExpressions(COLLECTION);
+    assert.deepEqual(
+      seen.map((item) => item.id),
+      [expression.id],
+    );
   });
 
   test('a delete on one origin propagates to the other', async () => {
@@ -205,12 +205,12 @@ describe('two origins, one folder', () => {
     const expression = await makeExpression('short-lived');
     await a.storage.addExpression(expression);
     await reconcileFolder(b.storage, b.adapter);
-    assert.equal((await b.storage.queryExpressions(COLLECTION, 50)).length, 1);
+    assert.equal((await b.storage.queryExpressions(COLLECTION)).length, 1);
 
     await a.storage.removeExpression(expression.id);
     await reconcileFolder(b.storage, b.adapter);
 
-    assert.equal((await b.storage.queryExpressions(COLLECTION, 50)).length, 0);
+    assert.equal((await b.storage.queryExpressions(COLLECTION)).length, 0);
     assert.equal(await b.storage.fingerprint(), await a.storage.fingerprint());
   });
 
@@ -233,7 +233,7 @@ describe('two origins, one folder', () => {
 
     assert.deepEqual(result.removed, [expression.id]);
     assert.deepEqual(result.repaired, [expression.id], 'the entries should have been fixed');
-    assert.equal((await a.storage.queryExpressions(COLLECTION, 50)).length, 0);
+    assert.equal((await a.storage.queryExpressions(COLLECTION)).length, 0);
   });
 
   test('concurrent writes converge on the union, with the same fingerprint', async () => {
@@ -255,7 +255,7 @@ describe('two origins, one folder', () => {
     await reconcileFolder(a.storage, a.adapter);
 
     const idsFrom = async (origin: { storage: StorageProvider }) =>
-      (await origin.storage.queryExpressions(COLLECTION, 50)).map((item) => item.id).sort();
+      (await origin.storage.queryExpressions(COLLECTION)).map((item) => item.id).sort();
 
     assert.deepEqual(await idsFrom(a), [fromA.id, fromB.id].sort());
     assert.deepEqual(await idsFrom(b), [fromA.id, fromB.id].sort());

@@ -17,11 +17,14 @@ export function useMyName() {
 
   useEffect(() => {
     let live = true;
-    void node.account.profile().then((profile) => {
-      if (!live || !profile) return;
-      setSaved(profile.name);
-      setName((current) => (current === account.name ? profile.name : current));
-    }).catch(() => {});
+    void node.account
+      .profile()
+      .then((profile) => {
+        if (!live || !profile) return;
+        setSaved(profile.name);
+        setName((current) => (current === account.name ? profile.name : current));
+      })
+      .catch(() => {});
     return () => {
       live = false;
     };

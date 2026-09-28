@@ -6,10 +6,17 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
 
-const PATH = [[2, 5], [7, 15], [10, 8], [13, 15], [18, 5]]; // the wordmark, in a 20×20 box
+const PATH = [
+  [2, 5],
+  [7, 15],
+  [10, 8],
+  [13, 15],
+  [18, 5],
+]; // the wordmark, in a 20×20 box
 
 function distanceToSegment(px, py, [ax, ay], [bx, by]) {
-  const dx = bx - ax, dy = by - ay;
+  const dx = bx - ax,
+    dy = by - ay;
   const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
@@ -22,15 +29,18 @@ function draw(size) {
   const scale = (size - 2 * inset) / 20;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const cx = x + 0.5, cy = y + 0.5;
+      const cx = x + 0.5,
+        cy = y + 0.5;
       // Rounded square: coverage from the distance to its edge.
       const qx = Math.max(Math.abs(cx - size / 2) - (size / 2 - radius), 0);
       const qy = Math.max(Math.abs(cy - size / 2) - (size / 2 - radius), 0);
       const square = Math.max(0, Math.min(1, radius - Math.hypot(qx, qy) + 0.5));
       // The W: coverage from the distance to the polyline, in pixels.
-      const ux = (cx - inset) / scale, uy = (cy - inset) / scale + 0.5;
+      const ux = (cx - inset) / scale,
+        uy = (cy - inset) / scale + 0.5;
       let d = Infinity;
-      for (let i = 0; i < PATH.length - 1; i++) d = Math.min(d, distanceToSegment(ux, uy, PATH[i], PATH[i + 1]));
+      for (let i = 0; i < PATH.length - 1; i++)
+        d = Math.min(d, distanceToSegment(ux, uy, PATH[i], PATH[i + 1]));
       const ink = Math.max(0, Math.min(1, (stroke / 2 - d) * scale + 0.5));
       const v = Math.round(255 * ink);
       const i = (y * size + x) * 4;

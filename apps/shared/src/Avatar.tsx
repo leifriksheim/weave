@@ -1,3 +1,5 @@
+import { hash } from './hash';
+
 /**
  * A visual fingerprint for an account.
  *
@@ -6,17 +8,6 @@
  * several accounts in one folder, a wrong one should be obvious before you have
  * read the name.
  */
-
-/** A small deterministic hash, enough to seed a 5×5 pattern and a hue. */
-function hash(text: string): number {
-  let value = 2166136261;
-  for (let i = 0; i < text.length; i++) {
-    value ^= text.charCodeAt(i);
-    value = Math.imul(value, 16777619);
-  }
-  return value >>> 0;
-}
-
 export function Avatar({ did, size = 32 }: { did: string; size?: number }) {
   const seed = hash(did);
   const hue = seed % 360;

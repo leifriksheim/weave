@@ -9,7 +9,7 @@ import { webcrypto } from 'node:crypto';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createReconciler, fingerprintOf, ItemSet, type Item } from '../src/sync/negentropy.js';
 import { createStorageProvider, type StorageProvider } from '../src/storage/storage-provider.js';
-import { createSyncEngine, type Holds, type SyncEngine } from '../src/sync/sync-engine.js';
+import { createSyncEngine, type Holds } from '../src/sync/sync-engine.js';
 import type { SyncMessage } from '../src/sync/sync-messages.js';
 import { base32Decode, base32Encode, cidDigest, cidFromBytes, cidOfDigest } from '../src/utils/hash.js';
 import { bytesToHex } from '../src/utils/encoding.js';
@@ -113,7 +113,10 @@ describe('Negentropy', () => {
     const whole = await set.fingerprint(0, 100);
     const halves = set.sum(0, 50);
     const rest = set.sum(50, 100);
-    assert.equal(hex(await fingerprintOf({ sum: (halves.sum + rest.sum) % (1n << 256n), count: 100 })), hex(whole));
+    assert.equal(
+      hex(await fingerprintOf({ sum: (halves.sum + rest.sum) % (1n << 256n), count: 100 })),
+      hex(whole),
+    );
   });
 });
 
@@ -164,8 +167,6 @@ function pair(
 ) {
   const inFlight: Promise<void>[] = [];
   const sent = { bytes: 0, reconciles: new Map<string, number>() };
-  let a: { storage: StorageProvider; sync: SyncEngine };
-  let b: { storage: StorageProvider; sync: SyncEngine };
   const make = (self: string, deliver: (message: unknown) => void, holds?: () => Holds) => {
     const storage = createStorageProvider(createMemoryAdapter());
     const sync = createSyncEngine({
@@ -176,15 +177,16 @@ function pair(
       sendToPeer: (_peer, message) => {
         if (options.drop?.(message)) return;
         sent.bytes += JSON.stringify(message).length;
-        if (message.type === 'reconcile') sent.reconciles.set(message.collection, (sent.reconciles.get(message.collection) ?? 0) + 1);
+        if (message.type === 'reconcile')
+          sent.reconciles.set(message.collection, (sent.reconciles.get(message.collection) ?? 0) + 1);
         deliver(message);
       },
       ...(options.validate ? { validate: options.validate } : {}),
     });
     return { storage, sync };
   };
-  a = make('a', (m) => inFlight.push(b.sync.handleMessage('a', m)), options.holdsA);
-  b = make('b', (m) => inFlight.push(a.sync.handleMessage('b', m)), options.holdsB);
+  const a = make('a', (m) => inFlight.push(b.sync.handleMessage('a', m)), options.holdsA);
+  const b = make('b', (m) => inFlight.push(a.sync.handleMessage('b', m)), options.holdsB);
   a.sync.addPeer('b');
   b.sync.addPeer('a');
   const settle = async () => {
@@ -269,7 +271,7 @@ describe('sync by reconciliation', () => {
 
   test('a refused version is not asked for again', async () => {
     let asked = 0;
-    const { a, b, settle } = pair({
+    const { b, settle } = pair({
       validate: async () => {
         asked++;
         return { valid: false, reason: 'no' };
@@ -300,12 +302,22 @@ describe('sync by reconciliation', () => {
   test('a superseded version leaves the set; its replacement joins it', async () => {
     const storage = createStorageProvider(createMemoryAdapter());
     const first = await version('app.note');
-    const second: Expression = await version('app.note', { key: first.key, seq: 1, prev: first.id, genesis: first.id });
+    const second: Expression = await version('app.note', {
+      key: first.key,
+      seq: 1,
+      prev: first.id,
+      genesis: first.id,
+    });
     await storage.addExpression(first);
     await storage.addExpression(second);
     // The first version stays as proof of who created the record.
     assert.deepEqual((await storage.versionIds()).sort(), [first.id, second.id].sort());
-    const third: Expression = await version('app.note', { key: first.key, seq: 2, prev: second.id, genesis: first.id });
+    const third: Expression = await version('app.note', {
+      key: first.key,
+      seq: 2,
+      prev: second.id,
+      genesis: first.id,
+    });
     await storage.addExpression(third);
     assert.deepEqual((await storage.versionIds()).sort(), [first.id, third.id].sort());
     assert.equal((await storage.items('app.note')).size, 2);
@@ -315,7 +327,10 @@ describe('sync by reconciliation', () => {
     // Waits, as a peer's gatekeeper does, for the first version a later one names.
     let b: StorageProvider | null = null;
     const synced = pair({
-      validate: async (e) => (e.seq > 0 && e.genesis && !(await b!.getExpression(e.genesis)) ? { valid: false, reason: 'first version not here', later: true } : { valid: true }),
+      validate: async (e) =>
+        e.seq > 0 && e.genesis && !(await b!.getExpression(e.genesis))
+          ? { valid: false, reason: 'first version not here', later: true }
+          : { valid: true },
     });
     b = synced.b.storage;
     // 300 records written and then deleted, then 100 that stay: many rounds' worth.
@@ -324,7 +339,14 @@ describe('sync by reconciliation', () => {
     for (const first of gone) {
       await synced.a.storage.addExpression(first);
       await synced.a.storage.addExpression(
-        await version('app.pixel', { key: first.key, seq: 1, prev: first.id, genesis: first.id, deleted: true, body: null }),
+        await version('app.pixel', {
+          key: first.key,
+          seq: 1,
+          prev: first.id,
+          genesis: first.id,
+          deleted: true,
+          body: null,
+        }),
       );
     }
     for (let i = 0; i < 100; i++) await synced.a.storage.addExpression(await version('app.pixel'));
@@ -346,7 +368,10 @@ describe('sync by reconciliation', () => {
   test('a version that waits for its first version asks for it at once', async () => {
     let b: StorageProvider | null = null;
     const synced = pair({
-      validate: async (e) => (e.seq > 0 && e.genesis && !(await b!.getExpression(e.genesis)) ? { valid: false, reason: 'first version not here', later: true } : { valid: true }),
+      validate: async (e) =>
+        e.seq > 0 && e.genesis && !(await b!.getExpression(e.genesis))
+          ? { valid: false, reason: 'first version not here', later: true }
+          : { valid: true },
     });
     b = synced.b.storage;
     await synced.settle();
@@ -366,7 +391,8 @@ describe('sync by reconciliation', () => {
     let lost = false;
     const synced = pair({
       // b's first answer to a want never reaches a.
-      drop: (message) => !lost && message.type === 'versions' && typeof message.id === 'number' && (lost = true),
+      drop: (message) =>
+        !lost && message.type === 'versions' && typeof message.id === 'number' && (lost = true),
       heartbeatInterval: 10,
     });
     try {
@@ -402,7 +428,8 @@ describe('sync by reconciliation', () => {
         batches++;
         return adapter.batch(ops);
       },
-      getExpression: (id: string) => (id === broken ? Promise.reject(new Error('unreadable')) : adapter.getExpression(id)),
+      getExpression: (id: string) =>
+        id === broken ? Promise.reject(new Error('unreadable')) : adapter.getExpression(id),
     };
     const storage = createStorageProvider(counted);
     const versions = await Promise.all(Array.from({ length: 16 }, () => version('app.note')));
@@ -416,7 +443,10 @@ describe('sync by reconciliation', () => {
     broken = target.id;
     const edit = await version('app.note', { key: target.key, seq: 1, prev: target.id, genesis: target.id });
     const other = await version('app.note');
-    const [failed, landed] = await Promise.allSettled([fresh.addExpression(edit), fresh.addExpression(other)]);
+    const [failed, landed] = await Promise.allSettled([
+      fresh.addExpression(edit),
+      fresh.addExpression(other),
+    ]);
     assert.equal(failed.status, 'rejected');
     assert.equal(landed.status, 'fulfilled');
     broken = null;
@@ -427,7 +457,8 @@ describe('sync by reconciliation', () => {
 });
 
 describe('holding part of a space', () => {
-  const ids = async (storage: StorageProvider, collection: string) => (await storage.queryExpressions(collection)).map((v) => v.id).sort();
+  const ids = async (storage: StorageProvider, collection: string) =>
+    (await storage.queryExpressions(collection)).map((v) => v.id).sort();
 
   for (const [name, cacheIs] of [
     ['as the initiator', 'a'],
@@ -475,7 +506,10 @@ describe('holding part of a space', () => {
   }
 
   test('two caches reconcile only what both hold', async () => {
-    const { a, b, sent, settle } = pair({ holdsA: () => new Set(['app.x', 'app.y']), holdsB: () => new Set(['app.y', 'app.z']) });
+    const { a, b, sent, settle } = pair({
+      holdsA: () => new Set(['app.x', 'app.y']),
+      holdsB: () => new Set(['app.y', 'app.z']),
+    });
     for (const c of ['app.x', 'app.y', 'app.z']) {
       await a.storage.addExpression(await version(c));
       await b.storage.addExpression(await version(c));

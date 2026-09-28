@@ -64,7 +64,13 @@ function Laptop({ x, y, children }: { x: number; y: number; children?: ReactNode
   return (
     <g>
       <rect x={x} y={y} width={128} height={84} rx={6} fill="#fff" stroke={INK} strokeWidth={1.5} />
-      <path d={`M${x - 12} ${y + 88} h152 l-6 8 h-140 z`} fill="#fff" stroke={INK} strokeWidth={1.5} strokeLinejoin="round" />
+      <path
+        d={`M${x - 12} ${y + 88} h152 l-6 8 h-140 z`}
+        fill="#fff"
+        stroke={INK}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+      />
       {children}
     </g>
   );
@@ -74,13 +80,31 @@ function Phone({ x, y, children }: { x: number; y: number; children?: ReactNode 
   return (
     <g>
       <rect x={x} y={y} width={52} height={96} rx={10} fill="#fff" stroke={INK} strokeWidth={1.5} />
-      <line x1={x + 20} y1={y + 8} x2={x + 32} y2={y + 8} stroke={INK} strokeWidth={1.5} strokeLinecap="round" />
+      <line
+        x1={x + 20}
+        y1={y + 8}
+        x2={x + 32}
+        y2={y + 8}
+        stroke={INK}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
       {children}
     </g>
   );
 }
 
-function Label({ x, y, children, anchor = 'middle' }: { x: number; y: number; children: ReactNode; anchor?: 'start' | 'middle' | 'end' }) {
+function Label({
+  x,
+  y,
+  children,
+  anchor = 'middle',
+}: {
+  x: number;
+  y: number;
+  children: ReactNode;
+  anchor?: 'start' | 'middle' | 'end';
+}) {
   return (
     <text x={x} y={y} textAnchor={anchor} fontSize={11} fill={MUTED} fontFamily="inherit">
       {children}
@@ -194,7 +218,13 @@ function StorageScene() {
       </Label>
 
       {/* The pod */}
-      <path d="M300 82 h40 l10 10 h80 v84 h-130 z" fill="#fafafa" stroke={INK} strokeWidth={1.5} strokeLinejoin="round" />
+      <path
+        d="M300 82 h40 l10 10 h80 v84 h-130 z"
+        fill="#fafafa"
+        stroke={INK}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+      />
       <Label x={365} y={196}>
         Your pod, or the browser
       </Label>
@@ -234,7 +264,18 @@ function DevicesScene() {
       <Laptop x={48} y={60}>
         <Show t={[0, 0.4]}>
           {QR.flatMap((row, r) =>
-            row.map((on, c) => (on ? <rect key={`${r}-${c}`} x={94 + c * 7.5} y={82 + r * 7.5} width={6.5} height={6.5} fill={INK} /> : null)),
+            row.map((on, c) =>
+              on ? (
+                <rect
+                  key={`${r}-${c}`}
+                  x={94 + c * 7.5}
+                  y={82 + r * 7.5}
+                  width={6.5}
+                  height={6.5}
+                  fill={INK}
+                />
+              ) : null,
+            ),
           )}
         </Show>
         <Show t={[0.4, 0.95]}>
@@ -247,7 +288,12 @@ function DevicesScene() {
 
       <Phone x={362} y={54}>
         <g opacity={0}>
-          <animate attributeName="opacity" dur={`${LOOP}s`} repeatCount="indefinite" {...during([0.06, 0.34])} />
+          <animate
+            attributeName="opacity"
+            dur={`${LOOP}s`}
+            repeatCount="indefinite"
+            {...during([0.06, 0.34])}
+          />
           <line x1={370} x2={406} stroke={INK} strokeWidth={1.5}>
             <animate attributeName="y1" dur="1s" repeatCount="indefinite" values="72;132;72" />
             <animate attributeName="y2" dur="1s" repeatCount="indefinite" values="72;132;72" />
@@ -386,7 +432,13 @@ function SyncScene() {
       </Label>
 
       <g>
-        <animate attributeName="opacity" dur={`${LOOP}s`} repeatCount="indefinite" values="1;1;.25;.25;1;1" keyTimes="0;.42;.46;.76;.8;1" />
+        <animate
+          attributeName="opacity"
+          dur={`${LOOP}s`}
+          repeatCount="indefinite"
+          values="1;1;.25;.25;1;1"
+          keyTimes="0;.42;.46;.76;.8;1"
+        />
         <Phone x={408} y={46} />
         <Show t={[0.46, 0.76]}>
           <text x={434} y={100} textAnchor="middle" fontSize={11} fill={MUTED} fontFamily="inherit">
@@ -410,7 +462,12 @@ function SyncScene() {
         Neither can read it
       </Label>
 
-      <path d="M160 90 L196 56 M284 56 L408 90 M160 104 L180 170 M300 170 L408 104" stroke={LINE} strokeDasharray="4 4" fill="none" />
+      <path
+        d="M160 90 L196 56 M284 56 L408 90 M160 104 L180 170 M300 170 L408 104"
+        stroke={LINE}
+        strokeDasharray="4 4"
+        fill="none"
+      />
 
       {/* Awake: through the relay, straight to the phone */}
       <Move path="M150 90 L 240 48 L 420 90" t={[0.06, 0.36]}>
@@ -516,7 +573,9 @@ export function Walkthrough() {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const observer = new IntersectionObserver(([entry]) => setInView(entry?.isIntersecting ?? false), { threshold: 0.4 });
+    const observer = new IntersectionObserver(([entry]) => setInView(entry?.isIntersecting ?? false), {
+      threshold: 0.4,
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -525,8 +584,8 @@ export function Walkthrough() {
   const tabsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const tabs = tabsRef.current;
-    const tab = tabs?.children[index] as HTMLElement | undefined;
-    if (!tabs || !tab) return;
+    const tab = tabs?.children[index];
+    if (!tabs || !(tab instanceof HTMLElement)) return;
     tabs.scrollTo({ left: tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2, behavior: 'smooth' });
   }, [index]);
 
@@ -562,7 +621,9 @@ export function Walkthrough() {
       </div>
       <div className="walk-panel" id="walk-panel" role="tabpanel" aria-labelledby={`walk-tab-${index}`}>
         <div className="walk-text">
-          <div className="step-label">Step {index + 1} of {STEPS.length}</div>
+          <div className="step-label">
+            Step {index + 1} of {STEPS.length}
+          </div>
           <h3>{step.title}</h3>
           <p>{step.body}</p>
         </div>

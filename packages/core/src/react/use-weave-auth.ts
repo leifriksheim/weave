@@ -1,5 +1,6 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect } from 'react';
 import type { AuthState, WeaveAuth } from '../session/auth.js';
+import { useFollow } from './follow.js';
 
 /**
  * Follows a sign-in flow: re-renders on every change, and starts it.
@@ -12,5 +13,5 @@ export function useWeaveAuth(auth: WeaveAuth): AuthState {
   useEffect(() => {
     void auth.start();
   }, [auth]);
-  return useSyncExternalStore(auth.subscribe, auth.getState, auth.getState);
+  return useFollow(auth, () => auth.getState());
 }

@@ -14,6 +14,7 @@ import { createCryptoGate } from '../src/validation/crypto-gate.js';
 import { createStructuralGate } from '../src/validation/structural-gate.js';
 import { createCapabilityGate } from '../src/validation/capability-gate.js';
 import type { Expression, StandardSchemaV1 } from '../src/types.js';
+import { isRecord } from '../src/utils/guards.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -29,8 +30,7 @@ async function makeKey() {
   return { did, privateKey: pair.privateKey, publicKey: pair.publicKey };
 }
 
-const resolvePublicKey = async (did: string) =>
-  provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
+const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
 
 /** Signs a note, optionally carrying a delegation proof. */
 async function signNote(
@@ -54,14 +54,14 @@ describe('crypto gate', () => {
     const author = await makeKey();
     const expression = await signNote(author, 'hello');
 
-    const result = await gate.validate(expression as Expression, resolvePublicKey);
-    assert.equal(result.passed, true, result.reason);
+    const result = await gate.validate(expression, resolvePublicKey);
+    assert.equal(result.passed, true, result.reason ?? 'no reason given');
   });
 
   test('rejects a tampered body', async () => {
     const author = await makeKey();
     const expression = await signNote(author, 'hello');
-    const tampered = { ...expression, body: { text: 'goodbye' } } as Expression;
+    const tampered = { ...expression, body: { text: 'goodbye' } };
 
     const result = await gate.validate(tampered, resolvePublicKey);
     assert.equal(result.passed, false);
@@ -70,7 +70,7 @@ describe('crypto gate', () => {
   test('rejects an id that does not match the content', async () => {
     const author = await makeKey();
     const expression = await signNote(author, 'hello');
-    const relabelled = { ...expression, id: 'bafyfake' } as Expression;
+    const relabelled = { ...expression, id: 'bafyfake' };
 
     const result = await gate.validate(relabelled, resolvePublicKey);
     assert.equal(result.passed, false);
@@ -84,7 +84,7 @@ describe('crypto gate', () => {
     const unsigned = createExpression({ author: author.did, collection: COLLECTION, body: { text: 'hi' } });
     const forged = await signer.sign(unsigned, impostor.privateKey);
 
-    const result = await gate.validate(forged as Expression, resolvePublicKey);
+    const result = await gate.validate(forged, resolvePublicKey);
     assert.equal(result.passed, false);
   });
 });
@@ -95,8 +95,7 @@ describe('structural gate', () => {
       version: 1,
       vendor: 'test',
       validate(value: unknown) {
-        const v = value as { text?: unknown };
-        return typeof v?.text === 'string'
+        return isRecord(value) && typeof value.text === 'string'
           ? { value }
           : { issues: [{ message: 'text must be a string' }] };
       },
@@ -109,10 +108,10 @@ describe('structural gate', () => {
 
   test('rejects a body that does not match the collection schema', async () => {
     const author = await makeKey();
-    const expression = (await signNote(author, 'fine')) as Expression;
+    const expression = await signNote(author, 'fine');
     assert.equal((await gate.validate(expression)).passed, true);
 
-    const broken = { ...expression, body: { text: 42 } } as Expression;
+    const broken = { ...expression, body: { text: 42 } };
     const result = await gate.validate(broken);
     assert.equal(result.passed, false);
     assert.match(result.reason ?? '', /text must be a string/);
@@ -124,23 +123,20 @@ describe('capability gate', () => {
 
   test('accepts an author writing for itself', async () => {
     const author = await makeKey();
-    const expression = (await signNote(author, 'my own note')) as Expression;
+    const expression = await signNote(author, 'my own note');
 
     const result = await gate.validate(expression);
-    assert.equal(result.passed, true, result.reason);
+    assert.equal(result.passed, true, result.reason ?? 'no reason given');
   });
 
   test('accepts a delegated author carrying a valid proof', async () => {
     const root = await makeKey();
     const session = await makeKey();
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
 
-    const expression = (await signNote(session, 'delegated note', ucan.encoded)) as Expression;
+    const expression = await signNote(session, 'delegated note', ucan.encoded);
     const result = await gate.validate(expression);
-    assert.equal(result.passed, true, result.reason);
+    assert.equal(result.passed, true, result.reason ?? 'no reason given');
   });
 
   test('rejects a proof issued to a different key', async () => {
@@ -149,12 +145,9 @@ describe('capability gate', () => {
     const thief = await makeKey();
 
     // A perfectly valid UCAN — for somebody else.
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
 
-    const expression = (await signNote(thief, 'stolen proof', ucan.encoded)) as Expression;
+    const expression = await signNote(thief, 'stolen proof', ucan.encoded);
     const result = await gate.validate(expression);
     assert.equal(result.passed, false);
     assert.match(result.reason ?? '', /different key/i);
@@ -163,12 +156,9 @@ describe('capability gate', () => {
   test('rejects a proof that does not grant the required capability', async () => {
     const root = await makeKey();
     const session = await makeKey();
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [OTHER] },
-      provider,
-    );
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [OTHER] }, provider);
 
-    const expression = (await signNote(session, 'wrong space', ucan.encoded)) as Expression;
+    const expression = await signNote(session, 'wrong space', ucan.encoded);
     const result = await gate.validate(expression);
     assert.equal(result.passed, false);
     assert.match(result.reason ?? '', /does not grant/i);
@@ -187,7 +177,7 @@ describe('capability gate', () => {
       provider,
     );
 
-    const expression = (await signNote(session, 'stale', ucan.encoded)) as Expression;
+    const expression = await signNote(session, 'stale', ucan.encoded);
     const result = await gate.validate(expression);
     assert.equal(result.passed, false);
     assert.match(result.reason ?? '', /expired/i);
@@ -199,7 +189,13 @@ describe('capability gate', () => {
     const session = await makeKey();
     const now = Math.floor(Date.now() / 1000);
     const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL], notBefore: now - 10_800, expiration: now - 3600 },
+      {
+        issuer: root,
+        audience: session.did,
+        capabilities: [ALL],
+        notBefore: now - 10_800,
+        expiration: now - 3600,
+      },
       provider,
     );
 
@@ -211,9 +207,9 @@ describe('capability gate', () => {
       proof: ucan.encoded,
       createdAt: signedAt,
     });
-    const expression = (await signer.sign(unsigned, session.privateKey)) as Expression;
+    const expression = await signer.sign(unsigned, session.privateKey);
     const result = await gate.validate(expression);
-    assert.equal(result.passed, true, result.reason);
+    assert.equal(result.passed, true, result.reason ?? 'no reason given');
   });
 
   test('rejects a record dated before its delegation began', async () => {
@@ -230,7 +226,7 @@ describe('capability gate', () => {
       proof: ucan.encoded,
       createdAt: new Date((now - 86_400 * 365) * 1000).toISOString(),
     });
-    const expression = (await signer.sign(unsigned, session.privateKey)) as Expression;
+    const expression = await signer.sign(unsigned, session.privateKey);
     assert.equal((await gate.validate(expression)).passed, false);
   });
 
@@ -249,7 +245,7 @@ describe('capability gate', () => {
       proof: ucan.encoded,
       createdAt: new Date((now + 3600) * 1000).toISOString(),
     });
-    const result = await gate.validate((await signer.sign(unsigned, session.privateKey)) as Expression);
+    const result = await gate.validate(await signer.sign(unsigned, session.privateKey));
     assert.equal(result.passed, false);
     assert.match(result.reason ?? '', /future/);
   });
@@ -265,11 +261,8 @@ describe('capability gate', () => {
       isTrustedRoot: (did) => did === trusted.did,
     });
 
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
-    const expression = (await signNote(session, 'stranger', ucan.encoded)) as Expression;
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
+    const expression = await signNote(session, 'stranger', ucan.encoded);
 
     const result = await strictGate.validate(expression);
     assert.equal(result.passed, false);

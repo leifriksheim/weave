@@ -10,20 +10,21 @@
  * should fail loudly, not leave a quiet partial sync.
  */
 import type { Expression } from '../types.js';
+import { isObject } from '../utils/guards.js';
 
 export const SYNC_PROTOCOL_VERSION = 4;
 
 type V = { readonly v: typeof SYNC_PROTOCOL_VERSION };
 
 export type SyncMessage = V &
+  /**
+   * "Here is what I hold, and a fingerprint of each collection I keep."
+   * `holds` is `all`, or the collections held besides the space's own
+   * (`sys.*`), which every node holds. Two peers reconcile only what both
+   * hold. Equal fingerprints mean the same versions. `reply` marks the
+   * answer to one, so two peers don't answer each other forever.
+   */
   (
-    /**
-     * "Here is what I hold, and a fingerprint of each collection I keep."
-     * `holds` is `all`, or the collections held besides the space's own
-     * (`sys.*`), which every node holds. Two peers reconcile only what both
-     * hold. Equal fingerprints mean the same versions. `reply` marks the
-     * answer to one, so two peers don't answer each other forever.
-     */
     | {
         readonly type: 'hello';
         readonly holds?: 'all' | ReadonlyArray<string>;
@@ -34,7 +35,12 @@ export type SyncMessage = V &
      * One round of reconciling one collection: a Negentropy message, base64url.
      * `id` names the session; the answer comes back as `reconciled`.
      */
-    | { readonly type: 'reconcile'; readonly id: number; readonly collection: string; readonly message: string }
+    | {
+        readonly type: 'reconcile';
+        readonly id: number;
+        readonly collection: string;
+        readonly message: string;
+      }
     /** The answer to a round; `held: false` when the collection isn't held here, which ends the session */
     | { readonly type: 'reconciled'; readonly id: number; readonly message: string; readonly held?: false }
     /** "Send me these versions." `id` is echoed in the reply. */
@@ -62,7 +68,10 @@ export type SyncMessageBody = SyncMessage extends infer M ? (M extends V ? Omit<
  * @returns The message, or null when it is malformed or from another protocol version.
  */
 export function parseSyncMessage(value: unknown): SyncMessage | null {
-  const message = value as Partial<SyncMessage> | null;
-  if (!message || typeof message !== 'object' || message.v !== SYNC_PROTOCOL_VERSION || typeof message.type !== 'string') return null;
-  return message as SyncMessage;
+  return isSyncMessage(value) ? value : null;
+}
+
+/** Only the version and that there is a type: the engine checks each field as it reads it. */
+function isSyncMessage(value: unknown): value is SyncMessage {
+  return isObject(value) && value.v === SYNC_PROTOCOL_VERSION && typeof value.type === 'string';
 }

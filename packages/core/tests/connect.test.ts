@@ -6,7 +6,14 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createWeaveAuth, type WeaveAuth } from '../src/session/auth.js';
-import { homeAddress, startConnectedNode, type AppKey, type ConnectRequest, type Grant, type ProposeRequest } from '../src/session/connect.js';
+import {
+  homeAddress,
+  startConnectedNode,
+  type AppKey,
+  type ConnectRequest,
+  type Grant,
+  type ProposeRequest,
+} from '../src/session/connect.js';
 import { createFolderAccountStore } from '../src/identity/account-store.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
@@ -19,6 +26,7 @@ import { team } from '../src/space/presets.js';
 import { parseSpaceInvite } from '../src/space/space-manager.js';
 import { hold } from './helpers/hold.js';
 import { joined } from './helpers/joined.js';
+import { isRecord } from '../src/utils/guards.js';
 import { createNode } from '../src/node/node.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
@@ -46,7 +54,11 @@ async function home(hub: FakeHub): Promise<WeaveAuth> {
   const values = new Map<string, string>([['weave.stay-signed-in', '"never"']]);
   const auth = createWeaveAuth({
     rpId: 'home.test',
-    storage: { getItem: (k) => values.get(k) ?? null, setItem: (k, v) => void values.set(k, v), removeItem: (k) => void values.delete(k) },
+    storage: {
+      getItem: (k) => values.get(k) ?? null,
+      setItem: (k, v) => void values.set(k, v),
+      removeItem: (k) => void values.delete(k),
+    },
     browser: { accounts: async () => accounts, stores: () => stores },
     network: { transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)] },
   });
@@ -93,7 +105,10 @@ describe('connecting an app to an account home', () => {
     assert.equal(payload.iss, auth.getState().session!.did);
     assert.equal(payload.aud, key.did);
     assert.deepEqual(payload.att, [{ with: `space:${groceries.id}`, can: 'expression/*' }]);
-    assert.deepEqual(grant.spaces.map((space) => space.name), ['Groceries']);
+    assert.deepEqual(
+      grant.spaces.map((space) => space.name),
+      ['Groceries'],
+    );
     assert.equal(auth.connections()[0]?.origin, 'https://todo.test');
   });
 
@@ -115,7 +130,11 @@ describe('connecting an app to an account home', () => {
 
     const milk = await todo.records.put(groceries.id, 'app.todo.item', { text: 'milk' });
     await hold(homeNode, groceries.id);
-    await until(async () => (await homeNode.records.get(groceries.id, milk.key)) !== null, 3000, 'the record to reach the home');
+    await until(
+      async () => (await homeNode.records.get(groceries.id, milk.key)) !== null,
+      3000,
+      'the record to reach the home',
+    );
     const seen = await homeNode.records.get(groceries.id, milk.key);
     assert.equal(seen?.verified, true);
     assert.equal(seen?.root, did);
@@ -131,21 +150,31 @@ describe('connecting an app to an account home', () => {
     const key = await appKey();
     const grant = await auth.grant({
       origin: 'https://todo.test',
-      request: { v: 1, audience: key.did, access: 'write', create: [{ name: 'Todos', visibility: 'private' }] },
+      request: {
+        v: 1,
+        audience: key.did,
+        access: 'write',
+        create: [{ name: 'Todos', visibility: 'private' }],
+      },
       spaceIds: [],
     });
     assert.equal(grant.spaces[0]?.name, 'Todos');
     const listed = await auth.getState().session!.node.spaces.list();
-    assert.ok(listed.some((space) => space.id === grant.spaces[0]?.id), 'the account holds it');
+    assert.ok(
+      listed.some((space) => space.id === grant.spaces[0]?.id),
+      'the account holds it',
+    );
 
     const todo = await app(hub, grant, key);
-    await todo.records.put(grant.spaces[0]!.id, 'app.todo.item', { text: 'first' });
+    await todo.records.put(grant.spaces[0].id, 'app.todo.item', { text: 'first' });
   });
 
   test('read access carries no write: the app cannot change a thing', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
-    const shared = await auth.getState().session!.node.spaces.create({ name: 'Team', ...team, visibility: 'private' });
+    const shared = await auth
+      .getState()
+      .session!.node.spaces.create({ name: 'Team', ...team, visibility: 'private' });
     const key = await appKey();
     const grant = await auth.grant({
       origin: 'https://viewer.test',
@@ -172,12 +201,20 @@ describe('connecting an app to an account home', () => {
     assert.deepEqual(parseUCAN(grant.token).payload.att, [{ with: '*', can: 'expression/*' }]);
 
     const browser = await app(hub, grant, key);
-    await until(async () => (await browser.spaces.list()).some((space) => space.id === diary.id), 3000, 'the account list to reach the app');
+    await until(
+      async () => (await browser.spaces.list()).some((space) => space.id === diary.id),
+      3000,
+      'the account list to reach the app',
+    );
     await browser.records.put(diary.id, 'app.note', { text: 'dear diary' });
 
     const made = await browser.spaces.create({ name: 'Made by the app', visibility: 'private' });
     await browser.records.put(made.id, 'app.note', { text: 'mine' });
-    await until(async () => (await homeNode.spaces.list()).some((space) => space.id === made.id), 3000, 'the new space to reach the home');
+    await until(
+      async () => (await homeNode.spaces.list()).some((space) => space.id === made.id),
+      3000,
+      'the new space to reach the home',
+    );
     assert.equal(auth.connections()[0]?.scope, 'account');
   });
 
@@ -185,7 +222,11 @@ describe('connecting an app to an account home', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
     const key = await appKey();
-    await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'read' }, spaceIds: [] });
+    await auth.grant({
+      origin: 'https://todo.test',
+      request: { v: 1, audience: key.did, access: 'read' },
+      spaceIds: [],
+    });
     await auth.disconnect('https://todo.test');
     assert.deepEqual(auth.connections(), []);
   });
@@ -196,7 +237,11 @@ describe('connecting an app to an account home', () => {
     const { node: homeNode } = auth.getState().session!;
     const shared = await homeNode.spaces.create({ name: 'Team', ...team, visibility: 'private' });
     const key = await appKey();
-    const grant = await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'write' }, spaceIds: [shared.id] });
+    const grant = await auth.grant({
+      origin: 'https://todo.test',
+      request: { v: 1, audience: key.did, access: 'write' },
+      spaceIds: [shared.id],
+    });
     // The app holds no secret of the space's: what lets it write is the note alone.
     assert.equal(parseSpaceInvite(grant.spaces[0]!.invite).invite, undefined);
 
@@ -205,12 +250,20 @@ describe('connecting an app to an account home', () => {
     todo.subscribe((event) => event.type === 'revoked' && told.push(event.space));
     const before = await todo.records.put(shared.id, 'app.todo.item', { text: 'before' });
     await hold(homeNode, shared.id);
-    await until(async () => (await homeNode.records.get(shared.id, before.key)) !== null, 3000, 'the app’s record to reach the home');
+    await until(
+      async () => (await homeNode.records.get(shared.id, before.key)) !== null,
+      3000,
+      'the app’s record to reach the home',
+    );
 
     await auth.disconnect('https://todo.test');
     assert.deepEqual(auth.connections(), []);
     await until(
-      async () => todo.records.put(shared.id, 'app.todo.item', { text: 'after' }).then(() => false, (error: Error) => /revoked/.test(error.message)),
+      async () =>
+        todo.records.put(shared.id, 'app.todo.item', { text: 'after' }).then(
+          () => false,
+          (error: Error) => /revoked/.test(error.message),
+        ),
       3000,
       'the revoke to reach the app',
     );
@@ -230,13 +283,25 @@ describe('connecting an app to an account home', () => {
       spaceIds: [],
     });
     const browser = await app(hub, grant, key);
-    await until(async () => (await browser.account.profile())?.name === 'Ada', 3000, 'the account to reach the app');
+    await until(
+      async () => (await browser.account.profile())?.name === 'Ada',
+      3000,
+      'the account to reach the app',
+    );
     await browser.account.setName('Ada L');
-    await until(async () => (await homeNode.account.profile())?.name === 'Ada L', 3000, 'the rename to reach the home');
+    await until(
+      async () => (await homeNode.account.profile())?.name === 'Ada L',
+      3000,
+      'the rename to reach the home',
+    );
 
     await auth.disconnect('https://browser.test');
     await until(
-      async () => browser.account.setName('Not Ada').then(() => false, (error: Error) => /revoked/.test(error.message)),
+      async () =>
+        browser.account.setName('Not Ada').then(
+          () => false,
+          (error: Error) => /revoked/.test(error.message),
+        ),
       3000,
       'the revoke to reach the app',
     );
@@ -268,7 +333,11 @@ describe('giving an app the contacts', () => {
     await hold(homeNode, club.id);
     await joined(bob, club.id);
     await hold(bob, club.id);
-    await until(async () => (await bob.spaces.profiles(club.id)).some((p) => p.did === homeNode.did && p.contactKey), 5000, 'the account’s contact key');
+    await until(
+      async () => (await bob.spaces.profiles(club.id)).some((p) => p.did === homeNode.did && p.contactKey),
+      5000,
+      'the account’s contact key',
+    );
     await bob.contacts.ask(club.id, homeNode.did);
     await homeNode.contacts.put({ did: bob.did, name: 'Bob from book club' });
 
@@ -285,7 +354,10 @@ describe('giving an app the contacts', () => {
 
     const people = await app(hub, grant, key);
     assert.equal(await people.contacts.space(), contactsSpace);
-    assert.deepEqual((await people.spaces.list()).map((space) => space.name), ['Book club']);
+    assert.deepEqual(
+      (await people.spaces.list()).map((space) => space.name),
+      ['Book club'],
+    );
     assert.equal(await people.account.profile(), null, 'no account registry');
 
     await hold(homeNode, contactsSpace!);
@@ -295,7 +367,10 @@ describe('giving an app the contacts', () => {
     await until(async () => (await people.contacts.requests(club.id)).length === 1, 5000, 'Bob’s request');
     assert.equal((await people.contacts.requests(club.id))[0]!.from, bob.did);
     // Accepting joins a new space, which needs the whole account.
-    await assert.rejects(people.contacts.accept(club.id, (await people.contacts.requests(club.id))[0]!.key), /whole account/);
+    await assert.rejects(
+      people.contacts.accept(club.id, (await people.contacts.requests(club.id))[0]!.key),
+      /whole account/,
+    );
   });
 
   test('an app not given them has no contact key, and cannot open requests', async () => {
@@ -304,7 +379,11 @@ describe('giving an app the contacts', () => {
     const { node: homeNode } = auth.getState().session!;
     const club = await homeNode.spaces.create({ name: 'Book club', visibility: 'private' });
     const key = await appKey();
-    const grant = await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'write' }, spaceIds: [club.id] });
+    const grant = await auth.grant({
+      origin: 'https://todo.test',
+      request: { v: 1, audience: key.did, access: 'write' },
+      spaceIds: [club.id],
+    });
     assert.equal(grant.contactKey, undefined);
     assert.equal(grant.contactsSpace, undefined);
     const todo = await app(hub, grant, key);
@@ -330,22 +409,33 @@ describe('an account home typed by a person', () => {
     assert.throws(() => homeAddress('not a url at all'), /not a web address/);
   });
 
-  test('the grant carries the home\'s relays', async () => {
+  test("the grant carries the home's relays", async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const accounts = createFolderAccountStore(createMemoryDirectory().handle);
     const stores = memoryStores();
     const values = new Map<string, string>([['weave.stay-signed-in', '"never"']]);
     const auth = createWeaveAuth({
       rpId: 'home.test',
-      storage: { getItem: (k) => values.get(k) ?? null, setItem: (k, v) => void values.set(k, v), removeItem: (k) => void values.delete(k) },
+      storage: {
+        getItem: (k) => values.get(k) ?? null,
+        setItem: (k, v) => void values.set(k, v),
+        removeItem: (k) => void values.delete(k),
+      },
       browser: { accounts: async () => accounts, stores: () => stores },
-      network: { relays: ['wss://relay.of-the-home.test'], transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)] },
+      network: {
+        relays: ['wss://relay.of-the-home.test'],
+        transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)],
+      },
     });
     await auth.start();
     await auth.createAccount('Ada');
     cleanup.push(() => auth.signOut());
     const key = await appKey();
-    const grant = await auth.grant({ origin: 'https://todo.test', request: { v: 1, audience: key.did, access: 'read' }, spaceIds: [] });
+    const grant = await auth.grant({
+      origin: 'https://todo.test',
+      request: { v: 1, audience: key.did, access: 'read' },
+      spaceIds: [],
+    });
     assert.deepEqual(grant.relays, ['wss://relay.of-the-home.test']);
   });
 });
@@ -370,9 +460,15 @@ describe('connecting a carrier to an account home', () => {
     assert.equal(carry.invite, undefined, 'view-only');
     assert.equal(grant.pod, null, 'this account lives in the browser');
 
-    assert.deepEqual((await node.carriers.list()).map((carrier) => carrier.did), [key.did]);
+    assert.deepEqual(
+      (await node.carriers.list()).map((carrier) => carrier.did),
+      [key.did],
+    );
     assert.equal(auth.connections()[0]?.access, 'carry');
-    await assert.rejects(() => auth.grant({ origin: 'chrome-extension://abcdef', request, spaceIds: [] }), /grantCarry/);
+    await assert.rejects(
+      () => auth.grant({ origin: 'chrome-extension://abcdef', request, spaceIds: [] }),
+      /grantCarry/,
+    );
 
     await auth.disconnect('chrome-extension://abcdef');
     assert.deepEqual(await node.carriers.list(), []);
@@ -383,18 +479,34 @@ describe('connecting a carrier to an account home', () => {
 describe('an app proposing subscriptions', () => {
   const proposals: ConnectRequest['notify'] = [
     { label: 'Mentioned in chat', collection: 'app.chat.message', topic: { field: 'mentions', me: true } },
-    { label: 'Every new message', collection: 'app.chat.message', others: false, open: 'https://chat.test/inbox' },
+    {
+      label: 'Every new message',
+      collection: 'app.chat.message',
+      others: false,
+      open: 'https://chat.test/inbox',
+    },
   ];
 
-  test('the ones the person says yes to become the account\'s, naming the app, looking at the spaces it was given', async () => {
+  test("the ones the person says yes to become the account's, naming the app, looking at the spaces it was given", async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
     const { node, did } = auth.getState().session!;
     const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
     const key = await appKey();
-    const request: ConnectRequest = { v: 1, audience: key.did, name: 'Chat', access: 'write', notify: proposals };
+    const request: ConnectRequest = {
+      v: 1,
+      audience: key.did,
+      name: 'Chat',
+      access: 'write',
+      notify: proposals,
+    };
 
-    const grant = await auth.grant({ origin: 'https://chat.test', request, spaceIds: [club.id], notify: [0] });
+    const grant = await auth.grant({
+      origin: 'https://chat.test',
+      request,
+      spaceIds: [club.id],
+      notify: [0],
+    });
 
     const subs = await node.notifications.list();
     assert.equal(subs.length, 1, 'only the one said yes to');
@@ -406,17 +518,41 @@ describe('an app proposing subscriptions', () => {
 
     // Connecting again, saying yes to both: the first is not made twice.
     await auth.grant({ origin: 'https://chat.test', request, spaceIds: [club.id] });
-    assert.deepEqual((await node.notifications.list()).map((sub) => sub.label).sort(), ['Every new message', 'Mentioned in chat']);
+    assert.deepEqual((await node.notifications.list()).map((sub) => sub.label).sort(), [
+      'Every new message',
+      'Mentioned in chat',
+    ]);
   });
 
-  test('a whole-account app\'s look at every space; an agent\'s are not made', async () => {
+  test("a whole-account app's look at every space; an agent's are not made", async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
     const { node } = auth.getState().session!;
-    await auth.grant({ origin: 'https://chat.test', request: { v: 1, audience: (await appKey()).did, access: 'write', scope: 'account', notify: proposals.slice(0, 1) }, spaceIds: [] });
+    await auth.grant({
+      origin: 'https://chat.test',
+      request: {
+        v: 1,
+        audience: (await appKey()).did,
+        access: 'write',
+        scope: 'account',
+        notify: proposals.slice(0, 1),
+      },
+      spaceIds: [],
+    });
     assert.equal((await node.notifications.list())[0]?.spaces, 'all');
 
-    await auth.grant({ origin: 'https://other.test', request: { v: 1, audience: (await appKey()).did, access: 'write', scope: 'account', agent: true, notify: proposals.slice(1) }, spaceIds: [] });
+    await auth.grant({
+      origin: 'https://other.test',
+      request: {
+        v: 1,
+        audience: (await appKey()).did,
+        access: 'write',
+        scope: 'account',
+        agent: true,
+        notify: proposals.slice(1),
+      },
+      spaceIds: [],
+    });
     assert.equal((await node.notifications.list()).length, 1);
   });
 
@@ -433,24 +569,42 @@ describe('an app proposing subscriptions', () => {
       create: [{ name: 'Chat', visibility: 'private' }],
       notify: [{ label: 'In Work', collection: 'app.chat.message', spaces: [work.id] }],
     };
-    await assert.rejects(() => auth.grant({ origin: 'https://chat.test', request, spaceIds: [club.id] }), /not given/);
-    assert.deepEqual((await node.spaces.list()).map((space) => space.name).sort(), ['Club', 'Work'], 'no space made');
+    await assert.rejects(
+      () => auth.grant({ origin: 'https://chat.test', request, spaceIds: [club.id] }),
+      /not given/,
+    );
+    assert.deepEqual(
+      (await node.spaces.list()).map((space) => space.name).sort(),
+      ['Club', 'Work'],
+      'no space made',
+    );
     assert.deepEqual(auth.connections(), []);
 
     await auth.grant({ origin: 'https://chat.test', request, spaceIds: [club.id, work.id] });
-    assert.deepEqual((await node.notifications.list())[0]?.spaces, [work.id], 'given Work, it looks only there');
+    assert.deepEqual(
+      (await node.notifications.list())[0]?.spaces,
+      [work.id],
+      'given Work, it looks only there',
+    );
   });
 
-  test('disconnecting the app removes its subscriptions, and leaves the person\'s own', async () => {
+  test("disconnecting the app removes its subscriptions, and leaves the person's own", async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
     const { node } = auth.getState().session!;
     await node.notifications.add({ label: 'My own', collection: 'app.todo.item', spaces: 'all' });
-    await auth.grant({ origin: 'https://chat.test', request: { v: 1, audience: (await appKey()).did, access: 'write', scope: 'account', notify: proposals }, spaceIds: [] });
+    await auth.grant({
+      origin: 'https://chat.test',
+      request: { v: 1, audience: (await appKey()).did, access: 'write', scope: 'account', notify: proposals },
+      spaceIds: [],
+    });
     assert.equal((await node.notifications.list()).length, 3);
 
     await auth.disconnect('https://chat.test');
-    assert.deepEqual((await node.notifications.list()).map((sub) => sub.label), ['My own']);
+    assert.deepEqual(
+      (await node.notifications.list()).map((sub) => sub.label),
+      ['My own'],
+    );
   });
 });
 
@@ -458,13 +612,17 @@ describe('proposing subscriptions later', () => {
   const EXTENSION = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
   const propose = (notify: ProposeRequest['notify']): ProposeRequest => ({ v: 1, kind: 'propose', notify });
 
-  test('a connected app\'s kept proposals become the account\'s, looking at the spaces it was given, or some of them', async () => {
+  test("a connected app's kept proposals become the account's, looking at the spaces it was given, or some of them", async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);
     const { node } = auth.getState().session!;
     const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
     const work = await node.spaces.create({ name: 'Work', visibility: 'private' });
-    await auth.grant({ origin: 'https://chat.test', request: { v: 1, audience: (await appKey()).did, name: 'Chat', access: 'write' }, spaceIds: [club.id, work.id] });
+    await auth.grant({
+      origin: 'https://chat.test',
+      request: { v: 1, audience: (await appKey()).did, name: 'Chat', access: 'write' },
+      spaceIds: [club.id, work.id],
+    });
 
     const request = propose([
       { label: 'New message', collection: 'app.chat.message' },
@@ -476,8 +634,16 @@ describe('proposing subscriptions later', () => {
     const subs = await node.notifications.list();
     assert.equal(answer.kind, 'proposed');
     assert.deepEqual(answer.notify.map((sub) => sub.label).sort(), ['New message', 'New message in Club']);
-    assert.deepEqual(subs.find((sub) => sub.label === 'New message')?.spaces, [club.id, work.id], 'the grant\'s spaces');
-    assert.deepEqual(subs.find((sub) => sub.label === 'New message in Club')?.spaces, [club.id], 'or the ones it named');
+    assert.deepEqual(
+      subs.find((sub) => sub.label === 'New message')?.spaces,
+      [club.id, work.id],
+      "the grant's spaces",
+    );
+    assert.deepEqual(
+      subs.find((sub) => sub.label === 'New message in Club')?.spaces,
+      [club.id],
+      'or the ones it named',
+    );
     assert.deepEqual(subs[0]!.app, { origin: 'https://chat.test', name: 'Chat' });
 
     // Proposing again adds nothing twice.
@@ -491,9 +657,20 @@ describe('proposing subscriptions later', () => {
     const { node } = auth.getState().session!;
     const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
     const work = await node.spaces.create({ name: 'Work', visibility: 'private' });
-    await auth.grant({ origin: 'https://chat.test', request: { v: 1, audience: (await appKey()).did, access: 'write' }, spaceIds: [club.id] });
+    await auth.grant({
+      origin: 'https://chat.test',
+      request: { v: 1, audience: (await appKey()).did, access: 'write' },
+      spaceIds: [club.id],
+    });
 
-    await assert.rejects(() => auth.propose({ origin: 'https://stranger.test', request: propose([{ label: 'New', collection: 'app.chat.message' }]) }), /Connect it first/);
+    await assert.rejects(
+      () =>
+        auth.propose({
+          origin: 'https://stranger.test',
+          request: propose([{ label: 'New', collection: 'app.chat.message' }]),
+        }),
+      /Connect it first/,
+    );
     await assert.rejects(
       () =>
         auth.propose({
@@ -513,10 +690,23 @@ describe('proposing subscriptions later', () => {
     const auth = await home(hub);
     const { node, did } = auth.getState().session!;
     const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
-    await auth.grantCarry({ origin: EXTENSION, request: { v: 1, audience: (await appKey()).did, name: 'Weave for Chrome', access: 'carry' } });
+    await auth.grantCarry({
+      origin: EXTENSION,
+      request: { v: 1, audience: (await appKey()).did, name: 'Weave for Chrome', access: 'carry' },
+    });
 
     await assert.rejects(
-      () => auth.propose({ origin: EXTENSION, request: propose([{ label: 'Tagged design', collection: 'app.chat.message', topic: { field: 'channel', value: 'design' } }]) }),
+      () =>
+        auth.propose({
+          origin: EXTENSION,
+          request: propose([
+            {
+              label: 'Tagged design',
+              collection: 'app.chat.message',
+              topic: { field: 'channel', value: 'design' },
+            },
+          ]),
+        }),
       /mentions me/,
     );
     await auth.propose({
@@ -529,7 +719,11 @@ describe('proposing subscriptions later', () => {
     const subs = await node.notifications.list();
     assert.equal(subs.length, 2);
     assert.deepEqual(subs.find((sub) => sub.label === 'Mentioned')?.topic, { field: 'mentions', value: did });
-    assert.equal(subs.find((sub) => sub.label === 'Mentioned')?.spaces, 'all', 'a carrier reaches every space');
+    assert.equal(
+      subs.find((sub) => sub.label === 'Mentioned')?.spaces,
+      'all',
+      'a carrier reaches every space',
+    );
     assert.deepEqual(subs[0]!.app, { origin: EXTENSION, name: 'Weave for Chrome' });
     assert.equal(subs[0]!.open, undefined, 'a click can only go to the home, not into the extension');
 
@@ -539,23 +733,45 @@ describe('proposing subscriptions later', () => {
 });
 
 describe('the home receiving a request', () => {
+  /** The fields of a message event the home reads */
+  type PageMessage = { source: unknown; data: unknown; origin: string };
+
+  const isDenied = (message: unknown) => isRecord(message) && message.type === 'weave:denied';
+
   /** Stands in for the popup's window: an opener, and the page's message events. */
   function popupWindow() {
     const sent: Array<{ message: unknown; origin: string }> = [];
-    const listeners = new Set<(event: MessageEvent) => void>();
+    const listeners = new Set<(event: PageMessage) => void>();
     const opener = { postMessage: (message: unknown, origin: string) => sent.push({ message, origin }) };
-    const g = globalThis as Record<string, unknown>;
-    const saved = { opener: g.opener, add: g.addEventListener, remove: g.removeEventListener, close: g.close };
+    const g: {
+      opener?: unknown;
+      addEventListener?: unknown;
+      removeEventListener?: unknown;
+      close?: unknown;
+    } = globalThis;
+    const saved = {
+      opener: g.opener,
+      add: g.addEventListener,
+      remove: g.removeEventListener,
+      close: g.close,
+    };
     g.opener = opener;
-    g.addEventListener = (_type: string, listener: (event: MessageEvent) => void) => listeners.add(listener);
-    g.removeEventListener = (_type: string, listener: (event: MessageEvent) => void) => listeners.delete(listener);
+    g.addEventListener = (_type: string, listener: (event: PageMessage) => void) => listeners.add(listener);
+    g.removeEventListener = (_type: string, listener: (event: PageMessage) => void) =>
+      listeners.delete(listener);
     g.close = () => {};
     return {
       sent,
       send: (data: unknown, origin = 'https://app.test') => {
-        for (const listener of [...listeners]) listener({ source: opener, data, origin } as unknown as MessageEvent);
+        for (const listener of [...listeners]) listener({ source: opener, data, origin });
       },
-      restore: () => Object.assign(g, { opener: saved.opener, addEventListener: saved.add, removeEventListener: saved.remove, close: saved.close }),
+      restore: () =>
+        Object.assign(g, {
+          opener: saved.opener,
+          addEventListener: saved.add,
+          removeEventListener: saved.remove,
+          close: saved.close,
+        }),
     };
   }
 
@@ -564,12 +780,16 @@ describe('the home receiving a request', () => {
     try {
       const { receiveConnectRequest } = await import('../src/session/connect.js');
       const received = receiveConnectRequest(1000);
-      popup.send({ type: 'weave:request', request: { v: 1, audience: 'did:key:zApp', access: 'something-new' } });
+      popup.send({
+        type: 'weave:request',
+        request: { v: 1, audience: 'did:key:zApp', access: 'something-new' },
+      });
       assert.equal(await received, null);
-      const denied = popup.sent.find((m) => (m.message as { type?: string }).type === 'weave:denied');
+      const denied = popup.sent.find((m) => isDenied(m.message));
       assert.ok(denied, 'the app is told');
       assert.equal(denied.origin, 'https://app.test', 'and only the app that asked');
-      assert.match((denied.message as { reason: string }).reason, /did not understand/);
+      assert.ok(isRecord(denied.message) && typeof denied.message.reason === 'string');
+      assert.match(denied.message.reason, /did not understand/);
       await new Promise((resolve) => setTimeout(resolve, 150)); // the window closes itself a moment later
     } finally {
       popup.restore();
@@ -579,9 +799,25 @@ describe('the home receiving a request', () => {
   test('a proposed subscription whose click leads to another site, or one from an agent, is refused', async () => {
     const { receiveConnectRequest } = await import('../src/session/connect.js');
     const asked = [
-      { v: 1, audience: 'did:key:zApp', access: 'write', notify: [{ label: 'New', collection: 'app.chat.message', open: 'https://elsewhere.test/' }] },
-      { v: 1, audience: 'did:key:zApp', access: 'write', agent: true, notify: [{ label: 'New', collection: 'app.chat.message' }] },
-      { v: 1, audience: 'did:key:zApp', access: 'write', notify: [{ label: 'New', collection: 'sys.notify' }] },
+      {
+        v: 1,
+        audience: 'did:key:zApp',
+        access: 'write',
+        notify: [{ label: 'New', collection: 'app.chat.message', open: 'https://elsewhere.test/' }],
+      },
+      {
+        v: 1,
+        audience: 'did:key:zApp',
+        access: 'write',
+        agent: true,
+        notify: [{ label: 'New', collection: 'app.chat.message' }],
+      },
+      {
+        v: 1,
+        audience: 'did:key:zApp',
+        access: 'write',
+        notify: [{ label: 'New', collection: 'sys.notify' }],
+      },
     ];
     for (const request of asked) {
       const popup = popupWindow();
@@ -589,7 +825,7 @@ describe('the home receiving a request', () => {
         const received = receiveConnectRequest(1000);
         popup.send({ type: 'weave:request', request });
         assert.equal(await received, null);
-        assert.ok(popup.sent.some((m) => (m.message as { type?: string }).type === 'weave:denied'));
+        assert.ok(popup.sent.some((m) => isDenied(m.message)));
         await new Promise((resolve) => setTimeout(resolve, 150));
       } finally {
         popup.restore();
@@ -598,7 +834,15 @@ describe('the home receiving a request', () => {
     const popup = popupWindow();
     try {
       const received = receiveConnectRequest(1000);
-      popup.send({ type: 'weave:request', request: { v: 1, audience: 'did:key:zApp', access: 'write', notify: [{ label: 'New', collection: 'app.chat.message', open: 'https://app.test/inbox' }] } });
+      popup.send({
+        type: 'weave:request',
+        request: {
+          v: 1,
+          audience: 'did:key:zApp',
+          access: 'write',
+          notify: [{ label: 'New', collection: 'app.chat.message', open: 'https://app.test/inbox' }],
+        },
+      });
       assert.equal((await received)?.request.notify?.length, 1, 'one leading back to the app is read');
     } finally {
       popup.restore();
@@ -608,11 +852,18 @@ describe('the home receiving a request', () => {
   test('a carry request is read', async () => {
     const popup = popupWindow();
     try {
-      const { receiveConnectRequest } = await import('../src/session/connect.js');
+      const { receiveConnectRequest, isProposeRequest } = await import('../src/session/connect.js');
       const received = receiveConnectRequest(1000);
-      popup.send({ type: 'weave:request', request: { v: 1, audience: 'did:key:zCarrier', access: 'carry', name: 'Weave for Chrome' } }, 'chrome-extension://abc');
+      popup.send(
+        {
+          type: 'weave:request',
+          request: { v: 1, audience: 'did:key:zCarrier', access: 'carry', name: 'Weave for Chrome' },
+        },
+        'chrome-extension://abc',
+      );
       const incoming = await received;
-      assert.equal(incoming?.request.access, 'carry');
+      assert.ok(incoming && !isProposeRequest(incoming.request));
+      assert.equal(incoming.request.access, 'carry');
       assert.equal(incoming?.origin, 'chrome-extension://abc');
     } finally {
       popup.restore();
@@ -632,7 +883,7 @@ describe('the home receiving a request', () => {
         const received = receiveConnectRequest(1000);
         popup.send({ type: 'weave:request', request }, origin);
         assert.equal(await received, null);
-        assert.ok(popup.sent.some((m) => (m.message as { type?: string }).type === 'weave:denied'));
+        assert.ok(popup.sent.some((m) => isDenied(m.message)));
         await new Promise((resolve) => setTimeout(resolve, 150));
       } finally {
         popup.restore();
@@ -641,7 +892,17 @@ describe('the home receiving a request', () => {
     const popup = popupWindow();
     try {
       const received = receiveConnectRequest(1000);
-      popup.send({ type: 'weave:request', request: { v: 1, kind: 'propose', notify: [{ label: 'New', collection: 'app.chat.message', spaces: ['s1'] }] } }, origin);
+      popup.send(
+        {
+          type: 'weave:request',
+          request: {
+            v: 1,
+            kind: 'propose',
+            notify: [{ label: 'New', collection: 'app.chat.message', spaces: ['s1'] }],
+          },
+        },
+        origin,
+      );
       const incoming = await received;
       assert.ok(incoming && isProposeRequest(incoming.request));
       assert.equal(incoming.origin, origin);

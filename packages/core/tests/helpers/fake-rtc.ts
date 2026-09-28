@@ -7,7 +7,7 @@
 let nextId = 0;
 const id = (prefix: string) => `${prefix}-${++nextId}`;
 
-export class FakeTrack {
+class FakeTrack {
   readonly id = id('track');
   enabled = true;
   stopped = false;
@@ -37,7 +37,7 @@ class FakeTransceiver {
 /** Offers waiting for their answer, by the token in their SDP */
 const offers = new Map<string, FakeConnection>();
 
-export class FakeConnection {
+class FakeConnection {
   connectionState: RTCPeerConnectionState = 'new';
   onicecandidate: ((event: { candidate: { toJSON(): RTCIceCandidateInit } | null }) => void) | null = null;
   ontrack: ((event: { track: FakeTrack }) => void) | null = null;
@@ -63,7 +63,10 @@ export class FakeConnection {
   async createOffer(): Promise<RTCSessionDescriptionInit> {
     const token = id('offer');
     offers.set(token, this);
-    return { type: 'offer', sdp: `${token}|${this.transceivers.map((t) => t.receiver.track.kind).join(',')}` };
+    return {
+      type: 'offer',
+      sdp: `${token}|${this.transceivers.map((t) => t.receiver.track.kind).join(',')}`,
+    };
   }
 
   async createAnswer(): Promise<RTCSessionDescriptionInit> {
@@ -73,14 +76,18 @@ export class FakeConnection {
   private remoteToken = '';
 
   async setLocalDescription(_description: RTCSessionDescriptionInit) {
-    setTimeout(() => this.onicecandidate?.({ candidate: { toJSON: () => ({ candidate: id('candidate') }) } }), 1);
+    setTimeout(
+      () => this.onicecandidate?.({ candidate: { toJSON: () => ({ candidate: id('candidate') }) } }),
+      1,
+    );
   }
 
   async setRemoteDescription(description: RTCSessionDescriptionInit) {
     const [first, rest] = String(description.sdp).split('|');
     if (description.type === 'offer') {
       this.remoteToken = first!;
-      for (const kind of (rest ?? '').split(',').filter(Boolean)) this.transceivers.push(new FakeTransceiver(kind as 'audio' | 'video', null));
+      for (const kind of (rest ?? '').split(','))
+        if (kind === 'audio' || kind === 'video') this.transceivers.push(new FakeTransceiver(kind, null));
       return;
     }
     // An answer: the offer it answers names who we're now connected to.
@@ -112,23 +119,42 @@ export class FakeConnection {
 
 const connections = new Set<FakeConnection>();
 
+// The fakes implement only the members the calls code reaches, so where they
+// pass for the browser's own objects is where the type system has to be told.
+
 export function fakeConnection(config: RTCConfiguration): RTCPeerConnection {
   const connection = new FakeConnection(config);
   connections.add(connection);
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a fake with only the members the calls code reaches
   return connection as unknown as RTCPeerConnection;
+}
+
+function asTracks(tracks: FakeTrack[]): MediaStreamTrack[] {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- fakes with only the members the calls code reaches
+  return tracks as unknown as MediaStreamTrack[];
 }
 
 /** A camera and microphone that always say yes, and hand out fresh tracks */
 export async function fakeUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream> {
-  const tracks = [constraints.audio ? new FakeTrack('audio') : null, constraints.video ? new FakeTrack('video') : null].filter((t): t is FakeTrack => t !== null);
-  return fakeStream(tracks as unknown as MediaStreamTrack[]);
+  const tracks = [
+    constraints.audio ? new FakeTrack('audio') : null,
+    constraints.video ? new FakeTrack('video') : null,
+  ].filter((t): t is FakeTrack => t !== null);
+  return fakeStream(asTracks(tracks));
+}
+
+/** A screen to share, always granted */
+export async function fakeDisplayMedia(): Promise<MediaStream> {
+  return fakeStream(asTracks([new FakeTrack('video')]));
 }
 
 export function fakeStream(tracks: ReadonlyArray<MediaStreamTrack>): MediaStream {
   const list = [...tracks];
-  return {
+  const stream: Pick<MediaStream, 'getTracks' | 'getAudioTracks' | 'getVideoTracks'> = {
     getTracks: () => list,
     getAudioTracks: () => list.filter((t) => t.kind === 'audio'),
     getVideoTracks: () => list.filter((t) => t.kind === 'video'),
-  } as unknown as MediaStream;
+  };
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a fake with only the members the calls code reaches
+  return stream as MediaStream;
 }

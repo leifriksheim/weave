@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { styles } from '../styles';
+import { styles } from './styles';
 
 /**
  * A dialog over the page.
@@ -22,10 +22,9 @@ export function Modal({
   children: ReactNode;
 }) {
   const card = useRef<HTMLDivElement>(null);
-  const returnTo = useRef<Element | null>(null);
 
   useEffect(() => {
-    returnTo.current = globalThis.document.activeElement;
+    const returnTo = globalThis.document.activeElement;
 
     // The first field, or the dialog itself when it has none.
     const focusable = card.current?.querySelectorAll<HTMLElement>(
@@ -58,7 +57,7 @@ export function Modal({
     globalThis.document.addEventListener('keydown', onKey);
     return () => {
       globalThis.document.removeEventListener('keydown', onKey);
-      (returnTo.current as HTMLElement | null)?.focus?.();
+      if (returnTo instanceof HTMLElement || returnTo instanceof SVGElement) returnTo.focus();
     };
   }, [onClose]);
 

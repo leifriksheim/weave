@@ -34,6 +34,7 @@ import { isAgentNote } from '../identity/agent-note.js';
 import { sealPairingPayload, openPairingPayload } from '../identity/pairing.js';
 import { base64UrlDecode, base64UrlEncode, concatBytes, utf8Decode, utf8Encode } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
+import { bufferSource } from '../utils/guards.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { Grant } from './connect.js';
 
@@ -88,9 +89,20 @@ async function linkRoom(secret: Uint8Array): Promise<string> {
 }
 
 async function linkKey(secret: Uint8Array): Promise<CryptoKey> {
-  const material = await globalThis.crypto.subtle.importKey('raw', secret as BufferSource, { name: 'HKDF' }, false, ['deriveKey']);
+  const material = await globalThis.crypto.subtle.importKey(
+    'raw',
+    bufferSource(secret),
+    { name: 'HKDF' },
+    false,
+    ['deriveKey'],
+  );
   return globalThis.crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0) as BufferSource, info: KEY_INFO as BufferSource },
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array(0),
+      info: KEY_INFO,
+    },
     material,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -106,7 +118,8 @@ async function seal(value: unknown, key: CryptoKey): Promise<number[]> {
 async function unseal<T>(message: NetworkMessage, key: CryptoKey): Promise<T | null> {
   if (!Array.isArray(message.payload)) return null;
   try {
-    return JSON.parse(utf8Decode(await openPairingPayload(new Uint8Array(message.payload as number[]), key))) as T;
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- each caller checks the fields it reads
+    return JSON.parse(utf8Decode(await openPairingPayload(new Uint8Array(message.payload), key))) as T;
   } catch {
     return null;
   }
@@ -150,14 +163,21 @@ export interface AgentLinkOffer {
  * while the code is on screen; the first terminal that shows up with the code
  * is the one asked about, and nobody after it.
  */
-export async function offerAgentLink(network: LinkNetwork, onStage: (stage: AgentLinkStage) => void): Promise<AgentLinkOffer> {
-  if (network.relays.length === 0 && !network.transport) throw new Error('Connecting an agent needs a relay, and none is configured.');
+export async function offerAgentLink(
+  network: LinkNetwork,
+  onStage: (stage: AgentLinkStage) => void,
+): Promise<AgentLinkOffer> {
+  if (network.relays.length === 0 && !network.transport)
+    throw new Error('Connecting an agent needs a relay, and none is configured.');
   const code = newAgentCode();
   const secret = readAgentCode(code);
   const key = await linkKey(secret);
   // A name for this end of the link, and nothing more: it signs nothing.
   const provider = createP256Provider();
-  const did = publicKeyToDid(await provider.exportPublicKey((await provider.generateKeyPair()).publicKey), P256_MULTICODEC);
+  const did = publicKeyToDid(
+    await provider.exportPublicKey((await provider.generateKeyPair()).publicKey),
+    P256_MULTICODEC,
+  );
   const net = meet(network, await linkRoom(secret), did);
 
   let asked: { peer: string; agent: AgentAsking } | null = null;
@@ -176,7 +196,10 @@ export async function offerAgentLink(network: LinkNetwork, onStage: (stage: Agen
         const said = await unseal<{ did?: unknown; name?: unknown }>(message, key);
         // Not sealed with this code: someone else in the room. Ignored.
         if (!said || typeof said.did !== 'string' || !said.did.startsWith('did:key:')) return;
-        const name = typeof said.name === 'string' && said.name.trim() ? said.name.trim().slice(0, MAX_NAME) : 'An agent';
+        const name =
+          typeof said.name === 'string' && said.name.trim()
+            ? said.name.trim().slice(0, MAX_NAME)
+            : 'An agent';
         const agent = { did: said.did, name };
         asked = { peer: message.from, agent };
         // So the terminal knows the code was right, and the person is deciding.
@@ -185,8 +208,13 @@ export async function offerAgentLink(network: LinkNetwork, onStage: (stage: Agen
           kind: 'asking',
           agent,
           allow: async (grant) => {
-            if (parseUCAN(grant.token).payload.aud !== agent.did) throw new Error('That note is for a different key.');
-            net.send(asked!.peer, { type: ANSWER, from: did, payload: await seal({ grant } satisfies Answer, key) });
+            if (parseUCAN(grant.token).payload.aud !== agent.did)
+              throw new Error('That note is for a different key.');
+            net.send(asked!.peer, {
+              type: ANSWER,
+              from: did,
+              payload: await seal({ grant } satisfies Answer, key),
+            });
           },
           deny: (reason = 'The person said no.') => {
             void seal({ denied: reason } satisfies Answer, key).then((payload) => {
@@ -228,7 +256,7 @@ export async function checkAgentGrant(grant: Grant, audience: string): Promise<v
   const { payload } = parseUCAN(grant.token);
   if (payload.aud !== audience) throw new Error('The note was made out to a different key.');
   if (payload.iss !== grant.did) throw new Error('The note was not signed by the account it names.');
-  if (!isAgentNote(grant.token)) throw new Error('The note is not an agent\'s. Update your account home.');
+  if (!isAgentNote(grant.token)) throw new Error("The note is not an agent's. Update your account home.");
 }
 
 /**
@@ -285,7 +313,10 @@ export async function acceptAgentLink(params: {
         if (message.type === HEARD && !heard && (await unseal(message, key))) {
           heard = true;
           params.onWaiting?.();
-          wait(params.decideTimeoutMs ?? 10 * 60_000, 'Nobody answered in the app. Make a new code and try again.');
+          wait(
+            params.decideTimeoutMs ?? 10 * 60_000,
+            'Nobody answered in the app. Make a new code and try again.',
+          );
           return;
         }
         if (message.type !== ANSWER) return;

@@ -19,7 +19,12 @@ const runs = Number(process.argv[2] ?? 10);
 async function person(hub: FakeHub): Promise<P2PNode> {
   const manager = createIdentityManager();
   const signer = createLocalRootSigner(await manager.fromSeed(generateSeed()), manager.getProvider());
-  return createNode({ signer, stores: memoryStores(), watchIntervalMs: 0, network: { transports: (s: string, d: string) => [hub.transport(d, s)] } });
+  return createNode({
+    signer,
+    stores: memoryStores(),
+    watchIntervalMs: 0,
+    network: { transports: (s: string, d: string) => [hub.transport(d, s)] },
+  });
 }
 
 const times: number[] = [];
@@ -45,5 +50,7 @@ for (let run = 0; run < runs; run++) {
   await Promise.all([alice.close(), bob.close()]);
 }
 times.sort((a, b) => a - b);
-console.log(`join finished in ${times[0]!.toFixed(0)}–${times.at(-1)!.toFixed(0)}ms, median ${times[Math.floor(times.length / 2)]!.toFixed(0)}ms; record visible before the join finished in ${earlier} of ${runs}`);
+console.log(
+  `join finished in ${times[0]!.toFixed(0)}–${times.at(-1)!.toFixed(0)}ms, median ${times[Math.floor(times.length / 2)]!.toFixed(0)}ms; record visible before the join finished in ${earlier} of ${runs}`,
+);
 process.exit(0);

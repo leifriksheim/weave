@@ -10,7 +10,14 @@
 import type { MailboxClient } from '../network/mailbox.js';
 import type { BodyOf, Query, ResultOf } from '../query/types.js';
 import type { CollectionRules } from '../records/rules.js';
-import type { CollectionDef, CryptoProvider, Link, SpaceRole, SpaceVisibility, StandardJSONSchemaV1 } from '../types.js';
+import type {
+  CollectionDef,
+  CryptoProvider,
+  Link,
+  SpaceRole,
+  SpaceVisibility,
+  StandardJSONSchemaV1,
+} from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import type { Capability, UCANToken } from '../identity/ucan.js';
@@ -506,9 +513,18 @@ export interface NodeRecords {
     options?: { key?: string; links?: ReadonlyArray<Link> },
   ): Promise<NodeRecord<BodyOf<C>>>;
   /** Writes the record's next version. Same key; `seq` one higher. Links carry over unless given. */
-  update<T = unknown>(spaceId: string, key: string, body: T, options?: { links?: ReadonlyArray<Link> }): Promise<NodeRecord<T>>;
+  update<T = unknown>(
+    spaceId: string,
+    key: string,
+    body: T,
+    options?: { links?: ReadonlyArray<Link> },
+  ): Promise<NodeRecord<T>>;
   /** The records whose current version points at this one — optionally in one role, or one collection */
-  linked<T = unknown>(spaceId: string, key: string, options?: { rel?: string; collection?: string }): Promise<ReadonlyArray<NodeRecord<T>>>;
+  linked<T = unknown>(
+    spaceId: string,
+    key: string,
+    options?: { rel?: string; collection?: string },
+  ): Promise<ReadonlyArray<NodeRecord<T>>>;
   /**
    * Deletes a record everywhere, by writing a version marked deleted that syncs
    * like any other. Anyone who may write in the space may delete in it.
@@ -538,7 +554,12 @@ export interface NodeRecords {
    * Runs a query now and again whenever the space's records change, calling
    * back with each result. Returns a function that stops it.
    */
-  watch<const Q extends Query>(spaceId: string, query: Q, onResult: (result: ResultOf<Q>) => void, onError?: (error: Error) => void): () => void;
+  watch<const Q extends Query>(
+    spaceId: string,
+    query: Q,
+    onResult: (result: ResultOf<Q>) => void,
+    onError?: (error: Error) => void,
+  ): () => void;
 }
 
 export interface DelegateParams {
@@ -584,7 +605,10 @@ export interface NodeCarriers {
    * device keeps those passes current.
    * @returns The carry space, and the view-only invite the carrier joins it with
    */
-  add(carrier: { readonly did: string; readonly name: string }): Promise<{ readonly space: string; readonly invite: string }>;
+  add(carrier: {
+    readonly did: string;
+    readonly name: string;
+  }): Promise<{ readonly space: string; readonly invite: string }>;
   /**
    * Stops using a carrier: takes its passes away and tells it to forget what it
    * held. What it already downloaded, it keeps — encrypted, as it always was.
@@ -731,7 +755,12 @@ export interface NodeContacts {
   list(): Promise<ReadonlyArray<ContactView>>;
   get(did: string): Promise<ContactView | null>;
   /** Adds someone, or changes what the list says about them */
-  put(contact: { readonly did: string; readonly name: string; readonly space?: string | null; readonly note?: string }): Promise<ContactView>;
+  put(contact: {
+    readonly did: string;
+    readonly name: string;
+    readonly space?: string | null;
+    readonly note?: string;
+  }): Promise<ContactView>;
   /** Takes them off the list and leaves your space for two. Nobody else's space is touched. */
   remove(did: string): Promise<void>;
   /** Leaves your space for two, and hides their contact requests from now on */
@@ -743,7 +772,11 @@ export interface NodeContacts {
    * that you asked, not what. Needs their profile there to carry a contact key.
    * @returns The space for two, and the request's record key (delete it to take the request back)
    */
-  ask(spaceId: string, did: string, options?: { readonly note?: string }): Promise<{ readonly space: string; readonly request: string }>;
+  ask(
+    spaceId: string,
+    did: string,
+    options?: { readonly note?: string },
+  ): Promise<{ readonly space: string; readonly request: string }>;
   /** Contact requests sent to this account in a space, opened — not from people blocked, and not ones already accepted */
   requests(spaceId: string): Promise<ReadonlyArray<ContactRequest>>;
   /** Joins the space for two a request invites you to, and puts whoever asked on your list */
@@ -816,7 +849,11 @@ export interface NodeDoors {
    * @param options.name The name its code gives. Default: the account's name.
    * @param options.label What you call it, for telling doors apart
    */
-  open(options?: { readonly relays?: ReadonlyArray<string>; readonly name?: string; readonly label?: string }): Promise<DoorView>;
+  open(options?: {
+    readonly relays?: ReadonlyArray<string>;
+    readonly name?: string;
+    readonly label?: string;
+  }): Promise<DoorView>;
   /** Closes a door: its knocks are no longer read, and its code leads nowhere */
   close(id: string): Promise<void>;
   /**

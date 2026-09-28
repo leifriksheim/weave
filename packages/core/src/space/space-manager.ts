@@ -13,7 +13,15 @@ import type { CryptoProvider, Space, SpaceRole, SpaceVisibility, StorageAdapter 
 import { createP256Provider } from '../identity/crypto-p256.js';
 import { base64UrlEncode, base64UrlDecode, utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { generateSpaceKey, spaceKeyFromRaw, type SpaceKey } from '../privacy/space-encryption.js';
-import { checkSpace, checkStartingRoles, deriveInviteKey, deriveReadKey, spaceGenesis, spaceIdOf, type SpaceKeyPair } from './space-access.js';
+import {
+  checkSpace,
+  checkStartingRoles,
+  deriveInviteKey,
+  deriveReadKey,
+  spaceGenesis,
+  spaceIdOf,
+  type SpaceKeyPair,
+} from './space-access.js';
 import { solo } from './presets.js';
 import { checkRelays } from './roles.js';
 
@@ -76,7 +84,7 @@ export interface SpaceInvite {
   readonly relays?: ReadonlyArray<string>;
 }
 
-export interface InviteOptions {
+export interface InviteLinkOptions {
   /** The secret behind an invite record already written for a role. Absent: a view-only invite. */
   readonly secret?: Uint8Array;
   readonly role?: string;
@@ -90,7 +98,7 @@ export interface SpaceManager {
   list(): Promise<ReadonlyArray<SpaceRecord>>;
   remove(spaceId: string): Promise<void>;
   /** Encodes a space, its key if private, and an invite's secret if given, as a shareable string */
-  createInvite(spaceId: string, invitedBy: string, options?: InviteOptions): Promise<string>;
+  createInvite(spaceId: string, invitedBy: string, options?: InviteLinkOptions): Promise<string>;
   /**
    * Stores a space received as an invite, so it can be opened and synced.
    * Refuses a space whose id does not match what it says about itself, and
@@ -146,10 +154,10 @@ async function exportKey(key: SpaceKey): Promise<StoredKey> {
 async function importKey(stored: StoredKey): Promise<SpaceKey> {
   const key = await globalThis.crypto.subtle.importKey(
     'raw',
-    base64UrlDecode(stored.raw) as BufferSource,
+    base64UrlDecode(stored.raw),
     { name: 'AES-GCM', length: 256 },
     true,
-    ['encrypt', 'decrypt']
+    ['encrypt', 'decrypt'],
   );
   return Object.freeze({ id: stored.id, key, createdAt: stored.createdAt, version: stored.version });
 }
@@ -159,9 +167,13 @@ async function importKey(stored: StoredKey): Promise<SpaceKey> {
  * @param adapter Where spaces and their keys are kept
  * @returns The space manager
  */
-export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProvider = createP256Provider()): SpaceManager {
+export function createSpaceManager(
+  adapter: StorageAdapter,
+  provider: CryptoProvider = createP256Provider(),
+): SpaceManager {
   async function readSpace(spaceId: string): Promise<Space | null> {
     const bytes = await adapter.get(`${SPACE_PREFIX}${spaceId}`);
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- what writeSpace stored
     return bytes ? (JSON.parse(utf8Decode(bytes)) as Space) : null;
   }
 
@@ -172,12 +184,17 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
   async function readKeyring(spaceId: string): Promise<{ key: SpaceKey | null; keys: SpaceKey[] }> {
     const bytes = await adapter.get(`${KEY_PREFIX}${spaceId}`);
     if (!bytes) return { key: null, keys: [] };
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- what writeKeyring stored
     const stored = JSON.parse(utf8Decode(bytes)) as StoredKeyring;
     const keys = await Promise.all(stored.keys.map(importKey));
     return { key: keys.find((key) => key.id === stored.current) ?? keys.at(-1) ?? null, keys };
   }
 
-  async function writeKeyring(spaceId: string, keys: ReadonlyArray<SpaceKey>, current: string): Promise<void> {
+  async function writeKeyring(
+    spaceId: string,
+    keys: ReadonlyArray<SpaceKey>,
+    current: string,
+  ): Promise<void> {
     const stored: StoredKeyring = { keys: await Promise.all(keys.map(exportKey)), current };
     await adapter.put(`${KEY_PREFIX}${spaceId}`, utf8Encode(JSON.stringify(stored)));
   }
@@ -206,6 +223,7 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       invite: invite ? base64UrlDecode(invite) : null,
       role: await readText(ROLE_PREFIX, spaceId),
       ...(memberKey ? { memberKey: base64UrlDecode(memberKey) } : {}),
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- stored only after checkRelays passed it
       ...(relays ? { relays: JSON.parse(relays) as string[] } : {}),
     };
   }
@@ -216,7 +234,10 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       // A nonce keeps two spaces made alike from colliding on one id.
       const nonce = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(12)));
       const roles = params.roles ?? solo.roles;
-      const creatorRole = params.creatorRole ?? (params.roles ? [...roles].sort((a, b) => b.rank - a.rank)[0]?.name : solo.creatorRole) ?? '';
+      const creatorRole =
+        params.creatorRole ??
+        (params.roles ? [...roles].sort((a, b) => b.rank - a.rank)[0]?.name : solo.creatorRole) ??
+        '';
       const problem = checkStartingRoles(roles, creatorRole);
       if (problem) throw new Error(problem);
 
@@ -224,7 +245,9 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       const fixed = {
         visibility: params.visibility,
         creator: params.creator,
-        roles: roles.map((role) => Object.freeze({ ...role, permissions: Object.freeze([...role.permissions]) })),
+        roles: roles.map((role) =>
+          Object.freeze({ ...role, permissions: Object.freeze([...role.permissions]) }),
+        ),
         creatorRole,
         createdAt,
         nonce,
@@ -252,10 +275,18 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
     },
 
     async remove(spaceId: string): Promise<void> {
-      for (const prefix of [SPACE_PREFIX, KEY_PREFIX, INVITE_PREFIX, ROLE_PREFIX, MEMBER_KEY_PREFIX, RELAYS_PREFIX]) await adapter.delete(`${prefix}${spaceId}`);
+      for (const prefix of [
+        SPACE_PREFIX,
+        KEY_PREFIX,
+        INVITE_PREFIX,
+        ROLE_PREFIX,
+        MEMBER_KEY_PREFIX,
+        RELAYS_PREFIX,
+      ])
+        await adapter.delete(`${prefix}${spaceId}`);
     },
 
-    async createInvite(spaceId: string, invitedBy: string, options: InviteOptions = {}): Promise<string> {
+    async createInvite(spaceId: string, invitedBy: string, options: InviteLinkOptions = {}): Promise<string> {
       const record = await load(spaceId);
       if (!record) throw new Error(`Unknown space: ${spaceId}`);
       return encodeSpaceInvite(record, invitedBy, options);
@@ -267,15 +298,22 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       // Whoever made the invite could have edited it. The space must hash to
       // its id, and its key must be the one the space names.
       const problem = await checkSpace(parsed.space);
-      if (problem) throw new Error(`That invite does not describe a real space: ${problem.charAt(0).toLowerCase()}${problem.slice(1)}.`);
-      if (parsed.key && parsed.space.visibility !== 'private') throw new Error('That invite carries a key for a space that has none.');
+      if (problem)
+        throw new Error(
+          `That invite does not describe a real space: ${problem.charAt(0).toLowerCase()}${problem.slice(1)}.`,
+        );
+      if (parsed.key && parsed.space.visibility !== 'private')
+        throw new Error('That invite carries a key for a space that has none.');
       // The key may be the space's first or a later one — the space's key
       // changed since. Its id is its hash, so it is only ever the key the
       // history names or one that opens nothing.
-      const key = parsed.key ? await spaceKeyFromRaw(base64UrlDecode(parsed.key), parsed.space.createdAt) : null;
+      const key = parsed.key
+        ? await spaceKeyFromRaw(base64UrlDecode(parsed.key), parsed.space.createdAt)
+        : null;
       const secret = parsed.invite ? base64UrlDecode(parsed.invite) : null;
       // A secret of the wrong length cannot be an invite's; refuse it here rather than wait on it forever.
-      if (secret && secret.length !== 32) throw new Error('That invite carries a secret that is not an invite\'s.');
+      if (secret && secret.length !== 32)
+        throw new Error("That invite carries a secret that is not an invite's.");
       if (secret) await deriveInviteKey(secret, provider);
 
       const space: Space = Object.freeze({ ...parsed.space });
@@ -284,7 +322,12 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       // Joining again with a secret while one is waiting keeps the newer one.
       if (secret) await adapter.put(`${INVITE_PREFIX}${space.id}`, utf8Encode(base64UrlEncode(secret)));
       // Only a hint, but a checked one: a relay list the space itself could not hold is dropped.
-      if (parsed.relays && checkRelays(parsed.relays) === null && parsed.relays.length > 0 && !(await readText(RELAYS_PREFIX, space.id))) {
+      if (
+        parsed.relays &&
+        checkRelays(parsed.relays) === null &&
+        parsed.relays.length > 0 &&
+        !(await readText(RELAYS_PREFIX, space.id))
+      ) {
         await adapter.put(`${RELAYS_PREFIX}${space.id}`, utf8Encode(JSON.stringify(parsed.relays)));
       }
 
@@ -300,7 +343,8 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
       const held = (await readKeyring(spaceId)).keys;
       const known = new Set(held.map((key) => key.id));
       const all = [...held, ...keys.filter((key) => !known.has(key.id) && (known.add(key.id), true))];
-      if (!all.some((key) => key.id === current)) throw new Error('The current key must be one of the keys held');
+      if (!all.some((key) => key.id === current))
+        throw new Error('The current key must be one of the keys held');
       await writeKeyring(spaceId, all, current);
     },
 
@@ -326,7 +370,11 @@ export function createSpaceManager(adapter: StorageAdapter, provider: CryptoProv
  * Encodes a space, its key if private, and an invite's secret if given, as a
  * shareable string — for a space this node holds, or one it derived.
  */
-export async function encodeSpaceInvite(record: SpaceRecord, invitedBy: string, options: InviteOptions = {}): Promise<string> {
+export async function encodeSpaceInvite(
+  record: SpaceRecord,
+  invitedBy: string,
+  options: InviteLinkOptions = {},
+): Promise<string> {
   // The key rides along for private spaces — which is why an invite is a
   // secret, and why it belongs in a URL fragment rather than a path.
   const invite: SpaceInvite = {
@@ -347,6 +395,7 @@ export async function encodeSpaceInvite(record: SpaceRecord, invitedBy: string, 
  */
 export function parseSpaceInvite(invite: string): SpaceInvite {
   try {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only the space's id and name are checked here; joining checks the rest
     const parsed = JSON.parse(utf8Decode(base64UrlDecode(invite.trim()))) as SpaceInvite;
     if (!parsed?.space?.id || !parsed.space.name) {
       throw new Error('missing space');

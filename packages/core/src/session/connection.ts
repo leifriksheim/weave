@@ -60,7 +60,7 @@ export interface WeaveConnectionConfig {
  */
 export type ConnectionStatus = 'starting' | 'disconnected' | 'connecting' | 'ready' | 'expired';
 
-export interface ConnectionState {
+export interface WeaveConnectionState {
   readonly status: ConnectionStatus;
   /** The home this app connects to: the person's own, once they chose one, else the default */
   readonly home: string;
@@ -70,8 +70,8 @@ export interface ConnectionState {
 }
 
 export interface WeaveConnection {
-  getState(): ConnectionState;
-  subscribe(listener: (state: ConnectionState) => void): () => void;
+  getState(): WeaveConnectionState;
+  subscribe(listener: (state: WeaveConnectionState) => void): () => void;
   /** Picks up a grant from an earlier visit. Safe to call more than once. */
   start(): Promise<void>;
   /**
@@ -90,8 +90,7 @@ export interface WeaveConnection {
 }
 
 export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConnection {
-  const storage =
-    config.storage !== undefined ? config.storage : ((globalThis as { localStorage?: KeyValueStore }).localStorage ?? null);
+  const storage = config.storage !== undefined ? config.storage : (globalThis.localStorage ?? null);
   const grants = grantStore(storage);
   const HOME = 'weave.home';
   const rememberedHome = (() => {
@@ -102,15 +101,15 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
     }
   })();
 
-  let state: ConnectionState = Object.freeze({
+  let state: WeaveConnectionState = Object.freeze({
     status: 'starting',
     home: rememberedHome ?? homeAddress(config.home),
     grant: null,
     node: null,
     error: null,
   });
-  const listeners = new Set<(state: ConnectionState) => void>();
-  const update = (patch: Partial<ConnectionState>) => {
+  const listeners = new Set<(state: WeaveConnectionState) => void>();
+  const update = (patch: Partial<WeaveConnectionState>) => {
     state = Object.freeze({ ...state, ...patch });
     for (const listener of listeners) listener(state);
   };
@@ -144,7 +143,8 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
 
     // The home disconnected this app: nothing it writes counts any more, so stop.
     unwatch = node.subscribe((event) => {
-      if (event.type === 'revoked' && state.node === node) void end('Your account home disconnected this app.');
+      if (event.type === 'revoked' && state.node === node)
+        void end('Your account home disconnected this app.');
     });
 
     // Writes stop working when the note runs out; say so rather than fail quietly.
@@ -210,7 +210,11 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
 
     propose(notify) {
       if (!state.grant) return Promise.reject(new Error('Connect to your account home first.'));
-      return proposeToHome({ home: state.grant.home, notify, ...(config.request.name ? { name: config.request.name } : {}) });
+      return proposeToHome({
+        home: state.grant.home,
+        notify,
+        ...(config.request.name ? { name: config.request.name } : {}),
+      });
     },
   };
 

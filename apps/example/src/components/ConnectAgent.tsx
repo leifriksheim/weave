@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { connectToHome, offerAgentLink, type AgentAsking, type AgentLinkStage } from '@weaveprotocol/core/session';
+import {
+  connectToHome,
+  offerAgentLink,
+  type AgentAsking,
+  type AgentLinkStage,
+} from '@weaveprotocol/core/session';
 import { useConnection } from '@weaveprotocol/core/react';
-import { Choice, Modal } from './Modal';
-import { relayUrls } from '../relay';
+import { Choice, Modal } from '@weave/app-shared/Modal';
+import { relayUrls } from '@weave/app-shared/relay';
 import { styles, palette, variants } from '../styles';
 
 /** What people run, before the code */
@@ -47,18 +52,17 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let stopped = false;
     let stop = () => {};
-    setStep({ kind: 'starting' });
-    setCode(null);
     void offerAgentLink({ relays: relayUrls() }, (stage) => {
       if (stopped) return;
       setStep(stage.kind === 'asking' ? { kind: 'asking', stage } : stage);
     }).then(
       (offer) => {
         if (stopped) return offer.stop();
-        stop = offer.stop;
+        stop = () => offer.stop();
         setCode(offer.code);
       },
-      (e: unknown) => !stopped && setStep({ kind: 'failed', reason: e instanceof Error ? e.message : String(e) }),
+      (e: unknown) =>
+        !stopped && setStep({ kind: 'failed', reason: e instanceof Error ? e.message : String(e) }),
     );
     return () => {
       stopped = true;
@@ -67,7 +71,9 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
   }, [attempt]);
 
   const relays = relayUrls();
-  const command = code ? `${COMMAND} ${code}${relays.includes(CLI_RELAY) || !relays[0] ? '' : ` --relay ${relays[0]}`}` : '';
+  const command = code
+    ? `${COMMAND} ${code}${relays.includes(CLI_RELAY) || !relays[0] ? '' : ` --relay ${relays[0]}`}`
+    : '';
 
   const copy = () => {
     void globalThis.navigator.clipboard?.writeText(command).then(() => {
@@ -83,7 +89,14 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
     connectToHome({
       home: state.home,
       audience: stage.agent.did,
-      request: { name: stage.agent.name, access: 'write', scope: 'account', chooseSpaces: false, agent: true, days: Number(days) },
+      request: {
+        name: stage.agent.name,
+        access: 'write',
+        scope: 'account',
+        chooseSpaces: false,
+        agent: true,
+        days: Number(days),
+      },
     })
       .then((grant) => stage.allow(grant))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
@@ -93,8 +106,8 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Connect an agent" onClose={onClose}>
       <p style={{ ...styles.hint, marginBottom: 0 }}>
-        Lets Claude Code, Claude Desktop or Cursor work in your spaces — even with this tab closed. What it writes shows “via agent”. It can
-        propose apps; adding one is always yours.
+        Lets Claude Code, Claude Desktop or Cursor work in your spaces — even with this tab closed. What it
+        writes shows “via agent”. It can propose apps; adding one is always yours.
       </p>
 
       {step.kind === 'connected' ? (
@@ -102,7 +115,15 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
       ) : step.kind === 'failed' ? (
         <>
           <p style={{ ...styles.errorHint, color: palette.accent.danger }}>{step.reason}</p>
-          <button onClick={() => setAttempt((n) => n + 1)} data-variant="primary" style={styles.button}>
+          <button
+            onClick={() => {
+              setStep({ kind: 'starting' });
+              setCode(null);
+              setAttempt((n) => n + 1);
+            }}
+            data-variant="primary"
+            style={styles.button}
+          >
             Make a new code
           </button>
         </>
@@ -111,16 +132,27 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
           <div style={note}>
             <p style={styles.todoText}>“{step.stage.agent.name}” wants to connect</p>
             <p style={styles.errorHint}>
-              It gets every space in your account, for {LASTS.find((option) => option.value === days)!.label}. Your account home opens to confirm.
+              It gets every space in your account, for {LASTS.find((option) => option.value === days)!.label}.
+              Your account home opens to confirm.
             </p>
           </div>
           <Choice label="How long it may work" value={days} options={LASTS} onChange={setDays} />
           {error && <p style={{ ...styles.errorHint, color: palette.accent.danger }}>{error}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => step.stage.deny()} disabled={busy} data-variant="quiet" style={variants.quiet}>
+            <button
+              onClick={() => step.stage.deny()}
+              disabled={busy}
+              data-variant="quiet"
+              style={variants.quiet}
+            >
               Don't allow
             </button>
-            <button onClick={() => allow(step.stage)} disabled={busy} data-variant="primary" style={styles.button}>
+            <button
+              onClick={() => allow(step.stage)}
+              disabled={busy}
+              data-variant="primary"
+              style={styles.button}
+            >
               {busy ? 'Waiting for your account home…' : 'Allow'}
             </button>
           </div>
@@ -130,16 +162,32 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
           <div>
             <p style={styles.fieldLabel}>Run this in a terminal</p>
             <div style={commandBox}>
-              <code style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', fontSize: 12.5, lineHeight: 1.5, color: palette.ink.strong }}>
+              <code
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  overflowWrap: 'anywhere',
+                  fontSize: 12.5,
+                  lineHeight: 1.5,
+                  color: palette.ink.strong,
+                }}
+              >
                 {command || 'Making a code…'}
               </code>
-              <button onClick={copy} disabled={!code} data-variant="quiet" style={{ ...variants.quiet, width: 'auto', height: 30, padding: '0 10px', fontSize: 13 }}>
+              <button
+                onClick={copy}
+                disabled={!code}
+                data-variant="quiet"
+                style={{ ...variants.quiet, width: 'auto', height: 30, padding: '0 10px', fontSize: 13 }}
+              >
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
           </div>
           <Choice label="How long it may work" value={days} options={LASTS} onChange={setDays} />
-          <p style={{ ...styles.footerHint, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <p
+            style={{ ...styles.footerHint, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8 }}
+          >
             <Pulse /> Waiting for your terminal. Keep this open until it's connected.
           </p>
         </>
@@ -154,8 +202,9 @@ function Connected({ agent, onClose }: { agent: AgentAsking; onClose: () => void
       <div style={note}>
         <p style={{ ...styles.todoText, color: palette.accent.good }}>✓ Connected: {agent.name}</p>
         <p style={styles.errorHint}>
-          It was added to Claude Code, Claude Desktop and Cursor, where they're installed — start a new session there, or restart the app,
-          to use it. You can disconnect it any time in your account settings.
+          It was added to Claude Code, Claude Desktop and Cursor, where they're installed — start a new
+          session there, or restart the app, to use it. You can disconnect it any time in your account
+          settings.
         </p>
       </div>
       <button onClick={onClose} data-variant="primary" style={styles.button}>
@@ -169,10 +218,18 @@ function Connected({ agent, onClose }: { agent: AgentAsking; onClose: () => void
 function Pulse() {
   const dot = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    const animation = dot.current?.animate([{ opacity: 1 }, { opacity: 0.25 }, { opacity: 1 }], { duration: 1400, iterations: Infinity });
+    const animation = dot.current?.animate([{ opacity: 1 }, { opacity: 0.25 }, { opacity: 1 }], {
+      duration: 1400,
+      iterations: Infinity,
+    });
     return () => animation?.cancel();
   }, []);
-  return <span ref={dot} style={{ width: 7, height: 7, borderRadius: 999, background: palette.ink.muted, flexShrink: 0 }} />;
+  return (
+    <span
+      ref={dot}
+      style={{ width: 7, height: 7, borderRadius: 999, background: palette.ink.muted, flexShrink: 0 }}
+    />
+  );
 }
 
 const note = {

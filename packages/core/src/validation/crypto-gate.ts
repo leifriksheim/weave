@@ -1,5 +1,6 @@
 import { CryptoProvider, Expression } from '../types.js';
 import { utf8Encode, base64UrlDecode } from '../utils/encoding.js';
+import { messageOf } from '../utils/errors.js';
 import { canonicalize, getExpressionId, signedPart } from '../schema/expression.js';
 
 export interface GateResult {
@@ -9,7 +10,10 @@ export interface GateResult {
 }
 
 export interface CryptoGate {
-  validate(expression: Expression, resolvePublicKey: (did: string) => Promise<CryptoKey>): Promise<GateResult>;
+  validate(
+    expression: Expression,
+    resolvePublicKey: (did: string) => Promise<CryptoKey>,
+  ): Promise<GateResult>;
 }
 
 /**
@@ -19,7 +23,10 @@ export interface CryptoGate {
  */
 export function createCryptoGate(provider: CryptoProvider): CryptoGate {
   return {
-    async validate(expression: Expression, resolvePublicKey: (did: string) => Promise<CryptoKey>): Promise<GateResult> {
+    async validate(
+      expression: Expression,
+      resolvePublicKey: (did: string) => Promise<CryptoKey>,
+    ): Promise<GateResult> {
       try {
         // Only the unsigned payload is signed — the id is a hash of it, and
         // neither signature is part of what was hashed.
@@ -32,19 +39,19 @@ export function createCryptoGate(provider: CryptoProvider): CryptoGate {
         }
 
         const data = utf8Encode(canonicalize(unsignedPayload));
-        
+
         const publicKey = await resolvePublicKey(expression.author);
-        const sigBytes = base64UrlDecode(signature!);
-        
+        const sigBytes = base64UrlDecode(signature);
+
         const isValid = await provider.verify(publicKey, sigBytes, data);
         if (isValid) {
           return { passed: true, gate: 'crypto' };
         } else {
           return { passed: false, gate: 'crypto', reason: 'Signature verification failed' };
         }
-      } catch (err: any) {
-        return { passed: false, gate: 'crypto', reason: err.message || 'Unknown crypto error' };
+      } catch (err) {
+        return { passed: false, gate: 'crypto', reason: messageOf(err, 'Unknown crypto error') };
       }
-    }
+    },
   };
 }

@@ -4,6 +4,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import * as z from 'zod';
 
 import { createNode } from '../src/node/node.js';
 import { runAction } from '../src/node/actions.js';
@@ -55,7 +56,8 @@ async function until(predicate: () => Promise<boolean>, ms = 4000, what = 'condi
   }
 }
 
-const nameIn = async (node: P2PNode, space: string, did: string) => (await node.spaces.profiles(space)).find((p) => p.did === did)?.name;
+const nameIn = async (node: P2PNode, space: string, did: string) =>
+  (await node.spaces.profiles(space)).find((p) => p.did === did)?.name;
 
 describe('profiles', () => {
   test('each person is known by the name they set once, in every space they are in', async () => {
@@ -67,8 +69,16 @@ describe('profiles', () => {
     await hold(alice.node, space);
     await hold(bob.node, space);
 
-    await until(async () => (await nameIn(alice.node, space, bob.node.did)) === 'Bob', 4000, 'Bob’s name to reach Alice');
-    await until(async () => (await nameIn(bob.node, space, alice.node.did)) === 'Alice', 4000, 'Alice’s name to reach Bob');
+    await until(
+      async () => (await nameIn(alice.node, space, bob.node.did)) === 'Bob',
+      4000,
+      'Bob’s name to reach Alice',
+    );
+    await until(
+      async () => (await nameIn(bob.node, space, alice.node.did)) === 'Alice',
+      4000,
+      'Alice’s name to reach Bob',
+    );
   });
 
   test('a rename reaches the spaces that are open', async () => {
@@ -82,7 +92,11 @@ describe('profiles', () => {
     await until(async () => (await nameIn(bob.node, space, alice.node.did)) === 'Alice', 4000, 'first name');
 
     await alice.node.account.setName('Alice R.');
-    await until(async () => (await nameIn(bob.node, space, alice.node.did)) === 'Alice R.', 4000, 'the rename');
+    await until(
+      async () => (await nameIn(bob.node, space, alice.node.did)) === 'Alice R.',
+      4000,
+      'the rename',
+    );
     assert.equal((await alice.node.spaces.profiles(space)).filter((p) => p.did === alice.node.did).length, 1);
   });
 
@@ -94,13 +108,19 @@ describe('profiles', () => {
     await mallory.node.spaces.join(await alice.node.spaces.invite(space));
     await hold(alice.node, space);
     await joined(mallory.node, space);
-    await until(async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice', 4000, 'Alice’s own profile');
+    await until(
+      async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice',
+      4000,
+      'Alice’s own profile',
+    );
 
     // Mallory signs a version under Alice's profile key, far ahead in sequence
     // and naming Alice's real first version, and slips it into her own copy of
     // the space before it syncs.
     const aliceKey = await profileKey(alice.node.did);
-    const aliceFirst = (await createStorageProvider(await alice.stores(`spaces/${space}`)).history(aliceKey)).find((v) => v.seq === 0)!;
+    const aliceFirst = (
+      await createStorageProvider(await alice.stores(`spaces/${space}`)).history(aliceKey)
+    ).find((v) => v.seq === 0)!;
     const provider = mallory.manager.getProvider();
     const pair = await provider.generateKeyPair();
     const keyDid = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
@@ -128,11 +148,25 @@ describe('profiles', () => {
     await hold(mallory.node, space);
 
     // Mallory's own records reach Alice, so sync is working…
-    await until(async () => (await nameIn(alice.node, space, mallory.node.did)) === 'Mallory', 4000, 'Mallory’s profile');
+    await until(
+      async () => (await nameIn(alice.node, space, mallory.node.did)) === 'Mallory',
+      4000,
+      'Mallory’s profile',
+    );
     await new Promise((resolve) => setTimeout(resolve, 200));
     // The forgery did arrive — it is even the "current" version by sequence…
-    await until(async () => (await (await stored(alice.stores, space)).getCurrent(await profileKey(alice.node.did)))?.seq === 99, 4000, 'the forgery to reach Alice');
-    assert.equal((await (await stored(alice.stores, space)).history(await profileKey(alice.node.did))).some((v) => v.seq === 0), true);
+    await until(
+      async () =>
+        (await (await stored(alice.stores, space)).getCurrent(await profileKey(alice.node.did)))?.seq === 99,
+      4000,
+      'the forgery to reach Alice',
+    );
+    assert.equal(
+      (await (await stored(alice.stores, space)).history(await profileKey(alice.node.did))).some(
+        (v) => v.seq === 0,
+      ),
+      true,
+    );
     // …and Alice is still Alice, on both sides.
     assert.equal(await nameIn(alice.node, space, alice.node.did), 'Alice');
     assert.equal(await nameIn(mallory.node, space, alice.node.did), 'Alice');
@@ -146,7 +180,11 @@ describe('profiles', () => {
     await carol.node.spaces.join(await alice.node.spaces.invite(space));
     await hold(alice.node, space);
     await hold(carol.node, space);
-    await until(async () => (await nameIn(carol.node, space, alice.node.did)) === 'Alice', 4000, 'the owner’s name');
+    await until(
+      async () => (await nameIn(carol.node, space, alice.node.did)) === 'Alice',
+      4000,
+      'the owner’s name',
+    );
     assert.equal(await nameIn(carol.node, space, carol.node.did), undefined);
   });
 
@@ -155,8 +193,17 @@ describe('profiles', () => {
     const alice = await person(hub, 'Alice');
     const { id: space } = await alice.node.spaces.create({ name: 'Notes', visibility: 'private' });
     await hold(alice.node, space);
-    await until(async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice', 4000, 'own profile');
-    const listed = (await runAction(alice.node, 'spaces_profiles', { space })) as Array<{ did: string; name: string }>;
-    assert.deepEqual(listed.map((p) => [p.did, p.name]), [[alice.node.did, 'Alice']]);
+    await until(
+      async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice',
+      4000,
+      'own profile',
+    );
+    const listed = z
+      .array(z.object({ did: z.string(), name: z.string() }))
+      .parse(await runAction(alice.node, 'spaces_profiles', { space }));
+    assert.deepEqual(
+      listed.map((p) => [p.did, p.name]),
+      [[alice.node.did, 'Alice']],
+    );
   });
 });

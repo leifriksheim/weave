@@ -3,14 +3,15 @@
  * The one way modules here let others listen to them.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Listener = (...args: any[]) => void;
+// never[]: any listener, whatever it takes, fits the constraint.
+type Listener = (...args: never[]) => void;
 
+/** Its methods close over their listeners, so they can be passed around unbound. */
 export interface Emitter<Events extends { [K in keyof Events]: Listener }> {
-  on<K extends keyof Events>(event: K, callback: Events[K]): void;
-  off<K extends keyof Events>(event: K, callback: Events[K]): void;
+  on<K extends keyof Events>(this: void, event: K, callback: Events[K]): void;
+  off<K extends keyof Events>(this: void, event: K, callback: Events[K]): void;
   /** Calls every listener; one that throws is reported and does not stop the rest. */
-  emit<K extends keyof Events>(event: K, ...args: Parameters<Events[K]>): void;
+  emit<K extends keyof Events>(this: void, event: K, ...args: Parameters<Events[K]>): void;
 }
 
 /** Creates an emitter for a map of event names to listener signatures. */

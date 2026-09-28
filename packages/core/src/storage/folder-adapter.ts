@@ -31,6 +31,7 @@
 
 import type { StorageAdapter, BatchOp, Expression } from '../types.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
+import { isStoredExpression } from '../utils/guards.js';
 
 // ─── The slice of the File System Access API this module relies on ─────
 //
@@ -166,7 +167,11 @@ export async function readFolderFile(dir: DirectoryHandleLike, name: string): Pr
  * @param name The filename
  * @param bytes The contents
  */
-export async function writeFolderFile(dir: DirectoryHandleLike, name: string, bytes: Uint8Array): Promise<void> {
+export async function writeFolderFile(
+  dir: DirectoryHandleLike,
+  name: string,
+  bytes: Uint8Array,
+): Promise<void> {
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
   await writable.write(bytes);
@@ -199,10 +204,7 @@ async function removeFile(dir: DirectoryHandleLike, name: string): Promise<void>
  *   accounts can each have a subtree of their own.
  * @returns An adapter over that directory, already populated
  */
-export async function createFolderAdapter(
-  root: DirectoryHandleLike,
-  path: string,
-): Promise<FolderAdapter> {
+export async function createFolderAdapter(root: DirectoryHandleLike, path: string): Promise<FolderAdapter> {
   const segments = path.split('/').filter(Boolean).map(encodeKey);
   if (segments.length === 0) {
     throw new Error('A folder adapter needs a path to live in.');
@@ -222,7 +224,8 @@ export async function createFolderAdapter(
     const bytes = await readFolderFile(expressionsDir, name);
     if (!bytes) return null;
     try {
-      return JSON.parse(utf8Decode(bytes)) as Expression;
+      const parsed: unknown = JSON.parse(utf8Decode(bytes));
+      return isStoredExpression(parsed) ? parsed : null;
     } catch {
       // A half-written file from a writer that died mid-flush. It will either be
       // rewritten or stay unreadable; either way it is not ours to repair.
@@ -288,7 +291,7 @@ export async function createFolderAdapter(
       return (await readFolderFile(kvDir, encodeKey(key))) !== null;
     },
 
-    async list(prefix: string = ''): Promise<string[]> {
+    async list(prefix = ''): Promise<string[]> {
       const keys: string[] = [];
       for await (const name of kvDir.keys()) {
         const key = decodeKey(name);
@@ -301,7 +304,7 @@ export async function createFolderAdapter(
       return keys;
     },
 
-    async queryExpressions(collection: string, limit: number = 50, cursor?: string): Promise<Expression[]> {
+    async queryExpressions(collection: string, limit = 50, cursor?: string): Promise<Expression[]> {
       // Ordered so a cursor means the same thing on every device, which a
       // directory listing on its own would not guarantee.
       const ordered = [...expressions.values()]

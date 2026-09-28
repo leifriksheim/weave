@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { IncludedOf, QueryRecord } from '@weaveprotocol/core';
-import { poll, vote, type Poll, type Vote } from '@weaveprotocol/core/schemas';
+import { poll, vote, type Poll } from '@weaveprotocol/core/schemas';
 import { nameOf, peopleFrom, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
-import { Avatar } from '../Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
 import { Person } from '../Person';
@@ -50,8 +50,12 @@ export function Polls({ space, onOpen }: AppProps) {
             New poll
           </button>
         ))}
-      {polls?.length === 0 && !asking && <div style={styles.emptyState}>No polls yet.{mayAsk ? ' Ask the space something.' : ''}</div>}
-      {polls?.map((p) => <PollView key={p.key} space={space} record={p} onOpen={onOpen} />)}
+      {polls?.length === 0 && !asking && (
+        <div style={styles.emptyState}>No polls yet.{mayAsk ? ' Ask the space something.' : ''}</div>
+      )}
+      {polls?.map((p) => (
+        <PollView key={p.key} space={space} record={p} onOpen={onOpen} />
+      ))}
     </div>
   );
 }
@@ -67,7 +71,15 @@ export type PollWithVotes = QueryRecord<Poll, IncludedOf<typeof withVotes>>;
  * shared into a chat. The record must carry its votes (query it with
  * `include: withVotes`).
  */
-export function PollView({ space, record, onOpen }: { space: AppProps['space']; record: PollWithVotes; onOpen: AppProps['onOpen'] }) {
+export function PollView({
+  space,
+  record,
+  onOpen,
+}: {
+  space: AppProps['space'];
+  record: PollWithVotes;
+  onOpen: AppProps['onOpen'];
+}) {
   const node = useNode();
   const { did: me } = useAccount();
   const people = peopleFrom(useProfiles(space.id));
@@ -78,9 +90,11 @@ export function PollView({ space, record, onOpen }: { space: AppProps['space']; 
       people={people}
       writable={space.writable}
       onOpen={() => onOpen(record)}
-      onVote={(choice) => void node.records.put(space.id, vote.name, { choice }, { links: [{ rel: 'about', to: record.key }] })}
+      onVote={(choice) =>
+        void node.records.put(space.id, vote.name, { choice }, { links: [{ rel: 'about', to: record.key }] })
+      }
       onUnvote={(key) => void node.records.delete(space.id, key)}
-      onClose={(closed) => void node.records.update(space.id, record.key, { ...record.body!, closed })}
+      onClose={(closed) => void node.records.update(space.id, record.key, { ...record.body, closed })}
       onDelete={() => void node.records.delete(space.id, record.key)}
     />
   );
@@ -107,7 +121,7 @@ function PollCard({
   onClose: (closed: boolean) => void;
   onDelete: () => void;
 }) {
-  const { question, options, closed } = record.body!;
+  const { question, options, closed } = record.body;
   // Only votes for an option that exists count — a vote from a buggy app for option 7 of 2 is ignored.
   const votes = record.included.votes.filter((v) => v.body.choice < options.length);
   const mine = votes.find((v) => v.root === me);
@@ -115,29 +129,54 @@ function PollCard({
   const open = writable && !closed;
 
   return (
-    <article style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, border: `1px solid ${palette.surface.line}`, borderRadius: 10 }}>
+    <article
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        padding: 16,
+        border: `1px solid ${palette.surface.line}`,
+        borderRadius: 10,
+      }}
+    >
       <header style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: palette.ink.faint }}>
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: palette.ink.faint }}
+        >
           <Avatar did={record.createdBy ?? record.author} size={18} />
           <span>
             <Person did={record.createdBy} /> asked · {ago(record.createdAt)}
           </span>
           {closed && <span style={{ ...styles.badge, marginLeft: 'auto' }}>Closed</span>}
         </div>
-        <button onClick={onOpen} title="Open this poll" style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: 16, fontWeight: 600, color: palette.ink.strong, textAlign: 'left', wordBreak: 'break-word' }}>
+        <button
+          onClick={onOpen}
+          title="Open this poll"
+          style={{
+            border: 'none',
+            background: 'none',
+            padding: 0,
+            font: 'inherit',
+            fontSize: 16,
+            fontWeight: 600,
+            color: palette.ink.strong,
+            textAlign: 'left',
+            wordBreak: 'break-word',
+          }}
+        >
           {question}
         </button>
       </header>
 
       <div role="group" aria-label="Options" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {options.map((option, i) => {
-          const these = votes.filter((v) => v.body!.choice === i);
+          const these = votes.filter((v) => v.body.choice === i);
           const share = votes.length ? these.length / votes.length : 0;
           const chosen = mine?.body?.choice === i;
           return (
             <button
               key={i}
-              onClick={() => (chosen ? onUnvote(mine!.key) : onVote(i))}
+              onClick={() => (chosen ? onUnvote(mine.key) : onVote(i))}
               disabled={!open}
               aria-pressed={chosen}
               title={these.length ? these.map((v) => nameOf(v.root, people)).join(', ') : undefined}
@@ -161,10 +200,50 @@ function PollCard({
                 cursor: open ? 'pointer' : 'default',
               }}
             >
-              <span aria-hidden style={{ position: 'absolute', inset: 0, width: `${share * 100}%`, background: chosen ? palette.accent.soft : palette.surface.sunken, transition: 'width .3s ease' }} />
-              <span aria-hidden style={{ position: 'relative', width: 14, height: 14, flexShrink: 0, borderRadius: 999, border: `1.5px solid ${chosen ? palette.ink.strong : palette.surface.lineStrong}`, background: chosen ? palette.ink.strong : 'none', boxShadow: chosen ? `inset 0 0 0 2px ${palette.surface.card}` : 'none' }} />
-              <span style={{ position: 'relative', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: chosen ? 500 : 400 }}>{option}</span>
-              <span style={{ position: 'relative', fontSize: 12, color: palette.ink.muted, fontVariantNumeric: 'tabular-nums' }}>
+              <span
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: `${share * 100}%`,
+                  background: chosen ? palette.accent.soft : palette.surface.sunken,
+                  transition: 'width .3s ease',
+                }}
+              />
+              <span
+                aria-hidden
+                style={{
+                  position: 'relative',
+                  width: 14,
+                  height: 14,
+                  flexShrink: 0,
+                  borderRadius: 999,
+                  border: `1.5px solid ${chosen ? palette.ink.strong : palette.surface.lineStrong}`,
+                  background: chosen ? palette.ink.strong : 'none',
+                  boxShadow: chosen ? `inset 0 0 0 2px ${palette.surface.card}` : 'none',
+                }}
+              />
+              <span
+                style={{
+                  position: 'relative',
+                  flex: 1,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontWeight: chosen ? 500 : 400,
+                }}
+              >
+                {option}
+              </span>
+              <span
+                style={{
+                  position: 'relative',
+                  fontSize: 12,
+                  color: palette.ink.muted,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
                 {these.length} · {Math.round(share * 100)}%
               </span>
             </button>
@@ -172,17 +251,34 @@ function PollCard({
         })}
       </div>
 
-      <footer style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, color: palette.ink.faint }}>
+      <footer
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+          fontSize: 12,
+          color: palette.ink.faint,
+        }}
+      >
         <span>
           {votes.length} {votes.length === 1 ? 'vote' : 'votes'}
           {open && (mine ? ' · click your choice again to take it back' : ' · pick one')}
         </span>
         {asker && writable && (
           <span style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
-            <button onClick={() => onClose(!closed)} data-variant="quiet" style={{ ...styles.smallButton, height: 28 }}>
+            <button
+              onClick={() => onClose(!closed)}
+              data-variant="quiet"
+              style={{ ...styles.smallButton, height: 28 }}
+            >
               {closed ? 'Reopen' : 'Close poll'}
             </button>
-            <button onClick={onDelete} data-variant="danger" style={{ ...styles.smallButton, height: 28, color: palette.accent.danger }}>
+            <button
+              onClick={onDelete}
+              data-variant="danger"
+              style={{ ...styles.smallButton, height: 28, color: palette.accent.danger }}
+            >
               Delete
             </button>
           </span>
@@ -193,7 +289,15 @@ function PollCard({
 }
 
 /** A question and its options — two to start, more on demand, blanks dropped */
-export function Ask({ onAsk, onCancel, initialQuestion = '' }: { onAsk: (question: string, options: string[]) => Promise<void>; onCancel: () => void; initialQuestion?: string }) {
+export function Ask({
+  onAsk,
+  onCancel,
+  initialQuestion = '',
+}: {
+  onAsk: (question: string, options: string[]) => Promise<void>;
+  onCancel: () => void;
+  initialQuestion?: string;
+}) {
   const [question, setQuestion] = useState(initialQuestion);
   const [options, setOptions] = useState(['', '']);
   const [busy, setBusy] = useState(false);
@@ -208,9 +312,23 @@ export function Ask({ onAsk, onCancel, initialQuestion = '' }: { onAsk: (questio
         setBusy(true);
         void onAsk(question.trim(), filled).finally(() => setBusy(false));
       }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 16, border: `1px solid ${palette.surface.line}`, borderRadius: 10 }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        padding: 16,
+        border: `1px solid ${palette.surface.line}`,
+        borderRadius: 10,
+      }}
     >
-      <input autoFocus value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask a question" aria-label="Question" style={styles.input} />
+      <input
+        autoFocus
+        value={question}
+        onChange={(e) => setQuestion(e.target.value)}
+        placeholder="Ask a question"
+        aria-label="Question"
+        style={styles.input}
+      />
       {options.map((option, i) => (
         <input
           key={i}
@@ -221,10 +339,17 @@ export function Ask({ onAsk, onCancel, initialQuestion = '' }: { onAsk: (questio
           style={styles.input}
         />
       ))}
-      {filled.length !== new Set(filled).size && <p style={{ fontSize: 13, color: palette.accent.danger }}>Two options are the same.</p>}
+      {filled.length !== new Set(filled).size && (
+        <p style={{ fontSize: 13, color: palette.accent.danger }}>Two options are the same.</p>
+      )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {options.length < MAX_OPTIONS && (
-          <button type="button" onClick={() => setOptions((was) => [...was, ''])} data-variant="quiet" style={styles.smallButton}>
+          <button
+            type="button"
+            onClick={() => setOptions((was) => [...was, ''])}
+            data-variant="quiet"
+            style={styles.smallButton}
+          >
             + Add option
           </button>
         )}
@@ -232,7 +357,12 @@ export function Ask({ onAsk, onCancel, initialQuestion = '' }: { onAsk: (questio
         <button type="button" onClick={onCancel} data-variant="quiet" style={styles.smallButton}>
           Cancel
         </button>
-        <button type="submit" disabled={!ready || busy} data-variant="primary" style={{ ...styles.addButton, height: 32 }}>
+        <button
+          type="submit"
+          disabled={!ready || busy}
+          data-variant="primary"
+          style={{ ...styles.addButton, height: 32 }}
+        >
           {busy ? 'Asking…' : 'Ask'}
         </button>
       </div>

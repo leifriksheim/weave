@@ -162,17 +162,22 @@ describe('weave run --create off a terminal', () => {
   test('keeps the recovery code out of the log', async () => {
     const home = await tempDir();
     const main = fileURLToPath(new URL('../src/main.ts', import.meta.url));
-    const child = spawn(process.execPath, ['--conditions=@weaveprotocol/source', '--import', 'tsx', main, 'run', '--create', '--port', '0'], {
-      env: { ...process.env, WEAVE_HOME: home, WEAVE_PASSPHRASE: 'pw' },
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      ['--conditions=@weaveprotocol/source', '--import', 'tsx', main, 'run', '--create', '--port', '0'],
+      {
+        env: { ...process.env, WEAVE_HOME: home, WEAVE_PASSPHRASE: 'pw' },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      },
+    );
     let log = '';
     child.stderr.on('data', (chunk: Buffer) => (log += chunk.toString()));
 
     try {
       const deadline = Date.now() + 15000;
       while (!/not printed/.test(log)) {
-        if (Date.now() > deadline || child.exitCode !== null) assert.fail(`never said where the code went:\n${log}`);
+        if (Date.now() > deadline || child.exitCode !== null)
+          assert.fail(`never said where the code went:\n${log}`);
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     } finally {
@@ -182,8 +187,8 @@ describe('weave run --create off a terminal', () => {
     assert.doesNotMatch(log, /Recovery code:/);
     const file = (await readdir(home)).find((name) => name.startsWith('recovery-code-'));
     assert.ok(file, 'the code is written to a file in the home');
-    assert.match(log, new RegExp(file!));
-    assert.match(await readFile(path.join(home, file!), 'utf8'), /^[0-9A-Z-]+\n$/);
-    assert.equal((await stat(path.join(home, file!))).mode & 0o777, 0o600);
+    assert.match(log, new RegExp(file));
+    assert.match(await readFile(path.join(home, file), 'utf8'), /^[0-9A-Z-]+\n$/);
+    assert.equal((await stat(path.join(home, file))).mode & 0o777, 0o600);
   });
 });

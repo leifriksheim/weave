@@ -1,8 +1,24 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type JSX,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { parse, render } from 'sugar-high/core';
 import * as json from 'sugar-high/lang/json';
 import { useNode, useProfiles } from '@weaveprotocol/core/react';
-import type { NodeCollection, NodeRecord, Query, QueryRecord, QueryResult, SpaceSummary } from '@weaveprotocol/core';
+import type {
+  NodeCollection,
+  NodeRecord,
+  Query,
+  QueryRecord,
+  QueryResult,
+  SpaceSummary,
+} from '@weaveprotocol/core';
 import { collectionLabel, fieldsOf, recordLabel, titleField } from '../derive/schema-ui';
 import { nameOf, peopleFrom } from '../derive/people';
 import { ago } from '../derive/time';
@@ -41,7 +57,10 @@ function examplesFor(collections: ReadonlyArray<NodeCollection>, me: string): Ex
   const name = (c: NodeCollection) => collectionLabel(c).toLowerCase();
   const out: Example[] = [{ label: `All ${name(first)}`, query: { collection: first.name } }];
 
-  out.push({ label: `Newest 10 ${name(first)}`, query: { collection: first.name, sort: { '@createdAt': 'desc' }, limit: 10 } });
+  out.push({
+    label: `Newest 10 ${name(first)}`,
+    query: { collection: first.name, sort: { '@createdAt': 'desc' }, limit: 10 },
+  });
 
   // A filter on a real field: a yes/no one if there is one, else fixed choices, a number, or text.
   let filtered = false;
@@ -49,14 +68,20 @@ function examplesFor(collections: ReadonlyArray<NodeCollection>, me: string): Ex
     const fields = fieldsOf(c.schema);
     const yesNo = fields.find((f) => f.kind === 'boolean');
     if (yesNo) {
-      out.push({ label: `${collectionLabel(c)} where ${yesNo.label.toLowerCase()} is yes`, query: { collection: c.name, where: { [yesNo.name]: true } } });
+      out.push({
+        label: `${collectionLabel(c)} where ${yesNo.label.toLowerCase()} is yes`,
+        query: { collection: c.name, where: { [yesNo.name]: true } },
+      });
       filtered = true;
       break;
     }
     const choice = fields.find((f) => Array.isArray(f.schema.enum) && f.schema.enum.length > 1);
     if (choice) {
-      const options = (choice.schema.enum as unknown[]).slice(0, 2);
-      out.push({ label: `${collectionLabel(c)} by ${choice.label.toLowerCase()}`, query: { collection: c.name, where: { [choice.name]: { $in: options } } } });
+      const options: unknown[] = Array.isArray(choice.schema.enum) ? choice.schema.enum.slice(0, 2) : [];
+      out.push({
+        label: `${collectionLabel(c)} by ${choice.label.toLowerCase()}`,
+        query: { collection: c.name, where: { [choice.name]: { $in: options } } },
+      });
       filtered = true;
       break;
     }
@@ -64,13 +89,23 @@ function examplesFor(collections: ReadonlyArray<NodeCollection>, me: string): Ex
   if (!filtered) {
     const c = ranked.find((c) => titleField(c.schema));
     const title = c && titleField(c.schema);
-    if (c && title) out.push({ label: `${collectionLabel(c)} with "a" in the ${title}`, query: { collection: c.name, where: { [title]: { $contains: 'a' } } } });
+    if (c && title)
+      out.push({
+        label: `${collectionLabel(c)} with "a" in the ${title}`,
+        query: { collection: c.name, where: { [title]: { $contains: 'a' } } },
+      });
   }
 
-  out.push({ label: 'Written by me', query: { collection: first.name, where: { '@createdBy': me }, sort: { '@updatedAt': 'desc' } } });
+  out.push({
+    label: 'Written by me',
+    query: { collection: first.name, where: { '@createdBy': me }, sort: { '@updatedAt': 'desc' } },
+  });
 
   const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10);
-  out.push({ label: 'Added this week', query: { collection: first.name, where: { '@createdAt': { $gte: weekAgo } } } });
+  out.push({
+    label: 'Added this week',
+    query: { collection: first.name, where: { '@createdAt': { $gte: weekAgo } } },
+  });
 
   // Whatever declares a link that may point at the first collection.
   const pointers = collections.flatMap((c) =>
@@ -83,7 +118,9 @@ function examplesFor(collections: ReadonlyArray<NodeCollection>, me: string): Ex
       label: 'With what points at them',
       query: {
         collection: first.name,
-        include: Object.fromEntries(pointers.slice(0, 3).map((p) => [p.as, { rel: p.rel, from: p.from, limit: 5 }])),
+        include: Object.fromEntries(
+          pointers.slice(0, 3).map((p) => [p.as, { rel: p.rel, from: p.from, limit: 5 }]),
+        ),
       },
     });
   }
@@ -91,11 +128,17 @@ function examplesFor(collections: ReadonlyArray<NodeCollection>, me: string): Ex
   if (collections.some((c) => c.name === 'std.comment')) {
     out.push({
       label: 'Count comments',
-      query: { collection: first.name, include: { comments: { rel: 'about', from: 'std.comment', count: true } } },
+      query: {
+        collection: first.name,
+        include: { comments: { rel: 'about', from: 'std.comment', count: true } },
+      },
     });
   }
 
-  out.push({ label: 'Five at a time', query: { collection: first.name, sort: { '@createdAt': 'desc' }, limit: 5 } });
+  out.push({
+    label: 'Five at a time',
+    query: { collection: first.name, sort: { '@createdAt': 'desc' }, limit: 5 },
+  });
   return out;
 }
 
@@ -114,7 +157,15 @@ function jsonProblem(text: string, error: unknown): string {
 
 type Parsed = { ok: true; query: Query; text: string } | { ok: false; problem: string } | null;
 
-export function QueryPlayground({ space, collections, onOpen }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection>; onOpen: (record: NodeRecord) => void }): JSX.Element {
+export function QueryPlayground({
+  space,
+  collections,
+  onOpen,
+}: {
+  space: SpaceSummary;
+  collections: ReadonlyArray<NodeCollection>;
+  onOpen: (record: NodeRecord) => void;
+}): JSX.Element {
   const node = useNode();
   const people = peopleFrom(useProfiles(space.id));
   const examples = useMemo(() => examplesFor(collections, node.did), [collections, node.did]);
@@ -124,20 +175,24 @@ export function QueryPlayground({ space, collections, onOpen }: { space: SpaceSu
   const [parsed, setParsed] = useState<Parsed>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
+  // Which query, in which space, has answered at least once; until it has, it is still running.
+  const [ranFor, setRanFor] = useState<string | null>(null);
   const [raw, setRaw] = useState(false);
 
   // Start from the first example, once there is one — and never overwrite what you typed.
-  useEffect(() => {
-    if (text === null && examples[0]) setText(pretty(examples[0].query));
-  }, [text, examples]);
+  if (text === null && examples[0]) setText(pretty(examples[0].query));
 
   // Parse a moment after typing stops.
   useEffect(() => {
     if (text === null) return;
     const timer = setTimeout(() => {
-      if (!text.trim()) return setParsed({ ok: false, problem: 'The editor is empty. Pick an example above, or write a query.' });
+      if (!text.trim())
+        return setParsed({
+          ok: false,
+          problem: 'The editor is empty. Pick an example above, or write a query.',
+        });
       try {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the node checks the query itself (checkQuery) and says what is wrong, shown as the query's error
         const query = JSON.parse(text) as Query;
         setParsed({ ok: true, query, text: JSON.stringify(query) });
       } catch (error) {
@@ -149,20 +204,21 @@ export function QueryPlayground({ space, collections, onOpen }: { space: SpaceSu
 
   // Run it, and again whenever the space's records change.
   const runKey = parsed?.ok ? parsed.text : null;
+  const running = runKey !== null && ranFor !== `${space.id}\n${runKey}`;
   useEffect(() => {
     if (!parsed?.ok) return;
-    setRunning(true);
+    const key = `${space.id}\n${parsed.text}`;
     return node.records.watch(
       space.id,
       parsed.query,
       (next) => {
         setResult(next);
         setQueryError(null);
-        setRunning(false);
+        setRanFor(key);
       },
       (error) => {
         setQueryError(error.message.replace(/^Invalid query: /, ''));
-        setRunning(false);
+        setRanFor(key);
       },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -189,7 +245,10 @@ export function QueryPlayground({ space, collections, onOpen }: { space: SpaceSu
   }
 
   return (
-    <section aria-label="Try a query" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+    <section
+      aria-label="Try a query"
+      style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}
+    >
       <Header />
 
       <div role="group" aria-label="Examples" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -201,7 +260,16 @@ export function QueryPlayground({ space, collections, onOpen }: { space: SpaceSu
               onClick={() => setText(pretty(example.query))}
               data-variant={current ? undefined : 'quiet'}
               aria-pressed={current}
-              style={current ? { ...chipStyle, backgroundColor: palette.accent.base, color: '#fff', borderColor: palette.accent.base } : chipStyle}
+              style={
+                current
+                  ? {
+                      ...chipStyle,
+                      backgroundColor: palette.accent.base,
+                      color: '#fff',
+                      borderColor: palette.accent.base,
+                    }
+                  : chipStyle
+              }
             >
               {example.label}
             </button>
@@ -209,7 +277,14 @@ export function QueryPlayground({ space, collections, onOpen }: { space: SpaceSu
         })}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 16, alignItems: 'start' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
+          gap: 16,
+          alignItems: 'start',
+        }}
+      >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
           <label htmlFor="query-editor" style={styles.fieldLabel}>
             Your query
@@ -217,25 +292,58 @@ export function QueryPlayground({ space, collections, onOpen }: { space: SpaceSu
           <Editor value={text ?? ''} onChange={setText} />
           {jsonError && (
             <Problem title="This isn't valid JSON yet">
-              {jsonError}. Check for a missing comma, a missing quote around a name, or a comma after the last item.
+              {jsonError}. Check for a missing comma, a missing quote around a name, or a comma after the last
+              item.
             </Problem>
           )}
           {!jsonError && queryError && <Problem title="The query can't run">{queryError}</Problem>}
           <Cheatsheet />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0, opacity: stale ? 0.5 : 1, transition: 'opacity .15s ease' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 20 }}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            minWidth: 0,
+            opacity: stale ? 0.5 : 1,
+            transition: 'opacity .15s ease',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              minHeight: 20,
+            }}
+          >
             <span style={styles.fieldLabel}>
               {result ? `${records.length} found${result.cursor ? ', and more after these' : ''}` : 'Results'}
               {running && <span style={{ color: palette.ink.faint, fontWeight: 400 }}> · running…</span>}
-              {stale && result && <span style={{ color: palette.ink.faint, fontWeight: 400 }}> · from the last query that worked</span>}
+              {stale && result && (
+                <span style={{ color: palette.ink.faint, fontWeight: 400 }}>
+                  {' '}
+                  · from the last query that worked
+                </span>
+              )}
             </span>
             <div role="tablist" aria-label="Show results as" style={{ ...styles.segmented, padding: 2 }}>
               {(['Table', 'JSON'] as const).map((mode) => {
                 const on = (mode === 'JSON') === raw;
                 return (
-                  <button key={mode} role="tab" aria-selected={on} onClick={() => setRaw(mode === 'JSON')} style={{ ...(on ? styles.segmentActive : styles.segment), padding: '3px 10px', fontSize: 12 }}>
+                  <button
+                    key={mode}
+                    role="tab"
+                    aria-selected={on}
+                    onClick={() => setRaw(mode === 'JSON')}
+                    style={{
+                      ...(on ? styles.segmentActive : styles.segment),
+                      padding: '3px 10px',
+                      fontSize: 12,
+                    }}
+                  >
                     {mode}
                   </button>
                 );
@@ -266,7 +374,11 @@ export function QueryPlayground({ space, collections, onOpen }: { space: SpaceSu
                 </button>
               )}
               {result?.cursor && (
-                <button onClick={() => setCursor(result.cursor)} data-variant="quiet" style={styles.smallButton}>
+                <button
+                  onClick={() => setCursor(result.cursor)}
+                  data-variant="quiet"
+                  style={styles.smallButton}
+                >
                   Next page →
                 </button>
               )}
@@ -283,7 +395,8 @@ function Header() {
     <header>
       <h2 style={{ ...styles.appTitle, fontSize: 22 }}>Try a query</h2>
       <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 4, lineHeight: 1.6 }}>
-        Ask this space for exactly the records you want, written as plain JSON. It runs as you type, on the data on this device, and nothing you do here changes anything.
+        Ask this space for exactly the records you want, written as plain JSON. It runs as you type, on the
+        data on this device, and nothing you do here changes anything.
       </p>
     </header>
   );
@@ -304,7 +417,7 @@ const syntax = {
   '--sh-comment': palette.ink.faint,
   '--sh-break': palette.ink.body,
   '--sh-space': palette.ink.body,
-} as CSSProperties;
+};
 
 const codeText: CSSProperties = {
   fontFamily: palette.mono,
@@ -334,12 +447,27 @@ function Editor({ value, onChange }: { value: string; onChange: (next: string) =
   };
 
   return (
-    <div style={{ position: 'relative', borderRadius: palette.radius.lg, backgroundColor: palette.surface.sunken }}>
+    <div
+      style={{
+        position: 'relative',
+        borderRadius: palette.radius.lg,
+        backgroundColor: palette.surface.sunken,
+      }}
+    >
       <pre
         ref={under}
         aria-hidden
         className="code-layer"
-        style={{ ...codeText, ...syntax, position: 'absolute', inset: 0, margin: 0, overflow: 'hidden', pointerEvents: 'none', border: '1px solid transparent' }}
+        style={{
+          ...codeText,
+          ...syntax,
+          position: 'absolute',
+          inset: 0,
+          margin: 0,
+          overflow: 'hidden',
+          pointerEvents: 'none',
+          border: '1px solid transparent',
+        }}
         dangerouslySetInnerHTML={{ __html: `${html}\n ` }}
       />
       <textarea
@@ -447,7 +575,18 @@ function ResultTable({
               style={{ cursor: 'pointer' }}
               aria-label={`Open ${label(record)}`}
             >
-              <td style={{ ...td, color: palette.ink.strong, fontWeight: 500, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label(record)}</td>
+              <td
+                style={{
+                  ...td,
+                  color: palette.ink.strong,
+                  fontWeight: 500,
+                  maxWidth: 240,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {label(record)}
+              </td>
               <td style={{ ...td, color: palette.ink.muted }}>{collection(record.collection)}</td>
               <td style={{ ...td, color: palette.ink.muted }}>{author(record)}</td>
               <td style={{ ...td, color: palette.ink.muted }} title={record.createdAt}>
@@ -508,13 +647,19 @@ function Cheatsheet() {
     <details style={{ ...styles.panel, marginTop: 4 }}>
       <summary style={{ ...styles.panelSummary, fontSize: 13 }}>How queries work</summary>
       <div style={{ ...styles.panelBody, fontSize: 12.5 }}>
-        <p>A query is one JSON object. Only “collection” is required; everything else narrows or shapes what comes back.</p>
+        <p>
+          A query is one JSON object. Only “collection” is required; everything else narrows or shapes what
+          comes back.
+        </p>
 
         <p style={heading}>The parts</p>
         <ul style={list}>
           {row('collection', 'Which collection to look through, by its name. One per query.')}
           {row('where', 'Which ones to keep. Every condition must hold.')}
-          {row('sort', '{ "field": "asc" or "desc" }. Several fields sort in order. Without it: oldest first.')}
+          {row(
+            'sort',
+            '{ "field": "asc" or "desc" }. Several fields sort in order. Without it: oldest first.',
+          )}
           {row('limit', 'At most this many.')}
           {row('cursor', 'Where the next page starts. Use “Next page” below the results.')}
           {row('include', 'Also bring back records linked to each one — see below.')}
@@ -522,7 +667,8 @@ function Cheatsheet() {
 
         <p style={heading}>Conditions in “where”</p>
         <p>
-          <code>{'{ "done": true }'}</code> means the field equals that value. A dotted name like <code>address.city</code> looks inside. For anything else, use an operator:
+          <code>{'{ "done": true }'}</code> means the field equals that value. A dotted name like{' '}
+          <code>address.city</code> looks inside. For anything else, use an operator:
         </p>
         <ul style={list}>
           {row('$eq  $ne', 'Equal to, not equal to. $ne also keeps records without the field.')}

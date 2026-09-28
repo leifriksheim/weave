@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { HostingView, P2PNode } from '@weaveprotocol/core/node';
+import { message } from '../message';
 import { styles, palette } from '../styles';
 
 /** The host this home offers by default; any other can be typed in */
@@ -26,7 +27,8 @@ export function Hosting({ node }: { node: P2PNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const load = () => void node.hosting.list().then(setHosts, (reason: unknown) => setError(message(reason)));
+    const load = () =>
+      void node.hosting.list().then(setHosts, (reason: unknown) => setError(message(reason)));
     load();
     // Back from the host's pay page in the other tab: ask again.
     const back = () => {
@@ -76,13 +78,13 @@ export function Hosting({ node }: { node: P2PNode }) {
     });
 
   return (
-    <section style={section}>
+    <section style={styles.settingsSection}>
       <div>
         <h2 style={{ ...styles.sectionTitle, fontSize: 16, marginBottom: 4 }}>Keep my spaces online</h2>
         <p style={{ color: palette.ink.muted, fontSize: 14, lineHeight: 1.5 }}>
-          Your spaces stay reachable and backed up when your devices are off, and a new device can get everything back from your
-          recovery code alone. The host stores them encrypted and can't read them. It does see which spaces exist, how big they are
-          and when they change.
+          Your spaces stay reachable and backed up when your devices are off, and a new device can get
+          everything back from your recovery code alone. The host stores them encrypted and can't read them.
+          It does see which spaces exist, how big they are and when they change.
         </p>
       </div>
 
@@ -97,7 +99,11 @@ export function Hosting({ node }: { node: P2PNode }) {
             aria-label="Host address"
             style={{ ...styles.input, flex: 1 }}
           />
-          <button onClick={() => void start()} disabled={busy !== null || !address.trim()} style={styles.addButton}>
+          <button
+            onClick={() => void start()}
+            disabled={busy !== null || !address.trim()}
+            style={styles.addButton}
+          >
             {busy === 'start' ? 'Asking…' : 'Keep online'}
           </button>
         </div>
@@ -105,7 +111,7 @@ export function Hosting({ node }: { node: P2PNode }) {
 
       {hosts?.map((host) => (
         <div key={host.url} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={row}>
+          <div style={styles.settingsRow}>
             <span>
               {host.name} · {describe(host)}
             </span>
@@ -120,16 +126,23 @@ export function Hosting({ node }: { node: P2PNode }) {
                   {busy === 'pay' ? 'Opening…' : 'Payment'}
                 </button>
               )}
-              <button onClick={() => void stop(host)} disabled={busy !== null} data-variant="quiet" style={styles.smallButton}>
+              <button
+                onClick={() => void stop(host)}
+                disabled={busy !== null}
+                data-variant="quiet"
+                style={styles.smallButton}
+              >
                 {busy === 'stop' ? 'Stopping…' : 'Stop'}
               </button>
             </span>
           </div>
-          {host.pays && needsPaying(host) && host.price && <p style={styles.errorHint}>{host.price}, paid on the host's own page.</p>}
+          {host.pays && needsPaying(host) && host.price && (
+            <p style={styles.errorHint}>{host.price}, paid on the host's own page.</p>
+          )}
           {host.status?.state === 'grace' && (
             <p style={styles.errorHint}>
-              The last payment ran out. Your spaces stay online for a while longer; pay again before then, or the host deletes its copy.
-              Your devices keep theirs either way.
+              The last payment ran out. Your spaces stay online for a while longer; pay again before then, or
+              the host deletes its copy. Your devices keep theirs either way.
             </p>
           )}
         </div>
@@ -154,7 +167,11 @@ function describe(host: HostingView): string {
   if (!status) return unreachable;
   // Not live: the last the host signed, from the registry.
   const offline = host.live ? '' : ` · ${unreachable}`;
-  const until = new Date(status.paidUntil * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const until = new Date(status.paidUntil * 1000).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
   // No count: the host also carries the account's hidden spaces (its registry, its contacts), so any number would look wrong.
   const spaces = host.live && status.carrying ? ' · your spaces are online' : '';
   switch (status.state) {
@@ -167,25 +184,3 @@ function describe(host: HostingView): string {
       return host.pays ? `not paid for yet${offline}` : `this host isn't taking new accounts${offline}`;
   }
 }
-
-const message = (reason: unknown) => (reason instanceof Error ? reason.message : String(reason));
-
-const section = {
-  border: `1px solid ${palette.surface.line}`,
-  borderRadius: 12,
-  padding: 20,
-  marginBottom: 16,
-  display: 'flex',
-  flexDirection: 'column' as const,
-  gap: 12,
-};
-const row = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 12,
-  padding: '10px 12px',
-  background: palette.surface.sunken,
-  borderRadius: 8,
-  fontSize: 14,
-};

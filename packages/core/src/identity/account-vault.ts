@@ -36,6 +36,8 @@
 
 import { base64UrlEncode, base64UrlDecode, utf8Encode } from '../utils/encoding.js';
 import { protocolError } from '../utils/errors.js';
+import { bufferSource, isRecord } from '../utils/guards.js';
+import { hkdf, hkdfAesKey } from './hkdf.js';
 
 /** AES-GCM wants 96 bits of nonce. */
 const IV_BYTES = 12;
@@ -108,8 +110,16 @@ export interface AccountVault {
   readonly wraps: ReadonlyArray<SeedWrap>;
 }
 
+/**
+ * Whether parsed JSON is a vault. Loose on purpose: the version and a list of
+ * wraps; each wrap is checked when something tries to open it.
+ */
+export function isAccountVault(value: unknown): value is AccountVault {
+  return isRecord(value) && value.version === 2 && Array.isArray(value.wraps);
+}
+
 /** Random bytes as base64url, for salts and nonces. */
-function randomBytes(length: number): Uint8Array {
+function randomBytes(length: number): Uint8Array<ArrayBuffer> {
   return globalThis.crypto.getRandomValues(new Uint8Array(length));
 }
 
@@ -126,11 +136,7 @@ function wrapId(): string {
  */
 async function seal(seed: Uint8Array, key: CryptoKey): Promise<{ iv: string; ciphertext: string }> {
   const iv = randomBytes(IV_BYTES);
-  const ciphertext = await globalThis.crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv as BufferSource },
-    key,
-    seed as BufferSource,
-  );
+  const ciphertext = await globalThis.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bufferSource(seed));
   return { iv: base64UrlEncode(iv), ciphertext: base64UrlEncode(new Uint8Array(ciphertext)) };
 }
 
@@ -143,9 +149,9 @@ async function seal(seed: Uint8Array, key: CryptoKey): Promise<{ iv: string; cip
 async function open(wrap: WrapBase, key: CryptoKey): Promise<Uint8Array> {
   try {
     const plain = await globalThis.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: base64UrlDecode(wrap.iv) as BufferSource },
+      { name: 'AES-GCM', iv: bufferSource(base64UrlDecode(wrap.iv)) },
       key,
-      base64UrlDecode(wrap.ciphertext) as BufferSource,
+      bufferSource(base64UrlDecode(wrap.ciphertext)),
     );
     return new Uint8Array(plain);
   } catch {
@@ -172,13 +178,13 @@ async function passphraseWrappingKey(
 ): Promise<CryptoKey> {
   const material = await globalThis.crypto.subtle.importKey(
     'raw',
-    utf8Encode(passphrase.normalize('NFKC')) as BufferSource,
+    bufferSource(utf8Encode(passphrase.normalize('NFKC'))),
     { name: 'PBKDF2' },
     false,
     ['deriveKey'],
   );
   return globalThis.crypto.subtle.deriveKey(
-    { name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations },
+    { name: 'PBKDF2', hash: 'SHA-256', salt: bufferSource(salt), iterations },
     material,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -226,10 +232,7 @@ export async function wrapSeedWithDeviceKey(
  * @param deviceKey The local key it names
  * @returns The seed
  */
-export async function unwrapSeedWithDeviceKey(
-  wrap: DeviceWrap,
-  deviceKey: CryptoKey,
-): Promise<Uint8Array> {
+export async function unwrapSeedWithDeviceKey(wrap: DeviceWrap, deviceKey: CryptoKey): Promise<Uint8Array> {
   return open(wrap, deviceKey);
 }
 
@@ -243,7 +246,7 @@ export async function unwrapSeedWithDeviceKey(
 export async function wrapSeedWithPassphrase(
   seed: Uint8Array,
   passphrase: string,
-  label: string = 'Passphrase',
+  label = 'Passphrase',
 ): Promise<PassphraseWrap> {
   const salt = randomBytes(SALT_BYTES);
   const sealed = await seal(seed, await passphraseWrappingKey(passphrase, salt, PASSPHRASE_ITERATIONS));
@@ -289,26 +292,7 @@ export async function unwrapSeedWithPassphrase(
  * @returns 32 bytes, ready to import as AES-GCM
  */
 export async function deriveVaultKeyBytes(seed: Uint8Array): Promise<Uint8Array> {
-  const material = await globalThis.crypto.subtle.importKey(
-    'raw',
-    seed as BufferSource,
-    { name: 'HKDF' },
-    false,
-    ['deriveBits'],
-  );
-
-  const bits = await globalThis.crypto.subtle.deriveBits(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: new Uint8Array(0) as BufferSource,
-      info: VAULT_KEY_INFO as BufferSource,
-    },
-    material,
-    256,
-  );
-
-  return new Uint8Array(bits);
+  return hkdf(seed, VAULT_KEY_INFO, 32);
 }
 
 /**
@@ -321,25 +305,7 @@ export async function deriveVaultKeyBytes(seed: Uint8Array): Promise<Uint8Array>
  * @returns An AES-GCM key for space keys and space records
  */
 export async function deriveVaultKey(seed: Uint8Array): Promise<CryptoKey> {
-  const material = await globalThis.crypto.subtle.importKey(
-    'raw',
-    seed as BufferSource,
-    { name: 'HKDF' },
-    false,
-    ['deriveKey'],
-  );
-  return globalThis.crypto.subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: new Uint8Array(0) as BufferSource,
-      info: VAULT_KEY_INFO as BufferSource,
-    },
-    material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
+  return hkdfAesKey(seed, VAULT_KEY_INFO);
 }
 
 /**
@@ -353,9 +319,7 @@ export async function deriveVaultKey(seed: Uint8Array): Promise<CryptoKey> {
  * @returns The device wraps belonging to this origin
  */
 export function deviceWrapsFor(vault: AccountVault, rpId: string): ReadonlyArray<DeviceWrap> {
-  return vault.wraps.filter(
-    (wrap): wrap is DeviceWrap => wrap.kind === 'device' && wrap.rpId === rpId,
-  );
+  return vault.wraps.filter((wrap): wrap is DeviceWrap => wrap.kind === 'device' && wrap.rpId === rpId);
 }
 
 /** Whether a passphrase would get anyone in. */

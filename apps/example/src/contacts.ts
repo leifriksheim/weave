@@ -85,11 +85,19 @@ export function useStanding(contact: ContactView | undefined): Standing | undefi
  * for them in the given spaces, so they can't accept into a space you are no
  * longer in, then removes them, which leaves the space for two.
  */
-export async function takeBack(node: P2PNode, spaceIds: ReadonlyArray<string>, me: string, did: string): Promise<void> {
+export async function takeBack(
+  node: P2PNode,
+  spaceIds: ReadonlyArray<string>,
+  me: string,
+  did: string,
+): Promise<void> {
   for (const spaceId of spaceIds) {
-    const asked = await node.records.list<{ to?: string }>(spaceId, { collection: 'std.contact-request' }).catch(() => []);
+    const asked = await node.records
+      .list<{ to?: string }>(spaceId, { collection: 'std.contact-request' })
+      .catch(() => []);
     for (const record of asked) {
-      if (record.root === me && record.body?.to === did) await node.records.delete(spaceId, record.key).catch(() => {});
+      if (record.root === me && record.body?.to === did)
+        await node.records.delete(spaceId, record.key).catch(() => {});
     }
   }
   await node.contacts.remove(did);

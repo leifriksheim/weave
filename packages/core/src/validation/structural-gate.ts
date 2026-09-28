@@ -2,6 +2,8 @@ import { Expression } from '../types.js';
 import { SchemaEngine } from '../schema/schema-engine.js';
 import { GateResult } from './crypto-gate.js';
 import { checkVersionShape } from '../records/version.js';
+import { messageOf } from '../utils/errors.js';
+import { isObject } from '../utils/guards.js';
 
 export interface StructuralGate {
   validate(expression: Expression): Promise<GateResult>;
@@ -18,12 +20,11 @@ export interface StructuralGate {
  * @returns Whether it is an encryption envelope rather than plain content
  */
 function isEncryptedBody(body: unknown): boolean {
-  if (!body || typeof body !== 'object') return false;
-  const envelope = body as Record<string, unknown>;
   return (
-    typeof envelope.ciphertext === 'string' &&
-    typeof envelope.iv === 'string' &&
-    typeof envelope.keyId === 'string'
+    isObject(body) &&
+    typeof body.ciphertext === 'string' &&
+    typeof body.iv === 'string' &&
+    typeof body.keyId === 'string'
   );
 }
 
@@ -38,7 +39,10 @@ export interface StructuralGateOptions {
   readonly allowUnknownCollections?: boolean;
 }
 
-export function createStructuralGate(schemaEngine: SchemaEngine, options: StructuralGateOptions = {}): StructuralGate {
+export function createStructuralGate(
+  schemaEngine: SchemaEngine,
+  options: StructuralGateOptions = {},
+): StructuralGate {
   return {
     async validate(expression: Expression): Promise<GateResult> {
       try {
@@ -60,16 +64,16 @@ export function createStructuralGate(schemaEngine: SchemaEngine, options: Struct
 
         const result = await schemaEngine.validate(expression.collection, expression.body);
         if (result.issues) {
-          return { 
-            passed: false, 
-            gate: 'structural', 
-            reason: `Validation failed: ${result.issues.map(i => i.message).join(', ')}` 
+          return {
+            passed: false,
+            gate: 'structural',
+            reason: `Validation failed: ${result.issues.map((i) => i.message).join(', ')}`,
           };
         }
         return { passed: true, gate: 'structural' };
-      } catch (err: any) {
-        return { passed: false, gate: 'structural', reason: err.message || 'Validation error' };
+      } catch (err) {
+        return { passed: false, gate: 'structural', reason: messageOf(err, 'Validation error') };
       }
-    }
+    },
   };
 }

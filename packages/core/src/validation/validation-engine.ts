@@ -14,13 +14,13 @@ export interface ValidationEngineConfig {
   readonly getExpression: (id: string) => Promise<Expression | null>;
 }
 
-export interface ValidationResult {
+export interface ValidationReport {
   readonly valid: boolean;
   readonly gates: ReadonlyArray<GateResult>;
 }
 
 export interface ValidationEngine {
-  validate(expression: Expression): Promise<ValidationResult>;
+  validate(expression: Expression): Promise<ValidationReport>;
 }
 
 /**
@@ -29,10 +29,11 @@ export interface ValidationEngine {
  * @returns A ValidationEngine instance.
  */
 export function createValidationEngine(config: ValidationEngineConfig): ValidationEngine {
-  const { cryptoGate, structuralGate, statefulGate, capabilityGate, resolvePublicKey, getExpression } = config;
+  const { cryptoGate, structuralGate, statefulGate, capabilityGate, resolvePublicKey, getExpression } =
+    config;
 
   return {
-    async validate(expression: Expression): Promise<ValidationResult> {
+    async validate(expression: Expression): Promise<ValidationReport> {
       const gates: GateResult[] = [];
 
       // 1. Structural Gate
@@ -59,6 +60,6 @@ export function createValidationEngine(config: ValidationEngineConfig): Validati
       if (!statefulRes.passed) return { valid: false, gates };
 
       return { valid: true, gates };
-    }
+    },
   };
 }

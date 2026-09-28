@@ -24,10 +24,14 @@ export function useQuery<const Q extends Query>(spaceId: string, query: Q): Quer
   const key = JSON.stringify(plainQuery(query));
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a new query must not show the last one's result
     setState({ result: null, error: null });
     return node.records.watch(
       spaceId,
+      // The plain form `key` was made from: data a connection can send on to the home.
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- parsed from plainQuery's output
       JSON.parse(key) as Query,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- typed from the query, as records.query is
       (result) => setState({ result: result as ResultOf<Q>, error: null }),
       (error) => setState((previous) => ({ result: previous.result, error })),
     );

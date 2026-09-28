@@ -40,14 +40,30 @@ export function protocolError(code: ProtocolErrorCode, message: string, hint?: s
 }
 
 /**
+ * The message of a caught value, for a result that reports it.
+ * @param error The caught value
+ * @param fallback What to say when it carries no message
+ * @returns Its message, or the fallback
+ */
+export function messageOf(error: unknown, fallback: string): string {
+  return typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string' &&
+    error.message
+    ? error.message
+    : fallback;
+}
+
+/**
  * Narrows an unknown thrown value to a protocol error.
  * @param error The caught value
  * @param code Optionally require a specific code
  * @returns Whether it is a protocol error (of that code)
  */
 export function isProtocolError(error: unknown, code?: ProtocolErrorCode): error is ProtocolError {
-  if (!(error instanceof Error) || typeof (error as ProtocolError).code !== 'string') {
+  if (!(error instanceof Error) || !('code' in error) || typeof error.code !== 'string') {
     return false;
   }
-  return code === undefined || (error as ProtocolError).code === code;
+  return code === undefined || error.code === code;
 }

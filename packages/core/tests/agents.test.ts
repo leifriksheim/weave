@@ -5,9 +5,10 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { compileFunction } from 'node:vm';
+import * as z from 'zod';
 
 import { createNode } from '../src/node/node.js';
-import type { P2PNode } from '../src/node/types.js';
 import { runAction } from '../src/node/actions.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
@@ -20,8 +21,21 @@ import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { describeCollection } from '../src/records/describe.js';
 import { checkStoredCollection } from '../src/schema/collection-def.js';
 import type { NodeCollection } from '../src/node/types.js';
-import { checkRules } from '../src/records/rules.js';
-import { addApp, checkApp, copyApp, createScreenBridge, reviewApp, SCREEN_CLIENT, screenDocument, screenPolicy, vote, poll, type App } from '../src/schemas/index.js';
+import { checkRules, type CollectionRules } from '../src/records/rules.js';
+import {
+  addApp,
+  checkApp,
+  copyApp,
+  createScreenBridge,
+  reviewApp,
+  SCREEN_CLIENT,
+  screenDocument,
+  screenPolicy,
+  vote,
+  poll,
+  type App,
+  type AppDefinition,
+} from '../src/schemas/index.js';
 import { createWeaveAuth, type WeaveAuth } from '../src/session/auth.js';
 import { grantSigner, type Grant } from '../src/session/connect.js';
 import { acceptAgentLink, newAgentCode, offerAgentLink, readAgentCode } from '../src/session/agent-link.js';
@@ -38,6 +52,7 @@ import { team } from '../src/space/presets.js';
 import { memberKey } from '../src/space/space-access.js';
 import { nextVersion } from '../src/records/version.js';
 import { hold, letGo } from './helpers/hold.js';
+import { isRecord } from '../src/utils/guards.js';
 
 const open: Array<{ close(): Promise<unknown> }> = [];
 afterEach(async () => {
@@ -84,11 +99,21 @@ async function agentFor(who: Person, spaces: ReadonlyArray<string>, facts = [AGE
 }
 
 /** A version the agent signs by hand — past every check its node would make — slipped into the person's store */
-async function forgeAsAgent(who: Person, space: string, fields: Omit<CreateExpressionParams<unknown>, 'author' | 'space' | 'proof'>) {
+async function forgeAsAgent(
+  who: Person,
+  space: string,
+  fields: Omit<CreateExpressionParams<unknown>, 'author' | 'space' | 'proof'>,
+) {
   const agent = await agentFor(who, [space]);
   const provider = who.manager.getProvider();
   const signed = await createSigner(provider).sign(
-    createExpression({ seen: await seenBy(who.node, space), ...fields, author: agent.did, space, proof: agent.note }),
+    createExpression({
+      seen: await seenBy(who.node, space),
+      ...fields,
+      author: agent.did,
+      space,
+      proof: agent.note,
+    }),
     agent.keys.privateKey,
   );
   await createStorageProvider(await who.stores(`spaces/${space}`)).addExpression(signed);
@@ -115,7 +140,11 @@ const carpool: App = {
     {
       name: 'app.carpool.trip',
       title: 'Trip',
-      schema: { type: 'object', properties: { when: { type: 'string' }, seats: { type: 'integer', minimum: 1 } }, required: ['when', 'seats'] },
+      schema: {
+        type: 'object',
+        properties: { when: { type: 'string' }, seats: { type: 'integer', minimum: 1 } },
+        required: ['when', 'seats'],
+      },
       rules: { edit: 'creator', delete: 'creator' },
     },
     {
@@ -129,7 +158,7 @@ const carpool: App = {
 };
 
 describe('an agent acting for a person', () => {
-  test('what it writes counts as the person\'s, and every peer sees it came via an agent', async () => {
+  test("what it writes counts as the person's, and every peer sees it came via an agent", async () => {
     const { alice, bob, space } = await setup();
     const agent = await agentFor(alice, [space]);
     const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
@@ -139,9 +168,13 @@ describe('an agent acting for a person', () => {
     const note = await helper.records.put(space, 'app.note', { text: 'Bring chalk' });
     assert.equal(note.viaAgent, true);
     const mine = await alice.node.records.put(space, 'app.note', { text: 'Bring rope' });
-    assert.equal(mine.viaAgent, undefined, 'the person\'s own writes are not marked');
+    assert.equal(mine.viaAgent, undefined, "the person's own writes are not marked");
 
-    await until(async () => (await bob.node.records.get(space, note.key)) !== null, 4000, 'the record to reach Bob');
+    await until(
+      async () => (await bob.node.records.get(space, note.key)) !== null,
+      4000,
+      'the record to reach Bob',
+    );
     const seen = await bob.node.records.get(space, note.key);
     assert.equal(seen?.verified, true);
     assert.equal(seen?.root, alice.node.did);
@@ -153,7 +186,10 @@ describe('an agent acting for a person', () => {
     const { id: other } = await alice.node.spaces.create({ name: 'Diary', visibility: 'private' });
     const agent = await agentFor(alice, [space]);
     const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
-    assert.deepEqual((await helper.spaces.list()).map((s) => s.id), [space]);
+    assert.deepEqual(
+      (await helper.spaces.list()).map((s) => s.id),
+      [space],
+    );
     await assert.rejects(() => helper.records.list(other), /not given this space/);
     await assert.rejects(() => helper.records.put(other, 'app.note', { text: 'x' }), /not given this space/);
   });
@@ -162,11 +198,17 @@ describe('an agent acting for a person', () => {
     const { alice, bob, space } = await setup();
     const agent = await agentFor(alice, [space]);
     const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
-    await assert.rejects(() => helper.collections.define(space, { name: 'app.x', schema: { type: 'object' } }), /apps_propose/);
+    await assert.rejects(
+      () => helper.collections.define(space, { name: 'app.x', schema: { type: 'object' } }),
+      /apps_propose/,
+    );
     await assert.rejects(() => helper.spaces.invite(space), /Ask the person/);
     await assert.rejects(() => helper.spaces.setMember(space, bob.node.did, null), /Ask the person/);
     await assert.rejects(() => helper.spaces.join('anything'), /Ask the person/);
-    await assert.rejects(() => runAction(helper, 'collections_define', { space, name: 'app.x', schema: { type: 'object' } }), /apps_propose/);
+    await assert.rejects(
+      () => runAction(helper, 'collections_define', { space, name: 'app.x', schema: { type: 'object' } }),
+      /apps_propose/,
+    );
   });
 
   test('a plain note will not do: the agent must be named as one', async () => {
@@ -188,15 +230,29 @@ describe('an agent acting for a person', () => {
     await hold(alice.node, space);
     // Refused on arrival as not a change anyone may make; even the agent's own person ignores it.
     await settle(500);
-    assert.equal(await createStorageProvider(await bob.stores(`spaces/${space}`)).getExpression(forged.id), null);
-    assert.equal((await alice.node.collections.list(space)).some((c) => c.name === 'app.sneaky' && c.version !== null), false);
-    assert.equal((await bob.node.collections.list(space)).some((c) => c.name === 'app.sneaky' && c.version !== null), false);
+    assert.equal(
+      await createStorageProvider(await bob.stores(`spaces/${space}`)).getExpression(forged.id),
+      null,
+    );
+    assert.equal(
+      (await alice.node.collections.list(space)).some((c) => c.name === 'app.sneaky' && c.version !== null),
+      false,
+    );
+    assert.equal(
+      (await bob.node.collections.list(space)).some((c) => c.name === 'app.sneaky' && c.version !== null),
+      false,
+    );
   });
 
   test('taking someone out of the space, signed by an agent, is ignored too', async () => {
     const { alice, bob, space } = await setup();
     // Bob knowing he joined is not Alice having heard it yet.
-    await until(async () => (await (await stored(alice.stores, space)).getCurrent(await memberKey(bob.node.did))) !== null, 4000, 'Alice to hold Bob\'s member record');
+    await until(
+      async () =>
+        (await (await stored(alice.stores, space)).getCurrent(await memberKey(bob.node.did))) !== null,
+      4000,
+      "Alice to hold Bob's member record",
+    );
     const held = await (await stored(alice.stores, space)).getCurrent(await memberKey(bob.node.did));
     await letGo(alice.node, space);
     await forgeAsAgent(alice, space, {
@@ -208,7 +264,10 @@ describe('an agent acting for a person', () => {
     await hold(alice.node, space);
     await settle(500);
     assert.equal((await bob.node.spaces.access(space)).role?.name, 'editor');
-    assert.equal((await alice.node.spaces.access(space)).members.find((m) => m.did === bob.node.did)?.role, 'editor');
+    assert.equal(
+      (await alice.node.spaces.access(space)).members.find((m) => m.did === bob.node.did)?.role,
+      'editor',
+    );
   });
 });
 
@@ -218,14 +277,41 @@ describe('apps an agent proposes', () => {
     const agent = await agentFor(alice, [space]);
     const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
 
-    const proposed = (await runAction(helper, 'apps_propose', { space, ...carpool })) as { key: string; needs: Array<{ status: string; summary: string[] }> };
-    assert.deepEqual(proposed.needs.map((n) => n.status), ['new', 'new']);
-    assert.ok(proposed.needs[1]!.summary.includes('One seat per person per trip — adding another changes the first.'));
-    assert.equal((await alice.node.collections.list(space)).some((c) => c.name === 'app.carpool.trip'), false, 'nothing is defined yet');
+    const proposed = z
+      .object({
+        key: z.string(),
+        needs: z.array(z.object({ status: z.string(), summary: z.array(z.string()) })),
+      })
+      .parse(await runAction(helper, 'apps_propose', { space, ...carpool }));
+    assert.deepEqual(
+      proposed.needs.map((n) => n.status),
+      ['new', 'new'],
+    );
+    assert.ok(
+      proposed.needs[1]!.summary.includes('One seat per person per trip — adding another changes the first.'),
+    );
+    assert.equal(
+      (await alice.node.collections.list(space)).some((c) => c.name === 'app.carpool.trip'),
+      false,
+      'nothing is defined yet',
+    );
 
     // Bob sees it, and that an agent proposed it.
-    await until(async () => (await bob.node.records.get(space, proposed.key)) !== null, 4000, 'the proposal to reach Bob');
-    const listed = (await runAction(bob.node, 'apps_list', { space })) as Array<{ title: string; viaAgent?: boolean; added: boolean; proposedBy: string }>;
+    await until(
+      async () => (await bob.node.records.get(space, proposed.key)) !== null,
+      4000,
+      'the proposal to reach Bob',
+    );
+    const listed = z
+      .array(
+        z.object({
+          title: z.string(),
+          viaAgent: z.boolean().optional(),
+          added: z.boolean(),
+          proposedBy: z.string(),
+        }),
+      )
+      .parse(await runAction(bob.node, 'apps_list', { space }));
     assert.equal(listed[0]?.title, 'Carpool');
     assert.equal(listed[0]?.viaAgent, true);
     assert.equal(listed[0]?.added, false);
@@ -237,8 +323,12 @@ describe('apps an agent proposes', () => {
     // Bob, an editor, may define collections: he adds it.
     const review = await addApp(bob.node, space, proposed.key);
     assert.equal(review.added, true);
-    const names = (await bob.node.collections.list(space)).filter((c) => c.version !== null).map((c) => c.name);
-    assert.ok(names.includes('app.carpool.trip') && names.includes('app.carpool.seat') && names.includes('std.app'));
+    const names = (await bob.node.collections.list(space))
+      .filter((c) => c.version !== null)
+      .map((c) => c.name);
+    assert.ok(
+      names.includes('app.carpool.trip') && names.includes('app.carpool.seat') && names.includes('std.app'),
+    );
 
     // And the agent can now use it, as Alice.
     const trip = await helper.records.put(space, 'app.carpool.trip', { when: 'Saturday 9:00', seats: 3 });
@@ -249,21 +339,41 @@ describe('apps an agent proposes', () => {
     const { alice, space } = await setup();
     const agent = await agentFor(alice, [space]);
     const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
-    type Listed = { key: string; added: boolean; superseded: boolean; updates?: string };
-    const list = async () => (await runAction(alice.node, 'apps_list', { space })) as Listed[];
+    const Listed = z.array(
+      z.object({
+        key: z.string(),
+        added: z.boolean(),
+        superseded: z.boolean(),
+        updates: z.string().optional(),
+      }),
+    );
+    const Proposed = z.object({ key: z.string() });
+    const list = async () => Listed.parse(await runAction(alice.node, 'apps_list', { space }));
     const find = async (key: string) => (await list()).find((a) => a.key === key)!;
+    const [trip, seat] = carpool.needs;
+    assert.ok(trip && seat && isRecord(trip.schema.properties));
+    const properties = trip.schema.properties;
     const withField = (field: string): App => ({
       ...carpool,
-      needs: [{ ...carpool.needs[0]!, schema: { ...carpool.needs[0]!.schema, properties: { ...carpool.needs[0]!.schema.properties as object, [field]: { type: 'string' } } } }, carpool.needs[1]!],
+      needs: [
+        { ...trip, schema: { ...trip.schema, properties: { ...properties, [field]: { type: 'string' } } } },
+        seat,
+      ],
     });
 
-    const first = (await runAction(helper, 'apps_propose', { space, ...carpool })) as { key: string };
+    const first = Proposed.parse(await runAction(helper, 'apps_propose', { space, ...carpool }));
     await addApp(alice.node, space, first.key);
 
     // The agent changes it: a new proposal that names the one it updates.
-    const second = (await runAction(helper, 'apps_propose', { space, ...withField('from'), updates: first.key })) as { key: string };
+    const second = Proposed.parse(
+      await runAction(helper, 'apps_propose', { space, ...withField('from'), updates: first.key }),
+    );
     assert.equal((await find(second.key)).updates, first.key);
-    assert.deepEqual([(await find(first.key)).added, (await find(first.key)).superseded], [true, false], 'the added app stays until its update is');
+    assert.deepEqual(
+      [(await find(first.key)).added, (await find(first.key)).superseded],
+      [true, false],
+      'the added app stays until its update is',
+    );
 
     await addApp(alice.node, space, second.key);
     assert.deepEqual([(await find(first.key)).added, (await find(first.key)).superseded], [false, true]);
@@ -273,13 +383,24 @@ describe('apps an agent proposes', () => {
     await assert.rejects(() => addApp(alice.node, space, first.key), /newer version/);
 
     // An update to the update replaces both before it.
-    const third = (await runAction(helper, 'apps_propose', { space, ...withField('note'), updates: second.key })) as { key: string };
+    const third = Proposed.parse(
+      await runAction(helper, 'apps_propose', { space, ...withField('note'), updates: second.key }),
+    );
     await addApp(alice.node, space, third.key);
-    assert.deepEqual((await list()).filter((a) => a.superseded).map((a) => a.key).sort(), [first.key, second.key].sort());
+    assert.deepEqual(
+      (await list())
+        .filter((a) => a.superseded)
+        .map((a) => a.key)
+        .sort(),
+      [first.key, second.key].sort(),
+    );
     await assert.rejects(() => addApp(alice.node, space, second.key), /newer version/);
 
     // An update must name an app that is here.
-    await assert.rejects(() => runAction(helper, 'apps_propose', { space, ...carpool, updates: 'nothing' }), /names no app/);
+    await assert.rejects(
+      () => runAction(helper, 'apps_propose', { space, ...carpool, updates: 'nothing' }),
+      /names no app/,
+    );
     assert.match(checkApp({ ...carpool, updates: '' })!, /updates/);
   });
 
@@ -298,12 +419,21 @@ describe('apps an agent proposes', () => {
     const proposed = await alice.node.records.put(space, 'std.app', carpool);
     const copy = await copyApp(alice.node, space, proposed.key, other);
     assert.equal(copy.body?.from, `${space}/${proposed.key}`);
-    assert.equal((await alice.node.collections.list(other)).some((c) => c.name === 'app.carpool.trip'), false);
+    assert.equal(
+      (await alice.node.collections.list(other)).some((c) => c.name === 'app.carpool.trip'),
+      false,
+    );
   });
 
-  test('a proposal may not name the protocol\'s own collections, a version, or one collection twice', () => {
-    assert.match(checkApp({ title: 'x', needs: [{ name: 'sys.role', schema: { type: 'object' } }] })!, /protocol's own/);
-    assert.match(checkApp({ title: 'x', needs: [{ name: 'app.a', schema: { type: 'object' }, version: 3 }] })!, /version/);
+  test("a proposal may not name the protocol's own collections, a version, or one collection twice", () => {
+    assert.match(
+      checkApp({ title: 'x', needs: [{ name: 'sys.role', schema: { type: 'object' } }] })!,
+      /protocol's own/,
+    );
+    assert.match(
+      checkApp({ title: 'x', needs: [{ name: 'app.a', schema: { type: 'object' }, version: 3 }] })!,
+      /version/,
+    );
     assert.match(checkApp({ title: 'x', needs: [carpool.needs[0], carpool.needs[0]] })!, /twice/);
     assert.match(checkApp({ title: 'x', needs: [] })!, /1–10/);
     assert.equal(checkApp(carpool), null);
@@ -325,15 +455,23 @@ describe('what a collection allows, in words', () => {
       'Anyone in the space can add a poll.',
       'Only whoever added a poll can change it.',
       'Only whoever added a poll or those allowed to moderate can remove it.',
-      'Once a poll is added, its “options” can\'t be changed.',
+      "Once a poll is added, its “options” can't be changed.",
       'Roles in the space can be given permission to “moderate”.',
     ]);
   });
 
-  test('one per something that isn\'t per person: the first one holds it, unless anyone may change it', () => {
-    const seat = { name: 'app.chess.seat', title: 'Seat', rules: { edit: 'creator' as const, onePer: ['color'] } };
+  test("one per something that isn't per person: the first one holds it, unless anyone may change it", () => {
+    const seat = {
+      name: 'app.chess.seat',
+      title: 'Seat',
+      rules: { edit: 'creator' as const, onePer: ['color'] },
+    };
     assert.ok(describeCollection(seat).includes('One seat per color — whoever adds it first holds it.'));
-    assert.ok(describeCollection({ ...seat, rules: { onePer: ['color'] } }).includes('One seat per color — anyone adding another replaces the first.'));
+    assert.ok(
+      describeCollection({ ...seat, rules: { onePer: ['color'] } }).includes(
+        'One seat per color — anyone adding another replaces the first.',
+      ),
+    );
   });
 
   test('no rules still says something: the defaults', () => {
@@ -346,14 +484,29 @@ describe('what a collection allows, in words', () => {
   test('every rule the protocol accepts adds a sentence, and one it does not know is refused', () => {
     // The rule names checkRules lists in its error — the source of truth for what a rule can be.
     const known = /use ([^)]+)\)/.exec(checkRules({ nope: 1 })!)![1]!.split(', ');
-    const samples: Record<string, unknown> = { create: 'creator', edit: 'creator', delete: 'creator', onePer: ['@author'], fixed: ['x'] };
+    const samples: Record<string, CollectionRules> = {
+      create: { create: 'can:post' },
+      edit: { edit: 'creator' },
+      delete: { delete: 'creator' },
+      onePer: { onePer: ['@author'] },
+      fixed: { fixed: ['x'] },
+    };
     const baseline = describeCollection({ name: 'app.thing' });
     for (const rule of known) {
-      assert.ok(rule in samples, `describe.ts has no sample for the rule "${rule}" — add one, and a sentence for it`);
-      const said = describeCollection({ name: 'app.thing', rules: { [rule]: rule === 'create' ? 'can:post' : samples[rule] } as never, permissions: ['post'] });
-      assert.notDeepEqual(said.filter((s) => !s.includes('permission')), baseline, `the rule "${rule}" changes nothing in the summary`);
+      assert.ok(
+        rule in samples,
+        `describe.ts has no sample for the rule "${rule}" — add one, and a sentence for it`,
+      );
+      const said = describeCollection({ name: 'app.thing', rules: samples[rule]!, permissions: ['post'] });
+      assert.notDeepEqual(
+        said.filter((s) => !s.includes('permission')),
+        baseline,
+        `the rule "${rule}" changes nothing in the summary`,
+      );
     }
-    assert.throws(() => describeCollection({ name: 'app.thing', rules: { someday: true } as never }), /No way to describe/);
+    // A rule from some later version, beside one this version knows.
+    const later = { edit: 'creator' as const, someday: true };
+    assert.throws(() => describeCollection({ name: 'app.thing', rules: later }), /No way to describe/);
   });
 });
 
@@ -364,7 +517,11 @@ describe('an agent connected through the account home', () => {
     const values = new Map<string, string>([['weave.stay-signed-in', '"never"']]);
     const auth = createWeaveAuth({
       rpId: 'home.test',
-      storage: { getItem: (k) => values.get(k) ?? null, setItem: (k, v) => void values.set(k, v), removeItem: (k) => void values.delete(k) },
+      storage: {
+        getItem: (k) => values.get(k) ?? null,
+        setItem: (k, v) => void values.set(k, v),
+        removeItem: (k) => void values.delete(k),
+      },
       browser: { accounts: async () => accounts, stores: () => stores },
       network: { transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)] },
     });
@@ -375,14 +532,22 @@ describe('an agent connected through the account home', () => {
     return auth;
   }
 
-  test('the home signs an agent note, kept apart from the app\'s own; the app going takes its agents too', async () => {
+  test("the home signs an agent note, kept apart from the app's own; the app going takes its agents too", async () => {
     const auth = await home(createFakeHub({ latencyMs: 1 }));
     const { node } = auth.getState().session!;
     const gym = await node.spaces.create({ name: 'Gym', visibility: 'private' });
     const origin = 'https://app.test';
 
-    const app = await auth.grant({ origin, request: { v: 1, audience: 'did:key:zApp', access: 'write' }, spaceIds: [gym.id] });
-    const agent = await auth.grant({ origin, request: { v: 1, audience: 'did:key:zAgent', access: 'write', agent: true }, spaceIds: [gym.id] });
+    const app = await auth.grant({
+      origin,
+      request: { v: 1, audience: 'did:key:zApp', access: 'write' },
+      spaceIds: [gym.id],
+    });
+    const agent = await auth.grant({
+      origin,
+      request: { v: 1, audience: 'did:key:zAgent', access: 'write', agent: true },
+      spaceIds: [gym.id],
+    });
     assert.equal(isAgentNote(app.token), false);
     assert.equal(isAgentNote(agent.token), true);
     assert.equal(agent.agent, true);
@@ -390,13 +555,31 @@ describe('an agent connected through the account home', () => {
     assert.equal(auth.connections().length, 2, 'the agent does not replace the app');
 
     await assert.rejects(
-      () => auth.grant({ origin, request: { v: 1, audience: 'did:key:zAgent', access: 'write', agent: true, create: [{ name: 'Mine', visibility: 'private' }] }, spaceIds: [] }),
+      () =>
+        auth.grant({
+          origin,
+          request: {
+            v: 1,
+            audience: 'did:key:zAgent',
+            access: 'write',
+            agent: true,
+            create: [{ name: 'Mine', visibility: 'private' }],
+          },
+          spaceIds: [],
+        }),
       /spaces that exist/,
     );
 
     await auth.disconnect(origin, { agent: true });
-    assert.deepEqual(auth.connections().map((c) => c.audience), ['did:key:zApp']);
-    await auth.grant({ origin, request: { v: 1, audience: 'did:key:zAgent2', access: 'write', agent: true }, spaceIds: [gym.id] });
+    assert.deepEqual(
+      auth.connections().map((c) => c.audience),
+      ['did:key:zApp'],
+    );
+    await auth.grant({
+      origin,
+      request: { v: 1, audience: 'did:key:zAgent2', access: 'write', agent: true },
+      spaceIds: [gym.id],
+    });
     await auth.disconnect(origin);
     assert.equal(auth.connections().length, 0);
   });
@@ -406,12 +589,28 @@ describe('an agent connected through the account home', () => {
     const origin = 'https://app.test';
     const whole = { v: 1, access: 'write', agent: true, scope: 'account', chooseSpaces: false } as const;
 
-    const laptop = await auth.grant({ origin, request: { ...whole, audience: 'did:key:zLaptop', name: 'Agent on laptop', days: 30 }, spaceIds: [] });
-    const desk = await auth.grant({ origin, request: { ...whole, audience: 'did:key:zDesk', name: 'Agent on desk', days: 1 }, spaceIds: [] });
+    const laptop = await auth.grant({
+      origin,
+      request: { ...whole, audience: 'did:key:zLaptop', name: 'Agent on laptop', days: 30 },
+      spaceIds: [],
+    });
+    const desk = await auth.grant({
+      origin,
+      request: { ...whole, audience: 'did:key:zDesk', name: 'Agent on desk', days: 1 },
+      spaceIds: [],
+    });
     assert.ok(laptop.accountKey, 'it follows the account, so spaces made later reach it');
     assert.ok(isAgentNote(laptop.token));
-    assert.equal(laptop.contactKey, undefined, 'the whole account, but never the contact key: it opens contact requests and knocks');
-    const app = await auth.grant({ origin: 'https://whole.test', request: { v: 1, access: 'write', scope: 'account', audience: 'did:key:zWholeApp' }, spaceIds: [] });
+    assert.equal(
+      laptop.contactKey,
+      undefined,
+      'the whole account, but never the contact key: it opens contact requests and knocks',
+    );
+    const app = await auth.grant({
+      origin: 'https://whole.test',
+      request: { v: 1, access: 'write', scope: 'account', audience: 'did:key:zWholeApp' },
+      spaceIds: [],
+    });
     assert.ok(app.contactKey, 'an app given the whole account does get it');
     await auth.disconnect('https://whole.test');
     const day = 24 * 3600;
@@ -421,13 +620,19 @@ describe('an agent connected through the account home', () => {
     assert.equal(auth.connections().length, 2, 'a second agent does not replace the first');
 
     await auth.disconnect(origin, { audience: 'did:key:zLaptop' });
-    assert.deepEqual(auth.connections().map((c) => c.name), ['Agent on desk']);
+    assert.deepEqual(
+      auth.connections().map((c) => c.name),
+      ['Agent on desk'],
+    );
   });
 });
 
 describe('an agent running a node of its own', () => {
   /** What `weave connect` ends up with: its own key, and the home's grant for the whole account */
-  async function agentNode(who: { me: Person['me']; manager: Person['manager']; seed: Uint8Array }, hub: FakeHub) {
+  async function agentNode(
+    who: { me: Person['me']; manager: Person['manager']; seed: Uint8Array },
+    hub: FakeHub,
+  ) {
     const provider = who.manager.getProvider();
     const keys = await provider.generateKeyPair();
     const did = publicKeyToDid(await provider.exportPublicKey(keys.publicKey), P256_MULTICODEC);
@@ -478,20 +683,32 @@ describe('an agent running a node of its own', () => {
     return { node, me, manager, stores, seed };
   }
 
-  test('it finds the account\'s spaces by itself — ones made later too — and writes in them via agent', async () => {
+  test("it finds the account's spaces by itself — ones made later too — and writes in them via agent", async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const ada = await accountHolder(hub);
     const before = await ada.node.spaces.create({ name: 'Before', visibility: 'private' });
     const agent = await agentNode(ada, hub);
-    await until(async () => (await agent.node.spaces.list()).some((space) => space.id === before.id), 4000, 'the space made before');
+    await until(
+      async () => (await agent.node.spaces.list()).some((space) => space.id === before.id),
+      4000,
+      'the space made before',
+    );
 
     const after = await ada.node.spaces.create({ name: 'After', visibility: 'private' });
-    await until(async () => (await agent.node.spaces.list()).some((space) => space.id === after.id), 4000, 'the space made after');
+    await until(
+      async () => (await agent.node.spaces.list()).some((space) => space.id === after.id),
+      4000,
+      'the space made after',
+    );
 
     await hold(agent.node, after.id);
     await hold(ada.node, after.id);
     const note = await agent.node.records.put(after.id, 'app.note', { text: 'from the terminal' });
-    await until(async () => (await ada.node.records.get(after.id, note.key)) !== null, 4000, 'the note reaching Ada');
+    await until(
+      async () => (await ada.node.records.get(after.id, note.key)) !== null,
+      4000,
+      'the note reaching Ada',
+    );
     const seen = await ada.node.records.get(after.id, note.key);
     assert.equal(seen?.viaAgent, true);
     assert.equal(seen?.createdBy, ada.me.did);
@@ -502,18 +719,25 @@ describe('an agent running a node of its own', () => {
     const ada = await accountHolder(hub);
     const home = await ada.node.spaces.create({ name: 'Home', visibility: 'private' });
     const agent = await agentNode(ada, hub);
-    await until(async () => (await agent.node.spaces.list()).length === 1, 4000, 'the agent following the account');
+    await until(
+      async () => (await agent.node.spaces.list()).length === 1,
+      4000,
+      'the agent following the account',
+    );
     await assert.rejects(() => agent.node.spaces.leave(home.id), /can't leave spaces/);
     // Past the agent's wrapper, on the node underneath: the account's own space refuses it too.
     await assert.rejects(() => agent.base.spaces.leave(home.id), /agent can't change the account/);
     await assert.rejects(() => agent.base.account.setName('Hacked'), /agent can't change the account/);
     await settle();
-    assert.deepEqual((await ada.node.spaces.list()).map((space) => space.name), ['Home']);
+    assert.deepEqual(
+      (await ada.node.spaces.list()).map((space) => space.name),
+      ['Home'],
+    );
   });
 });
 
 describe('connecting an agent with a code', () => {
-  test('the app asks the person, the terminal gets a checked agent\'s note', async () => {
+  test("the app asks the person, the terminal gets a checked agent's note", async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const who = await person(hub);
     const provider = who.manager.getProvider();
@@ -533,15 +757,41 @@ describe('connecting an agent with a code', () => {
           expiration: Math.floor(Date.now() / 1000) + 3600,
           facts: [AGENT_FACT],
         });
-        await stage.allow({ v: 1, did: who.me.did, name: 'Ada', token: note.encoded, access: 'write', scope: 'account', spaces: [], expiresAt: Math.floor(Date.now() / 1000) + 3600, agent: true, home: 'https://home.test/connect' });
+        await stage.allow({
+          v: 1,
+          did: who.me.did,
+          name: 'Ada',
+          token: note.encoded,
+          access: 'write',
+          scope: 'account',
+          spaces: [],
+          expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          agent: true,
+          home: 'https://home.test/connect',
+        });
       })();
     });
     open.push({ close: async () => offer.stop() });
 
     // Someone with a different code in the same place gets nowhere.
-    await assert.rejects(() => acceptAgentLink({ code: newAgentCode(), did: 'did:key:zStranger', name: 'x', network, findTimeoutMs: 300 }), /did not answer/);
+    await assert.rejects(
+      () =>
+        acceptAgentLink({
+          code: newAgentCode(),
+          did: 'did:key:zStranger',
+          name: 'x',
+          network,
+          findTimeoutMs: 300,
+        }),
+      /did not answer/,
+    );
 
-    const grant = await acceptAgentLink({ code: `npx weave connect ${offer.code}`, did, name: 'Agent on laptop', network });
+    const grant = await acceptAgentLink({
+      code: `npx weave connect ${offer.code}`,
+      did,
+      name: 'Agent on laptop',
+      network,
+    });
     assert.equal(grant.did, who.me.did);
     assert.ok(isAgentNote(grant.token));
     await until(async () => stages.includes('connected'), 2000, 'the app hearing it worked');
@@ -555,111 +805,270 @@ describe('connecting an agent with a code', () => {
       if (stage.kind === 'asking') stage.deny('Not today.');
     });
     open.push({ close: async () => offer.stop() });
-    await assert.rejects(() => acceptAgentLink({ code: offer.code, did: 'did:key:zLaptop', name: 'Agent', network }), /Not today/);
+    await assert.rejects(
+      () => acceptAgentLink({ code: offer.code, did: 'did:key:zLaptop', name: 'Agent', network }),
+      /Not today/,
+    );
     assert.throws(() => readAgentCode('wv_short'), /not a connect code/);
   });
 });
 
-void (null as unknown as P2PNode);
+/** Runs the script put in front of a screen, compiled as a function of the globals it reads so a test can hand it fakes. */
+function runScreenClient(window: unknown, addEventListener: unknown, document: unknown): void {
+  const script = compileFunction(SCREEN_CLIENT, ['window', 'addEventListener', 'document']);
+  Reflect.apply(script, undefined, [window, addEventListener, document]);
+}
 
 describe('screens', () => {
   const board = '<!doctype html><div id="board"></div><script>weave.list("app.chess.game")</script>';
 
   test('a definition carries its screen to every peer; one too large is refused', async () => {
     const { alice, bob, space } = await setup();
-    await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' }, screen: board });
-    await until(async () => (await bob.node.collections.list(space)).some((c) => c.name === 'app.chess.game' && c.screen === board), 4000, 'the screen to reach Bob');
+    await alice.node.collections.define(space, {
+      name: 'app.chess.game',
+      schema: { type: 'object' },
+      screen: board,
+    });
+    await until(
+      async () =>
+        (await bob.node.collections.list(space)).some(
+          (c) => c.name === 'app.chess.game' && c.screen === board,
+        ),
+      4000,
+      'the screen to reach Bob',
+    );
     // Where it may connect travels with it, through collections_define as an agent's tools give it.
-    await runAction(alice.node, 'collections_define', { space, name: 'app.chess.clock', schema: { type: 'object' }, screen: board, network: ['https://time.example.com'] });
-    await until(async () => (await bob.node.collections.list(space)).find((c) => c.name === 'app.chess.clock')?.network?.[0] === 'https://time.example.com', 4000, 'its network to reach Bob');
+    await runAction(alice.node, 'collections_define', {
+      space,
+      name: 'app.chess.clock',
+      schema: { type: 'object' },
+      screen: board,
+      network: ['https://time.example.com'],
+    });
+    await until(
+      async () =>
+        (await bob.node.collections.list(space)).find((c) => c.name === 'app.chess.clock')?.network?.[0] ===
+        'https://time.example.com',
+      4000,
+      'its network to reach Bob',
+    );
     await assert.rejects(
-      () => alice.node.collections.define(space, { name: 'app.big', schema: { type: 'object' }, screen: 'x'.repeat(49 * 1024) }),
+      () =>
+        alice.node.collections.define(space, {
+          name: 'app.big',
+          schema: { type: 'object' },
+          screen: 'x'.repeat(49 * 1024),
+        }),
       /at most 48 KB/,
     );
   });
 
   test('a proposal that adds a screen says so, and apps_list names it', async () => {
     const { alice, space } = await setup();
-    const chess: App = { title: 'Chess', needs: [{ name: 'app.chess.game', schema: { type: 'object' }, screen: board }] };
+    const chess: App = {
+      title: 'Chess',
+      needs: [{ name: 'app.chess.game', schema: { type: 'object' }, screen: board }],
+    };
     const proposed = await alice.node.records.put(space, 'std.app', chess);
-    const listed = (await runAction(alice.node, 'apps_list', { space })) as Array<{ key: string; screen?: string }>;
+    const listed = z
+      .array(z.object({ key: z.string(), screen: z.string().optional() }))
+      .parse(await runAction(alice.node, 'apps_list', { space }));
     assert.equal(listed.find((a) => a.key === proposed.key)?.screen, 'app.chess.game');
     await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' } });
-    assert.deepEqual(reviewApp(chess, await alice.node.collections.list(space)).needs[0]?.changes, ['gives it a screen']);
+    assert.deepEqual(reviewApp(chess, await alice.node.collections.list(space)).needs[0]?.changes, [
+      'gives it a screen',
+    ]);
     assert.match(String(await runAction(alice.node, 'apps_screen_guide', {})), /window\.weave/);
   });
 
   test('the script in front of a screen sets up weave, with me readable both ways', () => {
-    const port = { postMessage: () => {}, onmessage: null as unknown };
-    const window: Record<string, unknown> = { __weave: { port, me: { did: 'did:key:zMe', name: 'Anna' }, collections: ['app.chess.game'] } };
-    new Function('window', 'addEventListener', 'document', SCREEN_CLIENT)(window, () => {}, {});
-    const weave = window.weave as { me: { did: string; name: string } & (() => { did: string; name: string }); collections: string[] };
+    const port: { postMessage: () => void; onmessage: unknown } = { postMessage: () => {}, onmessage: null };
+    const window: Record<string, unknown> = {
+      __weave: { port, me: { did: 'did:key:zMe', name: 'Anna' }, collections: ['app.chess.game'] },
+    };
+    runScreenClient(window, () => {}, {});
+    const weave = window.weave;
+    assert.ok(isRecord(weave));
+    const { me } = weave;
+    assert.ok(typeof me === 'function' && 'did' in me);
     assert.equal(window.__weave, undefined, 'the port is not left lying around');
-    assert.equal(weave.me.did, 'did:key:zMe');
-    assert.equal(weave.me.name, 'Anna');
-    assert.deepEqual(weave.me(), { did: 'did:key:zMe', name: 'Anna' });
+    assert.equal(me.did, 'did:key:zMe');
+    assert.equal(me.name, 'Anna');
+    assert.deepEqual(Reflect.apply(me, undefined, []), { did: 'did:key:zMe', name: 'Anna' });
     assert.deepEqual(weave.collections, ['app.chess.game']);
   });
 
-  test('the script in front of a screen shows the screen\'s own errors, not those of a browser extension in its frame', () => {
+  test("the script in front of a screen shows the screen's own errors, not those of a browser extension in its frame", () => {
     const listeners: Record<string, (event: unknown) => void> = {};
     const shown: string[] = [];
-    const bar = { id: '', style: {}, setAttribute: () => {}, set textContent(text: string) { shown.push(text); } };
-    const document = { getElementById: () => null, createElement: () => bar, body: { appendChild: () => {} } };
-    const window: Record<string, unknown> = { __weave: { port: { postMessage: () => {} }, me: { did: 'did:key:zMe', name: 'Anna' }, collections: [] } };
-    new Function('window', 'addEventListener', 'document', SCREEN_CLIENT)(window, (type: string, listener: (event: unknown) => void) => (listeners[type] = listener), document);
+    const bar = {
+      id: '',
+      style: {},
+      setAttribute: () => {},
+      set textContent(text: string) {
+        shown.push(text);
+      },
+    };
+    const document = {
+      getElementById: () => null,
+      createElement: () => bar,
+      body: { appendChild: () => {} },
+    };
+    const window: Record<string, unknown> = {
+      __weave: { port: { postMessage: () => {} }, me: { did: 'did:key:zMe', name: 'Anna' }, collections: [] },
+    };
+    runScreenClient(
+      window,
+      (type: string, listener: (event: unknown) => void) => (listeners[type] = listener),
+      document,
+    );
 
     const metamask = new Error('Failed to connect to MetaMask');
-    metamask.stack = 'Error: Failed to connect to MetaMask\n    at Object.connect (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/scripts/inpage.js:1:21277)';
+    metamask.stack =
+      'Error: Failed to connect to MetaMask\n    at Object.connect (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/scripts/inpage.js:1:21277)';
     listeners.unhandledrejection!({ reason: metamask });
-    listeners.error!({ message: 'Uncaught TypeError: x is undefined', filename: 'moz-extension://abc/content.js', error: null });
-    assert.deepEqual(shown, [], 'an extension\'s failures are not the screen\'s');
+    listeners.error!({
+      message: 'Uncaught TypeError: x is undefined',
+      filename: 'moz-extension://abc/content.js',
+      error: null,
+    });
+    assert.deepEqual(shown, [], "an extension's failures are not the screen's");
 
-    listeners.error!({ message: 'Uncaught ReferenceError: draw is not defined', filename: 'about:srcdoc', error: new ReferenceError('draw is not defined') });
+    listeners.error!({
+      message: 'Uncaught ReferenceError: draw is not defined',
+      filename: 'about:srcdoc',
+      error: new ReferenceError('draw is not defined'),
+    });
     listeners.unhandledrejection!({ reason: new Error('Only whoever added a ride can change it') });
-    assert.deepEqual(shown, ['This screen hit an error: Uncaught ReferenceError: draw is not defined', 'This screen hit an error: Only whoever added a ride can change it']);
+    assert.deepEqual(shown, [
+      'This screen hit an error: Uncaught ReferenceError: draw is not defined',
+      'This screen hit an error: Only whoever added a ride can change it',
+    ]);
   });
 
   test('a screen reaches only the exact origins its definition names, and the review says so', () => {
     const screen = '<p>Weather for the ride</p>';
-    const need = (network?: unknown) => ({ name: 'app.carpool.ride', schema: { type: 'object' }, screen, ...(network === undefined ? {} : { network }) });
-    assert.equal(checkStoredCollection({ ...need(['https://api.open-meteo.com', 'wss://feed.example.com:8443']), version: 1 }), null);
-    for (const wrong of [['*'], ['https:'], ['http://api.example.com'], ['https://api.example.com/v1'], ['https://API.example.com'], ['https://localhost'], ["https://a.example.com; connect-src *"], ['https://a.example.com', 'https://a.example.com'], Array.from({ length: 9 }, (_, i) => `https://h${i}.example.com`), 'https://api.example.com']) {
-      assert.notEqual(checkStoredCollection({ ...need(wrong), version: 1 }), null, `refuses ${JSON.stringify(wrong)}`);
+    const ride: AppDefinition = {
+      name: 'app.carpool.ride',
+      schema: { type: 'object' },
+      screen,
+      network: ['https://api.open-meteo.com'],
+    };
+    const need = (network?: unknown) => ({
+      name: 'app.carpool.ride',
+      schema: { type: 'object' },
+      screen,
+      ...(network === undefined ? {} : { network }),
+    });
+    assert.equal(
+      checkStoredCollection({
+        ...need(['https://api.open-meteo.com', 'wss://feed.example.com:8443']),
+        version: 1,
+      }),
+      null,
+    );
+    for (const wrong of [
+      ['*'],
+      ['https:'],
+      ['http://api.example.com'],
+      ['https://api.example.com/v1'],
+      ['https://API.example.com'],
+      ['https://localhost'],
+      ['https://a.example.com; connect-src *'],
+      ['https://a.example.com', 'https://a.example.com'],
+      Array.from({ length: 9 }, (_, i) => `https://h${i}.example.com`),
+      'https://api.example.com',
+    ]) {
+      assert.notEqual(
+        checkStoredCollection({ ...need(wrong), version: 1 }),
+        null,
+        `refuses ${JSON.stringify(wrong)}`,
+      );
     }
-    assert.match(checkStoredCollection({ name: 'app.x.y', schema: { type: 'object' }, network: ['https://api.example.com'], version: 1 }) ?? '', /no screen/);
+    assert.match(
+      checkStoredCollection({
+        name: 'app.x.y',
+        schema: { type: 'object' },
+        network: ['https://api.example.com'],
+        version: 1,
+      }) ?? '',
+      /no screen/,
+    );
 
     // The policy written in front of the screen: nothing, or exactly those origins — never more, even if handed junk.
     assert.match(screenPolicy([]), /connect-src 'none'/);
-    assert.match(screenPolicy(['https://api.open-meteo.com']), /connect-src https:\/\/api\.open-meteo\.com;.*img-src|img-src data: blob: https:\/\/api\.open-meteo\.com/);
-    assert.match(screenPolicy(['https://api.open-meteo.com']), /connect-src https:\/\/api\.open-meteo\.com(;|$)/);
+    assert.match(
+      screenPolicy(['https://api.open-meteo.com']),
+      /connect-src https:\/\/api\.open-meteo\.com;.*img-src|img-src data: blob: https:\/\/api\.open-meteo\.com/,
+    );
+    assert.match(
+      screenPolicy(['https://api.open-meteo.com']),
+      /connect-src https:\/\/api\.open-meteo\.com(;|$)/,
+    );
     assert.match(screenPolicy(['*']), /connect-src 'none'/);
-    assert.ok(screenDocument(screen, ['https://api.open-meteo.com']).startsWith('<meta http-equiv="Content-Security-Policy"'), 'the policy comes before any script');
+    assert.ok(
+      screenDocument(screen, ['https://api.open-meteo.com']).startsWith(
+        '<meta http-equiv="Content-Security-Policy"',
+      ),
+      'the policy comes before any script',
+    );
 
     // Said in the review, worked out from the definition; and adding an origin later is a change someone must approve.
-    const summary = describeCollection(need(['https://api.open-meteo.com']));
-    assert.match(summary.at(-1)!, /Its screen can connect to api\.open-meteo\.com.*Each person is asked first/);
-    const held = { name: 'app.carpool.ride', schema: { type: 'object' }, screen, version: 1 } as unknown as NodeCollection;
-    const review = reviewApp({ title: 'Carpool', needs: [need(['https://api.open-meteo.com']) as never] }, [held]);
+    const summary = describeCollection(ride);
+    assert.match(
+      summary.at(-1)!,
+      /Its screen can connect to api\.open-meteo\.com.*Each person is asked first/,
+    );
+    const held: NodeCollection = {
+      name: 'app.carpool.ride',
+      schema: { type: 'object' },
+      screen,
+      version: 1,
+      history: 'latest',
+      links: {},
+      definedBy: null,
+      permissions: [],
+      rules: {},
+      topics: [],
+      records: 0,
+    };
+    const review = reviewApp({ title: 'Carpool', needs: [ride] }, [held]);
     assert.deepEqual(review.needs[0]!.changes, ['lets its screen reach https://api.open-meteo.com']);
   });
 
-  test('the bridge answers for its app\'s collections only, as the person looking, under the rules', async () => {
+  test("the bridge answers for its app's collections only, as the person looking, under the rules", async () => {
     const { alice, bob, space } = await setup();
-    await alice.node.collections.define(space, { name: 'app.chess.game', schema: { type: 'object' }, rules: { edit: 'creator' } });
+    await alice.node.collections.define(space, {
+      name: 'app.chess.game',
+      schema: { type: 'object' },
+      rules: { edit: 'creator' },
+    });
     await alice.node.records.put(space, 'app.secret', { pin: 1234 });
-    await until(async () => (await bob.node.collections.list(space)).some((c) => c.name === 'app.chess.game' && c.version !== null), 4000, 'the definition');
+    await until(
+      async () =>
+        (await bob.node.collections.list(space)).some(
+          (c) => c.name === 'app.chess.game' && c.version !== null,
+        ),
+      4000,
+      'the definition',
+    );
 
     const channel = new MessageChannel();
-    const bridge = createScreenBridge({ node: bob.node, spaceId: space, collections: ['app.chess.game'], port: channel.port1 });
+    const bridge = createScreenBridge({
+      node: bob.node,
+      spaceId: space,
+      collections: ['app.chess.game'],
+      port: channel.port1,
+    });
+    const Answer = z.object({ ok: z.boolean(), value: z.unknown().optional(), error: z.string().optional() });
     let next = 0;
     const call = (method: string, ...args: unknown[]) =>
-      new Promise<{ ok: boolean; value?: unknown; error?: string }>((resolve) => {
+      new Promise<z.infer<typeof Answer>>((resolve) => {
         const id = ++next;
-        const listen = (event: MessageEvent) => {
-          if (event.data?.id !== id) return;
+        const listen = (event: MessageEvent<unknown>) => {
+          if (!isRecord(event.data) || event.data.id !== id) return;
           channel.port2.removeEventListener('message', listen);
-          resolve(event.data);
+          resolve(Answer.parse(event.data));
         };
         channel.port2.addEventListener('message', listen);
         channel.port2.start();
@@ -672,13 +1081,14 @@ describe('screens', () => {
 
       const game = await call('put', 'app.chess.game', { white: 'bob' });
       assert.equal(game.ok, true);
-      assert.equal((game.value as { mine: boolean }).mine, true);
-      const created = await bob.node.records.get(space, (game.value as { key: string }).key);
+      const written = z.object({ mine: z.boolean(), key: z.string() }).parse(game.value);
+      assert.equal(written.mine, true);
+      const created = await bob.node.records.get(space, written.key);
       assert.equal(created?.root, bob.node.did, 'written as the person looking');
 
       // Alice's game: Bob may not change it, and the screen hears why.
       const hers = await alice.node.records.put(space, 'app.chess.game', { white: 'alice' });
-      await until(async () => (await bob.node.records.get(space, hers.key)) !== null, 4000, 'Alice\'s game');
+      await until(async () => (await bob.node.records.get(space, hers.key)) !== null, 4000, "Alice's game");
       const refused = await call('update', hers.key, { white: 'bob' });
       assert.equal(refused.ok, false);
       assert.match(refused.error!, /whoever created it/);
@@ -687,7 +1097,9 @@ describe('screens', () => {
       const guessed = await call('put', { collection: 'app.chess.game', body: { status: 'open' } });
       assert.equal(guessed.ok, true);
       const listed = await call('list', { collection: 'app.chess.game', where: { status: 'open' } });
-      const open = listed.value as Array<{ id: string; key: string; data: { status: string } }>;
+      const open = z
+        .array(z.object({ id: z.string(), key: z.string(), data: z.object({ status: z.string() }) }))
+        .parse(listed.value);
       assert.equal(open.length, 1);
       assert.equal(open[0]!.id, open[0]!.key);
       assert.equal(open[0]!.data.status, 'open');

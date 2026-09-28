@@ -15,7 +15,11 @@ import { useNode } from './context.js';
  * @param deps When these change, start over
  * @returns The latest value, or undefined until the first load finishes
  */
-export function useLive<T>(spaceId: string, load: (node: P2PNode) => Promise<T>, deps: ReadonlyArray<unknown>): T | undefined {
+export function useLive<T>(
+  spaceId: string,
+  load: (node: P2PNode) => Promise<T>,
+  deps: ReadonlyArray<unknown>,
+): T | undefined {
   const node = useNode();
   const [value, setValue] = useState<T | undefined>(undefined);
 
@@ -48,6 +52,7 @@ export function useLive<T>(spaceId: string, load: (node: P2PNode) => Promise<T>,
       stopped = true;
       unsubscribe();
     };
+    // The caller names what `load` depends on, as with useEffect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node, spaceId, ...deps]);
 

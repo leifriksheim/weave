@@ -59,9 +59,15 @@ export function newSubscriptionSeed(): Uint8Array {
 }
 
 /** The subscription key a seed stands for */
-export async function subscriptionKey(seed: Uint8Array, provider: CryptoProvider = createP256Provider()): Promise<SubscriptionKey> {
+export async function subscriptionKey(
+  seed: Uint8Array,
+  provider: CryptoProvider = createP256Provider(),
+): Promise<SubscriptionKey> {
   const pair = await provider.deriveKeyPairFromSeed(seed);
-  return { did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC), privateKey: pair.privateKey };
+  return {
+    did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC),
+    privateKey: pair.privateKey,
+  };
 }
 
 async function requestText(method: string, path: string, at: number, body: string): Promise<Uint8Array> {
@@ -97,14 +103,34 @@ export async function verifyRequest(
   provider: CryptoProvider = createP256Provider(),
   now = Math.floor(Date.now() / 1000),
 ): Promise<string | null> {
-  const match = /^Weave did=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/.exec(header ?? '');
-  if (!match) return null;
-  const [, did, atText, sig] = match as unknown as [string, string, string, string];
+  return headerSigner(
+    header,
+    /^Weave did=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/,
+    (at) => Math.abs(now - at) <= REQUEST_WINDOW_SECONDS,
+    (_did, at) => requestText(method, path, at, body),
+    provider,
+  );
+}
+
+/**
+ * The key that signed a header of `pattern`'s form — its groups the key, the
+ * time and the signature — when the time is in `inWindow` and the signature
+ * is over `signed`. Null otherwise.
+ */
+async function headerSigner(
+  header: string | undefined,
+  pattern: RegExp,
+  inWindow: (at: number) => boolean,
+  signed: (did: string, at: number) => Uint8Array | Promise<Uint8Array>,
+  provider: CryptoProvider,
+): Promise<string | null> {
+  const [, did, atText, sig] = pattern.exec(header ?? '') ?? [];
+  if (did === undefined || atText === undefined || sig === undefined) return null;
   const at = Number(atText);
-  if (Math.abs(now - at) > REQUEST_WINDOW_SECONDS) return null;
+  if (!inWindow(at)) return null;
   try {
     const publicKey = await provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
-    return (await provider.verify(publicKey, base64UrlDecode(sig), await requestText(method, path, at, body))) ? did : null;
+    return (await provider.verify(publicKey, base64UrlDecode(sig), await signed(did, at))) ? did : null;
   } catch {
     return null;
   }
@@ -162,19 +188,30 @@ export const HOST_DESCRIPTION_PATH = '/.well-known/weave-host';
 export const PAY_LINK_SECONDS = 3600;
 
 const statusText = (payload: string) => utf8Encode(`weave-host-status/v1\n${payload}`);
-const payText = (host: string, subscription: string, at: number) => utf8Encode(`weave-pay/v1\n${host}\n${subscription}\n${at}`);
+const payText = (host: string, subscription: string, at: number) =>
+  utf8Encode(`weave-pay/v1\n${host}\n${subscription}\n${at}`);
 
 /** Signs a status with the host's key */
-export async function signStatus(status: HostStatus, privateKey: CryptoKey, provider: CryptoProvider = createP256Provider()): Promise<SignedStatus> {
+export async function signStatus(
+  status: HostStatus,
+  privateKey: CryptoKey,
+  provider: CryptoProvider = createP256Provider(),
+): Promise<SignedStatus> {
   const payload = JSON.stringify(status);
   return { payload, sig: base64UrlEncode(await provider.sign(privateKey, statusText(payload))) };
 }
 
 /** The status a signed one says, when `host` signed it; null when it didn't */
-export async function readStatus(signed: SignedStatus, host: string, provider: CryptoProvider = createP256Provider()): Promise<HostStatus | null> {
+export async function readStatus(
+  signed: SignedStatus,
+  host: string,
+  provider: CryptoProvider = createP256Provider(),
+): Promise<HostStatus | null> {
   try {
     const publicKey = await provider.importPublicKey(didToPublicKey(host).publicKeyBytes);
-    if (!(await provider.verify(publicKey, base64UrlDecode(signed.sig), statusText(signed.payload)))) return null;
+    if (!(await provider.verify(publicKey, base64UrlDecode(signed.sig), statusText(signed.payload))))
+      return null;
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the host signed it, and it names the host
     const status = JSON.parse(signed.payload) as HostStatus;
     return status.host === host ? status : null;
   } catch {
@@ -213,17 +250,13 @@ export async function verifyPayLink(
   provider: CryptoProvider = createP256Provider(),
   now = Math.floor(Date.now() / 1000),
 ): Promise<string | null> {
-  const match = /^WeavePay s=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/.exec(header ?? '');
-  if (!match) return null;
-  const [, did, atText, sig] = match as unknown as [string, string, string, string];
-  const at = Number(atText);
-  if (now - at > PAY_LINK_SECONDS || at - now > REQUEST_WINDOW_SECONDS) return null;
-  try {
-    const publicKey = await provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
-    return (await provider.verify(publicKey, base64UrlDecode(sig), payText(host, did, at))) ? did : null;
-  } catch {
-    return null;
-  }
+  return headerSigner(
+    header,
+    /^WeavePay s=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/,
+    (at) => now - at <= PAY_LINK_SECONDS && at - now <= REQUEST_WINDOW_SECONDS,
+    (did, at) => payText(host, did, at),
+    provider,
+  );
 }
 
 /** Why a host said no: its status code, and what it said */
@@ -237,8 +270,10 @@ export class HostError extends Error {
 }
 
 async function answerOf<T>(response: Response): Promise<T> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- callers check what they rely on: describeHost its fields, readStatus a status's signature
   const answer = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new HostError(response.status, answer.error ?? `The host answered ${response.status}`);
+  if (!response.ok)
+    throw new HostError(response.status, answer.error ?? `The host answered ${response.status}`);
   return answer;
 }
 
@@ -247,8 +282,14 @@ async function answerOf<T>(response: Response): Promise<T> {
  * @param url The host's address, https://
  */
 export async function describeHost(url: string): Promise<HostDescription> {
-  const description = await answerOf<HostDescription>(await fetch(`${url.replace(/\/+$/, '')}${HOST_DESCRIPTION_PATH}`));
-  if (description.weave !== 'host/1' || typeof description.did !== 'string' || !description.did.startsWith('did:key:')) {
+  const description = await answerOf<HostDescription>(
+    await fetch(`${url.replace(/\/+$/, '')}${HOST_DESCRIPTION_PATH}`),
+  );
+  if (
+    description.weave !== 'host/1' ||
+    typeof description.did !== 'string' ||
+    !description.did.startsWith('did:key:')
+  ) {
     throw new Error("That address doesn't answer as a Weave host");
   }
   return description;
@@ -259,7 +300,10 @@ export interface HostClient {
   /** How the subscription stands, checked as signed by the host; and the signed original, to keep */
   status(): Promise<{ readonly status: HostStatus; readonly receipt: SignedStatus }>;
   /** Hands the host the account's carry space */
-  attach(account: string, invite: string): Promise<{ readonly status: HostStatus; readonly receipt: SignedStatus }>;
+  attach(
+    account: string,
+    invite: string,
+  ): Promise<{ readonly status: HostStatus; readonly receipt: SignedStatus }>;
   detach(): Promise<void>;
 }
 
@@ -268,23 +312,34 @@ export interface HostClient {
  * @param url The host's address, https://
  * @param host The host's key: every status must be signed by it
  */
-export function createHostClient(url: string, host: string, key: SubscriptionKey, provider: CryptoProvider = createP256Provider()): HostClient {
+export function createHostClient(
+  url: string,
+  host: string,
+  key: SubscriptionKey,
+  provider: CryptoProvider = createP256Provider(),
+): HostClient {
   const base = url.replace(/\/+$/, '');
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const text = body === undefined ? '' : JSON.stringify(body);
-    const headers: Record<string, string> = { authorization: await signRequest(key, method, path, text, provider) };
+    const headers: Record<string, string> = {
+      authorization: await signRequest(key, method, path, text, provider),
+    };
     if (body !== undefined) headers['content-type'] = 'application/json';
-    return answerOf<T>(await fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: text }) }));
+    return answerOf<T>(
+      await fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: text }) }),
+    );
   }
   const checked = async (receipt: SignedStatus) => {
     const status = await readStatus(receipt, host, provider);
-    if (!status || status.subscription !== key.did) throw new Error("The host's answer isn't signed by the host this account uses");
+    if (!status || status.subscription !== key.did)
+      throw new Error("The host's answer isn't signed by the host this account uses");
     return { status, receipt };
   };
   const mine = `/host/subscriptions/${encodeURIComponent(key.did)}`;
   return Object.freeze({
     status: async () => checked(await call<SignedStatus>('GET', mine)),
-    attach: async (account: string, invite: string) => checked(await call<SignedStatus>('PUT', `${mine}/carry`, { account, invite })),
+    attach: async (account: string, invite: string) =>
+      checked(await call<SignedStatus>('PUT', `${mine}/carry`, { account, invite })),
     detach: async () => void (await call('DELETE', `${mine}/carry`)),
   });
 }

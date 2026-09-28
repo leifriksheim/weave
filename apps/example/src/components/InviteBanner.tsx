@@ -37,7 +37,16 @@ export function InviteBanner({ onJoin }: { onJoin: (invite: string) => Promise<S
         <NameField value={me.name} onChange={me.setName} />
       </div>
       <div style={styles.linkRow}>
-        <button onClick={() => void me.save().then(() => onJoin(invite)).then(done)} data-variant="primary" style={styles.addButton}>
+        <button
+          onClick={() =>
+            void me
+              .save()
+              .then(() => onJoin(invite))
+              .then(done)
+          }
+          data-variant="primary"
+          style={styles.addButton}
+        >
           Join this space
         </button>
         <button onClick={done} data-variant="ghost" style={styles.linkButton}>

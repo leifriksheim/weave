@@ -4,8 +4,8 @@ import { useNode } from '@weaveprotocol/core/react';
 import { styles, palette } from '../styles';
 import { nameOf, type People } from '../derive/people';
 import { takeBack, useContacts, useStanding } from '../contacts';
-import { Avatar } from './Avatar';
-import { Modal } from './Modal';
+import { Avatar } from '@weave/app-shared/Avatar';
+import { Modal } from '@weave/app-shared/Modal';
 
 /** What a name in a space needs to open its card: the space, who is in it, and where a space for two opens */
 interface PersonScope {
@@ -27,11 +27,25 @@ export function PersonScopeProvider({ children, ...scope }: PersonScope & { chil
  * Someone's name, which opens their card. Outside a space there is no card
  * to open, so it is only the name.
  */
-export function Person({ did, suffix, style }: { did: string | null | undefined; suffix?: string; style?: React.CSSProperties }) {
+export function Person({
+  did,
+  suffix,
+  style,
+}: {
+  did: string | null | undefined;
+  suffix?: string;
+  style?: React.CSSProperties;
+}) {
   const scope = useContext(Scope);
   const [open, setOpen] = useState(false);
   const name = nameOf(did, scope?.people ?? new Map());
-  if (!scope || !did) return <span style={style}>{name}{suffix}</span>;
+  if (!scope || !did)
+    return (
+      <span style={style}>
+        {name}
+        {suffix}
+      </span>
+    );
   return (
     <>
       <button
@@ -42,7 +56,18 @@ export function Person({ did, suffix, style }: { did: string | null | undefined;
           setOpen(true);
         }}
         title={did}
-        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: palette.surface.line, textUnderlineOffset: 3, ...style }}
+        style={{
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          font: 'inherit',
+          color: 'inherit',
+          cursor: 'pointer',
+          textDecoration: 'underline',
+          textDecorationColor: palette.surface.line,
+          textUnderlineOffset: 3,
+          ...style,
+        }}
       >
         {name}
         {suffix}
@@ -57,7 +82,7 @@ export function Person({ did, suffix, style }: { did: string | null | undefined;
  * they can't, since the + that used to be the only way in gave no reason.
  */
 function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; onClose: () => void }) {
-  const { space, people, roles, me, openSpace } = scope;
+  const { space, people, roles, me } = scope;
   const contacts = useContacts();
   const [copied, setCopied] = useState(false);
   // Asking puts them on the list at once, which would swap the confirmation for "In your contacts".
@@ -84,7 +109,12 @@ function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; 
           </p>
           <p style={{ ...styles.todoMeta, fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}>
             {did}{' '}
-            <button type="button" onClick={copy} data-variant="ghost" style={{ ...styles.linkButton, padding: '0 4px', fontSize: 12 }}>
+            <button
+              type="button"
+              onClick={copy}
+              data-variant="ghost"
+              style={{ ...styles.linkButton, padding: '0 4px', fontSize: 12 }}
+            >
               {copied ? 'Copied' : 'Copy'}
             </button>
           </p>
@@ -93,7 +123,8 @@ function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; 
       {did === me ? null : asked ? (
         <>
           <p style={styles.hint}>
-            Asked. {name} is on your contacts now, and will see your request here in {space.name}. Once they accept, the two of you share a private space.
+            Asked. {name} is on your contacts now, and will see your request here in {space.name}. Once they
+            accept, the two of you share a private space.
           </p>
           <button onClick={onClose} data-variant="primary" style={styles.addButton}>
             Done
@@ -106,9 +137,14 @@ function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; 
       ) : contact ? (
         <Standing contact={contact} name={name} scope={scope} onClose={onClose} />
       ) : !profile?.contactKey ? (
-        <p style={styles.hint}>{name} can't be added as a contact yet: the app they use here wasn't given their contacts, so there is no key to seal a request to.</p>
+        <p style={styles.hint}>
+          {name} can't be added as a contact yet: the app they use here wasn't given their contacts, so there
+          is no key to seal a request to.
+        </p>
       ) : !space.writable ? (
-        <p style={styles.hint}>You can only read {space.name}, so you can't leave a request for {name} here.</p>
+        <p style={styles.hint}>
+          You can only read {space.name}, so you can't leave a request for {name} here.
+        </p>
       ) : (
         <AskContact space={space} did={did} name={name} onAsked={() => setAsked(true)} />
       )}
@@ -120,7 +156,17 @@ function PersonCard({ did, scope, onClose }: { did: string; scope: PersonScope; 
  * Someone already on your list: whether they have joined your space for two
  * yet, and what to do when they haven't, or when you left it.
  */
-function Standing({ contact, name, scope, onClose }: { contact: ContactView; name: string; scope: PersonScope; onClose: () => void }) {
+function Standing({
+  contact,
+  name,
+  scope,
+  onClose,
+}: {
+  contact: ContactView;
+  name: string;
+  scope: PersonScope;
+  onClose: () => void;
+}) {
   const node = useNode();
   const standing = useStanding(contact);
   const [busy, setBusy] = useState(false);
@@ -143,10 +189,16 @@ function Standing({ contact, name, scope, onClose }: { contact: ContactView; nam
     return (
       <>
         <p style={styles.hint}>
-          You left your space for two with {name}, so they are on your list{called} but you no longer share anything. Remove them to ask again.
+          You left your space for two with {name}, so they are on your list{called} but you no longer share
+          anything. Remove them to ask again.
         </p>
         {error && <p style={styles.bad}>{error}</p>}
-        <button disabled={busy} onClick={() => void act(() => takeBack(node, [space.id], me, contact.did))} data-variant="primary" style={styles.addButton}>
+        <button
+          disabled={busy}
+          onClick={() => void act(() => takeBack(node, [space.id], me, contact.did))}
+          data-variant="primary"
+          style={styles.addButton}
+        >
           {busy ? 'Removing…' : 'Remove, and ask again'}
         </button>
       </>
@@ -156,13 +208,16 @@ function Standing({ contact, name, scope, onClose }: { contact: ContactView; nam
     return (
       <>
         <p style={styles.hint}>
-          You asked {name}. Waiting for them to accept; they see your request in {space.name} and on their Contacts screen.
+          You asked {name}. Waiting for them to accept; they see your request in {space.name} and on their
+          Contacts screen.
         </p>
         {error && <p style={styles.bad}>{error}</p>}
         <button
           disabled={busy}
           onClick={() =>
-            globalThis.confirm(`Take back your request to ${name}? Your space for two is left and the request here is deleted.`) && void act(() => takeBack(node, [space.id], me, contact.did))
+            globalThis.confirm(
+              `Take back your request to ${name}? Your space for two is left and the request here is deleted.`,
+            ) && void act(() => takeBack(node, [space.id], me, contact.did))
           }
           data-variant="quiet"
           style={styles.smallButton}
@@ -196,7 +251,17 @@ function Standing({ contact, name, scope, onClose }: { contact: ContactView; nam
  * its invite posted in this space sealed so only they can open it. Everyone
  * here can see that you asked them, not what you wrote.
  */
-function AskContact({ space, did, name, onAsked }: { space: SpaceSummary; did: string; name: string; onAsked: () => void }) {
+function AskContact({
+  space,
+  did,
+  name,
+  onAsked,
+}: {
+  space: SpaceSummary;
+  did: string;
+  name: string;
+  onAsked: () => void;
+}) {
   const node = useNode();
   const [note, setNote] = useState('');
   const [asking, setAsking] = useState(false);
@@ -221,14 +286,27 @@ function AskContact({ space, did, name, onAsked }: { space: SpaceSummary; did: s
       }}
     >
       <p style={{ ...styles.todoMeta, marginTop: 0 }}>
-        Adding {name} makes a private space for the two of you and leaves its invite here, sealed so only they can open it. Others in {space.name} see that you asked, not what you wrote.
+        Adding {name} makes a private space for the two of you and leaves its invite here, sealed so only they
+        can open it. Others in {space.name} see that you asked, not what you wrote.
       </p>
       <label style={{ ...styles.fieldLabel, marginTop: 8 }} htmlFor="ask-note">
         A note (optional)
       </label>
-      <textarea id="ask-note" value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} style={{ ...styles.input, height: 'auto', padding: 10 }} />
+      <textarea
+        id="ask-note"
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        maxLength={2000}
+        rows={3}
+        style={{ ...styles.input, height: 'auto', padding: 10 }}
+      />
       {error && <p style={styles.bad}>{error}</p>}
-      <button type="submit" disabled={asking} data-variant="primary" style={{ ...styles.addButton, marginTop: 12 }}>
+      <button
+        type="submit"
+        disabled={asking}
+        data-variant="primary"
+        style={{ ...styles.addButton, marginTop: 12 }}
+      >
         {asking ? 'Asking…' : 'Add as a contact'}
       </button>
     </form>

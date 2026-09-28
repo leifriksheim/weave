@@ -5,6 +5,7 @@
  * spaces open and close, and joins them all again after a reconnect.
  */
 import { createEmitter } from '../utils/events.js';
+import { isObject } from '../utils/guards.js';
 
 /** What a peer's connection offer, answer or candidate is */
 export type SignalKind = 'offer' | 'answer' | 'candidate';
@@ -46,18 +47,26 @@ export interface SignalingClient {
   readonly isConnected: () => boolean;
 }
 
-const SIGNAL_KINDS: ReadonlySet<string> = new Set(['offer', 'answer', 'candidate']);
+const SIGNAL_KINDS: ReadonlySet<unknown> = new Set(['offer', 'answer', 'candidate']);
+
+/** Whether a value names an offer, answer or candidate */
+export function isSignalKind(value: unknown): value is SignalKind {
+  return SIGNAL_KINDS.has(value);
+}
 
 /** A relay's TURN offer, kept only if it has the shape of one: `turn:`/`turns:` URLs, a username and a password */
 function iceFrom(payload: unknown): { servers: ReadonlyArray<RTCIceServer>; expiresAt: number } | null {
-  const { servers, expiresAt } = (payload ?? {}) as { servers?: unknown; expiresAt?: unknown };
+  if (!isObject(payload)) return null;
+  const { servers, expiresAt } = payload;
   if (!Array.isArray(servers) || typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null;
   const kept: RTCIceServer[] = [];
-  for (const server of servers.slice(0, 4) as Array<Record<string, unknown>>) {
-    const urls = (Array.isArray(server?.urls) ? server.urls : [server?.urls]).filter(
+  for (const server of servers.slice(0, 4)) {
+    if (!isObject(server)) continue;
+    const urls = (Array.isArray(server.urls) ? server.urls : [server.urls]).filter(
       (url): url is string => typeof url === 'string' && url.length < 256 && /^turns?:/.test(url),
     );
-    if (urls.length === 0 || typeof server.username !== 'string' || typeof server.credential !== 'string') continue;
+    if (urls.length === 0 || typeof server.username !== 'string' || typeof server.credential !== 'string')
+      continue;
     kept.push({ urls, username: server.username, credential: server.credential });
   }
   return kept.length > 0 ? { servers: kept, expiresAt } : null;
@@ -95,7 +104,7 @@ export function createSignalingClient(url: string, did: string): SignalingClient
       try {
         ws = new WebSocket(url);
       } catch (err) {
-        reject(err);
+        reject(err instanceof Error ? err : new Error(String(err)));
         return;
       }
 
@@ -109,15 +118,27 @@ export function createSignalingClient(url: string, did: string): SignalingClient
 
       ws.onmessage = (event) => {
         try {
-          const msg = JSON.parse(event.data) as SignalingMessage;
-          if (SIGNAL_KINDS.has(msg.type)) emit('signal', msg as SignalingMessage & { type: SignalKind });
-          else if (msg.type === 'ice') {
-            const offered = iceFrom(msg.payload);
+          const msg: unknown = JSON.parse(String(event.data));
+          if (!isObject(msg)) throw new Error('Not a signaling message');
+          const { type, from, room, to, payload } = msg;
+          if (type === 'ice') {
+            const offered = iceFrom(payload);
             if (offered) emit('ice', offered.servers, offered.expiresAt);
+            return;
           }
-          else if (typeof msg.room !== 'string') return;
-          else if (msg.type === 'join') emit('peer-joined', msg.from, msg.room);
-          else if (msg.type === 'leave') emit('peer-left', msg.from, msg.room);
+          // The relay stamps who each message is from.
+          if (typeof from !== 'string') return;
+          if (isSignalKind(type))
+            emit('signal', {
+              type,
+              from,
+              payload,
+              ...(typeof to === 'string' ? { to } : {}),
+              ...(typeof room === 'string' ? { room } : {}),
+            });
+          else if (typeof room !== 'string') return;
+          else if (type === 'join') emit('peer-joined', from, room);
+          else if (type === 'leave') emit('peer-left', from, room);
         } catch (err) {
           emit('error', err instanceof Error ? err : new Error(String(err)));
         }
@@ -176,7 +197,8 @@ export function createSignalingClient(url: string, did: string): SignalingClient
     leave: (room: string) => {
       if (rooms.delete(room)) sendMessage({ type: 'leave', room });
     },
-    signal: (kind: SignalKind, targetDid: string, payload: unknown) => sendMessage({ type: kind, to: targetDid, payload }),
+    signal: (kind: SignalKind, targetDid: string, payload: unknown) =>
+      sendMessage({ type: kind, to: targetDid, payload }),
     requestIce: () => sendMessage({ type: 'ice' }),
     on,
     off,

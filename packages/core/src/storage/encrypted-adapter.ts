@@ -20,6 +20,7 @@
 
 import type { StorageAdapter, BatchOp } from '../types.js';
 import { concatBytes } from '../utils/encoding.js';
+import { bufferSource } from '../utils/guards.js';
 
 /**
  * Marks a value this module wrote.
@@ -39,7 +40,12 @@ const IV_BYTES = 12;
  * `spaceinvite:`, and an invite secret left out here is anyone-with-the-folder
  * joining a space in your place.
  */
-export const DEFAULT_ENCRYPTED_PREFIXES: ReadonlyArray<string> = ['space:', 'spacekey:', 'spaceinvite:', 'spacerole:'];
+export const DEFAULT_ENCRYPTED_PREFIXES: ReadonlyArray<string> = [
+  'space:',
+  'spacekey:',
+  'spaceinvite:',
+  'spacerole:',
+];
 
 export interface EncryptedAdapterOptions {
   /** Key prefixes whose values are sealed. Defaults to {@link DEFAULT_ENCRYPTED_PREFIXES}. */
@@ -76,14 +82,14 @@ export function createEncryptedAdapter(
   const shouldSeal = (storageKey: string): boolean =>
     prefixes.some((prefix) => storageKey.startsWith(prefix));
 
-  const bound = (storageKey: string) => new TextEncoder().encode(storageKey) as BufferSource;
+  const bound = (storageKey: string) => new TextEncoder().encode(storageKey);
 
   async function seal(storageKey: string, value: Uint8Array): Promise<Uint8Array> {
     const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
     const ciphertext = await globalThis.crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv: iv as BufferSource, additionalData: bound(storageKey) },
+      { name: 'AES-GCM', iv, additionalData: bound(storageKey) },
       key,
-      value as BufferSource,
+      bufferSource(value),
     );
     return concatBytes(MAGIC, iv, new Uint8Array(ciphertext));
   }
@@ -94,9 +100,9 @@ export function createEncryptedAdapter(
     const iv = bytes.slice(MAGIC.length, MAGIC.length + IV_BYTES);
     const ciphertext = bytes.slice(MAGIC.length + IV_BYTES);
     const plain = await globalThis.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv as BufferSource, additionalData: bound(storageKey) },
+      { name: 'AES-GCM', iv, additionalData: bound(storageKey) },
       key,
-      ciphertext as BufferSource,
+      ciphertext,
     );
     return new Uint8Array(plain);
   }

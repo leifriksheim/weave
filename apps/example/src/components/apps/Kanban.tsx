@@ -54,7 +54,8 @@ export function Kanban({ space, onOpen }: AppProps) {
   if (!board) return null;
 
   const known = new Set(board.columns.map((c) => c.key));
-  const tasksIn = (lane: string) => board.tasks.filter((t) => (known.has(laneOf(t)) ? laneOf(t) : LOOSE) === lane);
+  const tasksIn = (lane: string) =>
+    board.tasks.filter((t) => (known.has(laneOf(t)) ? laneOf(t) : LOOSE) === lane);
   const lanes = [
     ...(tasksIn(LOOSE).length > 0 ? [{ key: LOOSE, name: 'No column', record: null }] : []),
     ...board.columns.map((c) => ({ key: c.key, name: c.body!.name, record: c })),
@@ -62,9 +63,18 @@ export function Kanban({ space, onOpen }: AppProps) {
 
   const place = (lane: string, before: string | null, moving?: string) => {
     const list = tasksIn(lane).filter((t) => t.key !== moving);
-    const at = before === null ? list.length : Math.max(0, list.findIndex((t) => t.key === before));
+    const at =
+      before === null
+        ? list.length
+        : Math.max(
+            0,
+            list.findIndex((t) => t.key === before),
+          );
     // Unpositioned tasks sit at the end, so the nearest positioned ones are the neighbours.
-    const prev = list.slice(0, at).reverse().find((t) => t.body!.position)?.body!.position;
+    const prev = list
+      .slice(0, at)
+      .reverse()
+      .find((t) => t.body!.position)?.body!.position;
     const next = list.slice(at).find((t) => t.body!.position)?.body!.position;
     return positionBetween(prev, next);
   };
@@ -75,9 +85,14 @@ export function Kanban({ space, onOpen }: AppProps) {
     if (!t?.body) return;
     const lane = known.has(laneOf(t)) ? laneOf(t) : LOOSE;
     if (lane === to.lane && (to.before === key || nextIn(lane, key) === to.before)) return; // dropped where it was
-    void node.records.update(space.id, key, { ...t.body, position: place(to.lane, to.before, key) }, {
-      links: [...t.links.filter((l) => l.rel !== 'column'), ...columnLinks(to.lane)],
-    });
+    void node.records.update(
+      space.id,
+      key,
+      { ...t.body, position: place(to.lane, to.before, key) },
+      {
+        links: [...t.links.filter((l) => l.rel !== 'column'), ...columnLinks(to.lane)],
+      },
+    );
   };
   const nextIn = (lane: string, key: string) => {
     const list = tasksIn(lane);
@@ -85,8 +100,17 @@ export function Kanban({ space, onOpen }: AppProps) {
   };
 
   const addTask = (lane: string, title: string) =>
-    void node.records.put(space.id, task.name, { title, position: place(lane, null) }, { links: columnLinks(lane) });
-  const addColumn = (name: string) => void node.records.put(space.id, column.name, { name, position: positionBetween([...board.columns].reverse().find((c) => c.body!.position)?.body!.position) });
+    void node.records.put(
+      space.id,
+      task.name,
+      { title, position: place(lane, null) },
+      { links: columnLinks(lane) },
+    );
+  const addColumn = (name: string) =>
+    void node.records.put(space.id, column.name, {
+      name,
+      position: positionBetween([...board.columns].reverse().find((c) => c.body!.position)?.body!.position),
+    });
 
   const overCard = (e: DragEvent, lane: string, key: string) => {
     if (!dragging) return;
@@ -102,10 +126,21 @@ export function Kanban({ space, onOpen }: AppProps) {
   };
 
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 12, margin: '0 -4px', padding: '0 4px 12px' }}>
+    <div
+      style={{
+        display: 'flex',
+        gap: 12,
+        alignItems: 'flex-start',
+        overflowX: 'auto',
+        paddingBottom: 12,
+        margin: '0 -4px',
+        padding: '0 4px 12px',
+      }}
+    >
       {lanes.map((lane) => {
         const cards = tasksIn(lane.key);
-        const landing = (before: string | null) => dragging !== null && drop?.lane === lane.key && drop.before === before;
+        const landing = (before: string | null) =>
+          dragging !== null && drop?.lane === lane.key && drop.before === before;
         return (
           <section
             key={lane.key}
@@ -120,11 +155,41 @@ export function Kanban({ space, onOpen }: AppProps) {
               if (dragging && drop) move(dragging, drop);
               endDrag();
             }}
-            style={{ flex: '0 0 264px', display: 'flex', flexDirection: 'column', gap: 6, padding: 8, borderRadius: 10, background: palette.surface.sunken, border: `1px solid ${palette.surface.line}` }}
+            style={{
+              flex: '0 0 264px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              padding: 8,
+              borderRadius: 10,
+              background: palette.surface.sunken,
+              border: `1px solid ${palette.surface.line}`,
+            }}
           >
-            <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '2px 4px 6px' }}>
+            <header
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: '2px 4px 6px',
+              }}
+            >
               {lane.record ? (
-                <button onClick={() => onOpen(lane.record!)} title="Open this column" style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: 13, fontWeight: 600, color: palette.ink.strong, textAlign: 'left' }}>
+                <button
+                  onClick={() => onOpen(lane.record)}
+                  title="Open this column"
+                  style={{
+                    border: 'none',
+                    background: 'none',
+                    padding: 0,
+                    font: 'inherit',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: palette.ink.strong,
+                    textAlign: 'left',
+                  }}
+                >
                   {lane.name}
                 </button>
               ) : (
@@ -163,7 +228,11 @@ export function Kanban({ space, onOpen }: AppProps) {
                   }}
                 >
                   {t.body!.title}
-                  {t.body!.notes && <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: palette.ink.faint }}>Has notes</span>}
+                  {t.body!.notes && (
+                    <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: palette.ink.faint }}>
+                      Has notes
+                    </span>
+                  )}
                 </button>
               </div>
             ))}
@@ -171,7 +240,11 @@ export function Kanban({ space, onOpen }: AppProps) {
 
             {mayAddTask &&
               (addingTo === lane.key ? (
-                <OneLine placeholder="Task title" onDone={() => setAddingTo(null)} onSubmit={(title) => addTask(lane.key, title)} />
+                <OneLine
+                  placeholder="Task title"
+                  onDone={() => setAddingTo(null)}
+                  onSubmit={(title) => addTask(lane.key, title)}
+                />
               ) : (
                 <button onClick={() => setAddingTo(lane.key)} data-variant="ghost" style={addButton}>
                   + Add task
@@ -186,7 +259,11 @@ export function Kanban({ space, onOpen }: AppProps) {
           {addingColumn ? (
             <OneLine placeholder="Column name" onDone={() => setAddingColumn(false)} onSubmit={addColumn} />
           ) : (
-            <button onClick={() => setAddingColumn(true)} data-variant="quiet" style={{ ...styles.smallButton, width: '100%', height: 40 }}>
+            <button
+              onClick={() => setAddingColumn(true)}
+              data-variant="quiet"
+              style={{ ...styles.smallButton, width: '100%', height: 40 }}
+            >
               + Add column
             </button>
           )}
@@ -197,11 +274,24 @@ export function Kanban({ space, onOpen }: AppProps) {
 }
 
 function Marker() {
-  return <div aria-hidden style={{ height: 2, margin: '2px 0 4px', borderRadius: 1, background: palette.ink.strong }} />;
+  return (
+    <div
+      aria-hidden
+      style={{ height: 2, margin: '2px 0 4px', borderRadius: 1, background: palette.ink.strong }}
+    />
+  );
 }
 
 /** A one-line input that adds on Enter, stays open for the next, and closes on Escape or when left empty */
-function OneLine({ placeholder, onSubmit, onDone }: { placeholder: string; onSubmit: (text: string) => void; onDone: () => void }) {
+function OneLine({
+  placeholder,
+  onSubmit,
+  onDone,
+}: {
+  placeholder: string;
+  onSubmit: (text: string) => void;
+  onDone: () => void;
+}) {
   const [text, setText] = useState('');
   return (
     <form
@@ -225,4 +315,13 @@ function OneLine({ placeholder, onSubmit, onDone }: { placeholder: string; onSub
   );
 }
 
-const addButton = { height: 32, padding: '0 8px', border: 'none', borderRadius: 6, background: 'none', color: palette.ink.muted, fontSize: 13, textAlign: 'left' as const };
+const addButton = {
+  height: 32,
+  padding: '0 8px',
+  border: 'none',
+  borderRadius: 6,
+  background: 'none',
+  color: palette.ink.muted,
+  fontSize: 13,
+  textAlign: 'left' as const,
+};

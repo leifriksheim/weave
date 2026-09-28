@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
 import { CallsProvider, useAccount, useConnection, useNode, useSpaces } from '@weaveprotocol/core/react';
 import { AccountMenu } from './components/AccountMenu';
@@ -11,7 +11,7 @@ import { SpaceList } from './components/SpaceList';
 import { SpaceRail } from './components/SpaceRail';
 import { SpaceView } from './components/SpaceView';
 import { CallLayer } from './components/calls/Calls';
-import { Wordmark } from './components/Wordmark';
+import { Wordmark } from '@weave/app-shared/Wordmark';
 import { inviteFrom } from './spaces';
 import { readDoorFromUrl, takeBack } from './contacts';
 import { styles, palette } from './styles';
@@ -41,7 +41,8 @@ type Home = 'spaces' | 'contacts';
 
 /** Connected: your spaces or your contacts, or one space opened. */
 function Workspace() {
-  const { spaces, loading, error, create, join, leave } = useSpaces();
+  const mine = useSpaces();
+  const { spaces, loading, error } = mine;
   const [open, setOpen] = useState<SpaceSummary | null>(null);
   // A door link is someone asking you to knock, which happens among your contacts.
   const [home, setHome] = useState<Home>(() => (readDoorFromUrl() ? 'contacts' : 'spaces'));
@@ -49,7 +50,7 @@ function Workspace() {
     const space = spaces.find((found) => found.id === id);
     if (space) setOpen(space);
   };
-  const joinLink = (link: string) => join(inviteFrom(link));
+  const joinLink = (link: string) => mine.join(inviteFrom(link));
 
   /**
    * Leaving a space, after saying what it costs. A space for two goes through
@@ -61,23 +62,41 @@ function Workspace() {
   const forget = async (id: string) => {
     const space = spaces.find((found) => found.id === id);
     if (!space) return;
-    const pair = (await node.contacts.list().catch(() => [])).find((contact) => contact.space === id && !contact.blocked);
+    const pair = (await node.contacts.list().catch(() => [])).find(
+      (contact) => contact.space === id && !contact.blocked,
+    );
     if (pair) {
-      if (!globalThis.confirm(`${space.name} is your space for two with ${pair.name}. Leaving it removes ${pair.name} from your contacts, and takes back your request if they haven't accepted. They keep their copy.`)) return;
-      const shared = spaces.filter((other) => other.id !== id && other.writable && !other.joining).map((other) => other.id);
+      if (
+        !globalThis.confirm(
+          `${space.name} is your space for two with ${pair.name}. Leaving it removes ${pair.name} from your contacts, and takes back your request if they haven't accepted. They keep their copy.`,
+        )
+      )
+        return;
+      const shared = spaces
+        .filter((other) => other.id !== id && other.writable && !other.joining)
+        .map((other) => other.id);
       await takeBack(node, shared, account.did, pair.did);
       return;
     }
-    if (!globalThis.confirm(`Leave ${space.name}? It goes from all your devices. Others in it keep it, and you need a new invite to come back. If no one else is in it, what's in it is gone.`)) return;
-    await leave(id);
+    if (
+      !globalThis.confirm(
+        `Leave ${space.name}? It goes from all your devices. Others in it keep it, and you need a new invite to come back. If no one else is in it, what's in it is gone.`,
+      )
+    )
+      return;
+    await mine.leave(id);
   };
 
   // Keep the opened space in step with the list, so a join that finishes, or
   // a role that changes, does not leave a stale copy on screen.
-  useEffect(() => {
-    const fresh = open && spaces.find((space) => space.id === open.id);
-    if (fresh && (fresh.role !== open.role || fresh.writable !== open.writable || fresh.joining !== open.joining)) setOpen(fresh);
-  }, [spaces, open]);
+  // Adjusted while rendering rather than in an effect, so the stale copy is
+  // never painted.
+  const fresh = open && spaces.find((space) => space.id === open.id);
+  if (
+    fresh &&
+    (fresh.role !== open.role || fresh.writable !== open.writable || fresh.joining !== open.joining)
+  )
+    setOpen(fresh);
 
   const inSpace = open !== null;
 
@@ -89,7 +108,7 @@ function Workspace() {
           current={open.id}
           onOpen={setOpen}
           onHome={() => setOpen(null)}
-          onCreate={(params) => void create(params).then((space) => space && setOpen(space))}
+          onCreate={(params) => void mine.create(params).then((space) => space && setOpen(space))}
           onJoin={(link) => void joinLink(link).then((space) => space && setOpen(space))}
         />
       )}
@@ -117,7 +136,13 @@ function Workspace() {
                   role="tab"
                   aria-selected={home === id}
                   onClick={() => setHome(id)}
-                  style={{ ...styles.appTitle, border: 'none', background: 'none', padding: 0, color: home === id ? palette.ink.strong : palette.ink.faint }}
+                  style={{
+                    ...styles.appTitle,
+                    border: 'none',
+                    background: 'none',
+                    padding: 0,
+                    color: home === id ? palette.ink.strong : palette.ink.faint,
+                  }}
                 >
                   {id === 'spaces' ? 'Spaces' : 'Contacts'}
                 </button>
@@ -130,7 +155,7 @@ function Workspace() {
                   loading={loading}
                   error={error}
                   onOpen={setOpen}
-                  onCreate={(params) => void create(params).then((space) => space && setOpen(space))}
+                  onCreate={(params) => void mine.create(params).then((space) => space && setOpen(space))}
                   onJoin={(link) => void joinLink(link).then((space) => space && setOpen(space))}
                   onRemove={(id) => void forget(id)}
                 />

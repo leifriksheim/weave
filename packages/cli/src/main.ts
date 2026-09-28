@@ -22,14 +22,38 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
-import { createNode, isValidRecoveryCode, NODE_ACTIONS, runAction, type NodeAction } from '@weaveprotocol/core';
+import {
+  createNode,
+  isValidRecoveryCode,
+  NODE_ACTIONS,
+  runAction,
+  type NodeAction,
+} from '@weaveprotocol/core';
 import { chooseAccount, createAccount, homePath, openHome, unlock, type Home } from './home.js';
 import { startDaemon } from './daemon.js';
 import { startHost } from './host.js';
-import { allowList, billingFromEnv, checkExposure, defaultHostData, hostKey, hostStores, mirrorFromEnv, presentationFromEnv, walletFromEnv } from './host-setup.js';
+import {
+  allowList,
+  billingFromEnv,
+  checkExposure,
+  defaultHostData,
+  hostKey,
+  hostStores,
+  mirrorFromEnv,
+  presentationFromEnv,
+  walletFromEnv,
+} from './host-setup.js';
 import { runMcpStdio } from './mcp.js';
-import { configuredRelays, connectAgent, daysLeft, defaultAgentName, forgetAgent, startAgentNode } from './agent.js';
+import {
+  configuredRelays,
+  connectAgent,
+  daysLeft,
+  defaultAgentName,
+  forgetAgent,
+  startAgentNode,
+} from './agent.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
 
 const VERSION = '0.1.0';
@@ -67,14 +91,27 @@ Unlocking (never as a flag value):
 `;
 
 const stderr = (line: string) => process.stderr.write(`${line}\n`);
+const logLine = (line: string) => stderr(`[${new Date().toISOString()}] ${line}`);
+
+/** Serves until SIGINT or SIGTERM, then closes what was started and exits. */
+async function untilStopped(running: { close(): Promise<void> }): Promise<never> {
+  const stop = () => {
+    stderr('shutting down');
+    void running.close().then(() => process.exit(0));
+  };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+  return new Promise(() => {});
+}
 
 /** Reads a line without echoing it, for secrets. */
 async function askSecret(prompt: string): Promise<string> {
-  if (!process.stdin.isTTY) throw new Error(`${prompt.trim()} — no terminal to ask on; set it in the environment`);
-  const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
-  const muted = rl as unknown as { _writeToOutput: (text: string) => void };
+  if (!process.stdin.isTTY)
+    throw new Error(`${prompt.trim()} — no terminal to ask on; set it in the environment`);
   process.stderr.write(prompt);
-  muted._writeToOutput = () => {};
+  // Readline echoes what is typed to its output; this one goes nowhere.
+  const nowhere = new Writable({ write: (_chunk, _encoding, done) => done() });
+  const rl = createInterface({ input: process.stdin, output: nowhere, terminal: true });
   const answer = await new Promise<string>((resolve) => rl.question('', resolve));
   rl.close();
   process.stderr.write('\n');
@@ -112,7 +149,7 @@ function inputFromFlags(action: NodeAction, args: ReadonlyArray<string>): Record
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (!arg.startsWith('--')) throw new Error(`Unexpected argument "${arg}"`);
-    const [rawKey, inline] = arg.slice(2).split(/=(.*)/s, 2) as [string, string | undefined];
+    const [rawKey = '', inline] = arg.slice(2).split(/=(.*)/s, 2);
 
     if (rawKey === 'json') {
       const value = inline ?? args[++i];
@@ -122,7 +159,14 @@ function inputFromFlags(action: NodeAction, args: ReadonlyArray<string>): Record
 
     const key = rawKey.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
     const spec = action.input.properties[key];
-    if (!spec) throw new Error(`${action.name} has no --${rawKey}. It takes: ${Object.keys(action.input.properties).map((k) => `--${k}`).join(' ') || 'nothing'}`);
+    if (!spec)
+      throw new Error(
+        `${action.name} has no --${rawKey}. It takes: ${
+          Object.keys(action.input.properties)
+            .map((k) => `--${k}`)
+            .join(' ') || 'nothing'
+        }`,
+      );
 
     if (spec.type === 'boolean') {
       input[key] = inline === undefined ? true : inline === 'true';
@@ -130,12 +174,19 @@ function inputFromFlags(action: NodeAction, args: ReadonlyArray<string>): Record
     }
     const value = inline ?? args[++i];
     if (value === undefined) throw new Error(`--${rawKey} needs a value`);
-    input[key] = spec.type === 'integer' || spec.type === 'number' ? Number(value) : spec.type === 'object' ? JSON.parse(value) : value;
+    input[key] =
+      spec.type === 'integer' || spec.type === 'number'
+        ? Number(value)
+        : spec.type === 'object'
+          ? JSON.parse(value)
+          : value;
   }
   return input;
 }
 
-function findAction(words: ReadonlyArray<string>): { action: NodeAction; rest: ReadonlyArray<string> } | null {
+function findAction(
+  words: ReadonlyArray<string>,
+): { action: NodeAction; rest: ReadonlyArray<string> } | null {
   const [first, second] = words;
   const byPair = second ? NODE_ACTIONS.find((a) => a.name === `${first}_${second}`) : undefined;
   if (byPair) return { action: byPair, rest: words.slice(2) };
@@ -153,7 +204,7 @@ function splitGlobals(argv: ReadonlyArray<string>): { globals: Globals; rest: st
     '--passphrase-file': 'passphraseFile',
   };
   for (let i = 0; i < argv.length; i++) {
-    const [flag, inline] = argv[i]!.split(/=(.*)/s, 2) as [string, string | undefined];
+    const [flag = '', inline] = argv[i]!.split(/=(.*)/s, 2);
     const name = names[flag];
     if (name) globals[name] = inline ?? argv[++i] ?? '';
     else rest.push(argv[i]!);
@@ -175,15 +226,24 @@ async function init(home: Home, args: ReadonlyArray<string>): Promise<void> {
   let passphrase: string | undefined;
   if (values.passphrase) {
     passphrase = process.env.WEAVE_PASSPHRASE ?? (await askSecret('Choose a passphrase: '));
-    if (!process.env.WEAVE_PASSPHRASE && (await askSecret('Again: ')) !== passphrase) throw new Error('Passphrases did not match');
+    if (!process.env.WEAVE_PASSPHRASE && (await askSecret('Again: ')) !== passphrase)
+      throw new Error('Passphrases did not match');
   }
 
-  const created = await createAccount(home, { name, ...(code ? { code } : {}), ...(passphrase ? { passphrase } : {}) });
-  process.stdout.write(`${JSON.stringify({ account: created.account.name, did: created.account.did, home: home.path }, null, 2)}\n`);
+  const created = await createAccount(home, {
+    name,
+    ...(code ? { code } : {}),
+    ...(passphrase ? { passphrase } : {}),
+  });
+  process.stdout.write(
+    `${JSON.stringify({ account: created.account.name, did: created.account.did, home: home.path }, null, 2)}\n`,
+  );
   if (created.code) {
     stderr('');
     stderr(`Recovery code: ${created.code}`);
-    stderr('It is the only way back into this account. It is stored nowhere — write it down or put it in a password manager.');
+    stderr(
+      'It is the only way back into this account. It is stored nowhere — write it down or put it in a password manager.',
+    );
   }
 }
 
@@ -226,7 +286,12 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     return 0;
   }
   if (command === 'actions') {
-    const listed = NODE_ACTIONS.map(({ name, description, input, readOnly }) => ({ name, description, input, readOnly }));
+    const listed = NODE_ACTIONS.map(({ name, description, input, readOnly }) => ({
+      name,
+      description,
+      input,
+      readOnly,
+    }));
     process.stdout.write(`${JSON.stringify(listed, null, 2)}\n`);
     return 0;
   }
@@ -252,16 +317,9 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       port: Number(values.port),
       ...(values.host ? { host: values.host } : {}),
       ...(values.node ? { nodes: values.node } : {}),
-      log: (line) => stderr(`[${new Date().toISOString()}] ${line}`),
+      log: logLine,
     });
-    const stop = () => {
-      stderr('shutting down');
-      void daemon.close().then(() => process.exit(0));
-    };
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
-    await new Promise(() => {}); // until a signal
-    return 0;
+    return untilStopped(daemon);
   }
 
   if (command === 'host') {
@@ -296,26 +354,24 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       billing,
       wallet,
       mirror: mirrorFromEnv(process.env),
-      log: (line) => stderr(`[${new Date().toISOString()}] ${line}`),
+      log: logLine,
     });
-    const stop = () => {
-      stderr('shutting down');
-      void running.close().then(() => process.exit(0));
-    };
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
-    await new Promise(() => {}); // until a signal
-    return 0;
+    return untilStopped(running);
   }
 
   if (command === 'connect') {
     const { values, positionals } = parseArgs({
       args,
       allowPositionals: true,
-      options: { name: { type: 'string' }, relay: { type: 'string', multiple: true }, 'no-configure': { type: 'boolean' } },
+      options: {
+        name: { type: 'string' },
+        relay: { type: 'string', multiple: true },
+        'no-configure': { type: 'boolean' },
+      },
     });
     const code = positionals.join(' ');
-    if (!code) throw new Error('weave connect needs the code from the app: in the app, choose "Connect an agent".');
+    if (!code)
+      throw new Error('weave connect needs the code from the app: in the app, choose "Connect an agent".');
     const home = homePath(globals.home);
     const grant = await connectAgent({
       home,
@@ -325,17 +381,19 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       log: stderr,
     });
     stderr('');
-    stderr(`Connected to ${grant.name}'s account, for ${daysLeft(grant)} days. What the agent writes shows "via agent".`);
+    stderr(
+      `Connected to ${grant.name}'s account, for ${daysLeft(grant)} days. What the agent writes shows "via agent".`,
+    );
     const server = serverCommand(home);
     if (values['no-configure']) {
-      stderr('Add this to your agent\'s MCP settings:');
+      stderr("Add this to your agent's MCP settings:");
       process.stdout.write(`${configSnippet(server)}\n`);
       return 0;
     }
     const configured = await configureClients(server);
     for (const { client, result } of configured) stderr(`  ${client}: ${result}`);
     if (!configured.some((entry) => entry.ok)) {
-      stderr('No agent found on this computer to add it to. Add this to your agent\'s MCP settings:');
+      stderr("No agent found on this computer to add it to. Add this to your agent's MCP settings:");
       process.stdout.write(`${configSnippet(server)}\n`);
     }
     return 0;
@@ -343,16 +401,23 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   if (command === 'disconnect') {
     await forgetAgent(homePath(globals.home));
-    stderr('This computer\'s agent is forgotten here. To stop its note working everywhere, disconnect it in your account home.');
+    stderr(
+      "This computer's agent is forgotten here. To stop its note working everywhere, disconnect it in your account home.",
+    );
     return 0;
   }
 
   if (command === 'mcp' && !args.includes('--account')) {
     // The connected agent: a node of its own, online, acting as the agent.
     const agent = await startAgentNode(homePath(globals.home), {
-      nodes: (process.env.WEAVE_NODES ?? '').split(',').map((node) => node.trim()).filter(Boolean),
+      nodes: (process.env.WEAVE_NODES ?? '')
+        .split(',')
+        .map((node) => node.trim())
+        .filter(Boolean),
     });
-    stderr(`weave mcp: an agent for ${agent.grant.name} (${agent.grant.did}), ${daysLeft(agent.grant)} days left`);
+    stderr(
+      `weave mcp: an agent for ${agent.grant.name} (${agent.grant.did}), ${daysLeft(agent.grant)} days left`,
+    );
     await runMcpStdio(agent.node, { name: 'weave', version: VERSION }, { agent: true });
     await agent.close();
     // WebRTC keeps the process alive; the agent closed stdin, so it's done.
@@ -363,7 +428,12 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   if (command === 'mcp') {
     // Offline: the MCP process writes to the folder; a running daemon syncs it.
-    const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, accountKey: unlocked.accountKey, contactKey: unlocked.contactKey });
+    const node = await createNode({
+      signer: unlocked.signer,
+      stores: unlocked.stores,
+      accountKey: unlocked.accountKey,
+      contactKey: unlocked.contactKey,
+    });
     stderr(`weave mcp: serving ${NODE_ACTIONS.length} tools for ${node.did}`);
     await runMcpStdio(node, { name: 'weave', version: VERSION });
     await node.close();
@@ -372,13 +442,21 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   const found = command === 'whoami' ? findAction(['node_info']) : findAction([command, ...args]);
   if (!found) {
-    stderr(`Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "weave help" or "weave actions".`);
+    stderr(
+      `Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "weave help" or "weave actions".`,
+    );
     return 2;
   }
 
   // One-shot commands run offline against the folder. With a daemon running on
   // the same folder, it picks the change up and syncs it.
-  const node = await createNode({ signer: unlocked.signer, stores: unlocked.stores, accountKey: unlocked.accountKey, contactKey: unlocked.contactKey, watchIntervalMs: 0 });
+  const node = await createNode({
+    signer: unlocked.signer,
+    stores: unlocked.stores,
+    accountKey: unlocked.accountKey,
+    contactKey: unlocked.contactKey,
+    watchIntervalMs: 0,
+  });
   try {
     const result = await runAction(node, found.action.name, inputFromFlags(found.action, found.rest));
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

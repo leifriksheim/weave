@@ -5,7 +5,7 @@ lacks and exchange them, and how a node keeps what it holds: the store and
 its entries, storage adapters, the data folder that several clients share,
 sealing at rest, and mirrors in dumb file stores.
 
-What a version *is* (its fields, id, signature, and which of two versions
+What a version _is_ (its fields, id, signature, and which of two versions
 wins) is in [02 — Records](02-records.md). Who may write what, and what a
 space is, is in [03 — Spaces](03-spaces.md). How sync messages reach a peer is
 in [04 — Network](04-network.md). This part only moves and keeps versions.
@@ -56,8 +56,8 @@ in [04 — Network](04-network.md). This part only moves and keeps versions.
 > versions that differ by one exchange under 8 KB in total
 > (`packages/core/tests/reconcile.test.ts`).
 
-*Source: `packages/core/src/sync/sync-engine.ts`, `packages/core/src/sync/negentropy.ts`. Tests:
-`packages/core/tests/reconcile.test.ts`, `packages/core/tests/sync.test.ts`.*
+_Source: `packages/core/src/sync/sync-engine.ts`, `packages/core/src/sync/negentropy.ts`. Tests:
+`packages/core/tests/reconcile.test.ts`, `packages/core/tests/sync.test.ts`._
 
 ---
 
@@ -65,10 +65,10 @@ in [04 — Network](04-network.md). This part only moves and keeps versions.
 
 An **item** is one kept version, as the pair `(timestamp, id)`:
 
-| Field | Type | Value |
-|---|---|---|
-| `id` | 32 bytes | The SHA-256 digest inside the version's content id. A version id is `"b"` followed by 52 characters of lower-case RFC 4648 base32 (no padding) of that digest ([02 — Records](02-records.md)); the item id is the decoded 32 bytes. |
-| `timestamp` | unsigned integer, seconds | `floor(Date.parse(createdAt) / 1000)` of the version's `createdAt`; `0` when `createdAt` does not parse or is not positive. |
+| Field       | Type                      | Value                                                                                                                                                                                                                               |
+| ----------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`        | 32 bytes                  | The SHA-256 digest inside the version's content id. A version id is `"b"` followed by 52 characters of lower-case RFC 4648 base32 (no padding) of that digest ([02 — Records](02-records.md)); the item id is the decoded 32 bytes. |
+| `timestamp` | unsigned integer, seconds | `floor(Date.parse(createdAt) / 1000)` of the version's `createdAt`; `0` when `createdAt` does not parse or is not positive.                                                                                                         |
 
 - Items are sorted by `timestamp`, then by `id` compared as unsigned bytes,
   lexicographically (a shorter prefix sorts first).
@@ -85,9 +85,9 @@ Example: the version id
 `baeaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` has the item id
 `01 00 00 … 00` (0x01 followed by 31 zero bytes).
 
-*Source: `packages/core/src/storage/storage-provider.ts` (`syncTime`, `parseItemKey`),
+_Source: `packages/core/src/storage/storage-provider.ts` (`syncTime`, `parseItemKey`),
 `packages/core/src/utils/hash.ts` (`cidDigest`, `cidOfDigest`). Tests:
-`packages/core/tests/reconcile.test.ts` ("content ids as Negentropy ids").*
+`packages/core/tests/reconcile.test.ts` ("content ids as Negentropy ids")._
 
 ---
 
@@ -103,11 +103,11 @@ the reference: `packages/core/tests/reconcile.test.ts` pins a 40-item vector pro
 A varint is an unsigned integer in base 128, **most significant group
 first**. Every byte but the last has the high bit (`0x80`) set.
 
-| Value | Bytes |
-|---|---|
-| 0 | `00` |
-| 127 | `7f` |
-| 128 | `81 00` |
+| Value      | Bytes            |
+| ---------- | ---------------- |
+| 0          | `00`             |
+| 127        | `7f`             |
+| 128        | `81 00`          |
 | 1700000004 | `86 aa cf e2 04` |
 
 A decoder MUST reject a varint whose value exceeds 2^53 − 1.
@@ -178,12 +178,12 @@ above, with upper bound infinity. An empty set gives `61 00 00 02 00`.
 **Answering** (both sides, each message). For each incoming range, find the
 local items in it, then:
 
-| Incoming mode | Initiator | Responder |
-|---|---|---|
-| Skip | nothing | nothing |
-| Fingerprint, equal to local | nothing | nothing |
-| Fingerprint, different | split the local range and send it | split the local range and send it |
-| IdList | records ids it holds that the list lacks as **have**, ids in the list it lacks as **need**; sends nothing | replies with its own `IdList` for the range |
+| Incoming mode               | Initiator                                                                                                 | Responder                                   |
+| --------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Skip                        | nothing                                                                                                   | nothing                                     |
+| Fingerprint, equal to local | nothing                                                                                                   | nothing                                     |
+| Fingerprint, different      | split the local range and send it                                                                         | split the local range and send it           |
+| IdList                      | records ids it holds that the list lacks as **have**, ids in the list it lacks as **need**; sends nothing | replies with its own `IdList` for the range |
 
 Consecutive "nothing"s are coalesced into one `Skip` range, written only
 before the next range that says something (a trailing Skip is not written).
@@ -211,8 +211,7 @@ seeing the same id in `have` or `need` twice.
 
 ### 3.5 Example
 
-Initiator A holds `id1 = 01 00…00` at 1700000000 and `id2 = 02 00…00` at
-1700000005. Responder B holds `id1` and `id3 = 03 00…00` at 1700000009.
+Initiator A holds `id1 = 01 00…00` at 1700000000 and `id2 = 02 00…00` at 1700000005. Responder B holds `id1` and `id3 = 03 00…00` at 1700000009.
 
 ```
 A → B   61 00 00 02 02 <id1> <id2>
@@ -232,9 +231,9 @@ With 40 items, A's first message instead starts
 1700000003 (encoded 1700000004), empty prefix, mode Fingerprint — the first of
 16 buckets.
 
-*Source: `packages/core/src/sync/negentropy.ts`. Tests: `packages/core/tests/reconcile.test.ts`
+_Source: `packages/core/src/sync/negentropy.ts`. Tests: `packages/core/tests/reconcile.test.ts`
 ("Negentropy": reference vector, exact have/need, equal sets, frame limit,
-malformed input, sums).*
+malformed input, sums)._
 
 ---
 
@@ -257,19 +256,25 @@ Ids below are version ids (strings, §2). Byte strings are `base64url`.
 
 "Here is what I hold, and a fingerprint of each collection I keep."
 
-| Field | Type | Meaning |
-|---|---|---|
-| `type` | `"hello"` | |
-| `holds` | `"all"` \| `string[]` | Optional. `"all"`, or the collections held besides `sys.*` (§5). Absent means `"all"`. |
-| `sums` | `{ [collection]: string }` | For each held collection the sender keeps at least one version of: the collection's fingerprint (§3.3) over all its items, as 32 lower-case hex characters. |
-| `reply` | `true` | Optional. Marks a hello sent in answer to one; it is never answered by another hello. |
+| Field   | Type                       | Meaning                                                                                                                                                     |
+| ------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`  | `"hello"`                  |                                                                                                                                                             |
+| `holds` | `"all"` \| `string[]`      | Optional. `"all"`, or the collections held besides `sys.*` (§5). Absent means `"all"`.                                                                      |
+| `sums`  | `{ [collection]: string }` | For each held collection the sender keeps at least one version of: the collection's fingerprint (§3.3) over all its items, as 32 lower-case hex characters. |
+| `reply` | `true`                     | Optional. Marks a hello sent in answer to one; it is never answered by another hello.                                                                       |
 
 Example (fingerprint values illustrative):
 
 ```json
-{ "v": 4, "type": "hello", "holds": "all",
-  "sums": { "app.todo.item": "2e255099d6d6bee307c8e7075acc78f9",
-            "sys.role": "0fc7e595db07fda274b7780656316457" } }
+{
+  "v": 4,
+  "type": "hello",
+  "holds": "all",
+  "sums": {
+    "app.todo.item": "2e255099d6d6bee307c8e7075acc78f9",
+    "sys.role": "0fc7e595db07fda274b7780656316457"
+  }
+}
 ```
 
 A receiver MUST ignore a hello whose `sums` is not an object or names more
@@ -281,43 +286,43 @@ are ignored.
 
 One round of reconciling one collection, initiator to responder.
 
-| Field | Type | Meaning |
-|---|---|---|
-| `type` | `"reconcile"` | |
-| `id` | number | The session id, chosen by the initiator, echoed in the answer. |
-| `collection` | string | The collection being reconciled. |
-| `message` | string | A Negentropy message (§3), base64url. At most 32,000 bytes before encoding. |
+| Field        | Type          | Meaning                                                                     |
+| ------------ | ------------- | --------------------------------------------------------------------------- |
+| `type`       | `"reconcile"` |                                                                             |
+| `id`         | number        | The session id, chosen by the initiator, echoed in the answer.              |
+| `collection` | string        | The collection being reconciled.                                            |
+| `message`    | string        | A Negentropy message (§3), base64url. At most 32,000 bytes before encoding. |
 
 ### `reconciled`
 
 The responder's answer to one `reconcile`.
 
-| Field | Type | Meaning |
-|---|---|---|
-| `type` | `"reconciled"` | |
-| `id` | number | The `reconcile`'s `id`. |
-| `message` | string | The responder's Negentropy message, base64url. `""` when `held` is `false`. |
-| `held` | `false` | Optional. The responder does not hold this collection (§5); the session ends. |
+| Field     | Type           | Meaning                                                                       |
+| --------- | -------------- | ----------------------------------------------------------------------------- |
+| `type`    | `"reconciled"` |                                                                               |
+| `id`      | number         | The `reconcile`'s `id`.                                                       |
+| `message` | string         | The responder's Negentropy message, base64url. `""` when `held` is `false`.   |
+| `held`    | `false`        | Optional. The responder does not hold this collection (§5); the session ends. |
 
 ### `want`
 
 "Send me these versions."
 
-| Field | Type | Meaning |
-|---|---|---|
-| `type` | `"want"` | |
-| `id` | number | Request id, echoed in the reply. |
-| `ids` | `string[]` | Version ids. A sender puts at most 200 in one `want`; a receiver serves at most the first 200 and skips entries that are not version ids. |
+| Field  | Type       | Meaning                                                                                                                                   |
+| ------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `type` | `"want"`   |                                                                                                                                           |
+| `id`   | number     | Request id, echoed in the reply.                                                                                                          |
+| `ids`  | `string[]` | Version ids. A sender puts at most 200 in one `want`; a receiver serves at most the first 200 and skips entries that are not version ids. |
 
 ### `versions`
 
 Versions, as they are on the wire ([02 — Records](02-records.md)).
 
-| Field | Type | Meaning |
-|---|---|---|
-| `type` | `"versions"` | |
-| `id` | number | Present: the answer to the `want` with that id. Absent: versions the sender found the receiver lacks while reconciling. |
-| `versions` | `Expression[]` | At most 200. |
+| Field      | Type           | Meaning                                                                                                                 |
+| ---------- | -------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `type`     | `"versions"`   |                                                                                                                         |
+| `id`       | number         | Present: the answer to the `want` with that id. Absent: versions the sender found the receiver lacks while reconciling. |
+| `versions` | `Expression[]` | At most 200.                                                                                                            |
 
 A `want` MUST always be answered with a `versions` carrying its `id`, even
 when none of the ids are held (`versions: []`): the asker counts answers to
@@ -325,19 +330,19 @@ know it is done.
 
 ### `push-update`
 
-| Field | Type | Meaning |
-|---|---|---|
-| `type` | `"push-update"` | |
-| `expression` | `Expression` | A version written just now (§7). |
+| Field        | Type            | Meaning                          |
+| ------------ | --------------- | -------------------------------- |
+| `type`       | `"push-update"` |                                  |
+| `expression` | `Expression`    | A version written just now (§7). |
 
 ### `stored`
 
 "I have these now."
 
-| Field | Type | Meaning |
-|---|---|---|
-| `type` | `"stored"` | |
-| `ids` | `string[]` | Ids of versions the sender just took in from the receiver (from `versions` or `push-update`) and that passed its gatekeeper — newly stored or already held. A receiver considers at most the first 2,000 string entries. |
+| Field  | Type       | Meaning                                                                                                                                                                                                                  |
+| ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `type` | `"stored"` |                                                                                                                                                                                                                          |
+| `ids`  | `string[]` | Ids of versions the sender just took in from the receiver (from `versions` or `push-update`) and that passed its gatekeeper — newly stored or already held. A receiver considers at most the first 2,000 string entries. |
 
 > **Planned: binary sync messages.** Sync messages travel as JSON, and their
 > one binary part, the Negentropy `message`, as base64url, a third over its
@@ -346,8 +351,8 @@ know it is done.
 > (CBOR, or a fixed layout for `reconcile`/`reconciled` only), and whether
 > versions inside `versions` stay JSON.
 
-*Source: `packages/core/src/sync/sync-messages.ts`, `packages/core/src/sync/sync-engine.ts`. Tests:
-`packages/core/tests/reconcile.test.ts`, `packages/core/tests/sync.test.ts`.*
+_Source: `packages/core/src/sync/sync-messages.ts`, `packages/core/src/sync/sync-engine.ts`. Tests:
+`packages/core/tests/reconcile.test.ts`, `packages/core/tests/sync.test.ts`._
 
 ---
 
@@ -370,8 +375,8 @@ see [03 — Spaces](03-spaces.md)).
 Which collections a node chooses to hold is the node's own choice; how this
 implementation chooses is in §9.
 
-*Source: `packages/core/src/sync/sync-engine.ts` (`Holds`, `holdsCollection`, `readHolds`).
-Tests: `packages/core/tests/reconcile.test.ts` ("holding part of a space").*
+_Source: `packages/core/src/sync/sync-engine.ts` (`Holds`, `holdsCollection`, `readHolds`).
+Tests: `packages/core/tests/reconcile.test.ts` ("holding part of a space")._
 
 ---
 
@@ -426,7 +431,7 @@ harmless, only sometimes twice the work.
 For each differing collection the initiator:
 
 1. Builds its item set for the collection and sends `reconcile` with a fresh
-   `id` and the output of *initiate* (§3.4), with a frame limit of 32,000
+   `id` and the output of _initiate_ (§3.4), with a frame limit of 32,000
    bytes. If a session for that collection with that peer is already running
    and has heard something in the last 30 s, it does not start another; it
    marks the running one to run **again** once it ends.
@@ -461,6 +466,7 @@ For each differing collection the initiator:
    versions a waiting version names (§8) go to the front of the queue;
    everything else joins the back. An id already queued or asked for is not
    queued again. When a `want` is answered, the next ones go.
+
 3. When a session has ended and every `want` for its collection has been
    answered and none is queued, the collection is **level** with that peer
    (as far as could be taken in). The
@@ -475,7 +481,7 @@ dropped `want` asked for is found again on the next round.
 ### 6.4 Answering (responder)
 
 - On `reconcile`: if the collection is not held, answer `held: false`.
-  Otherwise build the item set, run one *answer* step as responder (§3.4)
+  Otherwise build the item set, run one _answer_ step as responder (§3.4)
   with the 32,000-byte frame limit, and send `reconciled` with the same `id`.
 - On `want`: answer with `versions` carrying the same `id` and every asked
   version it holds (first 200 ids only).
@@ -523,12 +529,12 @@ A (initiator: its DID sorts first)                       B
    ── hello {sums, reply:true} ──────────────────────────▶    A is level on app.note
 ```
 
-*Source: `packages/core/src/sync/sync-engine.ts` (`onReconciled`, `want`, `pump`,
+_Source: `packages/core/src/sync/sync-engine.ts` (`onReconciled`, `want`, `pump`,
 `sweep`, `MAX_WANTS_IN_FLIGHT`), `packages/core/src/node/space-runtime.ts` (wiring:
 heartbeat, `announceSoon`, peer connect). Tests: `packages/core/tests/reconcile.test.ts`
 ("sync by reconciliation", "joining, a deleted record never shows as it once
 was", "a want whose answer is lost is given up, and the peer is synced
-again"), `packages/core/tests/sync.test.ts`.*
+again"), `packages/core/tests/sync.test.ts`._
 
 ---
 
@@ -543,8 +549,8 @@ A receiver treats the pushed version exactly like one in `versions` (§8),
 including answering with `stored` when it takes it in. A push that is lost is
 not retried: the next hello finds the difference.
 
-*Source: `packages/core/src/sync/sync-engine.ts` (`onLocalChange`). Tests:
-`packages/core/tests/sync.test.ts` ("pushes a local change to a peer").*
+_Source: `packages/core/src/sync/sync-engine.ts` (`onLocalChange`). Tests:
+`packages/core/tests/sync.test.ts` ("pushes a local change to a peer")._
 
 ---
 
@@ -559,11 +565,11 @@ arrival; see 02.
 
 The gatekeeper gives one of three answers:
 
-| Answer | Meaning | What happens |
-|---|---|---|
-| valid | passes | stored (§10) |
-| later | depends on something not here yet: the record's first version, the definition or access change it was written under | held in memory (at most 1,000; the oldest give way) and tried again whenever another version is stored; asked for again on the next round if still waiting. If it names a first version (`genesis`) this node does not hold, that version is asked of the same peer at once, at the front of the queue (§6.3) |
-| invalid | refused | dropped; remembered as refused **from that peer** (at most 10,000 entries) and not asked of that peer again |
+| Answer  | Meaning                                                                                                             | What happens                                                                                                                                                                                                                                                                                                  |
+| ------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| valid   | passes                                                                                                              | stored (§10)                                                                                                                                                                                                                                                                                                  |
+| later   | depends on something not here yet: the record's first version, the definition or access change it was written under | held in memory (at most 1,000; the oldest give way) and tried again whenever another version is stored; asked for again on the next round if still waiting. If it names a first version (`genesis`) this node does not hold, that version is asked of the same peer at once, at the front of the queue (§6.3) |
+| invalid | refused                                                                                                             | dropped; remembered as refused **from that peer** (at most 10,000 entries) and not asked of that peer again                                                                                                                                                                                                   |
 
 > Rationale: a refusal is keyed on peer and id, not id alone. A version id
 > does not cover the signature, so a stranger's mangled copy shares the real
@@ -582,7 +588,7 @@ A batch of versions (one `versions` or `push-update`) is taken in this order:
 6. Ask the sender for the first versions still missing that waiting versions
    name (above).
 
-*Implementation detail:* the node tells the page that records changed once
+_Implementation detail:_ the node tells the page that records changed once
 per message taken in, not once per version, with every version it placed.
 
 A `versions` with an `id` is only considered if it answers a `want` this node
@@ -603,13 +609,13 @@ taken. A `versions` without `id` is limited to its first 200 entries.
 > nothing a removed member wrote after the removal is taken in anywhere. The
 > gatekeeper and the `later` retry above are what it exercises.
 
-*Source: `packages/core/src/sync/sync-engine.ts` (`admit`, `admitAll`, `retryWaiting`),
+_Source: `packages/core/src/sync/sync-engine.ts` (`admit`, `admitAll`, `retryWaiting`),
 `packages/core/src/node/space-runtime.ts` (`admit`). Tests: `packages/core/tests/sync.test.ts` (forged
 expression, no capability, schema), `packages/core/tests/reconcile.test.ts` ("a refused
 version is not asked for again", "a version that waits for its first version
 asks for it at once"), `packages/core/tests/rules.test.ts` ("an edit that came
 before its first version counts once the first version comes"),
-`packages/core/tests/attacks.test.ts`.*
+`packages/core/tests/attacks.test.ts`._
 
 ---
 
@@ -649,23 +655,23 @@ account home, [06](06-nodes-and-sessions.md)):
 - **Dropping.** On opening the space and every 6 hours, a collection no query
   has used for `unusedAfterDays` (default 30) is dropped — its versions
   removed and it is no longer held — unless the app declared it or it holds a
-  pending write. It is un-held *before* its versions go, so nothing syncs it
+  pending write. It is un-held _before_ its versions go, so nothing syncs it
   back meanwhile.
 
 Implementation detail — the state is kept in the space's own store (§12):
 
-| Key | Value (UTF-8 JSON) |
-|---|---|
-| `cache` | `{ "settled": boolean, "used": { [collection]: ms }, "level": { [collection]: ms } }` — `settled`: has synced with a whole-space peer; `used`: when a query last used it; `level`: when it was first level with a whole-space peer |
-| `pending/<version id>` | `{ "collection": string, "by": [keeper DID…] }` — deleted once `by` reaches the target |
+| Key                    | Value (UTF-8 JSON)                                                                                                                                                                                                                 |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cache`                | `{ "settled": boolean, "used": { [collection]: ms }, "level": { [collection]: ms } }` — `settled`: has synced with a whole-space peer; `used`: when a query last used it; `level`: when it was first level with a whole-space peer |
+| `pending/<version id>` | `{ "collection": string, "by": [keeper DID…] }` — deleted once `by` reaches the target                                                                                                                                             |
 
 Completeness rests on trust: a keeper that withholds versions, or a peer
 holding `"all"` that lost some, still counts as level. A reader cannot tell.
 
-*Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"),
+_Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"),
 `packages/core/src/node/types.ts` (`CacheConfig`), `packages/core/src/space/roles.ts` (`Keeper`,
 `checkKeepers`). Tests: `packages/core/tests/caches.test.ts`, `packages/core/tests/reconcile.test.ts`
-("holding part of a space").*
+("holding part of a space")._
 
 ### 9.1 Planned: completeness from signed writer logs
 
@@ -736,12 +742,12 @@ heads a hello may carry.
 A space's store holds record versions, and small **entries** (key → value)
 saying which is which. Every entry value below is the UTF-8 of a version id.
 
-| Entry key | Present for | Names |
-|---|---|---|
-| `r/<record key>` | every record | its current version (possibly a delete) |
-| `g/<record key>` | a record that has been edited | its first version (`seq` 0) |
-| `h/<record key>/<seq>/<id>` | a superseded version its writer marked `retain` | that version; `seq` is decimal, zero-padded to 15 digits |
-| `i/<collection>/<time>/<id>` | every version kept (current, first, retained) | that version; `<collection>` is `encodeURIComponent(collection)`, `<time>` is the item timestamp (§2) in decimal |
+| Entry key                    | Present for                                     | Names                                                                                                            |
+| ---------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `r/<record key>`             | every record                                    | its current version (possibly a delete)                                                                          |
+| `g/<record key>`             | a record that has been edited                   | its first version (`seq` 0)                                                                                      |
+| `h/<record key>/<seq>/<id>`  | a superseded version its writer marked `retain` | that version; `seq` is decimal, zero-padded to 15 digits                                                         |
+| `i/<collection>/<time>/<id>` | every version kept (current, first, retained)   | that version; `<collection>` is `encodeURIComponent(collection)`, `<time>` is the item timestamp (§2) in decimal |
 
 Record keys contain no `/` ([02](02-records.md)). The `i/` entries are the
 only sync state: the item set of a collection is exactly the parseable `i/`
@@ -766,8 +772,8 @@ versions gives the same entries in any arrival order:
 - If `D.seq == 0` and `W.seq > 0` (a first version): let `G` be what `g/k`
   names. If `G == D`, stop. If there is no `G`, or `D.id < G` (string
   comparison), keep `D`, set `g/k = D`, and treat the displaced `G` (if any)
-  by *keep or drop*. Stop.
-- Otherwise *keep or drop* `D`.
+  by _keep or drop_. Stop.
+- Otherwise _keep or drop_ `D`.
 
 **Keep or drop** `D`: if `D.retain`, keep it and set its `h/` entry;
 otherwise drop it.
@@ -802,17 +808,17 @@ store. So are the `r/` and `g/` entries read or written, and version bodies
 An entry read while a change was landing is not kept. When another writer
 changed the same store (another tab, another origin or device on a shared
 folder) the node MUST re-read all of it (`invalidate`). This implementation notifies other tabs of one browser through
-a `BroadcastChannel` named `weave-node:<root DID>:<space id>` (*implementation
-detail*).
+a `BroadcastChannel` named `weave-node:<root DID>:<space id>` (_implementation
+detail_).
 
 The store's overall **fingerprint** (for status and tests) is the §3.3
 fingerprint of the sum of every collection's sum, as hex.
 
-*Source: `packages/core/src/storage/storage-provider.ts` (`change`, `land`, `MAX_BODIES`), `packages/core/src/records/version.ts`. Tests:
+_Source: `packages/core/src/storage/storage-provider.ts` (`change`, `land`, `MAX_BODIES`), `packages/core/src/records/version.ts`. Tests:
 `packages/core/tests/versions.test.ts` ("a store of versions"), `packages/core/tests/reconcile.test.ts`
 ("a superseded version leaves the set", "a store written by someone else is
 read again once told", "changes that come in while one lands land together;
-one that fails leaves nothing").*
+one that fails leaves nothing")._
 
 ---
 
@@ -820,22 +826,22 @@ one that fails leaves nothing").*
 
 The store runs over an adapter with this contract (all methods async):
 
-| Method | Contract |
-|---|---|
-| `get(key)` | Entry bytes, or null |
-| `put(key, bytes)` | Set an entry |
-| `delete(key)` | Remove an entry; absent is fine |
-| `has(key)` | Whether an entry exists |
-| `list(prefix?)` | Every entry key starting with `prefix`, in no guaranteed order |
-| `batch(ops)` | Apply `{type:'put',key,value}` / `{type:'delete',key}` ops; SHOULD be atomic |
-| `putExpression(v)` | Store a version body by its `id` |
-| `getExpression(id)` | A version body, or null |
-| `deleteExpression(id)` | Remove a version body |
-| `queryExpressions(collection, limit=50, cursor?)` | Version bodies in a collection (every body kept, not only current), after the version with id `cursor` |
-| `close()` | Release it |
-| `entries(prefix)` | *Optional.* Every entry under `prefix` with its bytes, in one read. Without it, `list` then `get` each |
-| `getExpressions(ids)` | *Optional.* Version bodies by id, null where absent, in the order asked, in one read. Without it, `getExpression` each |
-| `commit({ store, ops, remove })` | *Optional.* Stores these bodies, applies these entry ops and deletes these bodies, atomically. Without it, `putExpression` each, `batch`, `deleteExpression` each |
+| Method                                            | Contract                                                                                                                                                          |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get(key)`                                        | Entry bytes, or null                                                                                                                                              |
+| `put(key, bytes)`                                 | Set an entry                                                                                                                                                      |
+| `delete(key)`                                     | Remove an entry; absent is fine                                                                                                                                   |
+| `has(key)`                                        | Whether an entry exists                                                                                                                                           |
+| `list(prefix?)`                                   | Every entry key starting with `prefix`, in no guaranteed order                                                                                                    |
+| `batch(ops)`                                      | Apply `{type:'put',key,value}` / `{type:'delete',key}` ops; SHOULD be atomic                                                                                      |
+| `putExpression(v)`                                | Store a version body by its `id`                                                                                                                                  |
+| `getExpression(id)`                               | A version body, or null                                                                                                                                           |
+| `deleteExpression(id)`                            | Remove a version body                                                                                                                                             |
+| `queryExpressions(collection, limit=50, cursor?)` | Version bodies in a collection (every body kept, not only current), after the version with id `cursor`                                                            |
+| `close()`                                         | Release it                                                                                                                                                        |
+| `entries(prefix)`                                 | _Optional._ Every entry under `prefix` with its bytes, in one read. Without it, `list` then `get` each                                                            |
+| `getExpressions(ids)`                             | _Optional._ Version bodies by id, null where absent, in the order asked, in one read. Without it, `getExpression` each                                            |
+| `commit({ store, ops, remove })`                  | _Optional._ Stores these bodies, applies these entry ops and deletes these bodies, atomically. Without it, `putExpression` each, `batch`, `deleteExpression` each |
 
 The optional methods only save round trips: a store gives the same answers
 with or without them.
@@ -843,8 +849,8 @@ with or without them.
 Entry keys are strings; values are bytes. Adapters: IndexedDB (§13), data
 folder (§14), the sealing wrapper (§15), and an in-memory one for tests.
 
-*Source: `packages/core/src/types.ts` (`StorageAdapter`, `BatchOp`). Tests:
-`packages/core/tests/folder-adapter.test.ts`, `packages/core/tests/helpers/memory-adapter.ts`.*
+_Source: `packages/core/src/types.ts` (`StorageAdapter`, `BatchOp`). Tests:
+`packages/core/tests/folder-adapter.test.ts`, `packages/core/tests/helpers/memory-adapter.ts`._
 
 ---
 
@@ -853,27 +859,27 @@ folder (§14), the sealing wrapper (§15), and an in-memory one for tests.
 A node opens stores **by path**, and a store factory maps a path to an
 adapter:
 
-| Path | Holds | Sealed (§15) |
-|---|---|---|
-| `registry` | the spaces this node holds, and their keys | yes, on a node given a vault key |
-| `spaces/<space id>` | one space: §10 entries and bodies, plus §9 `cache` and `pending/…` | no |
-| `mirrors/<space id>/<n>` | a mirror's writer state (§16.4); `n` is the mirror's index | no |
-| `host` | a host's subscriptions (`subscription:<id>`) — see [06](06-nodes-and-sessions.md) | no |
+| Path                     | Holds                                                                             | Sealed (§15)                     |
+| ------------------------ | --------------------------------------------------------------------------------- | -------------------------------- |
+| `registry`               | the spaces this node holds, and their keys                                        | yes, on a node given a vault key |
+| `spaces/<space id>`      | one space: §10 entries and bodies, plus §9 `cache` and `pending/…`                | no                               |
+| `mirrors/<space id>/<n>` | a mirror's writer state (§16.4); `n` is the mirror's index                        | no                               |
+| `host`                   | a host's subscriptions (`subscription:<id>`) — see [06](06-nodes-and-sessions.md) | no                               |
 
 **Registry entries.** One space's registry entries, each keyed by space id:
 
-| Key | Value | Sealed by default |
-|---|---|---|
-| `space:<id>` | UTF-8 JSON of the `Space` ([03](03-spaces.md)) | yes |
-| `spacekey:<id>` | UTF-8 JSON `{ "keys": [{ "id", "raw" (base64url AES-256 key), "createdAt", "version" }], "current": <key id> }` | yes |
-| `spaceinvite:<id>` | UTF-8 base64url of an invite secret, until used | yes |
-| `spacerole:<id>` | UTF-8 role name this account last held (a listing hint) | yes |
-| `spacememberkey:<id>` | UTF-8 base64url of this account's member key for the space | **no** — known defect, §15 |
-| `spacerelays:<id>` | UTF-8 JSON array of relay URLs | no — known defect, §15 |
+| Key                   | Value                                                                                                           | Sealed by default          |
+| --------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `space:<id>`          | UTF-8 JSON of the `Space` ([03](03-spaces.md))                                                                  | yes                        |
+| `spacekey:<id>`       | UTF-8 JSON `{ "keys": [{ "id", "raw" (base64url AES-256 key), "createdAt", "version" }], "current": <key id> }` | yes                        |
+| `spaceinvite:<id>`    | UTF-8 base64url of an invite secret, until used                                                                 | yes                        |
+| `spacerole:<id>`      | UTF-8 role name this account last held (a listing hint)                                                         | yes                        |
+| `spacememberkey:<id>` | UTF-8 base64url of this account's member key for the space                                                      | **no** — known defect, §15 |
+| `spacerelays:<id>`    | UTF-8 JSON array of relay URLs                                                                                  | no — known defect, §15     |
 
 Forgetting a space deletes all six.
 
-**Factories** (*implementation detail* for IndexedDB, normative for folders):
+**Factories** (_implementation detail_ for IndexedDB, normative for folders):
 
 - IndexedDB: one database per path, named `<prefix>:<path with / → :>`. For
   an account: prefix `weave:<dataPath with / → :>`, e.g.
@@ -883,16 +889,16 @@ Forgetting a space deletes all six.
   folder; the `registry` store wrapped by the sealing adapter under the
   account's vault key.
 
-*Source: `packages/core/src/node/stores.ts`, `packages/core/src/session/places.ts` (`storesFor`),
+_Source: `packages/core/src/node/stores.ts`, `packages/core/src/session/places.ts` (`storesFor`),
 `packages/core/src/space/space-manager.ts`, `packages/core/src/node/node.ts`, `packages/core/src/node/space-runtime.ts`.
 Tests: `packages/core/tests/account-vault.test.ts` ("encryption at rest"),
-`packages/core/tests/node.test.ts`.*
+`packages/core/tests/node.test.ts`._
 
 ---
 
 ## 13. IndexedDB adapter
 
-*Implementation detail*: only this origin reads it.
+_Implementation detail_: only this origin reads it.
 
 - Database version **3**. Opening a database of version 1 or 2 (which held a
   Merkle tree) deletes its object stores: it is a local copy, rebuilt by
@@ -913,8 +919,8 @@ Accounts kept in a browser live in database `weave-accounts`, object store
 lives in database `weave-folder`, object store `handles`, key `data-folder`
 (§14.7).
 
-*Source: `packages/core/src/storage/indexeddb-adapter.ts`, `packages/core/src/storage/directory-access.ts`.
-Tests: none directly (the adapter needs a browser).*
+_Source: `packages/core/src/storage/indexeddb-adapter.ts`, `packages/core/src/storage/directory-access.ts`.
+Tests: none directly (the adapter needs a browser)._
 
 ---
 
@@ -958,11 +964,11 @@ Entry keys and path segments become file names by percent-encoding their
 UTF-8 bytes: every byte **not** in `a-z 0-9 . _ -` becomes `%` and two
 **upper-case** hex digits. Decoding reverses it.
 
-| Key | File name |
-|---|---|
-| `r/k3x9q2abcd` | `r%2Fk3x9q2abcd` |
+| Key                               | File name                               |
+| --------------------------------- | --------------------------------------- |
+| `r/k3x9q2abcd`                    | `r%2Fk3x9q2abcd`                        |
 | `i/app.todo.item/1700000000/bae…` | `i%2Fapp.todo.item%2F1700000000%2Fbae…` |
-| `space:bafy…` | `space%3Abafy…` |
+| `space:bafy…`                     | `space%3Abafy…`                         |
 
 A writer MUST use exactly this encoding; a reader MUST decode it.
 
@@ -1024,17 +1030,17 @@ opening an account needs one of its wraps or the recovery code.
 
 ### 14.7 Getting the folder (browser)
 
-*Implementation detail.* The folder comes from `showDirectoryPicker` with
+_Implementation detail._ The folder comes from `showDirectoryPicker` with
 `id: "weave-pod"`, `mode: "readwrite"`, `startIn: "documents"`, which needs a
 user gesture. The handle is remembered in IndexedDB (§13); on a later visit
 `readwrite` permission is queried, and requested again only from a gesture.
 Browsers without the API (Firefox, Safari, mobile) keep data in IndexedDB
 instead.
 
-*Source: `packages/core/src/storage/folder-adapter.ts`, `packages/core/src/storage/folder-reconcile.ts`,
+_Source: `packages/core/src/storage/folder-adapter.ts`, `packages/core/src/storage/folder-reconcile.ts`,
 `packages/core/src/storage/directory-access.ts`, `packages/core/src/identity/account-store.ts`,
 `packages/cli/src/fs-directory.ts`, `packages/core/src/node/space-runtime.ts` (watch loop). Tests:
-`packages/core/tests/folder-adapter.test.ts`, `packages/cli/tests/path-safety.test.ts`.*
+`packages/core/tests/folder-adapter.test.ts`, `packages/cli/tests/path-safety.test.ts`._
 
 ---
 
@@ -1074,8 +1080,8 @@ including `spacememberkey:` and `spacerelays:`.
 > implementations SHOULD NOT copy this.
 > Tracked in [#16](https://github.com/leifriksheim/weave/issues/16).
 
-*Source: `packages/core/src/storage/encrypted-adapter.ts`, `packages/core/src/node/stores.ts`. Tests:
-`packages/core/tests/account-vault.test.ts` ("encryption at rest").*
+_Source: `packages/core/src/storage/encrypted-adapter.ts`, `packages/core/src/node/stores.ts`. Tests:
+`packages/core/tests/account-vault.test.ts` ("encryption at rest")._
 
 ---
 
@@ -1090,12 +1096,12 @@ mirrors for carriers ([06](06-nodes-and-sessions.md)).
 A blob store keeps bytes by name and is assumed slow, eventually consistent,
 and without atomic operations:
 
-| Method | Contract |
-|---|---|
-| `get(key)` | bytes, or null when absent |
-| `put(key, bytes)` | create or replace |
-| `delete(key)` | remove; absent is fine |
-| `list(prefix)` | every key under `prefix`, any order |
+| Method                     | Contract                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------- |
+| `get(key)`                 | bytes, or null when absent                                                      |
+| `put(key, bytes)`          | create or replace                                                               |
+| `delete(key)`              | remove; absent is fine                                                          |
+| `list(prefix)`             | every key under `prefix`, any order                                             |
 | `changes?(prefix, cursor)` | optional: keys added/removed since `cursor`; not used by the mirror yet (§16.5) |
 
 Drivers:
@@ -1151,7 +1157,7 @@ first is `000001-ca1cf99cf9ccaa1b.seg`. Only names ending `.seg` are segments.
 
 ### 16.4 Push, pull, compaction
 
-Writer state (*implementation detail*), in the store `mirrors/<space>/<n>`:
+Writer state (_implementation detail_), in the store `mirrors/<space>/<n>`:
 `mirror:writer` (the writer id), `mirror:counter` (decimal), `mirror:read:<segment key>` = `1`
 for each segment read or written, `mirror:known:<version id>` = `1` for each
 version known to be in the blob store.
@@ -1180,10 +1186,10 @@ delete the old ones. A reader in between sees duplicates, which are harmless.
 **Deleting a space** from a blob store deletes every key under
 `<space id>/`.
 
-*Source: `packages/core/src/storage/blob-store.ts`, `packages/core/src/storage/blob/memory.ts`,
+_Source: `packages/core/src/storage/blob-store.ts`, `packages/core/src/storage/blob/memory.ts`,
 `packages/core/src/storage/blob/s3.ts`, `packages/core/src/storage/segment.ts`, `packages/core/src/storage/mirror.ts`,
 `packages/core/src/node/space-runtime.ts` ("Mirrors"), `packages/core/src/node/host.ts`. Tests:
-`packages/core/tests/mirror.test.ts`.*
+`packages/core/tests/mirror.test.ts`._
 
 ### 16.5 Planned: mirrors in your own storage
 
@@ -1217,15 +1223,15 @@ delete the old ones. A reader in between sees duplicates, which are harmless.
   and unicode, a 1 MB blob), with shared backoff on 429 and 5xx that honours
   `Retry-After`, never retries a delete that returned 404, and never logs a
   token or signed URL:
-  - *Directory*: a directory handle or a directory on disk.
-  - *Google Drive*: everything in one app-created folder, `drive.file` scope
+  - _Directory_: a directory handle or a directory on disk.
+  - _Google Drive_: everything in one app-created folder, `drive.file` scope
     only (the app sees only its own files). Drive addresses files by id, not
     name, so the driver keeps a name → file id map from one `files.list`,
     updated on every `put` and invalidated on 404. Drive allows duplicate
     names, so a `put` updates an existing file id rather than creating
     another. Tokens come from a callback (`getAccessToken`); service accounts
     do not work (they have no storage of their own).
-  - *Dropbox* and *OneDrive*, in their app folders, the narrowest grant each
+  - _Dropbox_ and _OneDrive_, in their app folders, the narrowest grant each
     offers. Dropbox first.
   - Not iCloud: it has no usable web API; iCloud users keep a data folder
     (§14) instead.
@@ -1250,7 +1256,7 @@ mirror.
 > fetched only when wanted; the fetcher checks the hash. In a private space
 > they are encrypted under the space key before hashing, so keepers and
 > mirrors hold ciphertext. Bytes no current record references may be dropped.
-> *Open:* how a peer asks for bytes it lacks (the sync connection, a host, a
+> _Open:_ how a peer asks for bytes it lacks (the sync connection, a host, a
 > mirror); chunking large files so they resume and don't hold up a sync
 > round; which key when the space key changes; limits per blob and per space.
 
@@ -1258,27 +1264,27 @@ mirror.
 
 ## 17. Constants
 
-| Name | Value | Where |
-|---|---|---|
-| `SYNC_PROTOCOL_VERSION` | 4 | `v` on every sync message |
-| Negentropy version byte | `0x61` | §3 |
-| Id size / fingerprint size | 32 / 16 bytes | §3 |
-| IdList threshold / buckets | < 32 items / 16 | §3.4 |
-| `FRAME_SIZE_LIMIT` | 32,000 bytes (before base64) | §6 |
-| Minimum frame limit / headroom | 4,096 / 200 bytes | §3.4 |
-| `MAX_IDS_PER_REQUEST` | 200 | `want`, `versions` |
-| `MAX_WANTS_IN_FLIGHT` | 4 per peer | §6.3 |
-| `stored` ids considered | 2,000 | §4 |
-| Collections per hello | 1,000 | §4 |
-| Rounds per session | 64 | §6.3 |
-| Session, `want` stale after | 30 s | §6.3 |
-| Heartbeat | 30 s | §6.2 |
-| Hello after taking something in | 100 ms | §6.2 |
-| Waiting versions / refusals remembered | 1,000 / 10,000 | §8 |
-| Folder re-read | 2 s | §14.5 |
-| Mirror flush | 256 KiB or 5 s; compact at 32 segments | §16.4 |
-| Cache: drop unused after | 30 days, checked every 6 h | §9 |
-| Keepers per space | 16 | §9 |
+| Name                                   | Value                                  | Where                     |
+| -------------------------------------- | -------------------------------------- | ------------------------- |
+| `SYNC_PROTOCOL_VERSION`                | 4                                      | `v` on every sync message |
+| Negentropy version byte                | `0x61`                                 | §3                        |
+| Id size / fingerprint size             | 32 / 16 bytes                          | §3                        |
+| IdList threshold / buckets             | < 32 items / 16                        | §3.4                      |
+| `FRAME_SIZE_LIMIT`                     | 32,000 bytes (before base64)           | §6                        |
+| Minimum frame limit / headroom         | 4,096 / 200 bytes                      | §3.4                      |
+| `MAX_IDS_PER_REQUEST`                  | 200                                    | `want`, `versions`        |
+| `MAX_WANTS_IN_FLIGHT`                  | 4 per peer                             | §6.3                      |
+| `stored` ids considered                | 2,000                                  | §4                        |
+| Collections per hello                  | 1,000                                  | §4                        |
+| Rounds per session                     | 64                                     | §6.3                      |
+| Session, `want` stale after            | 30 s                                   | §6.3                      |
+| Heartbeat                              | 30 s                                   | §6.2                      |
+| Hello after taking something in        | 100 ms                                 | §6.2                      |
+| Waiting versions / refusals remembered | 1,000 / 10,000                         | §8                        |
+| Folder re-read                         | 2 s                                    | §14.5                     |
+| Mirror flush                           | 256 KiB or 5 s; compact at 32 segments | §16.4                     |
+| Cache: drop unused after               | 30 days, checked every 6 h             | §9                        |
+| Keepers per space                      | 16                                     | §9                        |
 
 ---
 

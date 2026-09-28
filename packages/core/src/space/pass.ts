@@ -26,8 +26,8 @@
 import type { CryptoProvider, Space } from '../types.js';
 import type { SpaceRecord } from './space-manager.js';
 import { checkSpace, deriveReadSeed, readKeyFromSeed, type SpaceKeyPair } from './space-access.js';
-import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
-import { sha256 } from '../utils/hash.js';
+import { base64UrlDecode, base64UrlEncode } from '../utils/encoding.js';
+import { hashedKey } from '../utils/hash.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 
 /** Where passes live in a carry space */
@@ -61,8 +61,7 @@ export interface OpenedPass {
 
 /** The record key of a space's pass */
 export async function passKey(spaceId: string): Promise<string> {
-  const digest = await sha256(utf8Encode(spaceId));
-  return `pass:${Array.from(digest.subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return hashedKey('pass', spaceId);
 }
 
 /**
@@ -71,10 +70,13 @@ export async function passKey(spaceId: string): Promise<string> {
  */
 export async function makePass(record: SpaceRecord): Promise<SpacePass> {
   if (record.space.visibility === 'public') return { v: 1, space: record.space };
-  if (!record.key) throw new Error(`"${record.space.name}" is held here without its key, so it cannot be passed on`);
+  if (!record.key)
+    throw new Error(`"${record.space.name}" is held here without its key, so it cannot be passed on`);
   const seed = await deriveReadSeed(record.key);
   const pass: SpacePass = { v: 1, space: record.space, read: base64UrlEncode(seed) };
-  return record.key.id === record.space.encryptionKeyId ? pass : { ...pass, readKey: (await readKeyFromSeed(seed, createP256Provider())).did };
+  return record.key.id === record.space.encryptionKeyId
+    ? pass
+    : { ...pass, readKey: (await readKeyFromSeed(seed, createP256Provider())).did };
 }
 
 /**
@@ -83,6 +85,7 @@ export async function makePass(record: SpaceRecord): Promise<SpacePass> {
  * @returns The space and its read key pair, or null when the pass does not check out
  */
 export async function openPass(value: unknown, provider: CryptoProvider): Promise<OpenedPass | null> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checkSpace checks the space, and read and readKey are checked where they are used
   const pass = value as Partial<SpacePass> | null;
   if (!pass || pass.v !== 1 || !pass.space) return null;
   if ((await checkSpace(pass.space)) !== null) return null;
@@ -90,7 +93,9 @@ export async function openPass(value: unknown, provider: CryptoProvider): Promis
   if (typeof pass.read !== 'string') return null;
   try {
     const read = await readKeyFromSeed(base64UrlDecode(pass.read), provider);
-    return read.did === pass.space.readKey || (pass.readKey !== undefined && read.did === pass.readKey) ? { space: pass.space, read } : null;
+    return read.did === pass.space.readKey || (pass.readKey !== undefined && read.did === pass.readKey)
+      ? { space: pass.space, read }
+      : null;
   } catch {
     return null;
   }

@@ -75,7 +75,8 @@ export async function createAccount(
   }
 
   let vault = createVault({ did, label: options.name, wraps: [] });
-  if (options.passphrase) vault = withWrap(vault, await wrapSeedWithPassphrase(seed, options.passphrase, CLI_PASSPHRASE_LABEL));
+  if (options.passphrase)
+    vault = withWrap(vault, await wrapSeedWithPassphrase(seed, options.passphrase, CLI_PASSPHRASE_LABEL));
 
   const id = newAccountId();
   const account: AccountSummary = {
@@ -95,12 +96,16 @@ export async function chooseAccount(home: Home, flag?: string): Promise<AccountS
   const accounts = await home.accounts.list();
   if (accounts.length === 0) throw new Error(`No account in ${home.path}. Run "weave init" first.`);
   if (which) {
-    const found = accounts.find((account) => account.id === which || account.name === which || account.did === which);
+    const found = accounts.find(
+      (account) => account.id === which || account.name === which || account.did === which,
+    );
     if (!found) throw new Error(`No account called "${which}" in ${home.path}`);
     return found;
   }
   if (accounts.length > 1) {
-    throw new Error(`Several accounts in ${home.path}; pick one with --account (${accounts.map((a) => a.name).join(', ')})`);
+    throw new Error(
+      `Several accounts in ${home.path}; pick one with --account (${accounts.map((a) => a.name).join(', ')})`,
+    );
   }
   return accounts[0]!;
 }
@@ -131,7 +136,8 @@ export async function unlock(
   } else if (secret.passphrase) {
     const vault = await home.accounts.read(account.id);
     const wraps = (vault?.wraps ?? []).filter((wrap): wrap is PassphraseWrap => wrap.kind === 'passphrase');
-    if (wraps.length === 0) throw new Error(`"${account.name}" has no passphrase; unlock it with its recovery code`);
+    if (wraps.length === 0)
+      throw new Error(`"${account.name}" has no passphrase; unlock it with its recovery code`);
     for (const wrap of wraps) {
       try {
         seed = await unwrapSeedWithPassphrase(wrap, secret.passphrase);
@@ -142,17 +148,23 @@ export async function unlock(
     }
     if (!seed) throw new Error('That passphrase does not open this account');
   } else {
-    throw new Error('Unlocking needs the recovery code (WEAVE_RECOVERY_CODE) or a passphrase (WEAVE_PASSPHRASE)');
+    throw new Error(
+      'Unlocking needs the recovery code (WEAVE_RECOVERY_CODE) or a passphrase (WEAVE_PASSPHRASE)',
+    );
   }
 
   const manager = createIdentityManager();
   const identity = await manager.fromSeed(seed);
-  if (identity.did !== account.did) throw new Error(`That code belongs to a different account than "${account.name}"`);
+  if (identity.did !== account.did)
+    throw new Error(`That code belongs to a different account than "${account.name}"`);
 
   return {
     account,
     signer: createLocalRootSigner(identity, manager.getProvider()),
-    stores: folderStores(home.directory, { basePath: account.dataPath, vaultKey: await deriveVaultKey(seed) }),
+    stores: folderStores(home.directory, {
+      basePath: account.dataPath,
+      vaultKey: await deriveVaultKey(seed),
+    }),
     accountKey: await deriveVaultKeyBytes(seed),
     contactKey: await deriveContactKeyBytes(seed),
   };

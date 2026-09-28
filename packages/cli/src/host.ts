@@ -42,6 +42,7 @@ import {
   type StoreFactory,
 } from '@weaveprotocol/core';
 import { PAY_PAGE_CSP, PAY_SCRIPT, payPageHtml } from './pay-page.js';
+import { isRecord } from './json.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 import type { WalletPayments } from './wallet.js';
 
@@ -49,7 +50,12 @@ import type { WalletPayments } from './wallet.js';
 export interface Billing {
   readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
   /** A payment page for a subscription; paying it leads to a webhook call. `returnUrl` is the host's own pay page. */
-  checkout(params: { subscription: string; plan: string; returnUrl: string; customer?: string }): Promise<string>;
+  checkout(params: {
+    subscription: string;
+    plan: string;
+    returnUrl: string;
+    customer?: string;
+  }): Promise<string>;
   /** The provider's page for managing what a customer pays */
   manage(params: { customer: string; returnUrl: string }): Promise<string>;
   /**
@@ -57,7 +63,10 @@ export interface Billing {
    * subscription: paid until when, and by which customer. Null for anything
    * else — and for a call that isn't really the provider's.
    */
-  webhook(body: string, headers: IncomingMessage['headers']): Promise<{ subscription: string; until: number; customer?: string } | null>;
+  webhook(
+    body: string,
+    headers: IncomingMessage['headers'],
+  ): Promise<{ subscription: string; until: number; customer?: string } | null>;
 }
 
 export interface HostOptions {
@@ -98,7 +107,8 @@ export interface RunningHost {
 
 /** Largest request body the API reads */
 const MAX_BODY = 64 * 1024;
-const SUBSCRIPTION_PATH = /^\/host\/subscriptions\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(\/carry)?$/;
+const SUBSCRIPTION_PATH =
+  /^\/host\/subscriptions\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(\/carry)?$/;
 const PAY_API = /^\/pay\/api(\/(card|manage|wallet|wallet\/claim))?$/;
 /** The WalletConnect bundle, next to this file both in the source tree and in the published package */
 const WALLETCONNECT_BUNDLE = new URL('../pay/dist/walletconnect.js', import.meta.url);
@@ -140,12 +150,23 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+/** A request body's fields; anything but a JSON object has none, and each call checks the ones it needs */
+function jsonFields(body: string): Record<string, unknown> {
+  const parsed: unknown = body ? JSON.parse(body) : {};
+  return isRecord(parsed) ? parsed : {};
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
 }
 
-function sendText(res: ServerResponse, type: string, body: string | Uint8Array, headers: Record<string, string> = {}): void {
+function sendText(
+  res: ServerResponse,
+  type: string,
+  body: string | Uint8Array,
+  headers: Record<string, string> = {},
+): void {
   res.writeHead(200, { 'content-type': type, 'x-content-type-options': 'nosniff', ...headers });
   res.end(body);
 }
@@ -173,7 +194,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const wallet = options.wallet ?? null;
   // The transactions already counted, so none pays twice — on disk, and in the bucket when there is one.
   const spentStore = wallet ? await options.stores('host-wallet') : null;
-  const isSpent = async (tx: string) => !!(await spentStore?.has(`spent:${tx}`)) || !!(await options.mirror?.get(`${SPENT_PREFIX}${tx}`));
+  const isSpent = async (tx: string) =>
+    !!(await spentStore?.has(`spent:${tx}`)) || !!(await options.mirror?.get(`${SPENT_PREFIX}${tx}`));
   const markSpent = async (tx: string, subscription: string) => {
     const bytes = new TextEncoder().encode(subscription);
     await spentStore?.put(`spent:${tx}`, bytes);
@@ -202,7 +224,17 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const statusOf = async (id: string): Promise<HostStatus> => {
     const subscription = await node.get(id);
     const at = now();
-    if (!subscription) return { subscription: id, host: node.did, state: 'none', paidUntil: 0, renews: false, carrying: false, spaces: 0, at };
+    if (!subscription)
+      return {
+        subscription: id,
+        host: node.did,
+        state: 'none',
+        paidUntil: 0,
+        renews: false,
+        carrying: false,
+        spaces: 0,
+        at,
+      };
     return {
       subscription: id,
       host: node.did,
@@ -215,7 +247,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     };
   };
   /** A status as the home gets it: signed with the host's key, so the person holds the host's word */
-  const signedStatusOf = async (id: string) => signStatus(await statusOf(id), options.key.privateKey, provider);
+  const signedStatusOf = async (id: string) =>
+    signStatus(await statusOf(id), options.key.privateKey, provider);
 
   const name = options.name?.trim() || 'Weave host';
   const pays = billing !== null || wallet !== null;
@@ -230,9 +263,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   };
 
   // Reaching every wallet needs the WalletConnect bundle, built by `npm run bundle:pay`.
-  const walletConnectBundle = wallet && options.walletConnectProjectId ? await readFile(WALLETCONNECT_BUNDLE).catch(() => null) : null;
+  const walletConnectBundle =
+    wallet && options.walletConnectProjectId ? await readFile(WALLETCONNECT_BUNDLE).catch(() => null) : null;
   if (wallet && options.walletConnectProjectId && !walletConnectBundle) {
-    log('WalletConnect is off: its bundle is missing (run `npm run bundle:pay` in cli/). Browser wallets still work.');
+    log(
+      'WalletConnect is off: its bundle is missing (run `npm run bundle:pay` in cli/). Browser wallets still work.',
+    );
   }
   const walletConnect = walletConnectBundle ? options.walletConnectProjectId! : null;
 
@@ -287,21 +323,33 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     const carry = match[2] !== undefined;
     const body = await readBody(req);
     // Only the subscription's own key may ask about it or change it.
-    const signer = await verifyRequest(req.headers.authorization, method, `${url.pathname}${url.search}`, body, provider);
+    const signer = await verifyRequest(
+      req.headers.authorization,
+      method,
+      `${url.pathname}${url.search}`,
+      body,
+      provider,
+    );
     if (signer !== id) throw new Refusal(401, 'That call is not signed by the subscription');
-    const input = (body ? JSON.parse(body) : {}) as Record<string, unknown>;
+    const input = jsonFields(body);
 
     if (!carry && method === 'GET') return send(res, 200, await signedStatusOf(id));
 
     if (carry && method === 'PUT') {
-      if (typeof input.account !== 'string' || typeof input.invite !== 'string' || input.invite.length > 16_000) {
+      if (
+        typeof input.account !== 'string' ||
+        typeof input.invite !== 'string' ||
+        input.invite.length > 16_000
+      ) {
         throw new Refusal(400, 'An account and a carry invite are needed');
       }
       // Asked before anything is kept: a stranger at a free host leaves nothing behind.
-      if (options.allow && !options.allow.includes(input.account)) throw new Refusal(403, new NotAllowedError().message);
+      if (options.allow && !options.allow.includes(input.account))
+        throw new Refusal(403, new NotAllowedError().message);
       if (options.free) await node.subscribe(id);
       const subscription = await node.get(id);
-      if (!subscription || node.state(subscription) === 'lapsed') throw new Refusal(402, 'This subscription is not paid for');
+      if (!subscription || node.state(subscription) === 'lapsed')
+        throw new Refusal(402, 'This subscription is not paid for');
       try {
         await node.attach(id, input.account, input.invite);
       } catch (error) {
@@ -321,13 +369,26 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   }
 
   /** The pay page, its script, and its API — every call there carries a pay link a home signed */
-  async function answerPay(req: IncomingMessage, res: ServerResponse, url: URL, method: string): Promise<void> {
+  async function answerPay(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    method: string,
+  ): Promise<void> {
     if (!pays) throw new Refusal(404, 'This host takes no payments');
-    const page = { 'content-security-policy': PAY_PAGE_CSP, 'referrer-policy': 'no-referrer', 'cache-control': 'no-store' };
-    if (url.pathname === '/pay' && method === 'GET') return sendText(res, 'text/html; charset=utf-8', payPageHtml(name), page);
-    if (url.pathname === '/pay/pay.js' && method === 'GET') return sendText(res, 'text/javascript; charset=utf-8', PAY_SCRIPT, page);
+    const page = {
+      'content-security-policy': PAY_PAGE_CSP,
+      'referrer-policy': 'no-referrer',
+      'cache-control': 'no-store',
+    };
+    if (url.pathname === '/pay' && method === 'GET')
+      return sendText(res, 'text/html; charset=utf-8', payPageHtml(name), page);
+    if (url.pathname === '/pay/pay.js' && method === 'GET')
+      return sendText(res, 'text/javascript; charset=utf-8', PAY_SCRIPT, page);
     if (url.pathname === '/pay/walletconnect.js' && method === 'GET' && walletConnectBundle) {
-      return sendText(res, 'text/javascript; charset=utf-8', walletConnectBundle, { 'cache-control': 'public, max-age=3600' });
+      return sendText(res, 'text/javascript; charset=utf-8', walletConnectBundle, {
+        'cache-control': 'public, max-age=3600',
+      });
     }
 
     const match = PAY_API.exec(url.pathname);
@@ -336,7 +397,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     const id = await verifyPayLink(req.headers.authorization, node.did, provider);
     if (!id) throw new Refusal(401, 'This pay link has run out, or is not for this host');
     const body = await readBody(req);
-    const input = (body ? JSON.parse(body) : {}) as Record<string, unknown>;
+    const input = jsonFields(body);
 
     if (action === null && method === 'GET') {
       return send(res, 200, {
@@ -350,7 +411,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
     if (action === 'card' && method === 'POST') {
       if (!billing) throw new Refusal(404, 'This host takes no card payments');
-      if (typeof input.plan !== 'string' || !billing.plans.some((plan) => plan.id === input.plan)) throw new Refusal(400, 'No such plan');
+      if (typeof input.plan !== 'string' || !billing.plans.some((plan) => plan.id === input.plan))
+        throw new Refusal(400, 'No such plan');
       const subscription = await node.subscribe(id);
       const checkout = await billing.checkout({
         subscription: id,
@@ -366,12 +428,15 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       if (!billing) throw new Refusal(404, 'This host takes no card payments');
       const customer = (await node.get(id))?.customer;
       if (!customer) throw new Refusal(404, 'Nothing has been paid by card for this subscription');
-      return send(res, 200, { url: await billing.manage({ customer, returnUrl: `${originOf(req, options.publicUrl)}/pay` }) });
+      return send(res, 200, {
+        url: await billing.manage({ customer, returnUrl: `${originOf(req, options.publicUrl)}/pay` }),
+      });
     }
 
     if (action === 'wallet' && method === 'POST') {
       if (!wallet) throw new Refusal(404, 'This host takes no wallet payments');
-      if (typeof input.plan !== 'string' || !wallet.offer.plans.some((plan) => plan.id === input.plan)) throw new Refusal(400, 'No such plan');
+      if (typeof input.plan !== 'string' || !wallet.offer.plans.some((plan) => plan.id === input.plan))
+        throw new Refusal(400, 'No such plan');
       const subscription = await node.subscribe(id);
       const open = subscription.invoice;
       // Asked again — a reload, a second try — the same amount, so a payment already on its way still counts.
@@ -380,7 +445,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         return send(res, 200, { plan: open.plan, chainId, token, to, amount: open.amount, decimals });
       }
       const taken = new Set(
-        (await node.list()).flatMap((other) => (other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [])),
+        (await node.list()).flatMap((other) =>
+          other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [],
+        ),
       );
       const payment = wallet.payment(input.plan, taken);
       await node.setInvoice(id, { plan: payment.plan, amount: payment.amount, at: now() });
@@ -399,7 +466,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         const check = await wallet.check(tx);
         if (check.state === 'waiting') return send(res, 202, { waiting: true });
         if (check.state === 'failed') throw new Refusal(400, check.reason);
-        if (!check.amounts.includes(invoice.amount)) throw new Refusal(400, 'That transaction sent a different amount than was asked for');
+        if (!check.amounts.includes(invoice.amount))
+          throw new Refusal(400, 'That transaction sent a different amount than was asked for');
         if (check.at < invoice.at - CLOCK_SKEW_SECONDS || check.at > invoice.at + INVOICE_SECONDS) {
           throw new Refusal(400, 'That transaction was not made while this payment was open');
         }
@@ -440,13 +508,19 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       .then((dropped) => {
         for (const id of dropped) log(`subscription ${id} lapsed past its grace period, and was dropped`);
       })
-      .catch((error: unknown) => log(`sweep failed: ${error instanceof Error ? error.message : String(error)}`));
+      .catch((error: unknown) =>
+        log(`sweep failed: ${error instanceof Error ? error.message : String(error)}`),
+      );
   }, options.sweepMs ?? 3600_000);
-  (sweeping as { unref?: () => void }).unref?.();
+  sweeping.unref();
 
   if (wallet) log(`taking ${wallet.offer.symbol} on ${wallet.offer.chainName} at ${wallet.offer.to}`);
-  const who = options.allow ? `, only for ${options.allow.length} account${options.allow.length === 1 ? '' : 's'}` : '';
-  log(`host ${node.did} listening on port ${served.port}${options.free ? ' (free: every subscription counts as paid)' : ''}${who}${options.mirror ? ', kept in its bucket' : ', on this disk alone'}`);
+  const who = options.allow
+    ? `, only for ${options.allow.length} account${options.allow.length === 1 ? '' : 's'}`
+    : '';
+  log(
+    `host ${node.did} listening on port ${served.port}${options.free ? ' (free: every subscription counts as paid)' : ''}${who}${options.mirror ? ', kept in its bucket' : ', on this disk alone'}`,
+  );
   return {
     node,
     port: served.port,

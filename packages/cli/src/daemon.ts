@@ -9,6 +9,7 @@
  */
 import { createNode, type P2PNode } from '@weaveprotocol/core';
 import type { Unlocked } from './home.js';
+import { errorCode } from './json.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 
 export interface DaemonOptions {
@@ -71,7 +72,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (scanning) return;
     scanning = true;
     rescan()
-      .catch((error: unknown) => log(`rescan failed: ${error instanceof Error ? error.message : String(error)}`))
+      .catch((error: unknown) =>
+        log(`rescan failed: ${error instanceof Error ? error.message : String(error)}`),
+      )
       .finally(() => {
         scanning = false;
       });
@@ -80,17 +83,25 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   node.subscribe((event) => {
     // The registry just joined or left something: serve it now, not in five seconds.
     if (event.type === 'spaces') rescanSoon();
-    if (event.type === 'rejected') log(`rejected a record from ${event.peer} in ${event.space}: ${event.reason}`);
+    if (event.type === 'rejected')
+      log(`rejected a record from ${event.peer} in ${event.space}: ${event.reason}`);
   });
 
   let served: Served;
   try {
-    served = await serve({ node, inbound, port: options.port, ...(options.host ? { host: options.host } : {}) });
+    served = await serve({
+      node,
+      inbound,
+      port: options.port,
+      ...(options.host ? { host: options.host } : {}),
+    });
   } catch (error) {
     clearInterval(timer);
     await node.close();
-    if ((error as { code?: string }).code === 'EADDRINUSE') {
-      throw new Error(`Port ${options.port} is already in use — is another "weave run" going? Stop it, or pick another port with --port.`);
+    if (errorCode(error) === 'EADDRINUSE') {
+      throw new Error(
+        `Port ${options.port} is already in use — is another "weave run" going? Stop it, or pick another port with --port.`,
+      );
     }
     throw error;
   }

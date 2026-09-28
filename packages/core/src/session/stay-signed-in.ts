@@ -20,7 +20,11 @@
  * synced, and "this device may skip the password" must not travel with it.
  */
 import { createDeviceKey, deleteDeviceKey, getDeviceKey } from '../identity/device-key.js';
-import { unwrapSeedWithDeviceKey, wrapSeedWithDeviceKey, type DeviceWrap } from '../identity/account-vault.js';
+import {
+  unwrapSeedWithDeviceKey,
+  wrapSeedWithDeviceKey,
+  type DeviceWrap,
+} from '../identity/account-vault.js';
 
 /** How long an unused device stays signed in */
 export type StaySignedIn = 'never' | '1d' | '7d' | '30d';
@@ -73,13 +77,18 @@ export interface StaySignedInStore {
  * @param rpId The site the device key belongs to
  * @param prefix Namespaces the keys, so two apps on one origin do not share a sign-in
  */
-export function createStaySignedIn(storage: KeyValueStore | null, rpId: string, prefix = 'weave'): StaySignedInStore {
+export function createStaySignedIn(
+  storage: KeyValueStore | null,
+  rpId: string,
+  prefix = 'weave',
+): StaySignedInStore {
   const SETTING = `${prefix}.stay-signed-in`;
   const RECORD = `${prefix}.remembered-session`;
 
   const read = <T>(key: string): T | null => {
     try {
       const raw = storage?.getItem(key);
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only this store writes these keys
       return raw ? (JSON.parse(raw) as T) : null;
     } catch {
       return null;
@@ -123,7 +132,12 @@ export function createStaySignedIn(storage: KeyValueStore | null, rpId: string, 
       if (chosen === 'never') return;
       const deviceKey = await createDeviceKey();
       const wrap = await wrapSeedWithDeviceKey(seed, deviceKey, { rpId, label: 'stay signed in' });
-      write(RECORD, { accountId, place, wrap, expiresAt: Date.now() + DURATION[chosen] } satisfies Remembered);
+      write(RECORD, {
+        accountId,
+        place,
+        wrap,
+        expiresAt: Date.now() + DURATION[chosen],
+      } satisfies Remembered);
     },
 
     async recall(place) {

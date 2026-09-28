@@ -24,13 +24,16 @@
  * installs it.
  */
 import { initializeWebMCPPolyfill } from '@mcp-b/webmcp-polyfill';
+import type { InputSchema } from '@mcp-b/webmcp-types';
 import { NODE_ACTIONS, checkActionInput } from '@weaveprotocol/core';
 import { getNode } from './weave';
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
 const text = (value: unknown, isError = false): ToolResult => ({
-  content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value ?? null, null, 2) }],
+  content: [
+    { type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value ?? null, null, 2) },
+  ],
   ...(isError ? { isError: true } : {}),
 });
 
@@ -54,33 +57,40 @@ export function exposeToAgents(): void {
   initializeWebMCPPolyfill();
 
   for (const action of NODE_ACTIONS.filter((candidate) => !PROPOSE_INSTEAD.has(candidate.name))) {
+    // Typed as a plain schema, so the arguments come in as a record rather than inferred from it.
+    const inputSchema: InputSchema = { ...action.input };
     void document.modelContext
       .registerTool({
         name: action.name,
         description: action.description,
-        inputSchema: action.input as never,
+        inputSchema,
         annotations: { readOnlyHint: action.readOnly },
         async execute(input: Record<string, unknown>) {
           // Whoever is connected right now — the tools outlive any one connection.
           const node = getNode();
-          if (!node) return text('This tab is not connected to an account. Ask the person to connect, then try again.', true);
+          if (!node)
+            return text(
+              'This tab is not connected to an account. Ask the person to connect, then try again.',
+              true,
+            );
           const args = input ?? {};
           const problem = checkActionInput(action, args);
           if (problem) return text(`${action.name}: ${problem}`, true);
-          const ask =
-            action.readOnly
-              ? null
-              : changesPeople(action.name)
-                ? `An agent wants to run "${action.name}" with ${JSON.stringify(args)}. Allow it?`
-                : action.sensitive
-                  ? `An agent wants to run "${action.name}", which hands out access to a space. Allow it?`
-                  : action.destructive
-                    ? `An agent wants to run "${action.name}" with ${JSON.stringify(args)}. Allow it?`
-                    : null;
+          const ask = action.readOnly
+            ? null
+            : changesPeople(action.name)
+              ? `An agent wants to run "${action.name}" with ${JSON.stringify(args)}. Allow it?`
+              : action.sensitive
+                ? `An agent wants to run "${action.name}", which hands out access to a space. Allow it?`
+                : action.destructive
+                  ? `An agent wants to run "${action.name}" with ${JSON.stringify(args)}. Allow it?`
+                  : null;
           if (ask && !globalThis.confirm(ask)) return text('The person declined.', true);
           try {
             const result = await action.run(node, args);
-            return action.peerContent ? { content: [text(PEER_CONTENT_NOTE).content[0]!, text(result).content[0]!] } : text(result);
+            return action.peerContent
+              ? { content: [text(PEER_CONTENT_NOTE).content[0]!, text(result).content[0]!] }
+              : text(result);
           } catch (error) {
             return text(error instanceof Error ? error.message : String(error), true);
           }

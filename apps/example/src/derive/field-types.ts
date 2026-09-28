@@ -16,8 +16,31 @@ export const FIELD_TYPES = {
 } as const;
 export type FieldTypeName = keyof typeof FIELD_TYPES;
 
+export function isFieldType(name: string): name is FieldTypeName {
+  return Object.hasOwn(FIELD_TYPES, name);
+}
+
 /** "To do, Doing, Done" → the three, trimmed, without blanks or repeats */
-export const optionsOf = (text = '') => [...new Set(text.split(',').map((o) => o.trim()).filter(Boolean))];
+const optionsOf = (text = '') => [
+  ...new Set(
+    text
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
+  ),
+];
+
+/** The fields that have a name, and why they can't be saved yet: a choice with nothing to choose from */
+export function namedFields<F extends { name: string; type: FieldTypeName | null; options?: string }>(
+  fields: ReadonlyArray<F>,
+): { named: F[]; problem: string | null } {
+  const named = fields.filter((f) => f.name.trim());
+  const empty = named.find((f) => f.type === 'choice' && optionsOf(f.options).length === 0);
+  return {
+    named,
+    problem: empty ? `Give "${empty.name}" some options to choose from, separated by commas` : null,
+  };
+}
 
 /** A field's schema from a picked type, and for a choice, its options */
 export function fieldSchema(type: FieldTypeName, options?: string): JsonSchema {
@@ -56,7 +79,15 @@ export const SUGGESTED_LINKS: ReadonlyArray<{ rel: string; description: string }
 
 /** "part of" → "partOf": link names are one lower camel case word */
 export function relFrom(text: string): string {
-  const words = text.trim().replace(/[^a-zA-Z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean);
-  const joined = words.map((w, i) => (i === 0 ? w.charAt(0).toLowerCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1))).join('');
+  const words = text
+    .trim()
+    .replace(/[^a-zA-Z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  const joined = words
+    .map((w, i) =>
+      i === 0 ? w.charAt(0).toLowerCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1),
+    )
+    .join('');
   return joined.replace(/^[^a-z]+/, '').slice(0, 64);
 }

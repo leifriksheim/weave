@@ -7,13 +7,14 @@ spec a change touches before changing the code.
 
 ## Layout
 
-| Folder | |
-|---|---|
-| `spec/` | The protocol specification, `README.md` plus parts 01–07. Normative. |
-| `packages/core` | `@weaveprotocol/core`: the protocol library and its tests (`tests/*.test.ts`) |
-| `packages/cli` | `@weaveprotocol/cli`: `weave`, the always-on node, hosting, agents, MCP |
-| `packages/relay` | The signaling relay and its mailbox |
-| `apps/home`, `apps/example`, `apps/extension` | The account home, the website and example app, the Chrome extension |
+| Folder                                        |                                                                               |
+| --------------------------------------------- | ----------------------------------------------------------------------------- |
+| `spec/`                                       | The protocol specification, `README.md` plus parts 01–07. Normative.          |
+| `packages/core`                               | `@weaveprotocol/core`: the protocol library and its tests (`tests/*.test.ts`) |
+| `packages/cli`                                | `@weaveprotocol/cli`: `weave`, the always-on node, hosting, agents, MCP       |
+| `packages/relay`                              | The signaling relay and its mailbox                                           |
+| `apps/home`, `apps/example`, `apps/extension` | The account home, the website and example app, the Chrome extension           |
+| `apps/shared`                                 | What the home and the website share: styles, relay settings, components       |
 
 Everything imports the protocol as `@weaveprotocol/core`, only through what it
 exports. Inside the workspace the `@weaveprotocol/source` condition resolves it
@@ -24,7 +25,11 @@ to `packages/core/src`, so nothing needs building first.
 ```bash
 npm install          # once, at the root
 npm test             # every workspace
-npm run typecheck
+npm run typecheck    # every workspace, and core's tests
+npm run lint         # ESLint, type-aware
+npm run format       # Prettier
+npm run fallow       # unused files, exports and dependencies, import cycles
+npm run check        # all of the above but tests, as CI runs it
 npm run dev          # node, host, home and example together (scripts/dev.mjs)
 # one test file, from packages/core
 node --experimental-vm-modules --import tsx --test tests/sync.test.ts
@@ -32,13 +37,23 @@ node --experimental-vm-modules --import tsx --test tests/sync.test.ts
 
 Releasing is `npm run release`; see the README before running it.
 
+A pre-commit hook runs ESLint and Prettier on staged files.
+
+## Types
+
+Every workspace extends `tsconfig.base.json` (strict, `noUncheckedIndexedAccess`,
+no unused locals). ESLint bans `any`, type assertions (`as Foo`; `as const` is
+fine) and enums. Narrow `unknown` with a type guard, or use `satisfies`. Where a
+cast truly can't be avoided, disable the rule for that line with a reason:
+`// eslint-disable-next-line <rule> -- <why>`.
+
 ## The spec and the code change together
 
 - A change to anything a peer produces, accepts, stores, signs or checks
   changes the spec in the same PR. Where the spec and the code disagree, one
   of them is a bug: fix it, or open an issue that says which.
 - Follow the conventions in `spec/README.md`: RFC 2119 words only where they
-  are meant, exact formats with an example, and a *Source:* line naming the
+  are meant, exact formats with an example, and a _Source:_ line naming the
   files and tests for each section.
 - Work that is designed but not built is a **Planned** section in the part it
   belongs to, and is listed in the Planned table in `spec/README.md`. Something

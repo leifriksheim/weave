@@ -22,7 +22,12 @@ const hub = createFakeHub({ latencyMs: 1 });
 async function person(hub: FakeHub): Promise<P2PNode> {
   const manager = createIdentityManager();
   const signer = createLocalRootSigner(await manager.fromSeed(generateSeed()), manager.getProvider());
-  return createNode({ signer, stores: memoryStores(), watchIntervalMs: 0, network: { transports: (s: string, d: string) => [hub.transport(d, s)] } });
+  return createNode({
+    signer,
+    stores: memoryStores(),
+    watchIntervalMs: 0,
+    network: { transports: (s: string, d: string) => [hub.transport(d, s)] },
+  });
 }
 
 const alice = await person(hub);
@@ -30,14 +35,20 @@ const { id: space } = await alice.spaces.create({ name: 'Canvas', ...team, visib
 await hold(alice, space);
 await alice.collections.define(space, {
   name: 'app.pixels.cell',
-  schema: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' }, color: { type: 'string' } }, required: ['x', 'y', 'color'] },
+  schema: {
+    type: 'object',
+    properties: { x: { type: 'integer' }, y: { type: 'integer' }, color: { type: 'string' } },
+    required: ['x', 'y', 'color'],
+  },
   rules: { create: 'member', edit: 'member', delete: 'member', fixed: ['x', 'y'] },
-} as never);
+});
 const key = (i: number) => `px.${i % 32}.${Math.floor(i / 32)}`;
 const body = (i: number, color: string) => ({ x: i % 32, y: Math.floor(i / 32), color });
-for (let i = 0; i < N; i++) await alice.records.put(space, 'app.pixels.cell', body(i, '#ff004d'), { key: key(i) });
+for (let i = 0; i < N; i++)
+  await alice.records.put(space, 'app.pixels.cell', body(i, '#ff004d'), { key: key(i) });
 for (let i = 0; i < N; i++) await alice.records.delete(space, key(i));
-for (let i = 0; i < N / 2; i++) await alice.records.put(space, 'app.pixels.cell', body(i, '#29adff'), { key: key(i) });
+for (let i = 0; i < N / 2; i++)
+  await alice.records.put(space, 'app.pixels.cell', body(i, '#29adff'), { key: key(i) });
 const expected = (await alice.records.list(space, { collection: 'app.pixels.cell' })).length;
 console.log(`alice shows ${expected}`);
 
@@ -70,8 +81,12 @@ while ((await bob.records.list(space, { collection: 'app.pixels.cell' })).length
   await new Promise((r) => setTimeout(r, 20));
 }
 const ms = performance.now() - t;
-console.log(`bob settled at ${expected} in ${ms.toFixed(0)}ms; ${events} change events, ${seen.length} lists; peak shown ${Math.max(...seen)}`);
+console.log(
+  `bob settled at ${expected} in ${ms.toFixed(0)}ms; ${events} change events, ${seen.length} lists; peak shown ${Math.max(...seen)}`,
+);
 const path = seen.filter((n, i) => i === 0 || n !== seen[i - 1]);
-console.log(`what bob's screen showed: ${path.length > 40 ? [...path.slice(0, 20), '…', ...path.slice(-20)].join(' → ') : path.join(' → ')}`);
+console.log(
+  `what bob's screen showed: ${path.length > 40 ? [...path.slice(0, 20), '…', ...path.slice(-20)].join(' → ') : path.join(' → ')}`,
+);
 await Promise.all([alice.close(), bob.close()]);
 process.exit(0);

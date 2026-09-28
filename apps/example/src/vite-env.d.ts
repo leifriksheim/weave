@@ -14,3 +14,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Document Picture-in-Picture (Chrome, Edge), not yet in TypeScript's DOM types */
+interface DocumentPictureInPicture {
+  requestWindow(options: { width: number; height: number }): Promise<Window>;
+}
+declare var documentPictureInPicture: DocumentPictureInPicture | undefined;

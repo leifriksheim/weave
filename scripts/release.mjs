@@ -55,11 +55,13 @@ const isAncestor = (a, b) => spawnSync('git', ['merge-base', '--is-ancestor', a,
 
 function main() {
   // 1. A clean tree on main.
-  if (read('git', ['status', '--porcelain'])) throw new Error('The working tree has changes. Commit or stash them first.');
+  if (read('git', ['status', '--porcelain']))
+    throw new Error('The working tree has changes. Commit or stash them first.');
   const branch = read('git', ['branch', '--show-current']);
   if (branch !== 'main') throw new Error(`Releases are cut from main; this is ${branch}.`);
   run('git', ['fetch', '--quiet', 'origin', 'main']);
-  if (!isAncestor('origin/main', 'HEAD')) throw new Error('origin/main has commits this main doesn’t. Pull them first.');
+  if (!isAncestor('origin/main', 'HEAD'))
+    throw new Error('origin/main has commits this main doesn’t. Pull them first.');
 
   // 2. Logged in to npm, before anything changes.
   let user = read('npm', ['whoami']);
@@ -88,14 +90,21 @@ function main() {
   if (tagged && done && !isAncestor(tag, 'origin/main')) {
     console.log(`\n${v} is on npm, but main never reached origin: pushing it.`);
     if (!isAncestor(tag, 'HEAD')) {
-      throw new Error(`HEAD doesn't contain ${tag} (${tagged.slice(0, 7)}). Merge origin/main into it rather than rebasing, so the tag stays on main.`);
+      throw new Error(
+        `HEAD doesn't contain ${tag} (${tagged.slice(0, 7)}). Merge origin/main into it rather than rebasing, so the tag stays on main.`,
+      );
     }
     publish = false;
   } else if (!done) {
-    console.log(`\n${v} isn't fully on npm yet (${missing.map((pkg) => pkg.name).join(', ')}): releasing it as it stands.`);
+    console.log(
+      `\n${v} isn't fully on npm yet (${missing.map((pkg) => pkg.name).join(', ')}): releasing it as it stands.`,
+    );
     for (const pkg of PACKAGES) {
       const own = versionOf(pkg.manifest);
-      if (own !== v) throw new Error(`${PACKAGES[0].manifest} says ${v} but ${pkg.manifest} says ${own}. Make them match first.`);
+      if (own !== v)
+        throw new Error(
+          `${PACKAGES[0].manifest} says ${v} but ${pkg.manifest} says ${own}. Make them match first.`,
+        );
     }
     const head = read('git', ['rev-parse', 'HEAD']);
     if (!tagged) {
@@ -132,6 +141,8 @@ function main() {
 try {
   main();
 } catch (error) {
-  console.error(`\nRelease stopped: ${error.message}\nFix that and run \`npm run release\` again — it picks up where it stopped.`);
+  console.error(
+    `\nRelease stopped: ${error.message}\nFix that and run \`npm run release\` again — it picks up where it stopped.`,
+  );
   process.exit(1);
 }

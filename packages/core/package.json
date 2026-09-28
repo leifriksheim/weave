@@ -94,7 +94,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tests",
     "test": "node --experimental-vm-modules --import tsx --test tests/*.test.ts",
     "prepack": "cp ../../README.md README.md",
     "postpack": "rm -f README.md",
@@ -103,6 +103,7 @@
   "devDependencies": {
     "@types/react": "^19.3.0",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "ws": "^8.21.3",

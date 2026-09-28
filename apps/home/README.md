@@ -13,10 +13,10 @@ sees your password, and every peer holds it to what the note says.
 
 ## What it does
 
-| Page | For |
-|---|---|
-| `/` | Your account: its name, connected apps, passkeys, staying signed in, where your data lives (this browser or a pod), adding a phone, signing out |
-| `/connect` | What apps open to ask for access: sign in if needed, then allow or don't |
+| Page       | For                                                                                                                                             |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`        | Your account: its name, connected apps, passkeys, staying signed in, where your data lives (this browser or a pod), adding a phone, signing out |
+| `/connect` | What apps open to ask for access: sign in if needed, then allow or don't                                                                        |
 
 It is a static site. Nothing about your account is sent to whoever hosts it;
 the account lives in your browser (or a folder you choose) at this address.
@@ -37,10 +37,10 @@ Serve `dist` from anywhere that falls back to `index.html` for unknown paths
 
 Settings, as build-time environment variables:
 
-| Variable | Default | |
-|---|---|---|
+| Variable             | Default                       |                                                                                             |
+| -------------------- | ----------------------------- | ------------------------------------------------------------------------------------------- |
 | `VITE_SIGNALING_URL` | `wss://p2p-web-relay.fly.dev` | Relays, comma separated. Must include one your apps use, or they cannot sync with the home. |
-| `VITE_WEAVE_NODES` | — | Always-on nodes (`weave run`) to keep a socket to |
+| `VITE_WEAVE_NODES`   | —                             | Always-on nodes (`weave run`) to keep a socket to                                           |
 
 Then use it from any Weave app: choose **Use your own home** when connecting
 and type its address. The app remembers it, and joins the relays your home
@@ -58,11 +58,11 @@ example app on 5173 pointed at it.
 
 Three things, each with one job:
 
-| | What it is | For |
-|---|---|---|
-| **Recovery code** | The account itself: its seed, written out as 26 characters | Restoring — a new device with nothing to pair from, a new home, or when everything else is gone |
-| **Passkey or password** | A copy of the seed, locked, kept with the account | Signing in every day, wherever the account is kept |
-| **Pairing** | A QR code from a device that is signed in | Adding a phone or a laptop |
+|                         | What it is                                                 | For                                                                                             |
+| ----------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Recovery code**       | The account itself: its seed, written out as 26 characters | Restoring — a new device with nothing to pair from, a new home, or when everything else is gone |
+| **Passkey or password** | A copy of the seed, locked, kept with the account          | Signing in every day, wherever the account is kept                                              |
+| **Pairing**             | A QR code from a device that is signed in                  | Adding a phone or a laptop                                                                      |
 
 **Create an account.** Pick a name. The home shows the recovery code once —
 copy it, or download it as a small text file — and asks you to tick that it is
@@ -102,11 +102,11 @@ offer a choice without knowing what to call it. The keys are not.
 
 ### The ways in
 
-| | Works where | For |
-|---|---|---|
-| Recovery code | Anywhere, including a device or home that has never seen you | Restoring |
-| A password | Wherever the account is kept: this browser, or its pod in any app | Every day |
-| A passkey | This browser only | Every day, nothing to type |
+|               | Works where                                                       | For                        |
+| ------------- | ----------------------------------------------------------------- | -------------------------- |
+| Recovery code | Anywhere, including a device or home that has never seen you      | Restoring                  |
+| A password    | Wherever the account is kept: this browser, or its pod in any app | Every day                  |
+| A passkey     | This browser only                                                 | Every day, nothing to type |
 
 The password and the passkey are the same seed encrypted two other ways. A
 password in a pod is a locked copy anyone who copies the folder can try to guess
@@ -149,7 +149,7 @@ address. A fragment never reaches a server, so the secret goes straight from
 your screen to your phone. Treat the code on screen like the recovery code it
 contains: anyone who photographs it gets the account.
 
-The list of spaces is deliberately *not* in the QR — it would not fit, and a
+The list of spaces is deliberately _not_ in the QR — it would not fit, and a
 denser code is a code your camera struggles with. Instead both devices work out
 the same private room from the seed, meet there over WebRTC, and your computer
 sends the spaces across encrypted. Once that is done the phone is a full peer: it
@@ -182,7 +182,7 @@ npm run signal                              # in the project root, port 8787
 ```
 
 `localhost:5174` and `localhost:5175` are separate origins with separate
-IndexedDB. Choose the *same pod* in both and the second one arrives at the
+IndexedDB. Choose the _same pod_ in both and the second one arrives at the
 same DID and the same spaces. A change in one — a rename, a space an app made —
 shows up in the other within a couple of seconds: the folder is polled, because
 the web has no filesystem change notification.

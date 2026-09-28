@@ -11,7 +11,7 @@ const decoder = new TextDecoder();
  * @param {string} str - The string to encode.
  * @returns {Uint8Array} The UTF-8 encoded bytes.
  */
-export function utf8Encode(str: string): Uint8Array {
+export function utf8Encode(str: string): Uint8Array<ArrayBuffer> {
   return encoder.encode(str);
 }
 
@@ -40,7 +40,7 @@ export function base64UrlEncode(bytes: Uint8Array): string {
  * @param {string} str - The base64url string to decode.
  * @returns {Uint8Array} The decoded bytes.
  */
-export function base64UrlDecode(str: string): Uint8Array {
+export function base64UrlDecode(str: string): Uint8Array<ArrayBuffer> {
   let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4) {
     base64 += '=';
@@ -58,7 +58,7 @@ export function base64UrlDecode(str: string): Uint8Array {
  * @param {...Uint8Array[]} arrays - The arrays to concatenate.
  * @returns {Uint8Array} The concatenated array.
  */
-export function concatBytes(...arrays: readonly Uint8Array[]): Uint8Array {
+export function concatBytes(...arrays: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
   const result = new Uint8Array(totalLength);
   let offset = 0;
@@ -74,7 +74,7 @@ export function concatBytes(...arrays: readonly Uint8Array[]): Uint8Array {
  * @param {number} n - The number to encode.
  * @returns {Uint8Array} The varint encoded bytes.
  */
-export function varintEncode(n: number): Uint8Array {
+export function varintEncode(n: number): Uint8Array<ArrayBuffer> {
   const bytes: number[] = [];
   let value = n;
   do {
@@ -94,7 +94,10 @@ export function varintEncode(n: number): Uint8Array {
  * @param {number} [offset=0] - The offset to start decoding from.
  * @returns {{ value: number; bytesRead: number }} The decoded number and the number of bytes read.
  */
-export function varintDecode(bytes: Uint8Array, offset: number = 0): { readonly value: number; readonly bytesRead: number } {
+export function varintDecode(
+  bytes: Uint8Array,
+  offset = 0,
+): { readonly value: number; readonly bytesRead: number } {
   let value = 0;
   let shift = 0;
   let bytesRead = 0;
@@ -127,7 +130,7 @@ export function bytesToHex(bytes: Uint8Array): string {
  * @param {string} hex - The hex string to decode.
  * @returns {Uint8Array} The decoded bytes.
  */
-export function hexToBytes(hex: string): Uint8Array {
+export function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
   if (hex.length % 2 !== 0) {
     throw new Error('Hex string must have an even length');
   }

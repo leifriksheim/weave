@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import type { PairingOffer, PairingStage } from '@weaveprotocol/core/session';
 import { useAuth } from '@weaveprotocol/core/react';
-import { servedOverLan, relayProblem, relayOnlyLocal } from '../relay';
-import { Info } from './Info';
+import { servedOverLan, relayProblem, relayOnlyLocal } from '@weave/app-shared/relay';
+import { Info } from '@weave/app-shared/Info';
 import { styles, palette } from '../styles';
 
 /** What each stage of the handover should say out loud. */
@@ -65,26 +65,35 @@ export function PairPhone() {
 
   return (
     <details style={styles.panel}>
-      <summary data-variant="ghost" style={styles.panelSummary}>Add your phone</summary>
+      <summary data-variant="ghost" style={styles.panelSummary}>
+        Add your phone
+      </summary>
       <div style={styles.panelBody}>
         {!offer ? (
           <>
             <p style={styles.errorHint}>
               Show a code and point your phone's camera at it.
               <Info label="What your phone becomes">
-                The same account, with its own copy of every space — a peer in its own right rather
-                than a screen for this one. It keeps working after you close this, and syncs with
-                anyone in the space, not just this computer.
+                The same account, with its own copy of every space — a peer in its own right rather than a
+                screen for this one. It keeps working after you close this, and syncs with anyone in the
+                space, not just this computer.
               </Info>
             </p>
-            {(relayProblem() ?? relayOnlyLocal()) && <p style={styles.error}>{relayProblem() ?? relayOnlyLocal()}</p>}
+            {(relayProblem() ?? relayOnlyLocal()) && (
+              <p style={styles.error}>{relayProblem() ?? relayOnlyLocal()}</p>
+            )}
             {!relayProblem() && !relayOnlyLocal() && !servedOverLan() && (
               <p style={styles.error}>
                 This page is on localhost, which your phone cannot reach. Restart with{' '}
                 <code>npm run dev -- --host</code> and open the network address it prints.
               </p>
             )}
-            <button onClick={() => void start()} disabled={starting} data-variant="primary" style={styles.addButton}>
+            <button
+              onClick={() => void start()}
+              disabled={starting}
+              data-variant="primary"
+              style={styles.addButton}
+            >
               {starting ? 'Starting…' : 'Show pairing code'}
             </button>
           </>
@@ -108,15 +117,12 @@ export function PairPhone() {
                 }}
               />
             )}
-            {stage && (
-              <p style={stage.kind === 'failed' ? styles.error : styles.hint}>{describe(stage)}</p>
-            )}
+            {stage && <p style={stage.kind === 'failed' ? styles.error : styles.hint}>{describe(stage)}</p>}
             <p style={styles.errorHint}>
               Anyone who photographs this gets the account.
               <Info label="What is in the code">
-                Your recovery code, and the address of the relay that introduces the two devices.
-                It travels in the part of the link after the <code>#</code>, which browsers never
-                send to a server.
+                Your recovery code, and the address of the relay that introduces the two devices. It travels
+                in the part of the link after the <code>#</code>, which browsers never send to a server.
               </Info>
             </p>
             <div style={styles.linkRow}>

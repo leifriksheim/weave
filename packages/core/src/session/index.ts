@@ -23,7 +23,12 @@ export type {
   ProposeChoice,
 } from './auth.js';
 export { createWeaveConnection } from './connection.js';
-export type { WeaveConnection, WeaveConnectionConfig, ConnectionState, ConnectionStatus } from './connection.js';
+export type {
+  WeaveConnection,
+  WeaveConnectionConfig,
+  WeaveConnectionState,
+  ConnectionStatus,
+} from './connection.js';
 export {
   connectToHome,
   connectCarrier,
@@ -39,7 +44,17 @@ export {
   forgetAppKey,
   MAX_GRANT_DAYS,
 } from './connect.js';
-export type { ConnectRequest, ConnectOptions, ProposeRequest, Proposed, Grant, CarryGrant, GrantedSpace, IncomingRequest, AppKey } from './connect.js';
+export type {
+  ConnectRequest,
+  ConnectOptions,
+  ProposeRequest,
+  Proposed,
+  Grant,
+  CarryGrant,
+  GrantedSpace,
+  IncomingRequest,
+  AppKey,
+} from './connect.js';
 export {
   browserPlace,
   folderPlace,
@@ -56,6 +71,12 @@ export { createStaySignedIn, STAY_SIGNED_IN_CHOICES, DEFAULT_STAY_SIGNED_IN } fr
 export type { StaySignedIn, StaySignedInStore, KeyValueStore } from './stay-signed-in.js';
 export { offerToPhone, collectFromDesktop, readPairingTicket, clearPairingTicket } from './pairing.js';
 export type { PairingStage, PairingOffer } from './pairing.js';
-export { offerAgentLink, acceptAgentLink, checkAgentGrant, newAgentCode, readAgentCode } from './agent-link.js';
+export {
+  offerAgentLink,
+  acceptAgentLink,
+  checkAgentGrant,
+  newAgentCode,
+  readAgentCode,
+} from './agent-link.js';
 export type { AgentLinkStage, AgentLinkOffer, AgentAsking } from './agent-link.js';
 export { offerToSave, accountCredentialName, deviceCredentialName, recoveryKit } from './credentials.js';

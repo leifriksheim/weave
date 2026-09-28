@@ -6,7 +6,13 @@
  * holds no seed and no space key: only its own key, the carry space's key, and
  * encrypted records (`@weaveprotocol/core/node`, `createCarrierNode`).
  */
-import { createCarrierNode, folderStores, indexedDBStores, type CarrierEvent, type CarrierNode } from '@weaveprotocol/core/node';
+import {
+  createCarrierNode,
+  folderStores,
+  indexedDBStores,
+  type CarrierEvent,
+  type CarrierNode,
+} from '@weaveprotocol/core/node';
 import { appKey, forgetAppKey, type CarryGrant } from '@weaveprotocol/core/session';
 import { forgetDataFolder, queryFolderPermission, recallDataFolder } from '@weaveprotocol/core/storage';
 import {
@@ -27,7 +33,12 @@ import {
 
 let carrier: CarrierNode | null = null;
 let grant: CarryGrant | null = null;
-let status: CarrierStatus = { state: 'starting', spaces: [], subscriptions: [], pod: { state: 'none', folder: null } };
+let status: CarrierStatus = {
+  state: 'starting',
+  spaces: [],
+  subscriptions: [],
+  pod: { state: 'none', folder: null },
+};
 /** Bumped by every (re)start, so a slow one that was overtaken stops */
 let generation = 0;
 
@@ -71,7 +82,13 @@ async function start(): Promise<void> {
   grant = await loadGrant();
   if (mine !== generation) return;
   if (!grant) {
-    set({ state: 'not-connected', removed: await loadRemoved(), spaces: [], subscriptions: [], pod: { state: 'none', folder: null } });
+    set({
+      state: 'not-connected',
+      removed: await loadRemoved(),
+      spaces: [],
+      subscriptions: [],
+      pod: { state: 'none', folder: null },
+    });
     return;
   }
 
@@ -102,7 +119,8 @@ async function start(): Promise<void> {
     await attachPod();
     await refresh();
   } catch (error) {
-    if (mine === generation) set({ ...status, state: 'error', error: error instanceof Error ? error.message : String(error) });
+    if (mine === generation)
+      set({ ...status, state: 'error', error: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -173,7 +191,13 @@ async function forget(options: { byAccount: boolean }): Promise<void> {
   await forgetAppKey(KEY_NAME);
   await setRemoved(options.byAccount);
   grant = null;
-  set({ state: 'not-connected', removed: options.byAccount, spaces: [], subscriptions: [], pod: { state: 'none', folder: null } });
+  set({
+    state: 'not-connected',
+    removed: options.byAccount,
+    spaces: [],
+    subscriptions: [],
+    pod: { state: 'none', folder: null },
+  });
 }
 
 /** What each carried space holds, for the notify page — never the account's own list, which holds nothing to notify about */
