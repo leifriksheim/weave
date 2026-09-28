@@ -18,9 +18,9 @@
  * Every peer checks the note, so the app cannot write anywhere it was not
  * given. It never holds the seed, so it cannot become the account.
  *
- * Once connected, an app — or the account's carrier — can come back with a
- * smaller ask: "notify them when…" (`proposeToHome`). The same popup, the
- * same approval, and the home writes what the person keeps.
+ * Once connected, an app can come back with a smaller ask when the person
+ * wants it: "notify me when…" (`proposeToHome`). The same popup, the same
+ * approval, and the home writes what the person keeps. Connecting never asks.
  *
  * The popup and the app talk with `postMessage`. Each side checks the other's
  * origin as the browser reports it — never as a message claims it — and the
@@ -90,20 +90,14 @@ export interface ConnectRequest {
   readonly agent?: boolean;
   /** How many days the note should last, 1–365. The home decides; default 7. */
   readonly days?: number;
-  /**
-   * "Let me know when…" subscriptions to offer the person, at most 8. Each
-   * one they say yes to, the home adds to the account's subscriptions,
-   * naming this app; the account's carriers do the noticing. Never from an
-   * agent, and not when a carrier connects: it proposes later, with a
-   * {@link ProposeRequest}.
-   */
-  readonly notify?: ReadonlyArray<NotifyProposal>;
 }
 
 /**
- * What an app or carrier already connected to a home asks for later:
- * subscriptions, and nothing else. The home knows it by the origin the
- * browser reports, and refuses one it has no connection for.
+ * What an app already connected to a home asks for when the person wants to
+ * be notified: subscriptions, and nothing else. Never part of connecting — a
+ * person signing in has asked for nothing yet. The home knows the app by the
+ * origin the browser reports, and refuses one it has no connection for, a
+ * carrier's and an agent's.
  */
 export interface ProposeRequest {
   readonly v: 1;
@@ -174,8 +168,6 @@ export interface Grant {
   readonly expiresAt: number;
   /** Present, and true, when the note is an agent's */
   readonly agent?: true;
-  /** The subscriptions made from the request's `notify`, by the person's yes: their ids and labels */
-  readonly notify?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
   /** The home that granted it, so the app can go back there */
   readonly home: string;
   /**
@@ -387,9 +379,11 @@ export async function connectCarrier(options: {
 }
 
 /**
- * Offers the person subscriptions, from an app or carrier already connected
- * to their home. Call it from a click, in a page that stays open: the home
- * opens in a popup, and the person keeps the ones they want.
+ * Offers the person subscriptions, from an app already connected to their
+ * home. Call it from a click on something that asked for it — "Notify me" —
+ * in a page that stays open: the home opens in a popup, and the person keeps
+ * the ones they want. The app shows the notifications itself
+ * (`watchNotifications`).
  *
  * @param options.home The home it connected to — a grant's `home`
  * @returns What the home added or found; an empty list when the person kept none
@@ -692,16 +686,13 @@ function isRequest(value: unknown, origin: string): value is ConnectRequest | Pr
         Number.isInteger(request.days) &&
         request.days >= 1 &&
         request.days <= MAX_GRANT_DAYS)) &&
-    (request.notify === undefined || isProposals(request.notify, origin)) &&
     // An agent works in spaces that exist: none made for it, and no carrying.
     (request.agent === undefined ||
       request.agent === false ||
       (request.agent === true &&
         request.access !== 'carry' &&
         request.create === undefined &&
-        !request.contacts)) &&
-    // Subscriptions are the person's, proposed by an app they are looking at.
-    (request.notify === undefined || (request.access !== 'carry' && request.agent !== true))
+        !request.contacts))
   );
 }
 

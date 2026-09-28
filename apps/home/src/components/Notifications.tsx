@@ -1,75 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
-import type {
-  CarrierSummary,
-  NodeCollection,
-  NotifyView,
-  P2PNode,
-  SpaceSummary,
-} from '@weaveprotocol/core/node';
+import type { NotifyView, P2PNode, SpaceSummary } from '@weaveprotocol/core/node';
 import { message } from '../message';
 import { styles, palette } from '../styles';
 
 /**
- * "Notify me when…": what the account's extension should let you know about.
- * Some you add here; apps propose others when they connect, and those show
- * under the app that proposed them.
+ * "Notify me when…": what apps asked to let you know about, and you allowed.
  *
- * The extension can't read your spaces, so it never learns what you asked
- * for: it gets each subscription with the value you picked replaced by a tag
- * it can only compare. It shows your label, the space and the time; the
- * message itself you read when you open it.
+ * Only an app adds one, when you ask it to, and you say yes here in the home;
+ * the home itself adds none. Each shows under the app that asked, which shows
+ * the notifications itself. Here you pause or remove them.
  */
-export function Notifications({
-  node,
-  carriers,
-}: {
-  node: P2PNode;
-  carriers: ReadonlyArray<CarrierSummary> | null;
-}) {
+export function Notifications({ node }: { node: P2PNode }) {
   const [subscriptions, setSubscriptions] = useState<ReadonlyArray<NotifyView> | null>(null);
   const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
-  const [collections, setCollections] = useState<ReadonlyArray<NodeCollection>>([]);
-  const [where, setWhere] = useState<string>('all');
-  const [collection, setCollection] = useState('');
-  const [field, setField] = useState('');
-  const [value, setValue] = useState('');
-  const [others, setOthers] = useState(true);
-  const [label, setLabel] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void node.notifications.list().then(setSubscriptions, (reason: unknown) => setError(message(reason)));
     void node.spaces.list().then(setSpaces, () => {});
-    // Opened from the extension: straight here.
+    // Linked to from an app: straight here.
     if (location.hash === '#notifications') document.getElementById('notifications')?.scrollIntoView();
   }, [node]);
 
-  // What the chosen spaces hold: every defined collection, once, with its topic fields.
-  useEffect(() => {
-    const looked = where === 'all' ? spaces.map((space) => space.id) : [where];
-    void Promise.all(looked.map((id) => node.collections.list(id).catch((): NodeCollection[] => []))).then(
-      (lists) => {
-        const byName = new Map<string, NodeCollection>();
-        for (const found of lists.flat())
-          if (found.version !== null && !byName.has(found.name)) byName.set(found.name, found);
-        setCollections(
-          [...byName.values()].sort((a, b) => (a.title ?? a.name).localeCompare(b.title ?? b.name)),
-        );
-      },
-    );
-  }, [node, where, spaces]);
-
-  const chosen = collections.find((c) => c.name === collection) ?? null;
   const spaceName = (id: string) => spaces.find((space) => space.id === id)?.name ?? 'a space';
-  let suggested = '';
-  if (chosen) {
-    const what =
-      field && value
-        ? `${value === node.did ? 'Mentions me' : `${field} is ${value}`}`
-        : `New ${chosen.title ?? chosen.name}`;
-    suggested = `${what}${where === 'all' ? '' : ` in ${spaceName(where)}`}`;
-  }
 
   const act = async (what: string, work: () => Promise<void>) => {
     setBusy(what);
@@ -84,23 +38,7 @@ export function Notifications({
     }
   };
 
-  const add = () =>
-    act('add', async () => {
-      await node.notifications.add({
-        label: (label.trim() || suggested).slice(0, 120),
-        collection,
-        spaces: where === 'all' ? 'all' : [where],
-        ...(field && value ? { topic: { field, value } } : {}),
-        others,
-      });
-      setField('');
-      setValue('');
-      setLabel('');
-    });
-
-  const noCarrier = carriers !== null && carriers.length === 0;
-
-  // Yours first, then each app's, by the app that proposed them.
+  // By the app that asked; ones made here before, last.
   const groups = useMemo(() => {
     const byApp = new Map<string, [NotifyView['app'], NotifyView[]]>();
     for (const sub of subscriptions ?? []) {
@@ -109,7 +47,7 @@ export function Notifications({
       byApp.get(at)![1].push(sub);
     }
     return [...byApp.entries()]
-      .sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)))
+      .sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
       .map(([, group]) => group);
   }, [subscriptions]);
 
@@ -118,22 +56,17 @@ export function Notifications({
       <div>
         <h2 style={{ ...styles.sectionTitle, fontSize: 16, marginBottom: 4 }}>Notify me when…</h2>
         <p style={{ color: palette.ink.muted, fontSize: 14, lineHeight: 1.5 }}>
-          Your Weave extension lets you know, even with every app closed. It can't read your spaces, so it
-          never learns what you picked here: it matches a code standing in for it. The notification shows your
-          label, the space and the time; you read the message when you open it.
+          Apps you use can ask to notify you. What you allow shows here, under the app that asked, and that
+          app lets you know.
         </p>
       </div>
 
-      {noCarrier && (
-        <p style={styles.errorHint}>
-          Nothing will notify you until the Weave extension is connected to this account.
-        </p>
-      )}
+      {subscriptions?.length === 0 && <p style={styles.errorHint}>No app notifies you yet.</p>}
 
       {groups.map(([app, subs]) => (
         <div key={app?.origin ?? ''} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <p style={{ ...styles.fieldLabel, margin: 0 }}>
-            {app ? `From ${app.name ?? new URL(app.origin).host}` : 'Added here'}
+            {app ? `From ${app.name ?? new URL(app.origin).host}` : 'Made here before'}
           </p>
           {subs.map((sub) => (
             <div key={sub.id} style={styles.settingsRow}>
@@ -168,93 +101,6 @@ export function Notifications({
           ))}
         </div>
       ))}
-
-      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
-        <select
-          value={where}
-          onChange={(event) => setWhere(event.target.value)}
-          aria-label="Where"
-          style={styles.input}
-        >
-          <option value="all">Every space</option>
-          {spaces.map((space) => (
-            <option key={space.id} value={space.id}>
-              {space.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={collection}
-          onChange={(event) => {
-            setCollection(event.target.value);
-            setField('');
-            setValue('');
-          }}
-          aria-label="What"
-          style={styles.input}
-        >
-          <option value="">Choose what…</option>
-          {collections.map((c) => (
-            <option key={c.name} value={c.name}>
-              New {c.title ?? c.name}
-            </option>
-          ))}
-        </select>
-        {chosen && chosen.topics.length > 0 && (
-          <select
-            value={field}
-            onChange={(event) => setField(event.target.value)}
-            aria-label="Only when"
-            style={styles.input}
-          >
-            <option value="">Any of them</option>
-            {chosen.topics.map((topic) => (
-              <option key={topic} value={topic}>
-                Only when {topic} is…
-              </option>
-            ))}
-          </select>
-        )}
-        {field && (
-          <span style={{ display: 'flex', gap: 6 }}>
-            <input
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              placeholder="a value"
-              aria-label="Value"
-              style={{ ...styles.input, flex: 1 }}
-            />
-            <button onClick={() => setValue(node.did)} data-variant="quiet" style={styles.smallButton}>
-              Me
-            </button>
-          </span>
-        )}
-      </div>
-
-      {chosen && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            placeholder={suggested}
-            aria-label="What the notification says"
-            style={{ ...styles.input, flex: 1, minWidth: 200 }}
-          />
-          <label
-            style={{ fontSize: 13, color: palette.ink.muted, display: 'flex', gap: 6, alignItems: 'center' }}
-          >
-            <input type="checkbox" checked={others} onChange={(event) => setOthers(event.target.checked)} />{' '}
-            Only other people's
-          </label>
-          <button
-            onClick={() => void add()}
-            disabled={busy !== null || !collection || (field !== '' && !value)}
-            style={styles.addButton}
-          >
-            {busy === 'add' ? 'Adding…' : 'Notify me'}
-          </button>
-        </div>
-      )}
 
       {error && <p style={{ ...styles.errorHint, color: palette.accent.danger }}>{error}</p>}
     </section>

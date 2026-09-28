@@ -70,53 +70,6 @@ export function concatBytes(...arrays: readonly Uint8Array[]): Uint8Array<ArrayB
 }
 
 /**
- * Encodes a number as an unsigned LEB128 varint.
- * @param {number} n - The number to encode.
- * @returns {Uint8Array} The varint encoded bytes.
- */
-export function varintEncode(n: number): Uint8Array<ArrayBuffer> {
-  const bytes: number[] = [];
-  let value = n;
-  do {
-    let byte = value & 0x7f;
-    value >>>= 7;
-    if (value !== 0) {
-      byte |= 0x80;
-    }
-    bytes.push(byte);
-  } while (value !== 0);
-  return new Uint8Array(bytes);
-}
-
-/**
- * Decodes an unsigned LEB128 varint from a Uint8Array.
- * @param {Uint8Array} bytes - The bytes to decode.
- * @param {number} [offset=0] - The offset to start decoding from.
- * @returns {{ value: number; bytesRead: number }} The decoded number and the number of bytes read.
- */
-export function varintDecode(
-  bytes: Uint8Array,
-  offset = 0,
-): { readonly value: number; readonly bytesRead: number } {
-  let value = 0;
-  let shift = 0;
-  let bytesRead = 0;
-  while (true) {
-    if (offset + bytesRead >= bytes.length) {
-      throw new Error('Varint decode out of bounds');
-    }
-    const byte = bytes[offset + bytesRead]!;
-    bytesRead++;
-    value |= (byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) {
-      break;
-    }
-    shift += 7;
-  }
-  return { value, bytesRead };
-}
-
-/**
  * Encodes a Uint8Array to a hex string.
  * @param {Uint8Array} bytes - The bytes to encode.
  * @returns {string} The hex string.

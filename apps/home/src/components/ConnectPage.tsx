@@ -19,8 +19,8 @@ import { styles, palette } from '../styles';
  * gets: which spaces, read or change, for how long. The account signs a note
  * for the app's own key; the seed never leaves this page.
  *
- * An app or extension already connected may come back to suggest what to
- * notify the person about; that is a smaller screen of its own.
+ * An app already connected may come back, when the person asks it to, to
+ * suggest what to notify them about; that is a smaller screen of its own.
  *
  * What the app calls itself is shown, but its address is what is trusted —
  * the browser reports it, the app cannot make it up.
@@ -115,10 +115,6 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
   const [chosen, setChosen] = useState<ReadonlySet<string>>(
     () => new Set(previous?.spaces.map((space) => space.id) ?? []),
   );
-  const proposals = agent ? [] : (request.notify ?? []);
-  const [notify, setNotify] = useState<ReadonlySet<number>>(
-    () => new Set(proposals.map((_, index) => index)),
-  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -168,7 +164,7 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
     setBusy(true);
     setError(null);
     try {
-      const grant = await auth.grant({ origin, request, spaceIds: [...chosen], notify: [...notify] });
+      const grant = await auth.grant({ origin, request, spaceIds: [...chosen] });
       incoming.approve(grant);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not give access');
@@ -261,32 +257,6 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
             ))}
           </div>
           <p style={styles.errorHint}>Made in your account, so your other devices and apps see them too.</p>
-        </section>
-      )}
-
-      {proposals.length > 0 && (
-        <section style={{ marginBottom: 20 }}>
-          <p style={styles.fieldLabel}>Notify you when…</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {proposals.map((proposal, index) => (
-              <label key={index} style={choice}>
-                <input
-                  type="checkbox"
-                  checked={notify.has(index)}
-                  onChange={() => setNotify((was) => toggled(was, index))}
-                  style={{ ...styles.checkbox, marginTop: 0 }}
-                />
-                <span style={{ flex: 1 }}>{proposal.label}</span>
-                <span style={{ color: palette.ink.faint, fontSize: 12 }}>
-                  {whole ? 'every space' : 'in the spaces it gets'}
-                </span>
-              </label>
-            ))}
-          </div>
-          <p style={styles.errorHint}>
-            Your Weave extension lets you know, even with the app closed. You can pause or remove these any
-            time in your account.
-          </p>
         </section>
       )}
 
@@ -404,15 +374,17 @@ function ApproveCarrier({ incoming, request }: { incoming: IncomingRequest; requ
 }
 
 /**
- * An app or extension already connected, suggesting subscriptions. Nothing
- * else changes: it gets no access it didn't have, and learns only which of
- * its suggestions the person kept.
+ * An app already connected, suggesting subscriptions because the person
+ * asked it to. Nothing else changes: it gets no access it didn't have, and
+ * learns only which of its suggestions the person kept.
  */
 function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; request: ProposeRequest }) {
   const { origin } = incoming;
   const { auth } = useAuth();
   const session = useSession();
-  const connection = auth.connections().find((known) => known.origin === origin && !known.agent);
+  const connection = auth
+    .connections()
+    .find((known) => known.origin === origin && !known.agent && known.access !== 'carry');
   const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
   const [kept, setKept] = useState<ReadonlySet<number>>(
     () => new Set(request.notify.map((_, index) => index)),
@@ -425,7 +397,7 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
   }, [session]);
 
   const who = connection?.name ?? request.name ?? asker(origin);
-  const reachesAll = connection?.access === 'carry' || connection?.scope === 'account';
+  const reachesAll = connection?.scope === 'account';
   const where = (ids: ReadonlyArray<string> | undefined) => {
     if (!ids) return reachesAll ? 'every space' : 'the spaces it has';
     const names = ids.map((id) => spaces.find((space) => space.id === id)?.name ?? 'a space');
@@ -487,8 +459,8 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
           ))}
         </div>
         <p style={styles.errorHint}>
-          Your Weave extension lets you know, even with every app closed. It shows the label, the space and
-          the time — never the message. You can pause or remove these any time in your account.
+          {who} lets you know itself, while it is open. You can pause or remove these any time in your
+          account.
         </p>
       </section>
 

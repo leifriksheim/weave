@@ -254,8 +254,6 @@ export interface GrantChoice {
   readonly spaceIds: ReadonlyArray<string>;
   /** How long the note lasts, overriding what the request asked for. Default: the request's `days`, or 7. */
   readonly days?: number;
-  /** Which of the request's `notify` proposals the person said yes to, by index. Default: all of them. */
-  readonly notify?: ReadonlyArray<number>;
 }
 
 /** What the person chose on the screen for a later proposal */
@@ -363,10 +361,10 @@ export interface WeaveAuth {
     readonly request: ConnectRequest;
   }): Promise<Omit<CarryGrant, 'home'>>;
   /**
-   * Adds the subscriptions an app or carrier connected from this home
-   * proposed later, as the account home — the ones the person kept, naming
-   * it, looking only at spaces it may reach.
-   * @throws When nothing from `origin` is connected here, a proposal names a space it wasn't given, or a carrier names a topic value
+   * Adds the subscriptions an app connected from this home proposed, as the
+   * account home — the ones the person kept, naming it, looking only at
+   * spaces it may reach.
+   * @throws When no app from `origin` is connected here (a carrier or an agent doesn't count), or a proposal names a space it wasn't given
    */
   propose(choice: ProposeChoice): Promise<Proposed>;
   /** Apps this account is connected to from this home, newest first */
@@ -431,27 +429,20 @@ const afterStorage = (accounts: ReadonlyArray<unknown>): AuthStage =>
 /**
  * The subscriptions an app's proposals become, for the ones the person kept.
  * Checked whole before any is written: a proposal naming a space the app
- * can't reach refuses them all, and so does a carrier naming a topic value —
- * it can't read, so the tag it got back would tell it which records hold a
- * value it picked.
+ * can't reach refuses them all.
  */
 function subscriptionsFrom(
-  proposals: ConnectRequest['notify'] & {},
+  proposals: ProposeRequest['notify'],
   kept: ReadonlyArray<number> | undefined,
   context: {
     readonly app: NotifyWhen['app'] & {};
     readonly reach: NotifySpaces;
-    readonly carrier: boolean;
     readonly account: string;
   },
 ): NotifyWhen[] {
   const made: NotifyWhen[] = [];
   for (const [index, proposal] of proposals.entries()) {
     if (kept && !kept.includes(index)) continue;
-    if (context.carrier && proposal.topic && !('me' in proposal.topic))
-      throw new Error(
-        'An extension can’t read your spaces, so it may only suggest “mentions me”, not a value of its choosing.',
-      );
     const spaces = proposalSpaces(proposal, context.reach);
     if (!spaces) throw new Error(`“${proposal.label}” looks at a space it was not given.`);
     made.push(fromProposal(proposal, { app: context.app, spaces, account: context.account }));
@@ -1279,15 +1270,6 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         throw new Error('An agent works in spaces that exist — none are made for it.');
       if (agent && request.contacts) throw new Error('An agent is not given your contacts.');
       const whole = request.scope === 'account';
-      const app = { origin: choice.origin, ...(request.name ? { name: request.name.slice(0, 80) } : {}) };
-      // A proposal looking at a space the app isn't given is refused before anything is made. (It can't name one made for it.)
-      if (!agent && !whole)
-        subscriptionsFrom(request.notify ?? [], choice.notify, {
-          app,
-          reach: choice.spaceIds,
-          carrier: false,
-          account: session.did,
-        });
       const created = [];
       for (const params of request.create ?? []) created.push(await node.spaces.create(params));
       // With the whole account the app derives the contacts space itself; otherwise it is one more space it is given.
@@ -1299,17 +1281,6 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           ...(contactsSpace ? [contactsSpace] : []),
         ]),
       ];
-      // Subscriptions the app proposed and the person kept.
-      const looked = whole ? ('all' as const) : ids.filter((id) => id !== contactsSpace);
-      const proposed =
-        agent || (looked !== 'all' && looked.length === 0)
-          ? []
-          : subscriptionsFrom(request.notify ?? [], choice.notify, {
-              app,
-              reach: looked,
-              carrier: false,
-              account: session.did,
-            });
 
       const spaces: GrantedSpace[] = [];
       for (const id of ids) {
@@ -1353,9 +1324,6 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         agent ? known.audience === request.audience : known.origin === choice.origin && !known.agent;
       writeConnections([connection, ...auth.connections().filter((known) => !replaced(known))]);
 
-      // Written by the home for the app. Connecting again adds nothing twice.
-      const notify = await addSubscriptions(node, choice.origin, proposed);
-
       return {
         v: 1,
         did: session.did,
@@ -1373,7 +1341,6 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
         expiresAt,
         ...(agent ? { agent: true as const } : {}),
-        ...(notify.length ? { notify } : {}),
       };
     },
 
@@ -1381,15 +1348,17 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const session = state.session;
       if (!session) throw new Error('Sign in first.');
       const { node } = session;
-      const connection = auth.connections().find((known) => known.origin === origin && !known.agent);
+      // Only an app: an agent isn't someone looking at it, and a carrier can't read what it would notify about.
+      const connection = auth
+        .connections()
+        .find((known) => known.origin === origin && !known.agent && known.access !== 'carry');
       if (!connection)
         throw new Error(
-          'Only an app or extension connected to your account here may suggest what to notify you about. Connect it first.',
+          'Only an app connected to your account here may suggest what to notify you about. Connect it first.',
         );
-      const carrier = connection.access === 'carry';
-      // What it may reach: every space for a carrier or a whole-account app, else the spaces it was given, less the contacts space.
+      // What it may reach: every space for a whole-account app, else the spaces it was given, less the contacts space.
       let reach: NotifySpaces = 'all';
-      if (!carrier && connection.scope === 'spaces') {
+      if (connection.scope === 'spaces') {
         const contactsSpace = connection.spaces.length ? await node.contacts.space().catch(() => null) : null;
         reach = connection.spaces.map((space) => space.id).filter((id) => id !== contactsSpace);
         if (reach.length === 0) throw new Error('It was given no spaces to notify you about.');
@@ -1402,7 +1371,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
             ? { name: request.name.slice(0, 80) }
             : {}),
       };
-      const when = subscriptionsFrom(request.notify, kept, { app, reach, carrier, account: session.did });
+      const when = subscriptionsFrom(request.notify, kept, { app, reach, account: session.did });
       return { v: 1, kind: 'proposed', notify: await addSubscriptions(node, origin, when) };
     },
 

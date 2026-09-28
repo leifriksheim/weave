@@ -105,7 +105,7 @@ await storage.addExpression(signed);
 ```
 
 Syncing it to other devices is a network manager plus a sync engine with the
-validation engine in front — see _Sync_ below. Or skip all of this and use a
+version check in front — see _Sync_ below. Or skip all of this and use a
 node, which does the wiring for you — next.
 
 ## The node — start here
@@ -527,13 +527,15 @@ Each record then carries, on its outside, a keyed hash of each of those values
 topic. `node.collections.tag(space, collection, field, value)` gives the tag to
 match; anyone who can read a record checks its tags and refuses a mismatch.
 
-**"Notify me when…"** (`node.notifications`, and the home's section of that
-name): new records in a collection, in every space or some, perhaps only with
-a topic value ("mentions me"), perhaps only other people's. The account
-registry keeps each one sealed; every carrier gets it with the value replaced
-by each space's tag, so the Weave extension notices matching records as they
-arrive and shows a notification — the space, your label, the time — without
-being able to read them, or what you asked for.
+**"Notify me when…"**: new records in a collection, in every space or some,
+perhaps only with a topic value ("mentions me"), perhaps only other people's.
+Connecting asks for none. When the person wants them, the app offers some
+(`connection.propose`), the home adds the ones they keep to the account
+registry, sealed, and lists them by app for pausing and removing. The app
+shows them itself: `watchNotifications(node, { onNotify })` hands it each
+record that arrives matching one. Every carrier also gets them with the value
+replaced by each space's tag, so it can match records without reading them —
+what waking a closed app will need.
 
 A space that names no keeper is held whole, as before: then the app may be one
 of its copies. How much to hold is each node's choice (`NodeConfig.cache`;
@@ -544,20 +546,20 @@ keepers confirm is protocol. `spaces.status(id)` shows `holds` and `pending`.
 
 ### Identity (`@weaveprotocol/core/identity`)
 
-| Export                                                               | Description                                                                         |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `generateSeed()` / `seedToRecoveryCode()` / `recoveryCodeToSeed()`   | The account seed and its written form                                               |
-| `createIdentityManager()`                                            | `fromSeed`, `fromRecoveryCode`, `fromPassword`; passkey-PRF derivation as an option |
-| `createLocalRootSigner()`                                            | A `RootSigner` for a seed unlocked in this page                                     |
-| `createFolderAccountStore()` / `createBrowserAccountStore()`         | Where accounts live: a data folder, or this browser                                 |
-| `wrapSeedWithDeviceKey()` / `wrapSeedWithPassphrase()`               | Local ways to unlock a stored seed                                                  |
-| `deriveVaultKey()`                                                   | Key for sealing an account's space registry at rest                                 |
-| `pairingRoomId()` / `encodePairingTicket()` / `sealPairingPayload()` | Bringing a phone into an account                                                    |
-| `issueUCAN()` / `verifyUCAN()`                                       | Capability tokens (UCAN 0.10, `ES256` JWTs)                                         |
-| `delegateCapabilities()`                                             | Attenuated delegation from a parent token                                           |
-| `validateDelegationChain()`                                          | Verify a full root → … → leaf proof chain                                           |
-| `createP256Provider()`                                               | ECDSA P-256 crypto provider (swappable)                                             |
-| `publicKeyToDid()` / `didToPublicKey()`                              | `did:key` encoding                                                                  |
+| Export                                                               | Description                                         |
+| -------------------------------------------------------------------- | --------------------------------------------------- |
+| `generateSeed()` / `seedToRecoveryCode()` / `recoveryCodeToSeed()`   | The account seed and its written form               |
+| `createIdentityManager()`                                            | `fromSeed`, `fromRecoveryCode`                      |
+| `createLocalRootSigner()`                                            | A `RootSigner` for a seed unlocked in this page     |
+| `createFolderAccountStore()` / `createBrowserAccountStore()`         | Where accounts live: a data folder, or this browser |
+| `wrapSeedWithDeviceKey()` / `wrapSeedWithPassphrase()`               | Local ways to unlock a stored seed                  |
+| `deriveVaultKey()`                                                   | Key for sealing an account's space registry at rest |
+| `pairingRoomId()` / `encodePairingTicket()` / `sealPairingPayload()` | Bringing a phone into an account                    |
+| `issueUCAN()` / `verifyUCAN()`                                       | Capability tokens (UCAN 0.10, `ES256` JWTs)         |
+| `delegateCapabilities()`                                             | Attenuated delegation from a parent token           |
+| `validateDelegationChain()`                                          | Verify a full root → … → leaf proof chain           |
+| `createP256Provider()`                                               | ECDSA P-256 crypto provider (swappable)             |
+| `publicKeyToDid()` / `didToPublicKey()`                              | `did:key` encoding                                  |
 
 #### The account is a seed
 
@@ -604,10 +606,7 @@ passkeys without PRF, or report it inconsistently. An identity _derived_ from a
 passkey would lock those users out, and it would still be a different identity
 on every domain, since a passkey is bound to one.
 
-So the passkey only decides whether this origin may use its device key. PRF
-derivation is still available (`identity.register()` / `authenticate()`, with
-`inspectPasskeyPrf()` to diagnose what a provider actually does), but nothing in
-the example depends on it.
+So the passkey only decides whether this origin may use its device key.
 
 #### UCAN delegation
 
@@ -929,8 +928,8 @@ field, which stops one being replayed into another.
 
 **Encrypt, then sign.** A private space encrypts the body _before_ the expression
 is signed, so the signature covers the ciphertext: peers without the key still
-verify and relay the data, they simply cannot read it. The structural gate steps
-aside for encrypted bodies — their shape is checked by members after decryption.
+verify and relay the data, they simply cannot read it. Body shape is never
+checked on arrival; members check it after decryption.
 
 ### Network (`@weaveprotocol/core/network`)
 
@@ -1015,21 +1014,19 @@ two peers reconcile only the collections both hold. A version for a collection
 a node doesn't hold is passed over; one it takes in, it tells the sender it has
 (`stored`). One peer's messages are handled in the order they came.
 
-The engine's `validate` hook is the seam where the validation engine sits.
+The engine's `validate` hook is the seam where the version check sits.
 Expressions a peer sends are only committed if it accepts them; the rest are
 dropped and surface as a `rejected` event with the reason.
 
 ### Validation (`@weaveprotocol/core/validation`)
 
-A pipeline of gates for incoming expressions.
+The checks every incoming version passes.
 
-| Export                     | Description                                  |
-| -------------------------- | -------------------------------------------- |
-| `createValidationEngine()` | Full gatekeeper pipeline                     |
-| `createCryptoGate()`       | Expression id + signature verification       |
-| `createStructuralGate()`   | Schema conformance via Standard Schema       |
-| `createCapabilityGate()`   | UCAN authorization: may this key write this? |
-| `createStatefulGate()`     | Custom Wasm rules                            |
+| Export                   | Description                                      |
+| ------------------------ | ------------------------------------------------ |
+| `createVersionCheck()`   | Shape, then signature, then capability, in order |
+| `createCryptoGate()`     | Expression id + signature verification           |
+| `createCapabilityGate()` | UCAN authorization: may this key write this?     |
 
 The crypto gate settles _who_ signed an expression. The capability gate answers
 the next question: were they allowed to? An expression signed by a delegated key
@@ -1039,29 +1036,21 @@ issued to a different key, broader than its parent, or rooted in an identity the
 application does not trust.
 
 ```typescript
-const validation = createValidationEngine({
-  cryptoGate: createCryptoGate(provider),
-  structuralGate: createStructuralGate(schema),
-  statefulGate: createStatefulGate(),
-  capabilityGate: createCapabilityGate({
-    provider,
-    requiredCapability: (expression) => ({ with: `space:${expression.collection}`, can: 'expression/write' }),
-    isTrustedRoot: (did) => spaceMembers.has(did),
-  }),
-  resolvePublicKey: async (did) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes),
-  getExpression: (id) => storage.getExpression(id),
+const check = createVersionCheck({
+  provider,
+  requiredCapability: (expression) => ({ with: `space:${expression.space}`, can: 'expression/write' }),
+  isTrustedRoot: (did) => spaceMembers.has(did),
 });
+const { passed, reason } = await check(expression);
 ```
 
 ### Privacy (`@weaveprotocol/core/privacy`)
 
 End-to-end encryption for private Spaces.
 
-| Export                 | Description                    |
-| ---------------------- | ------------------------------ |
-| `createPrivacyGuard()` | Transparent E2EE orchestrator  |
-| `generateSpaceKey()`   | AES-GCM-256 space keys         |
-| `wrapSpaceKey()`       | ECDH + AES-KW key distribution |
+| Export               | Description            |
+| -------------------- | ---------------------- |
+| `generateSpaceKey()` | AES-GCM-256 space keys |
 
 ## Storage Adapters
 

@@ -856,16 +856,9 @@ sealed = base64url( iv(12) ‖ AES-256-GCM(key, iv, UTF-8(JSON.stringify(value))
 Opening fails (returns nothing) for the wrong key, the wrong context, or a
 changed value. Inputs longer than 1 000 000 characters are not tried.
 
-### 8.6 Legacy helpers
-
-`packages/core/src/privacy/key-distribution.ts` (`wrapSpaceKey` — ECDH + AES-KW, algorithm
-`"ECDH-AES-KW"`) and `packages/core/src/privacy/privacy-guard.ts` are exported but used by
-nothing in the node. They are **not** part of the protocol; key distribution is
-§9.
-
 _Source: `packages/core/src/privacy/space-encryption.ts`, `packages/core/src/node/space-runtime.ts` (`IN_THE_CLEAR`, `write`, `openBody`), `packages/core/src/space/space-access.ts` (`deriveReadKey`, `deriveReadSeed`). Tests: `packages/core/tests/space.test.ts` ("private space expressions"), `packages/core/tests/space-access.test.ts` ("a view-only invite to a private space reads everything and writes nothing"; the read-key vector)._
 
-### 8.7 Planned: what a private space still shows
+### 8.6 Planned: what a private space still shows
 
 Encrypting bodies leaves the envelope readable to anyone holding the
 ciphertext: a relay-side peer, a carrier, a host, a mirror's storage
@@ -1059,7 +1052,7 @@ agent sessions; a non-member publishes nothing.
 >
 > Open questions: the field names; the avatar's size limit and format; and
 > whether nicknames for people who are not contacts get a collection of their
-> own. `profile:` keys may also change (§8.7).
+> own. `profile:` keys may also change (§8.6).
 
 _Source: `packages/core/src/node/space-runtime.ts` (`profileKey`, `loadProfiles`, `publishProfile`), `packages/core/src/node/node.ts` (`publishProfile`). Tests: `packages/core/tests/profiles.test.ts`, `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored")._
 
@@ -1195,10 +1188,12 @@ after) or a browser extension's (`chrome-extension://`, `moz-extension://` or
 `safari-web-extension://`, then 1–64 letters, digits or dashes), and
 `app.name` at most 80 characters.
 
-`app` names the app or carrier that proposed the subscription, by the origin
-the browser reported; the account home writes it on its behalf when the person
-says yes ([06](06-nodes-and-sessions.md) §4.5, §4.12). A subscription without `app` was
-made in the home. `app` is not copied to the carried form.
+`app` names the app that proposed the subscription, by the origin the browser
+reported; the account home writes it on its behalf when the person says yes
+([06](06-nodes-and-sessions.md) §4.12), and that app shows what it matches. A
+home adds no subscription of its own; one without `app` was made by an earlier
+home, or proposed by an earlier extension (so an extension's origin stays
+valid), and nothing shows it now. `app` is not copied to the carried form.
 
 Carriers cannot read, so each device with the account key copies every
 subscription into every carry space with the value replaced by tags:
@@ -1218,8 +1213,8 @@ A carrier matches an arriving version when: not paused; same collection; `seq`
 is 0 and not deleted; the space is in `spaces` (or `"all"`); its `createdAt`
 is at or after `since` and within 24 hours of now; if `others`, its root is
 not the account; and if `tags` is present, the version's `tags` include one of
-`tags[spaceId]`. _Implementation detail:_ the carrier then shows a
-notification with `label`.
+`tags[spaceId]`. No carrier shows a notification yet; the carried form is
+what a carrier needs to wake an app that is closed ([06](06-nodes-and-sessions.md) §6.4).
 
 _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
 

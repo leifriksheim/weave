@@ -109,27 +109,3 @@ export async function getExpressionId(expr: UnsignedExpression): Promise<string>
   const bytes = utf8Encode(json);
   return await cidFromBytes(bytes);
 }
-
-/**
- * Serializes an Expression to canonical JSON bytes.
- * @param expr The expression to serialize
- * @returns Uint8Array containing canonical JSON bytes
- */
-export function serializeExpression(expr: Expression): Uint8Array {
-  const json = canonicalize(expr);
-  return utf8Encode(json);
-}
-
-/**
- * Parses an Expression from canonical JSON bytes.
- * Note: Does not verify signature or ID.
- * @param bytes The bytes to deserialize
- * @returns Parsed Expression
- */
-export function deserializeExpression(bytes: Uint8Array): Expression {
-  const decoder = new TextDecoder('utf-8');
-  const json = decoder.decode(bytes);
-  // Unchecked here: an expression off the wire goes through the validation gates before anything trusts it.
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checked by the validation gates
-  return Object.freeze(JSON.parse(json) as Expression);
-}

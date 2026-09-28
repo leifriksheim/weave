@@ -122,7 +122,7 @@ VITE_SIGNALING_URL=wss://your-relay.example npm run dev
 | UCAN delegation        | Every record is signed by this app's key, under that note; peers check the chain back to the account                   |
 | Spaces                 | Four kinds of space, each with its own database, sync and gossip room                                                  |
 | E2EE                   | Private spaces encrypt bodies before signing; a record says _encrypted_ when it had to be opened                       |
-| Validation engine      | Signature, schema and capability gates run on everything, including what peers send                                    |
+| Validation             | Shape, signature and capability checks run on everything, including what peers send                                    |
 | Authorization          | A personal space rejects writes not rooted in its owner — the _rejected_ counter shows what was dropped                |
 | Derived UI             | Forms, tables, "+ Add …" buttons and tallies worked out from each space's own definitions                              |
 | Profiles               | Everyone in a space shown by the name they gave, which only they can change                                            |
@@ -152,7 +152,7 @@ src/
 - **Contacts.** The Contacts screen warns when someone else is in a space for two; it should offer the choice between starting a group and letting them stay. Door codes as QR codes too, not only links.
 - **The Apps tab.** A coded app wins over an agent-made one with the same collections.
 - **Hosting.** An "Always online" mark on spaces a host keeps.
-- **Chat.** "Notify me when I'm mentioned".
+- **Notifications.** "Notify me when I'm mentioned" in chat; and showing them with the app closed, which needs a service worker and Web Push ([spec 06 §6.4](../../spec/06-nodes-and-sessions.md)).
 - **Agents.** A connect dialog left open keeps a relay connection; it should let go.
 - **Compatible definitions in the Apps tab.** Open apps by compatibility (`readiness()` in `components/apps/index.ts`) and show what breaks, once definitions can be compared ([02](../../spec/02-records.md), compatible definitions).
 - **Typed queries.** Move `src/collections.ts` onto typed collections and drop the hand-written record interfaces.

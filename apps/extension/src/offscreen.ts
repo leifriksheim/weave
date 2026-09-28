@@ -6,13 +6,7 @@
  * holds no seed and no space key: only its own key, the carry space's key, and
  * encrypted records (`@weaveprotocol/core/node`, `createCarrierNode`).
  */
-import {
-  createCarrierNode,
-  folderStores,
-  indexedDBStores,
-  type CarrierEvent,
-  type CarrierNode,
-} from '@weaveprotocol/core/node';
+import { createCarrierNode, folderStores, indexedDBStores, type CarrierNode } from '@weaveprotocol/core/node';
 import { appKey, forgetAppKey, type CarryGrant } from '@weaveprotocol/core/session';
 import { forgetDataFolder, queryFolderPermission, recallDataFolder } from '@weaveprotocol/core/storage';
 import {
@@ -26,7 +20,6 @@ import {
   type CarrierStatus,
   type PodState,
   type Request,
-  type SpaceCollections,
   type StatusChanged,
   type WorkerMessage,
 } from './shared';
@@ -36,7 +29,6 @@ let grant: CarryGrant | null = null;
 let status: CarrierStatus = {
   state: 'starting',
   spaces: [],
-  subscriptions: [],
   pod: { state: 'none', folder: null },
 };
 /** Bumped by every (re)start, so a slow one that was overtaken stops */
@@ -66,8 +58,7 @@ async function refresh(): Promise<void> {
   const node = carrier;
   if (!node) return;
   const spaces = await node.spaces().catch(() => status.spaces);
-  const subscriptions = await node.subscriptions().catch(() => status.subscriptions);
-  if (node === carrier) set({ ...status, state: 'running', spaces, subscriptions });
+  if (node === carrier) set({ ...status, state: 'running', spaces });
 }
 
 async function stop(): Promise<void> {
@@ -86,7 +77,6 @@ async function start(): Promise<void> {
       state: 'not-connected',
       removed: await loadRemoved(),
       spaces: [],
-      subscriptions: [],
       pod: { state: 'none', folder: null },
     });
     return;
@@ -96,7 +86,6 @@ async function start(): Promise<void> {
     state: 'starting',
     account: { name: grant.name, did: grant.did, home: grant.home },
     spaces: [],
-    subscriptions: [],
     pod: { state: grant.pod ? 'not-picked' : 'none', folder: grant.pod?.folder ?? null },
   });
   try {
@@ -113,7 +102,6 @@ async function start(): Promise<void> {
     carrier = node;
     node.subscribe((event) => {
       if (event.type === 'closed') void forget({ byAccount: true });
-      else if (event.type === 'notify') notify(event);
       else refreshSoon();
     });
     await attachPod();
@@ -122,18 +110,6 @@ async function start(): Promise<void> {
     if (mine === generation)
       set({ ...status, state: 'error', error: error instanceof Error ? error.message : String(error) });
   }
-}
-
-/** Only the worker may show a notification: it gets the match, and decides */
-function notify(event: Extract<CarrierEvent, { type: 'notify' }>): void {
-  if (!grant) return;
-  const message: WorkerMessage = { to: 'worker', type: 'notify', event, home: grant.home };
-  // The worker may be asleep: waking it first.
-  void chrome.runtime
-    .sendMessage({ to: 'worker', type: 'ensure' } satisfies WorkerMessage)
-    .catch(() => {})
-    .then(() => chrome.runtime.sendMessage(message))
-    .catch(() => {});
 }
 
 /**
@@ -195,30 +171,12 @@ async function forget(options: { byAccount: boolean }): Promise<void> {
     state: 'not-connected',
     removed: options.byAccount,
     spaces: [],
-    subscriptions: [],
     pod: { state: 'none', folder: null },
   });
 }
 
-/** What each carried space holds, for the notify page — never the account's own list, which holds nothing to notify about */
-async function collections(): Promise<ReadonlyArray<SpaceCollections>> {
-  const node = carrier;
-  if (!node) return [];
-  const found: SpaceCollections[] = [];
-  for (const space of await node.spaces()) {
-    if (space.carry) continue;
-    const held = await node.collections(space.id).catch(() => []);
-    if (held.length > 0) found.push({ space: { id: space.id, name: space.name }, collections: held });
-  }
-  return found;
-}
-
 chrome.runtime.onMessage.addListener((message: Request, _sender, respond) => {
   if (message?.to !== 'offscreen') return false;
-  if (message.type === 'collections') {
-    void collections().then(respond, () => respond([]));
-    return true;
-  }
   const answer = () => respond(status);
   if (message.type === 'status') answer();
   else if (message.type === 'reload') void start().then(answer, answer);

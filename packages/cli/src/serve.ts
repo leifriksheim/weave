@@ -141,7 +141,7 @@ export interface Served {
   close(): Promise<void>;
 }
 
-function parseHello(
+export function parseHello(
   data: RawData,
   isBinary: boolean,
 ): { did: string; nonce: string; proof: Record<string, unknown> } | null {
@@ -157,7 +157,13 @@ function parseHello(
       ? {
           did: hello.did,
           nonce: hello.nonce,
-          proof: { sig: hello.sig, read: hello.read, readKey: hello.readKey, member: hello.member },
+          proof: {
+            sig: hello.sig,
+            read: hello.read,
+            readKey: hello.readKey,
+            member: hello.member,
+            earlier: hello.earlier,
+          },
         }
       : null;
   } catch {

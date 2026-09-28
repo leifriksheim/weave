@@ -10,6 +10,8 @@ export { writeCapability, relayRoom } from './space-runtime.js';
 export { indexedDBStores, folderStores, workerStores } from './stores.js';
 export { copyAccountData } from './copy.js';
 export { createCarrierNode } from './carrier.js';
+export { watchNotifications } from './watch-notifications.js';
+export type { NotifyMatch, WatchNotificationsOptions } from './watch-notifications.js';
 export type {
   CarrierConfig,
   CarrierNode,
