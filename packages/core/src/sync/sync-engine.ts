@@ -253,14 +253,19 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
   };
 
   const retryWaiting = async (intake: Intake) => {
+    const stored = new Map<string, string[]>();
     let progressed = true;
     while (progressed && waiting.size > 0) {
       progressed = false;
       for (const [id, held] of [...waiting]) {
         waiting.delete(id);
-        if (await admit(held.peerId, held.expression, intake)) progressed = true;
+        if (!(await admit(held.peerId, held.expression, intake))) continue;
+        progressed = true;
+        (stored.get(held.peerId) ?? stored.set(held.peerId, []).get(held.peerId)!).push(id);
       }
     }
+    // Stored at last: the peer that sent it hears so, as it would have had it gone in at once.
+    for (const [peerId, ids] of stored) if (peers.has(peerId)) send(peerId, { type: 'stored', ids });
   };
 
   /**

@@ -349,6 +349,11 @@ know it is done.
 | `type` | `"stored"` |                                                                                                                                                                                                                          |
 | `ids`  | `string[]` | Ids of versions the sender just took in from the receiver (from `versions` or `push-update`) and that passed its gatekeeper — newly stored or already held. A receiver considers at most the first 2,000 string entries. |
 
+A version the gatekeeper holds back until what it names arrives (its first
+version, or the one before it) MUST be acknowledged when it goes in, to the
+peer that sent it. A writer waiting to know its change left the device
+(`node.account.delivered`) would otherwise wait for the next round of sync.
+
 > **Planned: binary sync messages.** Sync messages travel as JSON, and their
 > one binary part, the Negentropy `message`, as base64url, a third over its
 > size. A binary encoding would save that. It needs a new `v`, since peers

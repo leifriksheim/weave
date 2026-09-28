@@ -369,7 +369,7 @@ describe('sync by reconciliation', () => {
     assert.equal(most, 100, 'never more than the records that stay');
   });
 
-  test('a version that waits for its first version asks for it at once', async () => {
+  test('a version that waits for its first version asks for it at once, and is acknowledged once in', async () => {
     let b: StorageProvider | null = null;
     const synced = pair({
       validate: async (e) =>
@@ -379,6 +379,8 @@ describe('sync by reconciliation', () => {
     });
     b = synced.b.storage;
     await synced.settle();
+    const stored: string[] = [];
+    synced.a.sync.on('stored', (_peer: string, ids: string[]) => stored.push(...ids));
     const first = await version('app.note');
     const edit = await version('app.note', { key: first.key, seq: 1, prev: first.id, genesis: first.id });
     await synced.a.storage.addExpression(first);
@@ -388,6 +390,7 @@ describe('sync by reconciliation', () => {
     await synced.settle();
     assert.equal((await b.getCurrent(first.key))?.id, edit.id);
     assert.notEqual(await b.getExpression(first.id), null);
+    assert.ok(stored.includes(edit.id), 'the pushed edit, though it went in after its first version');
   });
 
   test('a want whose answer is lost is given up, and the peer is synced again', async () => {

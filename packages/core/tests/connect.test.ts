@@ -41,6 +41,9 @@ afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((close) => close()));
 });
 
+/** Each home's recovery code, for signing in to it again */
+const recoveryCodes = new WeakMap<WeaveAuth, string>();
+
 /** The account home: a signed-in flow on the hub */
 async function home(hub: FakeHub): Promise<WeaveAuth> {
   const accounts = createFolderAccountStore(createMemoryDirectory().handle);
@@ -58,6 +61,7 @@ async function home(hub: FakeHub): Promise<WeaveAuth> {
   });
   await auth.start();
   await auth.createAccount('Ada');
+  recoveryCodes.set(auth, auth.getState().freshCode!);
   auth.codeSaved();
   cleanup.push(() => auth.signOut());
   return auth;
@@ -538,6 +542,33 @@ describe('an app proposing subscriptions', () => {
     // Proposing again adds nothing twice.
     await auth.propose({ origin: 'https://chat.test', request, notify: [0] });
     assert.equal((await node.notifications.list()).length, 2);
+  });
+
+  test('one the home already has, which never left it, is written again and answered once the app has it', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const key = await appKey();
+    const grant = await connect(auth, { scope: 'account', audience: key.did });
+    const request = propose([{ label: 'New message', collection: 'app.chat.message' }]);
+
+    // Nobody else is there to take it: kept on the home alone, and it says so.
+    const first = await auth.propose({ origin: 'https://chat.test', request });
+    assert.equal(first.delivered, false);
+
+    // The home's window opens again later, a fresh page, while the app is running.
+    await auth.signOut();
+    auth.showRestore();
+    await auth.signInWithCode(recoveryCodes.get(auth)!);
+    const chat = await app(hub, grant, key);
+
+    const again = await auth.propose({ origin: 'https://chat.test', request });
+    assert.equal(again.delivered, true);
+    assert.deepEqual(again.notify, first.notify, 'the same subscription, not a second one');
+    assert.deepEqual(
+      (await chat.notifications.list()).map((sub) => sub.id),
+      [first.notify[0]!.id],
+      'the app has it once the answer comes',
+    );
   });
 
   test('proposing the same thing several times at once adds it once', async () => {
