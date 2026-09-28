@@ -214,6 +214,8 @@ export {
   holds,
   standing,
   checkRole,
+  checkRelays,
+  MAX_RELAYS,
   MANAGE,
   INVITE,
   DEFINE,
