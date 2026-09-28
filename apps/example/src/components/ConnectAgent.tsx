@@ -220,7 +220,7 @@ function Connected({ agent, onClose }: { agent: AgentAsking; onClose: () => void
 }
 
 /** A small dot that breathes while waiting */
-export function Pulse() {
+function Pulse() {
   const dot = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const animation = dot.current?.animate([{ opacity: 1 }, { opacity: 0.25 }, { opacity: 1 }], {

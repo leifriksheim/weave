@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
 import { Modal } from '@weave/app-shared/Modal';
-import { ConnectAgent, Pulse, useKnownAgent } from '../ConnectAgent';
+import { ConnectAgent, useKnownAgent } from '../ConnectAgent';
 import { Icon } from '../Icon';
 import { useMadeApps } from './MadeApps';
 import { styles, palette, variants } from '../../styles';
@@ -17,9 +17,6 @@ const IDEAS = [
   { label: 'Chore rota', text: 'a chore rota that takes turns, week by week' },
 ] as const;
 
-/** How long to wait for a proposal before suggesting the agent isn't connected */
-const PATIENCE = 60_000;
-
 /**
  * Making a new app for a space, by describing it to an agent.
  *
@@ -28,8 +25,8 @@ const PATIENCE = 60_000;
  * until someone who may add collections adds it on the Apps screen, so the
  * dialog only has to get the idea and the agent together: describe it, copy
  * the prompt, paste it. Whether an agent is connected is only a hint from
- * this browser, so it never blocks copying; what shows it worked is the
- * proposal turning up in the space, which the dialog waits for.
+ * this browser, so it never blocks copying. If the proposal turns up while
+ * the dialog is open, it says so.
  */
 export function CreateApp({
   space,
@@ -51,14 +48,8 @@ export function CreateApp({
   const [connecting, setConnecting] = useState(false);
   // The apps there were when the prompt was copied; one not among them is the answer.
   const [before, setBefore] = useState<ReadonlySet<string> | null>(null);
+  const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
-  const [slow, setSlow] = useState(false);
-
-  useEffect(() => {
-    if (!before) return;
-    const timer = globalThis.setTimeout(() => setSlow(true), PATIENCE);
-    return () => globalThis.clearTimeout(timer);
-  }, [before]);
 
   if (connecting) return <ConnectAgent onClose={() => setConnecting(false)} />;
 
@@ -70,90 +61,18 @@ export function CreateApp({
 
   const copy = () => {
     setBefore(new Set(apps.map((one) => one.key)));
-    setSlow(false);
     const clipboard = globalThis.navigator.clipboard;
     if (!clipboard) return setCopyFailed(true);
     clipboard.writeText(prompt).then(
-      () => setCopyFailed(false),
+      () => {
+        setCopyFailed(false);
+        setCopied(true);
+        globalThis.setTimeout(() => setCopied(false), 2000);
+      },
       () => setCopyFailed(true),
     );
   };
-
-  if (before) {
-    const proposed = apps.find((one) => !before.has(one.key) && one.body);
-    if (proposed?.body)
-      return (
-        <Modal title="Create an app" onClose={onClose}>
-          <Headline>
-            <span style={{ color: palette.accent.good }}>✓</span> {known ?? 'Your agent'} proposed “
-            {proposed.body.title}”
-          </Headline>
-          <p style={styles.hint}>
-            It's under Apps with what it would allow. Nothing changes in {space.name} until {adds}.
-          </p>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onClose} data-variant="quiet" style={variants.quiet}>
-              Later
-            </button>
-            <button
-              onClick={() => {
-                onClose();
-                onReview();
-              }}
-              data-variant="primary"
-              style={styles.button}
-            >
-              Review it
-            </button>
-          </div>
-        </Modal>
-      );
-
-    return (
-      <Modal title="Create an app" onClose={onClose}>
-        <Headline>
-          {copyFailed ? (
-            'Copy the prompt'
-          ) : (
-            <>
-              <span style={{ color: palette.accent.good }}>✓</span> Copied. Paste it into {agent}
-            </>
-          )}
-        </Headline>
-        {copyFailed && <p style={promptBox}>{prompt}</p>}
-        <p style={styles.hint}>
-          When it's done, the app turns up here and under Apps as a proposal. Nothing changes in {space.name}{' '}
-          until {adds}.
-        </p>
-        <p style={{ ...styles.footerHint, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Pulse /> Waiting for the proposal. You can close this; it will still arrive.
-        </p>
-        {slow && (
-          <p style={{ fontSize: 13, color: palette.ink.body }}>
-            Nothing yet?{' '}
-            {known ? `Check ${known} is still connected, or ` : 'Your agent may not be connected: '}
-            <button
-              type="button"
-              onClick={() => setConnecting(true)}
-              data-variant="ghost"
-              style={{ ...styles.linkButton, fontSize: 13, padding: 0 }}
-            >
-              connect an agent
-            </button>
-            .
-          </p>
-        )}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setBefore(null)} data-variant="quiet" style={variants.quiet}>
-            Back
-          </button>
-          <button onClick={onClose} data-variant="primary" style={styles.button}>
-            Done
-          </button>
-        </div>
-      </Modal>
-    );
-  }
+  const proposed = before && apps.find((one) => !before.has(one.key) && one.body)?.body;
 
   return (
     <Modal title="Create an app" onClose={onClose}>
@@ -196,7 +115,13 @@ export function CreateApp({
           data-variant="primary"
           style={{ ...styles.button, ...action }}
         >
-          <Icon name="sparkle" size={14} /> Copy prompt for {agent}
+          {copied ? (
+            '✓ Copied'
+          ) : (
+            <>
+              <Icon name="sparkle" size={14} /> Copy prompt for {agent}
+            </>
+          )}
         </button>
         {!known && (
           <button
@@ -209,6 +134,30 @@ export function CreateApp({
           </button>
         )}
       </div>
+      {copyFailed && <p style={promptBox}>{prompt}</p>}
+
+      {proposed && (
+        <div style={note}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: palette.ink.strong }}>
+            <span style={{ color: palette.accent.good }}>✓</span> {known ?? 'Your agent'} proposed “
+            {proposed.title}”
+          </p>
+          <p style={{ fontSize: 13, color: palette.ink.body }}>
+            Nothing changes in {space.name} until {adds}.{' '}
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onReview();
+              }}
+              data-variant="ghost"
+              style={{ ...styles.linkButton, fontSize: 13, padding: 0 }}
+            >
+              Review it
+            </button>
+          </p>
+        </div>
+      )}
 
       {(known || byHand) && (
         <div style={footer}>
@@ -244,9 +193,15 @@ export function CreateApp({
   );
 }
 
-function Headline({ children }: { children: ReactNode }) {
-  return <p style={{ fontSize: 15, fontWeight: 600, color: palette.ink.strong }}>{children}</p>;
-}
+const note = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  padding: '12px 14px',
+  border: `1px solid ${palette.surface.line}`,
+  borderRadius: 8,
+  background: palette.surface.sunken,
+} as const;
 
 const chip = {
   height: 28,
