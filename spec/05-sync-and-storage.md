@@ -434,31 +434,43 @@ For each differing collection the initiator:
    - `held: false` ends the session.
    - Otherwise it feeds `message` to its reconciler. A message that fails to
      parse ends the session with an error.
-   - For ids in `have` not already handled in this session, it sends the
-     versions in `versions` messages **without** `id`, at most 200 per
-     message.
-   - For ids in `need` not already handled in this session, and not refused
-     from this peer before (§8), it sends `want` messages of at most 200 ids,
-     each with a fresh request id, and remembers them.
+   - It notes the ids in `have` and in `need` not already handled in this
+     session, leaving out those refused from this peer before (§8).
    - If the reconciler produced a next message, it sends it as another
      `reconcile` with the same session id — up to 64 rounds; past that the
      session is abandoned as runaway.
    - Otherwise the session ends.
-3. When a session has ended and every `want` it made has been answered, the
-   collection is **level** with that peer (as far as could be taken in). The
+
+   When the session ends, however it ends, the initiator asks for every id
+   noted in `need` (below) and sends the versions noted in `have` in
+   `versions` messages **without** `id`, at most 200 per message. Both go
+   **newest first**: the reverse of the order the rounds found them in, which
+   is oldest first.
+
+   > Rationale: a record's later versions are newer than its first. Sent
+   > oldest first, a joining peer would show every deleted or edited record
+   > as it first was until the version that changed it arrived — a canvas
+   > filling with pixels long since cleared. Newest first, the later version
+   > comes first and waits for its first version (§8), and both go in
+   > together.
+
+   **Asking.** A node asks a peer for ids through a queue: it sends `want`
+   messages of at most 200 ids of one collection, each with a fresh request
+   id, and keeps at most **4** of them unanswered per peer. Ids of the
+   space's own records (`sys.` collections, [03](03-spaces.md)) and first
+   versions a waiting version names (§8) go to the front of the queue;
+   everything else joins the back. An id already queued or asked for is not
+   queued again. When a `want` is answered, the next ones go.
+3. When a session has ended and every `want` for its collection has been
+   answered and none is queued, the collection is **level** with that peer
+   (as far as could be taken in). The
    initiator then sends the peer a `hello` with `reply: true`, so the peer
    learns where things stand too without starting another round.
 4. If the session was marked to run again, a new session begins.
 
-A session that has heard nothing for 30 s is dropped at the next heartbeat.
-An unanswered `want` is meant to be dropped the same way; how long to wait is
-not yet specified (§18).
-
-> **Known defect:** the heartbeat sweep drops stale sessions but never
-> unanswered `want`s (`packages/core/src/sync/sync-engine.ts`, `sweep`). A `want` whose
-> answer is lost keeps the peer in flight, so it never becomes `synced`
-> (§6.5) until it disconnects. A fix will sweep stale `want`s too.
-> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
+A session that has heard nothing for 30 s is dropped at the next heartbeat,
+and so is a `want` unanswered for 30 s; the next queued ones then go. What a
+dropped `want` asked for is found again on the next round.
 
 ### 6.4 Answering (responder)
 
@@ -490,7 +502,7 @@ cannot parse (§18).
 ### 6.5 Done
 
 A node is **synced** with a peer when no session and no `want` is in flight
-with it. This implementation reports `synced` and `level` as events; §9 uses
+with it, and no id is queued to ask it for. This implementation reports `synced` and `level` as events; §9 uses
 them, and records whether the peer holds `"all"`.
 
 ### 6.6 Sequence
@@ -511,9 +523,12 @@ A (initiator: its DID sorts first)                       B
    ── hello {sums, reply:true} ──────────────────────────▶    A is level on app.note
 ```
 
-*Source: `packages/core/src/sync/sync-engine.ts`, `packages/core/src/node/space-runtime.ts` (wiring:
+*Source: `packages/core/src/sync/sync-engine.ts` (`onReconciled`, `want`, `pump`,
+`sweep`, `MAX_WANTS_IN_FLIGHT`), `packages/core/src/node/space-runtime.ts` (wiring:
 heartbeat, `announceSoon`, peer connect). Tests: `packages/core/tests/reconcile.test.ts`
-("sync by reconciliation"), `packages/core/tests/sync.test.ts`.*
+("sync by reconciliation", "joining, a deleted record never shows as it once
+was", "a want whose answer is lost is given up, and the peer is synced
+again"), `packages/core/tests/sync.test.ts`.*
 
 ---
 
@@ -547,7 +562,7 @@ The gatekeeper gives one of three answers:
 | Answer | Meaning | What happens |
 |---|---|---|
 | valid | passes | stored (§10) |
-| later | depends on something not here yet: the record's first version, the definition or access change it was written under | held in memory (at most 1,000; the oldest give way) and tried again whenever another version is stored; asked for again on the next round if still waiting |
+| later | depends on something not here yet: the record's first version, the definition or access change it was written under | held in memory (at most 1,000; the oldest give way) and tried again whenever another version is stored; asked for again on the next round if still waiting. If it names a first version (`genesis`) this node does not hold, that version is asked of the same peer at once, at the front of the queue (§6.3) |
 | invalid | refused | dropped; remembered as refused **from that peer** (at most 10,000 entries) and not asked of that peer again |
 
 > Rationale: a refusal is keyed on peer and id, not id alone. A version id
@@ -564,6 +579,11 @@ A batch of versions (one `versions` or `push-update`) is taken in this order:
 4. Run each through the gatekeeper and store what passes.
 5. If any were taken in, send the sender `stored` with their ids, then retry
    the waiting versions until no more go in.
+6. Ask the sender for the first versions still missing that waiting versions
+   name (above).
+
+*Implementation detail:* the node tells the page that records changed once
+per message taken in, not once per version, with every version it placed.
 
 A `versions` with an `id` is only considered if it answers a `want` this node
 has in flight with that peer, and only versions whose `id` was asked for are
@@ -586,7 +606,10 @@ taken. A `versions` without `id` is limited to its first 200 entries.
 *Source: `packages/core/src/sync/sync-engine.ts` (`admit`, `admitAll`, `retryWaiting`),
 `packages/core/src/node/space-runtime.ts` (`admit`). Tests: `packages/core/tests/sync.test.ts` (forged
 expression, no capability, schema), `packages/core/tests/reconcile.test.ts` ("a refused
-version is not asked for again"), `packages/core/tests/attacks.test.ts`.*
+version is not asked for again", "a version that waits for its first version
+asks for it at once"), `packages/core/tests/rules.test.ts` ("an edit that came
+before its first version counts once the first version comes"),
+`packages/core/tests/attacks.test.ts`.*
 
 ---
 
@@ -749,10 +772,13 @@ versions gives the same entries in any arrival order:
 **Keep or drop** `D`: if `D.retain`, keep it and set its `h/` entry;
 otherwise drop it.
 
-**Keep** writes the version's body and its `i/` entry. **Drop** removes its
-`i/` entry and deletes its body. The entry writes of one placement are made
-in one batch; bodies of dropped versions are deleted only after that batch
-lands, so no entry ever names a version that is gone.
+**Keep** writes the version's body, unless the store holds it already (a
+current version being demoted), and its `i/` entry. **Drop** removes its
+`i/` entry and deletes its body. The writes of one placement land together
+or not at all: with an adapter that has `commit` (§11), bodies, entries and
+deletes in one atomic write; without, bodies first, then the entries in one
+batch, then the deletes, so no entry ever names a version that is not
+there.
 
 > Rationale: the first version is kept as proof of who created the record —
 > the lowest id wins if several devices each created the same chosen key.
@@ -761,25 +787,32 @@ lands, so no entry ever names a version that is gone.
 collection is dropped, §9) unsets `r/k` and `g/k` if they name it, unsets its
 `h/` entry, and drops it. It does not promote an older version.
 
-Changes to one store are applied one at a time, never interleaved.
+Changes to one store are applied one at a time, never interleaved, each
+seeing the ones before it. Those that come in while earlier ones are landing
+land together, as one write: a burst of writes costs a few writes to the
+adapter, not one each. A change that fails leaves nothing of itself in the
+write and does not stop the others.
 
 ### 10.2 In memory
 
 The item sets and each collection's running sum (§3.3) are read from the `i/`
 entries once, kept in memory, and updated by every change made through this
-store. When another writer changed the same store (another tab, another
-origin or device on a shared folder) the node MUST re-read them
-(`invalidate`). This implementation notifies other tabs of one browser through
+store. So are the `r/` and `g/` entries read or written, and version bodies
+(at most 50,000, the oldest let go first): a body never changes under its id.
+An entry read while a change was landing is not kept. When another writer
+changed the same store (another tab, another origin or device on a shared
+folder) the node MUST re-read all of it (`invalidate`). This implementation notifies other tabs of one browser through
 a `BroadcastChannel` named `weave-node:<root DID>:<space id>` (*implementation
 detail*).
 
 The store's overall **fingerprint** (for status and tests) is the §3.3
 fingerprint of the sum of every collection's sum, as hex.
 
-*Source: `packages/core/src/storage/storage-provider.ts`, `packages/core/src/records/version.ts`. Tests:
+*Source: `packages/core/src/storage/storage-provider.ts` (`change`, `land`, `MAX_BODIES`), `packages/core/src/records/version.ts`. Tests:
 `packages/core/tests/versions.test.ts` ("a store of versions"), `packages/core/tests/reconcile.test.ts`
 ("a superseded version leaves the set", "a store written by someone else is
-read again once told").*
+read again once told", "changes that come in while one lands land together;
+one that fails leaves nothing").*
 
 ---
 
@@ -800,6 +833,12 @@ The store runs over an adapter with this contract (all methods async):
 | `deleteExpression(id)` | Remove a version body |
 | `queryExpressions(collection, limit=50, cursor?)` | Version bodies in a collection (every body kept, not only current), after the version with id `cursor` |
 | `close()` | Release it |
+| `entries(prefix)` | *Optional.* Every entry under `prefix` with its bytes, in one read. Without it, `list` then `get` each |
+| `getExpressions(ids)` | *Optional.* Version bodies by id, null where absent, in the order asked, in one read. Without it, `getExpression` each |
+| `commit({ store, ops, remove })` | *Optional.* Stores these bodies, applies these entry ops and deletes these bodies, atomically. Without it, `putExpression` each, `batch`, `deleteExpression` each |
+
+The optional methods only save round trips: a store gives the same answers
+with or without them.
 
 Entry keys are strings; values are bytes. Adapters: IndexedDB (§13), data
 folder (§14), the sealing wrapper (§15), and an in-memory one for tests.
@@ -864,7 +903,10 @@ Tests: `packages/core/tests/account-vault.test.ts` ("encryption at rest"),
 - Object store `expressions`: key path `id`; indexes `collection`, `author`,
   `createdAt` (non-unique). Values are the version objects.
 - `batch` is one `readwrite` transaction over `kv`. Bodies are written in
-  their own transactions.
+  their own transactions, except through `commit`: one `readwrite`
+  transaction over `kv` and `expressions`.
+- `entries(prefix)` is `getAllKeys` and `getAll` over the same key range in
+  one `readonly` transaction; `getExpressions` is one `readonly` transaction.
 
 Accounts kept in a browser live in database `weave-accounts`, object store
 `accounts` ([01 — Identity](01-identity.md)). A remembered data-folder handle
@@ -1225,10 +1267,11 @@ mirror.
 | `FRAME_SIZE_LIMIT` | 32,000 bytes (before base64) | §6 |
 | Minimum frame limit / headroom | 4,096 / 200 bytes | §3.4 |
 | `MAX_IDS_PER_REQUEST` | 200 | `want`, `versions` |
+| `MAX_WANTS_IN_FLIGHT` | 4 per peer | §6.3 |
 | `stored` ids considered | 2,000 | §4 |
 | Collections per hello | 1,000 | §4 |
 | Rounds per session | 64 | §6.3 |
-| Session stale after | 30 s | §6.3 |
+| Session, `want` stale after | 30 s | §6.3 |
 | Heartbeat | 30 s | §6.2 |
 | Hello after taking something in | 100 ms | §6.2 |
 | Waiting versions / refusals remembered | 1,000 / 10,000 | §8 |
@@ -1241,8 +1284,6 @@ mirror.
 
 ## 18. Not yet specified
 
-- **Stale requests.** How long a `want` may go unanswered before it is
-  dropped. See the known defect in §6.3.
 - **Responder errors.** How a responder reports a `reconcile` it cannot
   parse. See the known defect in §6.4.
 - **Widening a cache** when too few keepers are online is not built; a cache

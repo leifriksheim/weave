@@ -1,5 +1,5 @@
 import { CryptoProvider, CryptoKeyPairResult } from '../types.js';
-import { base64UrlEncode } from '../utils/encoding.js';
+import { base64UrlEncode, bytesToHex } from '../utils/encoding.js';
 import { p256 } from '@noble/curves/nist.js';
 
 /** 48 bytes: the 32-byte group order plus 16 more, so reducing mod n is unbiased */
@@ -18,6 +18,10 @@ async function hkdf(ikm: Uint8Array, info: Uint8Array, length: number): Promise<
   );
   return new Uint8Array(bits);
 }
+
+/** Public keys imported for verifying, by their bytes as hex; the oldest let go first */
+const publicKeys = new Map<string, Promise<CryptoKey>>();
+const MAX_PUBLIC_KEYS = 1000;
 
 /**
  * Creates a CryptoProvider using the Web Crypto API with ECDSA P-256.
@@ -110,19 +114,27 @@ export function createP256Provider(): CryptoProvider {
       return p256.Point.fromBytes(raw).toBytes(true);
     },
 
-    /** Accepts a compressed or uncompressed point; Web Crypto only reliably imports the latter. */
-    async importPublicKey(bytes: Uint8Array): Promise<CryptoKey> {
-      const uncompressed = p256.Point.fromBytes(bytes).toBytes(false);
-      return await globalThis.crypto.subtle.importKey(
-        'raw',
-        uncompressed as BufferSource,
-        {
-          name: 'ECDSA',
-          namedCurve: 'P-256'
-        },
-        true,
-        ['verify']
-      );
+    /**
+     * Accepts a compressed or uncompressed point; Web Crypto only reliably
+     * imports the latter. Decompressing costs a square root, and a space's
+     * records are signed by few keys, so each is imported once.
+     */
+    importPublicKey(bytes: Uint8Array): Promise<CryptoKey> {
+      const id = bytesToHex(bytes);
+      let found = publicKeys.get(id);
+      if (!found) {
+        found = globalThis.crypto.subtle.importKey(
+          'raw',
+          p256.Point.fromBytes(bytes).toBytes(false) as BufferSource,
+          { name: 'ECDSA', namedCurve: 'P-256' },
+          true,
+          ['verify'],
+        );
+        publicKeys.set(id, found);
+        found.catch(() => publicKeys.delete(id));
+        if (publicKeys.size > MAX_PUBLIC_KEYS) publicKeys.delete(publicKeys.keys().next().value!);
+      }
+      return found;
     },
 
     async importPrivateKey(bytes: Uint8Array): Promise<CryptoKey> {

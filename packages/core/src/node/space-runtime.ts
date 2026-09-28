@@ -162,6 +162,16 @@ const ACCESS_KEYS: ReadonlyArray<readonly [string, string]> = [
 /** How many records a keep list may name */
 const MAX_KEEP = 10_000;
 
+/** Freezes a value and everything inside it, in place */
+function deepFreeze(value: unknown): void {
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
+  Object.freeze(value);
+  for (const inner of Object.values(value)) deepFreeze(inner);
+}
+
+/** Decrypted bodies kept in memory per space, the oldest let go first */
+const MAX_OPENED = 100_000;
+
 /**
  * The key of a person's profile record in a space: one per identity, named by
  * a hash of it (record keys are lower case; a did:key is not).
@@ -461,19 +471,33 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return verdict;
   }
 
+  type Opened = { readonly body: unknown; readonly links: ReadonlyArray<Link>; readonly encrypted: boolean };
+  /**
+   * Bodies already decrypted, by version id. Only a version whose signature
+   * checked out is ever opened, and a failure is not kept: a key that arrives
+   * later may open it.
+   */
+  const openedBodies = new Map<string, Opened>();
+
   /**
    * A version's content: its body and its links. In a private space both are
    * sealed together, so a relay learns neither what a record says nor what it
    * points at.
    */
-  async function openBody(expression: Expression): Promise<{ body: unknown; links: ReadonlyArray<Link>; encrypted: boolean }> {
+  async function openBody(expression: Expression): Promise<Opened> {
     if (!looksEncrypted(expression.body)) return { body: expression.body, links: expression.links ?? [], encrypted: false };
+    const known = openedBodies.get(expression.id);
+    if (known) return known;
     const sealedWith = keyring.get(String((expression.body as { keyId?: unknown }).keyId));
     if (!sealedWith) return { body: null, links: [], encrypted: true };
     try {
       const opened = (await decryptExpression(expression as EncryptedExpression, sealedWith)).body as { body?: unknown; links?: unknown };
       const links = checkLinks(opened?.links ?? []) === null ? ((opened?.links as ReadonlyArray<Link> | undefined) ?? []) : [];
-      return { body: opened?.body ?? null, links, encrypted: true };
+      const result: Opened = Object.freeze({ body: opened?.body ?? null, links, encrypted: true });
+      // An id names its content, so what opened once opens the same way again.
+      openedBodies.set(expression.id, result);
+      if (openedBodies.size > MAX_OPENED) openedBodies.delete(openedBodies.keys().next().value!);
+      return result;
     } catch {
       return { body: null, links: [], encrypted: true };
     }
@@ -755,6 +779,12 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (!found) {
       found = judgeStanding(expression);
       standings.set(cacheKey, found);
+      // Only a verdict that stands is kept: one waiting on something not here
+      // yet changes when it arrives, and a failing verdict is never cached (02 §9.5).
+      found.then(
+        (standing) => !standing.ok && standings.delete(cacheKey),
+        () => standings.delete(cacheKey),
+      );
     }
     return found;
   }
@@ -870,14 +900,59 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return null;
   }
 
+  // ─── What counts now ───────────────────────────────────────────────
+  //
+  // Every record's counted version, read from the store once and then kept
+  // up to date a key at a time: placing a version marks its key stale, and
+  // only that key is read again. A change that could alter other verdicts —
+  // the space's own records, new keys, a store someone else wrote — throws
+  // the whole index away (`recordsChanged`).
+
+  interface Counted {
+    readonly version: Expression;
+    readonly createdAt: string;
+    /** Worked out the first time it is read */
+    shown?: Promise<NodeRecord<unknown>>;
+  }
+  let countedIndex: Promise<Map<string, Counted>> | null = null;
+  const staleKeys = new Set<string>();
+  /** One read of the index at a time, so a key is never brought up to date twice at once */
+  let indexing: Promise<unknown> = Promise.resolve();
+
+  const countedEntry = async (version: Expression): Promise<Counted> => ({ version, createdAt: await createdAtOf(version) });
+
+  async function buildIndex(): Promise<Map<string, Counted>> {
+    staleKeys.clear();
+    const index = new Map<string, Counted>();
+    for (const version of await storage.listCurrent()) {
+      const counted = (await standingOf(version)).ok && (await consistent(version)) ? version : await currentOf(version.key);
+      if (counted) index.set(counted.key, await countedEntry(counted));
+    }
+    return index;
+  }
+
+  function counted(): Promise<Map<string, Counted>> {
+    const run = indexing.then(async () => {
+      const index = await (countedIndex ??= buildIndex().catch((error) => {
+        countedIndex = null;
+        throw error;
+      }));
+      for (const key of [...staleKeys]) {
+        staleKeys.delete(key);
+        const version = await currentOf(key);
+        if (version) index.set(key, await countedEntry(version));
+        else index.delete(key);
+      }
+      return index;
+    });
+    indexing = run.catch(() => {});
+    return run;
+  }
+
   /** Every record that counts, current version each — deletes included */
   async function everyCurrent(collection?: string): Promise<Expression[]> {
-    const current = collection ? await storage.queryExpressions(collection) : await storage.listCurrent();
     const shown: Expression[] = [];
-    for (const version of current) {
-      const counted = (await standingOf(version)).ok && (await consistent(version)) ? version : await currentOf(version.key);
-      if (counted && (!collection || counted.collection === collection)) shown.push(counted);
-    }
+    for (const entry of (await counted()).values()) if (!collection || entry.version.collection === collection) shown.push(entry.version);
     return shown;
   }
 
@@ -889,6 +964,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       standingOf(expression),
     ]);
     const creator = genesis ? await judge(genesis) : null;
+    // One record is handed to every reader, so nobody may change it under the others.
+    deepFreeze(body);
+    deepFreeze(links);
     const issues = body === null || expression.deleted ? null : await contentIssues(expression.collection, body, links);
     const reason = !verdict.verified ? verdict.reason : !stands.ok ? stands.reason : undefined;
     return Object.freeze({
@@ -1112,17 +1190,29 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return found;
   }
 
-  /** Records changed: everything derived from them may have too. */
-  const recordsChanged = () => {
+  /**
+   * Records changed: whatever is derived from them may have too. Given the
+   * versions that were placed, and none of them the space's own (`sys.`),
+   * only what those records feed is thrown away: who may do what, the
+   * definitions and the keys come from `sys.` records alone, so every other
+   * verdict still holds. Given nothing — another tab, a folder, new keys —
+   * everything is.
+   */
+  const recordsChanged = (placed?: ReadonlyArray<Expression>) => {
     linkIndexCache = null;
+    emit({ type: 'records', space: space.id });
+    for (const mirror of mirrors) mirror.changed();
+    if (placed && placed.every((version) => !version.collection.startsWith('sys.'))) {
+      for (const version of placed) staleKeys.add(version.key);
+      return;
+    }
+    countedIndex = null;
     catalogCache = null;
     profilesCache = null;
     memberKeysCache = null;
     accessCache = null;
     standings.clear();
-    emit({ type: 'records', space: space.id });
     keepUp();
-    for (const mirror of mirrors) mirror.changed();
     // The access history may name keepers now, or none.
     void refreshHolds().catch(() => {});
   };
@@ -1436,10 +1526,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }, 100);
   };
 
-  sync.on('expression-received', (version: Expression) => {
-    recordsChanged();
+  // Once per message from a peer, with everything it brought.
+  sync.on('received', (versions: ReadonlyArray<Expression>) => {
+    recordsChanged(versions);
     announceSoon();
-    deps.onArrived?.(version);
+    for (const version of versions) deps.onArrived?.(version);
   });
   sync.on('rejected', (peer: string, _expression: Expression, reason: string) => {
     rejected += 1;
@@ -1887,7 +1978,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     await markPending(signed);
     channel?.postMessage('changed');
     sync.onLocalChange(signed);
-    recordsChanged();
+    recordsChanged([signed]);
     return signed;
   }
 
@@ -1965,17 +2056,22 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   return Object.freeze({
     async list<T>(options: ListOptions = {}): Promise<ReadonlyArray<NodeRecord<T>>> {
       if (options.collection) use([options.collection]);
-      const current = (await everyCurrent(options.collection)).filter((e) => options.collection || !e.collection.startsWith('sys.'));
-
-      const shown: Array<{ version: Expression; createdAt: string }> = [];
-      for (const version of current) {
-        if (version.deleted && !options.includeDeleted) continue;
-        shown.push({ version, createdAt: await createdAtOf(version) });
+      const shown: Counted[] = [];
+      for (const entry of (await counted()).values()) {
+        const { collection, deleted } = entry.version;
+        if (options.collection ? collection !== options.collection : collection.startsWith('sys.')) continue;
+        if (deleted && !options.includeDeleted) continue;
+        shown.push(entry);
       }
       shown.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.version.key.localeCompare(b.version.key));
       if (options.newestFirst) shown.reverse();
       const page = options.limit === undefined ? shown : shown.slice(0, options.limit);
-      return Promise.all(page.map(({ version }) => view<T>(version)));
+      const shownOf = (entry: Counted) =>
+        (entry.shown ??= view(entry.version).catch((error: unknown) => {
+          entry.shown = undefined;
+          throw error;
+        }));
+      return Promise.all(page.map((entry) => shownOf(entry) as Promise<NodeRecord<T>>));
     },
 
     get,

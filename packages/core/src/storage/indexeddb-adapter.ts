@@ -177,6 +177,35 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
       return results;
     },
 
+    async entries(prefix: string): Promise<ReadonlyArray<readonly [string, Uint8Array]>> {
+      const { tx } = idbTransaction(db, ['kv'], 'readonly');
+      const store = tx.objectStore('kv');
+      const range = IDBKeyRange.bound(prefix, prefix + '\uFFFF', false, false);
+      // Both in key order, from one transaction: they line up.
+      const [keys, values] = await Promise.all([idbRequest(store.getAllKeys(range)), idbRequest(store.getAll(range))]);
+      return keys.map((key, i) => [key as string, new Uint8Array(values[i] as ArrayBuffer)] as const);
+    },
+
+    async commit(write: { readonly store: ReadonlyArray<Expression>; readonly ops: ReadonlyArray<BatchOp>; readonly remove: ReadonlyArray<string> }): Promise<void> {
+      const { tx, complete } = idbTransaction(db, ['kv', 'expressions'], 'readwrite');
+      const expressions = tx.objectStore('expressions');
+      const kv = tx.objectStore('kv');
+      for (const expression of write.store) expressions.put(expression);
+      for (const op of write.ops) {
+        if (op.type === 'put') kv.put(op.value.buffer, op.key);
+        else kv.delete(op.key);
+      }
+      for (const id of write.remove) expressions.delete(id);
+      await complete;
+    },
+
+    async getExpressions(ids: ReadonlyArray<string>): Promise<ReadonlyArray<Expression | null>> {
+      if (ids.length === 0) return [];
+      const { tx } = idbTransaction(db, ['expressions'], 'readonly');
+      const store = tx.objectStore('expressions');
+      return Promise.all(ids.map(async (id) => ((await idbRequest(store.get(id))) as Expression | undefined) ?? null));
+    },
+
     async putExpression(expression: Expression): Promise<void> {
       const { tx, complete } = idbTransaction(db, ['expressions'], 'readwrite');
       const store = tx.objectStore('expressions');

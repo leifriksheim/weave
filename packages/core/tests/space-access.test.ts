@@ -27,6 +27,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
+import { stored } from './helpers/stored.js';
 
 const provider = createP256Provider();
 
@@ -374,8 +375,7 @@ describe('space access: taking it back', () => {
     await createStorageProvider(await bob.stores(`spaces/${space}`)).addExpression(late);
     await hold(bob.node, space);
     // Refused on arrival if the revoke got there first; stored, and then not counted, if not.
-    const aliceStore = createStorageProvider(await alice.stores(`spaces/${space}`));
-    await until(async () => refused.some((r) => /revoked/.test(r)) || (await aliceStore.getExpression(late.id)) !== null, 4000, 'the late note to reach Alice');
+    await until(async () => refused.some((r) => /revoked/.test(r)) || (await (await stored(alice.stores, space)).getExpression(late.id)) !== null, 4000, 'the late note to reach Alice');
     await until(async () => (await alice.node.records.get(space, late.key)) === null, 4000, 'Alice to stop counting it');
     assert.equal((await alice.node.records.get(space, early.key))?.verified, true);
   });

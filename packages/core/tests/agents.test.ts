@@ -30,6 +30,7 @@ import { base64UrlDecode, base64UrlEncode } from '../src/utils/encoding.js';
 import { createFolderAccountStore } from '../src/identity/account-store.js';
 import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
+import { stored } from './helpers/stored.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { createMemoryDirectory } from './helpers/memory-directory.js';
@@ -194,10 +195,9 @@ describe('an agent acting for a person', () => {
 
   test('taking someone out of the space, signed by an agent, is ignored too', async () => {
     const { alice, bob, space } = await setup();
-    const aliceStore = createStorageProvider(await alice.stores(`spaces/${space}`));
     // Bob knowing he joined is not Alice having heard it yet.
-    await until(async () => (await aliceStore.getCurrent(await memberKey(bob.node.did))) !== null, 4000, 'Alice to hold Bob\'s member record');
-    const held = await aliceStore.getCurrent(await memberKey(bob.node.did));
+    await until(async () => (await (await stored(alice.stores, space)).getCurrent(await memberKey(bob.node.did))) !== null, 4000, 'Alice to hold Bob\'s member record');
+    const held = await (await stored(alice.stores, space)).getCurrent(await memberKey(bob.node.did));
     await letGo(alice.node, space);
     await forgeAsAgent(alice, space, {
       collection: 'sys.member',

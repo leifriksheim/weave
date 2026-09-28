@@ -321,12 +321,28 @@ export interface SchemaIssue {
   readonly message: string;
 }
 
+const validators = new WeakMap<object, Validator>();
+
+/**
+ * One validator per schema object. It is built from a copy: the validator
+ * writes into the schema it is given, and a stored schema is frozen.
+ */
+function validatorFor(schema: JsonSchema): Validator {
+  if (typeof schema !== 'object' || schema === null) return new Validator(schema as never, '2020-12', false);
+  let found = validators.get(schema);
+  if (!found) {
+    found = new Validator(structuredClone(schema) as never, '2020-12', false);
+    validators.set(schema, found);
+  }
+  return found;
+}
+
 /**
  * Validates a value against a stored schema.
  * @returns The issues; empty when it conforms
  */
 export function validateJsonSchema(schema: JsonSchema, value: unknown): ReadonlyArray<SchemaIssue> {
-  const result = new Validator(schema as never, '2020-12', false).validate(value);
+  const result = validatorFor(schema).validate(value);
   if (result.valid) return [];
   // The validator reports the wrapping keywords too ("properties" failed
   // because "text" did); the leaves are the useful part.

@@ -74,6 +74,8 @@ export const CURRENT_PREFIX = 'r/';
 export const GENESIS_PREFIX = 'g/';
 export const HISTORY_PREFIX = 'h/';
 export const ITEM_PREFIX = 'i/';
+/** Version bodies a store keeps in memory, the oldest let go first */
+const MAX_BODIES = 50_000;
 
 const currentKey = (key: string) => `${CURRENT_PREFIX}${key}`;
 const genesisKey = (key: string) => `${GENESIS_PREFIX}${key}`;
@@ -132,6 +134,39 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     return run;
   };
 
+  // ─── What is read often, in memory ─────────────────────────────────
+  //
+  // Which version is current or first for a record, and version bodies. This
+  // store is the only writer of its adapter until `invalidate` says
+  // otherwise, so what it read or wrote stays true. A body never changes
+  // under its id; a pointer read while a change was landing is not kept.
+
+  /** `r/` and `g/` entries: the id they name, or null for none */
+  const pointers = new Map<string, string | null>();
+  /** Version bodies by id, the oldest let go first */
+  const bodies = new Map<string, Expression>();
+  /** Counts changes landed, so a read that raced one is not kept */
+  let landed = 0;
+
+  const isPointer = (key: string) => key.startsWith(CURRENT_PREFIX) || key.startsWith(GENESIS_PREFIX);
+
+  const remember = (version: Expression) => {
+    bodies.delete(version.id);
+    bodies.set(version.id, version);
+    if (bodies.size > MAX_BODIES) bodies.delete(bodies.keys().next().value!);
+  };
+
+  /** Bodies the changes landing now will store: readable by the changes after them in the same group */
+  const staging = new Map<string, Expression>();
+
+  async function body(id: string): Promise<Expression | null> {
+    const known = staging.get(id) ?? bodies.get(id);
+    if (known) return known;
+    const version = await adapter.getExpression(id);
+    if (version) remember(version);
+    return version;
+  }
+
   // ─── What sync compares, in memory ─────────────────────────────────
 
   /** Versions kept, by collection, then by id. Null until first needed. */
@@ -183,41 +218,136 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
 
   // ─── Changes ───────────────────────────────────────────────────────
 
+  /** A change waiting to land */
+  interface Pending {
+    readonly run: (entries: Entries) => Promise<void>;
+    readonly resolve: () => void;
+    readonly reject: (error: unknown) => void;
+  }
+  /** Changes that came in while others were landing: the next group */
+  let pending: Pending[] = [];
+  let landing = false;
+
   /**
-   * Runs one change. Its entry writes are held and made in one batch, so a
-   * change lands whole or not at all. Versions it drops are deleted only
-   * after, so no entry ever names a record that is gone.
+   * Runs one change. Changes run one at a time, each seeing the ones before
+   * it; those that came in while others were landing land together, in one
+   * write where the adapter can. A change lands whole or not at all.
    */
-  const change = (run: (entries: Entries) => Promise<void>) =>
-    exclusively(async () => {
-      const writes = new Map<string, Uint8Array | null>();
-      const added = new Map<string, Expression>();
-      const dropped = new Map<string, Expression>();
+  const change = (run: (entries: Entries) => Promise<void>): Promise<void> =>
+    new Promise((resolve, reject) => {
+      pending.push({ run, resolve, reject });
+      if (!landing) landNext();
+    });
+
+  function landNext(): void {
+    landing = true;
+    void exclusively(() => {
+      const group = pending;
+      pending = [];
+      return land(group);
+    }).finally(() => {
+      landing = false;
+      if (pending.length > 0) landNext();
+    });
+  }
+
+  async function land(group: ReadonlyArray<Pending>): Promise<void> {
+    const writes = new Map<string, Uint8Array | null>();
+    const added = new Map<string, Expression>();
+    const dropped = new Map<string, Expression>();
+    /** Bodies not held yet */
+    const toStore = new Map<string, Expression>();
+    const ran: Pending[] = [];
+
+    for (const one of group) {
+      // Each change on a layer of its own, so one that fails leaves nothing behind.
+      const layer = {
+        writes: new Map<string, Uint8Array | null>(),
+        added: new Map<string, Expression>(),
+        dropped: new Map<string, Expression>(),
+        toStore: new Map<string, Expression>(),
+      };
       const entries: Entries = {
         get: async (key) => {
-          const bytes = writes.has(key) ? writes.get(key)! : await adapter.get(key);
+          const written = layer.writes.has(key) ? layer.writes : writes.has(key) ? writes : null;
+          if (!written) return readId(key);
+          const bytes = written.get(key)!;
           return bytes ? utf8Decode(bytes) : null;
         },
-        set: (key, id) => void writes.set(key, utf8Encode(id)),
-        unset: (key) => void writes.set(key, null),
+        set: (key, id) => void layer.writes.set(key, utf8Encode(id)),
+        unset: (key) => void layer.writes.set(key, null),
         keep: async (version) => {
-          await adapter.putExpression(version);
-          writes.set(itemKey(version), utf8Encode(version.id));
-          added.set(version.id, version);
-          dropped.delete(version.id);
+          // A body already held — a current version being demoted — is not written again.
+          if (!bodies.has(version.id)) {
+            layer.toStore.set(version.id, version);
+            staging.set(version.id, version);
+          }
+          layer.writes.set(itemKey(version), utf8Encode(version.id));
+          layer.added.set(version.id, version);
+          layer.dropped.delete(version.id);
         },
         drop: (version) => {
-          writes.set(itemKey(version), null);
-          dropped.set(version.id, version);
-          added.delete(version.id);
+          layer.writes.set(itemKey(version), null);
+          layer.dropped.set(version.id, version);
+          layer.added.delete(version.id);
+          layer.toStore.delete(version.id);
         },
       };
-      await run(entries);
-      if (writes.size === 0 && dropped.size === 0) return;
-      await adapter.batch([...writes].map(([key, value]): BatchOp => (value ? { type: 'put', key, value } : { type: 'delete', key })));
-      for (const id of dropped.keys()) await adapter.deleteExpression(id);
-      track([...added.values()], [...dropped.values()]);
-    });
+      try {
+        await one.run(entries);
+      } catch (error) {
+        for (const id of layer.toStore.keys()) if (!toStore.has(id)) staging.delete(id);
+        one.reject(error);
+        continue;
+      }
+      for (const [key, value] of layer.writes) writes.set(key, value);
+      for (const [id, version] of layer.added) {
+        added.set(id, version);
+        dropped.delete(id);
+      }
+      for (const [id, version] of layer.dropped) {
+        dropped.set(id, version);
+        added.delete(id);
+        toStore.delete(id);
+      }
+      for (const [id, version] of layer.toStore) toStore.set(id, version);
+      ran.push(one);
+    }
+
+    if (writes.size === 0 && dropped.size === 0) {
+      staging.clear();
+      for (const one of ran) one.resolve();
+      return;
+    }
+    const ops = [...writes].map(([key, value]): BatchOp => (value ? { type: 'put', key, value } : { type: 'delete', key }));
+    landed++;
+    try {
+      if (adapter.commit) {
+        await adapter.commit({ store: [...toStore.values()], ops, remove: [...dropped.keys()] });
+      } else {
+        // Bodies first and deletes last, so no entry ever names a version that is not there.
+        for (const version of toStore.values()) await adapter.putExpression(version);
+        await adapter.batch(ops);
+        for (const id of dropped.keys()) await adapter.deleteExpression(id);
+      }
+    } catch (error) {
+      // Whether any of it landed is unknown: read it all again.
+      pointers.clear();
+      bodies.clear();
+      staging.clear();
+      for (const one of ran) one.reject(error);
+      return;
+    } finally {
+      // Also after: a read that started while this was landing may have seen either side of it.
+      landed++;
+    }
+    staging.clear();
+    for (const version of toStore.values()) remember(version);
+    for (const [key, value] of writes) if (isPointer(key)) pointers.set(key, value ? utf8Decode(value) : null);
+    for (const id of dropped.keys()) bodies.delete(id);
+    track([...added.values()], [...dropped.values()]);
+    for (const one of ran) one.resolve();
+  }
 
   /**
    * Places a version that is not current: the record's first version if it is
@@ -233,7 +363,7 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
       if (heldId === null || version.id < heldId) {
         await entries.keep(version);
         entries.set(genesisKey(version.key), version.id);
-        const displaced = heldId ? await adapter.getExpression(heldId) : null;
+        const displaced = heldId ? await body(heldId) : null;
         if (displaced) await keepOrDrop(entries, displaced);
         return;
       }
@@ -250,30 +380,56 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     entries.drop(version);
   }
 
-  const load = async (ids: Iterable<string>): Promise<Expression[]> =>
-    (await Promise.all([...ids].map((id) => adapter.getExpression(id)))).filter((v): v is Expression => v !== null);
+  /** Versions by id, those held, in one read where the adapter can */
+  async function load(ids: Iterable<string>): Promise<Expression[]> {
+    const wanted = [...ids];
+    const missing = wanted.filter((id) => !bodies.has(id));
+    if (adapter.getExpressions && missing.length > 1) {
+      for (const version of await adapter.getExpressions(missing)) if (version) remember(version);
+    } else {
+      await Promise.all(missing.map((id) => body(id)));
+    }
+    return wanted.map((id) => bodies.get(id)).filter((v): v is Expression => v !== undefined);
+  }
+
+  /** `[entry key, version id]` for every pointer under a prefix, in one read where the adapter can */
+  async function pointersUnder(prefix: string): Promise<Array<readonly [string, string]>> {
+    if (!adapter.entries) {
+      const found = await Promise.all((await adapter.list(prefix)).map(async (key) => [key, await readId(key)] as const));
+      return found.filter((entry): entry is readonly [string, string] => entry[1] !== null);
+    }
+    const before = landed;
+    const found = (await adapter.entries(prefix)).map(([key, bytes]) => [key, utf8Decode(bytes)] as const);
+    if (before === landed) for (const [key, id] of found) pointers.set(key, id);
+    return found;
+  }
 
   const readId = async (key: string): Promise<string | null> => {
+    const pointer = isPointer(key);
+    if (pointer && pointers.has(key)) return pointers.get(key)!;
+    const before = landed;
     const bytes = await adapter.get(key);
-    return bytes ? utf8Decode(bytes) : null;
+    const id = bytes ? utf8Decode(bytes) : null;
+    if (pointer && before === landed) pointers.set(key, id);
+    return id;
   };
 
   async function histories(prefix: string): Promise<Map<string, Expression[]>> {
     const ids = new Map<string, Set<string>>();
     const add = (key: string, id: string) => (ids.get(key) ?? ids.set(key, new Set()).get(key)!).add(id);
     for (const entry of [CURRENT_PREFIX, GENESIS_PREFIX]) {
-      for (const name of await adapter.list(`${entry}${prefix}`)) {
-        const id = await readId(name);
-        if (id) add(name.slice(entry.length), id);
-      }
+      for (const [name, id] of await pointersUnder(`${entry}${prefix}`)) add(name.slice(entry.length), id);
     }
     // `h/<key>/<seq>/<id>` — a record key holds no `/`, and the id is in the entry's name.
     for (const name of await adapter.list(`${HISTORY_PREFIX}${prefix}`)) {
       const [, key, , id] = name.split('/');
       if (key && id) add(key, id);
     }
+    const found = new Map((await load(new Set([...ids.values()].flatMap((held) => [...held])))).map((v) => [v.id, v]));
     const result = new Map<string, Expression[]>();
-    for (const [key, held] of ids) result.set(key, (await load(held)).sort(byVersion));
+    for (const [key, held] of ids) {
+      result.set(key, [...held].flatMap((id) => found.get(id) ?? []).sort(byVersion));
+    }
     return result;
   }
 
@@ -295,7 +451,7 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
       return change(async (entries) => {
         const currentId = await entries.get(currentKey(incoming.key));
         if (currentId === incoming.id) return;
-        const current = currentId ? await adapter.getExpression(currentId) : null;
+        const current = currentId ? await body(currentId) : null;
         if (current && !supersedes(incoming, current)) return demote(entries, incoming, current);
 
         await entries.keep(incoming);
@@ -306,7 +462,7 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
 
     removeExpression(id: string): Promise<void> {
       return change(async (entries) => {
-        const version = await adapter.getExpression(id);
+        const version = await body(id);
         if (!version) return;
         for (const key of [currentKey(version.key), genesisKey(version.key)]) {
           if ((await entries.get(key)) === id) entries.unset(key);
@@ -316,18 +472,16 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
       });
     },
 
-    async getExpression(id: string): Promise<Expression | null> {
-      return adapter.getExpression(id);
-    },
+    getExpression: body,
 
     async getCurrent(key: string): Promise<Expression | null> {
       const id = await readId(currentKey(key));
-      return id ? adapter.getExpression(id) : null;
+      return id ? body(id) : null;
     },
 
     async getGenesis(key: string): Promise<Expression | null> {
       const id = await readId(genesisKey(key));
-      return id ? adapter.getExpression(id) : null;
+      return id ? body(id) : null;
     },
 
     async history(key: string): Promise<Expression[]> {
@@ -337,8 +491,7 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     histories,
 
     async listCurrent(): Promise<Expression[]> {
-      const ids = await Promise.all((await adapter.list(CURRENT_PREFIX)).map(readId));
-      return load(ids.filter((id): id is string => id !== null));
+      return load((await pointersUnder(CURRENT_PREFIX)).map(([, id]) => id));
     },
 
     async queryExpressions(collection: string): Promise<Expression[]> {
@@ -365,6 +518,9 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
       kept = null;
       totals = null;
       sets.clear();
+      pointers.clear();
+      bodies.clear();
+      landed++;
     },
 
     getAdapter(): StorageAdapter {

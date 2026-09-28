@@ -24,6 +24,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { hold } from './helpers/hold.js';
+import { stored } from './helpers/stored.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -130,9 +131,8 @@ describe('profiles', () => {
     await until(async () => (await nameIn(alice.node, space, mallory.node.did)) === 'Mallory', 4000, 'Mallory’s profile');
     await new Promise((resolve) => setTimeout(resolve, 200));
     // The forgery did arrive — it is even the "current" version by sequence…
-    const aliceCopy = createStorageProvider(await alice.stores(`spaces/${space}`));
-    await until(async () => (await aliceCopy.getCurrent(await profileKey(alice.node.did)))?.seq === 99, 4000, 'the forgery to reach Alice');
-    assert.equal((await aliceCopy.history(await profileKey(alice.node.did))).some((v) => v.seq === 0), true);
+    await until(async () => (await (await stored(alice.stores, space)).getCurrent(await profileKey(alice.node.did)))?.seq === 99, 4000, 'the forgery to reach Alice');
+    assert.equal((await (await stored(alice.stores, space)).history(await profileKey(alice.node.did))).some((v) => v.seq === 0), true);
     // …and Alice is still Alice, on both sides.
     assert.equal(await nameIn(alice.node, space, alice.node.did), 'Alice');
     assert.equal(await nameIn(mallory.node, space, alice.node.did), 'Alice');

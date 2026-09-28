@@ -2,7 +2,7 @@
  * Reconciliation — Negentropy itself, the store's sets and sums, and two
  * sync engines finding their differences one collection at a time.
  */
-import { test, describe } from 'node:test';
+import { test, describe, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 
@@ -10,6 +10,7 @@ import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createReconciler, fingerprintOf, ItemSet, type Item } from '../src/sync/negentropy.js';
 import { createStorageProvider, type StorageProvider } from '../src/storage/storage-provider.js';
 import { createSyncEngine, type Holds, type SyncEngine } from '../src/sync/sync-engine.js';
+import type { SyncMessage } from '../src/sync/sync-messages.js';
 import { base32Decode, base32Encode, cidDigest, cidFromBytes, cidOfDigest } from '../src/utils/hash.js';
 import { bytesToHex } from '../src/utils/encoding.js';
 import type { Expression } from '../src/types.js';
@@ -153,9 +154,12 @@ async function version(collection: string, overrides: Partial<Expression> = {}):
 
 function pair(
   options: {
-    validate?: (e: Expression) => Promise<{ valid: boolean; reason?: string }>;
+    validate?: (e: Expression) => Promise<{ valid: boolean; reason?: string; later?: boolean }>;
     holdsA?: () => Holds;
     holdsB?: () => Holds;
+    /** Lose this message on the way */
+    drop?: (message: SyncMessage) => boolean;
+    heartbeatInterval?: number;
   } = {},
 ) {
   const inFlight: Promise<void>[] = [];
@@ -168,7 +172,9 @@ function pair(
       storageProvider: storage,
       self,
       ...(holds ? { holds } : {}),
+      ...(options.heartbeatInterval ? { heartbeatInterval: options.heartbeatInterval } : {}),
       sendToPeer: (_peer, message) => {
+        if (options.drop?.(message)) return;
         sent.bytes += JSON.stringify(message).length;
         if (message.type === 'reconcile') sent.reconciles.set(message.collection, (sent.reconciles.get(message.collection) ?? 0) + 1);
         deliver(message);
@@ -303,6 +309,120 @@ describe('sync by reconciliation', () => {
     await storage.addExpression(third);
     assert.deepEqual((await storage.versionIds()).sort(), [first.id, third.id].sort());
     assert.equal((await storage.items('app.note')).size, 2);
+  });
+
+  test('joining, a deleted record never shows as it once was', async () => {
+    // Waits, as a peer's gatekeeper does, for the first version a later one names.
+    let b: StorageProvider | null = null;
+    const synced = pair({
+      validate: async (e) => (e.seq > 0 && e.genesis && !(await b!.getExpression(e.genesis)) ? { valid: false, reason: 'first version not here', later: true } : { valid: true }),
+    });
+    b = synced.b.storage;
+    // 300 records written and then deleted, then 100 that stay: many rounds' worth.
+    const gone = [];
+    for (let i = 0; i < 300; i++) gone.push(await version('app.pixel'));
+    for (const first of gone) {
+      await synced.a.storage.addExpression(first);
+      await synced.a.storage.addExpression(
+        await version('app.pixel', { key: first.key, seq: 1, prev: first.id, genesis: first.id, deleted: true, body: null }),
+      );
+    }
+    for (let i = 0; i < 100; i++) await synced.a.storage.addExpression(await version('app.pixel'));
+
+    // What b would show after each message, from what it took in: a record whose newest version is not a delete.
+    const newest = new Map<string, Expression>();
+    let most = 0;
+    synced.b.sync.on('received', (versions: Expression[]) => {
+      for (const v of versions) if ((newest.get(v.key)?.seq ?? -1) < v.seq) newest.set(v.key, v);
+      most = Math.max(most, [...newest.values()].filter((v) => !v.deleted).length);
+    });
+    synced.b.sync.notifyPeers(['a']);
+    await synced.settle();
+
+    assert.equal(await b.fingerprint(), await synced.a.storage.fingerprint());
+    assert.equal(most, 100, 'never more than the records that stay');
+  });
+
+  test('a version that waits for its first version asks for it at once', async () => {
+    let b: StorageProvider | null = null;
+    const synced = pair({
+      validate: async (e) => (e.seq > 0 && e.genesis && !(await b!.getExpression(e.genesis)) ? { valid: false, reason: 'first version not here', later: true } : { valid: true }),
+    });
+    b = synced.b.storage;
+    await synced.settle();
+    const first = await version('app.note');
+    const edit = await version('app.note', { key: first.key, seq: 1, prev: first.id, genesis: first.id });
+    await synced.a.storage.addExpression(first);
+    await synced.a.storage.addExpression(edit);
+    // Only the edit is pushed, and no round of sync runs: the first version comes because b asks for it.
+    synced.a.sync.onLocalChange(edit);
+    await synced.settle();
+    assert.equal((await b.getCurrent(first.key))?.id, edit.id);
+    assert.notEqual(await b.getExpression(first.id), null);
+  });
+
+  test('a want whose answer is lost is given up, and the peer is synced again', async () => {
+    mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+    let lost = false;
+    const synced = pair({
+      // b's first answer to a want never reaches a.
+      drop: (message) => !lost && message.type === 'versions' && typeof message.id === 'number' && (lost = true),
+      heartbeatInterval: 10,
+    });
+    try {
+      const onlyB = await version('app.note');
+      await synced.b.storage.addExpression(onlyB);
+      let syncedWithB = 0;
+      synced.a.sync.on('synced', (peer: string) => peer === 'b' && syncedWithB++);
+      synced.a.sync.start();
+      await synced.settle();
+      assert.equal(lost, true);
+      // The next hello asked again and got it; the lost want still counts as in flight.
+      assert.notEqual(await synced.a.storage.getExpression(onlyB.id), null);
+      syncedWithB = 0;
+      await synced.settle();
+      assert.equal(syncedWithB, 0, 'not synced while a want is in flight');
+
+      mock.timers.tick(31_000);
+      await synced.settle();
+      assert.ok(syncedWithB > 0, 'synced once the lost want is given up');
+    } finally {
+      synced.a.sync.stop();
+      mock.timers.reset();
+    }
+  });
+
+  test('changes that come in while one lands land together; one that fails leaves nothing', async () => {
+    const adapter = createMemoryAdapter();
+    let batches = 0;
+    let broken: string | null = null;
+    const counted = {
+      ...adapter,
+      batch: (ops: Parameters<typeof adapter.batch>[0]) => {
+        batches++;
+        return adapter.batch(ops);
+      },
+      getExpression: (id: string) => (id === broken ? Promise.reject(new Error('unreadable')) : adapter.getExpression(id)),
+    };
+    const storage = createStorageProvider(counted);
+    const versions = await Promise.all(Array.from({ length: 16 }, () => version('app.note')));
+    await Promise.all(versions.map((v) => storage.addExpression(v)));
+    assert.ok(batches <= 2, `${batches} writes for 16 changes`);
+    for (const v of versions) assert.equal((await storage.getCurrent(v.key))?.id, v.id);
+
+    // A fresh store over the same adapter, so it must read the current version it replaces.
+    const fresh = createStorageProvider(counted);
+    const target = versions[0]!;
+    broken = target.id;
+    const edit = await version('app.note', { key: target.key, seq: 1, prev: target.id, genesis: target.id });
+    const other = await version('app.note');
+    const [failed, landed] = await Promise.allSettled([fresh.addExpression(edit), fresh.addExpression(other)]);
+    assert.equal(failed.status, 'rejected');
+    assert.equal(landed.status, 'fulfilled');
+    broken = null;
+    const reread = createStorageProvider(counted);
+    assert.equal((await reread.getCurrent(target.key))?.id, target.id, 'the failed change left nothing');
+    assert.equal((await reread.getCurrent(other.key))?.id, other.id);
   });
 });
 

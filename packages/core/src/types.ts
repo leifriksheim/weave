@@ -227,6 +227,20 @@ export interface StorageAdapter {
   /** Batch operations */
   batch(ops: ReadonlyArray<BatchOp>): Promise<void>;
   close(): Promise<void>;
+  /** Optional: every entry under a prefix with its value, in one read. Without it, `list` then `get` each. */
+  entries?(prefix: string): Promise<ReadonlyArray<readonly [string, Uint8Array]>>;
+  /** Optional: many expressions by id in one read, null where absent, in the order asked. Without it, `getExpression` each. */
+  getExpressions?(ids: ReadonlyArray<string>): Promise<ReadonlyArray<Expression | null>>;
+  /**
+   * Optional: stores these expressions, applies these entry ops and deletes
+   * these expressions in one atomic write. Without it: `putExpression` each,
+   * then `batch`, then `deleteExpression` each.
+   */
+  commit?(write: {
+    readonly store: ReadonlyArray<Expression>;
+    readonly ops: ReadonlyArray<BatchOp>;
+    readonly remove: ReadonlyArray<string>;
+  }): Promise<void>;
 }
 
 export type BatchOp =
