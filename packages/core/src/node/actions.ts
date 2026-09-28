@@ -21,9 +21,12 @@ import {
   checkApp,
   proposeApp,
   reviewApp,
+  standardNeeds,
   supersededApps,
   type App,
 } from '../schemas/apps.js';
+import { standardDefinition, standardGroups } from '../schemas/standard.js';
+import { toJsonSchema } from '../schema/collection-def.js';
 import { SCREEN_GUIDE } from '../schemas/screens.js';
 import { describeCollection } from '../records/describe.js';
 import { isRecord } from '../utils/guards.js';
@@ -277,12 +280,49 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     name: 'collections_list',
     description:
       'What a space holds and how it connects: each collection with its title, description, JSON Schema, declared ' +
-      'link roles and record count. Read this before writing, to match the shapes and links others use. Common ' +
-      'shapes — std.reaction, std.comment, std.tag, std.attachment, std.reference, std.message, std.task, std.column, std.poll, std.vote — appear only once a space defines them.',
+      'link roles and record count. Read this before writing, to match the shapes and links others use. ' +
+      'Standard shapes (std.*) appear only once a space defines them; collections_standard lists them all.',
     input: { type: 'object', properties: { space }, required: ['space'] },
     readOnly: true,
     peerContent: true,
     run: (node, input) => node.collections.list(str(input, 'space')),
+  },
+  {
+    name: 'collections_standard',
+    description:
+      'The standard library: collections most apps can share — lists, events and RSVPs, notes, documents, photos, ' +
+      "places, expenses, polls, reactions, comments and more — so apps that use them read each other's records. " +
+      'Without names, lists every one by area with a line on what it is; with names, gives their full definitions ' +
+      'and what each allows. Use one wherever it fits before making your own: in apps_propose, pass its name ' +
+      '("std.event") as a need.',
+    input: {
+      type: 'object',
+      properties: {
+        names: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'The collections to give in full, like ["std.event", "std.rsvp"]',
+        },
+      },
+    },
+    readOnly: true,
+    run: async (_node, input) => {
+      const names = Array.isArray(input.names)
+        ? input.names.filter((n): n is string => typeof n === 'string')
+        : [];
+      if (!names.length) {
+        return Object.entries(standardGroups).map(([area, definitions]) => ({
+          area,
+          collections: definitions.map(({ name, title, description }) => ({ name, title, description })),
+        }));
+      }
+      return names.map((name) => {
+        const definition = standardDefinition(name);
+        if (!definition) throw new Error(`${name} is not in the standard library`);
+        const { schema, ...rest } = definition;
+        return { ...rest, schema: toJsonSchema(schema), summary: describeCollection(definition) };
+      });
+    },
   },
   {
     name: 'collections_define',
@@ -292,7 +332,8 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'additionalProperties (boolean), title, description. For choices with labels use ' +
       'oneOf: [{ "const": "low", "title": "Low" }, …]. When a value picks from a list in a linked record — a vote\'s choice ' +
       'from its poll\'s options — add "x-choicesFrom": { "rel": "about", "field": "options" } to the field (a number is a ' +
-      'position in that list; text is the option itself), so apps can show labels and tallies. Name it reverse-DNS, e.g. "app.trip.expense". ' +
+      'position in that list; text is the option itself), so apps can show labels and tallies. ' +
+      'Check collections_standard first: std.* names are the standard library\'s. Name your own after what it is for, e.g. "carpool.ride", not "app.ride", which another app may want for something else. ' +
       'Redefining bumps the version; only whoever first defined it, or someone who can manage the space, may. Records are then checked against it when written. ' +
       "An agent acting for someone can't define collections: every peer ignores it. Propose an app with apps_propose instead.",
     input: {
@@ -387,7 +428,9 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       const found = await node.records.list<App>(spaceId, { collection: app.name });
       const superseded = supersededApps(found, collections);
       return found.map((record) => {
-        const review = record.body ? reviewApp(record.body, collections) : null;
+        const review = record.body
+          ? reviewApp(record.body, collections, { apps: found, key: record.key })
+          : null;
         return {
           key: record.key,
           title: record.body?.title ?? null,
@@ -400,11 +443,12 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
           superseded: superseded.has(record.key),
           problem: review?.problem ?? (record.body ? null : 'It could not be read'),
           needs:
-            review?.needs.map(({ definition, status, summary, changes }) => ({
+            review?.needs.map(({ definition, status, summary, changes, usedBy }) => ({
               name: definition.name,
               status,
               summary,
               changes,
+              ...(usedBy.length ? { usedBy } : {}),
             })) ?? [],
         };
       });
@@ -423,10 +467,13 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     name: 'apps_propose',
     description:
       'Propose an app in a space: a new way for its people to work together — a carpool, a sign-up sheet, a decision log. ' +
-      'Give it a title, a line on what it is for, and the collections it needs, each exactly as collections_define takes it ' +
-      '(name, title, description, schema, links, permissions, rules — no version). Nothing is defined yet: everyone in the ' +
+      'Give it a title, a line on what it is for, and the collections it needs. Use standard ones wherever they fit: read ' +
+      'collections_standard and pass each by name ("std.event"); it is then exactly the standard shape, so other apps read ' +
+      'its records. Give each collection of your own exactly as collections_define takes it (name, title, description, schema, ' +
+      'links, permissions, rules — no version), named after what it is for ("carpool.ride"); std.* names are only the ' +
+      "library's. A standard need given as a definition may add a screen, and nothing else of its own. Nothing is defined yet: everyone in the " +
       'space sees the proposal, with what it allows worked out from its rules, and a person who may define collections adds it. ' +
-      'Read collections_list first and reuse what the space already has (std.poll, std.task…) rather than inventing a twin. ' +
+      'Read collections_list first and reuse what the space already has rather than inventing a twin. ' +
       'To change an app that is already here, read apps_list and pass the key of its newest version, the one not superseded, as "updates": ' +
       'the change then shows as an update to it, and once it is added the old version is not offered again. ' +
       "For anything plain lists and forms can't show — a game board, a calendar, a whiteboard — give the main collection " +
@@ -447,8 +494,8 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         },
         needs: {
           type: 'array',
-          description: 'Collection definitions, as collections_define takes them — without version',
-          items: { type: 'object' },
+          description:
+            'The collections it needs: a standard one by name ("std.poll"), or a definition as collections_define takes it — without version',
         },
       },
       required: ['space', 'title', 'needs'],
@@ -460,21 +507,34 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         title: str(input, 'title'),
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
         ...(typeof input.updates === 'string' ? { updates: input.updates } : {}),
-        needs: input.needs,
+        needs: standardNeeds(input.needs),
       };
       if (!isApp(body)) throw new Error(checkApp(body) ?? 'Not an app');
       const record = await proposeApp(node, spaceId, body);
-      const review = reviewApp(body, await node.collections.list(spaceId));
+      const apps = await node.records.list<App>(spaceId, { collection: app.name });
+      const review = reviewApp(body, await node.collections.list(spaceId), { apps, key: record.key });
+      const breaks = body.updates ? [] : review.needs.filter((need) => need.usedBy.length);
       return {
         key: record.key,
         proposed: true,
         added: false,
         next: 'A person in the space who may define collections adds it from the Apps tab.',
-        needs: review.needs.map(({ definition, status, summary, changes }) => ({
+        ...(breaks.length
+          ? {
+              warnings: breaks.map(
+                (need) =>
+                  `This changes ${need.definition.name}, which ${need.usedBy.join(' and ')} uses as it is. ` +
+                  'If this is a new version of that app, propose it again with its key as "updates"; otherwise use the ' +
+                  'collection as it is, or give yours a name of its own.',
+              ),
+            }
+          : {}),
+        needs: review.needs.map(({ definition, status, summary, changes, usedBy }) => ({
           name: definition.name,
           status,
           summary,
           changes,
+          ...(usedBy.length ? { usedBy } : {}),
         })),
       };
     },

@@ -107,6 +107,7 @@ export function Proposals({
             space={space}
             record={record}
             replaces={all.find((other) => other.key === record.body?.updates)}
+            all={all}
             collections={collections}
             mayDefine={mayDefine}
             onAdded={onAdded}
@@ -121,6 +122,7 @@ function Proposal({
   space,
   record,
   replaces,
+  all,
   collections,
   mayDefine,
   onAdded,
@@ -128,6 +130,7 @@ function Proposal({
   space: SpaceSummary;
   record: NodeRecord<App>;
   replaces: NodeRecord<App> | undefined;
+  all: ReadonlyArray<NodeRecord<App>>;
   collections: ReadonlyArray<NodeCollection>;
   mayDefine: boolean;
   onAdded: (key: string) => void;
@@ -137,7 +140,7 @@ function Proposal({
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const body = record.body;
-  const review: AppReview | null = body ? reviewApp(body, collections) : null;
+  const review: AppReview | null = body ? reviewApp(body, collections, { apps: all, key: record.key }) : null;
 
   const add = async () => {
     setBusy(true);
@@ -229,6 +232,13 @@ function Proposal({
                 )
                 .join(' and ')}
               , which this space already has: {changes.map((c) => c.changes.join(', ')).join('; ')}.
+              {changes
+                .filter((c) => c.usedBy.length)
+                .map(
+                  (c) =>
+                    ` ${c.usedBy.join(' and ')} ${c.usedBy.length > 1 ? 'use' : 'uses'} it as it is now.`,
+                )
+                .join('')}
             </p>
           )}
           <button
