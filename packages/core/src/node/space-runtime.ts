@@ -351,11 +351,13 @@ export interface SpaceRuntime {
   revoke(token: string): Promise<void>;
   /** Whether a note has been revoked here */
   isRevoked(token: string): Promise<boolean>;
+  /** Every version this node keeps of these records, signed as stored, to hand on outside sync */
+  versionsOf(keys: ReadonlyArray<string>): Promise<Expression[]>;
   /**
-   * Resolves true once some peer has said it stored every version this node
-   * wrote since it opened the space, or false when `timeoutMs` runs out first.
+   * Takes in versions handed over outside sync, through the same checks as a
+   * peer's. How many were new.
    */
-  delivered(timeoutMs: number): Promise<boolean>;
+  take(versions: ReadonlyArray<Expression>): Promise<number>;
   /** Uses an invite's secret, once its record has arrived. True when this account is a member. */
   join(secret: Uint8Array): Promise<boolean>;
   /**
@@ -2205,10 +2207,6 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
   }
 
-  /** Versions written here that no peer has said it stored yet, and who is waiting for that */
-  const undelivered = new Set<string>();
-  const deliveredWaiters = new Set<() => void>();
-
   sync.on('synced', (_peer: string, full: boolean) => {
     if (!cache || !full || cacheState.settled) return;
     // Caught up with a node holding everything: the access history here is the space's now.
@@ -2218,8 +2216,6 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   });
   sync.on('stored', (peer: string, ids: ReadonlyArray<string>) => {
     void confirm(peer, { ids: new Set(ids) }).catch(() => {});
-    for (const id of ids) undelivered.delete(id);
-    if (undelivered.size === 0) for (const done of deliveredWaiters) done();
   });
   sync.on('level', (peer: string, collection: string, full: boolean) => {
     if (cache && full && cacheState.level[collection] === undefined) {
@@ -2414,7 +2410,6 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (!stands.ok) throw new Error(stands.reason);
     }
     await storage.addExpression(signed);
-    undelivered.add(signed.id);
     await markPending(signed);
     channel?.postMessage('changed');
     sync.onLocalChange(signed);
@@ -2842,18 +2837,24 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return (await access()).history.revoked(await noteCid(token)) !== null;
     },
 
-    delivered(timeoutMs: number) {
-      if (undelivered.size === 0) return Promise.resolve(true);
-      return new Promise<boolean>((resolve) => {
-        const done = (result: boolean) => {
-          clearTimeout(timer);
-          deliveredWaiters.delete(finish);
-          resolve(result);
-        };
-        const finish = () => done(true);
-        const timer = setTimeout(() => done(false), timeoutMs);
-        deliveredWaiters.add(finish);
-      });
+    async versionsOf(keys: ReadonlyArray<string>) {
+      return (await Promise.all(keys.map((key) => storage.history(key)))).flat();
+    },
+
+    async take(versions: ReadonlyArray<Expression>) {
+      const placed: Expression[] = [];
+      // First versions before the ones that follow them.
+      for (const version of [...versions].sort((a, b) => a.seq - b.seq)) {
+        if (await storage.getExpression(version.id)) continue;
+        const verdict = await admit(version).catch(() => null);
+        if (!verdict?.ok) continue;
+        await storage.addExpression(version);
+        placed.push(version);
+      }
+      if (placed.length === 0) return 0;
+      recordsChanged(placed);
+      announceSoon();
+      return placed.length;
     },
 
     async join(secret: Uint8Array) {

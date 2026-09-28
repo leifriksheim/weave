@@ -24,7 +24,7 @@ import {
   type ResultOf,
 } from '../query/types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
-import type { Link, SpaceRole } from '../types.js';
+import type { Expression, Link, SpaceRole } from '../types.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
 import {
   delegateCapabilities,
@@ -1034,6 +1034,30 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       await (await runtime(accountSpaceId)).removeSystem(id);
       await passSubscriptionsOn();
     },
+
+    async versions(ids: ReadonlyArray<string>) {
+      if (!accountSpaceId) return [];
+      const keys = ids.filter((id) => id.startsWith('notify:'));
+      return (await (await runtime(accountSpaceId)).versionsOf(keys)).filter(
+        (version) => version.collection === NOTIFY_COLLECTION,
+      );
+    },
+
+    async take(versions: ReadonlyArray<Expression>) {
+      if (!accountSpaceId) return 0;
+      // Subscriptions only: whatever else rides along waits for sync.
+      const mine = versions.filter(
+        (version) =>
+          typeof version === 'object' &&
+          version !== null &&
+          version.collection === NOTIFY_COLLECTION &&
+          version.space === accountSpaceId,
+      );
+      if (mine.length === 0) return 0;
+      const taken = await (await runtime(accountSpaceId)).take(mine);
+      if (taken > 0) await passSubscriptionsOn();
+      return taken;
+    },
   });
 
   const carriers: NodeCarriers = Object.freeze({
@@ -2000,10 +2024,6 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       if (!accountSpaceId) throw new Error('Revoking in the account registry needs the account key');
       await (await runtime(accountSpaceId)).revoke(token);
     },
-    async delivered(timeoutMs: number) {
-      if (!accountSpaceId) return true;
-      return (await runtime(accountSpaceId)).delivered(timeoutMs);
-    },
   });
 
   const records: NodeRecords = Object.freeze({
@@ -2244,7 +2264,6 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         profile: () => accountApi.profile(),
         setName: person('rename the account'),
         revoke: person('revoke notes'),
-        delivered: () => accountApi.delivered(0),
       }),
       carriers: Object.freeze({
         list: () => carriers.list(),
@@ -2256,6 +2275,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         add: person('subscribe to anything'),
         update: person('change notifications'),
         remove: person('change notifications'),
+        versions: person('look at notifications'),
+        take: person('change notifications'),
       }),
       hosting: Object.freeze({
         list: person('look at hosting'),

@@ -517,22 +517,24 @@ When the person approves (`auth.propose({ origin, request, notify? })`, where
    `since` is now; `app` is `{ origin, name? }` with `name` the connection's,
    else the request's, cut to 80. A proposal equal to a subscription the same
    origin already has (same collection, spaces, topic and `others`) is not
-   added again; the home MUST write that one again unchanged, as a new
-   version, since it may never have left the home.
-5. Waits, up to 8 seconds, until another device has stored every version it
-   wrote in step 4 (a `stored` acknowledgement, [05](05-sync-and-storage.md) §4).
-   It closes once it answers, so without the wait they could exist on the
-   home alone.
-6. Answers `weave:grant` with `Proposed`:
-   `{ v: 1, kind: "proposed", notify: { id, label }[], delivered }`, the
-   subscriptions added or found, empty when the person kept none, and
-   `delivered` true once another device has stored them (true when there
-   were none). False means they are on the home alone, and reach the app
-   only when the two next meet; proposing them again retries.
+   added again.
+5. Answers `weave:grant` with `Proposed`:
+   `{ v: 1, kind: "proposed", notify: { id, label }[], versions? }`, the
+   subscriptions added or found; empty when the person kept none. For an app
+   with `scope: account` that kept at least one, `versions` MUST hold every
+   version the home keeps of each of them, as stored in the registry: signed,
+   its body sealed. For any other app it MUST be absent.
+
+An app given `versions` SHOULD store them at once, each only once it passes
+every check a version arriving from a peer would ([05](05-sync-and-storage.md)), and only
+versions of `sys.notify` in its own registry. The home's window closes when it
+answers, often before the two have met on the network; without them, the
+subscriptions would reach the app only when it next meets another device of
+the account.
 
 Nothing else changes: the app gets no access it did not have, no note, and
-learns only which of its suggestions were kept, and whether they left the
-home.
+learns only which of its suggestions were kept, and a whole-account app only
+what it could already read.
 
 Example:
 
@@ -563,8 +565,7 @@ answered with
   "grant": {
     "v": 1,
     "kind": "proposed",
-    "notify": [{ "id": "notify:k3v6mzq4ha2tmbyx", "label": "New message in Club" }],
-    "delivered": true
+    "notify": [{ "id": "notify:k3v6mzq4ha2tmbyx", "label": "New message in Club" }]
   }
 }
 ```
@@ -585,7 +586,7 @@ it started is never news. How it shows a match is the app's to decide.
 > chose from the kinds of record it sees go by would be a guess at the
 > person's words. An app they are looking at knows what its records mean.
 
-_Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`, `addSubscriptions`), `packages/core/src/node/space-runtime.ts` (`delivered`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`, `matchesRecord`), `packages/core/src/node/watch-notifications.ts` (`watchNotifications`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions", "an app showing its own notifications", "the home receiving a request")._
+_Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`), `packages/core/src/session/connection.ts` (`propose`), `packages/core/src/node/node.ts` (`notifications.versions`, `notifications.take`), `packages/core/src/node/space-runtime.ts` (`versionsOf`, `take`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`, `matchesRecord`), `packages/core/src/node/watch-notifications.ts` (`watchNotifications`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions", "an app showing its own notifications", "the home receiving a request")._
 
 > **Planned: a wallet as the account home.** The same job — hold the root and
 > hand an app's key a note — done by a credential wallet through the Digital

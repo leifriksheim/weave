@@ -36,6 +36,7 @@ import type { RootSigner } from '../identity/root-signer.js';
 import { createNode } from '../node/node.js';
 import { startNodeInWorker, workerNetwork, type WorkerLike } from '../node/worker.js';
 import { indexedDBStores, type StoreFactory } from '../node/stores.js';
+import type { Expression } from '../types.js';
 import type { CacheConfig, NewSpace, NodeNetworkConfig, P2PNode } from '../node/types.js';
 import { checkStartingRoles } from '../space/space-access.js';
 import { parseSpaceInvite } from '../space/space-manager.js';
@@ -115,10 +116,11 @@ export interface Proposed {
   /** The subscriptions added or found, by the person's yes: none when they kept none */
   readonly notify: ReadonlyArray<{ readonly id: string; readonly label: string }>;
   /**
-   * Whether another device has stored them. False: they are on the home alone
-   * and reach the app only when the two next meet; proposing again retries.
+   * For an app given the whole account: every version of those subscriptions,
+   * signed, so its node holds them at once rather than once it meets another
+   * of the account's devices, which may be long after the home's window closed.
    */
-  readonly delivered: boolean;
+  readonly versions?: ReadonlyArray<Expression>;
 }
 
 /** Whether a request the home received is a proposal rather than a connection */
@@ -413,8 +415,7 @@ export async function proposeToHome(options: {
   const answer = await askHome<Proposed | null>(popup, homeUrl.origin, request, options.timeoutMs);
   if (answer?.kind !== 'proposed' || !Array.isArray(answer.notify))
     throw new Error('Your account home did not answer the proposal.');
-  // A home from before it said so answered without waiting: take it at its word.
-  return { ...answer, delivered: answer.delivered !== false };
+  return answer;
 }
 
 /** Refuses a carry grant that is not an invite to a private space the account made. */

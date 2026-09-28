@@ -97,21 +97,6 @@ describe('the account name', () => {
   });
 });
 
-describe('handing writes on before closing', () => {
-  test('a write to the account is delivered once another device has stored it, and not before', async () => {
-    const me = await account();
-    const hub = createFakeHub({ latencyMs: 1 });
-    const alone = await device(me, memoryStores(), hub);
-    await alone.account.setName('Leif');
-    assert.equal(await alone.account.delivered(300), false, 'nobody else has it');
-
-    const phone = await device(me, memoryStores(), hub);
-    assert.equal(await alone.account.delivered(3000), true, 'the phone stored it');
-    assert.equal((await phone.account.profile())?.name, 'Leif');
-    assert.equal(await alone.account.delivered(0), true, 'nothing left to hand on');
-  });
-});
-
 describe('moving and merging an account', () => {
   test('moves every space, key and record into empty stores — deletions included', async () => {
     const me = await account();
