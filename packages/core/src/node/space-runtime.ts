@@ -132,7 +132,7 @@ import {
 } from '../schema/collection-def.js';
 import { CARRIER_COLLECTION, MEMBERSHIP_COLLECTION, PROFILE_COLLECTION } from '../space/account-registry.js';
 import { PASS_COLLECTION } from '../space/pass.js';
-import { base32Encode, cidFromBytes, cidOfDigest, sha256 } from '../utils/hash.js';
+import { base32Encode, cidFromBytes, cidOfDigest, hashedKey, sha256 } from '../utils/hash.js';
 import { sameTags, tagsFor, topicKey, topicTag } from '../records/topics.js';
 import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../utils/encoding.js';
 import { isRecord, unref } from '../utils/guards.js';
@@ -209,8 +209,7 @@ const MAX_OPENED = 100_000;
  * a hash of it (record keys are lower case; a did:key is not).
  */
 export async function profileKey(did: string): Promise<string> {
-  const digest = await sha256(new TextEncoder().encode(did));
-  return `profile:${Array.from(digest.subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return hashedKey('profile', did);
 }
 
 /**

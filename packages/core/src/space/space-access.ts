@@ -24,7 +24,7 @@
 import type { CryptoProvider, Space } from '../types.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
 import { canonicalize } from '../schema/expression.js';
-import { cidFromBytes, sha256 } from '../utils/hash.js';
+import { cidFromBytes, hashedKey } from '../utils/hash.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { bufferSource } from '../utils/guards.js';
 import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../identity/did.js';
@@ -169,17 +169,12 @@ export async function checkSpace(space: Space): Promise<string | null> {
 // Record keys are lower case; DIDs and CIDs are not. So a key names a hash of
 // the thing, and the record's body names the thing itself.
 
-async function hashKey(prefix: string, value: string): Promise<string> {
-  const digest = await sha256(utf8Encode(value));
-  return `${prefix}:${Array.from(digest.subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
-}
-
 /** The key of an account's member record */
-export const memberKey = (did: string) => hashKey('member', did);
+export const memberKey = (did: string) => hashedKey('member', did);
 /** The key of an invite's record, from its public key */
-export const inviteKey = (inviteDid: string) => hashKey('invite', inviteDid);
+export const inviteKey = (inviteDid: string) => hashedKey('invite', inviteDid);
 /** The key of the record revoking a note, from the note's CID */
-export const revokeKey = (noteCid: string) => hashKey('revoke', noteCid);
+export const revokeKey = (noteCid: string) => hashedKey('revoke', noteCid);
 /** The key of a role's record */
 export const roleKey = (name: string) => `role:${name}`;
 /**
@@ -189,7 +184,7 @@ export const roleKey = (name: string) => `role:${name}`;
  */
 export const MEMBER_KEY_COLLECTION = 'sys.memberkey';
 /** The key of an account's member key record */
-export const memberKeyRecordKey = (did: string) => hashKey('memberkey', did);
+export const memberKeyRecordKey = (did: string) => hashedKey('memberkey', did);
 /** Where the sealed copies of a changed space key live, one per member: `{ keyId, to, sealed }` */
 export const BOX_COLLECTION = 'sys.box';
 /** What the earlier keys a key record carries are bound to */
@@ -204,7 +199,7 @@ export const SPACE_KEEPERS_RECORD = 'keepers:space';
 /** The one record key every change of a private space's key is a version of — so two made apart are rivals, and one wins */
 export const SPACE_KEY_RECORD = 'key:space';
 /** The key of a sealed copy of a space key: one per key, recipient and sender */
-export const boxKey = (keyId: string, to: string, from: string) => hashKey('box', `${keyId}|${to}|${from}`);
+export const boxKey = (keyId: string, to: string, from: string) => hashedKey('box', `${keyId}|${to}|${from}`);
 /** What a box is bound to, so one moved to another space, key or person doesn't open */
 export const boxContext = (spaceId: string, keyId: string, to: string) =>
   `weave/space-key-box/v1|${spaceId}|${keyId}|${to}`;

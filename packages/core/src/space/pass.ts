@@ -26,8 +26,8 @@
 import type { CryptoProvider, Space } from '../types.js';
 import type { SpaceRecord } from './space-manager.js';
 import { checkSpace, deriveReadSeed, readKeyFromSeed, type SpaceKeyPair } from './space-access.js';
-import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
-import { sha256 } from '../utils/hash.js';
+import { base64UrlDecode, base64UrlEncode } from '../utils/encoding.js';
+import { hashedKey } from '../utils/hash.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 
 /** Where passes live in a carry space */
@@ -61,8 +61,7 @@ export interface OpenedPass {
 
 /** The record key of a space's pass */
 export async function passKey(spaceId: string): Promise<string> {
-  const digest = await sha256(utf8Encode(spaceId));
-  return `pass:${Array.from(digest.subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return hashedKey('pass', spaceId);
 }
 
 /**

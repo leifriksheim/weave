@@ -21,7 +21,7 @@
  * them all). It is made true by construction: the record's key is derived from
  * what must be unique, so a second vote *is* the first one's next version.
  */
-import { sha256 } from '../utils/hash.js';
+import { hashedKey } from '../utils/hash.js';
 import { isList, isRecord, readField } from '../utils/guards.js';
 import type { Link } from '../types.js';
 
@@ -157,8 +157,7 @@ export async function onePerKey(
       parts.push(`${part}=${JSON.stringify(value)}`);
     }
   }
-  const digest = await sha256(new TextEncoder().encode(parts.join('\n')));
-  return `one:${Array.from(digest.subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return hashedKey('one', parts.join('\n'));
 }
 
 /** The first fixed field whose value differs from the record's first version, or null */

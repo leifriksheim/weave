@@ -4,6 +4,7 @@
  */
 
 import { bufferSource } from './guards.js';
+import { bytesToHex, utf8Encode } from './encoding.js';
 
 /**
  * Computes the SHA-256 hash of the given data.
@@ -87,4 +88,13 @@ export const cidOfDigest = (digest: Uint8Array): string => 'b' + base32Encode(di
 export async function cidFromBytes(data: Uint8Array): Promise<string> {
   const hashBytes = await sha256(data);
   return 'b' + base32Encode(hashBytes);
+}
+
+/**
+ * A record key that names a thing by hash: `<prefix>:` and the first 20 bytes
+ * of SHA-256 over it, in hex. Record keys are lower case; DIDs, CIDs and URLs
+ * are not, so the key names a hash and the record's body names the thing.
+ */
+export async function hashedKey(prefix: string, value: string): Promise<string> {
+  return `${prefix}:${bytesToHex((await sha256(utf8Encode(value))).subarray(0, 20))}`;
 }

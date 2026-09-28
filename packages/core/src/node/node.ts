@@ -130,7 +130,7 @@ import {
   type Hosting,
   type SignedStatus,
 } from '../session/hosting.js';
-import { base32Encode, sha256 } from '../utils/hash.js';
+import { base32Encode, hashedKey } from '../utils/hash.js';
 import type {
   ContactRequest,
   ContactView,
@@ -1109,8 +1109,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   // subscription, and any of them hands the host the carry space once it is
   // paid — the one that paid, or the next one to notice.
 
-  const hostingKey = async (url: string) =>
-    `hosting:${Array.from((await sha256(new TextEncoder().encode(url))).subarray(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  const hostingKey = (url: string) => hashedKey('hosting', url);
 
   /** The hosting records the account wrote, live */
   async function hostingRecords(): Promise<ReadonlyArray<Hosting>> {

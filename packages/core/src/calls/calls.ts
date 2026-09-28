@@ -37,6 +37,7 @@
 import type { P2PNode, NodeEvent } from '../node/types.js';
 import { call as callSchema } from '../schemas/index.js';
 import { isObject, unref } from '../utils/guards.js';
+import { bytesToHex } from '../utils/encoding.js';
 
 export interface CallsOptions {
   /** How a WebRTC connection is made. `new RTCPeerConnection` by default. */
@@ -189,7 +190,7 @@ function isCallMessage(value: unknown): value is CallMessage {
 
 const randomId = () => {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return bytesToHex(bytes);
 };
 
 interface Link {

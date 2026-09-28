@@ -5,7 +5,7 @@
  * than guessed at.
  */
 
-import { base64UrlEncode, base64UrlDecode } from '../utils/encoding.js';
+import { base64UrlEncode, base64UrlDecode, bytesToHex } from '../utils/encoding.js';
 import { bufferSource, isPublicKeyCredential } from '../utils/guards.js';
 
 /** Where a ceremony's PRF request ended up */
@@ -63,7 +63,7 @@ const KNOWN_AAGUIDS: Record<string, string> = {
 function readAaguid(authenticatorData: ArrayBuffer | undefined): string | null {
   if (!authenticatorData || authenticatorData.byteLength < 53) return null;
   const bytes = new Uint8Array(authenticatorData).slice(37, 53);
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  const hex = bytesToHex(bytes);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 

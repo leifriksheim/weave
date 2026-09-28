@@ -17,6 +17,8 @@
  * else's connection offer to somebody I can reach.
  */
 
+import { bytesToHex } from '../utils/encoding.js';
+
 /** Message types reserved for the mesh itself, never handed to the application */
 export const PEERS_MESSAGE = '__peers';
 export const SIGNAL_MESSAGE = '__signal';
@@ -124,5 +126,5 @@ export function createSeenSignals(limit = 512): SeenSignals {
 /** A fresh identifier for a relayed signal. */
 export function signalId(): string {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(8));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return bytesToHex(bytes);
 }
