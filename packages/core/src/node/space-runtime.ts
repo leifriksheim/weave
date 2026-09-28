@@ -229,6 +229,7 @@ export function meshFor(network: NodeNetworkConfig | undefined, did: string): Me
     did,
     relays: network.relays,
     ...(network.iceServers ? { iceServers: network.iceServers } : {}),
+    ...(network.createTransport ? { createTransport: network.createTransport } : {}),
   });
 }
 

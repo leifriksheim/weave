@@ -268,6 +268,8 @@ export {
 } from './network/introductions.js';
 export type { RelayedSignal, SeenSignals } from './network/introductions.js';
 export { createRTCTransport } from './network/rtc-transport.js';
+export { serveTransport, remoteTransport } from './network/remote-transport.js';
+export type { MessagePortLike } from './utils/port.js';
 export { createWebSocketTransport } from './network/ws-transport.js';
 export type { WebSocketTransportConfig } from './network/ws-transport.js';
 export { createClientAuth, createServerAuth, createMeshAuth, peerNonce } from './network/peer-auth.js';
@@ -334,6 +336,10 @@ export type { Emitter } from './utils/events.js';
 // Node: identity + spaces + sync, behind one API
 export {
   createNode,
+  serveNode,
+  remoteNode,
+  serveSigner,
+  remoteSigner,
   SESSION_CAPABILITY,
   writeCapability,
   relayRoom,

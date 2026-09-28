@@ -3,6 +3,7 @@
  * A node, and the actions every front end builds on.
  */
 export { createNode, SESSION_CAPABILITY } from './node.js';
+export { serveNode, remoteNode, serveSigner, remoteSigner } from './remote.js';
 export { writeCapability, relayRoom } from './space-runtime.js';
 export { indexedDBStores, folderStores } from './stores.js';
 export { copyAccountData } from './copy.js';

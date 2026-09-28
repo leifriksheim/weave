@@ -57,8 +57,12 @@ export interface MeshConfig {
    * needed for the first connection. On by default.
    */
   readonly introductions?: boolean;
-  /** How connections are made. WebRTC unless a test says otherwise. */
-  readonly createTransport?: () => SignalledTransport;
+  /**
+   * How connections are made, given the ICE servers each should use (they
+   * change as a relay hands out TURN passwords). WebRTC on this thread by
+   * default; a node in a worker uses the page's (`remoteTransport`).
+   */
+  readonly createTransport?: (iceServers: () => ReadonlyArray<RTCIceServer>) => SignalledTransport;
   /** How long a peer has to prove itself in a room. Default 10 s. */
   readonly authTimeoutMs?: number;
 }
@@ -154,7 +158,7 @@ export function createMesh(config: MeshConfig): Mesh {
   });
   const currentIce = (): ReadonlyArray<RTCIceServer> =>
     relayIce && relayIce.expiresAt > Date.now() ? [...configuredIce, ...relayIce.servers] : configuredIce;
-  const transport = config.createTransport?.() ?? createRTCTransport({ iceServers: currentIce });
+  const transport = config.createTransport?.(currentIce) ?? createRTCTransport({ iceServers: currentIce });
   const introduce = config.introductions !== false;
   const authTimeoutMs = config.authTimeoutMs ?? 10_000;
 
