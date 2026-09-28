@@ -497,6 +497,14 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
           description:
             'The collections it needs: a standard one by name ("std.poll"), or a definition as collections_define takes it — without version',
         },
+        notify: {
+          type: 'array',
+          description:
+            'Optional: what is worth hearing about, so people can turn on notifications for it in one click — ' +
+            '[{ "label": "New ride", "collection": "carpool.ride" }]. Each names one of its needs; add ' +
+            '"topic": { "field": "driver", "me": true } for only records whose topic field holds the person, and ' +
+            '"others": false to include their own. Offered, never turned on for anyone.',
+        },
       },
       required: ['space', 'title', 'needs'],
     },
@@ -508,6 +516,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
         ...(typeof input.updates === 'string' ? { updates: input.updates } : {}),
         needs: standardNeeds(input.needs),
+        ...(input.notify !== undefined ? { notify: input.notify } : {}),
       };
       if (!isApp(body)) throw new Error(checkApp(body) ?? 'Not an app');
       const record = await proposeApp(node, spaceId, body);

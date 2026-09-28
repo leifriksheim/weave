@@ -332,6 +332,8 @@ export {
   NotAllowedError,
   watchNotifications,
 } from './node/index.js';
+/** How many subscriptions one proposal to the home may offer */
+export { MAX_PROPOSALS } from './space/notify.js';
 export type {
   StoreFactory,
   StoreOptions,

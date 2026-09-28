@@ -178,10 +178,32 @@ function isOrigin(value: string): boolean {
 }
 
 /**
+ * What an app kept in a space (`std.app`) says is worth hearing about: a
+ * subscription it offers, before anyone has picked spaces or where a click
+ * goes. Whoever shows the app proposes it, as a {@link NotifyProposal} of
+ * its own, when the person asks.
+ */
+export interface AppNotify {
+  readonly label: string;
+  readonly collection: string;
+  readonly topic?: NotifyProposal['topic'];
+  readonly others?: boolean;
+}
+
+/** Why an app's `notify` entry can't be offered, or null */
+export function checkAppNotify(value: unknown): string | null {
+  if (!isObject(value)) return 'Each notify entry must be an object';
+  if ('spaces' in value || 'open' in value)
+    return 'A notify entry leaves out spaces and open: the app that shows it decides those';
+  return checkProposal(value);
+}
+
+/**
  * Why an app's proposal can't be offered, or null. `origin` is the app's, as
  * the browser reported it: a click may only lead back to the app that asked.
+ * Without it, only what the proposal says is checked.
  */
-export function checkProposal(proposal: unknown, origin: string): string | null {
+export function checkProposal(proposal: unknown, origin?: string): string | null {
   if (!isObject(proposal)) return 'A proposed subscription must be an object';
   const p = proposal;
   const topic = p.topic === undefined ? undefined : isObject(p.topic) ? p.topic : null;
@@ -196,9 +218,10 @@ export function checkProposal(proposal: unknown, origin: string): string | null 
     ...(p.others !== undefined ? { others: p.others } : {}),
     ...(p.open !== undefined ? { open: p.open } : {}),
     since: new Date(0).toISOString(),
-    app: { origin },
+    ...(origin !== undefined ? { app: { origin } } : {}),
   });
   if (problem) return problem;
+  if (origin === undefined) return null;
   // eslint-disable-next-line @typescript-eslint/no-base-to-string -- checkNotify has passed it as a web address, the way URL reads it
   if (p.open !== undefined && new URL(String(p.open)).origin !== origin)
     return 'open must be an address on the app’s own site';

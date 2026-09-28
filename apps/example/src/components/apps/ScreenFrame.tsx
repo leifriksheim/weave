@@ -170,8 +170,9 @@ export function ScreenFrame({
   }
 
   const hosts = network.map((origin) => origin.replace(/^[a-z]+:\/\//, '')).join(', ');
+  // It takes whatever height it is given: the app is the whole window (`.space-content[data-fill]`).
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minHeight: 0 }}>
       {origins && (
         <p
           style={{
@@ -204,7 +205,8 @@ export function ScreenFrame({
         key={`${generation}:${answer}`}
         style={{
           width: '100%',
-          height: 'min(78vh, 760px)',
+          flex: 1,
+          minHeight: 420,
           border: `1px solid ${palette.surface.line}`,
           borderRadius: 12,
           background: palette.surface.card,

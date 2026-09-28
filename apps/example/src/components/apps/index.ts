@@ -20,12 +20,15 @@ import { CallHistory } from './CallHistory';
 import { Chat } from './Chat';
 import { Kanban } from './Kanban';
 import { Polls } from './Polls';
+import type { AppNotify } from '@weaveprotocol/core/schemas';
 import type { IconName } from '../Icon';
 
 export interface AppProps {
   readonly space: SpaceSummary;
   readonly collections: ReadonlyArray<NodeCollection>;
   readonly onOpen: (record: NodeRecord) => void;
+  /** When the person last looked at this app, so it can mark what arrived since (`seen.ts`) */
+  readonly since?: string;
 }
 
 /**
@@ -42,6 +45,10 @@ export interface WeaveApp {
   /** How its tile looks: a glyph on a tint of this hue */
   readonly icon: IconName;
   readonly hue: number;
+  /** What in it is worth hearing about: offered as notifications, and counted as new */
+  readonly notify: ReadonlyArray<AppNotify>;
+  /** Takes the whole window when open, the way a conversation does */
+  readonly fill?: boolean;
   /** Without these it cannot work: adding the app defines the missing ones */
   readonly needs: ReadonlyArray<DefineCollection>;
   /** Shown when the space has them, left out when it does not */
@@ -56,6 +63,8 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     id: 'chat',
     icon: 'chat',
     hue: 212,
+    notify: [{ label: 'New message', collection: message.name }],
+    fill: true,
     title: 'Chat',
     description: 'Talk with everyone in the space. The whole space is the room.',
     needs: [message],
@@ -66,6 +75,7 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     id: 'kanban',
     icon: 'board',
     hue: 28,
+    notify: [{ label: 'New task', collection: task.name }],
     title: 'Kanban',
     description: 'Tasks on a board: drag them between columns, and into order.',
     needs: [task, column],
@@ -83,6 +93,7 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     id: 'polls',
     icon: 'poll',
     hue: 268,
+    notify: [{ label: 'New poll', collection: poll.name }],
     title: 'Polls',
     description: 'Ask the space a question. Everyone picks one option, and can change their mind.',
     needs: [poll, vote],
@@ -92,6 +103,7 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     id: 'calls',
     icon: 'phone',
     hue: 150,
+    notify: [],
     title: 'Calls',
     description: 'Keeps a log of the calls in this space: who was in each, and calls nobody answered.',
     needs: [call],

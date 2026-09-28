@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
 import { Modal } from '@weave/app-shared/Modal';
-import { ConnectAgent } from '../ConnectAgent';
+import { ConnectAgent, useKnownAgent } from '../ConnectAgent';
 import { Icon } from '../Icon';
 import { styles, palette, variants } from '../../styles';
 
@@ -22,8 +22,11 @@ const IDEAS = [
  * The agent works in the space through the CLI's MCP server (or this page's
  * WebMCP tools) and proposes the app as a `std.app` record. Nothing is added
  * until someone who may add collections adds it on the Apps screen, so the
- * dialog only has to get the idea and the agent together. Building one by
- * hand, from a collection's fields, stays one click away.
+ * dialog only has to get the idea and the agent together. The agent is
+ * connected first and the prompt copied last, so what is on the clipboard
+ * at the end is the prompt, ready to paste; what was typed survives
+ * connecting. Building one by hand, from a collection's fields, stays one
+ * click away.
  */
 export function CreateApp({
   space,
@@ -36,29 +39,77 @@ export function CreateApp({
   onClose: () => void;
   onBuildByHand?: () => void;
 }) {
+  const known = useKnownAgent();
   const [idea, setIdea] = useState('');
   const [copied, setCopied] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  // Someone whose agent was connected elsewhere can say so and go on.
+  const [skipped, setSkipped] = useState(false);
+  const ready = known !== null || skipped;
 
   if (connecting) return <ConnectAgent onClose={() => setConnecting(false)} />;
 
   const what = idea.trim().replace(/[.\s]+$/, '');
-  const prompt = `In my Weave space "${space.name}", make an app: ${what ? `${what}.` : '…'} Use the standard collections where they fit, and propose it to the space.`;
+  const prompt = `In my Weave space "${space.name}", make an app: ${what ? `${what}.` : '…'} Use the standard collections where they fit, and propose it to the space, saying what is worth being notified about.`;
   const copy = () => {
     void globalThis.navigator.clipboard?.writeText(prompt).then(() => {
       setCopied(true);
-      globalThis.setTimeout(() => setCopied(false), 1500);
+      globalThis.setTimeout(() => setCopied(false), 2000);
     });
   };
 
   return (
     <Modal title="Create an app" onClose={onClose}>
       <p style={{ ...styles.hint, marginBottom: 0 }}>
-        Say what {space.name} needs and an AI agent builds it for you. It shows up on the Apps screen as a
-        proposal, and nothing changes until {mayDefine ? 'you add it' : 'someone who runs the space adds it'}.
+        Say what {space.name} needs and an AI agent builds it. It shows up under Apps as a proposal, and
+        nothing changes until {mayDefine ? 'you add it' : 'someone who runs the space adds it'}.
       </p>
 
-      <Step n={1} title="Describe it">
+      <Step n={1} title="Connect your agent" done={ready}>
+        {known ? (
+          <p style={{ fontSize: 13, color: palette.ink.body, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <span>
+              <span style={{ color: palette.accent.good }}>✓</span> {known} is connected from this browser.
+            </span>
+            <button
+              type="button"
+              onClick={() => setConnecting(true)}
+              data-variant="ghost"
+              style={{ ...styles.linkButton, fontSize: 13, padding: 0 }}
+            >
+              Connect another
+            </button>
+          </p>
+        ) : skipped ? (
+          <p style={{ fontSize: 13, color: palette.ink.body }}>Using the agent you already connected.</p>
+        ) : (
+          <>
+            <p style={{ ...styles.errorHint, marginTop: 0 }}>
+              Claude Code, Claude Desktop or Cursor, on your computer. It takes one command, and keeps working
+              with this tab closed.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setConnecting(true)}
+                data-variant="primary"
+                style={{ ...styles.button, ...inline }}
+              >
+                <Icon name="terminal" /> Connect an agent
+              </button>
+              <button
+                type="button"
+                onClick={() => setSkipped(true)}
+                data-variant="quiet"
+                style={{ ...variants.quiet, ...inline }}
+              >
+                It's already connected
+              </button>
+            </div>
+          </>
+        )}
+      </Step>
+
+      <Step n={2} title="Describe it">
         <textarea
           value={idea}
           onChange={(event) => setIdea(event.target.value)}
@@ -88,37 +139,19 @@ export function CreateApp({
         </div>
       </Step>
 
-      <Step n={2} title="Give it to your agent">
-        <div style={promptBox}>
-          <span style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.5, color: palette.ink.body }}>
-            {prompt}
-          </span>
-          <button
-            onClick={copy}
-            disabled={!idea.trim()}
-            data-variant="quiet"
-            style={{ ...variants.quiet, width: 'auto', height: 30, padding: '0 10px', fontSize: 13 }}
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-        <p style={{ ...styles.errorHint, marginTop: 0 }}>
-          Paste it into Claude Code, Claude Desktop or Cursor once it's connected to your account. An agent
-          running in this browser can use this page directly.
-        </p>
+      <Step n={3} title="Paste it into your agent">
+        <p style={promptBox}>{prompt}</p>
         <button
-          onClick={() => setConnecting(true)}
+          onClick={copy}
+          disabled={!what}
           data-variant="primary"
-          style={{
-            ...styles.button,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-          }}
+          style={{ ...styles.button, ...inline, justifyContent: 'center' }}
         >
-          <Icon name="terminal" /> Connect an agent
+          {copied ? '✓ Copied — paste it into your agent' : 'Copy the prompt'}
         </button>
+        <p style={{ ...styles.errorHint, marginTop: 0 }}>
+          An agent running in this browser can use this page directly: just ask it.
+        </p>
       </Step>
 
       {onBuildByHand && mayDefine && (
@@ -138,7 +171,17 @@ export function CreateApp({
   );
 }
 
-function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+function Step({
+  n,
+  title,
+  done,
+  children,
+}: {
+  n: number;
+  title: string;
+  done?: boolean;
+  children: ReactNode;
+}) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <h3
@@ -151,7 +194,9 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
           color: palette.ink.strong,
         }}
       >
-        <span style={stepNumber}>{n}</span>
+        <span style={{ ...stepNumber, ...(done ? { background: palette.accent.good } : {}) }}>
+          {done ? '✓' : n}
+        </span>
         {title}
       </h3>
       {children}
@@ -172,6 +217,14 @@ const stepNumber = {
   fontWeight: 600,
 } as const;
 
+const inline = {
+  width: 'auto',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '0 14px',
+} as const;
+
 const chip = {
   height: 28,
   padding: '0 10px',
@@ -182,11 +235,11 @@ const chip = {
 } as const;
 
 const promptBox = {
-  display: 'flex',
-  alignItems: 'flex-start',
-  gap: 10,
-  padding: '10px 10px 10px 12px',
+  padding: '10px 12px',
   border: `1px solid ${palette.surface.line}`,
   borderRadius: 8,
   background: palette.surface.sunken,
+  fontSize: 13,
+  lineHeight: 1.5,
+  color: palette.ink.body,
 } as const;

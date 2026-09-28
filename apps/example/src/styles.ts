@@ -7,6 +7,8 @@ const { ink, surface, accent, radius } = palette;
 
 /** How wide the column of spaces is, down the left edge while one is open. */
 const RAIL_WIDTH = 68;
+/** How wide a space's own sidebar is, beside the rail */
+const SIDEBAR_WIDTH = 248;
 
 /**
  * The rules inline styles cannot carry.
@@ -49,7 +51,45 @@ export function injectBaseStyles(): void {
       align-items: flex-start;
       padding: 56px 20px 80px;
     }
-    .page[data-rail] { padding-left: ${RAIL_WIDTH + 20}px; }
+
+    /* In a space: the rail, the space's sidebar, and whatever is open, each
+       the height of the window and scrolling on its own, the way chat apps are. */
+    .shell { padding-left: ${RAIL_WIDTH}px; }
+    .space-shell { display: grid; grid-template-columns: ${SIDEBAR_WIDTH}px minmax(0, 1fr); height: 100vh; height: 100dvh; }
+    .space-sidebar {
+      display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
+      padding: 16px 10px 24px; background: ${surface.sunken}; border-right: 1px solid ${surface.line};
+    }
+    .side-item {
+      display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 8px;
+      border: none; border-radius: 7px; background: none; font-size: 14px; text-align: left;
+    }
+    .side-item[aria-current] { background: ${surface.card}; box-shadow: 0 0 0 1px ${surface.line}; }
+    .space-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .space-bar {
+      flex-shrink: 0; display: flex; align-items: center; gap: 10px; height: 60px; padding: 0 24px;
+      border-bottom: 1px solid ${surface.line}; background: ${surface.page};
+    }
+    .space-content { flex: 1; min-height: 0; overflow-y: auto; padding: 28px 32px 64px; }
+    .space-inner { max-width: 1040px; margin: 0 auto; }
+    .space-inner[data-wide] { max-width: none; }
+    /* An app that is a conversation, or a screen of its own, gets every pixel. */
+    .space-content[data-fill] { display: flex; flex-direction: column; overflow: hidden; padding: 16px 24px 20px; }
+    .space-content[data-fill] > .space-inner { flex: 1; min-height: 0; width: 100%; max-width: none; display: flex; flex-direction: column; }
+    .phone-only { display: none !important; }
+
+    /* How many new things there are: on an icon's corner, or at the end of a row. */
+    .count {
+      display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+      min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+      background: ${accent.danger}; color: #fff; font-size: 11px; font-weight: 600; line-height: 1;
+    }
+    .rail-count, .app-card-count, .tab-count { position: absolute; pointer-events: none; }
+    .rail-count { top: -2px; right: 8px; }
+    .rail-count .count { box-shadow: 0 0 0 2px ${surface.sunken}; }
+    .app-card-count { top: -6px; right: -6px; }
+    .app-card-count .count, .tab-count .count { box-shadow: 0 0 0 2px ${surface.card}; }
+    .tab-count { top: -4px; right: -10px; }
 
     /* Every space down the left edge; along the bottom on a phone. */
     .rail {
@@ -146,6 +186,12 @@ export function injectBaseStyles(): void {
     @keyframes call-ring { 0% { box-shadow: 0 0 0 0 rgba(26,127,55,.45); } 100% { box-shadow: 0 0 0 12px rgba(26,127,55,0); } }
     @media (prefers-reduced-motion: reduce) { .call-ringing { animation: none; } }
 
+    @media (max-width: 900px) {
+      .space-shell { grid-template-columns: 200px minmax(0, 1fr); }
+      .space-content { padding: 20px 20px 48px; }
+      .space-bar { padding: 0 20px; }
+    }
+
     @media (max-width: 760px) {
       .space-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
       /* The side column comes apart: its collections become a row of
@@ -165,14 +211,32 @@ export function injectBaseStyles(): void {
       .page {
         padding: 20px max(16px, env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
       }
-      .page[data-rail] {
-        padding-left: max(16px, env(safe-area-inset-left));
-        padding-bottom: calc(${RAIL_WIDTH + 100}px + env(safe-area-inset-bottom));
-      }
 
       /* A phone switches spaces from the list of them, one tap away in the
-         tab bar, so the space's own sections get the bottom edge. */
-      .rail, .space-tabs, .hide-on-phone { display: none !important; }
+         tab bar, so the space's own sections get the bottom edge, and its
+         apps are the grid on the first screen rather than a sidebar. */
+      .rail, .space-sidebar, .hide-on-phone, .bar-label { display: none !important; }
+      .phone-only { display: revert !important; }
+      .segmented.phone-only { display: flex !important; }
+      .shell { padding-left: 0; }
+      .space-shell { display: block; height: auto; min-height: 100dvh; }
+      .space-bar {
+        position: sticky; top: 0; z-index: 8; height: auto; min-height: 56px; gap: 8px;
+        padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+        background: rgba(255, 255, 255, .92);
+        -webkit-backdrop-filter: saturate(180%) blur(12px);
+        backdrop-filter: saturate(180%) blur(12px);
+      }
+      .space-content {
+        overflow: visible;
+        padding: 16px max(16px, env(safe-area-inset-right)) calc(${RAIL_WIDTH + 100}px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+      }
+      /* An open app is the whole screen, with the way back at its top, as a conversation is on a phone. */
+      .space-shell[data-app-open] .tabbar { display: none; }
+      .space-shell[data-app-open] .space-content { overflow-y: auto; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+      .space-shell[data-app-open] .space-main { display: flex; height: 100dvh; }
+      .space-shell[data-app-open] .space-bar { position: static; }
+      .space-content[data-fill] { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); }
 
       .tabbar {
         position: fixed;
@@ -226,8 +290,8 @@ export function injectBaseStyles(): void {
       /* Three icons to a row, named underneath, the way a phone lays out apps. */
       .app-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 8px; }
       .app-card { flex-direction: column !important; align-items: center !important; gap: 8px !important; padding: 4px 0 !important; border: none !important; background: none !important; text-align: center !important; box-shadow: none !important; }
-      .app-card > span:first-child { width: 60px !important; height: 60px !important; border-radius: 16px !important; }
-      .app-card > span:first-child svg { width: 28px; height: 28px; }
+      .app-card .app-card-icon { width: 60px !important; height: 60px !important; border-radius: 16px !important; }
+      .app-card .app-card-icon svg { width: 28px; height: 28px; }
       .app-card strong { font-size: 13px !important; font-weight: 500 !important; }
       .app-card-text { display: none; }
 

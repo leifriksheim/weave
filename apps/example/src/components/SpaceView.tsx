@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { DEFINE, roleHolds } from '@weaveprotocol/core';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import {
   useAccess,
@@ -8,17 +9,17 @@ import {
   useAccount,
   useSpaceStatus,
 } from '@weaveprotocol/core/react';
-import { collectionLabel } from '../derive/schema-ui';
-import { CollectionView } from './CollectionView';
 import { RecordPanel } from './RecordPanel';
-import { Library } from './Library';
-import { NewCollection } from './NewCollection';
 import { GraphView } from './GraphView';
 import { QueryPlayground } from './QueryPlayground';
-import { CollectionsOverview, namespaceLabel } from './CollectionsOverview';
-import { namespaceOf } from '../derive/filters';
 import { RolesView } from './RolesView';
 import { AppsView } from './apps/AppsView';
+import { AppIcon, Count } from './apps/AppIcon';
+import { CreateApp } from './apps/CreateApp';
+import { MadeAppScreen } from './apps/MadeApps';
+import { NotifyButton } from './apps/NotifyButton';
+import { fills, useSpaceApps, type AppEntry } from './apps/entries';
+import { DataView, NEW, type Place } from './DataView';
 import { SpaceMark } from './SpaceList';
 import { AccountMenu } from './AccountMenu';
 import { styles, palette } from '../styles';
@@ -29,31 +30,14 @@ import { RelayDown } from './RelayNotice';
 import { CallButton } from './calls/Calls';
 import { peopleFrom } from '../derive/people';
 import { PersonScopeProvider } from './Person';
-
-/** Where in the space we are: which collection, and which record is open beside it */
-interface Place {
-  readonly collection: string | null;
-  readonly key: string | null;
-}
-
-/** Defining a new collection, in the main area */
-const NEW = '__new__';
-/** Every collection at once, in the main area */
-const ALL = '__all__';
+import { markSeen, seenAt, useSeen, useUnread } from '../seen';
 
 /**
- * What a space is for, first: its apps and its people. Everything else is
- * how it works, under the hood — the records apps write, how they point at
+ * How it works, under the hood: the records apps write, how they point at
  * each other, asking of them, and how they reach other devices. Nothing is
- * hidden, only put second, so someone curious is one click from all of it.
+ * hidden, only put after the apps and the people, so someone curious is one
+ * click from all of it.
  */
-const SECTIONS = [
-  { id: 'apps', label: 'Apps', icon: 'apps' },
-  { id: 'people', label: 'People', icon: 'people' },
-  { id: 'hood', label: 'Under the hood', icon: 'layers' },
-] as const satisfies ReadonlyArray<{ id: string; label: string; icon: IconName }>;
-type Section = (typeof SECTIONS)[number]['id'];
-
 const HOOD = [
   {
     id: 'data',
@@ -61,16 +45,8 @@ const HOOD = [
     icon: 'table',
     about: 'Every record in this space, collection by collection: what the apps read and write.',
   },
-  {
-    id: 'explore',
-    label: 'Explore',
-    icon: 'compass',
-  },
-  {
-    id: 'query',
-    label: 'Query',
-    icon: 'search',
-  },
+  { id: 'explore', label: 'Explore', icon: 'compass' },
+  { id: 'query', label: 'Query', icon: 'search' },
   {
     id: 'network',
     label: 'Network',
@@ -80,42 +56,46 @@ const HOOD = [
 ] as const satisfies ReadonlyArray<{ id: string; label: string; icon: IconName; about?: string }>;
 type Hood = (typeof HOOD)[number]['id'];
 
+/** What the main area shows: the apps, one of them open, the people, or a view under the hood */
+type View =
+  | { readonly kind: 'apps' }
+  | { readonly kind: 'app'; readonly id: string; readonly since: string }
+  | { readonly kind: 'people' }
+  | { readonly kind: 'hood'; readonly hood: Hood };
+
 /**
- * One space, laid out like an app: its apps first, its people next, and how
- * it works under the hood. A record opens in a panel beside whichever is on
- * screen. All of it drawn from what the space says about itself — nothing
- * here knows what any of the records are.
+ * One space, laid out the way chat apps do it: its apps down a sidebar with
+ * what is new in each, and whichever is open taking the rest of the window.
+ * People and the views under the hood sit below the apps. A record opens in
+ * a panel beside whatever is on screen. On a phone the sidebar gives way to
+ * the app grid and a tab bar, and an open app takes the whole screen.
  */
 export function SpaceView({
   space,
+  notices,
   onOpenSpace,
   onHome,
 }: {
   space: SpaceSummary;
+  /** Banners about the connection and invites, above whatever is open */
+  notices?: ReactNode;
   onOpenSpace?: (id: string) => void;
   /** Back to every space; on a phone the tab bar carries it */
   onHome: () => void;
 }) {
   const account = useAccount();
+  const [view, setView] = useState<View>({ kind: 'apps' });
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
-  const [section, setSection] = useState<Section>('apps');
-  const [hood, setHood] = useState<Hood>('data');
-  const tab = section === 'hood' ? hood : section;
-  const goHood = (view: Hood) => {
-    setSection('hood');
-    setHood(view);
-  };
-  // Which namespace the Data tab shows; null for all of them.
-  const [namespace, setNamespace] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   // Syncing while it is on screen. Opening writes nothing: standard schemas
   // are added only when someone picks them from the library.
   useHoldSpace(space.id);
   const collections = useCollections(space.id);
-  const profiles = useProfiles(space.id);
-  const people = peopleFrom(profiles);
+  const people = peopleFrom(useProfiles(space.id));
   const status = useSpaceStatus(space.id);
   const access = useAccess(space.id);
+  const mayDefine = space.writable && roleHolds(access?.role, DEFINE);
   const roleOf = new Map(
     (access?.members ?? []).map((m) => [
       m.did,
@@ -123,31 +103,36 @@ export function SpaceView({
     ]),
   );
 
-  // The space's own collections come before the standard ones.
-  const ordered = [...collections].sort(
-    (a, b) => Number(a.name.startsWith('std.')) - Number(b.name.startsWith('std.')),
-  );
-  const namespaces = [...new Set(ordered.map((c) => namespaceOf(c.name)))];
-  const shown = namespace === null ? ordered : ordered.filter((c) => namespaceOf(c.name) === namespace);
-  // Collections under a heading for their namespace, when there is more than one to tell apart.
-  const groups = (namespace === null ? namespaces : [namespace])
-    .map((ns) => ({ ns, members: shown.filter((c) => namespaceOf(c.name) === ns) }))
-    .filter((g) => g.members.length > 0);
-  // Land on every collection at once rather than an empty page.
-  const selected =
-    place.collection === NEW
-      ? NEW
-      : ordered.some((c) => c.name === place.collection)
-        ? place.collection
-        : ordered.length
-          ? ALL
-          : null;
-  const current = collections.find((c) => c.name === selected) ?? null;
+  const apps = useSpaceApps(space, collections);
+  const unread = useUnread(space.id, apps.ready);
+  const seen = useSeen();
+  const open = view.kind === 'app' ? apps.ready.find((app) => app.id === view.id) : undefined;
+  const openApp = (id: string) => setView({ kind: 'app', id, since: seenAt(seen, space.id, id) });
+  const goHood = (hood: Hood) => setView({ kind: 'hood', hood });
   const openRecord = (r: NodeRecord) =>
-    setPlace({
-      collection: ordered.some((c) => c.name === r.collection) ? r.collection : selected,
-      key: r.key,
-    });
+    setPlace((was) => ({ collection: view.kind === 'hood' ? r.collection : was.collection, key: r.key }));
+
+  // An open app is looked at, as long as the page is: what arrives while it is counts as seen.
+  const openId = open?.id;
+  const newInOpen = openId ? (unread.get(openId) ?? 0) : 0;
+  useEffect(() => {
+    if (!openId) return;
+    const look = () => {
+      if (globalThis.document.visibilityState === 'visible') markSeen(account.did, space.id, openId);
+    };
+    look();
+    globalThis.document.addEventListener('visibilitychange', look);
+    return () => globalThis.document.removeEventListener('visibilitychange', look);
+  }, [account.did, space.id, openId, newInOpen]);
+
+  const fill = open ? fills(open, collections) : false;
+  const title =
+    open?.title ??
+    (view.kind === 'people'
+      ? 'People'
+      : view.kind === 'hood'
+        ? HOOD.find((h) => h.id === view.hood)!.label
+        : space.name);
 
   return (
     <PersonScopeProvider
@@ -157,285 +142,238 @@ export function SpaceView({
       me={account.did}
       {...(onOpenSpace ? { openSpace: onOpenSpace } : {})}
     >
-      {tab !== 'network' && <RelayDown />}
-      <header style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <SpaceMark space={space} size={44} />
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <h1
-              style={{
-                ...styles.appTitle,
-                fontSize: 24,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {space.name}
-            </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  fontSize: 12.5,
-                  color: palette.ink.muted,
-                }}
-                title={
-                  space.visibility === 'private'
-                    ? 'Encrypted end to end: only people in the space hold the key'
-                    : 'Not encrypted: anyone with the link can read it'
-                }
+      <div className="space-shell" data-app-open={open ? '' : undefined}>
+        <aside className="space-sidebar" aria-label={space.name}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 8px 12px' }}>
+            <SpaceMark space={space} size={32} />
+            <div style={{ minWidth: 0 }}>
+              <strong style={{ ...ellipsis, display: 'block', fontSize: 15, color: palette.ink.strong }}>
+                {space.name}
+              </strong>
+              <Privacy space={space} />
+            </div>
+          </div>
+          {status && (
+            <div style={{ padding: '0 8px 12px' }}>
+              <WhoIsHere status={status} people={people} onOpen={() => goHood('network')} />
+            </div>
+          )}
+
+          <nav aria-label="This space" style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <SideItem
+              icon={<Icon name="apps" size={16} />}
+              label="All apps"
+              on={view.kind === 'apps'}
+              onClick={() => setView({ kind: 'apps' })}
+            />
+            <SideHeading>Apps</SideHeading>
+            {apps.ready.map((app) => (
+              <SideItem
+                key={app.id}
+                icon={<AppIcon icon={app.icon} hue={app.hue} size={20} />}
+                label={app.title}
+                count={unread.get(app.id) ?? 0}
+                on={open?.id === app.id}
+                onClick={() => openApp(app.id)}
+              />
+            ))}
+            {space.writable && (
+              <SideItem
+                icon={<Icon name="plus" size={16} />}
+                label="Create an app"
+                quiet
+                onClick={() => setCreating(true)}
+              />
+            )}
+            <SideHeading>Space</SideHeading>
+            <SideItem
+              icon={<Icon name="people" size={16} />}
+              label="People"
+              on={view.kind === 'people'}
+              onClick={() => setView({ kind: 'people' })}
+            />
+            <SideHeading>Under the hood</SideHeading>
+            {HOOD.map((h) => (
+              <SideItem
+                key={h.id}
+                icon={<Icon name={h.icon} size={16} />}
+                label={h.label}
+                on={view.kind === 'hood' && view.hood === h.id}
+                onClick={() => goHood(h.id)}
+              />
+            ))}
+          </nav>
+        </aside>
+
+        <main className="space-main">
+          <header className="space-bar">
+            {view.kind === 'app' ? (
+              <button
+                onClick={() => setView({ kind: 'apps' })}
+                aria-label="All apps"
+                data-variant="quiet"
+                className="phone-only"
+                style={{ ...styles.smallButton, width: 36, padding: 0 }}
               >
-                <Icon name={space.visibility === 'private' ? 'lock' : 'globe'} size={12} />
-                {space.visibility === 'private' ? 'Private' : 'Public'}
+                <Icon name="back" size={16} />
+              </button>
+            ) : (
+              <span className="phone-only" style={{ display: 'contents' }}>
+                <SpaceMark space={space} size={30} />
               </span>
-              {status && <WhoIsHere status={status} people={people} onOpen={() => goHood('network')} />}
-              {status && status.rejected > 0 && (
+            )}
+            {open && <AppIcon icon={open.icon} hue={open.hue} size={28} />}
+            <h1 style={{ ...styles.appTitle, ...ellipsis, fontSize: 18, flex: 1, minWidth: 0 }}>{title}</h1>
+            {open && <NotifyButton space={space} app={open} />}
+            <CallButton space={space} />
+            <AccountMenu />
+          </header>
+
+          <div className="space-content" data-fill={fill || undefined}>
+            <div className="space-inner" data-wide={view.kind === 'hood' || undefined}>
+              {notices}
+              {view.kind !== 'hood' && <RelayDown />}
+              {view.kind === 'apps' && (
+                <div className="phone-only" style={{ marginBottom: 16 }}>
+                  <Privacy space={space} />
+                  {status && (
+                    <div style={{ marginTop: 6 }}>
+                      <WhoIsHere status={status} people={people} onOpen={() => goHood('network')} />
+                    </div>
+                  )}
+                </div>
+              )}
+              {!space.writable && (
+                <p style={{ ...styles.errorHint, marginTop: 0, marginBottom: 16 }}>
+                  {space.joining
+                    ? 'Joining — waiting for your invite to arrive from someone in the space. It will, once one of them is online.'
+                    : "You're following this space: you can see it but not change it. Someone who runs it can give you a role."}
+                </p>
+              )}
+              {status && status.rejected > 0 && view.kind !== 'app' && (
                 <button
                   onClick={() => goHood('network')}
-                  style={{ ...styles.badge, color: palette.accent.danger, border: 'none', cursor: 'pointer' }}
+                  style={{
+                    ...styles.badge,
+                    color: palette.accent.danger,
+                    border: 'none',
+                    cursor: 'pointer',
+                    marginBottom: 16,
+                  }}
                   title="Records peers sent that failed validation"
                 >
                   {status.rejected} rejected
                 </button>
               )}
-            </div>
-          </div>
-          <CallButton space={space} />
-          <AccountMenu />
-        </div>
-        {!space.writable && (
-          <p style={{ ...styles.errorHint, marginTop: 0 }}>
-            {space.joining
-              ? 'Joining — waiting for your invite to arrive from someone in the space. It will, once one of them is online.'
-              : "You're following this space: you can see it but not change it. Someone who runs it can give you a role."}
-          </p>
-        )}
-        <nav
-          role="tablist"
-          aria-label="This space"
-          className="space-tabs scroll-x"
-          style={{
-            display: 'flex',
-            gap: 4,
-            boxShadow: `inset 0 -1px 0 ${palette.surface.line}`,
-            marginTop: 8,
-          }}
-        >
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              role="tab"
-              aria-selected={section === s.id}
-              onClick={() => setSection(s.id)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 7,
-                height: 40,
-                padding: '0 12px',
-                border: 'none',
-                borderBottom: `2px solid ${section === s.id ? palette.ink.strong : 'transparent'}`,
-                background: 'none',
-                color: section === s.id ? palette.ink.strong : palette.ink.muted,
-                fontSize: 14,
-                fontWeight: 500,
-              }}
-            >
-              <Icon name={s.icon} size={15} />
-              {s.label}
-            </button>
-          ))}
-        </nav>
-      </header>
 
-      {section === 'hood' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-          <div role="tablist" aria-label="Under the hood" className="segmented scroll-x">
-            {HOOD.map((h) => (
-              <button key={h.id} role="tab" aria-selected={hood === h.id} onClick={() => setHood(h.id)}>
-                <Icon name={h.icon} size={14} />
-                {h.label}
-              </button>
-            ))}
-          </div>
-          {HOOD.map(
-            (h) =>
-              h.id === hood &&
-              'about' in h && (
-                <p key={h.id} style={{ fontSize: 13, color: palette.ink.muted }}>
-                  {h.about}
-                </p>
-              ),
-          )}
-        </div>
-      )}
-
-      {tab === 'apps' && (
-        <AppsView
-          space={space}
-          collections={collections}
-          onOpen={openRecord}
-          onBuildByHand={() => {
-            goHood('data');
-            setPlace({ collection: NEW, key: null });
-          }}
-        />
-      )}
-      {tab === 'explore' && <GraphView space={space} collections={collections} onOpen={openRecord} />}
-      {tab === 'query' && <QueryPlayground space={space} collections={collections} onOpen={openRecord} />}
-      {tab === 'people' && <RolesView space={space} collections={collections} />}
-      {tab === 'network' && <NetworkView space={space} status={status} />}
-
-      {tab === 'data' && (
-        <div className="space-layout">
-          <aside className="space-side">
-            {namespaces.length > 1 && (
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span className="collection-nav-heading" style={sideHeading}>
-                  Namespace
-                </span>
-                <select
-                  value={namespace ?? ALL}
-                  onChange={(e) => setNamespace(e.target.value === ALL ? null : e.target.value)}
-                  aria-label="Namespace"
-                  style={{ ...styles.input, height: 34, fontSize: 13 }}
-                >
-                  <option value={ALL}>All namespaces</option>
-                  {namespaces.map((ns) => (
-                    <option key={ns} value={ns}>
-                      {namespaceLabel(ns)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <nav aria-label="Collections" className="collection-nav">
-              <span className="collection-nav-heading" style={sideHeading}>
-                In this space
-              </span>
-              {ordered.length > 0 && (
-                <button
-                  onClick={() => setPlace({ collection: ALL, key: null })}
-                  aria-current={selected === ALL ? 'page' : undefined}
-                  data-nav
-                  style={{ ...navItem, ...(selected === ALL ? navItemOn : {}) }}
-                >
-                  <span>All collections</span>
-                  <span style={{ color: palette.ink.faint, fontSize: 12 }}>{shown.length}</span>
-                </button>
-              )}
-              {groups.map((g) => (
-                <div key={g.ns} style={{ display: 'contents' }}>
-                  {groups.length > 1 && (
-                    <span className="collection-nav-heading" style={groupHeading}>
-                      {namespaceLabel(g.ns)}
-                    </span>
+              {view.kind === 'hood' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+                  <div role="tablist" aria-label="Under the hood" className="segmented phone-only scroll-x">
+                    {HOOD.map((h) => (
+                      <button
+                        key={h.id}
+                        role="tab"
+                        aria-selected={view.hood === h.id}
+                        onClick={() => goHood(h.id)}
+                      >
+                        <Icon name={h.icon} size={14} />
+                        {h.label}
+                      </button>
+                    ))}
+                  </div>
+                  {HOOD.map(
+                    (h) =>
+                      h.id === view.hood &&
+                      'about' in h && (
+                        <p key={h.id} style={{ fontSize: 13, color: palette.ink.muted }}>
+                          {h.about}
+                        </p>
+                      ),
                   )}
-                  {g.members.map((c) => (
-                    <button
-                      key={c.name}
-                      onClick={() => setPlace({ collection: c.name, key: null })}
-                      aria-current={selected === c.name ? 'page' : undefined}
-                      title={c.name}
-                      data-nav
-                      style={{ ...navItem, ...(selected === c.name ? navItemOn : {}) }}
-                    >
-                      <span>{collectionLabel(c)}</span>
-                      <span style={{ color: palette.ink.faint, fontSize: 12 }}>{c.records}</span>
-                    </button>
-                  ))}
                 </div>
-              ))}
-              {ordered.length === 0 && (
-                <span style={{ fontSize: 13, color: palette.ink.faint, padding: '6px 10px' }}>
-                  Nothing yet
-                </span>
               )}
-              {space.writable && (
-                <button
-                  onClick={() => setPlace({ collection: NEW, key: null })}
-                  aria-current={selected === NEW ? 'page' : undefined}
-                  data-nav
-                  style={{ ...navItem, color: palette.ink.muted, ...(selected === NEW ? navItemOn : {}) }}
-                >
-                  + New collection
-                </button>
-              )}
-            </nav>
-          </aside>
 
-          <main style={{ minWidth: 0 }}>
-            {selected === NEW ? (
-              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <h2 style={{ ...styles.appTitle, fontSize: 22 }}>New collection</h2>
-                <p style={{ fontSize: 13, color: palette.ink.muted }}>
-                  Give it a name and some fields. Everything else — forms, lists, boards — is worked out from
-                  this.
-                </p>
-                <NewCollection space={space} onDone={(name) => setPlace({ collection: name, key: null })} />
-                <Library
+              {view.kind === 'apps' && (
+                <AppsView
                   space={space}
                   collections={collections}
-                  title="Or add one from the library"
-                  onAdded={(name) => setPlace({ collection: name, key: null })}
+                  apps={apps}
+                  unread={unread}
+                  mayDefine={mayDefine}
+                  onOpenApp={openApp}
+                  onCreate={() => setCreating(true)}
                 />
-              </section>
-            ) : selected === ALL ? (
-              <CollectionsOverview
-                collections={shown}
-                namespace={namespace}
-                onOpen={(name) => setPlace({ collection: name, key: null })}
-              />
-            ) : selected ? (
-              <CollectionView
-                key={selected}
-                space={space}
-                name={selected}
-                collection={current}
-                collections={collections}
-                onOpen={openRecord}
-              />
-            ) : (
-              <div
-                style={{
-                  ...styles.emptyState,
-                  padding: '64px 24px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 12,
-                  alignItems: 'center',
-                }}
-              >
-                <strong style={{ color: palette.ink.strong, fontSize: 15 }}>This space is empty</strong>
-                <span>
-                  Define a collection — or ask an agent: this page offers the space's operations as WebMCP
-                  tools.
-                </span>
-                {space.writable && (
-                  <button
-                    onClick={() => setPlace({ collection: NEW, key: null })}
-                    data-variant="primary"
-                    style={{ ...styles.addButton, alignSelf: 'center' }}
-                  >
-                    New collection
-                  </button>
-                )}
-              </div>
-            )}
-            {!selected && (
-              <Library
-                space={space}
-                collections={collections}
-                title="Start with a standard schema"
-                onAdded={(name) => setPlace({ collection: name, key: null })}
-              />
-            )}
-          </main>
-        </div>
-      )}
+              )}
+              {open && view.kind === 'app' && (
+                <OpenApp
+                  key={open.id}
+                  space={space}
+                  app={open}
+                  collections={collections}
+                  since={view.since}
+                  onOpen={openRecord}
+                />
+              )}
+              {view.kind === 'app' && !open && (
+                <p style={styles.emptyState}>This app isn't in the space any more.</p>
+              )}
+              {view.kind === 'people' && <RolesView space={space} collections={collections} />}
+              {view.kind === 'hood' && view.hood === 'data' && (
+                <DataView
+                  space={space}
+                  collections={collections}
+                  place={place}
+                  onPlace={setPlace}
+                  onOpen={openRecord}
+                />
+              )}
+              {view.kind === 'hood' && view.hood === 'explore' && (
+                <GraphView space={space} collections={collections} onOpen={openRecord} />
+              )}
+              {view.kind === 'hood' && view.hood === 'query' && (
+                <QueryPlayground space={space} collections={collections} onOpen={openRecord} />
+              )}
+              {view.kind === 'hood' && view.hood === 'network' && (
+                <NetworkView space={space} status={status} />
+              )}
+            </div>
+          </div>
+        </main>
+
+        {/* On a phone the sections move under the thumb, with the way home. */}
+        <nav aria-label="This space" className="tabbar">
+          <button onClick={onHome}>
+            <Icon name="home" size={20} />
+            Spaces
+          </button>
+          <button
+            onClick={() => setView({ kind: 'apps' })}
+            aria-current={view.kind === 'apps' || view.kind === 'app' ? 'page' : undefined}
+          >
+            <span style={{ position: 'relative', display: 'inline-flex' }}>
+              <Icon name="apps" size={20} />
+              <span className="tab-count">
+                <Count n={[...unread.values()].reduce((a, b) => a + b, 0)} />
+              </span>
+            </span>
+            Apps
+          </button>
+          <button
+            onClick={() => setView({ kind: 'people' })}
+            aria-current={view.kind === 'people' ? 'page' : undefined}
+          >
+            <Icon name="people" size={20} />
+            People
+          </button>
+          <button
+            onClick={() => goHood(view.kind === 'hood' ? view.hood : 'data')}
+            aria-current={view.kind === 'hood' ? 'page' : undefined}
+          >
+            <Icon name="layers" size={20} />
+            Under the hood
+          </button>
+        </nav>
+      </div>
 
       {place.key && (
         <RecordPanel
@@ -443,57 +381,121 @@ export function SpaceView({
           recordKey={place.key}
           collections={collections}
           onOpen={openRecord}
-          onClose={() => setPlace({ collection: selected, key: null })}
+          onClose={() => setPlace((was) => ({ ...was, key: null }))}
         />
       )}
 
-      {/* On a phone the sections move under the thumb, with the way home. */}
-      <nav aria-label="This space" className="tabbar">
-        <button onClick={onHome}>
-          <Icon name="home" size={20} />
-          Spaces
-        </button>
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => setSection(s.id)}
-            aria-current={section === s.id ? 'page' : undefined}
-          >
-            <Icon name={s.icon} size={20} />
-            {s.label}
-          </button>
-        ))}
-      </nav>
+      {creating && (
+        <CreateApp
+          space={space}
+          mayDefine={mayDefine}
+          onClose={() => setCreating(false)}
+          onBuildByHand={() => {
+            goHood('data');
+            setPlace({ collection: NEW, key: null });
+          }}
+        />
+      )}
     </PersonScopeProvider>
   );
 }
 
-const sideHeading = {
-  fontSize: 12,
-  fontWeight: 500,
-  color: palette.ink.faint,
-  textTransform: 'uppercase' as const,
-  letterSpacing: '.05em',
-  padding: '0 10px 6px',
-};
-const groupHeading = {
-  fontSize: 11,
-  color: palette.ink.faint,
-  padding: '12px 10px 4px',
-  fontFamily: palette.mono,
-};
-const navItem = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 8,
-  height: 34,
-  padding: '0 10px',
-  border: 'none',
-  borderRadius: 6,
-  background: 'none',
-  color: palette.ink.body,
-  fontSize: 14,
-  textAlign: 'left' as const,
-};
-const navItemOn = { background: palette.surface.sunken, color: palette.ink.strong, fontWeight: 500 };
+/** An open app: a built-in one's own view, or one made for the space */
+function OpenApp({
+  space,
+  app,
+  collections,
+  since,
+  onOpen,
+}: {
+  space: SpaceSummary;
+  app: AppEntry;
+  collections: Parameters<typeof MadeAppScreen>[0]['collections'];
+  since: string;
+  onOpen: (record: NodeRecord) => void;
+}) {
+  if (app.made)
+    return <MadeAppScreen space={space} record={app.made} collections={collections} onOpen={onOpen} />;
+  if (!app.builtIn) return null;
+  const View = app.builtIn.View;
+  return <View space={space} collections={collections} onOpen={onOpen} since={since} />;
+}
+
+/** Who can read the space, in a word */
+function Privacy({ space }: { space: SpaceSummary }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        fontSize: 12.5,
+        color: palette.ink.muted,
+      }}
+      title={
+        space.visibility === 'private'
+          ? 'Encrypted end to end: only people in the space hold the key'
+          : 'Not encrypted: anyone with the link can read it'
+      }
+    >
+      <Icon name={space.visibility === 'private' ? 'lock' : 'globe'} size={12} />
+      {space.visibility === 'private' ? 'Private' : 'Public'}
+      {space.role ? ` · ${space.role}` : ''}
+    </span>
+  );
+}
+
+function SideHeading({ children }: { children: ReactNode }) {
+  return (
+    <span
+      style={{
+        padding: '16px 8px 4px',
+        fontSize: 11.5,
+        fontWeight: 600,
+        color: palette.ink.faint,
+        textTransform: 'uppercase',
+        letterSpacing: '.05em',
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** A row in the sidebar; bold while something in it is new, the way unread channels are */
+function SideItem({
+  icon,
+  label,
+  count = 0,
+  on,
+  quiet,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  count?: number;
+  on?: boolean;
+  quiet?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={on ? 'page' : undefined}
+      data-nav
+      className="side-item"
+      style={{
+        color: on || count > 0 ? palette.ink.strong : quiet ? palette.ink.muted : palette.ink.body,
+        fontWeight: on || count > 0 ? 600 : 400,
+      }}
+    >
+      <span style={{ width: 20, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+        {icon}
+      </span>
+      <span style={{ ...ellipsis, flex: 1, minWidth: 0 }}>{label}</span>
+      <Count n={count} />
+    </button>
+  );
+}
+
+const ellipsis = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const;

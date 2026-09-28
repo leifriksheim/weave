@@ -42,8 +42,10 @@ the account's spaces and keeps working with every tab closed.
 `apps_propose`, `apps_screen_guide`.
 
 To make something new, an agent proposes an app (`apps_propose`): the
-collections it needs and, optionally, a screen for each. The person reads what
-it would do and adds it. See [screens-and-apps.md](screens-and-apps.md).
+collections it needs, optionally a screen for each, and optionally what is
+worth hearing about (`notify`: `[{ "label": "New ride", "collection":
+"carpool.ride" }]`), which people can then turn on with one click. The person
+reads what it would do and adds it. See [screens-and-apps.md](screens-and-apps.md).
 
 ## In your own code
 
