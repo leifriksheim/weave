@@ -8,7 +8,8 @@ import { useCallSpaces } from './calls/Calls';
 /**
  * Every space down the left edge while one is open, the way Slack and Discord
  * do it: one click to switch, a home button back to the grid, and a plus to
- * add another. On a phone it runs along the bottom instead — see `.rail` in
+ * add another. A phone has no room for it: its tab bar leads back to the list
+ * of spaces instead — see `.rail` and `.tabbar` in
  * styles.ts.
  */
 export function SpaceRail({

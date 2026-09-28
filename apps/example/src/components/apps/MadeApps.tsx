@@ -33,40 +33,6 @@ export function useMadeApps(space: SpaceSummary): ReadonlyArray<NodeRecord<App>>
   );
 }
 
-/** Added apps, as tiles to open */
-export function MadeAppTiles({
-  apps,
-  collections,
-  onOpen,
-}: {
-  apps: ReadonlyArray<NodeRecord<App>>;
-  collections: ReadonlyArray<NodeCollection>;
-  onOpen: (key: string) => void;
-}) {
-  return (
-    <>
-      {apps.map((record) => (
-        <button
-          key={record.key}
-          onClick={() => onOpen(record.key)}
-          data-tile
-          style={{ ...tile, textAlign: 'left', cursor: 'pointer' }}
-        >
-          <strong style={tileTitle}>{record.body!.title}</strong>
-          {record.body!.description && <span style={tileText}>{record.body!.description}</span>}
-          <span style={{ fontSize: 12, color: palette.ink.faint }}>
-            {record
-              .body!.needs.map(
-                (need) => collections.find((c) => c.name === need.name)?.title ?? need.title ?? need.name,
-              )
-              .join(' · ')}
-          </span>
-        </button>
-      ))}
-    </>
-  );
-}
-
 /** Whether an app record is readable and fully added */
 export function isAdded(record: NodeRecord<App>, collections: ReadonlyArray<NodeCollection>): boolean {
   return !!record.body && reviewApp(record.body, collections).added;
@@ -494,8 +460,8 @@ function CopyTo({ space, record }: { space: SpaceSummary; record: NodeRecord<App
   );
 }
 
-/** An app as a tile in a grid of them; the built-in apps are drawn the same way */
-export const tile = {
+/** A proposal, as a card in the list of them */
+const tile = {
   display: 'flex',
   flexDirection: 'column' as const,
   gap: 8,
@@ -506,5 +472,4 @@ export const tile = {
   font: 'inherit',
   color: 'inherit',
 };
-export const tileTitle = { fontSize: 14, fontWeight: 600, color: palette.ink.strong };
-export const tileText = { fontSize: 13, lineHeight: 1.5, color: palette.ink.muted };
+const tileTitle = { fontSize: 14, fontWeight: 600, color: palette.ink.strong };

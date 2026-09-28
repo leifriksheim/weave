@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
 import { CallsProvider, useAccount, useConnection, useNode, useSpaces } from '@weaveprotocol/core/react';
 import { AccountMenu } from './components/AccountMenu';
+import { AgentCard } from './components/AgentCard';
 import { useShowNotifications } from './notifications';
 import { ConnectScreen } from './components/ConnectScreen';
 import { ContactsView } from './components/ContactsView';
@@ -125,7 +126,7 @@ function Workspace() {
         {!open && <RelayDown />}
 
         {open ? (
-          <SpaceView key={open.id} space={open} onOpenSpace={openById} />
+          <SpaceView key={open.id} space={open} onOpenSpace={openById} onHome={() => setOpen(null)} />
         ) : (
           <>
             <header style={styles.headerRow}>
@@ -162,6 +163,7 @@ function Workspace() {
                   onJoin={(link) => void joinLink(link).then((space) => space && setOpen(space))}
                   onRemove={(id) => void forget(id)}
                 />
+                <AgentCard />
                 <HowItWorks />
               </>
             ) : (
