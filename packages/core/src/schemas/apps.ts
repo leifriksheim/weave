@@ -26,6 +26,7 @@ import { canonicalize } from '../schema/expression.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { CollectionRules } from '../records/rules.js';
 import { describeCollection } from '../records/describe.js';
+import { checkAppNotify, MAX_PROPOSALS, type AppNotify } from '../space/notify.js';
 
 /** One collection an app needs, as `collections_define` takes it — without a version, which the space decides */
 export interface AppDefinition {
@@ -52,6 +53,11 @@ export interface App {
   readonly from?: string;
   /** The key of the app in this space that this one is a new version of */
   readonly updates?: string;
+  /**
+   * What is worth hearing about, in its own collections: "New ride". Offered
+   * to each person as subscriptions when they ask; never turned on for them.
+   */
+  readonly notify?: ReadonlyArray<AppNotify>;
 }
 
 /** At most this many collections in one app */
@@ -70,6 +76,7 @@ export const app: DefineCollection & Typed<App> = {
       needs: { type: 'array', minItems: 1, maxItems: MAX_APP_COLLECTIONS, items: { type: 'object' } },
       from: { type: 'string', maxLength: 300 },
       updates: { type: 'string', minLength: 1, maxLength: 100 },
+      notify: { type: 'array', minItems: 1, maxItems: MAX_PROPOSALS, items: { type: 'object' } },
     },
     required: ['title', 'needs'],
   },
@@ -114,6 +121,17 @@ export function checkApp(value: unknown): string | null {
       describeCollection(stored);
     } catch (error) {
       return `${at}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+  if (body.notify !== undefined) {
+    if (!Array.isArray(body.notify) || body.notify.length === 0 || body.notify.length > MAX_PROPOSALS)
+      return `An app's notify lists 1–${MAX_PROPOSALS} things worth hearing about`;
+    const notify: unknown[] = body.notify;
+    for (const [index, entry] of notify.entries()) {
+      const problem = checkAppNotify(entry);
+      if (problem) return `notify[${index}]: ${problem}`;
+      if (isObject(entry) && typeof entry.collection === 'string' && !names.has(entry.collection))
+        return `notify[${index}]: ${entry.collection} is not one of the app's needs`;
     }
   }
   return null;
@@ -398,11 +416,12 @@ export async function copyApp(
 ): Promise<NodeRecord<App>> {
   const record = await node.records.get<App>(fromSpace, key);
   if (!record?.body || record.collection !== app.name) throw new Error(`No app ${key} in this space`);
-  const { title, description, needs } = record.body;
+  const { title, description, needs, notify } = record.body;
   return proposeApp(node, toSpace, {
     title,
     ...(description !== undefined ? { description } : {}),
     needs,
+    ...(notify !== undefined ? { notify } : {}),
     from: `${fromSpace}/${key}`,
   });
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { SpaceSummary } from '@weaveprotocol/core';
+import type { NewSpace, SpaceSummary } from '@weaveprotocol/core';
 import { CallsProvider, useAccount, useConnection, useNode, useSpaces } from '@weaveprotocol/core/react';
 import { AccountMenu } from './components/AccountMenu';
 import { AgentCard } from './components/AgentCard';
@@ -103,74 +103,91 @@ function Workspace() {
 
   const inSpace = open !== null;
 
-  return (
-    <div className="page" data-rail={inSpace || undefined}>
-      {inSpace && (
+  const create = (params: NewSpace) => void mine.create(params).then((space) => space && setOpen(space));
+  const join = (link: string) => void joinLink(link).then((space) => space && setOpen(space));
+  const notices = (
+    <>
+      {inSpace && error && (
+        <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 16 }}>
+          <p style={styles.error}>{error}</p>
+        </div>
+      )}
+      <InviteBanner onJoin={(link) => joinLink(link).then((space) => (space && setOpen(space), space))} />
+      <RelayNotice />
+    </>
+  );
+
+  // In a space, the space takes the whole window beside the rail, the way chat apps are laid out.
+  if (open) {
+    return (
+      <div className="shell">
         <SpaceRail
           spaces={spaces}
           current={open.id}
           onOpen={setOpen}
           onHome={() => setOpen(null)}
-          onCreate={(params) => void mine.create(params).then((space) => space && setOpen(space))}
-          onJoin={(link) => void joinLink(link).then((space) => space && setOpen(space))}
+          onCreate={create}
+          onJoin={join}
         />
-      )}
-      <div style={inSpace ? { ...styles.app, maxWidth: 1120 } : styles.app}>
-        {inSpace && error && (
-          <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 16 }}>
-            <p style={styles.error}>{error}</p>
-          </div>
-        )}
-        <InviteBanner onJoin={(link) => joinLink(link).then((space) => (space && setOpen(space), space))} />
-        <RelayNotice />
-        {!open && <RelayDown />}
+        <SpaceView
+          key={open.id}
+          space={open}
+          notices={notices}
+          onOpenSpace={openById}
+          onHome={() => setOpen(null)}
+        />
+        <CallLayer spaces={spaces} onGoTo={setOpen} />
+      </div>
+    );
+  }
 
-        {open ? (
-          <SpaceView key={open.id} space={open} onOpenSpace={openById} onHome={() => setOpen(null)} />
-        ) : (
-          <>
-            <header style={styles.headerRow}>
-              <Wordmark compact />
-              <AccountMenu />
-            </header>
-            <nav role="tablist" aria-label="Home" style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
-              {(['spaces', 'contacts'] as const).map((id) => (
-                <button
-                  key={id}
-                  role="tab"
-                  aria-selected={home === id}
-                  onClick={() => setHome(id)}
-                  style={{
-                    ...styles.appTitle,
-                    border: 'none',
-                    background: 'none',
-                    padding: 0,
-                    color: home === id ? palette.ink.strong : palette.ink.faint,
-                  }}
-                >
-                  {id === 'spaces' ? 'Spaces' : 'Contacts'}
-                </button>
-              ))}
-            </nav>
-            {home === 'spaces' ? (
-              <>
-                <SpaceList
-                  spaces={spaces}
-                  loading={loading}
-                  error={error}
-                  onOpen={setOpen}
-                  onCreate={(params) => void mine.create(params).then((space) => space && setOpen(space))}
-                  onJoin={(link) => void joinLink(link).then((space) => space && setOpen(space))}
-                  onRemove={(id) => void forget(id)}
-                />
-                <AgentCard />
-                <HowItWorks />
-              </>
-            ) : (
-              <ContactsView spaces={spaces} onOpen={openById} />
-            )}
-          </>
-        )}
+  return (
+    <div className="page">
+      <div style={styles.app}>
+        {notices}
+        <RelayDown />
+        <>
+          <header style={styles.headerRow}>
+            <Wordmark compact />
+            <AccountMenu />
+          </header>
+          <nav role="tablist" aria-label="Home" style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
+            {(['spaces', 'contacts'] as const).map((id) => (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={home === id}
+                onClick={() => setHome(id)}
+                style={{
+                  ...styles.appTitle,
+                  border: 'none',
+                  background: 'none',
+                  padding: 0,
+                  color: home === id ? palette.ink.strong : palette.ink.faint,
+                }}
+              >
+                {id === 'spaces' ? 'Spaces' : 'Contacts'}
+              </button>
+            ))}
+          </nav>
+          {home === 'spaces' ? (
+            <>
+              <SpaceList
+                spaces={spaces}
+                loading={loading}
+                error={error}
+                onOpen={setOpen}
+                onCreate={create}
+                onJoin={join}
+                onRemove={(id) => void forget(id)}
+              />
+              <AgentCard />
+              <HowItWorks />
+            </>
+          ) : (
+            <ContactsView spaces={spaces} onOpen={openById} />
+          )}
+        </>
       </div>
       <CallLayer spaces={spaces} onGoTo={setOpen} />
     </div>

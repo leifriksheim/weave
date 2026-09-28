@@ -33,6 +33,9 @@ export const ICONS = {
   plus: 'M8 3v10M3 8h10',
   terminal: 'M1.5 2.5h13v11h-13zM4.5 6l2 2-2 2M8 10.5h3.5',
   back: 'M10 3 5 8l5 5',
+  bell: 'M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11ZM6.5 13.5a1.5 1.5 0 0 0 3 0',
+  bellOn: 'M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11ZM6.5 13.5a1.5 1.5 0 0 0 3 0M6 7.5l1.5 1.5L10 6.5',
+  chevron: 'M6 4l4 4-4 4',
 } as const;
 
 export type IconName = keyof typeof ICONS;

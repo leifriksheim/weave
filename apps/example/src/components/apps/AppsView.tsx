@@ -1,21 +1,20 @@
 import { useState } from 'react';
-import { DEFINE, roleHolds } from '@weaveprotocol/core';
-import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
-import { useAccess, useNode } from '@weaveprotocol/core/react';
+import type { NodeCollection, SpaceSummary } from '@weaveprotocol/core';
+import { useNode } from '@weaveprotocol/core/react';
 // `useSchemas` defines collections in a space; it is not a React hook, whatever its name says.
-import { supersededApps, useSchemas as addSchemas } from '@weaveprotocol/core/schemas';
-import { hash } from '@weave/app-shared/hash';
-import { APPS, readiness, has, type WeaveApp } from './index';
-import { CreateApp } from './CreateApp';
-import { isAdded, MadeAppScreen, Proposals, useMadeApps } from './MadeApps';
-import { Icon, type IconName } from '../Icon';
+import { useSchemas as addSchemas } from '@weaveprotocol/core/schemas';
+import { has, type WeaveApp } from './index';
+import type { AppEntry, useSpaceApps } from './entries';
+import { AppIcon, Count } from './AppIcon';
+import { Proposals } from './MadeApps';
+import { Icon } from '../Icon';
 import { styles, palette } from '../../styles';
 
 /**
- * The apps a space can be used with, laid out like a phone's home screen:
- * the ones ready to open, a way to make a new one, then the rest. The ones
- * whose schemas the space already holds are ready to open; the rest say what
- * they need, and adding one defines just what is missing.
+ * A space's apps, laid out like a phone's home screen: the ones ready to
+ * open, with what is new in each, a way to make a new one, then proposals
+ * and the built-in ones not added yet. Adding one defines just the
+ * collections it is missing.
  *
  * Two kinds sit side by side: apps written as code here (Chat, Kanban…), and
  * apps made for this space and kept in it as records — often by an agent.
@@ -24,64 +23,23 @@ import { styles, palette } from '../../styles';
 export function AppsView({
   space,
   collections,
-  onOpen,
-  onBuildByHand,
+  apps,
+  unread,
+  mayDefine,
+  onOpenApp,
+  onCreate,
 }: {
   space: SpaceSummary;
   collections: ReadonlyArray<NodeCollection>;
-  onOpen: (record: NodeRecord) => void;
-  /** Defining a collection yourself, under the hood */
-  onBuildByHand?: () => void;
+  apps: ReturnType<typeof useSpaceApps>;
+  unread: ReadonlyMap<string, number>;
+  mayDefine: boolean;
+  onOpenApp: (id: string) => void;
+  onCreate: () => void;
 }) {
   const node = useNode();
-  const access = useAccess(space.id);
-  const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const mayDefine = space.writable && roleHolds(access?.role, DEFINE);
-  const made = useMadeApps(space);
-  const [openMade, setOpenMade] = useState<string | null>(null);
-  // A version a newer one replaced would only undo it: neither open nor offered.
-  const superseded = supersededApps(made, collections);
-  const current = made.filter((record) => !superseded.has(record.key));
-  const madeAdded = current.filter((record) => isAdded(record, collections));
-  const proposed = current.filter((record) => !isAdded(record, collections));
-
-  const openRecordApp = madeAdded.find((record) => record.key === openMade);
-  if (openRecordApp) {
-    return (
-      <MadeAppScreen
-        space={space}
-        record={openRecordApp}
-        collections={collections}
-        onOpen={onOpen}
-        onBack={() => setOpenMade(null)}
-      />
-    );
-  }
-
-  const open = APPS.find((a) => a.id === openId && readiness(a, collections).ready);
-  if (open) {
-    return (
-      <section
-        aria-label={open.title}
-        style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}
-      >
-        <header style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => setOpenId(null)} data-variant="quiet" style={styles.smallButton}>
-            ← Apps
-          </button>
-          <AppIcon icon={open.icon} hue={open.hue} size={28} />
-          <h2 style={{ ...styles.appTitle, fontSize: 22 }}>{open.title}</h2>
-        </header>
-        <open.View space={space} collections={collections} onOpen={onOpen} />
-      </section>
-    );
-  }
-
-  const ready = APPS.filter((a) => readiness(a, collections).ready);
-  const addable = APPS.filter((a) => !readiness(a, collections).ready);
 
   const add = async (app: WeaveApp) => {
     setBusy(app.id);
@@ -89,7 +47,7 @@ export function AppsView({
     try {
       await addSchemas(node, space.id, app.needs);
       await app.setup?.(node, space.id);
-      setOpenId(app.id);
+      onOpenApp(app.id);
     } catch (e) {
       setError(`Could not add ${app.title}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -109,7 +67,7 @@ export function AppsView({
           </div>
           {space.writable && (
             <button
-              onClick={() => setCreating(true)}
+              onClick={onCreate}
               data-variant="primary"
               className="hide-on-phone"
               style={{ ...styles.button, ...inlineButton }}
@@ -120,31 +78,20 @@ export function AppsView({
         </div>
 
         <div className="app-grid">
-          {madeAdded.map((record) => (
-            <AppCard
-              key={record.key}
-              icon="sparkle"
-              hue={hash(record.key) % 360}
-              title={record.body!.title}
-              description={record.body!.description}
-              onClick={() => setOpenMade(record.key)}
-            />
-          ))}
-          {ready.map((app) => (
+          {apps.ready.map((app) => (
             <AppCard
               key={app.id}
-              icon={app.icon}
-              hue={app.hue}
-              title={app.title}
-              description={app.description}
-              onClick={() => setOpenId(app.id)}
+              app={app}
+              count={unread.get(app.id) ?? 0}
+              onClick={() => onOpenApp(app.id)}
             />
           ))}
           {space.writable && (
-            <button onClick={() => setCreating(true)} data-tile-new className="app-card" style={createCard}>
+            <button onClick={onCreate} data-tile-new className="app-card" style={createCard}>
               <span
+                className="app-card-icon"
                 style={{
-                  ...iconBox(44),
+                  ...iconBox,
                   border: `1px dashed ${palette.surface.lineStrong}`,
                   color: palette.ink.muted,
                 }}
@@ -160,7 +107,7 @@ export function AppsView({
             </button>
           )}
         </div>
-        {ready.length === 0 && madeAdded.length === 0 && (
+        {apps.ready.length === 0 && (
           <p style={{ fontSize: 13, color: palette.ink.muted }}>
             No apps here yet. Add a ready-made one below, or create your own.
           </p>
@@ -169,14 +116,14 @@ export function AppsView({
 
       <Proposals
         space={space}
-        apps={proposed}
-        all={made}
+        apps={apps.proposed}
+        all={apps.made}
         collections={collections}
         mayDefine={mayDefine}
-        onAdded={setOpenMade}
+        onAdded={(key) => onOpenApp(`made:${key}`)}
       />
 
-      {addable.length > 0 && (
+      {apps.addable.length > 0 && (
         <section aria-label="More apps" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <h2 style={styles.sectionTitle}>More apps</h2>
@@ -187,7 +134,7 @@ export function AppsView({
             </p>
           </div>
           <div className="app-list">
-            {addable.map((app) => (
+            {apps.addable.map((app) => (
               <div key={app.id} style={addRow}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <AppIcon icon={app.icon} hue={app.hue} size={40} />
@@ -222,65 +169,39 @@ export function AppsView({
 
       {/* On a phone the button in the heading gives way to one under the thumb. */}
       {space.writable && (
-        <button onClick={() => setCreating(true)} data-variant="primary" className="fab">
+        <button onClick={onCreate} data-variant="primary" className="fab">
           <Icon name="sparkle" size={16} /> Create an app
         </button>
-      )}
-
-      {creating && (
-        <CreateApp
-          space={space}
-          mayDefine={mayDefine}
-          onClose={() => setCreating(false)}
-          {...(onBuildByHand ? { onBuildByHand } : {})}
-        />
       )}
     </div>
   );
 }
 
-/** An app on the home screen: its icon, its name, and a line on what it's for */
-function AppCard({
-  icon,
-  hue,
-  title,
-  description,
-  onClick,
-}: {
-  icon: IconName;
-  hue: number;
-  title: string;
-  description?: string | undefined;
-  onClick: () => void;
-}) {
+/** An app on the home screen: its icon, its name, a line on what it's for, and what's new in it */
+function AppCard({ app, count, onClick }: { app: AppEntry; count: number; onClick: () => void }) {
   return (
-    <button onClick={onClick} data-tile className="app-card" style={card}>
-      <AppIcon icon={icon} hue={hue} size={44} />
+    <button
+      onClick={onClick}
+      data-tile
+      className="app-card"
+      data-unread={count > 0 || undefined}
+      style={card}
+    >
+      <span style={{ position: 'relative', display: 'inline-flex' }}>
+        <AppIcon icon={app.icon} hue={app.hue} size={44} className="app-card-icon" />
+        <span className="app-card-count">
+          <Count n={count} />
+        </span>
+      </span>
       <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-        <strong style={cardTitle}>{title}</strong>
-        {description && (
+        <strong style={cardTitle}>{app.title}</strong>
+        {app.description && (
           <span className="app-card-text" style={cardText}>
-            {description}
+            {app.description}
           </span>
         )}
       </span>
     </button>
-  );
-}
-
-/** An app's glyph on its own tint, the same wherever the app appears */
-function AppIcon({ icon, hue, size }: { icon: IconName; hue: number; size: number }) {
-  return (
-    <span
-      aria-hidden
-      style={{
-        ...iconBox(size),
-        background: `linear-gradient(145deg, hsl(${hue} 80% 62%), hsl(${(hue + 25) % 360} 70% 46%))`,
-        color: '#fff',
-      }}
-    >
-      <Icon name={icon} size={Math.round(size * 0.48)} />
-    </span>
   );
 }
 
@@ -328,16 +249,15 @@ function SchemaList({ app, collections }: { app: WeaveApp; collections: Readonly
   );
 }
 
-const iconBox = (size: number) =>
-  ({
-    width: size,
-    height: size,
-    flexShrink: 0,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: Math.round(size * 0.28),
-  }) as const;
+const iconBox = {
+  width: 44,
+  height: 44,
+  flexShrink: 0,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 12,
+} as const;
 
 const card = {
   display: 'flex',

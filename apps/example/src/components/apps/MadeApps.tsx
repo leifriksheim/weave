@@ -372,42 +372,36 @@ export function MadeAppScreen({
   record,
   collections,
   onOpen,
-  onBack,
 }: {
   space: SpaceSummary;
   record: NodeRecord<App>;
   collections: ReadonlyArray<NodeCollection>;
   onOpen: (record: NodeRecord) => void;
-  onBack: () => void;
 }) {
   const body = record.body!;
   const names = body.needs.map((need) => need.name);
   const withScreen = names.map((name) => collections.find((c) => c.name === name)).find((c) => c?.screen);
   const [plain, setPlain] = useState(false);
+  const others = useSpaces().spaces.filter((other) => other.id !== space.id && other.writable);
 
   return (
     <section
       aria-label={body.title}
-      style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, flex: 1, minHeight: 0 }}
     >
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <button onClick={onBack} data-variant="quiet" style={styles.smallButton}>
-          ← Apps
-        </button>
-        <h2 style={{ ...styles.appTitle, fontSize: 22 }}>{body.title}</h2>
-        {withScreen && (
-          <button
-            onClick={() => setPlain((was) => !was)}
-            data-variant="ghost"
-            style={{ ...styles.linkButton, fontSize: 13 }}
-          >
-            {plain ? 'Show its screen' : 'Show the records'}
-          </button>
-        )}
-        <CopyTo space={space} record={record} />
-      </header>
-      {body.description && (
-        <p style={{ fontSize: 14, color: palette.ink.muted, marginTop: -8 }}>{body.description}</p>
+      {(withScreen || others.length > 0) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {withScreen && (
+            <button
+              onClick={() => setPlain((was) => !was)}
+              data-variant="ghost"
+              style={{ ...styles.linkButton, fontSize: 13, padding: 0 }}
+            >
+              {plain ? 'Show its screen' : 'Show the records'}
+            </button>
+          )}
+          <CopyTo space={space} record={record} others={others} />
+        </div>
       )}
       {withScreen?.screen && !plain ? (
         <ScreenFrame
@@ -426,11 +420,17 @@ export function MadeAppScreen({
 }
 
 /** Proposes the same app in another of your spaces — people there decide for themselves */
-function CopyTo({ space, record }: { space: SpaceSummary; record: NodeRecord<App> }) {
+function CopyTo({
+  space,
+  record,
+  others,
+}: {
+  space: SpaceSummary;
+  record: NodeRecord<App>;
+  others: ReadonlyArray<SpaceSummary>;
+}) {
   const node = useNode();
-  const { spaces } = useSpaces();
   const [said, setSaid] = useState<string | null>(null);
-  const others = spaces.filter((other) => other.id !== space.id && other.writable);
   if (others.length === 0) return null;
   return (
     <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>

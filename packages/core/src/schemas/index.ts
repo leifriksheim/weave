@@ -125,3 +125,4 @@ export {
 export { SCREEN_GUIDE, SCREEN_CLIENT, screenDocument, screenPolicy, createScreenBridge } from './screens.js';
 export type { ScreenBridge, ScreenRecord, ScreenViewer } from './screens.js';
 export type { App, AppDefinition, AppReview, AppNeedReview, ReviewContext } from './apps.js';
+export type { AppNotify } from '../space/notify.js';

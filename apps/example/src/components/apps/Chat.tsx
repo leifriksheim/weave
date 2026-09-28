@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { ResultOf } from '@weaveprotocol/core';
 import { message, poll, reaction, vote } from '@weaveprotocol/core/schemas';
@@ -24,7 +24,7 @@ const POLL_COMMAND = /^\/poll(?:\s+(.*))?$/s;
  * the room one: the poll is an ordinary `std.poll`, and the message shares it,
  * so it can be voted on right here, in the Polls app, or anywhere else.
  */
-export function Chat({ space, collections, onOpen }: AppProps) {
+export function Chat({ space, collections, onOpen, since }: AppProps) {
   const node = useNode();
   const { did: me } = useAccount();
   const people = peopleFrom(useProfiles(space.id));
@@ -42,6 +42,10 @@ export function Chat({ space, collections, onOpen }: AppProps) {
   const stuck = useRef(true);
 
   const messages = useLive(space.id, async () => (await node.records.query(space.id, CHAT)).records, []);
+  // Where what arrived since you last looked begins: a line above it, the way chat apps mark it.
+  // Fixed when the chat opens, so reading it doesn't move the line away.
+  const [after] = useState(() => (since ? Date.parse(since) : Infinity));
+  const firstNew = messages?.findIndex((m) => m.root !== me && Date.parse(m.createdAt) > after) ?? -1;
 
   // Follow new messages down — unless you have scrolled up to read.
   useEffect(() => {
@@ -76,6 +80,8 @@ export function Chat({ space, collections, onOpen }: AppProps) {
       style={{
         display: 'flex',
         flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
         border: `1px solid ${palette.surface.line}`,
         borderRadius: 10,
         overflow: 'hidden',
@@ -88,8 +94,9 @@ export function Chat({ space, collections, onOpen }: AppProps) {
           stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
         }}
         style={{
-          height: 'min(60vh, 560px)',
-          minHeight: 280,
+          // As tall as the window lets it be (`.space-content[data-fill]`).
+          flex: '1 1 0',
+          minHeight: 240,
           overflowY: 'auto',
           padding: '16px 16px 8px',
           display: 'flex',
@@ -106,18 +113,20 @@ export function Chat({ space, collections, onOpen }: AppProps) {
           const startsRun =
             !prev || prev.root !== m.root || Date.parse(m.createdAt) - Date.parse(prev.createdAt) > RUN_MS;
           return (
-            <Line
-              key={m.key}
-              record={m}
-              startsRun={startsRun}
-              name={writerOf(m, people)}
-              mine={m.root === me}
-              showReactions={reacts && (hover === m.key || reactionsOf(m).length > 0)}
-              onHover={(on) => setHover(on ? m.key : (h) => (h === m.key ? null : h))}
-              onDelete={() => void node.records.delete(space.id, m.key)}
-              onOpen={onOpen}
-              space={space}
-            />
+            <Fragment key={m.key}>
+              {i === firstNew && <NewSince />}
+              <Line
+                record={m}
+                startsRun={startsRun}
+                name={writerOf(m, people)}
+                mine={m.root === me}
+                showReactions={reacts && (hover === m.key || reactionsOf(m).length > 0)}
+                onHover={(on) => setHover(on ? m.key : (h) => (h === m.key ? null : h))}
+                onDelete={() => void node.records.delete(space.id, m.key)}
+                onOpen={onOpen}
+                space={space}
+              />
+            </Fragment>
           );
         })}
       </div>
@@ -327,6 +336,30 @@ function Line({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The line above the first message that arrived since you last looked */
+function NewSince() {
+  return (
+    <div
+      role="separator"
+      aria-label="New messages"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        margin: '10px 0',
+        color: palette.accent.danger,
+        fontSize: 11,
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '.05em',
+      }}
+    >
+      <span style={{ flex: 1, height: 1, background: palette.accent.danger, opacity: 0.5 }} />
+      New
     </div>
   );
 }

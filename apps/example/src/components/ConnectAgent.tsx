@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   connectToHome,
   offerAgentLink,
   type AgentAsking,
   type AgentLinkStage,
 } from '@weaveprotocol/core/session';
-import { useConnection } from '@weaveprotocol/core/react';
+import { useAccount, useConnection } from '@weaveprotocol/core/react';
 import { Choice, Modal } from '@weave/app-shared/Modal';
 import { relayUrls } from '@weave/app-shared/relay';
 import { styles, palette, variants } from '../styles';
@@ -41,6 +41,7 @@ type Step =
  */
 export function ConnectAgent({ onClose }: { onClose: () => void }) {
   const { state } = useConnection();
+  const { did } = useAccount();
   const [days, setDays] = useState<Lasts>('30');
   const [step, setStep] = useState<Step>({ kind: 'starting' });
   const [code, setCode] = useState<string | null>(null);
@@ -48,6 +49,10 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const connectedName = step.kind === 'connected' ? step.agent.name : null;
+  useEffect(() => {
+    if (connectedName) rememberAgent(did, connectedName);
+  }, [did, connectedName]);
 
   useEffect(() => {
     let stopped = false;
@@ -249,3 +254,40 @@ const commandBox = {
   background: palette.surface.sunken,
   fontFamily: palette.mono,
 } as const;
+
+/**
+ * The agent last connected from this browser, by name, so "Create an app"
+ * can skip straight to the prompt. Only a hint: the account home knows which
+ * agents are connected, and this page can't ask it.
+ */
+const agentKey = (did: string) => `weave.agent:${did}`;
+const agentListeners = new Set<() => void>();
+
+function rememberAgent(did: string, name: string) {
+  try {
+    globalThis.localStorage?.setItem(agentKey(did), name);
+  } catch {
+    // Not remembered; it asks again next time.
+  }
+  agentListeners.forEach((listener) => listener());
+}
+
+function readAgent(did: string): string | null {
+  try {
+    return globalThis.localStorage?.getItem(agentKey(did)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The name of the agent last connected from this browser, if any */
+export function useKnownAgent(): string | null {
+  const { did } = useAccount();
+  return useSyncExternalStore(
+    (listener) => {
+      agentListeners.add(listener);
+      return () => agentListeners.delete(listener);
+    },
+    () => readAgent(did),
+  );
+}

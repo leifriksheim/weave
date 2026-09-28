@@ -543,6 +543,45 @@ describe('apps an agent proposes', () => {
     assert.match(checkApp({ title: 'x', needs: [] })!, /1–10/);
     assert.equal(checkApp(carpool), null);
   });
+
+  test('an app says what is worth hearing about, only in its own collections', async () => {
+    const trips = { label: 'New trip', collection: 'app.carpool.trip' };
+    const mine = {
+      label: 'A seat on my trip',
+      collection: 'app.carpool.seat',
+      topic: { field: 'to', me: true },
+    };
+    assert.equal(checkApp({ ...carpool, notify: [trips, mine] }), null);
+    assert.match(
+      checkApp({ ...carpool, notify: [{ label: 'Any message', collection: 'std.message' }] })!,
+      /not one of the app's needs/,
+    );
+    assert.match(checkApp({ ...carpool, notify: [{ ...trips, spaces: ['x'] }] })!, /leaves out spaces/);
+    assert.match(checkApp({ ...carpool, notify: [{ ...trips, open: 'https://x.example/' }] })!, /leaves out/);
+    assert.match(checkApp({ ...carpool, notify: [{ ...trips, label: '' }] })!, /label/);
+    assert.match(checkApp({ ...carpool, notify: [] })!, /1–8/);
+    assert.match(checkApp({ ...carpool, notify: Array.from({ length: 9 }, () => trips) })!, /1–8/);
+
+    // A proposal keeps it, a bad one is refused, and a copy carries it along.
+    const { alice, space } = await setup();
+    const proposed = z
+      .object({ key: z.string() })
+      .parse(await runAction(alice.node, 'apps_propose', { space, ...carpool, notify: [trips] }));
+    const record = await alice.node.records.get<App>(space, proposed.key);
+    assert.deepEqual(record?.body?.notify, [trips]);
+    await assert.rejects(
+      () =>
+        runAction(alice.node, 'apps_propose', {
+          space,
+          ...carpool,
+          notify: [{ label: 'x', collection: 'std.message' }],
+        }),
+      /not one of the app's needs/,
+    );
+    const { id: other } = await alice.node.spaces.create({ name: 'Other gym', visibility: 'public' });
+    const copy = await copyApp(alice.node, space, proposed.key, other);
+    assert.deepEqual(copy.body?.notify, [trips]);
+  });
 });
 
 describe('what a collection allows, in words', () => {

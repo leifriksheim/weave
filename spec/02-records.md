@@ -1717,11 +1717,11 @@ that reads votes may meet one on something that is not a poll.
 
 **Also exported** from the same module (specified with their features):
 
-| Name                  | Body                                                                                                    | Rules                                                                     | Where                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `std.contact`         | `did` ≤ 256 and `name` ≤ 200, required; `space` ≤ 256; `note` ≤ 2000; `blocked` boolean                 | `onePer: [did]`                                                           | [03 — Spaces](03-spaces.md)                               |
-| `std.contact-request` | `to` ≤ 256 and `sealed` ≤ 16000, required                                                               | edit, delete: `creator`                                                   | [03 — Spaces](03-spaces.md)                               |
-| `std.app`             | `title` 1–100 and `needs` (1–10 objects), required; `description` ≤ 1000; `from` ≤ 300; `updates` 1–100 | edit: `creator`; delete: `creator`, `can:moderate`; permission `moderate` | [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) |
+| Name                  | Body                                                                                                                            | Rules                                                                     | Where                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `std.contact`         | `did` ≤ 256 and `name` ≤ 200, required; `space` ≤ 256; `note` ≤ 2000; `blocked` boolean                                         | `onePer: [did]`                                                           | [03 — Spaces](03-spaces.md)                               |
+| `std.contact-request` | `to` ≤ 256 and `sealed` ≤ 16000, required                                                                                       | edit, delete: `creator`                                                   | [03 — Spaces](03-spaces.md)                               |
+| `std.app`             | `title` 1–100 and `needs` (1–10 objects), required; `description` ≤ 1000; `from` ≤ 300; `updates` 1–100; `notify` (1–8 objects) | edit: `creator`; delete: `creator`, `can:moderate`; permission `moderate` | [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) |
 
 **App updates.** An app is changed by proposing a new `std.app` whose
 `updates` is the key of the app, in the same space, that it is a new version
@@ -1753,6 +1753,34 @@ that need a collection it would change (`reviewApp`, `usedBy`), and
 > `compare`'s breaks.
 
 _Source: `packages/core/src/schemas/apps.ts` (`supersededApps`, `reviewApp`, `proposeApp`, `addApp`), `packages/core/src/node/actions.ts` (`apps_propose`, `apps_list`), `apps/example/src/components/apps/AppsView.tsx`, `apps/example/src/components/apps/MadeApps.tsx`. Tests: `packages/core/tests/agents.test.ts` ("an update replaces the app it names: once added, the old version is not offered again", "a change to a collection another app uses names that app, and warns the agent")._
+
+**What an app notifies about.** An app MAY say what in it is worth hearing
+about, in `notify`: 1 to 8 entries of `{ label, collection, topic?, others? }`,
+each an `AppNotify`. They have the meaning of a `NotifyProposal`
+([06](06-nodes-and-sessions.md) §4.12) without `spaces` and `open`, which
+belong to whichever app shows it, and `collection` MUST be one of the app's
+`needs`. An app that shows it offers them to the person as a proposal of its
+own, for the space it is in, when the person asks; nothing is turned on for
+anyone by adding the app. Like `updates`, it is a body member so that spaces
+which already hold a `std.app` definition without it accept it unchanged.
+
+- `checkApp` refuses an entry that is malformed, that names `spaces` or
+  `open`, or whose `collection` is not a need, so `proposeApp`, `apps_propose`
+  and `addApp` refuse such an app.
+- `copyApp` carries `notify` along.
+
+```json
+{
+  "title": "Carpool",
+  "needs": [ … ],
+  "notify": [
+    { "label": "New trip", "collection": "carpool.trip" },
+    { "label": "A seat on my trip", "collection": "carpool.seat", "topic": { "field": "driver", "me": true } }
+  ]
+}
+```
+
+_Source: `packages/core/src/schemas/apps.ts` (`checkApp`, `copyApp`), `packages/core/src/space/notify.ts` (`AppNotify`, `checkAppNotify`), `packages/core/src/node/actions.ts` (`apps_propose`), `apps/example/src/notifications.ts`. Tests: `packages/core/tests/agents.test.ts` ("an app says what is worth hearing about, only in its own collections")._
 
 **Positions.** `position` is a string that sorts (by plain string comparison)
 where a record goes in a hand-made order. Digits are `0–9a–z`; a position

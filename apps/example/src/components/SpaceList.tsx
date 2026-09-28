@@ -7,6 +7,7 @@ import { Info } from '@weave/app-shared/Info';
 import { hash } from '@weave/app-shared/hash';
 import { NameField, useMyName } from './NameField';
 import { styles, palette } from '../styles';
+import { useSpaceUnread } from '../seen';
 
 /** How a space is described once it exists: who can read it, and what you are in it. */
 function spaceBadges(space: Pick<SpaceSummary, 'visibility' | 'role' | 'joining'>): string {
@@ -101,7 +102,10 @@ export function SpaceList({
                   >
                     {space.name}
                   </span>
-                  <span style={{ ...styles.todoMeta, marginTop: 0 }}>{spaceBadges(space)}</span>
+                  <span style={{ ...styles.todoMeta, marginTop: 0 }}>
+                    {spaceBadges(space)}
+                    <NewIn space={space} />
+                  </span>
                 </span>
               </button>
               <button
@@ -140,6 +144,15 @@ export function SpaceList({
         <SpaceDialog initial={dialog} onClose={() => setDialog(null)} onCreate={onCreate} onJoin={onJoin} />
       )}
     </>
+  );
+}
+
+/** What arrived in a space since you last looked, after the rest of its line */
+function NewIn({ space }: { space: SpaceSummary }) {
+  const n = useSpaceUnread(space);
+  if (n === 0) return null;
+  return (
+    <strong style={{ color: palette.accent.danger, fontWeight: 600 }}> · {n > 99 ? '99+' : n} new</strong>
   );
 }
 

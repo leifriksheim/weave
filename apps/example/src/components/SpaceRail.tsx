@@ -4,6 +4,8 @@ import type { NewSpace } from '@weaveprotocol/core';
 import { SpaceDialog, SpaceMark } from './SpaceList';
 import { palette } from '../styles';
 import { useCallSpaces } from './calls/Calls';
+import { Count } from './apps/AppIcon';
+import { useSpaceUnread } from '../seen';
 
 /**
  * Every space down the left edge while one is open, the way Slack and Discord
@@ -76,6 +78,7 @@ export function SpaceRail({
               >
                 <SpaceMark space={space} size={40} />
               </span>
+              <RailCount space={space} />
               {(calls.mine === space.id || calls.others.has(space.id)) && (
                 <span
                   aria-label={calls.mine === space.id ? 'Your call is here' : 'A call is going on here'}
@@ -149,3 +152,13 @@ const pill = {
   background: palette.ink.strong,
   transition: 'height .15s ease, opacity .15s ease',
 };
+
+/** What is new in a space, on its corner, the way unread counts sit on a server icon */
+function RailCount({ space }: { space: SpaceSummary }) {
+  const n = useSpaceUnread(space);
+  return (
+    <span className="rail-count">
+      <Count n={n} />
+    </span>
+  );
+}
