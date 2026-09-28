@@ -7,10 +7,13 @@ import type {
   SpaceSummary,
 } from '@weaveprotocol/core';
 import {
+  ballot,
   call,
   column,
+  decision,
   message,
   poll,
+  proposal,
   reaction,
   task,
   vote,
@@ -18,6 +21,7 @@ import {
 } from '@weaveprotocol/core/schemas';
 import { CallHistory } from './CallHistory';
 import { Chat } from './Chat';
+import { Decisions } from './Decisions';
 import { Kanban } from './Kanban';
 import { Polls } from './Polls';
 import type { AppNotify } from '@weaveprotocol/core/schemas';
@@ -102,6 +106,20 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     description: 'Ask the space a question. Everyone picks one option, and can change their mind.',
     needs: [poll, vote],
     View: Polls,
+  },
+  {
+    id: 'decisions',
+    icon: 'decide',
+    hue: 118,
+    notify: [
+      { label: 'New proposal', collection: proposal.name },
+      { label: 'Decided', collection: decision.name },
+    ],
+    title: 'Decisions',
+    description:
+      'Put something to the space, and decide it once enough people agree. Every device checks the count.',
+    needs: [proposal, ballot, decision],
+    View: Decisions,
   },
   {
     id: 'calls',

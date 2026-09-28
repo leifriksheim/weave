@@ -837,9 +837,10 @@ await node.records.put(space.id, reaction.name, { emoji: '👍' }, { links: [{ r
 ```
 
 Using the same ones is how two apps agree — reactions from one show up in the
-other. The example app's Apps tab is built on this: a chat, a kanban board and
-polls, each appearing in a space once it holds the collections it needs
-(`std.message`; `std.task` and `std.column`; `std.poll` and `std.vote`). An app that wants its own shape defines its own collection instead.
+other. The example app's Apps tab is built on this: a chat, a kanban board,
+polls and decisions, each appearing in a space once it holds the collections it
+needs (`std.message`; `std.task` and `std.column`; `std.poll` and `std.vote`;
+`std.proposal`, `std.ballot` and `std.decision`). An app that wants its own shape defines its own collection instead.
 
 **Rules, enforced by every peer.** A definition can say who may create, edit and
 delete its records, what must be unique, and which fields are fixed:

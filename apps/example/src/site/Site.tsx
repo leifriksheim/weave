@@ -290,30 +290,36 @@ await node.collections.define(space.id, votes);
 `;
 
 const CHECK_DECIDED = `
-const decided = collection({
-  name: 'app.poll.decided',
-  schema: z.object({ choice: z.int(), votes: z.array(z.string()) }),
-  links: { about: { to: ['app.poll'], cardinality: 'one' } },
-  rules: {
-    onePer: ['link:about'], // one decision per poll
-    check: [{
-      // Five different people's votes for this choice, on this poll
-      that: { '>=': [{ size: { distinct: { map: [
-        { filter: [{ versions: { var: 'body.votes' } }, { and: [
-          { '==': [{ var: 'it.collection' }, 'app.poll.vote'] },
-          { '==': [{ link: ['about', { var: 'it' }] }, { link: ['about'] }] },
-          { '==': [{ var: 'it.body.choice' }, { var: 'body.choice' }] },
-        ] }] },
-        { var: 'it.author' },
-      ] } } }, 5] },
-      else: 'A poll is decided by five votes for one option',
-    }],
-  },
+import { proposal, ballot, decision }
+  from '@weaveprotocol/core/schemas';
+
+const vote = await node.records.put(space.id, proposal, {
+  title: 'Paint the clubhouse?',
+  options: ['Yes', 'No'],
+  quorum: 5, // five ballots for one option decide it
 });
 
-// Your app finds the votes and cites them. Every device checks the proof.
-await node.records.put(space.id, decided,
-  { choice: 1, votes: lisbon.map((vote) => vote.version) }, { links: about });
+// Once five people have cast "Yes", anyone can record it.
+// The decision cites the ballots; every device checks them.
+await node.records.put(space.id, decision, {
+  outcome: 0,
+  proposal: vote.version,
+  ballots: yes.map((ballot) => ballot.version),
+}, { links: [{ rel: 'about', to: vote.key }] });
+// Four ballots, or someone's twice: refused, everywhere.
+`;
+
+const CHECK_OWN = `
+// Or write your own. A score only goes up by one:
+rules: {
+  check: [{
+    that: { '==': [
+      { var: 'body.score' },
+      { '+': [{ var: 'prev.body.score' }, 1] },
+    ] },
+    else: 'The score goes up by one',
+  }],
+}
 `;
 
 const STEP_USE = `
@@ -621,20 +627,29 @@ export function Developers() {
         <Points points={CHECKS} />
         <div className="split">
           <div>
-            <h3>Checks are data, and they always finish</h3>
+            <h3>The app proves it, every device checks</h3>
             <p>
-              A check is JSON stored with the collection, so it travels with the data and every app and agent
-              sees the same rule. It reads the record, the version before it, and the versions it cites. It
-              has no loops but over lists already in hand, and no clock, so every device reaches the same
-              verdict.
+              A check never goes looking for records. The app that writes does the work: it finds the ballots
+              and cites them. Every other device only checks that what was cited proves it, so they all reach
+              the same verdict, whenever they see it.
             </p>
             <p>
-              The hard part happens once, in the app that writes: it finds the votes and cites them. Everyone
-              else only checks. One step is small, but a record can go through any number of them, and records
-              can build on records.
+              Checks are JSON stored with the collection, so they travel with the data and every app and agent
+              sees the same rule. They always finish and read no clock.
             </p>
+            <ul>
+              <li>
+                Ready-made: <code>std.decision</code> for proposals, <code>std.goal-reached</code> for pledges
+              </li>
+              <li>
+                Or your own <code>check</code>, over the record, the version before it, and what it cites
+              </li>
+            </ul>
           </div>
-          <Code file="decided.ts">{CHECK_DECIDED}</Code>
+          <div className="stack">
+            <Code file="decide.ts">{CHECK_DECIDED}</Code>
+            <Code file="rules.ts">{CHECK_OWN}</Code>
+          </div>
         </div>
       </Band>
 

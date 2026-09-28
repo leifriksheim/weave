@@ -192,6 +192,10 @@ or an edited vote's latest version can't be cited. A cited version proves
 what was signed, not that it is still current, so make evidence final where
 it matters: `fixed: ['choice']` on a vote.
 
+The standard library has two ready-made: `std.decision`, a proposal decided
+by a quorum of ballots, and `std.goal-reached`, a goal reached by pledges
+([standard-library.md](standard-library.md)).
+
 **Patterns.**
 
 - **Quorums and multisig.** "Three admins approved": cite the approvals, and
@@ -256,13 +260,13 @@ import { reaction, comment, poll, vote, useSchemas } from '@weaveprotocol/core/s
 await useSchemas(node, space.id, [poll, vote, reaction, comment]); // defines only what the space is missing
 ```
 
-About seventy definitions, by area (`standardGroups`): annotations that attach
+About eighty definitions, by area (`standardGroups`): annotations that attach
 to any record (`reaction`, `comment`, `rating`, `bookmark`, `claim`…), people
 (`profile`, `follow`…), messaging and publishing (`message`, `post`,
 `article`, `doc` and `docBlock`, `note`…), lists (`list`, `listItem`), files
 and media, time and planning (`event`, `rsvp`, `task`, `booking`…), places,
 home and life (`recipe`, `meal`…), money (`expense`, `settlement`…) and
-community (`poll`, `vote`, `proposal`…). The full list is in
+community (`poll`, `vote`, `proposal`, `decision`, `goal`…). The full list is in
 [standard-library.md](standard-library.md).
 
 They are ordinary collections. Using the same one is how two apps agree: a

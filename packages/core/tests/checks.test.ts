@@ -31,6 +31,8 @@ import { joined } from './helpers/joined.js';
 import { team } from '../src/space/presets.js';
 import { hold, letGo } from './helpers/hold.js';
 import { until } from './helpers/until.js';
+import { useSchemas } from '../src/schemas/index.js';
+import { ballot, decision, goal, goalReached, pledge, proposal } from '../src/schemas/library/community.js';
 
 // ─── The language, alone ───────────────────────────────────────────
 
@@ -476,5 +478,110 @@ describe('checks: between peers', () => {
     );
     await bob.node.records.update(space, counter.key, { n: 2 });
     await assert.rejects(alice.node.records.put(space, 'app.counter', { n: 3 }), /starts at 0/);
+  });
+});
+
+// ─── The standard library's proven outcomes ────────────────────────
+
+async function governedSpace() {
+  const hub = createFakeHub({ latencyMs: 1 });
+  const alice = await person(hub);
+  const bob = await person(hub);
+  const { id: space } = await alice.node.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+  await bob.node.spaces.join(await alice.node.spaces.invite(space));
+  const library = [proposal, ballot, decision, goal, pledge, goalReached];
+  await useSchemas(alice.node, space, library);
+  await hold(alice.node, space);
+  await hold(bob.node, space);
+  await joined(bob.node, space);
+  await until(
+    async () =>
+      (await bob.node.collections.list(space)).filter((c) => c.version !== null).length === library.length,
+    4000,
+    'definitions to reach Bob',
+  );
+  return { alice, bob, space };
+}
+
+describe('checks: std.decision and std.goal-reached', () => {
+  test('a proposal is decided once its quorum of ballots for one option is cited', async () => {
+    const { alice, bob, space } = await governedSpace();
+    const put = await alice.node.records.put(space, proposal, {
+      title: 'Where do we meet?',
+      options: ['Café', 'Library'],
+      quorum: 2,
+    });
+    const about = [{ rel: 'about', to: put.key }];
+    const mine = await alice.node.records.put(space, ballot, { choice: 1 }, { links: about });
+    // A ballot is final.
+    await assert.rejects(alice.node.records.update(space, mine.key, { choice: 0 }), /"choice" is fixed/);
+    await until(async () => (await bob.node.records.get(space, put.key)) !== null, 4000, 'the proposal');
+    const theirs = await bob.node.records.put(space, ballot, { choice: 1 }, { links: about });
+    await until(async () => (await alice.node.records.get(space, theirs.key)) !== null, 4000, 'Bob’s ballot');
+
+    const decide = (outcome: number, ballots: string[]) =>
+      alice.node.records.put(space, decision, { outcome, proposal: put.version, ballots }, { links: about });
+    await assert.rejects(decide(1, [mine.version]), /as many people as the proposal’s quorum/);
+    await assert.rejects(
+      decide(0, [mine.version, theirs.version]),
+      /as many people as the proposal’s quorum/,
+    );
+    await assert.rejects(decide(2, [mine.version, theirs.version]), /one of the proposal’s options/);
+    const decided = await decide(1, [mine.version, theirs.version]);
+    await until(
+      async () => (await bob.node.records.get(space, decided.key)) !== null,
+      4000,
+      'Bob to accept it',
+    );
+  });
+
+  test('a goal is reached once the pledges cited add up to its target, each person once', async () => {
+    const { alice, bob, space } = await governedSpace();
+    const set = await alice.node.records.put(space, goal, { title: 'A new roof', target: 10, unit: 'NOK' });
+    const about = [{ rel: 'about', to: set.key }];
+    const mine = await alice.node.records.put(space, pledge, { amount: 4 }, { links: about });
+    await until(async () => (await bob.node.records.get(space, set.key)) !== null, 4000, 'the goal');
+    const theirs = await bob.node.records.put(space, pledge, { amount: 7 }, { links: about });
+    await until(async () => (await alice.node.records.get(space, theirs.key)) !== null, 4000, 'Bob’s pledge');
+
+    const reach = (pledges: string[]) =>
+      alice.node.records.put(space, goalReached, { goal: set.version, pledges }, { links: about });
+    await assert.rejects(reach([mine.version, mine.version, mine.version]), /add up to the goal’s target/);
+    const reached = await reach([mine.version, theirs.version]);
+    await until(
+      async () => (await bob.node.records.get(space, reached.key)) !== null,
+      4000,
+      'Bob to accept it',
+    );
+  });
+
+  test('a decision without its quorum, signed anyway, is refused by every peer that receives it', async () => {
+    const { alice, bob, space } = await governedSpace();
+    const put = await alice.node.records.put(space, proposal, {
+      title: 'Paint it red?',
+      options: ['Yes', 'No'],
+      quorum: 2,
+    });
+    const about = [{ rel: 'about', to: put.key }];
+    await until(async () => (await bob.node.records.get(space, put.key)) !== null, 4000, 'the proposal');
+    const own = await bob.node.records.put(space, ballot, { choice: 0 }, { links: about });
+
+    const key = (await onePerKey(decision.name, ['link:about'], { root: '', links: about, body: {} }))!;
+    await letGo(bob.node, space);
+    await forge(bob, space, {
+      author: '',
+      collection: decision.name,
+      body: { outcome: 0, proposal: put.version, ballots: [own.version] },
+      links: about,
+      retain: true,
+      version: { key, seq: 0 },
+    });
+    const rejected: string[] = [];
+    alice.node.subscribe((event) => {
+      if (event.type === 'rejected') rejected.push(event.reason);
+    });
+    await hold(bob.node, space);
+    await until(async () => rejected.some((r) => /quorum/.test(r)), 4000, 'Alice to refuse it');
+    assert.equal(await alice.node.records.get(space, key), null);
   });
 });
