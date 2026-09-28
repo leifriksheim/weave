@@ -70,8 +70,15 @@ describe('one DID per room', () => {
     assert.match(status.problem ?? '', /another tab/);
 
     first.disconnect();
-    // One refusal waits 10 s before the next try.
-    await until(() => second.status().state === 'open', 15_000, 'the second to get in');
+    // On its own it tries again 10 s after a refusal (signaling.test.ts, on a mocked clock); here it is asked now.
+    await until(
+      () => {
+        if (second.status().state === 'waiting') second.reconnect();
+        return second.status().state === 'open';
+      },
+      5000,
+      'the second to get in',
+    );
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(second.status().state, 'open', 'and stays in');
     second.disconnect();
@@ -98,9 +105,13 @@ describe('one DID per room', () => {
     assert.equal(second.network.status().relays[0]?.closeCode, CLOSE_DID_TAKEN);
 
     await first.close();
+    // Asked to try now, rather than at its next turn 10 s on.
     await until(
-      async () => (await second.spaces.status(space)).connection === 'connected',
-      15_000,
+      async () => {
+        second.network.reconnect();
+        return (await second.spaces.status(space)).connection === 'connected';
+      },
+      5000,
       'the second to take over',
     );
     await second.close();

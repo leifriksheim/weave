@@ -420,8 +420,9 @@ describe('the mesh, through real relays', () => {
       who: { did: string; key: CryptoKey },
       read: Read = null,
       signWith = who.key,
+      authTimeoutMs = 1000,
     ) =>
-      mesh(who.did, [relay], room, { authTimeoutMs: 1000 }).join(
+      mesh(who.did, [relay], room, { authTimeoutMs }).join(
         room,
         createMeshAuth(room, { did: who.did, key: signWith }, read, provider),
       );
@@ -442,12 +443,13 @@ describe('the mesh, through real relays', () => {
 
     test("a peer using someone else's name never becomes a peer", async () => {
       const [alice, victim, impostor] = [await identity(), await identity(), await identity()];
-      const a = peer('impostor', alice);
-      const liar = peer('impostor', victim, null, impostor.key);
+      // Nobody here can prove anything, so a short wait for proof loses nothing.
+      const a = peer('impostor', alice, null, alice.key, 300);
+      const liar = peer('impostor', victim, null, impostor.key, 300);
       const seenA = collect(a);
       await a.connect();
       await liar.connect();
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 600));
       assert.deepEqual(seenA.connected, []);
       a.disconnect();
       liar.disconnect();
@@ -553,12 +555,13 @@ describe('the mesh, through real relays', () => {
         const { access, members } = await changed();
         const [alice, carol] = [await identity(), await identity()];
         members.add(alice.did);
-        const a = peer('removed', alice, access(alice, [0, 1, 2], 2));
-        const c = peer('removed', carol, access(carol, [0, 1], 1));
+        // Carol can't prove she reads the current key, so a short wait for proof loses nothing.
+        const a = peer('removed', alice, access(alice, [0, 1, 2], 2), alice.key, 300);
+        const c = peer('removed', carol, access(carol, [0, 1], 1), carol.key, 300);
         const seenA = collect(a);
         await a.connect();
         await c.connect();
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 600));
         assert.deepEqual(seenA.connected, []);
         a.disconnect();
         c.disconnect();
