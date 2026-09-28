@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
-import { useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
+import { useLinked, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { bodyOf, collectionLabel, fieldsOf, humanize, recordLabel, titleField } from '../derive/schema-ui';
 import { nameOf, peopleFrom, type People } from '../derive/people';
@@ -67,6 +67,12 @@ type Gesture =
   | { kind: 'dot'; id: string; sx: number; sy: number; moved: boolean };
 
 const HEIGHT = 600;
+/** How many records the map starts with, how many more each "Show more" adds, and never more than */
+const BUDGET = 300;
+const BUDGET_STEP = 300;
+const BUDGET_MAX = 1000;
+/** Records walked to from the panel that the budget left out, kept on the map — the most recent ones */
+const WALKED_MAX = 100;
 const PANEL = 320;
 const PERSON = 'person:';
 
@@ -94,7 +100,8 @@ function coloursFor(names: ReadonlyArray<string>): Map<string, string> {
  * One step of the layout: lines pull their ends toward a comfortable length,
  * every dot pushes every other away, and a weak pull keeps it all near the
  * middle. The same recipe d3-force uses, small enough to write out; the
- * all-pairs push is fine at a few hundred dots.
+ * all-pairs push is fine at a few hundred dots, which is why the map loads
+ * at most BUDGET_MAX of them.
  */
 function tick(places: ReadonlyArray<Place>, springs: ReadonlyArray<Spring>, alpha: number): void {
   for (const l of springs) {
@@ -149,6 +156,23 @@ function tick(places: ReadonlyArray<Place>, springs: ReadonlyArray<Spring>, alph
   }
 }
 
+/**
+ * How many of each collection's records to show within a budget: an equal
+ * share each, with what the small ones don't use passed on to the bigger ones.
+ */
+function shares(
+  sizes: ReadonlyArray<readonly [string, number]>,
+  budget: number,
+): ReadonlyArray<readonly [string, number]> {
+  const smallestFirst = [...sizes].sort((a, b) => a[1] - b[1]);
+  let left = budget;
+  return smallestFirst.map(([name, size], i) => {
+    const take = Math.min(size, Math.floor(left / (smallestFirst.length - i)));
+    left -= take;
+    return [name, take] as const;
+  });
+}
+
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const short = (text: string, max = 28) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
@@ -157,6 +181,11 @@ const short = (text: string, max = 28) => (text.length > max ? `${text.slice(0, 
  * out so that records that point at each other sit together. Pick a dot to see
  * what it is, who wrote it, what it points at and what points at it — and
  * follow those to walk from one record to the next.
+ *
+ * It starts with every collection and can be narrowed to some. Only the
+ * newest records of each are loaded, within a budget the person can raise to
+ * a fixed ceiling: the layout costs the square of the dots, so a large space
+ * drawn whole would freeze the tab.
  */
 export function GraphView({
   space,
@@ -169,13 +198,49 @@ export function GraphView({
 }) {
   const node = useNode();
   const uid = useId().replace(/:/g, '');
-  const records = useLive(space.id, async () => node.records.list(space.id), []);
+  // Which collections are on the map: null for all of them, else the ones picked.
+  const [chosen, setChosen] = useState<ReadonlySet<string> | null>(null);
+  const [budget, setBudget] = useState(BUDGET);
+  const [walked, setWalked] = useState<ReadonlyArray<string>>([]);
+
+  // Every collection with records, most-used first. The counts come from the space, not from what is loaded.
+  const counts = useMemo(
+    () =>
+      collections
+        .filter((c) => c.records > 0)
+        .map((c) => [c.name, c.records] as const)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+    [collections],
+  );
+  const inView = counts.filter(([name]) => !chosen || chosen.has(name));
+  const total = inView.reduce((sum, [, n]) => sum + n, 0);
+  // A space can hold far more than a force layout can draw: only the newest of each collection, within the budget.
+  const plan = shares(inView, budget).filter(([, n]) => n > 0);
+  const planKey = plan.map(([name, n]) => `${name}:${n}`).join(',');
+  const records = useLive(
+    space.id,
+    async (): Promise<NodeRecord[]> => {
+      const pages = await Promise.all(
+        plan.map(([collection, limit]) =>
+          node.records.query(space.id, { collection, sort: { '@createdAt': 'desc' }, limit }),
+        ),
+      );
+      const loaded: NodeRecord[] = pages.flatMap((page) => page.records);
+      const have = new Set(loaded.map((r) => r.key));
+      const extra = await Promise.all(
+        walked.filter((key) => !have.has(key)).map((key) => node.records.get(space.id, key)),
+      );
+      for (const r of extra) if (r && !r.deleted) loaded.push(r);
+      return loaded;
+    },
+    [planKey, walked.join(',')],
+  );
+  const loadedCount = records?.length ?? 0;
   const profiles = useProfiles(space.id);
   const profileKey = profiles.map((p) => `${p.did}=${p.name}`).join('|');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const people = useMemo(() => peopleFrom(profiles), [profileKey]);
 
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [showPeople, setShowPeople] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -206,35 +271,15 @@ export function GraphView({
   const all = records ?? [];
   const byKey = useMemo(() => new Map(all.map((r) => [r.key, r])), [records]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Every collection with records here, most-used first, each with its colour.
-  const counts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const r of all) map.set(r.collection, (map.get(r.collection) ?? 0) + 1);
-    return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [records]); // eslint-disable-line react-hooks/exhaustive-deps
   const colours = useMemo(() => coloursFor(counts.map(([name]) => name)), [counts]);
   const nameOfCollection = (name: string) => {
     const c = collections.find((x) => x.name === name);
     return c ? collectionLabel(c) : humanize(name.split('.').pop() ?? name);
   };
 
-  // What points at each record, from every record — hidden ones included.
-  const incoming = useMemo(() => {
-    const map = new Map<string, Array<{ rel: string; from: NodeRecord }>>();
-    for (const r of all) {
-      for (const link of r.links) {
-        if (link.to === r.key) continue;
-        const list = map.get(link.to) ?? [];
-        list.push({ rel: link.rel, from: r });
-        map.set(link.to, list);
-      }
-    }
-    return map;
-  }, [records]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // The dots and lines on screen, for the collections not switched off.
+  // The dots and lines on screen: what was loaded, and a line wherever both ends were.
   const graph = useMemo(() => {
-    const shown = all.filter((r) => !hidden.has(r.collection));
+    const shown = all;
     const keys = new Set(shown.map((r) => r.key));
     const pairs = new Map<string, { from: string; to: string; rels: string[] }>();
     const degree = new Map<string, number>();
@@ -286,7 +331,7 @@ export function GraphView({
       }
     }
     return { dots, lines };
-  }, [records, hidden, showPeople, people, colours, collections]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [records, showPeople, people, colours, collections]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dotById = useMemo(() => new Map(graph.dots.map((d) => [d.id, d])), [graph]);
   const shape = `${graph.dots.map((d) => d.id).join(',')}|${graph.lines.map((l) => l.id).join(',')}`;
@@ -379,6 +424,9 @@ export function GraphView({
   useEffect(() => {
     const { dots, lines } = graph;
     const map = places.current;
+    // Dots taken off the map lose their places, so each frame copies only what is drawn.
+    const ids = new Set(dots.map((d) => d.id));
+    for (const id of map.keys()) if (!ids.has(id)) map.delete(id);
     const known = dots.filter((d) => map.has(d.id)).length;
     const neighbours = new Map<string, string[]>();
     for (const l of lines) {
@@ -437,7 +485,7 @@ export function GraphView({
   );
 
   // The canvas follows its box; the first time it has a size, the middle of the map goes in the middle.
-  const hasGraph = all.length > 0;
+  const hasGraph = counts.length > 0;
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -471,12 +519,15 @@ export function GraphView({
     return () => svg.removeEventListener('wheel', onWheel);
   }, [hasGraph]);
 
-  /** Picks a dot from the panel: brings its kind back if it was switched off, then goes to it */
-  const walkTo = (id: string) => {
-    const record = byKey.get(id);
+  /**
+   * Picks a dot from the panel and goes to it. A record that is not on the map
+   * — its collection not picked, or past the budget — is brought onto it on
+   * its own, without the rest of its collection.
+   */
+  const walkTo = (id: string, record?: NodeRecord) => {
     setSelected(id);
-    if (record && hidden.has(record.collection)) {
-      setHidden((old) => new Set([...old].filter((c) => c !== record.collection)));
+    if (record && !byKey.has(id)) {
+      setWalked((old) => [...old.filter((key) => key !== id), id].slice(-WALKED_MAX));
       pendingFly.current = id;
       return;
     }
@@ -569,13 +620,25 @@ export function GraphView({
     return set;
   }, [selected, graph, dotById]);
 
-  const toggle = (name: string) =>
-    setHidden((old) => {
+  /** With everything shown, a click isolates one collection; after that, clicks add and remove them */
+  const toggle = (name: string) => {
+    setBudget(BUDGET);
+    setWalked([]);
+    fitted.current = false;
+    setChosen((old) => {
+      if (!old) return new Set([name]);
       const next = new Set(old);
       if (next.has(name)) next.delete(name);
       else next.add(name);
-      return next;
+      return next.size ? next : null;
     });
+  };
+  const showEverything = () => {
+    setBudget(BUDGET);
+    setWalked([]);
+    fitted.current = false;
+    setChosen(null);
+  };
 
   if (records === undefined) return <p style={{ fontSize: 13, color: palette.ink.faint }}>Loading…</p>;
 
@@ -583,8 +646,8 @@ export function GraphView({
     <header>
       <h2 style={{ ...styles.appTitle, fontSize: 22 }}>Explore</h2>
       <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 4, lineHeight: 1.6 }}>
-        Everything in this space, with a line wherever one record points at another. Drag to move around,
-        scroll to zoom, and click a dot to see what it is and follow its lines.
+        The records in this space, with a line wherever one points at another. Drag to move around, scroll to
+        zoom, and click a dot to see what it is and follow its lines.
       </p>
     </header>
   );
@@ -616,15 +679,26 @@ export function GraphView({
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
         {counts.map(([name, count]) => {
-          const off = hidden.has(name);
+          const off = chosen !== null && !chosen.has(name);
+          const picked = chosen?.has(name) ?? false;
           const colour = colours.get(name) ?? palette.ink.faint;
           return (
             <button
               key={name}
-              aria-pressed={!off}
-              title={off ? 'Show these' : 'Hide these'}
+              aria-pressed={picked}
+              title={
+                chosen === null
+                  ? 'Show only these'
+                  : picked
+                    ? 'Take these off the map'
+                    : 'Add these to the map'
+              }
               onClick={() => toggle(name)}
-              style={{ ...chip, opacity: off ? 0.5 : 1, textDecoration: off ? 'line-through' : 'none' }}
+              style={{
+                ...chip,
+                opacity: off ? 0.55 : 1,
+                ...(picked ? { borderColor: palette.ink.strong, color: palette.ink.strong } : {}),
+              }}
             >
               <span
                 style={{
@@ -641,6 +715,11 @@ export function GraphView({
             </button>
           );
         })}
+        {chosen !== null && (
+          <button onClick={showEverything} style={{ ...chip, color: palette.ink.muted }}>
+            Show everything
+          </button>
+        )}
         <span style={{ flex: 1 }} />
         <button
           aria-pressed={showPeople}
@@ -653,6 +732,28 @@ export function GraphView({
           Fit to screen
         </button>
       </div>
+
+      <p style={{ fontSize: 12.5, color: palette.ink.muted, margin: '-6px 0 0', lineHeight: 1.6 }}>
+        {chosen === null
+          ? 'Click a collection to see only it, then click others to add them.'
+          : `Showing ${chosen.size} of ${counts.length} collections.`}
+        {records !== undefined && loadedCount < total && (
+          <>
+            {' '}
+            The newest {loadedCount} of {total} records are on the map, to keep it quick
+            {budget < BUDGET_MAX ? ' — ' : '.'}
+            {budget < BUDGET_MAX && (
+              <button
+                onClick={() => setBudget((b) => Math.min(BUDGET_MAX, b + BUDGET_STEP))}
+                style={{ ...plain, color: palette.ink.strong, textDecoration: 'underline', fontSize: 12.5 }}
+              >
+                show more
+              </button>
+            )}
+            {budget >= BUDGET_MAX && chosen === null && ' Pick collections to see more of each.'}
+          </>
+        )}
+      </p>
 
       <div
         ref={wrapRef}
@@ -845,7 +946,7 @@ export function GraphView({
           <Details
             dot={pick}
             byKey={byKey}
-            incoming={incoming}
+            spaceId={space.id}
             records={all}
             people={people}
             colourOf={(name) => colours.get(name) ?? palette.ink.faint}
@@ -884,7 +985,7 @@ export function GraphView({
 function Details({
   dot,
   byKey,
-  incoming,
+  spaceId,
   records,
   people,
   colourOf,
@@ -896,21 +997,37 @@ function Details({
 }: {
   dot: Dot;
   byKey: ReadonlyMap<string, NodeRecord>;
-  incoming: ReadonlyMap<string, ReadonlyArray<{ rel: string; from: NodeRecord }>>;
+  spaceId: string;
   records: ReadonlyArray<NodeRecord>;
   people: People;
   colourOf: (collection: string) => string;
   collectionName: (collection: string) => string;
   schemaOf: (collection: string) => NodeCollection['schema'];
-  onWalk: (id: string) => void;
+  onWalk: (id: string, record?: NodeRecord) => void;
   onOpen: (record: NodeRecord) => void;
   onClose: () => void;
 }) {
   const labelOf = (r: NodeRecord) => recordLabel(r, schemaOf(r.collection));
+  // Both ends of its lines, asked of the space: the map may hold only some of its records.
+  const record = dot.record;
+  const outgoing = (record?.links ?? []).filter((l) => l.to !== record?.key);
+  const pointing = useLinked(spaceId, record?.key ?? '');
+  const targets = useLive(
+    spaceId,
+    async (node) =>
+      Object.fromEntries(
+        await Promise.all(
+          outgoing.map(
+            async (l) => [l.to, byKey.get(l.to) ?? (await node.records.get(spaceId, l.to))] as const,
+          ),
+        ),
+      ),
+    [record?.key, record?.updatedAt],
+  );
   const step = (key: string, rel: string | null, record: NodeRecord | undefined) => (
     <li key={`${rel ?? ''}:${key}`}>
       <button
-        onClick={() => record && onWalk(key)}
+        onClick={() => record && onWalk(key, record)}
         disabled={!record}
         data-row
         style={{ ...styles.row, padding: '7px 8px', gap: 8, alignItems: 'flex-start' }}
@@ -986,7 +1103,7 @@ function Details({
                 <Person did={did} />
               </h3>
               <p style={{ fontSize: 12, color: palette.ink.faint }}>
-                Wrote {wrote.length} {wrote.length === 1 ? 'record' : 'records'} here
+                Wrote {wrote.length} {wrote.length === 1 ? 'record' : 'records'} on the map
               </p>
             </div>
           </div>
@@ -996,7 +1113,7 @@ function Details({
     );
   }
 
-  const record = dot.record!;
+  if (!record) return null;
   const schema = schemaOf(record.collection);
   const body = bodyOf(record);
   const title = titleField(schema);
@@ -1011,7 +1128,6 @@ function Details({
     )
     .slice(0, 6);
   const writer = writerOf(record);
-  const into = incoming.get(record.key) ?? [];
 
   return (
     <aside aria-label={dot.label} style={panel}>
@@ -1092,10 +1208,12 @@ function Details({
         )}
 
         <Group title="Points at" empty="It doesn't point at anything.">
-          {record.links.filter((l) => l.to !== record.key).map((l) => step(l.to, l.rel, byKey.get(l.to)))}
+          {outgoing.map((l) => step(l.to, l.rel, targets?.[l.to] ?? byKey.get(l.to) ?? undefined))}
         </Group>
-        <Group title="Pointed at by" empty="Nothing points at it yet.">
-          {into.map(({ rel, from }) => step(from.key, rel, from))}
+        <Group title="Pointed at by" empty={pointing ? 'Nothing points at it yet.' : 'Looking…'}>
+          {(pointing ?? []).flatMap((from) =>
+            from.links.filter((l) => l.to === record.key).map((l) => step(from.key, l.rel, from)),
+          )}
         </Group>
       </div>
       <footer style={{ padding: 12, borderTop: `1px solid ${palette.surface.line}` }}>
@@ -1144,7 +1262,10 @@ const chip: CSSProperties = {
   height: 28,
   padding: '0 10px',
   borderRadius: palette.radius.pill,
-  border: `1px solid ${palette.surface.line}`,
+  // Longhands, so a chip that is on can change the colour alone.
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: palette.surface.line,
   background: palette.surface.card,
   color: palette.ink.body,
   fontSize: 12.5,
