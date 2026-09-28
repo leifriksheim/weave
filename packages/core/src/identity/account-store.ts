@@ -228,7 +228,13 @@ export function createFolderAccountStore(dir: DirectoryHandleLike): AccountStore
         throw new TypeError(`Account ${JSON.stringify(summary.id)} does not have a valid id and data path`);
       }
       const home = await accountDir(summary.id, true);
-      if (!home) throw new Error(`Could not open a home for account ${summary.id}`);
+      // Only the folder itself being gone makes creating inside it fail this way.
+      if (!home)
+        throw protocolError(
+          'FOLDER_GONE',
+          'Your pod folder could not be found.',
+          'It may have been moved, renamed or deleted. Choose it again, or keep this account in the browser instead.',
+        );
 
       await writeFolderFile(home, VAULT_FILE, utf8Encode(`${JSON.stringify(vault, null, 2)}\n`));
 

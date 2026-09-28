@@ -477,6 +477,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   const storage: KeyValueStore | null =
     config.storage !== undefined ? config.storage : (globalThis.localStorage ?? null);
   const stay = createStaySignedIn(storage, rpId, prefix);
+  /** Proposals being added, in turn */
+  let subscribing: Promise<unknown> = Promise.resolve();
   const browserAccounts = config.browser?.accounts ?? createBrowserAccountStore;
   const browserStores = config.browser?.stores ?? ((account: AccountSummary) => storesFor(account));
   if (config.worker && config.browser?.stores)
@@ -1372,7 +1374,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
             : {}),
       };
       const when = subscriptionsFrom(request.notify, kept, { app, reach, account: session.did });
-      return { v: 1, kind: 'proposed', notify: await addSubscriptions(node, origin, when) };
+      // One at a time: two popups answered together would each find the other's not there yet.
+      const adding = subscribing.then(() => addSubscriptions(node, origin, when));
+      subscribing = adding.catch(() => {});
+      return { v: 1, kind: 'proposed', notify: await adding };
     },
 
     async grantCarry({ origin, request }) {
@@ -1437,7 +1442,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const going = auth.connections().filter(goes);
       const node = state.session?.node;
       for (const connection of going) {
-        if (connection.carrySpace && node) await node.carriers.remove(connection.carrySpace);
+        // Like a revoke below: one that can't be done must not keep the rest from happening.
+        if (connection.carrySpace && node) await node.carriers.remove(connection.carrySpace).catch(() => {});
         if (connection.token && connection.access === 'write' && node) {
           const contactsSpace = await node.contacts.space();
           const covered =
@@ -1447,10 +1453,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
                   ...(contactsSpace ? [contactsSpace] : []),
                 ]
               : connection.spaces.map((space) => space.id);
-          for (const spaceId of covered) {
-            // A space that is gone, or that this account no longer writes in, has nothing to revoke.
-            await node.spaces.revoke(spaceId, connection.token).catch(() => {});
-          }
+          // Every space at once: each is its own store. A space that is gone, or
+          // that this account no longer writes in, has nothing to revoke.
+          const token = connection.token;
+          await Promise.all(covered.map((spaceId) => node.spaces.revoke(spaceId, token).catch(() => {})));
           // A whole-account app could also add spaces to the account's list, and rename it.
           if (connection.scope === 'account') await node.account.revoke(connection.token).catch(() => {});
         }

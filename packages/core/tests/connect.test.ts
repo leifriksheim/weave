@@ -540,6 +540,17 @@ describe('an app proposing subscriptions', () => {
     assert.equal((await node.notifications.list()).length, 2);
   });
 
+  test('proposing the same thing several times at once adds it once', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const auth = await home(hub);
+    const { node } = auth.getState().session!;
+    const club = await node.spaces.create({ name: 'Club', visibility: 'private' });
+    await connect(auth, { name: 'Chat' }, [club.id]);
+    const request = propose([{ label: 'New message', collection: 'app.chat.message' }]);
+    await Promise.all([1, 2, 3].map(() => auth.propose({ origin: 'https://chat.test', request })));
+    assert.equal((await node.notifications.list()).length, 1);
+  });
+
   test("a whole-account app's look at every space", async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const auth = await home(hub);

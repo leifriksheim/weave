@@ -13,7 +13,7 @@ import type { AppEntry } from './entries';
  * off, or pausing it, happens in the account home, which the menu opens.
  */
 export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntry }) {
-  const { everything, forMe, on, error, turnOn, manage } = useNotifyFor(space.id, app.notify);
+  const { everything, forMe, on, error, asking, turnOn, manage } = useNotifyFor(space.id, app.notify);
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   useDismiss(
@@ -34,11 +34,12 @@ export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntr
     <div ref={root} style={{ position: 'relative' }}>
       <button
         onClick={() => setOpen((was) => !was)}
+        disabled={asking}
         data-variant="quiet"
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label={any ? 'Notifications on' : 'Notify me'}
-        title={error ?? undefined}
+        aria-label={asking ? 'Asking your account home' : any ? 'Notifications on' : 'Notify me'}
+        title={error ?? (asking ? 'Answer in the account home window' : undefined)}
         style={{
           ...styles.smallButton,
           display: 'inline-flex',
@@ -48,7 +49,9 @@ export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntr
         }}
       >
         <Icon name={any ? 'bellOn' : 'bell'} size={14} />
-        <span className="bar-label">{on.everything ? 'Everything' : on.forMe ? 'For me' : 'Notify me'}</span>
+        <span className="bar-label">
+          {asking ? 'Asking…' : on.everything ? 'Everything' : on.forMe ? 'For me' : 'Notify me'}
+        </span>
       </button>
 
       {open && (
@@ -61,7 +64,7 @@ export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntr
               on={on.everything}
               title="Everything new"
               hint={labels(everything)}
-              onClick={() => choose(everything)}
+              onClick={() => (on.everything ? setOpen(false) : choose(everything))}
             />
           )}
           {forMe.length > 0 && (
@@ -69,7 +72,7 @@ export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntr
               on={on.forMe && !on.everything}
               title="Only what's for me"
               hint={labels(forMe)}
-              onClick={() => choose(forMe)}
+              onClick={() => (on.forMe ? setOpen(false) : choose(forMe))}
             />
           )}
           {on.everything && forMe.length > 0 && (

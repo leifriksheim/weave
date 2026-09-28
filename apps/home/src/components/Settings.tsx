@@ -34,11 +34,17 @@ export function Settings() {
   const [changingPassword, setChangingPassword] = useState(false);
   const place = state.place;
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [disconnectError, setDisconnectError] = useState<string | null>(null);
   const disconnect = async (app: Connection) => {
     setDisconnecting(connectionId(app));
+    setDisconnectError(null);
     try {
       // An agent is its own key; an app takes the agents that connected through it along.
       await auth.disconnect(app.origin, app.agent ? { audience: app.audience } : {});
+    } catch (error) {
+      setDisconnectError(
+        `Could not disconnect ${app.name ?? app.origin}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setDisconnecting(null);
     }
@@ -105,6 +111,10 @@ export function Settings() {
     try {
       await session.node.carriers.remove(space);
       setCarriers(await session.node.carriers.list());
+    } catch (error) {
+      setDisconnectError(
+        `Could not disconnect it: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setDisconnecting(null);
     }
@@ -159,6 +169,7 @@ export function Settings() {
             </button>
           </Row>
         ))}
+        {disconnectError && <p style={styles.error}>{disconnectError}</p>}
         {anyAway && (
           <p style={styles.errorHint}>
             An extension that is not online either has Chrome closed, or is keeping a different account online

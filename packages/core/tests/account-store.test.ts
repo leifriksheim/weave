@@ -159,6 +159,19 @@ describe('several accounts in one folder', () => {
     assert.equal(listed[0]!.id, second.summary.id, 'the most recently used row wins');
   });
 
+  test('a folder that is gone says so, and what to do', async () => {
+    const gone = Object.assign(new Error('gone'), { name: 'NotFoundError' });
+    const vanished = {
+      ...createMemoryDirectory().open(),
+      getDirectoryHandle: async () => {
+        throw gone;
+      },
+    };
+    const store = createFolderAccountStore(vanished);
+    const { summary, vault } = await makeAccount('Leif');
+    await assert.rejects(store.write(summary, vault), { code: 'FOLDER_GONE', message: /could not be found/ });
+  });
+
   test('an unknown account reads as nothing, not as an error', async () => {
     const store = createFolderAccountStore(createMemoryDirectory().open());
     assert.equal(await store.read('nope'), null);
