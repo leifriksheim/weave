@@ -1206,9 +1206,10 @@ A collection definition may carry a `screen`, one HTML document, and a
 collections adds them. An app that shows a screen:
 
 - MUST run it in a frame with an opaque origin that may run scripts and
-  nothing else (the reference: `sandbox="allow-scripts"`), and hand it the
-  records only through a message port it answers as the person looking,
-  under the collection's rules;
+  submit forms and nothing else (the reference:
+  `sandbox="allow-scripts allow-forms"`), and hand it the records only
+  through a message port it answers as the person looking, under the
+  collection's rules;
 - MUST put this policy in front of everything the screen says, so it is in
   force before any script runs:
 
@@ -1244,6 +1245,14 @@ Example: a carpool ride's screen shows the weather at departure.
 A person who allows it gets `connect-src https://api.open-meteo.com` and
 `img-src data: blob: https://api.open-meteo.com`; one who declines gets the
 sealed policy, and the screen must still work, without the weather.
+
+> Rationale for forms: without `allow-forms` a browser drops a form's
+> submission before its `submit` event fires, so a screen's handler never
+> runs and the form silently does nothing. `form-action 'none'` already
+> sends every submission nowhere, so allowing forms lets a screen use them
+> and lets nothing out. Popups, modals (`alert`, `confirm`, `prompt`, which
+> a screen could dress up as the app asking for a password) and top-level
+> navigation stay off.
 
 > Rationale: whoever adds an app decides to trust its author, but the screen
 > reads, as each viewer, records only that viewer can open. So the network is

@@ -49,7 +49,9 @@ export interface ScreenViewer {
 /** How to write a screen — for an agent, in `apps_screen_guide`, and for people */
 export const SCREEN_GUIDE = `A screen is one HTML document (scripts and styles inline, at most 48 KB) put on a collection definition as "screen".
 When the app is added, apps in the space can show it instead of plain lists. It runs sealed: no network (no fetch, no
-images from URLs, no fonts from URLs), no storage, no popups, no forms that submit. Keep state in records, never in the page.
+images from URLs, no fonts from URLs), no storage, no popups, and no alert, confirm or prompt (show messages in the page).
+Forms work: handle "submit", call event.preventDefault() and save with weave.put; a form never goes anywhere itself.
+Keep state in records, never in the page.
 
 If it truly needs the network — weather, a map, a timetable — give its collection "network": the exact origins it may
 fetch from and load images from, like ["https://api.open-meteo.com"] (https:// or wss://, a host, no path; at most 8).
@@ -170,6 +172,7 @@ export function screenPolicy(network: ReadonlyArray<string> = []): string {
     `connect-src ${origins.length ? origins.join(' ') : "'none'"}`,
     'font-src data:',
     'media-src data: blob:',
+    // What lets hosts allow forms in the frame: a screen's submit handler runs, and nothing is sent.
     "form-action 'none'",
     "base-uri 'none'",
   ].join('; ');

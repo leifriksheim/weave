@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <!--
       Where an app's own screen runs. The frame holding this page is sandboxed
-      (scripts only: no same-origin, no popups, no forms). This policy is the
+      (scripts and forms: no same-origin, no popups, no modals; forms go nowhere,
+      by form-action 'none' below, but their submit event fires). This policy is the
       outer bound: secure connections and images at most, nothing else from
       anywhere. It stays in force after the screen is written in below, and the
       document written in always starts with its own, exact policy

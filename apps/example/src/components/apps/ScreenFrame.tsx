@@ -7,9 +7,11 @@ import { styles, palette } from '../../styles';
 /**
  * An app's own screen, run sealed.
  *
- * The frame is sandboxed to scripts alone — an opaque origin, so it can't
+ * The frame is sandboxed to scripts and forms — an opaque origin, so it can't
  * touch this page, its storage or its keys — and the page it loads
- * (`/screen.html`) takes the network away. The screen gets a message port to
+ * (`/screen.html`) takes the network away. Forms are allowed so a screen's
+ * submit handler runs; `form-action 'none'` in that page's policy keeps a
+ * form from sending anything anywhere. The screen gets a message port to
  * a bridge that reads and writes this app's collections, in this space, as
  * the person looking. It is handed over once: a second "ready" means the
  * frame went somewhere else, and the screen is stopped.
@@ -195,8 +197,9 @@ export function ScreenFrame({
         ref={frame}
         title={title}
         src="/screen.html"
-        // Scripts only. No allow-same-origin: it must not be this site. No popups, forms or navigation of this page.
-        sandbox="allow-scripts"
+        // No allow-same-origin: it must not be this site. No popups, modals or navigation of this page.
+        // Forms only fire their submit event: the policy's form-action 'none' sends them nowhere.
+        sandbox="allow-scripts allow-forms"
         referrerPolicy="no-referrer"
         key={`${generation}:${answer}`}
         style={{
