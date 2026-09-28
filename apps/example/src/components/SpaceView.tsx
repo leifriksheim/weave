@@ -390,6 +390,7 @@ export function SpaceView({
           space={space}
           mayDefine={mayDefine}
           onClose={() => setCreating(false)}
+          onReview={() => setView({ kind: 'apps' })}
           onBuildByHand={() => {
             goHood('data');
             setPlace({ collection: NEW, key: null });

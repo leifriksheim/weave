@@ -51,8 +51,8 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const connectedName = step.kind === 'connected' ? step.agent.name : null;
   useEffect(() => {
-    if (connectedName) rememberAgent(did, connectedName);
-  }, [did, connectedName]);
+    if (connectedName) rememberAgent(did, connectedName, Number(days));
+  }, [did, connectedName, days]);
 
   useEffect(() => {
     let stopped = false;
@@ -220,7 +220,7 @@ function Connected({ agent, onClose }: { agent: AgentAsking; onClose: () => void
 }
 
 /** A small dot that breathes while waiting */
-function Pulse() {
+export function Pulse() {
   const dot = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const animation = dot.current?.animate([{ opacity: 1 }, { opacity: 0.25 }, { opacity: 1 }], {
@@ -256,16 +256,18 @@ const commandBox = {
 } as const;
 
 /**
- * The agent last connected from this browser, by name, so "Create an app"
- * can skip straight to the prompt. Only a hint: the account home knows which
- * agents are connected, and this page can't ask it.
+ * The agent last connected from this browser, by name, until its note runs
+ * out, so "Create an app" can say which agent the prompt is for. Only a
+ * hint: the account home knows which agents are connected, and this page
+ * can't ask it.
  */
 const agentKey = (did: string) => `weave.agent:${did}`;
 const agentListeners = new Set<() => void>();
+const DAY = 24 * 60 * 60 * 1000;
 
-function rememberAgent(did: string, name: string) {
+function rememberAgent(did: string, name: string, days: number) {
   try {
-    globalThis.localStorage?.setItem(agentKey(did), name);
+    globalThis.localStorage?.setItem(agentKey(did), JSON.stringify({ name, until: Date.now() + days * DAY }));
   } catch {
     // Not remembered; it asks again next time.
   }
@@ -274,13 +276,17 @@ function rememberAgent(did: string, name: string) {
 
 function readAgent(did: string): string | null {
   try {
-    return globalThis.localStorage?.getItem(agentKey(did)) ?? null;
+    const kept: unknown = JSON.parse(globalThis.localStorage?.getItem(agentKey(did)) ?? 'null');
+    if (typeof kept !== 'object' || kept === null || !('name' in kept) || !('until' in kept)) return null;
+    const { name, until } = kept;
+    return typeof name === 'string' && typeof until === 'number' && until > Date.now() ? name : null;
   } catch {
+    // Unreadable, or a bare name from before it kept an expiry: not known.
     return null;
   }
 }
 
-/** The name of the agent last connected from this browser, if any */
+/** The name of the agent last connected from this browser, while its note lasts */
 export function useKnownAgent(): string | null {
   const { did } = useAccount();
   return useSyncExternalStore(
