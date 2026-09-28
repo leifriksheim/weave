@@ -5,18 +5,39 @@ on:
   push:
     branches: [main]
 
+# A new push to a branch cancels the run still going for the push before it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
+  # The tests and the static checks run side by side, each on its own runner.
   check:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: test
+            run: npm test
+          # Format, lint, typecheck and fallow: seconds each, so one runner.
+          - name: check
+            run: npm run check
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run fallow
-      - run: npm test
+      # node_modules itself, so an unchanged lockfile skips the install.
+      - id: modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - if: steps.modules.outputs.cache-hit != 'true'
+        run: npm ci
+      - run: ${{ matrix.run }}

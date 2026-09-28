@@ -26,15 +26,9 @@ import type { NetworkMessage, PeerInfo } from '../src/types.js';
 import { createMeshAuth, type ReadAccess } from '../src/network/peer-auth.js';
 import { generateSpaceKey, openWith, sealWith } from '../src/privacy/space-encryption.js';
 import { deriveReadKey, membershipContext } from '../src/space/space-access.js';
+import { until } from './helpers/until.js';
 
 /** Resolves when `predicate` holds, polling; fails the test after `ms`. */
-async function until(predicate: () => boolean, ms = 3000, what = 'condition'): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
 
 function collect(manager: NetworkManager) {
   const messages: NetworkMessage[] = [];

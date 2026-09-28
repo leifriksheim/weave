@@ -45,6 +45,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
 import { portOf } from './helpers/net.js';
 import { isRecord } from '../src/utils/guards.js';
+import { patience } from './helpers/until.js';
 
 // ─── Relays, for the mailbox ────────────────────────────────────────
 
@@ -101,7 +102,7 @@ async function until<T>(
   what: string,
   ms = 5000,
 ): Promise<T> {
-  const deadline = Date.now() + ms;
+  const deadline = Date.now() + patience(ms);
   for (;;) {
     const value = await get();
     if (ok(value)) return value;
@@ -531,7 +532,10 @@ describe('node.doors', () => {
     await leif.spaces.hold(space);
     await anna.spaces.hold(space);
     await until(
-      async () => (await anna.doors.knocks(), leif.doors.sent()),
+      async () => {
+        await anna.doors.knocks();
+        return leif.doors.sent();
+      },
       (sent) => sent.length === 0,
       'Anna to answer and Leif to see it',
     );
@@ -569,7 +573,10 @@ describe('node.doors', () => {
     await anna.doors.accept(knock!.id);
     await anna.spaces.hold(space);
     await until(
-      async () => (await anna.doors.knocks(), leif.doors.sent()),
+      async () => {
+        await anna.doors.knocks();
+        return leif.doors.sent();
+      },
       (sent) => sent.length === 0,
       'the answer',
     );

@@ -15,6 +15,7 @@ import { generateSpaceKey } from '../src/privacy/space-encryption.js';
 import { deriveReadKey } from '../src/space/space-access.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
+import { until } from './helpers/until.js';
 
 const provider = createP256Provider();
 
@@ -28,14 +29,6 @@ async function nodeIdentity() {
 }
 
 const NODE_DID = 'did:key:zNode';
-
-async function until(predicate: () => boolean, ms = 3000, what = 'condition'): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
 
 /**
  * A node that runs the handshake and echoes every binary frame.

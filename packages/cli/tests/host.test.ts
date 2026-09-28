@@ -38,6 +38,7 @@ import { createMemoryBlobStore } from '../../core/src/storage/blob/memory.js';
 import { createFakeHub, type FakeHub } from '../../core/tests/helpers/fake-transport.js';
 import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
 import { at, bodyOf, urlOf } from './helpers/json.js';
+import { until } from '../../core/tests/helpers/until.js';
 
 const provider = createP256Provider();
 const open: Array<{ close(): Promise<void> }> = [];
@@ -83,14 +84,6 @@ async function host(hub: FakeHub, options: { now?: () => number; free?: boolean 
   });
   open.push(node);
   return node;
-}
-
-async function until(check: () => Promise<boolean>, ms = 5000, what = 'condition'): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!(await check())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 const carries = (node: HostNode, spaceId: string) => async () =>

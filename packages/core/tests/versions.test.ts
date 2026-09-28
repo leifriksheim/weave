@@ -24,6 +24,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { hold } from './helpers/hold.js';
 import { joined } from './helpers/joined.js';
+import { until } from './helpers/until.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -216,14 +217,6 @@ describe('versioned records through the node', () => {
     });
     open.push(node);
     return node;
-  }
-
-  async function until(predicate: () => Promise<boolean>, ms = 3000, what = 'condition') {
-    const deadline = Date.now() + ms;
-    while (!(await predicate())) {
-      if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
   }
 
   test('an edit keeps the key and advances the version', async () => {

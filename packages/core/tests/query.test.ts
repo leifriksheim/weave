@@ -19,6 +19,7 @@ import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
 import { memoryStores } from './helpers/memory-stores.js';
+import { patience } from './helpers/until.js';
 
 function record(body: unknown): NodeRecord {
   return {
@@ -254,7 +255,7 @@ describe('queries on a node', () => {
       counts.push(r.records.length),
     );
     const until = async (n: number) => {
-      const deadline = Date.now() + 2000;
+      const deadline = Date.now() + patience(2000);
       while (counts.at(-1) !== n) {
         if (Date.now() > deadline) throw new Error(`expected ${n}, saw ${counts.join(',')}`);
         await new Promise((resolve) => setTimeout(resolve, 5));

@@ -20,6 +20,8 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { fakeConnection, fakeDisplayMedia, fakeStream, fakeUserMedia } from './helpers/fake-rtc.js';
 import { team } from '../src/space/presets.js';
 import { hold, letGo } from './helpers/hold.js';
+import { until } from './helpers/until.js';
+import { isObject } from '../src/utils/guards.js';
 
 const nodes: P2PNode[] = [];
 const allCalls: Calls[] = [];
@@ -39,7 +41,8 @@ const OPTIONS: CallsOptions = {
   ringMs: 600,
 };
 
-async function person(hub: FakeHub, seed = generateSeed()) {
+/** @param loseSignal The first offer or answer this person sends is lost on the way */
+async function person(hub: FakeHub, seed = generateSeed(), loseSignal = false) {
   const manager = createIdentityManager();
   const me = await manager.fromSeed(seed);
   const node = await createNode({
@@ -50,26 +53,30 @@ async function person(hub: FakeHub, seed = generateSeed()) {
     network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
   });
   nodes.push(node);
-  const calls = createCalls(node, OPTIONS);
+  let lost = !loseSignal;
+  const lossy: P2PNode = {
+    ...node,
+    spaces: {
+      ...node.spaces,
+      send: async (space, message, to) => {
+        if (lost || !isObject(message) || message.type !== 'call.signal' || !message.description)
+          return node.spaces.send(space, message, to);
+        lost = true;
+      },
+    },
+  };
+  const calls = createCalls(lossy, OPTIONS);
   allCalls.push(calls);
   return { node, calls, seed };
-}
-
-async function until(predicate: () => boolean | Promise<boolean>, ms = 4000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Alice and Bob as editors of one private space that keeps call history, both connected; Carol can only read it */
-async function space(options: { reader?: boolean } = {}) {
+async function space(options: { reader?: boolean; losesSignal?: 'alice' | 'bob' } = {}) {
   const hub = createFakeHub({ latencyMs: 1 });
-  const alice = await person(hub);
-  const bob = await person(hub);
+  const alice = await person(hub, generateSeed(), options.losesSignal === 'alice');
+  const bob = await person(hub, generateSeed(), options.losesSignal === 'bob');
   const { id } = await alice.node.spaces.create({ name: 'Us', ...team, visibility: 'private' });
   await alice.node.collections.define(id, callSchema);
   await bob.node.spaces.join(await alice.node.spaces.invite(id, { role: 'editor' }));
@@ -231,6 +238,20 @@ describe('calls', () => {
     assert.equal(connected(carol.calls).length, 0, 'and no connection is made');
     assert.equal(alice.calls.getState().around.length, 0);
   });
+
+  // Whichever of the two offers, one of them loses the offer or the answer.
+  for (const loser of ['alice', 'bob'] as const)
+    test(`a lost offer or answer is made again (${loser} loses one)`, async () => {
+      const { alice, bob, space: id } = await space({ losesSignal: loser });
+      await alice.calls.start(id);
+      await until(() => bob.calls.getState().around.length === 1, 4000, 'the call');
+      await bob.calls.start(id);
+      await until(
+        () => connected(alice.calls).length === 1 && connected(bob.calls).length === 1,
+        4000,
+        'both to connect',
+      );
+    });
 
   test('one account can only ring you a few times a minute', async () => {
     const { alice, bob, space: id } = await space();

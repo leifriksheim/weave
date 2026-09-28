@@ -1723,8 +1723,13 @@ started at once merge into the lower id.
   the screen replace the sender's track and are announced with `call.here`;
   they never renegotiate.
 - Candidates arriving before the remote description are queued (at most 64).
-- When a connection fails, the offering side offers again after 2 s if the other
-  device is still in the call.
+- The offering side keeps at most one connection to each device, and offers
+  only to a device it has none with.
+- When a connection fails, or its offer or answer cannot be applied, the
+  offering side offers again after 2 s if the other device is still in the
+  call. A connection not connected within `gone` (15 s) of its offer counts as
+  failed too: an offer or answer lost on the way leaves a connection that never
+  fails, only never connects.
 - ICE servers come from `node.iceServers()`.
 
 ### 7.6 Ringing

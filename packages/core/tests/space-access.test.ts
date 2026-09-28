@@ -36,6 +36,7 @@ import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
 import { stored } from './helpers/stored.js';
+import { until } from './helpers/until.js';
 
 const provider = createP256Provider();
 
@@ -58,14 +59,6 @@ async function person(hub: FakeHub) {
   return { node, me, manager, stores };
 }
 type Person = Awaited<ReturnType<typeof person>>;
-
-async function until(predicate: () => Promise<boolean>, ms = 4000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
 
 /** A record signed by hand with a valid session and delegation, claiming to have seen `seen` */
 async function forge(

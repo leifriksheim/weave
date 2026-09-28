@@ -2143,21 +2143,36 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       removeRole: person('change roles'),
       closeInvite: person('close invites'),
       revoke: person('revoke notes'),
-      access: async (spaceId: string) => (inside(spaceId), spaces.access(spaceId)),
-      hold: async (spaceId: string) => (inside(spaceId), spaces.hold(spaceId)),
-      status: async (spaceId: string) => (inside(spaceId), spaces.status(spaceId)),
-      profiles: async (spaceId: string) => (inside(spaceId), spaces.profiles(spaceId)),
+      access: async (spaceId: string) => {
+        inside(spaceId);
+        return spaces.access(spaceId);
+      },
+      hold: async (spaceId: string) => {
+        inside(spaceId);
+        return spaces.hold(spaceId);
+      },
+      status: async (spaceId: string) => {
+        inside(spaceId);
+        return spaces.status(spaceId);
+      },
+      profiles: async (spaceId: string) => {
+        inside(spaceId);
+        return spaces.profiles(spaceId);
+      },
       // It would arrive as the person: a live message carries no note of its own to say "via agent".
       send: person('send live messages'),
       authenticator: async () => null,
     });
 
     const agentRecords: NodeRecords = Object.freeze({
-      list: async <T>(spaceId: string, options?: ListOptions) => (
-        inside(spaceId),
-        records.list<T>(spaceId, options)
-      ),
-      get: async <T>(spaceId: string, key: string) => (inside(spaceId), records.get<T>(spaceId, key)),
+      list: async <T>(spaceId: string, options?: ListOptions) => {
+        inside(spaceId);
+        return records.list<T>(spaceId, options);
+      },
+      get: async <T>(spaceId: string, key: string) => {
+        inside(spaceId);
+        return records.get<T>(spaceId, key);
+      },
       put: async <T>(
         spaceId: string,
         collection: CollectionRef,
@@ -2171,21 +2186,24 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         inside(spaceId);
         return (await runtime(spaceId)).update<T>(key, body, { ...options, as });
       },
-      linked: async <T>(spaceId: string, key: string, options?: { rel?: string; collection?: string }) => (
-        inside(spaceId),
-        records.linked<T>(spaceId, key, options)
-      ),
+      linked: async <T>(spaceId: string, key: string, options?: { rel?: string; collection?: string }) => {
+        inside(spaceId);
+        return records.linked<T>(spaceId, key, options);
+      },
       delete: async (spaceId: string, key: string) => {
         inside(spaceId);
         await (await runtime(spaceId)).remove(key, { as });
       },
-      history: async <T>(spaceId: string, key: string) => (inside(spaceId), records.history<T>(spaceId, key)),
+      history: async <T>(spaceId: string, key: string) => {
+        inside(spaceId);
+        return records.history<T>(spaceId, key);
+      },
       can: async (spaceId: string, action: 'create' | 'edit' | 'delete', target: string) =>
         allowed(spaceId) && records.can(spaceId, action, target),
-      query: async <Q extends Query>(spaceId: string, query: Q) => (
-        inside(spaceId),
-        records.query(spaceId, query)
-      ),
+      query: async <Q extends Query>(spaceId: string, query: Q) => {
+        inside(spaceId);
+        return records.query(spaceId, query);
+      },
       watch: <Q extends Query>(
         spaceId: string,
         query: Q,
@@ -2201,7 +2219,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     });
 
     const agentCollections: NodeCollections = Object.freeze({
-      list: async (spaceId: string) => (inside(spaceId), collections.list(spaceId)),
+      list: async (spaceId: string) => {
+        inside(spaceId);
+        return collections.list(spaceId);
+      },
       // The runtime refuses these too, and every peer ignores them — said early, with what to do instead.
       define: async () => {
         throw new Error(
@@ -2211,10 +2232,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       delete: async () => {
         throw new Error("An agent can't remove collections. Ask the person to do it.");
       },
-      tag: async (spaceId: string, collection: string, field: string, value: string | number | boolean) => (
-        inside(spaceId),
-        collections.tag(spaceId, collection, field, value)
-      ),
+      tag: async (spaceId: string, collection: string, field: string, value: string | number | boolean) => {
+        inside(spaceId);
+        return collections.tag(spaceId, collection, field, value);
+      },
     });
 
     return Object.freeze({

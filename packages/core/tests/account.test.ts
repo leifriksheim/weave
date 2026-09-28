@@ -16,6 +16,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { hold } from './helpers/hold.js';
+import { until } from './helpers/until.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -49,14 +50,6 @@ async function device(me: Awaited<ReturnType<typeof account>>, stores = memorySt
   });
   open.push(node);
   return node;
-}
-
-async function until(predicate: () => Promise<boolean>, ms = 3000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 describe('the account name', () => {

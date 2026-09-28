@@ -34,6 +34,7 @@ import { joined } from '../../core/tests/helpers/joined.js';
 import { createFakeHub } from '../../core/tests/helpers/fake-transport.js';
 import { createMesh } from '../../core/src/network/mesh.js';
 import { at } from './helpers/json.js';
+import { until } from '../../core/tests/helpers/until.js';
 
 const run = promisify(execFile);
 
@@ -46,14 +47,6 @@ async function tempDir(): Promise<string> {
 after(async () => {
   await Promise.all(temporary.map((dir) => rm(dir, { recursive: true, force: true })));
 });
-
-async function until(predicate: () => Promise<boolean> | boolean, ms = 5000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
 
 describe('a folder on disk', () => {
   test('is a drop-in for a browser directory handle', async () => {

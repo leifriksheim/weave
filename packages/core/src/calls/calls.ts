@@ -175,6 +175,8 @@ const GIVE_UP_MS = 2500;
 const LEAVE_LINGER_MS = 1000;
 /** How long a member list is trusted before asking the space again */
 const MEMBERS_MS = 10_000;
+/** How long the side that offers waits to offer again after a connection fails */
+const RETRY_MS = 2000;
 
 function isCallMessage(value: unknown): value is CallMessage {
   const message = value;
@@ -462,17 +464,34 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
       if (next === link.state) return;
       link.state = next;
       changed();
-      // The side that offers tries again, while the other is still in the call.
-      if (next === 'failed' && link.offerer) {
-        call.timers.add(
-          later(() => {
-            if (active === call && call.links.get(peer) === link && inCall(call.space, call.id)?.has(peer))
-              void offer(call, peer, account);
-          }, 2000),
-        );
-      }
+      if (next === 'failed') tryAgain(call, link, RETRY_MS);
     };
+    // A lost offer or answer leaves a connection that never fails, only never connects.
+    tryAgain(call, link, goneMs);
     return link;
+  }
+
+  /** A connection that could not be set up: shown as failed, and offered again by the side that offers */
+  function failed(call: Active, link: Link) {
+    link.state = 'failed';
+    changed();
+    tryAgain(call, link, RETRY_MS);
+  }
+
+  /** The side that offers offers again after `ms`, unless this connection is up, replaced, or the other has left */
+  function tryAgain(call: Active, link: Link, ms: number) {
+    if (!link.offerer) return;
+    call.timers.add(
+      later(() => {
+        if (
+          active === call &&
+          call.links.get(link.peer) === link &&
+          link.state !== 'connected' &&
+          inCall(call.space, call.id)?.has(link.peer)
+        )
+          void offer(call, link.peer, link.account);
+      }, ms),
+    );
   }
 
   function closeLink(peer: string) {
@@ -504,8 +523,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
         peer,
       );
     } catch {
-      link.state = 'failed';
-      changed();
+      failed(call, link);
     }
   }
 
@@ -540,8 +558,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
           );
           await flush(link);
         } catch {
-          link.state = 'failed';
-          changed();
+          failed(call, link);
         }
       } else if (description.type === 'answer') {
         const link = call.links.get(peer);
@@ -551,8 +568,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
           link.described = true;
           await flush(link);
         } catch {
-          link.state = 'failed';
-          changed();
+          failed(call, link);
         }
       }
     } else if (candidate && typeof candidate === 'object') {
@@ -797,7 +813,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
         for (const [peer, presence] of inCall(space, call.id) ?? []) {
           call.seen.add(presence.account);
           call.startedAt = Math.min(call.startedAt, presence.since);
-          if (node.sessionDid < peer) void offer(call, peer, presence.account);
+          if (node.sessionDid < peer && !call.links.has(peer)) void offer(call, peer, presence.account);
         }
         changed();
       } catch (error) {

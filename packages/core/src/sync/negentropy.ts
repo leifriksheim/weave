@@ -94,7 +94,10 @@ class Writer {
 
 class Reader {
   private at = 0;
-  constructor(private readonly bytes: Uint8Array) {}
+  private readonly bytes: Uint8Array;
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes;
+  }
   get remaining() {
     return this.bytes.length - this.at;
   }

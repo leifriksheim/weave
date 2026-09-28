@@ -18,6 +18,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
 import type { StoreFactory } from '../src/node/stores.js';
+import { until } from './helpers/until.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -57,14 +58,6 @@ async function person(
   });
   open.push(node);
   return { node, session: () => session, stores, signer };
-}
-
-async function until(predicate: () => Promise<boolean>, ms = 5000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 /** How many versions of a collection a node's store holds, looked at directly */

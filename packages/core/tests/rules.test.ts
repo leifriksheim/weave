@@ -25,6 +25,7 @@ import { team } from '../src/space/presets.js';
 import { hold, letGo } from './helpers/hold.js';
 import { stored } from './helpers/stored.js';
 import { SYNC_PROTOCOL_VERSION } from '../src/sync/sync-messages.js';
+import { until } from './helpers/until.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -45,14 +46,6 @@ async function person(hub: FakeHub) {
   return { node, me, manager, stores };
 }
 type Person = Awaited<ReturnType<typeof person>>;
-
-async function until(predicate: () => Promise<boolean>, ms = 4000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
 
 /**
  * Signs a version by hand — what a modified app, or an attacker, could send —

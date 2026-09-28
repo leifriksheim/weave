@@ -21,6 +21,7 @@ import { createMirror, deleteMirrored, type Taken } from '../src/storage/mirror.
 import { packSegment, unpackSegment } from '../src/storage/segment.js';
 import type { Expression } from '../src/types.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
+import { patience } from './helpers/until.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -32,15 +33,27 @@ function counted(inner: BlobStore, delayMs = 2) {
   const wait = () => new Promise((resolve) => setTimeout(resolve, delayMs));
   const writes = new Map<string, number>();
   const store: BlobStore = {
-    get: async (key) => (calls.get++, await wait(), inner.get(key)),
+    get: async (key) => {
+      calls.get++;
+      await wait();
+      return inner.get(key);
+    },
     put: async (key, bytes) => {
       calls.put++;
       writes.set(key, (writes.get(key) ?? 0) + 1);
       await wait();
       return inner.put(key, bytes);
     },
-    delete: async (key) => (calls.delete++, await wait(), inner.delete(key)),
-    list: async (prefix) => (calls.list++, await wait(), inner.list(prefix)),
+    delete: async (key) => {
+      calls.delete++;
+      await wait();
+      return inner.delete(key);
+    },
+    list: async (prefix) => {
+      calls.list++;
+      await wait();
+      return inner.list(prefix);
+    },
   };
   return { store, calls, writes };
 }
@@ -182,7 +195,7 @@ describe('a mirror', () => {
     await laptop.storage.addExpression(await note(who, 'soon'));
     laptop.mirror.changed();
     laptop.mirror.changed();
-    const deadline = Date.now() + 2000;
+    const deadline = Date.now() + patience(2000);
     while ((await shared.store.list(`${SPACE}/`)).length === 0 && Date.now() < deadline)
       await new Promise((r) => setTimeout(r, 5));
     assert.equal(

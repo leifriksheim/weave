@@ -24,6 +24,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
 import { hold } from './helpers/hold.js';
+import { until } from './helpers/until.js';
 
 const admin: Role = { name: 'admin', rank: 100, permissions: ['*'] };
 const member: Role = { name: 'member', rank: 0, permissions: [] };
@@ -95,14 +96,6 @@ async function person(hub: FakeHub, relays: string[]) {
   });
   open.push(node);
   return node;
-}
-
-async function until(predicate: () => Promise<boolean>, ms = 5000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 const relaysOf = async (node: P2PNode, space: string) => (await node.spaces.access(space)).relays;

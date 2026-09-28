@@ -21,7 +21,7 @@
 import type { PeerTransport, PeerTransportEvents } from './transport.js';
 import { peerNonce, type ClientAuth } from './peer-auth.js';
 import { createEmitter } from '../utils/events.js';
-import { isObject } from '../utils/guards.js';
+import { bufferSource, isObject } from '../utils/guards.js';
 
 export interface WebSocketTransportConfig {
   /** `wss://node.example.com/peer` */
@@ -206,7 +206,7 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
     if (!ws || ws.readyState !== WebSocket.OPEN || target !== peerId) {
       throw new Error(`Not connected to ${target}`);
     }
-    ws.send(data);
+    ws.send(bufferSource(data));
   };
 
   const closeAll = (): void => {
