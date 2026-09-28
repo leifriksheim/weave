@@ -189,9 +189,10 @@ function pair(
   const b = make('b', (m) => inFlight.push(a.sync.handleMessage('b', m)), options.holdsB);
   a.sync.addPeer('b');
   b.sync.addPeer('a');
-  const settle = async () => {
+  // A short heartbeat never lets the pair go quiet: pass fewer rounds to stop waiting sooner.
+  const settle = async (rounds = 500) => {
     let idle = 0;
-    for (let round = 0; round < 500 && idle < 2; round++) {
+    for (let round = 0; round < rounds && idle < 2; round++) {
       // Nothing to deliver: wait a little real time too. A hello goes out only after its
       // fingerprints are hashed, which on a busy machine takes longer than a turn or two.
       await new Promise((resolve) => setTimeout(resolve, inFlight.length > 0 ? 0 : 25));
@@ -401,16 +402,16 @@ describe('sync by reconciliation', () => {
       let syncedWithB = 0;
       synced.a.sync.on('synced', (peer: string) => peer === 'b' && syncedWithB++);
       synced.a.sync.start();
-      await synced.settle();
+      await synced.settle(40);
       assert.equal(lost, true);
       // The next hello asked again and got it; the lost want still counts as in flight.
       assert.notEqual(await synced.a.storage.getExpression(onlyB.id), null);
       syncedWithB = 0;
-      await synced.settle();
+      await synced.settle(40);
       assert.equal(syncedWithB, 0, 'not synced while a want is in flight');
 
       mock.timers.tick(31_000);
-      await synced.settle();
+      await synced.settle(40);
       assert.ok(syncedWithB > 0, 'synced once the lost want is given up');
     } finally {
       synced.a.sync.stop();
