@@ -1,4 +1,5 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { checkRelays, MAX_RELAYS, roleHolds } from '@weaveprotocol/core';
 import type { CarrierSummary, MeshStatus, RelayStatus, SpaceStatus, SpaceSummary } from '@weaveprotocol/core';
 import { useAccess, useAccount, useNetwork, useNode } from '@weaveprotocol/core/react';
 import { Avatar } from '@weave/app-shared/Avatar';
@@ -12,7 +13,7 @@ import {
   type Health,
   type PeerKind,
 } from '../derive/network';
-import { styles, palette } from '../styles';
+import { styles, palette, variants } from '../styles';
 import { Person } from './Person';
 
 /** The time now, a second at a time, for countdowns and "for 4 min" */
@@ -80,12 +81,16 @@ export function NetworkView({ space, status }: { space: SpaceSummary; status: Sp
         onRetry={() => node.network.reconnect()}
       />
       {status && <Peers status={status} />}
-      <Relays
-        network={network}
-        own={access?.relays ?? []}
-        now={now}
-        onRetry={() => node.network.reconnect()}
-      />
+      <Relays network={network} now={now} onRetry={() => node.network.reconnect()} />
+      {access && (
+        <SpaceRelays
+          space={space}
+          named={access.relays}
+          manages={roleHolds(access.role, 'manage')}
+          network={network}
+          now={now}
+        />
+      )}
       <Connections network={network} status={status} now={now} />
       {status && <SyncFacts status={status} />}
       <HowItWorks />
@@ -230,17 +235,7 @@ function Peers({ status }: { status: SpaceStatus }) {
 
 // ─── Relays ────────────────────────────────────────────────────────
 
-function Relays({
-  network,
-  own,
-  now,
-  onRetry,
-}: {
-  network: MeshStatus;
-  own: ReadonlyArray<string>;
-  now: number;
-  onRetry: () => void;
-}) {
+function Relays({ network, now, onRetry }: { network: MeshStatus; now: number; onRetry: () => void }) {
   const waiting = network.relays.some((relay) => relay.state === 'waiting');
   return (
     <Section
@@ -276,19 +271,155 @@ function Relays({
           ))}
         </ul>
       )}
-      {own.length > 0 && (
-        <p style={{ ...meta, marginTop: 10 }}>
-          This space names {own.map(relayName).join(', ')} as where its members meet, so they find each other
-          there whichever relays their apps use.
-        </p>
-      )}
-      <p style={{ ...meta, marginTop: own.length > 0 ? 0 : 10 }}>
+      <p style={{ ...meta, marginTop: 10 }}>
         {network.turn
           ? 'A relay offered TURN, so devices on strict networks can still connect through it.'
           : 'No TURN offered: two devices behind strict firewalls may not be able to connect.'}
       </p>
     </Section>
   );
+}
+
+// ─── Where the space meets ─────────────────────────────────────────
+
+/**
+ * The relays the space names for its members, which every member joins on
+ * top of their app's own. Someone who manages the space can add and remove
+ * them; everyone else sees where they meet.
+ */
+function SpaceRelays({
+  space,
+  named,
+  manages,
+  network,
+  now,
+}: {
+  space: SpaceSummary;
+  named: ReadonlyArray<string>;
+  manages: boolean;
+  network: MeshStatus;
+  now: number;
+}) {
+  const node = useNode();
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const candidate = relayUrl(draft);
+  const problem = candidate ? checkRelays([...named, candidate]) : null;
+  const full = named.length >= MAX_RELAYS;
+
+  const save = async (relays: ReadonlyArray<string>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await node.spaces.setRelays(space.id, relays);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const add = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!candidate || problem) return;
+    if (await save([...named, candidate])) setDraft('');
+  };
+
+  const remove = (url: string) => {
+    if (
+      !globalThis.confirm(
+        `Stop meeting on ${relayName(url)}? Members still on only that relay lose touch until their apps pick up the change from someone else.`,
+      )
+    )
+      return;
+    void save(named.filter((u) => u !== url));
+  };
+
+  return (
+    <Section
+      title="Where this space meets"
+      hint={`Every member joins the space on these relays as well as their own app's, so they find each other whichever relays their apps use. Naming more than one keeps the space reachable when one goes down. ${manages ? 'Only people who run the space can change them.' : 'Someone who runs the space can change them.'}`}
+    >
+      {named.length === 0 ? (
+        <p style={empty}>This space names no relays yet, so members meet on their apps' own.</p>
+      ) : (
+        <ul style={list}>
+          {named.map((url) => {
+            const relay = network.relays.find((r) => r.url === url);
+            return (
+              <li key={url} style={{ ...row, alignItems: 'flex-start' }}>
+                <span style={{ paddingTop: 6 }}>
+                  <Dot color={relay ? RELAY_COLOR[relay.state] : palette.ink.faint} />
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, color: palette.ink.strong, overflowWrap: 'anywhere' }}>
+                    <Mono>{url}</Mono>
+                  </div>
+                  <div style={meta}>
+                    {relay ? relayLine(relay, now) : 'This device is not connected to it'}
+                  </div>
+                </div>
+                {manages && (
+                  <button
+                    type="button"
+                    onClick={() => remove(url)}
+                    disabled={busy || named.length === 1}
+                    title={named.length === 1 ? 'Add another relay before removing the last one' : undefined}
+                    style={{ ...styles.smallButton, ...variants.danger }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {manages && (
+        <form onSubmit={(event) => void add(event)} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <label htmlFor="space-relay" style={visuallyHidden}>
+            Relay address
+          </label>
+          <input
+            id="space-relay"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="wss://relay.example.com"
+            disabled={busy || full}
+            autoComplete="off"
+            spellCheck={false}
+            style={{ ...styles.input, flex: '1 1 240px', minWidth: 0 }}
+          />
+          <button
+            type="submit"
+            disabled={busy || full || !candidate || problem !== null}
+            style={styles.smallButton}
+          >
+            Add relay
+          </button>
+        </form>
+      )}
+      {manages && (full || problem || error) && (
+        <p
+          role="alert"
+          style={{ ...meta, color: full && !error ? palette.ink.muted : palette.accent.danger }}
+        >
+          {error ?? problem ?? `A space names at most ${MAX_RELAYS} relays.`}
+        </p>
+      )}
+    </Section>
+  );
+}
+
+/** What someone typed as a relay, as a URL: "relay.example" means wss://relay.example */
+function relayUrl(typed: string): string | null {
+  const text = typed.trim().replace(/\/+$/, '');
+  if (!text) return null;
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `wss://${text}`;
 }
 
 // ─── Connections ───────────────────────────────────────────────────
@@ -475,3 +606,11 @@ const row: CSSProperties = {
 };
 const meta: CSSProperties = { fontSize: 12, color: palette.ink.muted, marginTop: 2 };
 const empty: CSSProperties = { fontSize: 13, color: palette.ink.faint, margin: 0 };
+const visuallyHidden: CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+};
