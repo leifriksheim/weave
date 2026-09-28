@@ -11,6 +11,8 @@ export type ProtocolErrorCode =
   | 'WEBAUTHN_UNAVAILABLE'
   /** This browser has no File System Access API, so no folder can be opened */
   | 'FOLDER_UNAVAILABLE'
+  /** The folder chosen before is gone: moved, renamed or deleted */
+  | 'FOLDER_GONE'
   /** The chosen folder holds an account file this version cannot read */
   | 'FOLDER_ACCOUNT_UNREADABLE'
   /** The passkey, passphrase or code offered did not open the folder */

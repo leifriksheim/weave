@@ -125,8 +125,12 @@ export function AccountMenu() {
 
           <div style={{ padding: 6 }}>
             {notifications.on === 0 ? (
-              <Item onClick={notifications.turnOn} hint="Messages, polls, contacts">
-                Turn on notifications
+              <Item
+                onClick={notifications.turnOn}
+                disabled={notifications.asking}
+                hint={notifications.asking ? 'Answer in your account home' : 'Messages, polls, contacts'}
+              >
+                {notifications.asking ? 'Asking your account home…' : 'Turn on notifications'}
               </Item>
             ) : notifications.permission === 'granted' ? (
               <Item

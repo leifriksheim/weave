@@ -56,15 +56,27 @@ function useSubscriptions(): ReadonlyArray<NotifyView> {
   return mine;
 }
 
-/** Asking the browser, then the home: both need the click that got here */
+/** One proposal, as the same thing asked for again would be */
+const proposalKey = (proposal: NotifyProposal) =>
+  `${proposal.collection} ${JSON.stringify(proposal.topic ?? null)} ${proposal.spaces?.join(',') ?? 'all'}`;
+
+/**
+ * Asking the browser, then the home: both need the click that got here. What
+ * the home said yes to counts as on at once: the account's copy of it reaches
+ * this app only once the account space has synced.
+ */
 function useAsk() {
   const { connection, state } = useConnection();
   const [permission, setPermission] = useState(() => (supported() ? Notification.permission : 'denied'));
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [kept, setKept] = useState<ReadonlySet<string>>(() => new Set());
 
   const ask = useCallback(
     (proposals: ReadonlyArray<NotifyProposal>) => {
       setError(null);
+      // Everything asked for is on already: nothing to open the home for.
+      if (proposals.length === 0) return;
       if (!supported()) return setError('This browser can’t show notifications.');
       if (Notification.permission === 'denied')
         return setError('Notifications are blocked for this site in your browser’s settings.');
@@ -74,9 +86,15 @@ function useAsk() {
           : Notification.requestPermission();
       const proposing = connection.propose(proposals);
       void asking.then(setPermission);
-      proposing.catch((failed: unknown) =>
-        setError(failed instanceof Error ? failed.message : String(failed)),
-      );
+      setAsking(true);
+      proposing
+        .then((answer) => {
+          const labels = new Set(answer.notify.map((sub) => sub.label));
+          const yes = proposals.filter((proposal) => labels.has(proposal.label.trim()));
+          setKept((was) => new Set([...was, ...yes.map(proposalKey)]));
+        })
+        .catch((failed: unknown) => setError(failed instanceof Error ? failed.message : String(failed)))
+        .finally(() => setAsking(false));
     },
     [connection],
   );
@@ -89,7 +107,7 @@ function useAsk() {
     globalThis.open(manageUrl(state.home), 'weave-account', 'popup,width=720,height=820');
   }, [state.home]);
 
-  return { permission, error, ask, allow, manage };
+  return { permission, error, asking, kept, ask, allow, manage };
 }
 
 /**
@@ -145,9 +163,33 @@ function gather(made: ReadonlyArray<App>): ReadonlyArray<NotifyProposal> {
 export function useAppNotifications() {
   const mine = useSubscriptions();
   const everything = useEverything();
-  const { permission, error, ask, allow, manage } = useAsk();
-  const turnOn = useCallback(() => ask(everything), [ask, everything]);
-  return { on: mine.filter((sub) => !sub.paused).length, permission, error, turnOn, allow, manage };
+  const { permission, error, asking, kept, ask, allow, manage } = useAsk();
+  // What is on everywhere already is not asked for again.
+  const turnOn = useCallback(
+    () =>
+      ask(
+        everything.filter(
+          (offer) =>
+            !kept.has(proposalKey(offer)) &&
+            !mine.some(
+              (sub) =>
+                sub.spaces === 'all' &&
+                sub.collection === offer.collection &&
+                (offer.topic ? sub.topic?.field === offer.topic.field : !sub.topic),
+            ),
+        ),
+      ),
+    [ask, everything, kept, mine],
+  );
+  return {
+    on: mine.filter((sub) => !sub.paused).length,
+    permission,
+    error,
+    asking,
+    turnOn,
+    allow,
+    manage,
+  };
 }
 
 /**
@@ -159,8 +201,9 @@ export function useAppNotifications() {
 export function useNotifyFor(spaceId: string, offers: ReadonlyArray<AppNotify>) {
   const { did } = useAccount();
   const mine = useSubscriptions();
-  const { error, ask, manage } = useAsk();
+  const { error, asking, kept, ask, manage } = useAsk();
   const covers = (offer: AppNotify) =>
+    kept.has(proposalKey({ ...offer, spaces: [spaceId] })) ||
     mine.some(
       (sub) =>
         !sub.paused &&
@@ -183,6 +226,7 @@ export function useNotifyFor(spaceId: string, offers: ReadonlyArray<AppNotify>) 
       forMe: forMe.length > 0 && forMe.every(covers),
     },
     error,
+    asking,
     turnOn,
     manage,
   };
