@@ -1,4 +1,4 @@
-import type { Expression, Link, UnsignedExpression } from '../types.js';
+import type { Envelope, Expression, Link, UnsignedExpression } from '../types.js';
 import { utf8Encode } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
 import { isRecord } from '../utils/guards.js';
@@ -88,24 +88,63 @@ export function createExpression<T>(params: CreateExpressionParams<T>): Unsigned
 }
 
 /**
- * What the author signed and the id hashes: everything but the id and the
- * signature. Both checks — id and signature — must drop exactly these, or a
- * field added later is hashed on one side and not the other.
- * @param expression A signed expression
- * @returns Its unsigned payload
+ * The content id of a body: what a version signs in its place, so that its
+ * envelope checks without it.
  */
-export function signedPart<T>(expression: Expression<T>): UnsignedExpression<T> {
-  const { id: _id, signature: _signature, ...payload } = expression;
-  return payload;
+export function bodyHashOf(body: unknown): Promise<string> {
+  return cidFromBytes(utf8Encode(canonicalize(body)));
 }
 
 /**
- * Computes the CID for an unsigned expression by hashing its canonical serialization.
- * @param expr The unsigned expression
+ * What the author signs and the id hashes: an unsigned version with its body
+ * swapped for the body's hash. A delete has no body, so no hash.
+ */
+export async function envelopeOf(expression: UnsignedExpression): Promise<Envelope> {
+  const { body, ...envelope } = expression;
+  return expression.deleted ? envelope : { ...envelope, bodyHash: await bodyHashOf(body) };
+}
+
+/**
+ * What the author signed and the id hashes: everything but the id, the
+ * signature and the body. Both checks — id and signature — must drop exactly
+ * these, or a field added later is hashed on one side and not the other.
+ * @param expression A signed expression, whole or a stub
+ * @returns Its envelope
+ */
+export function signedPart(expression: Expression): Envelope {
+  const { id: _id, signature: _signature, body: _body, ...envelope } = expression;
+  return envelope;
+}
+
+/** A version kept without its body: superseded, its content forgotten. A delete is never one. */
+export const isStub = (expression: Expression): boolean => !expression.deleted && !('body' in expression);
+
+/** A version's stub: what is kept of it once it is superseded. */
+export function stubOf(expression: Expression): Expression {
+  if (expression.deleted || !('body' in expression)) return expression;
+  const { body: _body, ...stub } = expression;
+  return Object.freeze(stub);
+}
+
+/**
+ * Why a version's body is not the one it signed, or null when it is — or
+ * when it is a stub, with no body to check.
+ */
+export async function bodyProblem(expression: Expression): Promise<string | null> {
+  if (expression.deleted)
+    return expression.body === undefined || expression.body === null ? null : 'A delete carries no body';
+  if (!('body' in expression)) return null;
+  if (typeof expression.bodyHash !== 'string') return 'It has no body hash';
+  return (await bodyHashOf(expression.body)) === expression.bodyHash
+    ? null
+    : 'Its body is not the one it signed';
+}
+
+/**
+ * Computes the id of an envelope by hashing its canonical serialization.
+ * @param envelope What is signed: a version without its id, signature and body
  * @returns Promise resolving to the CID string
  */
-export async function getExpressionId(expr: UnsignedExpression): Promise<string> {
-  const json = canonicalize(expr);
-  const bytes = utf8Encode(json);
-  return await cidFromBytes(bytes);
+export async function getExpressionId(envelope: Envelope): Promise<string> {
+  return cidFromBytes(utf8Encode(canonicalize(envelope)));
 }

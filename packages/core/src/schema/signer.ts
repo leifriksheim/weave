@@ -1,5 +1,5 @@
 import type { CryptoProvider, Expression, UnsignedExpression } from '../types.js';
-import { canonicalize, getExpressionId, signedPart } from './expression.js';
+import { bodyProblem, canonicalize, envelopeOf, getExpressionId, signedPart } from './expression.js';
 import { utf8Encode, base64UrlEncode, base64UrlDecode } from '../utils/encoding.js';
 
 /**
@@ -10,9 +10,12 @@ export interface Signer {
    * Signs an unsigned payload, returning a complete Expression.
    * @param payload The unsigned expression to sign
    * @param privateKey The private CryptoKey for signing
-   * @returns Promise resolving to the signed Expression
+   * @returns Promise resolving to the signed Expression, whole
    */
-  sign<T>(payload: UnsignedExpression<T>, privateKey: CryptoKey): Promise<Expression<T>>;
+  sign<T>(
+    payload: UnsignedExpression<T>,
+    privateKey: CryptoKey,
+  ): Promise<Expression<T> & { readonly body: T }>;
 
   /**
    * Verifies the signature and ID of an Expression.
@@ -30,23 +33,29 @@ export interface Signer {
  */
 export function createSigner(provider: CryptoProvider): Signer {
   return Object.freeze({
-    async sign<T>(payload: UnsignedExpression<T>, privateKey: CryptoKey): Promise<Expression<T>> {
-      const canonicalStr = canonicalize(payload);
-      const payloadBytes = utf8Encode(canonicalStr);
+    async sign<T>(
+      payload: UnsignedExpression<T>,
+      privateKey: CryptoKey,
+    ): Promise<Expression<T> & { readonly body: T }> {
+      // The body is signed through its hash, so the envelope checks without it.
+      const envelope = await envelopeOf(payload);
+      const payloadBytes = utf8Encode(canonicalize(envelope));
 
       const signatureBytes = await provider.sign(privateKey, payloadBytes);
       const signature = base64UrlEncode(signatureBytes);
 
-      const id = await getExpressionId(payload);
+      const id = await getExpressionId(envelope);
 
       // Everything that was signed, and nothing else: listing fields one by
       // one would silently drop any field added later from the record.
-      return Object.freeze({ id, ...payload, signature });
+      return Object.freeze({ id, ...envelope, body: payload.body, signature });
     },
 
     async verify<T>(expression: Expression<T>, publicKey: CryptoKey): Promise<boolean> {
       const { id, signature } = expression;
       const unsignedPayload = signedPart(expression);
+
+      if (await bodyProblem(expression)) return false;
 
       // Verify ID
       const expectedId = await getExpressionId(unsignedPayload);

@@ -1,7 +1,7 @@
 import { CryptoProvider, Expression } from '../types.js';
 import { utf8Encode, base64UrlDecode } from '../utils/encoding.js';
 import { messageOf } from '../utils/errors.js';
-import { canonicalize, getExpressionId, signedPart } from '../schema/expression.js';
+import { bodyProblem, canonicalize, getExpressionId, signedPart } from '../schema/expression.js';
 
 export interface GateResult {
   readonly passed: boolean;
@@ -28,8 +28,8 @@ export function createCryptoGate(provider: CryptoProvider): CryptoGate {
       resolvePublicKey: (did: string) => Promise<CryptoKey>,
     ): Promise<GateResult> {
       try {
-        // Only the unsigned payload is signed — the id is a hash of it, and
-        // neither signature is part of what was hashed.
+        // Only the envelope is signed — the id is a hash of it, the signature
+        // is not part of what was hashed, and the body is there as its hash.
         const { id, signature } = expression;
         const unsignedPayload = signedPart(expression);
 
@@ -45,6 +45,8 @@ export function createCryptoGate(provider: CryptoProvider): CryptoGate {
 
         const isValid = await provider.verify(publicKey, sigBytes, data);
         if (isValid) {
+          const problem = await bodyProblem(expression);
+          if (problem) return { passed: false, gate: 'crypto', reason: problem };
           return { passed: true, gate: 'crypto' };
         } else {
           return { passed: false, gate: 'crypto', reason: 'Signature verification failed' };

@@ -123,7 +123,7 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
     return name;
   }
 
-  /** Every version this store keeps: current, first and retained */
+  /** Every version this store keeps: whole if current or retained, as a stub otherwise */
   async function held(): Promise<string[]> {
     return storage.versionIds();
   }
@@ -161,8 +161,11 @@ export async function createMirror(config: MirrorConfig): Promise<Mirror> {
     const keep = new Map<string, Expression>();
     for (const key of old) {
       const bytes = await store.get(key);
+      // The store's copy, not the segment's: a version superseded since it was
+      // written is a stub now, and its body is not carried forward.
       for (const version of bytes ? unpackSegment(bytes) : [])
-        if (wanted.has(version.id)) keep.set(version.id, version);
+        if (wanted.has(version.id) && !keep.has(version.id))
+          keep.set(version.id, (await storage.getExpression(version.id)) ?? version);
     }
     // New first, then delete: a reader in between sees each version twice, which is harmless.
     let batch: Expression[] = [];

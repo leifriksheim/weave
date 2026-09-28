@@ -5,13 +5,19 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { supersedes, nextVersion, checkVersionShape, newRecordKey } from '../src/records/version.js';
+import {
+  supersedes,
+  nextVersion,
+  checkVersionShape,
+  chainProblem,
+  newRecordKey,
+} from '../src/records/version.js';
 import { RECORD_KEY_PATTERN } from '../src/records/key.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { createSigner } from '../src/schema/signer.js';
-import { createExpression } from '../src/schema/expression.js';
-import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
+import { createExpression, stubOf } from '../src/schema/expression.js';
+import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../src/identity/did.js';
 import { createNode } from '../src/node/node.js';
 import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
@@ -25,6 +31,7 @@ import { team } from '../src/space/presets.js';
 import { hold } from './helpers/hold.js';
 import { joined } from './helpers/joined.js';
 import { until } from './helpers/until.js';
+import { stored } from './helpers/stored.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -150,13 +157,44 @@ describe('a store of versions', () => {
     assert.equal((await storage.getCurrent(key))?.deleted, true);
   });
 
-  test('1,000 edits keep the current and first versions — not 1,000', async () => {
+  test('an older version arriving after a later one is kept only as a stub', async () => {
+    const key = newRecordKey();
+    const [v0, v1, v2] = await chain(key, 3);
+    const storage = await storeOf([v2!, v0!, v1!]);
+    assert.deepEqual((await storage.getCurrent(key))?.body, { n: 2 });
+    for (const old of [v0!, v1!]) assert.equal('body' in (await storage.getExpression(old.id))!, false);
+  });
+
+  test('a stub on top takes its body when the whole version arrives', async () => {
+    const key = newRecordKey();
+    const [v0, v1] = await chain(key, 2);
+    const storage = await storeOf([stubOf(v0!), stubOf(v1!)]);
+    assert.equal('body' in (await storage.getCurrent(key))!, false);
+    await storage.addExpression(v1!);
+    assert.deepEqual((await storage.getCurrent(key))?.body, { n: 1 });
+  });
+
+  test('a retained version is never cut down to a stub', async () => {
+    const key = newRecordKey();
+    const [v0, v1, v2] = await chain(key, 3, { retain: true });
+    const storage = await storeOf([v0!, v1!, v2!, stubOf(v1!)]);
+    assert.deepEqual((await storage.getExpression(v1!.id))?.body, { n: 1 });
+    assert.equal((await storage.history(key)).length, 3);
+  });
+
+  test('1,000 edits keep one body; the rest are stubs, so every edit can still be checked', async () => {
     const key = newRecordKey();
     const versions = await chain(key, 1000);
     const storage = await storeOf(versions);
-    const kept = new Set(await storage.versionIds());
-    assert.deepEqual([...kept].sort(), [versions[0]!.id, versions[999]!.id].sort());
-    assert.equal(await storage.getExpression(versions[500]!.id), null);
+    assert.equal((await storage.versionIds()).length, 1000);
+    for (const n of [0, 500, 998]) {
+      const stub = await storage.getExpression(versions[n]!.id);
+      assert.ok(stub);
+      assert.equal(stub.seq, n);
+      assert.equal('body' in stub, false, `version ${n} keeps no body`);
+    }
+    assert.deepEqual((await storage.getCurrent(key))?.body, { n: 999 });
+    assert.equal((await storage.getGenesis(key))?.id, versions[0]!.id);
   });
 
   test('retained versions form a verifiable chain', async () => {
@@ -197,6 +235,58 @@ describe('the shape check', () => {
     assert.match(checkVersionShape({ ...v0!, seq: 2 }) ?? '', /later version/);
     assert.match(checkVersionShape({ ...v0!, deleted: true }) ?? '', /no body/);
     assert.match(checkVersionShape({ ...v0!, key: 'Has Spaces' }) ?? '', /malformed/);
+    const { bodyHash: _hash, ...unhashed } = v0!;
+    assert.match(checkVersionShape(unhashed) ?? '', /hash of its body/);
+    const gone = await version(key, 1, null, { ...nextVersion(v0!), deleted: true });
+    assert.equal(gone.bodyHash, undefined);
+    assert.equal(checkVersionShape(gone), null);
+    assert.match(checkVersionShape({ ...gone, bodyHash: v0!.bodyHash! }) ?? '', /no body hash/);
+  });
+});
+
+describe('a record’s chain', () => {
+  test('a later version must follow the version it names, one seq on, from the same first version', async () => {
+    const key = newRecordKey();
+    const [v0, v1, v2] = await chain(key, 3);
+    assert.equal(chainProblem(v1!, v0!), null);
+    assert.equal(chainProblem(v2!, v1!), null);
+
+    const skipped = await version(key, 9, {}, { ...nextVersion(v1!), prev: v1!.id });
+    assert.match(chainProblem({ ...skipped, seq: 9 }, v1!) ?? '', /not one more/);
+    assert.match(chainProblem(v2!, v0!) ?? '', /does not follow/);
+    const other = await chain(newRecordKey(), 2);
+    assert.match(chainProblem({ ...v1!, prev: other[0]!.id }, other[0]!) ?? '', /another record/);
+    assert.match(chainProblem(v1!, { ...v0!, collection: 'app.other' }) ?? '', /another collection/);
+    assert.match(chainProblem({ ...v2!, genesis: v2!.id }, v1!) ?? '', /different first version/);
+  });
+
+  test('the example in 02 §3.4 has the body hash and id the spec gives', async () => {
+    const manager = createIdentityManager();
+    const me = await manager.fromSeed(new Uint8Array(16).fill(7));
+    assert.equal(me.did, 'did:key:zDnaeSm3GDBe3cfca4gaw8nchcuzkJ2LPQiZp9tYs2bRGfQRJ');
+    const example = await createSigner(manager.getProvider()).sign(
+      createExpression({
+        author: me.did,
+        collection: 'app.todo.item',
+        body: { text: 'Buy milk', done: false },
+        createdAt: '2026-09-26T12:00:00.000Z',
+        space: 'bimjoifogypbqrtuich3e375d67y43znkjsjnp4q4qhe7gwf7u74a',
+        version: { key: 'mfrggzdfmztwq2lknnwg23tpoa', seq: 0 },
+        seen: ['b2adwpfsyvp6w5qyvo54kgtomdh4iqdg5xhrwwyva7qq54lh74gpq'],
+        links: [{ rel: 'about', to: 'list.groceries' }],
+      }),
+      me.privateKey,
+    );
+    assert.equal(example.bodyHash, 'b47jrvlapsxwsx44hipgsfbwdbupytsv4giuf4hxgoj33hiq4oubq');
+    assert.equal(example.id, 'bay24o4ltme7k2zpxr4mqueg3s4f7eovulwccdvmpqlzxf5hafetq');
+  });
+
+  test('the body is signed through its hash: a stub checks alone, another body does not', async () => {
+    const [v0] = await chain(newRecordKey(), 1);
+    const publicKey = await provider.importPublicKey(didToPublicKey(author.did).publicKeyBytes);
+    assert.equal(await signer.verify(v0!, publicKey), true);
+    assert.equal(await signer.verify(stubOf(v0!), publicKey), true);
+    assert.equal(await signer.verify({ ...v0!, body: { n: 'changed' } }, publicKey), false);
   });
 });
 
@@ -206,12 +296,12 @@ describe('versioned records through the node', () => {
     await Promise.all(open.splice(0).map((node) => node.close()));
   });
 
-  async function person(hub = createFakeHub({ latencyMs: 1 })) {
+  async function person(hub = createFakeHub({ latencyMs: 1 }), stores = memoryStores()) {
     const manager = createIdentityManager();
     const me = await manager.fromSeed(generateSeed());
     const node = await createNode({
       signer: createLocalRootSigner(me, manager.getProvider()),
-      stores: memoryStores(),
+      stores,
       watchIntervalMs: 0,
       network: { transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)] },
     });
@@ -288,6 +378,37 @@ describe('versioned records through the node', () => {
       'the stores to match',
     );
     assert.equal((await bob.records.history(space, made.key)).length, 5);
+  });
+
+  test('a newcomer after a delete receives what was written, as stubs, and the delete — never the body', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const alice = await person(hub);
+    const bobStores = memoryStores();
+    const bob = await person(hub, bobStores);
+    const { id: space } = await alice.spaces.create({ name: 'Chat', ...team, visibility: 'public' });
+    const said = await alice.records.put(space, 'app.message', { text: 'the password is hunter2' });
+    await alice.records.update(space, said.key, { text: 'oops' });
+    await alice.records.delete(space, said.key);
+
+    await bob.spaces.join(await alice.spaces.invite(space));
+    await hold(bob, space);
+    await until(
+      async () =>
+        (await alice.spaces.status(space)).fingerprint === (await bob.spaces.status(space)).fingerprint,
+      3000,
+      'the stores to match',
+    );
+    const held = await (await stored(bobStores, space)).versionIds();
+    const versions = await Promise.all(
+      held.map(async (id) => (await stored(bobStores, space)).getExpression(id)),
+    );
+    const ofIt = versions.filter((v) => v?.key === said.key);
+    assert.deepEqual(ofIt.map((v) => v!.seq).sort(), [0, 1, 2]);
+    assert.ok(
+      ofIt.every((v) => v!.body === undefined || v!.body === null),
+      'no body reaches the newcomer',
+    );
+    assert.equal(await bob.records.get(space, said.key), null);
   });
 
   test('a deleted key can be written again, and comes back as its next version', async () => {

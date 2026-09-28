@@ -28,9 +28,9 @@ import type { SpaceRecord } from '../space/space-manager.js';
 import type { Capability } from '../identity/ucan.js';
 import { parseUCAN, resolveDelegationRoot } from '../identity/ucan.js';
 import { isAgentNote } from '../identity/agent-note.js';
-import { createExpression } from '../schema/expression.js';
+import { bodyProblem, createExpression, isStub } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
-import { newRecordKey, nextVersion } from '../records/version.js';
+import { chainProblem, newRecordKey, nextVersion } from '../records/version.js';
 import { RECORD_KEY_PATTERN } from '../records/key.js';
 import { checkLinks } from '../records/links.js';
 import {
@@ -541,6 +541,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
    * points at.
    */
   async function openBody(expression: Expression): Promise<Opened> {
+    // A stub's content is forgotten: read like one this node holds no key for.
+    if (isStub(expression)) return { body: null, links: expression.links ?? [], encrypted: false };
     if (!looksEncrypted(expression.body))
       return { body: expression.body, links: expression.links ?? [], encrypted: false };
     const known = openedBodies.get(expression.id);
@@ -967,6 +969,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (problem) return problem;
     }
     if (!rules || expression.deleted) return STANDS;
+    // Their checks read the first version's body, so every peer must hold it,
+    // however late it joins: a first version kept whole, not as a stub.
+    if (expression.seq === 0 && (rules.onePer || rules.fixed) && !expression.retain)
+      return {
+        ok: false,
+        reason: `A new ${expression.collection} record must be kept whole: its rules are checked against it`,
+      };
     if (expression.seq === 0 && rules.onePer) {
       const opened = await openBody(expression);
       if (opened.body === null && opened.encrypted) return STANDS;
@@ -982,7 +991,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         };
       }
     }
-    if (expression.seq > 0 && rules.fixed?.length) {
+    // Only against a first version kept whole, so a peer that joined after it
+    // was superseded judges the same way as one that saw it.
+    if (expression.seq > 0 && rules.fixed?.length && first.retain) {
       const [now, then] = await Promise.all([openBody(expression), openBody(first)]);
       if (now.body !== null && then.body !== null) {
         const field = changedFixedField(rules.fixed, then.body, now.body);
@@ -1022,9 +1033,31 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return known ? STANDS : { ok: false, reason: 'Its author has never been a member of this space' };
   }
 
+  /**
+   * Whether a later version follows the version its `prev` names: the same
+   * record, one more `seq`, the same first version. Asked on arrival, once
+   * that version is held, so a writer can't skip ahead to a `seq` nobody can
+   * outrank.
+   */
+  async function chainStanding(expression: Expression): Promise<Standing> {
+    if (expression.seq === 0 || typeof expression.prev !== 'string') return STANDS;
+    const previous = await storage.getExpression(expression.prev);
+    if (!previous) return { ok: false, reason: 'The version it follows has not arrived yet', later: true };
+    const problem = chainProblem(expression, previous);
+    return problem ? { ok: false, reason: problem } : STANDS;
+  }
+
   /** Whether a version from outside — a peer, a folder — may be stored */
-  const admit = (expression: Expression) =>
-    ACCESS_COLLECTIONS.has(expression.collection) ? admissible(expression) : standingOf(expression);
+  async function admit(expression: Expression): Promise<Standing> {
+    // Not cached with the signature's verdict: a copy with another body shares the id and signature.
+    const problem = await bodyProblem(expression);
+    if (problem) return { ok: false, reason: problem };
+    if (expression.retain && isStub(expression))
+      return { ok: false, reason: 'A version its writer retained travels whole' };
+    const chain = await chainStanding(expression);
+    if (!chain.ok) return chain;
+    return ACCESS_COLLECTIONS.has(expression.collection) ? admissible(expression) : standingOf(expression);
+  }
 
   /**
    * The version of a record that counts: the current one, unless it no longer
@@ -1033,9 +1066,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   async function currentOf(recordKey: string): Promise<Expression | null> {
     const current = await storage.getCurrent(recordKey);
     if (!current || !(await consistent(current))) return null;
-    if ((await standingOf(current)).ok) return current;
+    // A stub on top: the body of the version after it is on its way.
+    if (!isStub(current) && (await standingOf(current)).ok) return current;
     for (const version of await storage.history(recordKey)) {
-      if (version.id === current.id || !(await consistent(version))) continue;
+      if (version.id === current.id || isStub(version) || !(await consistent(version))) continue;
       if ((await standingOf(version)).ok) return version;
     }
     return null;
@@ -1070,7 +1104,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const index = new Map<string, Counted>();
     for (const version of await storage.listCurrent()) {
       const counted =
-        (await standingOf(version)).ok && (await consistent(version))
+        !isStub(version) && (await standingOf(version)).ok && (await consistent(version))
           ? version
           : await currentOf(version.key);
       if (counted) index.set(counted.key, await countedEntry(counted));
@@ -2227,13 +2261,18 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     // Whether superseded versions are kept is the writer's decision, carried
     // on the version — never each reader's, or nodes that had seen different
     // definitions would store different things and never converge. The access
-    // history keeps everything: it is replayed whole.
+    // history keeps everything: it is replayed whole. A first version under
+    // `onePer` or `fixed` is kept whole, because those rules are checked against it.
+    const definition = (await catalog()).get(collection)?.definition;
     const retain =
       ACCESS_COLLECTIONS.has(collection) ||
       collection === PROFILE_COLLECTION ||
       collection === BOX_COLLECTION ||
       collection === MEMBER_KEY_COLLECTION ||
-      (await catalog()).get(collection)?.definition.history === 'all';
+      // What a removed carrier was is read back after the delete (`nameKeepers`).
+      collection === CARRIER_COLLECTION ||
+      definition?.history === 'all' ||
+      (version.seq === 0 && !!(definition?.rules?.onePer || definition?.rules?.fixed));
 
     const { history, events: held } = await access();
     const signed = await signer.sign(
@@ -2533,7 +2572,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     removeSystem: removeKey,
 
     async history<T>(recordKey: string): Promise<ReadonlyArray<NodeRecord<T>>> {
-      const versions = await storage.history(recordKey);
+      // What a superseded version said is forgotten unless its writer retained it.
+      const versions = (await storage.history(recordKey)).filter((version) => !isStub(version));
       return Promise.all(versions.map((version) => view<T>(version)));
     },
 

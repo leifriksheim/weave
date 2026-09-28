@@ -126,8 +126,11 @@ await node.spaces.setMember(space.id, did, 'host');
 
 ## Other options
 
-- `history: 'all'` keeps every version of every record, hash-linked
-  (`node.records.history`). The default, `latest`, keeps the current one.
+- `history: 'all'` keeps every version of every record whole, hash-linked
+  (`node.records.history`). The default, `latest`, keeps the current one
+  whole and forgets what earlier ones said, and what a deleted record said.
+  With `onePer` or `fixed` in the rules, a record's first version is kept
+  whole too: those rules are checked against it.
 - `topics: ['channel']` lets a node that can't read the space still match
   records by that field's value, for notifications. At most 8.
 - `screen`: a small UI for the collection's records. See

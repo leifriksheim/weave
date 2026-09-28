@@ -67,13 +67,11 @@ export function nextVersion(current: Pick<Expression, 'id' | 'key' | 'seq' | 'ge
 /**
  * Why a version is malformed on its own, or null when it is not.
  *
- * Only what can be seen in this one version. Whether `prev` exists, whether
- * `seq` is exactly one past it, whether the collection matches earlier versions
- * — each depends on what else a node happens to hold, and a check that depends
- * on that makes nodes disagree forever. Those are applied when reading.
+ * Only what can be seen in this one version. Whether `prev` is the version
+ * before it is {@link chainProblem}'s question, asked once that is held.
  */
 export function checkVersionShape(expression: Partial<Expression>): string | null {
-  const { key, seq, prev, genesis, deleted, retain, body, seen } = expression;
+  const { key, seq, prev, genesis, deleted, retain, body, bodyHash, seen } = expression;
   if (typeof key !== 'string' || !RECORD_KEY_PATTERN.test(key)) return 'Record key is missing or malformed';
   if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0)
     return 'Version number must be a whole number from 0';
@@ -94,7 +92,32 @@ export function checkVersionShape(expression: Partial<Expression>): string | nul
   }
   if (deleted !== undefined && deleted !== true) return 'deleted must be true when present';
   if (retain !== undefined && retain !== true) return 'retain must be true when present';
-  if (deleted && body !== null) return 'A delete carries no body';
+  if (deleted) {
+    if (body !== undefined && body !== null) return 'A delete carries no body';
+    if (bodyHash !== undefined) return 'A delete carries no body hash';
+  } else if (typeof bodyHash !== 'string' || bodyHash.length === 0 || bodyHash.length > 128) {
+    return 'A version must carry the hash of its body';
+  }
   if (expression.links !== undefined) return checkLinks(expression.links);
+  return null;
+}
+
+/** The parts of a version its place in a record's chain is judged by */
+type Linked = Pick<Expression, 'id' | 'key' | 'seq' | 'prev' | 'genesis' | 'collection'>;
+
+/**
+ * Why a later version is not the one after `previous`, the version its `prev`
+ * names, or null when it is: the same record and collection, `seq` exactly one
+ * more, and the same first version. Every version was judged the same way
+ * when it came in, so a chain that holds link by link reaches the first
+ * version. A writer can't skip ahead to a `seq` nobody can outrank.
+ */
+export function chainProblem(version: Linked, previous: Linked): string | null {
+  if (previous.id !== version.prev) return 'It does not follow the version it names';
+  if (previous.key !== version.key) return 'The version it follows is another record';
+  if (previous.collection !== version.collection) return 'The version it follows is in another collection';
+  if (previous.seq !== version.seq - 1) return 'Its version number is not one more than the one it follows';
+  const genesis = previous.seq === 0 ? previous.id : previous.genesis;
+  if (genesis !== version.genesis) return 'It names a different first version than the one it follows';
   return null;
 }

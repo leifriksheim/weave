@@ -12,7 +12,7 @@
 import type { Expression } from '../types.js';
 import { isObject } from '../utils/guards.js';
 
-export const SYNC_PROTOCOL_VERSION = 4;
+export const SYNC_PROTOCOL_VERSION = 5;
 
 type V = { readonly v: typeof SYNC_PROTOCOL_VERSION };
 

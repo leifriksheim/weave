@@ -124,29 +124,30 @@ An expression is a JSON object with these members. Optional members are
 **absent** when they do not apply — never `null`, never `false`, never an empty
 list unless a list is meant (an absent member and a present one hash differently).
 
-| Field        | Type     | Req.       | Meaning                                                                                                                                                                                                     |
-| ------------ | -------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`         | string   | yes        | Content id of the signed part (§2). Not itself signed.                                                                                                                                                      |
-| `author`     | string   | yes        | The `did:key` of the P-256 key that signed ([01 — Identity](01-identity.md)).                                                                                                                               |
-| `collection` | string   | yes        | The collection the record is in, e.g. `app.todo.item`.                                                                                                                                                      |
-| `space`      | string   | in a space | Id of the space it belongs to. Signed, so it cannot be replayed into another space. A peer MUST refuse an expression whose `space` is not the space it arrived for.                                         |
-| `createdAt`  | string   | yes        | ISO 8601 time the writer's clock gave, e.g. `2026-09-26T12:00:00.000Z`. Decides no ordering (§4.3); used for judging the delegation (§9.3), for display, and as a sync hint ([05](05-sync-and-storage.md)). |
-| `body`       | any JSON | yes        | The content. `null` on a delete. In a private space, an encryption envelope `{ "ciphertext", "iv", "keyId" }` ([03 — Spaces](03-spaces.md)).                                                                |
-| `proof`      | string   | no         | Encoded UCAN delegating to `author` the right to write here ([01 — Identity](01-identity.md)). Absent when the author signs for itself.                                                                     |
-| `key`        | string   | yes        | The record's identity within the space, stable across versions (§4.1).                                                                                                                                      |
-| `seq`        | integer  | yes        | `0` for the first version; each later version one more than the one it replaces.                                                                                                                            |
-| `prev`       | string   | seq > 0    | Id of the version this one replaces.                                                                                                                                                                        |
-| `genesis`    | string   | seq > 0    | Id of the record's first version.                                                                                                                                                                           |
-| `retain`     | `true`   | no         | Keep this version after it is superseded (§4.5).                                                                                                                                                            |
-| `seen`       | string[] | no         | Ids of the latest changes to the space's access history the writer knew of; the version is judged as of those ([03 — Spaces](03-spaces.md)). At most 64, each 1–128 characters.                             |
-| `deleted`    | `true`   | no         | This version deletes the record; `body` MUST be `null`.                                                                                                                                                     |
-| `links`      | Link[]   | no         | What this record points at (§5). Public spaces only; in a private space links are sealed inside the body and this member is absent.                                                                         |
-| `tags`       | string[] | no         | Blind topic tags (§8).                                                                                                                                                                                      |
-| `signature`  | string   | yes        | base64url (no padding) of the 64-byte ECDSA P-256 / SHA-256 signature, IEEE P1363 form (r ‖ s), over the signed part.                                                                                       |
+| Field        | Type     | Req.       | Meaning                                                                                                                                                                                                                           |
+| ------------ | -------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`         | string   | yes        | Content id of the signed part (§2). Not itself signed.                                                                                                                                                                            |
+| `author`     | string   | yes        | The `did:key` of the P-256 key that signed ([01 — Identity](01-identity.md)).                                                                                                                                                     |
+| `collection` | string   | yes        | The collection the record is in, e.g. `app.todo.item`.                                                                                                                                                                            |
+| `space`      | string   | in a space | Id of the space it belongs to. Signed, so it cannot be replayed into another space. A peer MUST refuse an expression whose `space` is not the space it arrived for.                                                               |
+| `createdAt`  | string   | yes        | ISO 8601 time the writer's clock gave, e.g. `2026-09-26T12:00:00.000Z`. Decides no ordering (§4.3); used for judging the delegation (§9.3), for display, and as a sync hint ([05](05-sync-and-storage.md)).                       |
+| `body`       | any JSON | whole      | The content. Not itself signed: signed through `bodyHash`. Absent on a **stub** (§4.5). `null` or absent on a delete. In a private space, an encryption envelope `{ "ciphertext", "iv", "keyId" }` ([03 — Spaces](03-spaces.md)). |
+| `bodyHash`   | string   | not delete | Content id (§2) of the canonical body. Absent on a delete.                                                                                                                                                                        |
+| `proof`      | string   | no         | Encoded UCAN delegating to `author` the right to write here ([01 — Identity](01-identity.md)). Absent when the author signs for itself.                                                                                           |
+| `key`        | string   | yes        | The record's identity within the space, stable across versions (§4.1).                                                                                                                                                            |
+| `seq`        | integer  | yes        | `0` for the first version; each later version one more than the one it replaces.                                                                                                                                                  |
+| `prev`       | string   | seq > 0    | Id of the version this one replaces.                                                                                                                                                                                              |
+| `genesis`    | string   | seq > 0    | Id of the record's first version.                                                                                                                                                                                                 |
+| `retain`     | `true`   | no         | Keep this version after it is superseded (§4.5).                                                                                                                                                                                  |
+| `seen`       | string[] | no         | Ids of the latest changes to the space's access history the writer knew of; the version is judged as of those ([03 — Spaces](03-spaces.md)). At most 64, each 1–128 characters.                                                   |
+| `deleted`    | `true`   | no         | This version deletes the record; `body` MUST be `null`.                                                                                                                                                                           |
+| `links`      | Link[]   | no         | What this record points at (§5). Public spaces only; in a private space links are sealed inside the body and this member is absent.                                                                                               |
+| `tags`       | string[] | no         | Blind topic tags (§8).                                                                                                                                                                                                            |
+| `signature`  | string   | yes        | base64url (no padding) of the 64-byte ECDSA P-256 / SHA-256 signature, IEEE P1363 form (r ‖ s), over the signed part.                                                                                                             |
 
 A reader MUST keep and re-hash every member it receives, including ones it does
-not know: the signed part is "everything except `id` and `signature`" (§3.2),
-not a fixed list.
+not know: the signed part is "everything except `id`, `signature` and `body`"
+(§3.2), not a fixed list.
 
 _Implementation detail:_ the reference writer always includes `seen` on
 records written in a space (possibly `[]`), and never includes an empty `links`
@@ -154,15 +155,20 @@ or `tags`.
 
 ### 3.2 What is signed
 
-The **signed part** of an expression is the expression with the `id` and
-`signature` members removed — every other member, known or not.
+The **signed part**, or **envelope**, of an expression is the expression with
+the `id`, `signature` and `body` members removed — every other member, known
+or not. The body is signed through `bodyHash`, so the envelope checks without
+it, and a version can be kept, and synced, as a stub (§4.5).
 
 ```
-signed   = expression − { id, signature }
+bodyHash = "b" ‖ base32lower( SHA-256( UTF-8( canonical( body ) ) ) )     // absent on a delete
+signed   = expression − { id, signature, body }
 payload  = UTF-8( canonical( signed ) )
 id       = "b" ‖ base32lower( SHA-256( payload ) )
 signature = base64url( ECDSA-P256-SHA256-sign( authorKey, payload ) )    // 64 bytes, r ‖ s
 ```
+
+A stub and the whole version have the same id and the same signature.
 
 The id does not cover the signature, and ECDSA signatures are not unique (a
 signer may produce many valid signatures, and a third party can turn one valid
@@ -177,9 +183,10 @@ signatures, one valid and one not. A peer:
 
 ### 3.3 Signing and verifying
 
-To sign: build the signed part, canonicalize it, sign the UTF-8 bytes with the
-author's private key, compute the id from the same bytes, and emit
-`{ id, ...signed, signature }`.
+To sign: hash the body into `bodyHash` (not on a delete), build the signed
+part, canonicalize it, sign the UTF-8 bytes with the author's private key,
+compute the id from the same bytes, and emit `{ id, ...signed, body,
+signature }`.
 
 To verify, in this order:
 
@@ -189,6 +196,13 @@ To verify, in this order:
    it cannot be resolved, the expression is invalid.
 3. base64url-decode `signature` and verify it over the payload. If it does not
    verify, the expression is invalid.
+4. If `body` is present and the version is not a delete, recompute its content
+   id. If it differs from `bodyHash`, the expression is invalid.
+
+Step 4 MUST be made on every copy that carries a body, even one whose id and
+signature a peer has already verified: `id` and `signature` do not cover the
+body, so a copy with another body shares both. A peer MAY cache the verdict of
+steps 1–3 as §3.2 allows, but not of step 4.
 
 Whether the author was _allowed_ to write is a separate question (§9.3–9.4).
 
@@ -196,14 +210,15 @@ Whether the author was _allowed_ to write is a separate question (§9.3–9.4).
 
 A first version of a to-do, in a public space, signed by the key derived from
 the 16-byte seed `07 07 … 07` ([01 — Identity](01-identity.md)), with no
-delegation. Signed part, canonical (one line in reality, wrapped here only
-between members):
+delegation. The body, canonical, is `{"done":false,"text":"Buy milk"}`, so
+`bodyHash` is `b47jrvlapsxwsx44hipgsfbwdbupytsv4giuf4hxgoj33hiq4oubq`. Signed
+part, canonical (one line in reality, wrapped here only between members):
 
 ```
 {"author":"did:key:zDnaeSm3GDBe3cfca4gaw8nchcuzkJ2LPQiZp9tYs2bRGfQRJ",
-"body":{"done":false,"text":"Buy milk"},"collection":"app.todo.item",
-"createdAt":"2026-09-26T12:00:00.000Z","key":"mfrggzdfmztwq2lknnwg23tpoa",
-"links":[{"rel":"about","to":"list.groceries"}],
+"bodyHash":"b47jrvlapsxwsx44hipgsfbwdbupytsv4giuf4hxgoj33hiq4oubq",
+"collection":"app.todo.item","createdAt":"2026-09-26T12:00:00.000Z",
+"key":"mfrggzdfmztwq2lknnwg23tpoa","links":[{"rel":"about","to":"list.groceries"}],
 "seen":["b2adwpfsyvp6w5qyvo54kgtomdh4iqdg5xhrwwyva7qq54lh74gpq"],"seq":0,
 "space":"bimjoifogypbqrtuich3e375d67y43znkjsjnp4q4qhe7gwf7u74a"}
 ```
@@ -212,25 +227,26 @@ The expression:
 
 ```json
 {
-  "id": "bh7mi3b35uek5zf46drxzvkhqopnu3z2y3dp3r6din5zfbubiro2a",
+  "id": "bay24o4ltme7k2zpxr4mqueg3s4f7eovulwccdvmpqlzxf5hafetq",
   "author": "did:key:zDnaeSm3GDBe3cfca4gaw8nchcuzkJ2LPQiZp9tYs2bRGfQRJ",
   "collection": "app.todo.item",
-  "body": { "text": "Buy milk", "done": false },
   "createdAt": "2026-09-26T12:00:00.000Z",
   "space": "bimjoifogypbqrtuich3e375d67y43znkjsjnp4q4qhe7gwf7u74a",
   "key": "mfrggzdfmztwq2lknnwg23tpoa",
   "seq": 0,
   "seen": ["b2adwpfsyvp6w5qyvo54kgtomdh4iqdg5xhrwwyva7qq54lh74gpq"],
   "links": [{ "rel": "about", "to": "list.groceries" }],
-  "signature": "KJsCE7NIyImnYm7sEUTc7s1C6ZavuFKd0-dEUTwPK3v3zoxGhQHhd2MqYTECYf2ux8PbjdLcsi8QjyPXQDSanw"
+  "bodyHash": "b47jrvlapsxwsx44hipgsfbwdbupytsv4giuf4hxgoj33hiq4oubq",
+  "body": { "text": "Buy milk", "done": false },
+  "signature": "vM_qYeSxKjSHbI0WDrnyXESA6CuubAz_jDgQ0ER8ChJOcL-ticllYDL0XNXk6DYbLnJGyXUOSi7aK89AhT1Epg"
 }
 ```
 
-Member order on the wire is irrelevant. The id is reproducible from the
-canonical text above; the signature is not (ECDSA uses a fresh nonce), but any
-valid signature verifies.
+Its stub is the same object without `body`. Member order on the wire is
+irrelevant. The id is reproducible from the canonical text above; the
+signature is not (ECDSA uses a fresh nonce), but any valid signature verifies.
 
-_Source: `packages/core/src/types.ts` (`Expression`, `UnsignedExpression`, `Link`), `packages/core/src/schema/expression.ts` (`createExpression`, `signedPart`, `getExpressionId`), `packages/core/src/schema/signer.ts`, `packages/core/src/validation/crypto-gate.ts`. Tests: `packages/core/tests/validation.test.ts` ("crypto gate"), `packages/core/tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `packages/core/tests/links.test.ts` ("links are signed"), `packages/core/tests/attacks.test.ts` ("a stranger sending a mangled copy first…")._
+_Source: `packages/core/src/types.ts` (`Expression`, `UnsignedExpression`, `Envelope`, `Link`), `packages/core/src/schema/expression.ts` (`createExpression`, `bodyHashOf`, `envelopeOf`, `signedPart`, `bodyProblem`, `getExpressionId`), `packages/core/src/schema/signer.ts`, `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/node/space-runtime.ts` (`admit`). Tests: `packages/core/tests/validation.test.ts` ("crypto gate"), `packages/core/tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `packages/core/tests/links.test.ts` ("links are signed"), `packages/core/tests/versions.test.ts` ("the example in 02 §3.4…", "the body is signed through its hash…"), `packages/core/tests/sync.test.ts` ("drops a forged expression…"), `packages/core/tests/attacks.test.ts` ("a stranger sending a mangled copy first…")._
 
 ---
 
@@ -288,16 +304,9 @@ the one no other held version supersedes.
   (which has a higher `seq`) stays deleted when an older version turns up; two
   devices that edited apart pick the same winner; the same set of versions,
   received in any order, gives the same current version.
-- A writer MUST set `prev` and `seq` as in §4.2. How a reader checks them is
-  not yet specified (§4.6).
-
-> **Known defect:** readers never check `prev` and accept `seq` gaps, so a
-> writer allowed to edit a record can skip to any higher `seq` and win under
-> this rule. Nothing in the reference implementation reads `prev`
-> (`packages/core/src/records/version.ts`). A fix will bind a later version to the version
-> it names in `prev`; other implementations MUST NOT rely on gaps being accepted.
-> Planned in §4.7.
-> Tracked in [#14](https://github.com/leifriksheim/weave/issues/14).
+- A writer MUST set `prev` and `seq` as in §4.2. A reader checks them on
+  arrival (§4.7), so no `seq` reaches this rule that does not follow the
+  version before it.
 
 > Rationale: no clock is trusted, because every clock is whatever its writer
 > typed. The rule is load-bearing forever — two peers running different rules
@@ -310,41 +319,66 @@ carries no `links` and no `tags`. It is judged under the collection's `delete`
 rule (§7). Writing the key again produces the next version after the delete,
 judged as an **edit** (only `seq 0` is a create).
 
-A delete hides a record; it does not forget what the record said. The first
-version is kept (§4.5) and synced ([05](05-sync-and-storage.md)), so a peer
-that was offline, or a member who joins later, still receives the deleted
-content beside the delete. Deletes that forget are planned in §4.9.
+A delete forgets what the record said, as every later version does: what it
+supersedes is kept only as a stub (§4.5), unless its writer retained it. A
+peer that was offline, or a member who joins later, receives the stubs and the
+delete, and never the content (§4.9).
 
-### 4.5 What is kept: `retain` and history `all`
+### 4.5 What is kept: stubs, `retain` and history `all`
 
-When a version is superseded, a peer keeps it only if:
+When a version is superseded, a peer keeps it:
 
-- it is the record's **first version** (`seq 0`) — kept as proof of who
-  created the record. If several `seq 0` versions exist for one key (two devices
-  chose the same key), the one with the lowest id is kept as the first version;
-  or
-- it carries `retain: true`.
+- **whole**, if it carries `retain: true`; or
+- as a **stub** otherwise: the version without its `body` member. Its id,
+  signature and every other member are unchanged, so it still verifies
+  (§3.3).
 
-Everything else superseded is dropped. `retain` is decided by the **writer**
-and signed; readers never decide it from their own view of the definition.
+Nothing a peer has taken in is dropped. A stub says who wrote a version and
+where it sits in its record (§4.7). A first version kept as a stub still
+decides who created the record (§7.1). If several `seq 0` versions exist for
+one key (two devices chose the same key), the one with the lowest id is the
+first version.
 
-A writer MUST set `retain: true` when:
+Forgetting holds whoever sends what:
+
+- A peer that holds a version of a record MUST keep an older version of it
+  that arrives only as a stub, unless it is retained.
+- A peer MUST NOT send a body it does not keep.
+- A peer MUST refuse, on arrival, a stub of a version that carries `retain`: a
+  retained version travels whole.
+- When a peer holds a stub and the whole version arrives, it keeps the whole
+  version if that is current or retained.
+
+A stub that no held version supersedes is the record's current version until
+its body or a later version arrives; until then the record reads as not held.
+
+`retain` is decided by the **writer** and signed; readers never decide it from
+their own view of the definition. A writer MUST set `retain: true` when:
 
 - the collection's definition in force says `history: "all"` (§6); or
 - the collection is one of the access-history collections (`sys.role`,
   `sys.member`, `sys.invite`, `sys.revoke`, `sys.collection`, `sys.key`,
-  `sys.relays`, `sys.keepers`) — a peer MUST refuse a version of one of these
-  without `retain` ([03 — Spaces](03-spaces.md)).
+  `sys.relays`, `sys.keepers`). A peer MUST refuse a version of one of these
+  without `retain` ([03 — Spaces](03-spaces.md)); or
+- the version is a first version (`seq 0`) and the rules in force (§7) have
+  `onePer` or `fixed`. Both are checked against the first version's body,
+  which every peer must be able to read, however late it joins. A peer MUST
+  refuse a `seq 0` version without `retain` when the rules in force as of its
+  `seen` have `onePer` or `fixed`.
 
 _Implementation detail:_ the reference writer also sets `retain` on
-`sys.profile`, `sys.box` and `sys.memberkey`.
+`sys.profile`, `sys.box`, `sys.memberkey` and `sys.carrier`.
 
-A record whose versions all carry `retain` has a verifiable history: listed
-newest first by §4.3, each version's `prev` is the id of the next one, and each
-verifies on its own.
+A record whose versions all carry `retain` has a history that can be read as
+well as checked: listed newest first by §4.3, each version's `prev` is the id
+of the next one, and each verifies on its own.
 
 > Rationale: if each reader decided from the definition it happened to have
 > seen, two peers would keep different sets of versions and never converge.
+> Stubs rather than nothing, so that every later version can be checked
+> against the one before it (§4.7) by a peer that never saw the bodies.
+
+_Source: `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepSuperseded`), `packages/core/src/schema/expression.ts` (`isStub`, `stubOf`), `packages/core/src/node/space-runtime.ts` (`admit`, `write`, `judgeStanding`, `currentOf`), `packages/core/src/storage/mirror.ts` (`compactNow`). Tests: `packages/core/tests/versions.test.ts` ("an older version arriving after a later one is kept only as a stub", "a stub on top takes its body…", "a retained version is never cut down to a stub", "1,000 edits keep one body…", "a newcomer after a delete…"), `packages/core/tests/rules.test.ts` ("a first version its rules are checked against must be kept whole…"), `packages/core/tests/mirror.test.ts` ("compaction…")._
 
 ### 4.6 Shape of a version, alone
 
@@ -358,11 +392,17 @@ decidable from the version alone:
    version's own `id`.
 5. `seen`, if present, is a list of at most 64 strings, each 1–128 characters.
 6. `deleted`, if present, is `true`; `retain`, if present, is `true`.
-7. If `deleted`, `body` is `null`.
+7. If `deleted`: `body` is absent or `null`, and `bodyHash` is absent.
+   Otherwise `bodyHash` is a string of 1–128 characters.
 8. `links`, if present, is well formed (§5.1).
+9. If `body` is present and the version is not a delete, it hashes to
+   `bodyHash` (§3.3).
+10. If `retain` is present, `body` is present unless the version is a delete.
 
 Checks that depend on what else a peer holds are **not** shape checks:
 
+- A later version must follow the version its `prev` names (§4.7). If that
+  is not held yet, judging waits (§9.5).
 - A later version's first version is looked up by the id in `genesis`. It
   counts only if it has `seq 0`, the same `key` and the same `collection`;
   otherwise the version is refused ("the first version it names is not this
@@ -370,40 +410,53 @@ Checks that depend on what else a peer holds are **not** shape checks:
 - A current version whose `collection` differs from the record's held first
   version is ignored when reading, as if absent.
 
-_Not yet specified:_ whether `prev` must name a held version, and whether a
-`seq` may skip. See the known defect in §4.3, and the plan in §4.7.
+_Source: `packages/core/src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `MAX_SEEN`), `packages/core/src/records/key.ts` (`RECORD_KEY_PATTERN`), `packages/core/src/schema/expression.ts` (`bodyProblem`), `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepSuperseded`), `packages/core/src/node/space-runtime.ts` (`admit`, `firstOf`, `consistent`, `write`, `after`). Tests: `packages/core/tests/versions.test.ts` (all), `packages/core/tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first")._
 
-_Source: `packages/core/src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `MAX_SEEN`), `packages/core/src/records/key.ts` (`RECORD_KEY_PATTERN`), `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepOrDrop`), `packages/core/src/node/space-runtime.ts` (`firstOf`, `consistent`, `write`, `after`). Tests: `packages/core/tests/versions.test.ts` (all), `packages/core/tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first")._
+### 4.7 Versions whose history can be checked
 
-### 4.7 Planned: versions whose history can be checked
+A later version (`seq > 0`) MUST follow the version its `prev` names. On
+arrival, a peer looks that version up, whole or as a stub (§4.5):
 
-Fixes the known defect in §4.3 and settles the "not yet specified" in §4.6.
-Tracked in [#14](https://github.com/leifriksheim/weave/issues/14), part of
-the audit in [#10](https://github.com/leifriksheim/weave/issues/10).
+- If it is not held, judging waits (§9.5), and the peer asks for it
+  ([05](05-sync-and-storage.md)).
+- Otherwise, with `P` the version `prev` names, the version is refused unless
+  all of these hold:
+  1. `P.key` equals `key`;
+  2. `P.collection` equals `collection`;
+  3. `seq` equals `P.seq + 1`;
+  4. `genesis` equals `P.id` if `P.seq == 0`, else `P.genesis`.
 
-**Why.** `seq` is whatever the writer puts there, and superseded versions are
-dropped, so nobody can check that a version is one more than the one before.
-Two attacks follow, open to any member of a shared space:
+Every version held passed the same check when it came in, so a chain that
+holds link by link reaches the record's first version.
 
-- **Freezing a record.** A member allowed to edit writes
-  `seq: 2^53 − 1`. Nothing can outrank it: `seq + 1` is not a safe integer,
-  and every peer refuses it (§4.6). With a `sys.*` or other foreign
-  `collection`, it also hides the record, because a version whose collection
-  differs from its first version is ignored on read (§4.6).
-- **Taking over a creator.** The first version kept is the `seq 0` with the
-  lowest id (§4.5). A member writes their own `seq 0` for someone else's key
-  and retries `createdAt` values until its id sorts lower; a few tries on
-  average. `@createdBy`, the `creator` rule (§7.1) and the "first defined by"
-  standing of a definition (§6.3) then name the attacker.
+Example: a record's versions `A` (`seq 0`) and `B` (`seq 1`, `prev: A`,
+`genesis: A`). A version with `seq: 2, prev: B, genesis: A` follows `B`. One
+with `seq: 9, prev: B` is refused (3), and so is one with `seq: 2, prev: B,
+genesis: B` (4).
 
-**Design.**
+This closes two attacks open to any member allowed to edit:
 
-- **Checkable `seq`.** Every peer keeps a small signed header for every
-  version, even after its body is dropped: key, `seq`, `prev`, author, and the
-  id of the full version. A later version is accepted only if `prev` names a
-  held header with `seq − 1` whose own chain reaches the record's first
-  version. About a hundred bytes per edit. A long history might later be
-  compacted by a checkpoint the record's creator signs.
+- **Freezing a record.** Writing `seq: 2^53 − 1`, which nothing can outrank,
+  since `seq + 1` is not a safe integer (§4.6).
+- **Moving a record.** A later version in another `collection`, which hid the
+  record because such a version is ignored on read (§4.6).
+
+The ordering rule (§4.3) does not change, but which versions reach it does.
+Every edit leaves a stub of the version it replaces, a few hundred bytes,
+kept and synced like any version.
+
+_Source: `packages/core/src/records/version.ts` (`chainProblem`), `packages/core/src/node/space-runtime.ts` (`chainStanding`, `admit`), `packages/core/src/sync/sync-engine.ts` (`admit`). Tests: `packages/core/tests/versions.test.ts` ("a later version must follow the version it names…"), `packages/core/tests/attacks.test.ts` ("a member cannot freeze a record by skipping ahead…")._
+
+#### Planned: keys that belong to their creator
+
+Tracked in [#72](https://github.com/leifriksheim/weave/issues/72).
+
+The first version kept is the `seq 0` with the lowest id (§4.5). So a member
+can write their own `seq 0` for someone else's key, retrying `createdAt`
+values until its id sorts lower (a few tries on average). `@createdBy`, the
+`creator` rule (§7.1) and the "first defined by" standing of a definition
+(§6.3) then name the attacker.
+
 - **Keys that belong to their creator.** A fresh key becomes
   `hash(creator's root DID ‖ nonce)`, the nonce carried in the first version,
   so a `seq 0` by anyone else fails the check. A key the caller chooses
@@ -411,25 +464,22 @@ Two attacks follow, open to any member of a shared space:
   namespace, as profile keys already do ([03 — Spaces](03-spaces.md)), or a
   rule that the owner's first version beats everyone else's. Derived keys
   (`one:…`, access-history keys) need a decision each.
-- **Refuse, not hide.** Once both hold, a version whose `collection` differs
-  from its first version can be refused on arrival instead of ignored on read.
+- **Refuse, not hide.** Once keys belong to their creator, a version whose
+  `collection` differs from its first version can be refused on arrival
+  instead of ignored on read.
 
-The ordering rule (§4.3) itself does not change, but which versions reach it
-does. Nodes running the old and new checks would disagree about what is
-current, so the new check is pinned by tests like the ordering rule. Pre-release:
-nothing to migrate.
+A long history might later be compacted by a checkpoint the record's creator
+signs, in place of its stubs.
 
 **Related.** Signed writer logs
 ([#13](https://github.com/leifriksheim/weave/issues/13)) add a per-writer,
 per-collection log position and Merkle root to each version, to prove a copy
 complete and to detect a key signing two histories. They check a different
 thing (a writer's log, not a record's chain), and leave §4.3 unchanged too.
-Headers here and stubs there are the same idea: an envelope kept without its
-body. Design them together.
+Their stubs are the stubs of §4.5.
 
-**Open questions.** The header's exact format and whether it syncs as its own
-item ([05](05-sync-and-storage.md)); who may sign a checkpoint for a record
-anyone may edit; how derived keys prove their creator.
+**Open questions.** Who may sign a checkpoint for a record anyone may edit;
+how derived keys prove their creator.
 
 ### 4.8 Planned: merging inside one record
 
@@ -444,67 +494,42 @@ way (so every peer converges on it); which `prev` a merged version names when
 it has two parents (and how that meets §4.7's chain check); how merging meets
 `fixed` (§7.4) and encrypted bodies.
 
-### 4.9 Planned: deletes and edits that forget
+### 4.9 Deletes and edits that forget
 
-Changes what §4.4 and §4.5 keep. Tracked in
-[#47](https://github.com/leifriksheim/weave/issues/47).
+What §4.5 promises, and what it cannot.
 
-**Why.** The first version is kept whole as proof of who created a record,
-and sync sends it (§4.5, [05 §1](05-sync-and-storage.md)). So a message
-deleted before its recipient came online still reaches them, a member who
-joins after the delete receives it too, and editing a record to take
-something out (a pasted password) leaves the original in `seq 0`. Nothing
-shows it, because apps skip deleted records, but every store holds
-it and every sync passes it on.
-
-**What it can promise.** Nothing can take content back from a peer that
-already had it. What the protocol can do is make honest software forget, so
-that nobody who did not have the content gets it: not a member who joins
-later, and not a device that was offline.
-
-**Design.**
-
-- **Sign the body's hash.** The signed part carries `bodyHash`, the content
-  id (§2) of the canonical body, in place of `body`. The body travels beside
-  the signed part, and a peer MUST refuse a version whose body does not hash
-  to `bodyHash`. A delete has no `bodyHash`. The envelope (author, key,
-  `seq`, `prev`, `genesis`, `links`, `tags`, `seen`) then verifies alone.
-- **Superseded versions keep a stub.** When a version is superseded and does
-  not carry `retain`, a peer drops its body. A first version is kept as a
-  **stub**, its signed part without the body, and still decides who created
-  the record (§4.5, §7.1). Everything else superseded is dropped, as now.
-- **Forgetting is enforced on arrival.** A peer that holds a later version
-  of a record MUST drop the body of an older one when it arrives, whoever
-  sends it and from wherever: a lagging peer, or an old blob-store segment
-  ([05 §16](05-sync-and-storage.md)). A peer MUST NOT send a body it would
-  not keep. A stub and a whole version have the same id, so sync is unchanged.
+Nothing can take content back from a peer that already had it. What stubs do
+is make honest software forget, so that nobody who did not have the content
+gets it: not a member who joins later, and not a device that was offline. A
+message deleted before its recipient came online does not reach them, and
+editing a record to take something out (a pasted password) leaves the
+original nowhere but where it already was.
 
 In a private space `bodyHash` covers the encryption envelope, so a stub
 reveals nothing more than the version did. `links` stay in the envelope of a
 public space; they name records, not content.
 
-The stub is the header of §4.7 and the stub of signed writer logs
-([05 §9.1](05-sync-and-storage.md)): an envelope kept without its body.
-Design them together.
+Retained versions keep their bodies (§4.5): in a `history: "all"`
+collection, in the access history, and a first version under `onePer` or
+`fixed`. A delete does not strip them.
 
-Open questions:
+> **Known defect:** a first version refused for its topic tags (§8.4) by a
+> peer that read its body can be taken in as a stub by a peer that never did,
+> and later versions built on it then count there while they wait forever at
+> the first peer. Tags are the one body check a stub escapes that `retain`
+> does not cover. A fix will either check tags on the version that is current,
+> or carry what they are checked against in the envelope.
 
-- **Checks that read a first body.** A peer that receives only a stub cannot
-  recompute a `onePer` key from body fields (§7.3), or check a first version
-  against its definition (§9). Either a stub is accepted only beside a later
-  version that passed, or such checks move into the envelope.
-- **Retained history.** Whether a delete also strips the bodies of retained
-  versions in a `history: "all"` collection (§6). Never in the access-history
-  collections, whose bodies are the access history.
-- **Blob stores.** Segments never change and only their writer compacts them
-  ([05 §16.4](05-sync-and-storage.md)), so a body deleted by someone else
-  stays in the bucket until its writer compacts. Readers drop it on the way
-  in; the bytes remain.
-- **Crypto-shredding.** A key per record, destroyed on delete, would reach
-  immutable storage too. The key record then has the same keep-or-drop
-  question, so it is a later addition, not a replacement.
+> **Planned: forgetting in blob stores.** Segments never change and only
+> their writer compacts them ([05 §16.4](05-sync-and-storage.md)). A writer's
+> compaction writes the stubs its store holds, but a body superseded by
+> someone else stays in the bucket until that writer compacts. Readers keep
+> only the stub on the way in; the bytes remain. Crypto-shredding, a key per
+> record destroyed on delete, would reach immutable storage too; the key
+> record then has the same keep-or-drop question, so it is a later addition,
+> not a replacement.
 
-Pre-release: changing what is signed needs no migration.
+_Source: as §4.5. Tests: `packages/core/tests/versions.test.ts` ("a newcomer after a delete receives what was written, as stubs, and the delete — never the body")._
 
 ---
 
@@ -994,7 +1019,8 @@ Checking: a peer MUST refuse a `seq 0` version of a collection with `onePer` in
 force whose `key` is not the derived key (including when a part is missing and
 there is no key). The check is made only on `seq 0`, and only by a peer that
 can read the body; in a private space a peer without the key accepts it on the
-other checks. Later versions keep the key they have.
+other checks. Later versions keep the key they have. The first version carries
+`retain` (§4.5), so a peer that joins later still has the body to check.
 
 A writer derives the key and writes the next version after whatever it holds
 at that key (§4.2) — so "adding another" is an edit of the existing record,
@@ -1033,8 +1059,10 @@ and the `edit` rule decides whether it is allowed.
 `fixed` is a non-empty list of top-level body fields that keep the value the
 record was created with. A peer MUST refuse a later, non-delete version in
 which any listed field differs from the record's first version — compared as
-canonical JSON (§1), with "absent" equal to "absent" — when it can read both
-bodies.
+canonical JSON (§1), with "absent" equal to "absent" — when the first version
+carries `retain` and the peer can read both bodies. A first version written
+while `fixed` was in force carries `retain` (§4.5); one written before is a
+stub once superseded, and nothing is compared against it, by any peer.
 
 > **Known defect:** the reference compares `JSON.stringify` output, not
 > canonical JSON (`packages/core/src/records/rules.ts`, `changedFixedField`), so an object-
@@ -1118,7 +1146,8 @@ A peer that can read a non-delete version's body, and holds the key it was
 sealed with, MUST recompute its tags under the `topics` in force (as of `seen`)
 and refuse the version if the recomputed set differs from the set in `tags`
 (order and duplicates ignored). With no topics in force, a version carrying
-any tag is refused. A peer that cannot read the body does not check.
+any tag is refused. A peer that cannot read the body, or holds only a stub,
+does not check (see the known defect in §4.9).
 
 To ask a keeper for records on a topic, a reader computes the tag the same way
 ([05 — Sync and storage](05-sync-and-storage.md)).
@@ -1138,13 +1167,14 @@ version refused by any step is refused.
 
 ### 9.1 Shape
 
-The version-alone checks of §4.6. The body is not inspected: body shape against
-the collection's schema is **not** checked on arrival (§9.6).
+The version-alone checks of §4.6. The body is not inspected beyond its hash:
+body shape against the collection's schema is **not** checked on arrival
+(§9.6).
 
 ### 9.2 Signature (the crypto gate)
 
-§3.3: the id matches the signed part, `author` resolves to a P-256 key, and the
-signature verifies.
+§3.3: the id matches the signed part, `author` resolves to a P-256 key, the
+signature verifies, and a body that is present hashes to `bodyHash`.
 
 ### 9.3 Delegation (the capability gate)
 
@@ -1177,21 +1207,24 @@ Given a valid signature and root, whether the version _stands_ in this space:
    itself: refused ([06](06-nodes-and-sessions.md)).
 3. Access-history collections: judged by the replay ([03 — Spaces](03-spaces.md)).
 4. Otherwise:
-   1. The first version (§4.6) is held and is this record's.
+   1. The first version (§4.6) is held and is this record's, and a later
+      version follows the version its `prev` names (§4.7). The reference
+      checks the second for every collection, the access history's included,
+      before the rest of this step.
    2. The access state as of `seen` is known ([03](03-spaces.md)).
    3. The root holds a role as of `seen`, and the rule for the action allows it (§7.2), and the access history's own judgement of the writer passes (revoked notes, removals — [03](03-spaces.md)).
    4. If a definition is in force and the version is not a delete: tags check (§8.4).
-   5. If rules are in force and the version is not a delete: `onePer` (§7.3) on `seq 0`, `fixed` (§7.4) on `seq > 0`.
+   5. If rules are in force and the version is not a delete: `retain` on a `seq 0` under `onePer` or `fixed` (§4.5), `onePer` (§7.3) on `seq 0`, `fixed` (§7.4) on `seq > 0`.
 
 ### 9.5 What a peer does with a refused version
 
 A check can end three ways:
 
-| Outcome     | When                                                                                   | What the peer does                                                                                                                                                                                    |
-| ----------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **stands**  | every check passes                                                                     | Stores it; the ordering rule (§4.3) decides whether it becomes current.                                                                                                                               |
-| **later**   | it depends on something not held: its first version, or access changes named in `seen` | Holds it aside (at most 1,000, oldest dropped) and re-judges waiting versions whenever something new is stored. Nothing is reported.                                                                  |
-| **refused** | any other failure                                                                      | Does not store it, does not pass it on, and reports it (a `rejected` event with the peer and reason). Remembers the refusal as (peer, id) — at most 10,000 — only so it does not ask that peer again. |
+| Outcome     | When                                                                                                                 | What the peer does                                                                                                                                                                                    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **stands**  | every check passes                                                                                                   | Stores it; the ordering rule (§4.3) decides whether it becomes current.                                                                                                                               |
+| **later**   | it depends on something not held: its first version, the version its `prev` names, or access changes named in `seen` | Holds it aside (at most 1,000, oldest dropped) and re-judges waiting versions whenever something new is stored. Nothing is reported.                                                                  |
+| **refused** | any other failure                                                                                                    | Does not store it, does not pass it on, and reports it (a `rejected` event with the peer and reason). Remembers the refusal as (peer, id) — at most 10,000 — only so it does not ask that peer again. |
 
 A peer MUST NOT remember a refusal by id alone, and MUST NOT cache a failing
 verdict: a copy with a mangled signature shares the genuine version's id
@@ -1218,7 +1251,7 @@ hold, and refusing would leave peers disagreeing forever. Readers flag such a
 record instead (the node reports `conforms: false` with the issues). A writer
 checks them before signing and SHOULD NOT write what does not conform.
 
-_Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`), `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/attacks.test.ts`._
+_Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`), `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `chainStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/attacks.test.ts`._
 
 ---
 

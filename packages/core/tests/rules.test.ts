@@ -16,7 +16,7 @@ import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
-import { checkRules } from '../src/records/rules.js';
+import { checkRules, onePerKey } from '../src/records/rules.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { seenBy } from './helpers/as-member.js';
@@ -160,7 +160,7 @@ describe('rules: who may edit and delete', () => {
       author: '',
       collection: 'app.poll',
       body: { question: 'Hijacked', options: ['Oslo', 'Lisbon'] },
-      version: { key: poll.key, seq: 7, prev: poll.version, genesis: poll.version },
+      version: { key: poll.key, seq: 1, prev: poll.version, genesis: poll.version },
     });
     let rejected = '';
     alice.node.subscribe((event) => {
@@ -289,6 +289,7 @@ describe('rules: one per something', () => {
       body: { choice: 0 },
       links: [{ rel: 'about', to: poll.key }],
       version: { key: 'stuffing-the-ballot', seq: 0 },
+      retain: true,
     });
     let rejected = '';
     alice.node.subscribe((event) => {
@@ -303,6 +304,44 @@ describe('rules: one per something', () => {
     await until(async () => (await votes()) === 1, 4000, 'the real vote');
     await new Promise((resolve) => setTimeout(resolve, 200));
     assert.equal(await votes(), 1);
+  });
+
+  test('a first version its rules are checked against must be kept whole, or every peer refuses it', async () => {
+    const { alice, bob, space } = await pollSpace();
+    const poll = await alice.node.records.put(space, 'app.poll', {
+      question: 'Where?',
+      options: ['Oslo', 'Lisbon'],
+    });
+    assert.equal(
+      (await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(poll.key))?.retain,
+      true,
+    );
+    await until(async () => (await bob.node.records.get(space, poll.key)) !== null, 4000, 'the poll');
+
+    // A vote that would be forgotten once changed: a newcomer could not check its key.
+    await letGo(bob.node, space);
+    await forge(bob, space, {
+      author: '',
+      collection: 'app.poll.vote',
+      body: { choice: 0 },
+      links: [{ rel: 'about', to: poll.key }],
+      version: {
+        key:
+          (await onePerKey('app.poll.vote', ['@author', 'link:about'], {
+            root: bob.node.did,
+            links: [{ rel: 'about', to: poll.key }],
+            body: { choice: 0 },
+          })) ?? '',
+        seq: 0,
+      },
+    });
+    let rejected = '';
+    alice.node.subscribe((event) => {
+      if (event.type === 'rejected') rejected = event.reason;
+    });
+    await hold(bob.node, space);
+    await until(async () => rejected !== '', 4000, 'Alice to refuse the vote');
+    assert.match(rejected, /must be kept whole/);
   });
 });
 

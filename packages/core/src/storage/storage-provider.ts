@@ -5,16 +5,18 @@
  * ```
  * r/<key>                      → the current version          (every record)
  * g/<key>                      → the record's first version   (once it has been edited)
- * h/<key>/<seq>/<id>           → a superseded version         (only if marked `retain`)
+ * h/<key>/<seq>/<id>           → a superseded version, whole  (only if marked `retain`)
  * i/<collection>/<time>/<id>   → every version kept, by collection — what sync compares
  * ```
  *
  * A version that arrives is compared with the one at `r/<key>` by the ordering
- * rule (`records/version.ts`). The winner takes `r/<key>`; the loser's body is
- * dropped — unless it is the record's first version, kept as proof of who
- * created it, or its writer marked it `retain`. The same set of versions gives
- * the same entries whatever order they arrive in, which is what lets two
- * peers converge.
+ * rule (`records/version.ts`). The winner takes `r/<key>`; the loser is kept
+ * as a stub, its envelope without its body — unless its writer marked it
+ * `retain`, when it is kept whole. So what a record said is forgotten once it
+ * changes, and every version it had can still be checked: a later one names
+ * the stub before it (`chainProblem`). The same set of versions gives the same
+ * entries whatever order they arrive in, which is what lets two peers
+ * converge.
  *
  * Sync compares the `i/` entries: the set of versions kept, one collection at
  * a time (`sync/negentropy.ts`). Nothing else is stored for it. The sets are
@@ -25,6 +27,7 @@
 
 import type { StorageAdapter, Expression, BatchOp } from '../types.js';
 import { byVersion, supersedes } from '../records/version.js';
+import { isStub, stubOf } from '../schema/expression.js';
 import { utf8Encode, utf8Decode, bytesToHex } from '../utils/encoding.js';
 import { cidDigest } from '../utils/hash.js';
 import {
@@ -122,7 +125,7 @@ interface Entries {
   get(key: string): Promise<string | null>;
   set(key: string, id: string): void;
   unset(key: string): void;
-  /** Stores a version and indexes it for sync */
+  /** Stores a version, whole or a stub, and indexes it for sync */
   keep(version: Expression): Promise<void>;
   /** Unindexes a version; its body is deleted once the change has landed */
   drop(version: Expression): void;
@@ -288,8 +291,9 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
         set: (key, id) => void layer.writes.set(key, utf8Encode(id)),
         unset: (key) => void layer.writes.set(key, null),
         keep: async (version) => {
-          // A body already held — a current version being demoted — is not written again.
-          if (!bodies.has(version.id)) {
+          // A copy already held as this — a current version kept whole — is not written again.
+          const held = bodies.get(version.id);
+          if (!held || isStub(held) !== isStub(version)) {
             layer.toStore.set(version.id, version);
             staging.set(version.id, version);
           }
@@ -364,34 +368,28 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
   }
 
   /**
-   * Places a version that is not current: the record's first version if it is
-   * the lowest-id one seen, history if retained, otherwise gone.
+   * Places a version that is not current: kept whole if retained, as a stub
+   * otherwise, and named as the record's first version if it is the lowest-id
+   * one seen.
    */
   async function demote(entries: Entries, version: Expression, current: Expression): Promise<void> {
-    // A first version is kept as proof of who created the record — the one
-    // with the lowest id, if several devices each created the same chosen key.
-    // Not while the record is still at seq 0: then the current version is it.
+    await keepSuperseded(entries, version);
+    // The first version decides who created the record — the one with the
+    // lowest id, if several devices each created the same chosen key. Not
+    // while the record is still at seq 0: then the current version is it.
     if (version.seq === 0 && current.seq > 0) {
       const heldId = await entries.get(genesisKey(version.key));
-      if (heldId === version.id) return;
-      if (heldId === null || version.id < heldId) {
-        await entries.keep(version);
-        entries.set(genesisKey(version.key), version.id);
-        const displaced = heldId ? await body(heldId) : null;
-        if (displaced) await keepOrDrop(entries, displaced);
-        return;
-      }
+      if (heldId === null || version.id < heldId) entries.set(genesisKey(version.key), version.id);
     }
-    await keepOrDrop(entries, version);
   }
 
-  async function keepOrDrop(entries: Entries, version: Expression): Promise<void> {
-    if (version.retain) {
-      await entries.keep(version);
-      entries.set(historyKey(version), version.id);
-      return;
-    }
-    entries.drop(version);
+  /** Keeps a superseded version: whole if its writer said to retain it, else as a stub */
+  async function keepSuperseded(entries: Entries, version: Expression): Promise<void> {
+    if (!version.retain) return entries.keep(stubOf(version));
+    // A stub of a retained version is kept only until the whole of it turns up.
+    const held = isStub(version) ? await body(version.id) : null;
+    await entries.keep(held && !isStub(held) ? held : version);
+    entries.set(historyKey(version), version.id);
   }
 
   /** Versions by id, those held, in one read where the adapter can */
@@ -468,8 +466,12 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     addExpression(incoming: Expression): Promise<void> {
       return change(async (entries) => {
         const currentId = await entries.get(currentKey(incoming.key));
-        if (currentId === incoming.id) return;
         const current = currentId ? await body(currentId) : null;
+        if (currentId === incoming.id) {
+          // The body of a current version held only as a stub: take it.
+          if (current && isStub(current) && !isStub(incoming)) await entries.keep(incoming);
+          return;
+        }
         if (current && !supersedes(incoming, current)) return demote(entries, incoming, current);
 
         await entries.keep(incoming);

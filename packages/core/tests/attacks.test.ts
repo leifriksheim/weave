@@ -16,6 +16,7 @@ import { createSigner } from '../src/schema/signer.js';
 import { createExpression, type CreateExpressionParams } from '../src/schema/expression.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { SYNC_PROTOCOL_VERSION } from '../src/sync/sync-messages.js';
+import { nextVersion } from '../src/records/version.js';
 import type { Expression } from '../src/types.js';
 import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
@@ -138,18 +139,45 @@ describe('attacks on a shared space', () => {
       body: null,
       deleted: true,
       retain: true,
-      version: { key: 'collection:app.poll', seq: 50, prev: definition!.id, genesis: definition!.id },
+      version: nextVersion(definition!),
     });
     await hold(bob.node, space);
     // It does arrive — and changes nothing.
     await until(
-      async () => (await (await stored(alice.stores, space)).getCurrent('collection:app.poll'))?.seq === 50,
+      async () =>
+        (await (await stored(alice.stores, space)).getCurrent('collection:app.poll'))?.seq ===
+        definition!.seq + 1,
       4000,
       'the delete to arrive',
     );
     const poll = (await alice.node.collections.list(space)).find((c) => c.name === 'app.poll');
     assert.equal(poll?.version, 1);
     assert.deepEqual(poll?.rules, { edit: 'creator', delete: 'creator', fixed: ['options'] });
+  });
+
+  test('a member cannot freeze a record by skipping ahead to a seq nobody can outrank', async () => {
+    const { alice, bob, space } = await setup();
+    const note = await alice.node.records.put(space, 'app.note', { text: 'first' });
+    await until(async () => (await bob.node.records.get(space, note.key)) !== null, 4000, 'the note');
+    const rejected: string[] = [];
+    alice.node.subscribe((event) => {
+      if (event.type === 'rejected') rejected.push(event.reason);
+    });
+
+    const current = await createStorageProvider(await bob.stores(`spaces/${space}`)).getCurrent(note.key);
+    await letGo(bob.node, space);
+    await forge(bob, space, {
+      collection: 'app.note',
+      body: { text: 'frozen' },
+      version: { ...nextVersion(current!), seq: Number.MAX_SAFE_INTEGER },
+    });
+    await hold(bob.node, space);
+
+    await until(async () => rejected.length > 0, 4000, 'the jump to be refused');
+    assert.match(rejected[0]!, /not one more/);
+    // Alice's next edit is still the one that counts.
+    await alice.node.records.update(space, note.key, { text: 'second' });
+    assert.deepEqual((await alice.node.records.get(space, note.key))?.body, { text: 'second' });
   });
 
   test('a stranger sending a mangled copy first does not get the real record refused', async () => {

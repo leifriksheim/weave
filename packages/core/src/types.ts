@@ -80,14 +80,22 @@ export interface Link {
   readonly to: string;
 }
 
-/** What an author signs: an expression without its id and signature */
+/**
+ * A version before it is signed: its envelope and its body. What is signed is
+ * the envelope, with the body's hash in place of the body ({@link Envelope}).
+ */
 export interface UnsignedExpression<T = unknown> {
   readonly author: string; // DID of the author
   readonly collection: string; // Collection name (e.g., 'app.bsky.feed.post')
   /** Space this belongs to — signed, so it cannot be replayed into another space. Omitted for unscoped data. */
   readonly space?: string;
   readonly createdAt: string; // ISO 8601 timestamp
-  readonly body: T; // Typed payload
+  /**
+   * The content: signed through {@link Envelope.bodyHash}, not itself. Absent
+   * on a stub, a version kept without its body once it is superseded. `null`
+   * on a delete.
+   */
+  readonly body: T;
   /** Encoded UCAN proving the author may write this, if delegated — signed along with the rest */
   readonly proof?: string;
   /** The record's identity, stable across versions. Links point here. */
@@ -123,9 +131,24 @@ export interface UnsignedExpression<T = unknown> {
   readonly tags?: ReadonlyArray<string>;
 }
 
+/**
+ * What an author signs and a version's id hashes: everything but the id, the
+ * signature and the body, with the body's content id in its place. It checks
+ * without the body, so a superseded version can be kept, and synced, as this
+ * alone.
+ */
+export type Envelope = Omit<UnsignedExpression, 'body'> & {
+  /** Content id of the canonical body. Absent on a delete, which has none. */
+  readonly bodyHash?: string;
+};
+
 /** Expression — the atomic data unit */
-export interface Expression<T = unknown> extends UnsignedExpression<T> {
-  readonly id: string; // CID of the expression
+export interface Expression<T = unknown> extends Omit<UnsignedExpression<T>, 'body'> {
+  /** The content — absent on a stub (see {@link UnsignedExpression.body}) */
+  readonly body?: T;
+  readonly id: string; // CID of the envelope
+  /** Content id of the canonical body, signed in its place. Absent on a delete. */
+  readonly bodyHash?: string;
   readonly signature: string; // Base64URL encoded signature
 }
 
