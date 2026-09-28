@@ -24,13 +24,27 @@ to `packages/core/src`, so nothing needs building first.
 ```bash
 npm install          # once, at the root
 npm test             # every workspace
-npm run typecheck
+npm run typecheck    # every workspace, and core's tests
+npm run lint         # ESLint, type-aware
+npm run format       # Prettier
+npm run fallow       # unused files, exports and dependencies, import cycles
+npm run check        # all of the above but tests, as CI runs it
 npm run dev          # node, host, home and example together (scripts/dev.mjs)
 # one test file, from packages/core
 node --experimental-vm-modules --import tsx --test tests/sync.test.ts
 ```
 
 Releasing is `npm run release`; see the README before running it.
+
+A pre-commit hook runs ESLint and Prettier on staged files.
+
+## Types
+
+Every workspace extends `tsconfig.base.json` (strict, `noUncheckedIndexedAccess`,
+no unused locals). ESLint bans `any`, type assertions (`as Foo`; `as const` is
+fine) and enums. Narrow `unknown` with a type guard, or use `satisfies`. Where a
+cast truly can't be avoided, disable the rule for that line with a reason:
+`// eslint-disable-next-line <rule> -- <why>`.
 
 ## The spec and the code change together
 
