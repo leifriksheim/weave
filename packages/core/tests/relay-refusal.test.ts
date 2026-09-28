@@ -70,10 +70,18 @@ describe('one DID per room', () => {
     assert.match(status.problem ?? '', /another tab/);
 
     first.disconnect();
-    // One refusal waits 10 s before the next try.
-    await until(() => second.status().state === 'open', 15_000, 'the second to get in');
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(second.status().state, 'open', 'and stays in');
+    // On its own it tries again 10 s after a refusal (signaling.test.ts, on a mocked clock); here it is asked now.
+    // The relay may still hold the first socket a moment, and refuse again: in means in and staying in.
+    await until(
+      async () => {
+        if (second.status().state === 'waiting') second.reconnect();
+        if (second.status().state !== 'open') return false;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return second.status().state === 'open';
+      },
+      5000,
+      'the second to get in and stay',
+    );
     second.disconnect();
   });
 
@@ -98,10 +106,17 @@ describe('one DID per room', () => {
     assert.equal(second.network.status().relays[0]?.closeCode, CLOSE_DID_TAKEN);
 
     await first.close();
+    // Asked to try now, rather than at its next turn 10 s on.
+    const connected = async () => (await second.spaces.status(space)).connection === 'connected';
     await until(
-      async () => (await second.spaces.status(space)).connection === 'connected',
-      15_000,
-      'the second to take over',
+      async () => {
+        second.network.reconnect();
+        if (!(await connected())) return false;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return connected();
+      },
+      5000,
+      'the second to take over and stay',
     );
     await second.close();
   });
