@@ -26,13 +26,13 @@ specified in `spec/` in the repository: https://github.com/leifriksheim/weave/tr
 
 ## Guides
 
-| Guide | Read it to |
-|---|---|
-| [building-an-app.md](building-an-app.md) | Get a node: sign-in, the account home, React |
-| [collections.md](collections.md) | Say what your data is and who may do what with it |
-| [records-and-queries.md](records-and-queries.md) | Write, edit, delete, query and watch records |
-| [screens-and-apps.md](screens-and-apps.md) | Ship a small app inside a space, with no deploy |
-| [agents.md](agents.md) | Let an agent read and write as the person, from a terminal or MCP |
+| Guide                                            | Read it to                                                        |
+| ------------------------------------------------ | ----------------------------------------------------------------- |
+| [building-an-app.md](building-an-app.md)         | Get a node: sign-in, the account home, React                      |
+| [collections.md](collections.md)                 | Say what your data is and who may do what with it                 |
+| [records-and-queries.md](records-and-queries.md) | Write, edit, delete, query and watch records                      |
+| [screens-and-apps.md](screens-and-apps.md)       | Ship a small app inside a space, with no deploy                   |
+| [agents.md](agents.md)                           | Let an agent read and write as the person, from a terminal or MCP |
 
 ## Rules of thumb
 

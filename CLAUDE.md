@@ -7,13 +7,13 @@ spec a change touches before changing the code.
 
 ## Layout
 
-| Folder | |
-|---|---|
-| `spec/` | The protocol specification, `README.md` plus parts 01–07. Normative. |
-| `packages/core` | `@weaveprotocol/core`: the protocol library and its tests (`tests/*.test.ts`) |
-| `packages/cli` | `@weaveprotocol/cli`: `weave`, the always-on node, hosting, agents, MCP |
-| `packages/relay` | The signaling relay and its mailbox |
-| `apps/home`, `apps/example`, `apps/extension` | The account home, the website and example app, the Chrome extension |
+| Folder                                        |                                                                               |
+| --------------------------------------------- | ----------------------------------------------------------------------------- |
+| `spec/`                                       | The protocol specification, `README.md` plus parts 01–07. Normative.          |
+| `packages/core`                               | `@weaveprotocol/core`: the protocol library and its tests (`tests/*.test.ts`) |
+| `packages/cli`                                | `@weaveprotocol/cli`: `weave`, the always-on node, hosting, agents, MCP       |
+| `packages/relay`                              | The signaling relay and its mailbox                                           |
+| `apps/home`, `apps/example`, `apps/extension` | The account home, the website and example app, the Chrome extension           |
 
 Everything imports the protocol as `@weaveprotocol/core`, only through what it
 exports. Inside the workspace the `@weaveprotocol/source` condition resolves it
@@ -38,7 +38,7 @@ Releasing is `npm run release`; see the README before running it.
   changes the spec in the same PR. Where the spec and the code disagree, one
   of them is a bug: fix it, or open an issue that says which.
 - Follow the conventions in `spec/README.md`: RFC 2119 words only where they
-  are meant, exact formats with an example, and a *Source:* line naming the
+  are meant, exact formats with an example, and a _Source:_ line naming the
   files and tests for each section.
 - Work that is designed but not built is a **Planned** section in the part it
   belongs to, and is listed in the Planned table in `spec/README.md`. Something

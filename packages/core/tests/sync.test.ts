@@ -117,10 +117,7 @@ function createPair() {
 /** Signs a note carrying a UCAN from `root` to the signing key. */
 async function delegatedNote(root: { did: string; privateKey: CryptoKey }, text: string) {
   const session = await makeKey();
-  const ucan = await issueUCAN(
-    { issuer: root, audience: session.did, capabilities: [WRITE] },
-    provider,
-  );
+  const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [WRITE] }, provider);
   const unsigned = createExpression({
     author: session.did,
     collection: COLLECTION,
@@ -223,10 +220,7 @@ describe('sync engine', () => {
     const root = await makeKey();
     const session = await makeKey();
 
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [WRITE] },
-      provider,
-    );
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [WRITE] }, provider);
     const unsigned = createExpression({
       author: session.did,
       collection: COLLECTION,

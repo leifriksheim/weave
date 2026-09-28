@@ -3,7 +3,14 @@
  * Anything that opens the account home happens in a tab instead — this popup
  * closes as soon as another window takes focus.
  */
-import { ask, loadMuted, notificationsPage, setMuted, type CarrierStatus, type StatusChanged } from './shared';
+import {
+  ask,
+  loadMuted,
+  notificationsPage,
+  setMuted,
+  type CarrierStatus,
+  type StatusChanged,
+} from './shared';
 import { accountLine, h, mark, spaceList, summary } from './ui';
 
 const app = document.getElementById('app')!;
@@ -48,15 +55,25 @@ function notifications(current: CarrierStatus): HTMLElement | null {
               ),
               sub.paused
                 ? h('span', { class: 'meta' }, 'paused')
-                : h('button', { class: 'quiet small', onClick: () => toggle(sub.id) }, muted.has(sub.id) ? 'Unmute' : 'Mute here'),
+                : h(
+                    'button',
+                    { class: 'quiet small', onClick: () => toggle(sub.id) },
+                    muted.has(sub.id) ? 'Unmute' : 'Mute here',
+                  ),
             ),
           ),
         ),
     h(
       'div',
       { class: 'actions' },
-      h('button', { class: 'quiet small', onClick: () => openTab(chrome.runtime.getURL('notify.html')) }, 'Add'),
-      current.subscriptions.length ? h('button', { class: 'quiet small', onClick: () => openTab(page) }, 'Pause or remove') : null,
+      h(
+        'button',
+        { class: 'quiet small', onClick: () => openTab(chrome.runtime.getURL('notify.html')) },
+        'Add',
+      ),
+      current.subscriptions.length
+        ? h('button', { class: 'quiet small', onClick: () => openTab(page) }, 'Pause or remove')
+        : null,
     ),
   );
 }
@@ -67,7 +84,8 @@ function notifications(current: CarrierStatus): HTMLElement | null {
  * closes; asked from a tab, it shows its own prompt, which offers "Allow on
  * every visit" — and that one lasts.
  */
-const openWelcome = () => void chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') }).then(() => window.close());
+const openWelcome = () =>
+  void chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') }).then(() => window.close());
 
 function render(): void {
   if (!status) return app.replaceChildren(mark(), h('p', { class: 'hint' }, 'Starting…'));
@@ -75,7 +93,11 @@ function render(): void {
   if (status.state === 'not-connected') {
     return app.replaceChildren(
       mark(),
-      h('p', { class: 'hint' }, status.removed ? 'Your account disconnected this extension.' : 'Not connected to your account yet.'),
+      h(
+        'p',
+        { class: 'hint' },
+        status.removed ? 'Your account disconnected this extension.' : 'Not connected to your account yet.',
+      ),
       h('div', { class: 'actions' }, h('button', { class: 'wide', onClick: openWelcome }, 'Set up')),
     );
   }
@@ -96,11 +118,34 @@ function render(): void {
           pod.state === 'writing'
             ? h('p', { class: 'hint' }, h('span', { class: 'dot good' }), `Up to date in “${pod.folder}”.`)
             : pod.state === 'needs-permission'
-              ? h('div', {}, h('p', { class: 'hint' }, h('span', { class: 'dot warn' }), 'Chrome wants a click before writing to it again.'), h('div', { class: 'actions' }, h('button', { class: 'small', onClick: openWelcome }, 'Resume pod sync')))
-              : h('p', { class: 'hint' }, h('span', { class: 'dot warn' }), 'Choose your pod folder to keep it up to date.'),
+              ? h(
+                  'div',
+                  {},
+                  h(
+                    'p',
+                    { class: 'hint' },
+                    h('span', { class: 'dot warn' }),
+                    'Chrome wants a click before writing to it again.',
+                  ),
+                  h(
+                    'div',
+                    { class: 'actions' },
+                    h('button', { class: 'small', onClick: openWelcome }, 'Resume pod sync'),
+                  ),
+                )
+              : h(
+                  'p',
+                  { class: 'hint' },
+                  h('span', { class: 'dot warn' }),
+                  'Choose your pod folder to keep it up to date.',
+                ),
         ),
     status.state === 'error' ? h('p', { class: 'error' }, status.error ?? 'Something went wrong.') : null,
-    h('div', { class: 'actions' }, h('button', { class: 'quiet wide small', onClick: openWelcome }, 'Open Weave')),
+    h(
+      'div',
+      { class: 'actions' },
+      h('button', { class: 'quiet wide small', onClick: openWelcome }, 'Open Weave'),
+    ),
   ];
   app.replaceChildren(...parts.filter((node): node is Node => node !== null));
 }

@@ -44,7 +44,11 @@ export interface SignalledTransport extends PeerTransport {
   /** Opens a connection and returns the offer to carry to the peer. */
   readonly createOffer: (peerId: string, onCandidate: CandidateSink) => Promise<RTCSessionDescriptionInit>;
   /** Accepts a peer's offer and returns the answer to carry back. */
-  readonly handleOffer: (peerId: string, offer: RTCSessionDescriptionInit, onCandidate: CandidateSink) => Promise<RTCSessionDescriptionInit>;
+  readonly handleOffer: (
+    peerId: string,
+    offer: RTCSessionDescriptionInit,
+    onCandidate: CandidateSink,
+  ) => Promise<RTCSessionDescriptionInit>;
   readonly handleAnswer: (peerId: string, answer: RTCSessionDescriptionInit) => Promise<void>;
   readonly addIceCandidate: (peerId: string, candidate: RTCIceCandidateInit) => Promise<void>;
 }

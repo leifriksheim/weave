@@ -71,7 +71,11 @@ async function threeInASpace() {
   }
   for (const who of [alice, bob, carol]) await who.node.spaces.hold(space);
   for (const who of [alice, bob, carol]) {
-    await until(async () => Object.keys((await who.node.spaces.status(space)).accounts).length === 2, 4000, 'everyone to know everyone');
+    await until(
+      async () => Object.keys((await who.node.spaces.status(space)).accounts).length === 2,
+      4000,
+      'everyone to know everyone',
+    );
   }
   return { hub, alice, bob, carol, space };
 }
@@ -93,7 +97,10 @@ describe('live messages', () => {
     // Nothing written, on either side.
     for (const who of [alice, bob]) {
       const kept = await who.node.records.list(space);
-      assert.equal(kept.some((record) => JSON.stringify(record.body).includes('typing')), false);
+      assert.equal(
+        kept.some((record) => JSON.stringify(record.body).includes('typing')),
+        false,
+      );
     }
   });
 
@@ -132,8 +139,13 @@ describe('live messages', () => {
     const copied = alice.node.delegation().encoded;
     const wire = hub.transport(mallory.did, space);
     await wire.connect?.();
-    await until(async () => (await alice.node.spaces.status(space)).peers.includes(mallory.did), 4000, 'Mallory to connect');
-    const say = (type: string, payload: unknown) => wire.send(alice.node.sessionDid, utf8Encode(JSON.stringify({ type, from: mallory.did, payload })));
+    await until(
+      async () => (await alice.node.spaces.status(space)).peers.includes(mallory.did),
+      4000,
+      'Mallory to connect',
+    );
+    const say = (type: string, payload: unknown) =>
+      wire.send(alice.node.sessionDid, utf8Encode(JSON.stringify({ type, from: mallory.did, payload })));
     say('who', { note: copied });
     say('live', { type: 'call.ring' });
 
@@ -153,8 +165,16 @@ describe('live messages', () => {
     const mallory = await manager.fromSeed(generateSeed());
     const wire = hub.transport(mallory.did, space);
     await wire.connect?.();
-    await until(async () => (await alice.node.spaces.status(space)).peers.includes(mallory.did), 4000, 'Mallory to connect');
-    for (let i = 0; i < 500; i++) wire.send(alice.node.sessionDid, utf8Encode(JSON.stringify({ type: 'live', from: mallory.did, payload: i })));
+    await until(
+      async () => (await alice.node.spaces.status(space)).peers.includes(mallory.did),
+      4000,
+      'Mallory to connect',
+    );
+    for (let i = 0; i < 500; i++)
+      wire.send(
+        alice.node.sessionDid,
+        utf8Encode(JSON.stringify({ type: 'live', from: mallory.did, payload: i })),
+      );
     await settle(200);
     assert.ok(heard.length < 100, `heard ${heard.length}`);
     wire.closeAll();
@@ -186,7 +206,13 @@ describe('holding a space', () => {
     await settle(100);
     assert.equal(await connected(), true, 'the call still holds it');
     const note = await alice.node.records.put(space, 'app.note', { text: 'still here' });
-    await until(async () => (await createStorageProvider(await bob.stores(`spaces/${space}`)).getExpression(note.version)) !== null, 4000, 'the write to reach Bob');
+    await until(
+      async () =>
+        (await createStorageProvider(await bob.stores(`spaces/${space}`)).getExpression(note.version)) !==
+        null,
+      4000,
+      'the write to reach Bob',
+    );
 
     await call();
     await until(async () => !(await connected()), 4000, 'Bob to go');

@@ -29,13 +29,7 @@ function notFound(name: string): Error {
  * way a browser would stop it.
  */
 function checkName(name: string): void {
-  if (
-    typeof name !== 'string' ||
-    name === '' ||
-    name === '.' ||
-    name === '..' ||
-    /[/\\\0]/.test(name)
-  ) {
+  if (typeof name !== 'string' || name === '' || name === '.' || name === '..' || /[/\\\0]/.test(name)) {
     throw new TypeError(`Name is not allowed: ${JSON.stringify(name)}`);
   }
 }

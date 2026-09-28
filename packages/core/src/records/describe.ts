@@ -88,7 +88,11 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
   /** "anyone in the space", "whoever added it", "those allowed to moderate" */
   const who = (list: ReadonlyArray<Who>): { text: string; open: boolean } => {
     const parts = list.map((w) =>
-      w === 'member' ? 'anyone in the space' : w === 'creator' ? `whoever added ${a}` : `those allowed to ${words(w.slice(4))}`,
+      w === 'member'
+        ? 'anyone in the space'
+        : w === 'creator'
+          ? `whoever added ${a}`
+          : `those allowed to ${words(w.slice(4))}`,
     );
     return { text: joinOr(parts), open: list.includes('member') };
   };
@@ -112,7 +116,11 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
   // One per…
   if (rules.onePer?.length) {
     const per = rules.onePer.map((part) =>
-      part === '@author' ? 'person' : part.startsWith('link:') ? linkTarget(definition, part.slice(5)) : fieldLabel(definition.schema, part),
+      part === '@author'
+        ? 'person'
+        : part.startsWith('link:')
+          ? linkTarget(definition, part.slice(5))
+          : fieldLabel(definition.schema, part),
     );
     const perText = `One ${noun} per ${per.join(' per ')}`;
     if (rules.onePer.includes('@author')) sentences.push(`${perText} — adding another changes the first.`);
@@ -138,9 +146,14 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
     const target =
       link.to === '*' ? 'anything in the space' : joinOr(link.to.map((to) => article(words(to))));
     // The link's own name only when it says something the target doesn't: "about", not "trip" → a trip.
-    const named = Array.isArray(link.to) && link.to.length === 1 && words(link.to[0]!) === words(rel) ? '' : ` (“${rel}”)`;
+    const named =
+      Array.isArray(link.to) && link.to.length === 1 && words(link.to[0]!) === words(rel)
+        ? ''
+        : ` (“${rel}”)`;
     sentences.push(
-      link.cardinality === 'one' ? `Each ${noun} points at one thing: ${target}${named}.` : `${capital(a)} can point at ${target}${named}.`,
+      link.cardinality === 'one'
+        ? `Each ${noun} points at one thing: ${target}${named}.`
+        : `${capital(a)} can point at ${target}${named}.`,
     );
   }
 
@@ -155,7 +168,9 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
   // The network: said last and plainly, since it is the one way anything leaves the space.
   if (definition.network?.length) {
     const hosts = joinAnd(definition.network.map((origin) => origin.replace(/^[a-z]+:\/\//, '')));
-    sentences.push(`Its screen can connect to ${hosts}, and send there anything the person looking can see in it. Each person is asked first.`);
+    sentences.push(
+      `Its screen can connect to ${hosts}, and send there anything the person looking can see in it. Each person is asked first.`,
+    );
   }
 
   return sentences;

@@ -89,11 +89,16 @@ export const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 export function checkRole(role: unknown): string | null {
   const r = role as Role | null;
   if (!r || typeof r !== 'object') return 'A role must be an object';
-  if (typeof r.name !== 'string' || !ROLE_NAME_PATTERN.test(r.name)) return 'A role name is 1–40 characters of a–z, 0–9 and . _ -';
-  if (r.title !== undefined && (typeof r.title !== 'string' || r.title.length > 80)) return 'A role title is text of at most 80 characters';
+  if (typeof r.name !== 'string' || !ROLE_NAME_PATTERN.test(r.name))
+    return 'A role name is 1–40 characters of a–z, 0–9 and . _ -';
+  if (r.title !== undefined && (typeof r.title !== 'string' || r.title.length > 80))
+    return 'A role title is text of at most 80 characters';
   if (typeof r.rank !== 'number' || !Number.isFinite(r.rank)) return 'A role rank must be a number';
-  if (!Array.isArray(r.permissions) || !r.permissions.every((p) => typeof p === 'string' && p.length > 0 && p.length <= 200)) {
-    return 'A role\'s permissions must be a list of names';
+  if (
+    !Array.isArray(r.permissions) ||
+    !r.permissions.every((p) => typeof p === 'string' && p.length > 0 && p.length <= 200)
+  ) {
+    return "A role's permissions must be a list of names";
   }
   return null;
 }
@@ -102,7 +107,12 @@ export function checkRole(role: unknown): string | null {
 export function permissionMatches(pattern: string, permission: string): boolean {
   if (pattern === permission || pattern === '*') return true;
   if (!pattern.includes('*')) return false;
-  const regex = new RegExp(`^${pattern.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\/]/g, '\\$&')).join('.*')}$`);
+  const regex = new RegExp(
+    `^${pattern
+      .split('*')
+      .map((part) => part.replace(/[.+?^${}()|[\]\\/]/g, '\\$&'))
+      .join('.*')}$`,
+  );
   return regex.test(permission);
 }
 
@@ -135,7 +145,11 @@ interface EventBase {
 
 export type AccessEvent = EventBase &
   (
-    | { readonly kind: 'role'; readonly name: string; /** Null: the role is removed */ readonly role: Role | null }
+    | {
+        readonly kind: 'role';
+        readonly name: string;
+        /** Null: the role is removed */ readonly role: Role | null;
+      }
     | {
         readonly kind: 'member';
         readonly did: string;
@@ -145,7 +159,11 @@ export type AccessEvent = EventBase &
         readonly viaInvite?: string;
       }
     | { readonly kind: 'invite'; readonly inviteKey: string; readonly role: string; readonly open: boolean }
-    | { readonly kind: 'revoke'; /** The note's CID */ readonly note: string; /** Who signed the note */ readonly issuer: string }
+    | {
+        readonly kind: 'revoke';
+        /** The note's CID */ readonly note: string;
+        /** Who signed the note */ readonly issuer: string;
+      }
     | { readonly kind: 'definition'; readonly name: string; readonly deleted: boolean }
     | {
         readonly kind: 'key';
@@ -154,7 +172,10 @@ export type AccessEvent = EventBase &
         /** The public half of the read key derived from it, which readers prove they hold */
         readonly readKey: string;
       }
-    | { readonly kind: 'relays'; /** WebSocket URLs, at most `MAX_RELAYS` */ readonly relays: ReadonlyArray<string> }
+    | {
+        readonly kind: 'relays';
+        /** WebSocket URLs, at most `MAX_RELAYS` */ readonly relays: ReadonlyArray<string>;
+      }
     | {
         readonly kind: 'keepers';
         /** Nodes that keep the space whole, at most `MAX_KEEPERS` */
@@ -175,13 +196,19 @@ export const MAX_KEEPERS = 16;
 
 /** Why a list of keepers can't be a space's, or null */
 export function checkKeepers(keepers: unknown, copies: unknown = null): string | null {
-  if (!Array.isArray(keepers) || keepers.length > MAX_KEEPERS) return `A space names at most ${MAX_KEEPERS} keepers`;
+  if (!Array.isArray(keepers) || keepers.length > MAX_KEEPERS)
+    return `A space names at most ${MAX_KEEPERS} keepers`;
   for (const keeper of keepers as Array<Partial<Keeper>>) {
-    if (typeof keeper?.did !== 'string' || !keeper.did.startsWith('did:key:') || keeper.did.length > 200) return 'A keeper is named by its did:key';
-    if (typeof keeper.name !== 'string' || keeper.name.length > 80) return 'A keeper has a name of at most 80 characters';
+    if (typeof keeper?.did !== 'string' || !keeper.did.startsWith('did:key:') || keeper.did.length > 200)
+      return 'A keeper is named by its did:key';
+    if (typeof keeper.name !== 'string' || keeper.name.length > 80)
+      return 'A keeper has a name of at most 80 characters';
   }
   if (new Set(keepers.map((k: Keeper) => k.did)).size !== keepers.length) return 'A keeper is named twice';
-  if (copies !== null && !(Number.isSafeInteger(copies) && (copies as number) >= 1 && (copies as number) <= MAX_KEEPERS)) {
+  if (
+    copies !== null &&
+    !(Number.isSafeInteger(copies) && (copies as number) >= 1 && (copies as number) <= MAX_KEEPERS)
+  ) {
     return `Copies is a whole number from 1 to ${MAX_KEEPERS}`;
   }
   return null;
@@ -192,7 +219,8 @@ export const MAX_RELAYS = 8;
 
 /** Why a list of relays can't be a space's, or null */
 export function checkRelays(relays: unknown): string | null {
-  if (!Array.isArray(relays) || relays.length > MAX_RELAYS) return `A space names at most ${MAX_RELAYS} relays`;
+  if (!Array.isArray(relays) || relays.length > MAX_RELAYS)
+    return `A space names at most ${MAX_RELAYS} relays`;
   for (const url of relays) {
     if (typeof url !== 'string' || url.length > 200) return 'A relay is a URL of at most 200 characters';
     let parsed: URL;
@@ -203,7 +231,8 @@ export function checkRelays(relays: unknown): string | null {
     }
     // Plain ws:// only on this machine: anywhere else it would show the room to everyone on the way.
     const local = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
-    if (parsed.protocol !== 'wss:' && !(parsed.protocol === 'ws:' && local)) return `"${url}" is not a wss:// relay`;
+    if (parsed.protocol !== 'wss:' && !(parsed.protocol === 'ws:' && local))
+      return `"${url}" is not a wss:// relay`;
   }
   return new Set(relays).size === relays.length ? null : 'A relay is named twice';
 }
@@ -222,7 +251,10 @@ export interface AccessState {
   /** Account DID → role name */
   readonly members: ReadonlyMap<string, string>;
   /** Invite public key → its role, and whether it is open */
-  readonly invites: ReadonlyMap<string, { readonly role: string; readonly open: boolean; readonly event: string }>;
+  readonly invites: ReadonlyMap<
+    string,
+    { readonly role: string; readonly open: boolean; readonly event: string }
+  >;
   /** Collection name → the id of the definition in force, and who first defined it */
   readonly definitions: ReadonlyMap<string, { readonly event: string; readonly definedBy: string }>;
   /** A private space's keys, oldest first; the last is current. Empty in a public space. */
@@ -261,7 +293,8 @@ interface Reduction {
   readonly after: Role | null;
 }
 
-export type RecordVerdict = { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly later?: boolean };
+export type RecordVerdict =
+  { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly later?: boolean };
 
 export interface AccessHistory {
   /** Who holds what once everything held is replayed */
@@ -280,7 +313,12 @@ export interface AccessHistory {
    * @param needs What the record requires of its author's role
    */
   judge(
-    record: { readonly id: string; readonly root: string; readonly seen: ReadonlyArray<string>; readonly note?: string },
+    record: {
+      readonly id: string;
+      readonly root: string;
+      readonly seen: ReadonlyArray<string>;
+      readonly note?: string;
+    },
     needs: (role: Role | null, state: AccessState) => boolean,
   ): RecordVerdict;
   /** The applied change that revoked a note, if any */
@@ -374,7 +412,9 @@ function takesAway(event: AccessEvent, state: AccessState): boolean {
       const before = state.roles.get(event.name);
       if (!before) return false;
       if (event.role === null) return true;
-      return event.role.rank < before.rank || before.permissions.some((p) => !event.role!.permissions.includes(p));
+      return (
+        event.role.rank < before.rank || before.permissions.some((p) => !event.role!.permissions.includes(p))
+      );
     }
     case 'definition':
     case 'key':
@@ -417,7 +457,8 @@ function refusal(event: AccessEvent, state: AccessState): string | null {
     case 'role': {
       if (!roleHolds(author, MANAGE)) return 'Its author may not manage roles';
       const existing = state.roles.get(event.name);
-      if (existing && existing.rank >= author!.rank) return 'Its author may only change roles ranked below their own';
+      if (existing && existing.rank >= author!.rank)
+        return 'Its author may only change roles ranked below their own';
       if (!event.role) return existing ? null : 'There is no such role to remove';
       if (event.role.rank >= author!.rank) return 'Its author may only make roles ranked below their own';
       const missing = event.role.permissions.find((p) => !covers(author!.permissions, p));
@@ -432,12 +473,13 @@ function refusal(event: AccessEvent, state: AccessState): string | null {
         if (!invite?.open) return 'The invite is not open';
         if (invite.role !== event.role) return 'The invite is for another role';
         if (current) return 'Already a member';
-        return state.roles.has(invite.role) ? null : 'The invite\'s role no longer exists';
+        return state.roles.has(invite.role) ? null : "The invite's role no longer exists";
       }
       // Leaving: anyone may remove themselves.
       if (event.root === event.did && event.role === null) return current ? null : 'Not a member';
       if (!roleHolds(author, MANAGE)) return 'Its author may not manage members';
-      if (current && current.rank >= author!.rank) return 'Its author may only change people ranked below them';
+      if (current && current.rank >= author!.rank)
+        return 'Its author may only change people ranked below them';
       if (event.role === null) return current ? null : 'Not a member';
       const next = state.roles.get(event.role);
       if (!next) return `There is no role "${event.role}"`;
@@ -462,25 +504,34 @@ function refusal(event: AccessEvent, state: AccessState): string | null {
       if (!existing) return roleHolds(author, DEFINE) ? null : 'Its author may not define collections';
       // Changing one: whoever first defined it, while a member, or anyone who manages the space.
       if (roleHolds(author, MANAGE)) return null;
-      return author && existing.definedBy === event.root ? null : 'Only whoever defined it, or someone who manages the space, may change it';
+      return author && existing.definedBy === event.root
+        ? null
+        : 'Only whoever defined it, or someone who manages the space, may change it';
     }
     case 'key': {
       if (state.keys.length === 0) return 'A public space has no key to change';
-      if (!roleHolds(author, MANAGE)) return 'Its author may not change the space\'s key';
+      if (!roleHolds(author, MANAGE)) return "Its author may not change the space's key";
       // Going back to a key a removed member still holds would undo the point of changing it.
-      return state.keys.some((known) => known.keyId === event.keyId || known.readKey === event.readKey) ? 'That key was used before' : null;
+      return state.keys.some((known) => known.keyId === event.keyId || known.readKey === event.readKey)
+        ? 'That key was used before'
+        : null;
     }
     case 'relays':
-      return roleHolds(author, MANAGE) ? checkRelays(event.relays) : 'Its author may not change where the space meets';
+      return roleHolds(author, MANAGE)
+        ? checkRelays(event.relays)
+        : 'Its author may not change where the space meets';
     case 'keepers':
-      return roleHolds(author, MANAGE) ? checkKeepers(event.keepers, event.copies) : 'Its author may not change who keeps the space';
+      return roleHolds(author, MANAGE)
+        ? checkKeepers(event.keepers, event.copies)
+        : 'Its author may not change who keeps the space';
   }
 }
 
 /** The people whose standing a change may lower — for keep lists */
 function affected(event: AccessEvent, state: AccessState): ReadonlyArray<string> {
   if (event.kind === 'member') return [event.did];
-  if (event.kind === 'role') return [...state.members].filter(([, role]) => role === event.name).map(([did]) => did);
+  if (event.kind === 'role')
+    return [...state.members].filter(([, role]) => role === event.name).map(([did]) => did);
   return [];
 }
 
@@ -678,8 +729,11 @@ export function replayAccess(genesis: AccessGenesis, events: ReadonlyArray<Acces
     const who = affected(event, state);
     const before = who.map((did) => roleOf(state, did));
     apply(event, state);
-    who.forEach((did, i) => reductions.push({ event: event.id, did, before: before[i]!, after: roleOf(state, did) }));
-    if (event.kind === 'revoke' && !revokes.has(event.note)) revokes.set(event.note, { event: event.id, keep: new Set(event.keep) });
+    who.forEach((did, i) =>
+      reductions.push({ event: event.id, did, before: before[i]!, after: roleOf(state, did) }),
+    );
+    if (event.kind === 'revoke' && !revokes.has(event.note))
+      revokes.set(event.note, { event: event.id, keep: new Set(event.keep) });
 
     statuses.set(event.id, { status: 'applied', index: order.length });
     order.push(event.id);
@@ -703,12 +757,16 @@ export function replayAccess(genesis: AccessGenesis, events: ReadonlyArray<Acces
     status: (id: string) => statuses.get(id) ?? null,
     heads,
     at(seen: ReadonlyArray<string>) {
-      return seen.every((id) => id === genesis.id || (byId.has(id) && !waiting.has(id))) ? stateAt(seen) : null;
+      return seen.every((id) => id === genesis.id || (byId.has(id) && !waiting.has(id)))
+        ? stateAt(seen)
+        : null;
     },
     judge(record, needs) {
-      if (!seen(record.seen)) return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+      if (!seen(record.seen))
+        return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
       const revoked = record.note ? revokes.get(record.note) : undefined;
-      if (revoked && !revoked.keep.has(record.id)) return { ok: false, reason: 'The note it was written under was revoked' };
+      if (revoked && !revoked.keep.has(record.id))
+        return { ok: false, reason: 'The note it was written under was revoked' };
 
       const cutState = stateAt(record.seen);
       if (!needs(roleOf(cutState, record.root), cutState)) {
@@ -724,14 +782,17 @@ export function replayAccess(genesis: AccessGenesis, events: ReadonlyArray<Acces
         if (reduction.did !== record.root || cut.has(reduction.event)) continue;
         if (keepOf.get(reduction.event)?.has(record.id)) continue;
         if (needs(reduction.before, cutState) && !needs(reduction.after, cutState)) {
-          return { ok: false, reason: 'Its author\'s access was taken away' };
+          return { ok: false, reason: "Its author's access was taken away" };
         }
       }
       return { ok: true };
     },
     revoked: (note: string) => revokes.get(note) ?? null,
-    named: (did: string) => did === genesis.creator || [...byId.values()].some((event) => event.kind === 'member' && event.did === did && event.role !== null),
-    knownInvite: (key: string) => [...byId.values()].some((event) => event.kind === 'invite' && event.inviteKey === key),
+    named: (did: string) =>
+      did === genesis.creator ||
+      [...byId.values()].some((event) => event.kind === 'member' && event.did === did && event.role !== null),
+    knownInvite: (key: string) =>
+      [...byId.values()].some((event) => event.kind === 'invite' && event.inviteKey === key),
   } satisfies AccessHistory);
 
   function seen(ids: ReadonlyArray<string>): boolean {

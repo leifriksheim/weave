@@ -21,11 +21,20 @@ let node = await createNode({ signer, stores, watchIntervalMs: 0 });
 const { id: space } = await node.spaces.create({ name: 'Canvas', ...team, visibility: 'private' });
 await node.collections.define(space, {
   name: 'app.pixels.cell',
-  schema: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' }, color: { type: 'string' } }, required: ['x', 'y', 'color'] },
+  schema: {
+    type: 'object',
+    properties: { x: { type: 'integer' }, y: { type: 'integer' }, color: { type: 'string' } },
+    required: ['x', 'y', 'color'],
+  },
   rules: { create: 'member', edit: 'member', delete: 'member', fixed: ['x', 'y'] },
 } as never);
 for (let i = 0; i < N; i++) {
-  await node.records.put(space, 'app.pixels.cell', { x: i % 32, y: Math.floor(i / 32), color: '#ff004d' }, { key: `px.${i % 32}.${Math.floor(i / 32)}` });
+  await node.records.put(
+    space,
+    'app.pixels.cell',
+    { x: i % 32, y: Math.floor(i / 32), color: '#ff004d' },
+    { key: `px.${i % 32}.${Math.floor(i / 32)}` },
+  );
 }
 await node.close();
 

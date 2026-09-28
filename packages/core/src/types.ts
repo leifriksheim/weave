@@ -29,7 +29,9 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly '~standard': {
     readonly version: 1;
     readonly vendor: string;
-    readonly validate: (value: unknown) => StandardSchemaResult<Output> | Promise<StandardSchemaResult<Output>>;
+    readonly validate: (
+      value: unknown,
+    ) => StandardSchemaResult<Output> | Promise<StandardSchemaResult<Output>>;
     readonly types?: {
       readonly input: Input;
       readonly output: Output;
@@ -49,8 +51,14 @@ export interface StandardJSONSchemaV1<Input = unknown, Output = Input> {
     readonly vendor: string;
     readonly types?: { readonly input: Input; readonly output: Output };
     readonly jsonSchema: {
-      readonly input: (options: { readonly target: string; readonly libraryOptions?: Record<string, unknown> }) => Record<string, unknown>;
-      readonly output: (options: { readonly target: string; readonly libraryOptions?: Record<string, unknown> }) => Record<string, unknown>;
+      readonly input: (options: {
+        readonly target: string;
+        readonly libraryOptions?: Record<string, unknown>;
+      }) => Record<string, unknown>;
+      readonly output: (options: {
+        readonly target: string;
+        readonly libraryOptions?: Record<string, unknown>;
+      }) => Record<string, unknown>;
     };
   };
 }
@@ -74,13 +82,13 @@ export interface Link {
 
 /** Expression — the atomic data unit */
 export interface Expression<T = unknown> {
-  readonly id: string;          // CID of the expression
-  readonly author: string;      // DID of the author
-  readonly collection: string;  // Collection name (e.g., 'app.bsky.feed.post')
-  readonly space?: string;      // Space this belongs to; omitted for unscoped data
-  readonly createdAt: string;   // ISO 8601 timestamp
-  readonly body: T;             // Typed payload
-  readonly proof?: string;      // Encoded UCAN authorizing the author, if delegated
+  readonly id: string; // CID of the expression
+  readonly author: string; // DID of the author
+  readonly collection: string; // Collection name (e.g., 'app.bsky.feed.post')
+  readonly space?: string; // Space this belongs to; omitted for unscoped data
+  readonly createdAt: string; // ISO 8601 timestamp
+  readonly body: T; // Typed payload
+  readonly proof?: string; // Encoded UCAN authorizing the author, if delegated
   /** The record's identity, stable across versions. Links point here. */
   readonly key: string;
   /** 0 for a record's first version; each later version is one more than the one it replaces */
@@ -112,7 +120,7 @@ export interface Expression<T = unknown> {
    * that can read the body.
    */
   readonly tags?: ReadonlyArray<string>;
-  readonly signature: string;   // Base64URL encoded signature
+  readonly signature: string; // Base64URL encoded signature
 }
 
 export interface UnsignedExpression<T = unknown> {
@@ -173,7 +181,7 @@ export interface SpaceRole {
  * roles. `name` is a description, not part of that.
  */
 export interface Space {
-  readonly id: string;          // hash of the space's genesis
+  readonly id: string; // hash of the space's genesis
   readonly visibility: SpaceVisibility; // 'private' means the bodies are encrypted
   /** The account that made it, holding `creatorRole` at the start */
   readonly creator: string;
@@ -191,7 +199,7 @@ export interface Space {
 
 /** Collection definition */
 export interface CollectionDef {
-  readonly name: string;        // e.g., 'app.example.post'
+  readonly name: string; // e.g., 'app.example.post'
   readonly schema: StandardSchemaV1; // Standard Schema compliant validator
 }
 
@@ -206,7 +214,7 @@ export interface PeerInfo {
 export interface SyncState {
   readonly peerId: string;
   readonly lastSyncedAt: string;
-  readonly remoteRoot: string;  // MST root hash
+  readonly remoteRoot: string; // MST root hash
 }
 
 /** Storage adapter interface */
@@ -250,14 +258,13 @@ export type BatchOp =
 /** Network message envelope */
 export interface NetworkMessage {
   readonly type: string;
-  readonly from: string;   // sender DID
+  readonly from: string; // sender DID
   readonly payload: unknown;
 }
 
 /** Result type for operations that can fail */
 export type Result<T, E = Error> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: E };
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };
 
 export const ok = <T>(value: T): Result<T, never> => ({ ok: true, value });
 export const err = <E>(error: E): Result<never, E> => ({ ok: false, error });

@@ -10,7 +10,9 @@ const P256_KEY_INFO = new TextEncoder().encode('weave/p256-identity-key/v1');
 
 /** HKDF-SHA256 with an empty salt: the seed is already uniformly random. */
 async function hkdf(ikm: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
-  const key = await globalThis.crypto.subtle.importKey('raw', ikm as BufferSource, 'HKDF', false, ['deriveBits']);
+  const key = await globalThis.crypto.subtle.importKey('raw', ikm as BufferSource, 'HKDF', false, [
+    'deriveBits',
+  ]);
   const bits = await globalThis.crypto.subtle.deriveBits(
     { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: info as BufferSource },
     key,
@@ -35,18 +37,18 @@ export function createP256Provider(): CryptoProvider {
       const keyPair = await globalThis.crypto.subtle.generateKey(
         {
           name: 'ECDSA',
-          namedCurve: 'P-256'
+          namedCurve: 'P-256',
         },
         // Not extractable: a script that gets into the page can sign with the
         // key while it is there, but cannot carry it off and keep signing.
         // The public half exports regardless.
         false,
-        ['sign', 'verify']
+        ['sign', 'verify'],
       );
 
       return Object.freeze({
         publicKey: keyPair.publicKey,
-        privateKey: keyPair.privateKey
+        privateKey: keyPair.privateKey,
       });
     },
 
@@ -70,7 +72,7 @@ export function createP256Provider(): CryptoProvider {
         { kty: 'EC', crv: 'P-256', x, y, d, ext: false, key_ops: ['sign'] },
         algorithm,
         false,
-        ['sign']
+        ['sign'],
       );
 
       const publicKey = await globalThis.crypto.subtle.importKey(
@@ -78,7 +80,7 @@ export function createP256Provider(): CryptoProvider {
         { kty: 'EC', crv: 'P-256', x, y, ext: true, key_ops: ['verify'] },
         algorithm,
         true,
-        ['verify']
+        ['verify'],
       );
 
       return Object.freeze({ publicKey, privateKey });
@@ -88,10 +90,10 @@ export function createP256Provider(): CryptoProvider {
       const signature = await globalThis.crypto.subtle.sign(
         {
           name: 'ECDSA',
-          hash: { name: 'SHA-256' }
+          hash: { name: 'SHA-256' },
         },
         privateKey,
-        data as BufferSource
+        data as BufferSource,
       );
       return new Uint8Array(signature);
     },
@@ -100,11 +102,11 @@ export function createP256Provider(): CryptoProvider {
       return await globalThis.crypto.subtle.verify(
         {
           name: 'ECDSA',
-          hash: { name: 'SHA-256' }
+          hash: { name: 'SHA-256' },
         },
         publicKey,
         signature as BufferSource,
-        data as BufferSource
+        data as BufferSource,
       );
     },
 
@@ -143,11 +145,11 @@ export function createP256Provider(): CryptoProvider {
         bytes as BufferSource,
         {
           name: 'ECDSA',
-          namedCurve: 'P-256'
+          namedCurve: 'P-256',
         },
         false,
-        ['sign']
+        ['sign'],
       );
-    }
+    },
   });
 }

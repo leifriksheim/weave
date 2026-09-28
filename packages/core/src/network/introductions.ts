@@ -26,7 +26,13 @@ export const AUTH_PROOF_MESSAGE = '__auth-proof';
 /** A peer is leaving a room, though the connection may go on for others */
 export const LEAVE_MESSAGE = '__leave';
 
-const CONTROL = new Set([PEERS_MESSAGE, SIGNAL_MESSAGE, AUTH_HELLO_MESSAGE, AUTH_PROOF_MESSAGE, LEAVE_MESSAGE]);
+const CONTROL = new Set([
+  PEERS_MESSAGE,
+  SIGNAL_MESSAGE,
+  AUTH_HELLO_MESSAGE,
+  AUTH_PROOF_MESSAGE,
+  LEAVE_MESSAGE,
+]);
 
 /** Whether a message belongs to the mesh rather than the application above it */
 export function isControlMessage(type: string): boolean {

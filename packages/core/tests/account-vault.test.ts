@@ -173,10 +173,7 @@ describe('the set of wraps', () => {
     // code is the seed written out and needs nothing stored to work.
     const stripped = withoutWrap(vault, only.id);
     assert.deepEqual(stripped.wraps, []);
-    assert.equal(
-      (await manager.fromRecoveryCode(seedToRecoveryCode(seed))).did,
-      stripped.did,
-    );
+    assert.equal((await manager.fromRecoveryCode(seedToRecoveryCode(seed))).did, stripped.did);
   });
 
   test('a new account starts with no shortcuts at all', () => {
@@ -205,7 +202,14 @@ describe('the account file', () => {
     assert.equal(state.unlockedSeed, null, 'the seed must not be readable from the file');
 
     // Nothing in the file may spell out the seed.
-    const raw = utf8Decode((await folder.open().getFileHandle(ACCOUNT_FILE).then((h) => h.getFile()).then((f) => f.arrayBuffer()).then((b) => new Uint8Array(b))));
+    const raw = utf8Decode(
+      await folder
+        .open()
+        .getFileHandle(ACCOUNT_FILE)
+        .then((h) => h.getFile())
+        .then((f) => f.arrayBuffer())
+        .then((b) => new Uint8Array(b)),
+    );
     assert.ok(!raw.includes(seedToRecoveryCode(seed).replace(/-/g, '')));
   });
 
@@ -260,18 +264,14 @@ describe('encryption at rest', () => {
 
   test('a different seed cannot read it', async () => {
     const inner = createMemoryAdapter();
-    const spaces = createSpaceManager(
-      createEncryptedAdapter(inner, await deriveVaultKey(generateSeed())),
-    );
+    const spaces = createSpaceManager(createEncryptedAdapter(inner, await deriveVaultKey(generateSeed())));
     const { space } = await spaces.create({
       name: 'Private',
       visibility: 'private',
       creator: 'did:key:zowner',
     });
 
-    const stranger = createSpaceManager(
-      createEncryptedAdapter(inner, await deriveVaultKey(generateSeed())),
-    );
+    const stranger = createSpaceManager(createEncryptedAdapter(inner, await deriveVaultKey(generateSeed())));
     await assert.rejects(() => stranger.get(space.id));
   });
 
@@ -299,8 +299,18 @@ describe('encryption at rest', () => {
     const inner = createMemoryAdapter();
     const spaces = createSpaceManager(createEncryptedAdapter(inner, await deriveVaultKey(generateSeed())));
     const other = createSpaceManager(createMemoryAdapter());
-    const made = await other.create({ name: 'Team', ...team, visibility: 'private', creator: 'did:key:zowner' });
-    await spaces.join(await other.createInvite(made.space.id, 'did:key:zowner', { secret: crypto.getRandomValues(new Uint8Array(32)), role: 'editor' }));
+    const made = await other.create({
+      name: 'Team',
+      ...team,
+      visibility: 'private',
+      creator: 'did:key:zowner',
+    });
+    await spaces.join(
+      await other.createInvite(made.space.id, 'did:key:zowner', {
+        secret: crypto.getRandomValues(new Uint8Array(32)),
+        role: 'editor',
+      }),
+    );
 
     const entries = await inner.list();
     const waiting = entries.filter((key) => key.startsWith('spaceinvite:'));
@@ -344,10 +354,7 @@ describe('encryption at rest', () => {
     const seed = generateSeed();
     const inner = createMemoryAdapter();
 
-    await createEncryptedAdapter(inner, await deriveVaultKey(seed)).put(
-      'space:x',
-      utf8Encode('hello'),
-    );
+    await createEncryptedAdapter(inner, await deriveVaultKey(seed)).put('space:x', utf8Encode('hello'));
     const again = createEncryptedAdapter(inner, await deriveVaultKey(seed));
     assert.equal(utf8Decode((await again.get('space:x'))!), 'hello');
   });

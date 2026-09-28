@@ -77,11 +77,10 @@ async function withStore<T>(
  * @returns The key, and the id a wrap should record
  */
 export async function createDeviceKey(dbName: string = DB_NAME): Promise<DeviceKey> {
-  const key = await globalThis.crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
+  const key = await globalThis.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
+    'encrypt',
+    'decrypt',
+  ]);
 
   const id = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(12)));
   await withStore(dbName, 'readwrite', (store) => store.put(key, id));
@@ -100,10 +99,7 @@ export async function createDeviceKey(dbName: string = DB_NAME): Promise<DeviceK
  * @param dbName Overridable for tests
  * @returns The key, or null when this device does not have it
  */
-export async function getDeviceKey(
-  id: string,
-  dbName: string = DB_NAME,
-): Promise<CryptoKey | null> {
+export async function getDeviceKey(id: string, dbName: string = DB_NAME): Promise<CryptoKey | null> {
   try {
     return (await withStore<CryptoKey | undefined>(dbName, 'readonly', (store) => store.get(id))) ?? null;
   } catch {

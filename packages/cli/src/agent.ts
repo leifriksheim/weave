@@ -18,7 +18,14 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createNode, folderStores, publicKeyToDid, P256_MULTICODEC, createP256Provider, type P2PNode } from '@weaveprotocol/core';
+import {
+  createNode,
+  folderStores,
+  publicKeyToDid,
+  P256_MULTICODEC,
+  createP256Provider,
+  type P2PNode,
+} from '@weaveprotocol/core';
 import { grantSigner, type Grant } from '@weaveprotocol/core/session';
 import { acceptAgentLink, checkAgentGrant } from '@weaveprotocol/core/session';
 import { base64UrlDecode } from '@weaveprotocol/core';
@@ -29,7 +36,10 @@ export const DEFAULT_RELAYS: ReadonlyArray<string> = ['wss://p2p-web-relay.fly.d
 
 /** Relays from `$WEAVE_RELAYS` (comma separated), or the default */
 export function configuredRelays(): string[] {
-  const listed = (process.env.WEAVE_RELAYS ?? '').split(',').map((relay) => relay.trim()).filter(Boolean);
+  const listed = (process.env.WEAVE_RELAYS ?? '')
+    .split(',')
+    .map((relay) => relay.trim())
+    .filter(Boolean);
   return listed.length ? listed : [...DEFAULT_RELAYS];
 }
 
@@ -39,7 +49,8 @@ export function configuredRelays(): string[] {
  */
 async function enableWebRTC(): Promise<void> {
   if (typeof globalThis.RTCPeerConnection === 'function') return;
-  const { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } = await import('node-datachannel/polyfill');
+  const { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } =
+    await import('node-datachannel/polyfill');
   Object.assign(globalThis, { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate });
 }
 
@@ -57,16 +68,23 @@ async function agentKey(home: string): Promise<Stored> {
   const algorithm = { name: 'ECDSA', namedCurve: 'P-256' };
   let keys: CryptoKeyPair;
   try {
-    const { privateKey, publicKey } = JSON.parse(await readFile(file, 'utf8')) as { privateKey: JsonWebKey; publicKey: JsonWebKey };
+    const { privateKey, publicKey } = JSON.parse(await readFile(file, 'utf8')) as {
+      privateKey: JsonWebKey;
+      publicKey: JsonWebKey;
+    };
     keys = {
       privateKey: await subtle.importKey('jwk', privateKey, algorithm, false, ['sign']),
       publicKey: await subtle.importKey('jwk', publicKey, algorithm, true, ['verify']),
     };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`${file} could not be read. Delete it and connect again.`);
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+      throw new Error(`${file} could not be read. Delete it and connect again.`);
     const made = await subtle.generateKey(algorithm, true, ['sign', 'verify']);
     await mkdir(agentDir(home), { recursive: true, mode: 0o700 });
-    const stored = { privateKey: await subtle.exportKey('jwk', made.privateKey), publicKey: await subtle.exportKey('jwk', made.publicKey) };
+    const stored = {
+      privateKey: await subtle.exportKey('jwk', made.privateKey),
+      publicKey: await subtle.exportKey('jwk', made.publicKey),
+    };
     await writeFile(file, `${JSON.stringify(stored)}\n`, { mode: 0o600 });
     keys = {
       privateKey: await subtle.importKey('jwk', stored.privateKey, algorithm, false, ['sign']),
@@ -115,9 +133,12 @@ export async function connectAgent(params: {
 
   // Another account's spaces don't belong next to this one's.
   const before = await loadAgentGrant(params.home);
-  if (before && before.did !== grant.did) await rm(path.join(agentDir(params.home), 'data'), { recursive: true, force: true });
+  if (before && before.did !== grant.did)
+    await rm(path.join(agentDir(params.home), 'data'), { recursive: true, force: true });
   const kept = { ...grant, relays: [...new Set([...(grant.relays ?? []), ...params.relays])] };
-  await writeFile(path.join(agentDir(params.home), 'grant.json'), `${JSON.stringify(kept, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(path.join(agentDir(params.home), 'grant.json'), `${JSON.stringify(kept, null, 2)}\n`, {
+    mode: 0o600,
+  });
   return kept;
 }
 
@@ -131,10 +152,19 @@ export function daysLeft(grant: Grant): number {
  * acting as the agent.
  * @throws Before `weave connect`, or once the note has run out
  */
-export async function startAgentNode(home: string, options: { readonly nodes?: ReadonlyArray<string> } = {}): Promise<{ node: P2PNode; grant: Grant; close(): Promise<void> }> {
+export async function startAgentNode(
+  home: string,
+  options: { readonly nodes?: ReadonlyArray<string> } = {},
+): Promise<{ node: P2PNode; grant: Grant; close(): Promise<void> }> {
   const grant = await loadAgentGrant(home);
-  if (!grant) throw new Error('No agent is connected on this computer. In the app, choose “Connect an agent” and run the command it shows.');
-  if (grant.expiresAt <= Date.now() / 1000) throw new Error('The agent\'s access has run out. In the app, choose “Connect an agent” and run the new command.');
+  if (!grant)
+    throw new Error(
+      'No agent is connected on this computer. In the app, choose “Connect an agent” and run the command it shows.',
+    );
+  if (grant.expiresAt <= Date.now() / 1000)
+    throw new Error(
+      "The agent's access has run out. In the app, choose “Connect an agent” and run the new command.",
+    );
   const key = await agentKey(home);
   await checkAgentGrant(grant, key.did);
 
@@ -150,7 +180,8 @@ export async function startAgentNode(home: string, options: { readonly nodes?: R
   });
   // Spaces granted by name, when the grant wasn't for the whole account.
   const held = new Set((await base.spaces.list()).map((space) => space.id));
-  for (const space of grant.spaces) if (!held.has(space.id)) await base.spaces.join(space.invite).catch(() => {});
+  for (const space of grant.spaces)
+    if (!held.has(space.id)) await base.spaces.join(space.invite).catch(() => {});
 
   const node = await base.asAgent({ keys: key.keys, note: grant.token });
   // Open every space, so it syncs while the agent works rather than on first use.

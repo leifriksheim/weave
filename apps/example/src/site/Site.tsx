@@ -24,7 +24,14 @@ export const EXTERNAL = { target: '_blank', rel: 'noreferrer' } as const;
 export function Mark({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" aria-hidden>
-      <path d="M2 5 L7 15 L10 8 L13 15 L18 5" fill="none" stroke="#000" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+      <path
+        d="M2 5 L7 15 L10 8 L13 15 L18 5"
+        fill="none"
+        stroke="#000"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -98,7 +105,17 @@ export function Page({ page, children }: { page: PageName; children: ReactNode }
 export function Icon({ d }: { d: string }) {
   return (
     <span className="icon">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#000" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="#000"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
         <path d={d} />
       </svg>
     </span>
@@ -125,13 +142,26 @@ function markCalls<P extends ReturnType<typeof parse>>(parsed: P): P {
     const tokens = line.tokens as Array<{ type: string; value: string }>;
     tokens.forEach((token, i) => {
       const next = tokens[i + 1];
-      if ((token.type === 'identifier' || token.type === 'property') && next?.type === 'sign' && next.value.startsWith('(')) token.type = 'entity';
+      if (
+        (token.type === 'identifier' || token.type === 'property') &&
+        next?.type === 'sign' &&
+        next.value.startsWith('(')
+      )
+        token.type = 'entity';
     });
   }
   return parsed;
 }
 
-function Code({ file, lang = 'typescript', children }: { file: string; lang?: keyof typeof LANGUAGES; children: string }) {
+function Code({
+  file,
+  lang = 'typescript',
+  children,
+}: {
+  file: string;
+  lang?: keyof typeof LANGUAGES;
+  children: string;
+}) {
   // Our own code snippets, not user input — safe to render as HTML.
   const html = render(markCalls(parse(children.trim(), LANGUAGES[lang])));
   return (
@@ -316,7 +346,6 @@ weave connect wv_…
 
 const PROTOCOLS = ['Weave', 'AT Protocol (Bluesky)', 'Nostr', 'Solid'] as const;
 
-
 /** The case for rules without a referee, in four points */
 const CONSENSUS: ReadonlyArray<Part> = [
   {
@@ -339,14 +368,56 @@ const CONSENSUS: ReadonlyArray<Part> = [
 
 /** One row per question: the question, then an answer for each protocol, in order */
 const COMPARISON: ReadonlyArray<readonly [string, string, string, string, string]> = [
-  ['Built for', 'Private and shared app data', 'Public social media', 'Public messages that can’t be censored', 'Personal data stores'],
-  ['Where data lives', 'On the user’s devices, or a folder they own', 'A personal data server, usually hosted', 'Relays the user publishes to', 'A pod server'],
-  ['Servers you need', 'None. Relays only introduce devices', 'Data servers, relays and app views', 'Relays, which store and serve everything', 'A pod server per user or provider'],
-  ['Private data', 'Encrypted end to end by default', 'Public by design', 'Public, with encrypted direct messages', 'Access control on the server'],
+  [
+    'Built for',
+    'Private and shared app data',
+    'Public social media',
+    'Public messages that can’t be censored',
+    'Personal data stores',
+  ],
+  [
+    'Where data lives',
+    'On the user’s devices, or a folder they own',
+    'A personal data server, usually hosted',
+    'Relays the user publishes to',
+    'A pod server',
+  ],
+  [
+    'Servers you need',
+    'None. Relays only introduce devices',
+    'Data servers, relays and app views',
+    'Relays, which store and serve everything',
+    'A pod server per user or provider',
+  ],
+  [
+    'Private data',
+    'Encrypted end to end by default',
+    'Public by design',
+    'Public, with encrypted direct messages',
+    'Access control on the server',
+  ],
   ['Works offline', 'Yes, local-first', 'No', 'Reading from cache', 'No'],
-  ['Several people editing the same data', 'Yes, shared spaces', 'No, each user writes their own', 'No, each user writes their own', 'Yes, through permissions'],
-  ['Account', 'A password or passkey the user keeps', 'A DID and a handle, with a server holding the keys', 'A key pair, and losing it is final', 'A login with an identity provider'],
-  ['Who enforces the rules', 'Every device, and they all agree', 'Each app’s servers and moderation services', 'Each relay and client, separately', 'The pod server'],
+  [
+    'Several people editing the same data',
+    'Yes, shared spaces',
+    'No, each user writes their own',
+    'No, each user writes their own',
+    'Yes, through permissions',
+  ],
+  [
+    'Account',
+    'A password or passkey the user keeps',
+    'A DID and a handle, with a server holding the keys',
+    'A key pair, and losing it is final',
+    'A login with an identity provider',
+  ],
+  [
+    'Who enforces the rules',
+    'Every device, and they all agree',
+    'Each app’s servers and moderation services',
+    'Each relay and client, separately',
+    'The pod server',
+  ],
   ['Public feeds at global scale', 'Not the goal', 'Yes, that’s its strength', 'Yes, across relays', 'No'],
 ];
 
@@ -411,8 +482,8 @@ export function Developers() {
             people own.
           </h1>
           <p>
-            Identity, storage, sync and encryption in one library. No backend to run, no database to host — your users
-            bring their data, and your app is a view on it.
+            Identity, storage, sync and encryption in one library. No backend to run, no database to host —
+            your users bring their data, and your app is a view on it.
           </p>
           <div className="actions">
             <span className="install">
@@ -443,8 +514,8 @@ export function Developers() {
             <div className="kicker">Rules without a referee</div>
             <h2>Everyone follows the rules. Nobody is in charge.</h2>
             <p>
-              Most apps trust a server to decide who may do what. Weave has no server to trust, so every device decides,
-              and they all reach the same answer.
+              Most apps trust a server to decide who may do what. Weave has no server to trust, so every
+              device decides, and they all reach the same answer.
             </p>
           </div>
           <div className="points">
@@ -464,9 +535,9 @@ export function Developers() {
             <div className="kicker">The layers</div>
             <h2>What's underneath, top to bottom.</h2>
             <p>
-              Follow one vote down the stack. Your app writes it. It's checked against its schema and the space's rules,
-              encrypted, signed, saved on the device, and synced to everyone else. You only touch the top layer, and
-              you can swap the pieces underneath.
+              Follow one vote down the stack. Your app writes it. It's checked against its schema and the
+              space's rules, encrypted, signed, saved on the device, and synced to everyone else. You only
+              touch the top layer, and you can swap the pieces underneath.
             </p>
           </div>
           <div className="layers">
@@ -476,10 +547,22 @@ export function Developers() {
               {...toggle('Your app')}
               what="You write the front end. There's no backend to build, host or pay for."
               parts={[
-                { title: 'No backend to build', body: 'Storage, sync, sign-in and permissions come in one object. Put a record, query it, watch it change. That’s the whole server side.' },
-                { title: 'Bring your own stack', body: 'Plain TypeScript, with React hooks if you want them. Describe your data with Zod, Valibot, ArkType or plain JSON Schema.' },
-                { title: 'Sign-in you don’t write', body: 'One element or one hook. Accounts, passkeys and pairing a phone are built in. Your app gets a limited, expiring pass to someone’s account, never their keys.' },
-                { title: 'Ready for agents', body: 'Every operation is also a CLI command and an MCP tool, so AI agents can work with the same data, with the same permissions as your app.' },
+                {
+                  title: 'No backend to build',
+                  body: 'Storage, sync, sign-in and permissions come in one object. Put a record, query it, watch it change. That’s the whole server side.',
+                },
+                {
+                  title: 'Bring your own stack',
+                  body: 'Plain TypeScript, with React hooks if you want them. Describe your data with Zod, Valibot, ArkType or plain JSON Schema.',
+                },
+                {
+                  title: 'Sign-in you don’t write',
+                  body: 'One element or one hook. Accounts, passkeys and pairing a phone are built in. Your app gets a limited, expiring pass to someone’s account, never their keys.',
+                },
+                {
+                  title: 'Ready for agents',
+                  body: 'Every operation is also a CLI command and an MCP tool, so AI agents can work with the same data, with the same permissions as your app.',
+                },
               ]}
             />
             <Layer
@@ -487,12 +570,30 @@ export function Developers() {
               {...toggle('Data')}
               what="A database that ships with the data: schemas, queries, live updates and permissions."
               parts={[
-                { title: 'Start with your users’ data', body: 'When someone lets your app into their spaces, their data is already there. No blank slate, no import step.' },
-                { title: 'The schema travels with the data', body: 'The shape of your data is stored next to it, so another app, or an agent, can make sense of it without your docs.' },
-                { title: 'Apps that work together', body: 'Use the standard schemas, and a poll asked in one app can be voted on in another. No integration to build, no partnership to sign.' },
-                { title: 'Queries you already know', body: 'Filters, sorting, paging and related records, in plain JSON. Results update live as changes arrive.' },
-                { title: 'Rules instead of an API', body: 'Say who may create, edit and delete, what must be unique, and which fields are fixed. Every device enforces it, so there’s no permission server to write.' },
-                { title: 'Collaboration included', body: 'Shared spaces with invite links. Several people edit, and every device lands on the same result, without you writing merge logic.' },
+                {
+                  title: 'Start with your users’ data',
+                  body: 'When someone lets your app into their spaces, their data is already there. No blank slate, no import step.',
+                },
+                {
+                  title: 'The schema travels with the data',
+                  body: 'The shape of your data is stored next to it, so another app, or an agent, can make sense of it without your docs.',
+                },
+                {
+                  title: 'Apps that work together',
+                  body: 'Use the standard schemas, and a poll asked in one app can be voted on in another. No integration to build, no partnership to sign.',
+                },
+                {
+                  title: 'Queries you already know',
+                  body: 'Filters, sorting, paging and related records, in plain JSON. Results update live as changes arrive.',
+                },
+                {
+                  title: 'Rules instead of an API',
+                  body: 'Say who may create, edit and delete, what must be unique, and which fields are fixed. Every device enforces it, so there’s no permission server to write.',
+                },
+                {
+                  title: 'Collaboration included',
+                  body: 'Shared spaces with invite links. Several people edit, and every device lands on the same result, without you writing merge logic.',
+                },
               ]}
             />
             <Layer
@@ -500,10 +601,22 @@ export function Developers() {
               {...toggle('Privacy')}
               what="Encrypted before it's saved or sent. You can't leak what you never had."
               parts={[
-                { title: 'Encrypted first', body: 'Private data is encrypted on the device before it’s stored or sent. Relays, and always-on nodes that hold no keys, pass it along without being able to read it.' },
-                { title: 'Less to be responsible for', body: 'Your users’ private data never sits readable on your servers, so there’s far less for you to secure.' },
-                { title: 'Sharing that stays private', body: 'An invite link carries its own key, so sharing a private space never goes through a server.' },
-                { title: 'Private or public, per space', body: 'Spaces are private by default. Make one public when anyone with the link should be able to read it.' },
+                {
+                  title: 'Encrypted first',
+                  body: 'Private data is encrypted on the device before it’s stored or sent. Relays, and always-on nodes that hold no keys, pass it along without being able to read it.',
+                },
+                {
+                  title: 'Less to be responsible for',
+                  body: 'Your users’ private data never sits readable on your servers, so there’s far less for you to secure.',
+                },
+                {
+                  title: 'Sharing that stays private',
+                  body: 'An invite link carries its own key, so sharing a private space never goes through a server.',
+                },
+                {
+                  title: 'Private or public, per space',
+                  body: 'Spaces are private by default. Make one public when anyone with the link should be able to read it.',
+                },
               ]}
             />
             <Layer
@@ -511,10 +624,22 @@ export function Developers() {
               {...toggle('Identity & auth')}
               what="Every change is signed by whoever made it. No user table for you to guard."
               parts={[
-                { title: 'No user table', body: 'Accounts aren’t stored with you. There’s no password database to protect, and nothing to leak.' },
-                { title: 'One account, every app', body: 'People make an account once, kept in their password manager or a passkey, and use it in every Weave app. No company can shut it off.' },
-                { title: 'Everything is signed', body: 'Every change carries the signature of whoever made it, even when it’s encrypted. So any device can check who did what, even ones that can’t read it.' },
-                { title: 'Any signer', body: 'A key in the browser, an account home, or anything else that can sign. Nothing above this layer needs to know which.' },
+                {
+                  title: 'No user table',
+                  body: 'Accounts aren’t stored with you. There’s no password database to protect, and nothing to leak.',
+                },
+                {
+                  title: 'One account, every app',
+                  body: 'People make an account once, kept in their password manager or a passkey, and use it in every Weave app. No company can shut it off.',
+                },
+                {
+                  title: 'Everything is signed',
+                  body: 'Every change carries the signature of whoever made it, even when it’s encrypted. So any device can check who did what, even ones that can’t read it.',
+                },
+                {
+                  title: 'Any signer',
+                  body: 'A key in the browser, an account home, or anything else that can sign. Nothing above this layer needs to know which.',
+                },
               ]}
             />
             <Layer
@@ -522,10 +647,22 @@ export function Developers() {
               {...toggle('Storage')}
               what="Kept on your users' devices, so your app is fast, works offline, and isn't on your bill."
               parts={[
-                { title: 'Fast, because it’s local', body: 'Reads and writes happen on the device. No round trip to a server, no loading spinners.' },
-                { title: 'Offline by default', body: 'Your app keeps working on a plane, and catches up when it’s back online.' },
-                { title: 'One folder, every app', body: 'Keep data in the browser, or in a folder on the person’s own computer. Every app they use, on any website, sees the same folder.' },
-                { title: 'No database bill', body: 'You don’t store your users’ data, so more users don’t mean a bigger database.' },
+                {
+                  title: 'Fast, because it’s local',
+                  body: 'Reads and writes happen on the device. No round trip to a server, no loading spinners.',
+                },
+                {
+                  title: 'Offline by default',
+                  body: 'Your app keeps working on a plane, and catches up when it’s back online.',
+                },
+                {
+                  title: 'One folder, every app',
+                  body: 'Keep data in the browser, or in a folder on the person’s own computer. Every app they use, on any website, sees the same folder.',
+                },
+                {
+                  title: 'No database bill',
+                  body: 'You don’t store your users’ data, so more users don’t mean a bigger database.',
+                },
               ]}
             />
             <Layer
@@ -533,11 +670,26 @@ export function Developers() {
               {...toggle('Network & sync')}
               what="Devices sync directly. You don't run the servers in between."
               parts={[
-                { title: 'Live, device to device', body: 'Changes go straight between devices and show up in real time.' },
-                { title: 'Relays you choose', body: 'Relays help devices find each other, and can’t read what passes through them. Use a public one, run your own, or several at once.' },
-                { title: 'Sends only what changed', body: 'However big a space gets, syncing costs about as much as the change itself.' },
-                { title: 'Online when devices sleep', body: 'An always-on node keeps data available while your users’ devices are off. It can be one that holds no keys, passing data along without reading it.' },
-                { title: 'Nothing bad gets in', body: 'Every change is checked on arrival: who signed it, its shape, and whether they were allowed. The rest is dropped.' },
+                {
+                  title: 'Live, device to device',
+                  body: 'Changes go straight between devices and show up in real time.',
+                },
+                {
+                  title: 'Relays you choose',
+                  body: 'Relays help devices find each other, and can’t read what passes through them. Use a public one, run your own, or several at once.',
+                },
+                {
+                  title: 'Sends only what changed',
+                  body: 'However big a space gets, syncing costs about as much as the change itself.',
+                },
+                {
+                  title: 'Online when devices sleep',
+                  body: 'An always-on node keeps data available while your users’ devices are off. It can be one that holds no keys, passing data along without reading it.',
+                },
+                {
+                  title: 'Nothing bad gets in',
+                  body: 'Every change is checked on arrival: who signed it, its shape, and whether they were allowed. The rest is dropped.',
+                },
               ]}
             />
           </div>
@@ -550,8 +702,8 @@ export function Developers() {
             <div>
               <h3>A node is the whole stack</h3>
               <p>
-                Give it something that signs for the user and somewhere to store things. It handles session keys,
-                delegation renewal, encryption, validation and sync.
+                Give it something that signs for the user and somewhere to store things. It handles session
+                keys, delegation renewal, encryption, validation and sync.
               </p>
               <ul>
                 <li>
@@ -561,13 +713,13 @@ export function Developers() {
                   <code>network</code>: relays to meet peers; an always-on node for availability
                 </li>
                 <li>
-                  <code>signer</code>: a local key, or anything that can sign — an account home, a hardware key
+                  <code>signer</code>: a local key, or anything that can sign — an account home, a hardware
+                  key
                 </li>
               </ul>
             </div>
             <Code file="node.ts">{NODE}</Code>
           </div>
-
         </div>
       </section>
 
@@ -577,8 +729,8 @@ export function Developers() {
             <div className="kicker">Guide</div>
             <h2>Build a poll, step by step.</h2>
             <p>
-              Questions, options, one vote each, live results, and rules nobody can get around. There's no server
-              anywhere: every rule below is checked by every device.
+              Questions, options, one vote each, live results, and rules nobody can get around. There's no
+              server anywhere: every rule below is checked by every device.
             </p>
           </div>
 
@@ -587,12 +739,13 @@ export function Developers() {
               <div className="step-label">Step 1</div>
               <h3>Say what a poll is</h3>
               <p>
-                Describe the shape with the validator you already use, and say who may do what. The definition is saved
-                in the space itself, so another app, or an agent, opens it and knows what a poll is without your code.
+                Describe the shape with the validator you already use, and say who may do what. The definition
+                is saved in the space itself, so another app, or an agent, opens it and knows what a poll is
+                without your code.
               </p>
               <p>
-                The options are fixed once a poll is asked, because votes point at them. Only the asker can edit, and
-                moderators can remove it.
+                The options are fixed once a poll is asked, because votes point at them. Only the asker can
+                edit, and moderators can remove it.
               </p>
             </div>
             <Code file="poll.ts">{STEP_POLL}</Code>
@@ -603,12 +756,13 @@ export function Developers() {
               <div className="step-label">Step 2</div>
               <h3>One vote per person</h3>
               <p>
-                A vote points at its poll. <code>onePer</code> makes the vote's key out of who voted and which poll,
-                so there can only ever be one. Nobody has to look through every vote to stop a second one.
+                A vote points at its poll. <code>onePer</code> makes the vote's key out of who voted and which
+                poll, so there can only ever be one. Nobody has to look through every vote to stop a second
+                one.
               </p>
               <p>
-                The <code>x-choicesFrom</code> hint says the number picks from the poll's options, so a generic app
-                shows "Lisbon" and can count the votes without knowing what a poll is.
+                The <code>x-choicesFrom</code> hint says the number picks from the poll's options, so a
+                generic app shows "Lisbon" and can count the votes without knowing what a poll is.
               </p>
             </div>
             <Code file="vote.ts">{STEP_VOTE}</Code>
@@ -619,8 +773,8 @@ export function Developers() {
               <div className="step-label">Step 3</div>
               <h3>Ask, and vote</h3>
               <p>
-                Records are signed and saved on the device first, then synced to everyone in the space. Changing your
-                vote is just voting again. Taking it back is a delete.
+                Records are signed and saved on the device first, then synced to everyone in the space.
+                Changing your vote is just voting again. Taking it back is a delete.
               </p>
             </div>
             <Code file="ask.ts">{STEP_USE}</Code>
@@ -631,9 +785,10 @@ export function Developers() {
               <div className="step-label">Step 4</div>
               <h3>Count the votes, live</h3>
               <p>
-                Queries are plain JSON: Mongo-style filters, Prisma-style <code>include</code> to pull in the votes
-                that point at each poll. Name collections by their definitions, and the results are typed from your
-                schemas, votes included. Watch one, and it runs again whenever a vote arrives from anyone.
+                Queries are plain JSON: Mongo-style filters, Prisma-style <code>include</code> to pull in the
+                votes that point at each poll. Name collections by their definitions, and the results are
+                typed from your schemas, votes included. Watch one, and it runs again whenever a vote arrives
+                from anyone.
               </p>
             </div>
             <Code file="results.ts">{STEP_COUNT}</Code>
@@ -644,17 +799,18 @@ export function Developers() {
               <div className="step-label">Step 5</div>
               <h3>Try to cheat</h3>
               <p>
-                Your app refuses a broken rule before anything is signed, with the reason. An app that skips the
-                checks gets nowhere either: every device checks every record that arrives, and they all reach the same
-                verdict.
+                Your app refuses a broken rule before anything is signed, with the reason. An app that skips
+                the checks gets nowhere either: every device checks every record that arrives, and they all
+                reach the same verdict.
               </p>
               <ul>
                 <li>
-                  Rules name <code>member</code>, <code>creator</code>, or <code>can:</code> a permission you declare
+                  Rules name <code>member</code>, <code>creator</code>, or <code>can:</code> a permission you
+                  declare
                 </li>
                 <li>
-                  Roles live in the space. Start from <code>rolePresets</code>: <code>solo</code>, <code>team</code>,{' '}
-                  <code>community</code>
+                  Roles live in the space. Start from <code>rolePresets</code>: <code>solo</code>,{' '}
+                  <code>team</code>, <code>community</code>
                 </li>
               </ul>
             </div>
@@ -669,21 +825,21 @@ export function Developers() {
             <div>
               <h3>Or skip to the end</h3>
               <p>
-                The protocol has no built-in kinds of record. For the things nearly every app needs, there's an optional
-                library of ready-made definitions, including the poll you just built.
+                The protocol has no built-in kinds of record. For the things nearly every app needs, there's
+                an optional library of ready-made definitions, including the poll you just built.
               </p>
               <p>
-                They're ordinary collections, nothing special. Using the same ones is simply how two apps agree: a poll
-                asked in one can be voted on in another. Prefer your own shape? Define your own.
+                They're ordinary collections, nothing special. Using the same ones is simply how two apps
+                agree: a poll asked in one can be voted on in another. Prefer your own shape? Define your own.
               </p>
               <ul>
                 <li>
-                  On anything: <code>reaction</code>, <code>comment</code>, <code>tag</code>, <code>attachment</code>,{' '}
-                  <code>reference</code>
+                  On anything: <code>reaction</code>, <code>comment</code>, <code>tag</code>,{' '}
+                  <code>attachment</code>, <code>reference</code>
                 </li>
                 <li>
-                  Things of their own: <code>message</code>, <code>task</code>, <code>column</code>, <code>poll</code>,{' '}
-                  <code>vote</code>
+                  Things of their own: <code>message</code>, <code>task</code>, <code>column</code>,{' '}
+                  <code>poll</code>, <code>vote</code>
                 </li>
                 <li>
                   <code>useSchemas</code> defines only what a space is missing
@@ -697,12 +853,14 @@ export function Developers() {
             <div>
               <h3>Built for agents, too</h3>
               <p>
-                Every operation is described once — a name, a sentence, a JSON Schema — and becomes a CLI command, an MCP
-                tool and a WebMCP tool in the browser.
+                Every operation is described once — a name, a sentence, a JSON Schema — and becomes a CLI
+                command, an MCP tool and a WebMCP tool in the browser.
               </p>
               <p>An agent acts as the user, with the same permissions as the app it's in.</p>
             </div>
-            <Code file="terminal" lang="shell">{AGENTS}</Code>
+            <Code file="terminal" lang="shell">
+              {AGENTS}
+            </Code>
           </div>
         </div>
       </section>
@@ -713,8 +871,8 @@ export function Developers() {
             <div className="kicker">Compared</div>
             <h2>Where Weave fits.</h2>
             <p>
-              Other open protocols give people their data back too. They make different bets. Weave is for apps where data
-              is private, shared between a few people, and works offline.
+              Other open protocols give people their data back too. They make different bets. Weave is for
+              apps where data is private, shared between a few people, and works offline.
             </p>
           </div>
           <div className="table-wrap">
@@ -747,7 +905,9 @@ export function Developers() {
       <section className="cta">
         <div className="wrap">
           <h2>Start with the example.</h2>
-          <p>A general app for any Weave data — every screen worked out from what a space says about itself.</p>
+          <p>
+            A general app for any Weave data — every screen worked out from what a space says about itself.
+          </p>
           <div className="actions">
             <a href="/app" className="btn btn-primary">
               Open the example app

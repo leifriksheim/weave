@@ -57,7 +57,9 @@ export function generateInviteSecret(): Uint8Array {
 }
 
 async function expand(secret: Uint8Array, info: string): Promise<Uint8Array> {
-  const material = await globalThis.crypto.subtle.importKey('raw', secret as BufferSource, 'HKDF', false, ['deriveBits']);
+  const material = await globalThis.crypto.subtle.importKey('raw', secret as BufferSource, 'HKDF', false, [
+    'deriveBits',
+  ]);
   const bits = await globalThis.crypto.subtle.deriveBits(
     { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8Encode(info) as BufferSource },
     material,
@@ -126,13 +128,16 @@ export function spaceIdOf(genesis: SpaceGenesis): Promise<string> {
 
 /** Why a set of starting roles cannot found a space, or null */
 export function checkStartingRoles(roles: unknown, creatorRole: unknown): string | null {
-  if (!Array.isArray(roles) || roles.length === 0 || roles.length > 64) return 'A space starts with 1–64 roles';
+  if (!Array.isArray(roles) || roles.length === 0 || roles.length > 64)
+    return 'A space starts with 1–64 roles';
   for (const role of roles) {
     const problem = checkRole(role);
     if (problem) return problem;
   }
-  if (new Set(roles.map((role: { name: string }) => role.name)).size !== roles.length) return 'Two starting roles share a name';
-  if (!roles.some((role: { name: string }) => role.name === creatorRole)) return 'The creator\'s role is not one of the starting roles';
+  if (new Set(roles.map((role: { name: string }) => role.name)).size !== roles.length)
+    return 'Two starting roles share a name';
+  if (!roles.some((role: { name: string }) => role.name === creatorRole))
+    return "The creator's role is not one of the starting roles";
   return null;
 }
 
@@ -144,12 +149,16 @@ export async function checkSpace(space: Space): Promise<string | null> {
   if (typeof space?.id !== 'string' || typeof space.nonce !== 'string' || typeof space.creator !== 'string') {
     return 'It is missing what identifies it';
   }
-  if (space.visibility !== 'public' && space.visibility !== 'private') return 'Its visibility is not public or private';
+  if (space.visibility !== 'public' && space.visibility !== 'private')
+    return 'Its visibility is not public or private';
   const roles = checkStartingRoles(space.roles, space.creatorRole);
   if (roles) return roles;
-  if (space.visibility === 'private' && (!space.readKey || !space.encryptionKeyId)) return 'A private space must name its read key';
-  if (space.visibility === 'public' && (space.readKey || space.encryptionKeyId)) return 'A public space has no read key';
-  if ((await spaceIdOf(spaceGenesis(space))) !== space.id) return 'Its id does not match what it says about itself';
+  if (space.visibility === 'private' && (!space.readKey || !space.encryptionKeyId))
+    return 'A private space must name its read key';
+  if (space.visibility === 'public' && (space.readKey || space.encryptionKeyId))
+    return 'A public space has no read key';
+  if ((await spaceIdOf(spaceGenesis(space))) !== space.id)
+    return 'Its id does not match what it says about itself';
   return null;
 }
 
@@ -182,7 +191,8 @@ export const memberKeyRecordKey = (did: string) => hashKey('memberkey', did);
 /** Where the sealed copies of a changed space key live, one per member: `{ keyId, to, sealed }` */
 export const BOX_COLLECTION = 'sys.box';
 /** What the earlier keys a key record carries are bound to */
-export const earlierKeysContext = (spaceId: string, keyId: string) => `weave/space-earlier-keys/v1|${spaceId}|${keyId}`;
+export const earlierKeysContext = (spaceId: string, keyId: string) =>
+  `weave/space-earlier-keys/v1|${spaceId}|${keyId}`;
 /** What a reader's note, sealed for a connection, is bound to (`network/peer-auth.ts`) */
 export const membershipContext = (spaceId: string) => `weave/space-membership/v1|${spaceId}`;
 /** The one record key the space's relay list is a version of */
@@ -194,17 +204,29 @@ export const SPACE_KEY_RECORD = 'key:space';
 /** The key of a sealed copy of a space key: one per key, recipient and sender */
 export const boxKey = (keyId: string, to: string, from: string) => hashKey('box', `${keyId}|${to}|${from}`);
 /** What a box is bound to, so one moved to another space, key or person doesn't open */
-export const boxContext = (spaceId: string, keyId: string, to: string) => `weave/space-key-box/v1|${spaceId}|${keyId}|${to}`;
+export const boxContext = (spaceId: string, keyId: string, to: string) =>
+  `weave/space-key-box/v1|${spaceId}|${keyId}|${to}`;
 
 const inviteLabel = (spaceId: string, did: string) => utf8Encode(`${INVITE_INFO}|${spaceId}|${did}`);
 
 /** An invite key's signature, letting `did` join `spaceId` — what a member record carries when it joins by invite */
-export async function signInvite(spaceId: string, did: string, invite: SpaceKeyPair, provider: CryptoProvider): Promise<string> {
+export async function signInvite(
+  spaceId: string,
+  did: string,
+  invite: SpaceKeyPair,
+  provider: CryptoProvider,
+): Promise<string> {
   return base64UrlEncode(await provider.sign(invite.privateKey, inviteLabel(spaceId, did)));
 }
 
 /** Whether an invite key signed for `did` to join `spaceId` */
-export async function verifyInvite(spaceId: string, did: string, inviteDid: string, signature: string, provider: CryptoProvider): Promise<boolean> {
+export async function verifyInvite(
+  spaceId: string,
+  did: string,
+  inviteDid: string,
+  signature: string,
+  provider: CryptoProvider,
+): Promise<boolean> {
   try {
     const publicKey = await provider.importPublicKey(didToPublicKey(inviteDid).publicKeyBytes);
     return await provider.verify(publicKey, base64UrlDecode(signature), inviteLabel(spaceId, did));

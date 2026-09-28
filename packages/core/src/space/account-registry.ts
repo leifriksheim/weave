@@ -70,7 +70,13 @@ export interface Carrier {
 }
 
 async function expand(accountKey: Uint8Array, info: string): Promise<Uint8Array> {
-  const material = await globalThis.crypto.subtle.importKey('raw', accountKey as BufferSource, 'HKDF', false, ['deriveBits']);
+  const material = await globalThis.crypto.subtle.importKey(
+    'raw',
+    accountKey as BufferSource,
+    'HKDF',
+    false,
+    ['deriveBits'],
+  );
   const bits = await globalThis.crypto.subtle.deriveBits(
     { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8Encode(info) as BufferSource },
     material,
@@ -115,10 +121,13 @@ async function deriveAccountSpace(
 ): Promise<SpaceRecord> {
   const nonce = base64UrlEncode((await expand(accountKey, `${label}/nonce/v1`)).subarray(0, 12));
   const keyBytes = await expand(accountKey, `${label}/key/v1`);
-  const cryptoKey = await globalThis.crypto.subtle.importKey('raw', keyBytes as BufferSource, { name: 'AES-GCM', length: 256 }, true, [
-    'encrypt',
-    'decrypt',
-  ]);
+  const cryptoKey = await globalThis.crypto.subtle.importKey(
+    'raw',
+    keyBytes as BufferSource,
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt'],
+  );
   const createdAt = new Date(0).toISOString(); // fixed, so every device derives the same record
   const key: SpaceKey = Object.freeze({
     id: base64UrlEncode(await sha256(keyBytes)),

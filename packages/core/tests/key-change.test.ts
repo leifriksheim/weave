@@ -76,7 +76,10 @@ describe('when a new key is due', () => {
     const changed = newKey('alice', 'k1', [removed.id]);
     const history = replayAccess(genesis, [bob, removed, changed]);
     assert.equal(history.current.keyDue, false);
-    assert.deepEqual(history.current.keys.map((key) => key.keyId), ['k0', 'k1']);
+    assert.deepEqual(
+      history.current.keys.map((key) => key.keyId),
+      ['k0', 'k1'],
+    );
   });
 
   test('leaving yourself makes one due too', () => {
@@ -149,7 +152,9 @@ async function until(predicate: () => Promise<boolean>, ms = 6000, what = 'condi
 
 /** Whether a node reads a note with this text */
 const readsOn = async (node: P2PNode, space: string, text: string) =>
-  (await node.records.list<{ text: string }>(space, { collection: 'app.note' })).some((note) => note.body?.text === text);
+  (await node.records.list<{ text: string }>(space, { collection: 'app.note' })).some(
+    (note) => note.body?.text === text,
+  );
 const reads = (who: Person, space: string, text: string) => readsOn(who.node, space, text);
 
 /** Whether a note with this text has reached someone — readable or not */
@@ -181,7 +186,12 @@ describe('removing someone from a private space', () => {
     const { alice, bob, carol, space } = await team3();
     await alice.node.spaces.setMember(space, carol.node.did, null);
     await until(async () => (await keyChanges(alice, space))?.changes === 1, 6000, 'a new key');
-    await until(async () => (await keyChanges(bob, space))?.held === true && (await keyChanges(bob, space))?.changes === 1, 6000, 'Bob to get it');
+    await until(
+      async () =>
+        (await keyChanges(bob, space))?.held === true && (await keyChanges(bob, space))?.changes === 1,
+      6000,
+      'Bob to get it',
+    );
 
     await bob.node.records.put(space, 'app.note', { text: 'after' });
     await until(() => reads(alice, space, 'after'), 6000, 'Alice to read it');
@@ -202,7 +212,11 @@ describe('removing someone from a private space', () => {
     const dave = await person(hub);
     await dave.node.spaces.join(await alice.node.spaces.invite(space));
     await hold(dave.node, space);
-    await until(async () => (await reads(dave, space, 'after')) && (await reads(dave, space, 'before')), 6000, 'Dave to read both');
+    await until(
+      async () => (await reads(dave, space, 'after')) && (await reads(dave, space, 'before')),
+      6000,
+      'Dave to read both',
+    );
   });
 
   test('a member who was away catches up: the new key waits for them, sealed to them', async () => {
@@ -272,10 +286,14 @@ describe('proving you may read, after the key changed', () => {
 
   test('the current key lets you in; an old one only with a note from someone still a member', async () => {
     const { alice, bob, carol, space } = await team3();
-    const oldKey = await spaceKeyFromRaw(base64UrlDecode(parseSpaceInvite(await alice.node.spaces.invite(space, { write: false })).key!));
+    const oldKey = await spaceKeyFromRaw(
+      base64UrlDecode(parseSpaceInvite(await alice.node.spaces.invite(space, { write: false })).key!),
+    );
     await alice.node.spaces.setMember(space, carol.node.did, null);
     await until(async () => (await keyChanges(alice, space))?.changes === 1, 6000, 'a new key');
-    const newKey = await spaceKeyFromRaw(base64UrlDecode(parseSpaceInvite(await alice.node.spaces.invite(space, { write: false })).key!));
+    const newKey = await spaceKeyFromRaw(
+      base64UrlDecode(parseSpaceInvite(await alice.node.spaces.invite(space, { write: false })).key!),
+    );
     assert.notEqual(newKey.id, oldKey.id);
 
     const server = (await alice.node.spaces.authenticator(space))!;
@@ -283,13 +301,21 @@ describe('proving you may read, after the key changed', () => {
     const tries = async (who: Person, key: SpaceKey, withNote: boolean) => {
       const me = await session(who, space);
       const read = reader(space, key, withNote ? me.note : null);
-      const hello = await createClientAuth(space, { did: me.did, key: me.key }, read, provider).hello(me.did, nodeDid, 'nonce');
+      const hello = await createClientAuth(space, { did: me.did, key: me.key }, read, provider).hello(
+        me.did,
+        nodeDid,
+        'nonce',
+      );
       return server.checkHello(me.did, nodeDid, 'nonce', hello);
     };
 
     assert.equal(await tries(bob, newKey, false), true, 'the current key');
     assert.equal(await tries(bob, oldKey, true), true, 'an old key, from a member');
-    assert.equal(await tries(bob, oldKey, false), false, 'an old key alone — a view-only link from before, say');
+    assert.equal(
+      await tries(bob, oldKey, false),
+      false,
+      'an old key alone — a view-only link from before, say',
+    );
     assert.equal(await tries(carol, oldKey, true), false, 'an old key, from someone removed');
   });
 });
@@ -322,14 +348,22 @@ describe('everything else that holds a space follows its new key', () => {
     const { id: space } = await alice.node.spaces.create({ name: 'Notes', visibility: 'private' });
     const added = await alice.node.carriers.add({ did: 'did:key:zCarrier', name: 'Chrome' });
     const passReadKey = async () => {
-      const passes = await alice.node.records.list<{ space: { id: string }; readKey?: string }>(added.space, { collection: 'sys.pass' });
+      const passes = await alice.node.records.list<{ space: { id: string }; readKey?: string }>(added.space, {
+        collection: 'sys.pass',
+      });
       return passes.find((pass) => pass.body?.space.id === space)?.body?.readKey ?? null;
     };
-    await until(async () => (await alice.node.records.list(added.space, { collection: 'sys.pass' })).length > 0, 6000, 'the passes');
+    await until(
+      async () => (await alice.node.records.list(added.space, { collection: 'sys.pass' })).length > 0,
+      6000,
+      'the passes',
+    );
     assert.equal(await passReadKey(), null, 'the first key: the space vouches for it');
 
     await alice.node.spaces.changeKey(space);
-    const key = await spaceKeyFromRaw(base64UrlDecode(parseSpaceInvite(await alice.node.spaces.invite(space, { write: false })).key!));
+    const key = await spaceKeyFromRaw(
+      base64UrlDecode(parseSpaceInvite(await alice.node.spaces.invite(space, { write: false })).key!),
+    );
     const readKey = (await deriveReadKey(key, provider)).did;
     await until(async () => (await passReadKey()) === readKey, 6000, 'the pass to carry the new read key');
   });

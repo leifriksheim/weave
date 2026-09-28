@@ -1,4 +1,12 @@
-import { createContext, createElement, useContext, useEffect, useSyncExternalStore, type ReactElement, type ReactNode } from 'react';
+import {
+  createContext,
+  createElement,
+  useContext,
+  useEffect,
+  useSyncExternalStore,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import type { AuthState, WeaveAuth, WeaveSession } from '../session/auth.js';
 import type { ConnectionState, WeaveConnection } from '../session/connection.js';
 import type { P2PNode } from '../node/types.js';
@@ -26,17 +34,22 @@ function useStore<S>(store: Store<S> | null): S | null {
   useEffect(() => {
     void store?.start();
   }, [store]);
-  return useSyncExternalStore<S | null>(store ? store.subscribe : never, store ? store.getState : nothing, store ? store.getState : nothing);
+  return useSyncExternalStore<S | null>(
+    store ? store.subscribe : never,
+    store ? store.getState : nothing,
+    store ? store.getState : nothing,
+  );
 }
 
-export type WeaveProviderProps = { readonly children?: ReactNode } & (
+export type WeaveProviderProps = { readonly children?: ReactNode } &
   /** The account itself, signed in on this site — an account home */
-  | { readonly auth: WeaveAuth; readonly connection?: undefined; readonly node?: undefined }
-  /** An app acting for an account through its home — `createWeaveConnection` */
-  | { readonly connection: WeaveConnection; readonly auth?: undefined; readonly node?: undefined }
-  /** A node you started yourself */
-  | { readonly node: P2PNode; readonly auth?: undefined; readonly connection?: undefined }
-);
+  (
+    | { readonly auth: WeaveAuth; readonly connection?: undefined; readonly node?: undefined }
+    /** An app acting for an account through its home — `createWeaveConnection` */
+    | { readonly connection: WeaveConnection; readonly auth?: undefined; readonly node?: undefined }
+    /** A node you started yourself */
+    | { readonly node: P2PNode; readonly auth?: undefined; readonly connection?: undefined }
+  );
 
 /**
  * Makes Weave available to every component below it, so they ask for what
@@ -53,14 +66,25 @@ export function WeaveProvider(props: WeaveProviderProps): ReactElement {
   const connection = props.connection ?? null;
   const authState = useStore<AuthState>(auth);
   const connectionState = useStore<ConnectionState>(connection);
-  const node = props.node ?? authState?.session?.node ?? (connectionState?.status === 'ready' ? connectionState.node : null);
+  const node =
+    props.node ??
+    authState?.session?.node ??
+    (connectionState?.status === 'ready' ? connectionState.node : null);
   return createElement(WeaveContext.Provider, { value: { auth, connection, node } }, props.children);
 }
 
 /** The sign-in flow from the nearest `WeaveProvider`, and its state — or nulls, for an app that connects instead. */
-export function useWeave(): { auth: WeaveAuth | null; state: AuthState | null; session: WeaveSession | null } {
+export function useWeave(): {
+  auth: WeaveAuth | null;
+  state: AuthState | null;
+  session: WeaveSession | null;
+} {
   const { auth } = useContext(WeaveContext);
-  const state = useSyncExternalStore<AuthState | null>(auth ? auth.subscribe : never, auth ? auth.getState : nothing, auth ? auth.getState : nothing);
+  const state = useSyncExternalStore<AuthState | null>(
+    auth ? auth.subscribe : never,
+    auth ? auth.getState : nothing,
+    auth ? auth.getState : nothing,
+  );
   return { auth, state, session: state?.session ?? null };
 }
 
@@ -97,7 +121,8 @@ export function useConnection(): { connection: WeaveConnection; state: Connectio
     connection ? connection.getState : nothing,
     connection ? connection.getState : nothing,
   );
-  if (!connection || !state) throw new Error('useConnection needs a WeaveProvider with a connection above it.');
+  if (!connection || !state)
+    throw new Error('useConnection needs a WeaveProvider with a connection above it.');
   return { connection, state };
 }
 
@@ -108,7 +133,11 @@ export function useConnection(): { connection: WeaveConnection; state: Connectio
  */
 export function useAccount(): { did: string; name: string } {
   const { auth, connection } = useContext(WeaveContext);
-  const authState = useSyncExternalStore<AuthState | null>(auth ? auth.subscribe : never, auth ? auth.getState : nothing, auth ? auth.getState : nothing);
+  const authState = useSyncExternalStore<AuthState | null>(
+    auth ? auth.subscribe : never,
+    auth ? auth.getState : nothing,
+    auth ? auth.getState : nothing,
+  );
   const connectionState = useSyncExternalStore<ConnectionState | null>(
     connection ? connection.subscribe : never,
     connection ? connection.getState : nothing,

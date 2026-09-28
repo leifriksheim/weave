@@ -47,7 +47,11 @@ const node = await createNode({
 const { id: space } = await node.spaces.create({ name: 'Canvas', ...team, visibility: 'private' });
 await node.collections.define(space, {
   name: 'app.pixels.cell',
-  schema: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' }, color: { type: 'string' } }, required: ['x', 'y', 'color'] },
+  schema: {
+    type: 'object',
+    properties: { x: { type: 'integer' }, y: { type: 'integer' }, color: { type: 'string' } },
+    required: ['x', 'y', 'color'],
+  },
   rules: { create: 'member', edit: 'member', delete: 'member', fixed: ['x', 'y'] },
 } as never);
 
@@ -57,7 +61,10 @@ async function measure(what: string, run: () => Promise<unknown>, per = N) {
   const t = performance.now();
   await run();
   const ms = performance.now() - t;
-  console.log(`${what}: ${ms.toFixed(0)}ms (${(ms / per).toFixed(2)}ms each), ${calls} store calls (${(calls / per).toFixed(1)} each)`, JSON.stringify(byName));
+  console.log(
+    `${what}: ${ms.toFixed(0)}ms (${(ms / per).toFixed(2)}ms each), ${calls} store calls (${(calls / per).toFixed(1)} each)`,
+    JSON.stringify(byName),
+  );
 }
 
 const key = (i: number) => `px.${i % 32}.${Math.floor(i / 32)}`;
@@ -65,17 +72,24 @@ const body = (i: number, color: string) => ({ x: i % 32, y: Math.floor(i / 32), 
 const list = () => node.records.list(space, { collection: 'app.pixels.cell' });
 
 await measure('put', async () => {
-  for (let i = 0; i < N; i++) await node.records.put(space, 'app.pixels.cell', body(i, '#ff004d'), { key: key(i) });
+  for (let i = 0; i < N; i++)
+    await node.records.put(space, 'app.pixels.cell', body(i, '#ff004d'), { key: key(i) });
 });
 await measure('list', list, 1);
 await measure('list again', list, 1);
 await measure('delete, 16 at a time', async () => {
-  for (let i = 0; i < N; i += 16) await Promise.all(Array.from({ length: Math.min(16, N - i) }, (_, j) => node.records.delete(space, key(i + j))));
+  for (let i = 0; i < N; i += 16)
+    await Promise.all(
+      Array.from({ length: Math.min(16, N - i) }, (_, j) => node.records.delete(space, key(i + j))),
+    );
 });
-for (let i = 0; i < N; i++) await node.records.put(space, 'app.pixels.cell', body(i, '#29adff'), { key: key(i) });
+for (let i = 0; i < N; i++)
+  await node.records.put(space, 'app.pixels.cell', body(i, '#29adff'), { key: key(i) });
 await measure('delete with a list per 16, as the app does', async () => {
   for (let i = 0; i < N; i += 16) {
-    await Promise.all(Array.from({ length: Math.min(16, N - i) }, (_, j) => node.records.delete(space, key(i + j))));
+    await Promise.all(
+      Array.from({ length: Math.min(16, N - i) }, (_, j) => node.records.delete(space, key(i + j))),
+    );
     await list();
   }
 });

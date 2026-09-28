@@ -23,7 +23,7 @@ export async function deriveKeyPair(seed: Uint8Array, provider: CryptoProvider):
   return Object.freeze({
     publicKey: keyPair.publicKey,
     privateKey: keyPair.privateKey,
-    publicKeyBytes
+    publicKeyBytes,
   });
 }
 
@@ -34,14 +34,18 @@ export async function deriveKeyPair(seed: Uint8Array, provider: CryptoProvider):
  * @param {CryptoProvider} provider The cryptography provider.
  * @returns {Promise<DerivedKeyPair>} The derived key pair.
  */
-export async function deriveKeyFromPassword(password: string, salt: Uint8Array, provider: CryptoProvider): Promise<DerivedKeyPair> {
+export async function deriveKeyFromPassword(
+  password: string,
+  salt: Uint8Array,
+  provider: CryptoProvider,
+): Promise<DerivedKeyPair> {
   const encoder = new TextEncoder();
   const passwordKey = await globalThis.crypto.subtle.importKey(
     'raw',
     encoder.encode(password),
     { name: 'PBKDF2' },
     false,
-    ['deriveBits']
+    ['deriveBits'],
   );
 
   const derivedBits = await globalThis.crypto.subtle.deriveBits(
@@ -49,10 +53,10 @@ export async function deriveKeyFromPassword(password: string, salt: Uint8Array, 
       name: 'PBKDF2',
       hash: 'SHA-256',
       salt: salt as BufferSource,
-      iterations: 100000
+      iterations: 100000,
     },
     passwordKey,
-    256
+    256,
   );
 
   return deriveKeyPair(new Uint8Array(derivedBits), provider);

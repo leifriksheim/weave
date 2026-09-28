@@ -21,7 +21,12 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
-import { peerNonce, type PeerTransport, type PeerTransportEvents, type ServerAuth } from '@weaveprotocol/core';
+import {
+  peerNonce,
+  type PeerTransport,
+  type PeerTransportEvents,
+  type ServerAuth,
+} from '@weaveprotocol/core';
 import { createRelay, turnFromEnv, MAX_MESSAGE_BYTES as RELAY_MAX_MESSAGE_BYTES } from '@weaveprotocol/relay';
 
 // ─── Inbound peers ─────────────────────────────────────────────────────
@@ -35,7 +40,10 @@ function createSpacePeers(): SpacePeers {
   const sockets = new Map<string, WebSocket>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const listeners: { [K in keyof PeerTransportEvents]?: Set<any> } = {};
-  const emit = <K extends keyof PeerTransportEvents>(event: K, ...args: Parameters<PeerTransportEvents[K]>) => {
+  const emit = <K extends keyof PeerTransportEvents>(
+    event: K,
+    ...args: Parameters<PeerTransportEvents[K]>
+  ) => {
     for (const callback of listeners[event] ?? []) {
       try {
         callback(...args);
@@ -140,13 +148,31 @@ export interface Served {
   close(): Promise<void>;
 }
 
-function parseHello(data: RawData, isBinary: boolean): { did: string; nonce: string; proof: Record<string, unknown> } | null {
+function parseHello(
+  data: RawData,
+  isBinary: boolean,
+): { did: string; nonce: string; proof: Record<string, unknown> } | null {
   if (isBinary) return null;
   try {
-    const hello = JSON.parse(String(data)) as { type?: unknown; did?: unknown; nonce?: unknown; sig?: unknown; read?: unknown; readKey?: unknown; member?: unknown };
+    const hello = JSON.parse(String(data)) as {
+      type?: unknown;
+      did?: unknown;
+      nonce?: unknown;
+      sig?: unknown;
+      read?: unknown;
+      readKey?: unknown;
+      member?: unknown;
+    };
     // The whole proof: a reader behind on the space's key proves an older one, with its note sealed under it.
-    return hello.type === 'hello' && typeof hello.did === 'string' && DID_PATTERN.test(hello.did) && typeof hello.nonce === 'string'
-      ? { did: hello.did, nonce: hello.nonce, proof: { sig: hello.sig, read: hello.read, readKey: hello.readKey, member: hello.member } }
+    return hello.type === 'hello' &&
+      typeof hello.did === 'string' &&
+      DID_PATTERN.test(hello.did) &&
+      typeof hello.nonce === 'string'
+      ? {
+          did: hello.did,
+          nonce: hello.nonce,
+          proof: { sig: hello.sig, read: hello.read, readKey: hello.readKey, member: hello.member },
+        }
       : null;
   } catch {
     return null;
@@ -158,7 +184,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
   // The same relay as the public one, so the app can meet peers through this node too.
   const relay = createRelay({ turn: turnFromEnv(process.env) });
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
-  const relaySockets = new WebSocketServer({ noServer: true, maxPayload: RELAY_MAX_MESSAGE_BYTES, perMessageDeflate: false, clientTracking: false });
+  const relaySockets = new WebSocketServer({
+    noServer: true,
+    maxPayload: RELAY_MAX_MESSAGE_BYTES,
+    perMessageDeflate: false,
+    clientTracking: false,
+  });
 
   const http = createServer((req, res) => {
     // Up or not, and nothing more: which account runs here, and how much it
@@ -205,7 +236,10 @@ export async function serve(options: ServeOptions): Promise<Served> {
           socket.close(4002, 'expected a hello frame');
           return;
         }
-        if (!authenticator || !(await authenticator.checkHello(hello.did, node.sessionDid, nonce, hello.proof))) {
+        if (
+          !authenticator ||
+          !(await authenticator.checkHello(hello.did, node.sessionDid, nonce, hello.proof))
+        ) {
           socket.close(4003, 'not a reader of this space');
           return;
         }
@@ -225,7 +259,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
   http.on('upgrade', (req: IncomingMessage, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname === '/peer') {
-      sockets.handleUpgrade(req, socket, head, (ws) => void onPeer(ws, url).catch(() => ws.close(1011, 'internal error')));
+      sockets.handleUpgrade(
+        req,
+        socket,
+        head,
+        (ws) => void onPeer(ws, url).catch(() => ws.close(1011, 'internal error')),
+      );
     } else {
       relay.upgrade(relaySockets, req, socket, head);
     }

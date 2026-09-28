@@ -23,8 +23,10 @@ export function createStatefulGate(): StatefulGate {
       const module = await WebAssembly.compile(wasmBytes as BufferSource);
       const instance = await WebAssembly.instantiate(module, {
         env: {
-          abort: () => { throw new Error('Wasm aborted'); }
-        }
+          abort: () => {
+            throw new Error('Wasm aborted');
+          },
+        },
       });
       rules.set(collection, instance);
     },
@@ -48,12 +50,12 @@ export function createStatefulGate(): StatefulGate {
 
         const json = JSON.stringify(expression);
         const bytes = utf8Encode(json);
-        
+
         let ptr = 0;
         if ((instance.exports as any).alloc) {
           ptr = (instance.exports as any).alloc(bytes.length);
         }
-        
+
         const memView = new Uint8Array(memory.buffer);
         memView.set(bytes, ptr);
 
@@ -67,6 +69,6 @@ export function createStatefulGate(): StatefulGate {
       } catch (err: any) {
         return { passed: false, gate: 'stateful', reason: err.message || 'WASM execution error' };
       }
-    }
+    },
   };
 }

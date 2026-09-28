@@ -17,7 +17,14 @@ export const FIELD_TYPES = {
 export type FieldTypeName = keyof typeof FIELD_TYPES;
 
 /** "To do, Doing, Done" → the three, trimmed, without blanks or repeats */
-export const optionsOf = (text = '') => [...new Set(text.split(',').map((o) => o.trim()).filter(Boolean))];
+export const optionsOf = (text = '') => [
+  ...new Set(
+    text
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
+  ),
+];
 
 /** A field's schema from a picked type, and for a choice, its options */
 export function fieldSchema(type: FieldTypeName, options?: string): JsonSchema {
@@ -56,7 +63,15 @@ export const SUGGESTED_LINKS: ReadonlyArray<{ rel: string; description: string }
 
 /** "part of" → "partOf": link names are one lower camel case word */
 export function relFrom(text: string): string {
-  const words = text.trim().replace(/[^a-zA-Z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean);
-  const joined = words.map((w, i) => (i === 0 ? w.charAt(0).toLowerCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1))).join('');
+  const words = text
+    .trim()
+    .replace(/[^a-zA-Z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  const joined = words
+    .map((w, i) =>
+      i === 0 ? w.charAt(0).toLowerCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1),
+    )
+    .join('');
   return joined.replace(/^[^a-z]+/, '').slice(0, 64);
 }

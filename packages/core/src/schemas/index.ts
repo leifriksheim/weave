@@ -53,7 +53,11 @@ export const reaction = typed<Reaction>()({
   name: 'std.reaction',
   title: 'Reaction',
   description: 'An emoji reaction to any record.',
-  schema: { type: 'object', properties: { emoji: { type: 'string', minLength: 1, maxLength: 16 } }, required: ['emoji'] },
+  schema: {
+    type: 'object',
+    properties: { emoji: { type: 'string', minLength: 1, maxLength: 16 } },
+    required: ['emoji'],
+  },
   links: { about: about('The record reacted to') },
   // One of each emoji per person per record; only yours to take back.
   rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about', 'emoji'] },
@@ -67,7 +71,11 @@ export const comment = typed<Comment>()({
   name: 'std.comment',
   title: 'Comment',
   description: 'A comment on any record, optionally replying to another comment.',
-  schema: { type: 'object', properties: { text: { type: 'string', minLength: 1, maxLength: 10000 } }, required: ['text'] },
+  schema: {
+    type: 'object',
+    properties: { text: { type: 'string', minLength: 1, maxLength: 10000 } },
+    required: ['text'],
+  },
   links: {
     about: about('The record commented on'),
     replyTo: { to: ['std.comment'], cardinality: 'one', description: 'The comment this replies to' },
@@ -84,7 +92,11 @@ export const tag = typed<Tag>()({
   name: 'std.tag',
   title: 'Tag',
   description: 'A label on one or more records.',
-  schema: { type: 'object', properties: { label: { type: 'string', minLength: 1, maxLength: 100 } }, required: ['label'] },
+  schema: {
+    type: 'object',
+    properties: { label: { type: 'string', minLength: 1, maxLength: 100 } },
+    required: ['label'],
+  },
   links: { about: { to: '*', cardinality: 'many', description: 'The records tagged' } },
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
@@ -143,7 +155,11 @@ export const message = typed<Message>()({
   name: 'std.message',
   title: 'Message',
   description: 'A chat message, optionally replying to another, or sharing a record.',
-  schema: { type: 'object', properties: { text: { type: 'string', minLength: 1, maxLength: 10000 } }, required: ['text'] },
+  schema: {
+    type: 'object',
+    properties: { text: { type: 'string', minLength: 1, maxLength: 10000 } },
+    required: ['text'],
+  },
   links: {
     replyTo: { to: ['std.message'], cardinality: 'one', description: 'The message this replies to' },
     shares: { to: '*', cardinality: 'one', description: 'A record this message shares, like a poll' },
@@ -184,7 +200,12 @@ export const task = typed<Task>()({
     properties: {
       title: { type: 'string', minLength: 1, maxLength: 500 },
       notes: { type: 'string', maxLength: 10000 },
-      position: { type: 'string', minLength: 1, maxLength: 200, description: 'Sorts where the task goes in its column' },
+      position: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 200,
+        description: 'Sorts where the task goes in its column',
+      },
     },
     required: ['title'],
   },
@@ -229,10 +250,12 @@ export interface Poll {
 export const vote = typed<Vote>()({
   name: 'std.vote',
   title: 'Vote',
-  description: "A vote on a poll: one per person, changed by voting again.",
+  description: 'A vote on a poll: one per person, changed by voting again.',
   schema: {
     type: 'object',
-    properties: { choice: { type: 'integer', minimum: 0, 'x-choicesFrom': { rel: 'about', field: 'options' } } },
+    properties: {
+      choice: { type: 'integer', minimum: 0, 'x-choicesFrom': { rel: 'about', field: 'options' } },
+    },
     required: ['choice'],
   },
   links: { about: { to: ['std.poll'], cardinality: 'one', description: 'The poll voted on' } },
@@ -258,7 +281,12 @@ export const call = typed<Call>()({
       to: { type: 'string', maxLength: 256, description: 'Who was rung, for a missed call' },
       startedAt: { type: 'string', maxLength: 64 },
       endedAt: { type: 'string', maxLength: 64 },
-      people: { type: 'array', items: { type: 'string', maxLength: 256 }, maxItems: 64, description: 'Everyone who was in it' },
+      people: {
+        type: 'array',
+        items: { type: 'string', maxLength: 256 },
+        maxItems: 64,
+        description: 'Everyone who was in it',
+      },
     },
     required: ['status', 'startedAt'],
   },
@@ -273,7 +301,13 @@ export interface Call {
 }
 
 /** Shapes that attach to anything */
-export const standardAnnotations: ReadonlyArray<DefineCollection> = [reaction, comment, tag, attachment, reference];
+export const standardAnnotations: ReadonlyArray<DefineCollection> = [
+  reaction,
+  comment,
+  tag,
+  attachment,
+  reference,
+];
 /** Common nouns apps share */
 export const standardNouns: ReadonlyArray<DefineCollection> = [message, column, task, poll, vote, call];
 /** Everything in the library */
@@ -315,10 +349,16 @@ export function positionBetween(before?: string | null, after?: string | null): 
  * space opens is fine, and it never bumps a definition someone else owns.
  * A space you cannot write in is skipped.
  */
-export async function useSchemas(node: P2PNode, spaceId: string, schemas: ReadonlyArray<DefineCollection>): Promise<void> {
+export async function useSchemas(
+  node: P2PNode,
+  spaceId: string,
+  schemas: ReadonlyArray<DefineCollection>,
+): Promise<void> {
   const summary = await node.spaces.get(spaceId);
   if (!summary?.writable) return;
-  const known = new Set((await node.collections.list(spaceId)).filter((c) => c.version !== null).map((c) => c.name));
+  const known = new Set(
+    (await node.collections.list(spaceId)).filter((c) => c.version !== null).map((c) => c.name),
+  );
   for (const schema of schemas) {
     if (!known.has(schema.name)) await node.collections.define(spaceId, schema);
   }
@@ -326,7 +366,17 @@ export async function useSchemas(node: P2PNode, spaceId: string, schemas: Readon
 
 export { contact, contactRequest, door, knock, knockAnswer } from './contacts.js';
 export type { Contact, ContactRequestRecord, Door, Knock, KnockAnswer } from './contacts.js';
-export { app, appScreen, checkApp, reviewApp, supersededApps, proposeApp, addApp, copyApp, MAX_APP_COLLECTIONS } from './apps.js';
+export {
+  app,
+  appScreen,
+  checkApp,
+  reviewApp,
+  supersededApps,
+  proposeApp,
+  addApp,
+  copyApp,
+  MAX_APP_COLLECTIONS,
+} from './apps.js';
 export { SCREEN_GUIDE, SCREEN_CLIENT, screenDocument, screenPolicy, createScreenBridge } from './screens.js';
 export type { ScreenBridge, ScreenRecord, ScreenViewer } from './screens.js';
 export type { App, AppDefinition, AppReview, AppNeedReview } from './apps.js';

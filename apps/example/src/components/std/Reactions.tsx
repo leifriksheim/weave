@@ -10,7 +10,15 @@ const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];
  * `std.reaction` on a record: each emoji with its count, yours highlighted, a
  * click to add or take back — and a small picker for the rest.
  */
-export function Reactions({ space, target, reactions }: { space: SpaceSummary; target: string; reactions: ReadonlyArray<NodeRecord> }) {
+export function Reactions({
+  space,
+  target,
+  reactions,
+}: {
+  space: SpaceSummary;
+  target: string;
+  reactions: ReadonlyArray<NodeRecord>;
+}) {
   const node = useNode();
   const { did: rootDid } = useAccount();
   const [picking, setPicking] = useState(false);
@@ -29,7 +37,10 @@ export function Reactions({ space, target, reactions }: { space: SpaceSummary; t
   };
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', position: 'relative' }} aria-label="Reactions">
+    <div
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', position: 'relative' }}
+      aria-label="Reactions"
+    >
       {[...byEmoji].map(([emoji, list]) => {
         const mine = list.some((r) => r.root === rootDid);
         return (
@@ -39,7 +50,11 @@ export function Reactions({ space, target, reactions }: { space: SpaceSummary; t
             disabled={!space.writable}
             aria-pressed={mine}
             aria-label={`${emoji} ${list.length}${mine ? ', yours' : ''}`}
-            style={{ ...pill, borderColor: mine ? palette.ink.strong : palette.surface.line, backgroundColor: mine ? palette.surface.sunken : palette.surface.card }}
+            style={{
+              ...pill,
+              borderColor: mine ? palette.ink.strong : palette.surface.line,
+              backgroundColor: mine ? palette.surface.sunken : palette.surface.card,
+            }}
           >
             <span>{emoji}</span>
             <span style={{ fontSize: 12, color: palette.ink.muted }}>{list.length}</span>
@@ -47,14 +62,45 @@ export function Reactions({ space, target, reactions }: { space: SpaceSummary; t
         );
       })}
       {space.writable && (
-        <button onClick={() => setPicking((was) => !was)} aria-label="Add a reaction" style={{ ...pill, color: palette.ink.muted }}>
+        <button
+          onClick={() => setPicking((was) => !was)}
+          aria-label="Add a reaction"
+          style={{ ...pill, color: palette.ink.muted }}
+        >
           ☺︎+
         </button>
       )}
       {picking && (
-        <div role="menu" style={{ position: 'absolute', top: 34, left: 0, zIndex: 5, display: 'flex', gap: 2, padding: 4, background: palette.surface.card, border: `1px solid ${palette.surface.line}`, borderRadius: 8, boxShadow: '0 8px 24px -12px rgba(0,0,0,.2)' }}>
+        <div
+          role="menu"
+          style={{
+            position: 'absolute',
+            top: 34,
+            left: 0,
+            zIndex: 5,
+            display: 'flex',
+            gap: 2,
+            padding: 4,
+            background: palette.surface.card,
+            border: `1px solid ${palette.surface.line}`,
+            borderRadius: 8,
+            boxShadow: '0 8px 24px -12px rgba(0,0,0,.2)',
+          }}
+        >
           {QUICK.map((emoji) => (
-            <button key={emoji} role="menuitem" onClick={() => toggle(emoji)} aria-label={`React ${emoji}`} style={{ border: 'none', background: 'none', fontSize: 18, padding: '4px 6px', borderRadius: 6 }}>
+            <button
+              key={emoji}
+              role="menuitem"
+              onClick={() => toggle(emoji)}
+              aria-label={`React ${emoji}`}
+              style={{
+                border: 'none',
+                background: 'none',
+                fontSize: 18,
+                padding: '4px 6px',
+                borderRadius: 6,
+              }}
+            >
               {emoji}
             </button>
           ))}
@@ -86,5 +132,8 @@ export function reactionSummary(reactions: ReadonlyArray<NodeRecord> | number | 
     const emoji = (r.body as { emoji?: string } | null)?.emoji;
     if (emoji) counts.set(emoji, (counts.get(emoji) ?? 0) + 1);
   }
-  return [...counts].slice(0, 3).map(([emoji, n]) => `${emoji} ${n}`).join('  ');
+  return [...counts]
+    .slice(0, 3)
+    .map(([emoji, n]) => `${emoji} ${n}`)
+    .join('  ');
 }

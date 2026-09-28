@@ -154,9 +154,6 @@ export async function openPairingPayload(sealed: Uint8Array, key: CryptoKey): Pr
     return new Uint8Array(plain);
   } catch {
     // Someone else in the room, or a ticket for a different account.
-    throw protocolError(
-      'PAIRING_TICKET_UNREADABLE',
-      'That handover was not meant for this account.',
-    );
+    throw protocolError('PAIRING_TICKET_UNREADABLE', 'That handover was not meant for this account.');
   }
 }

@@ -18,7 +18,14 @@ import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { createSpaceManager, parseSpaceInvite } from '../src/space/space-manager.js';
-import { checkSpace, deriveInviteKey, deriveReadKey, generateInviteSecret, signInvite, verifyInvite } from '../src/space/space-access.js';
+import {
+  checkSpace,
+  deriveInviteKey,
+  deriveReadKey,
+  generateInviteSecret,
+  signInvite,
+  verifyInvite,
+} from '../src/space/space-access.js';
 import { community, team } from '../src/space/presets.js';
 import type { Expression } from '../src/types.js';
 import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../src/utils/encoding.js';
@@ -60,7 +67,12 @@ async function until(predicate: () => Promise<boolean>, ms = 4000, what = 'condi
 }
 
 /** A record signed by hand with a valid session and delegation, claiming to have seen `seen` */
-async function forge(who: Person, space: string, body: unknown, seen: ReadonlyArray<string> = []): Promise<Expression> {
+async function forge(
+  who: Person,
+  space: string,
+  body: unknown,
+  seen: ReadonlyArray<string> = [],
+): Promise<Expression> {
   const pair = await provider.generateKeyPair();
   const keyDid = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
   const ucan = await createLocalRootSigner(who.me, who.manager.getProvider()).delegate({
@@ -68,7 +80,10 @@ async function forge(who: Person, space: string, body: unknown, seen: ReadonlyAr
     capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
     expiration: Math.floor(Date.now() / 1000) + 3600,
   });
-  return createSigner(provider).sign(createExpression({ author: keyDid, collection: 'app.note', space, body, proof: ucan.encoded, seen }), pair.privateKey);
+  return createSigner(provider).sign(
+    createExpression({ author: keyDid, collection: 'app.note', space, body, proof: ucan.encoded, seen }),
+    pair.privateKey,
+  );
 }
 
 /** Rewrites an invite, as whoever passes it along could */
@@ -95,11 +110,17 @@ describe('space access: the keys', () => {
     const secret = new Uint8Array(32).map((_, i) => i);
     const inviteDid = (await deriveInviteKey(secret, provider)).did;
     assert.equal(inviteDid, (await deriveInviteKey(secret, provider)).did);
-    const aes = await crypto.subtle.importKey('raw', new Uint8Array(32).map((_, i) => 255 - i), { name: 'AES-GCM', length: 256 }, true, [
-      'encrypt',
-      'decrypt',
-    ]);
-    assert.equal((await deriveReadKey({ id: 'k', key: aes, createdAt: '', version: 1 }, provider)).did, 'did:key:zDnaem2ikLwS3eYm46gspC7nm6dmYYCMHUHU5yvVHNgARcsWf');
+    const aes = await crypto.subtle.importKey(
+      'raw',
+      new Uint8Array(32).map((_, i) => 255 - i),
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt'],
+    );
+    assert.equal(
+      (await deriveReadKey({ id: 'k', key: aes, createdAt: '', version: 1 }, provider)).did,
+      'did:key:zDnaem2ikLwS3eYm46gspC7nm6dmYYCMHUHU5yvVHNgARcsWf',
+    );
     // The same bytes as an account seed give a different key: each use has its own label.
     assert.notEqual((await createIdentityManager().fromSeed(secret)).did, inviteDid);
   });
@@ -118,13 +139,29 @@ describe('space access: the keys', () => {
 describe('space access: the space vouches for itself', () => {
   test('a created space checks out, and its id does not depend on its name', async () => {
     const registry = createSpaceManager(createMemoryAdapter(), provider);
-    const { space } = await registry.create({ name: 'Trip', ...team, visibility: 'private', creator: 'did:key:zAlice' });
+    const { space } = await registry.create({
+      name: 'Trip',
+      ...team,
+      visibility: 'private',
+      creator: 'did:key:zAlice',
+    });
     assert.equal(await checkSpace(space), null);
     assert.equal(await checkSpace({ ...space, name: 'Renamed' }), null);
     assert.match(String(await checkSpace({ ...space, creator: 'did:key:zMallory' })), /id does not match/);
     assert.match(String(await checkSpace({ ...space, creatorRole: 'editor' })), /id does not match/);
-    assert.match(String(await checkSpace({ ...space, roles: [...space.roles, { name: 'x', rank: 1000, permissions: ['*'] }] })), /id does not match/);
-    assert.match(String(await checkSpace({ ...space, creatorRole: 'nobody' })), /not one of the starting roles/);
+    assert.match(
+      String(
+        await checkSpace({
+          ...space,
+          roles: [...space.roles, { name: 'x', rank: 1000, permissions: ['*'] }],
+        }),
+      ),
+      /id does not match/,
+    );
+    assert.match(
+      String(await checkSpace({ ...space, creatorRole: 'nobody' })),
+      /not one of the starting roles/,
+    );
   });
 
   test('a forged invite is refused: changed creator, changed roles', async () => {
@@ -134,8 +171,14 @@ describe('space access: the space vouches for itself', () => {
     const { id: space } = await alice.node.spaces.create({ name: 'Trip', ...team, visibility: 'private' });
     const invite = await alice.node.spaces.invite(space);
 
-    await assert.rejects(bob.node.spaces.join(tamper(invite, (p) => (p.space.creator = bob.node.did))), /does not describe a real space/);
-    await assert.rejects(bob.node.spaces.join(tamper(invite, (p) => (p.space.creatorRole = 'editor'))), /does not describe a real space/);
+    await assert.rejects(
+      bob.node.spaces.join(tamper(invite, (p) => (p.space.creator = bob.node.did))),
+      /does not describe a real space/,
+    );
+    await assert.rejects(
+      bob.node.spaces.join(tamper(invite, (p) => (p.space.creatorRole = 'editor'))),
+      /does not describe a real space/,
+    );
     assert.equal((await bob.node.spaces.list()).length, 0);
   });
 
@@ -147,10 +190,16 @@ describe('space access: the space vouches for itself', () => {
     await alice.node.records.put(space, 'app.note', { text: 'secret' });
     const invite = await alice.node.spaces.invite(space, { write: false });
 
-    await bob.node.spaces.join(tamper(invite, (p) => (p.key = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32))))));
+    await bob.node.spaces.join(
+      tamper(invite, (p) => (p.key = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32))))),
+    );
     await hold(alice.node, space);
     await hold(bob.node, space);
-    await until(async () => (await bob.node.records.list(space, { collection: 'app.note' })).length === 1, 4000, 'the note to arrive');
+    await until(
+      async () => (await bob.node.records.list(space, { collection: 'app.note' })).length === 1,
+      4000,
+      'the note to arrive',
+    );
     const [note] = await bob.node.records.list(space, { collection: 'app.note' });
     assert.equal(note!.body, null);
     assert.equal((await bob.node.spaces.access(space)).key?.held, false);
@@ -167,7 +216,10 @@ describe('space access: who may write', () => {
     // Mallory can follow — she was given a view-only invite — and so can reach the space.
     await mallory.node.spaces.join(await alice.node.spaces.invite(space, { write: false }));
     assert.equal((await mallory.node.spaces.get(space))?.writable, false);
-    await assert.rejects(mallory.node.records.put(space, 'app.note', { text: 'spam' }), /shared with you to view/);
+    await assert.rejects(
+      mallory.node.records.put(space, 'app.note', { text: 'spam' }),
+      /shared with you to view/,
+    );
 
     // She forges a record anyway: valid account, valid session, no role.
     await letGo(mallory.node, space);
@@ -181,10 +233,16 @@ describe('space access: who may write', () => {
     await hold(mallory.node, space);
     await until(async () => reasons.length >= 1, 4000, 'Alice to refuse it');
     assert.ok(reasons.some((r) => /not a member/.test(r)));
-    assert.equal(await createStorageProvider(await alice.stores(`spaces/${space}`)).getExpression(forged.id), null);
+    assert.equal(
+      await createStorageProvider(await alice.stores(`spaces/${space}`)).getExpression(forged.id),
+      null,
+    );
     // Mallory still reads what Alice wrote.
     await until(
-      async () => (await mallory.node.records.list(space)).some((r) => (r.body as { text?: string })?.text === 'from Alice'),
+      async () =>
+        (await mallory.node.records.list(space)).some(
+          (r) => (r.body as { text?: string })?.text === 'from Alice',
+        ),
       4000,
       'Alice’s note to reach Mallory',
     );
@@ -199,12 +257,23 @@ describe('space access: who may write', () => {
     const written = await alice.node.records.put(space, 'app.note', { text: 'secret' });
 
     // The blind node holds the space as anyone could be handed it: no key, no role.
-    await blind.node.spaces.join(tamper(await alice.node.spaces.invite(space, { write: false }), (p) => delete p.key));
+    await blind.node.spaces.join(
+      tamper(await alice.node.spaces.invite(space, { write: false }), (p) => delete p.key),
+    );
     await hold(blind.node, space);
-    await until(async () => (await createStorageProvider(await blind.stores(`spaces/${space}`)).getExpression(written.version)) !== null, 4000, 'the note');
+    await until(
+      async () =>
+        (await createStorageProvider(await blind.stores(`spaces/${space}`)).getExpression(
+          written.version,
+        )) !== null,
+      4000,
+      'the note',
+    );
 
     // A stranger's record, sealed-looking, reaches it — and is refused, as the member refuses it.
-    await mallory.node.spaces.join(tamper(await alice.node.spaces.invite(space, { write: false }), (p) => delete p.key));
+    await mallory.node.spaces.join(
+      tamper(await alice.node.spaces.invite(space, { write: false }), (p) => delete p.key),
+    );
     await letGo(mallory.node, space);
     const stranger = await forge(mallory, space, { ciphertext: 'x', iv: 'y' });
     await createStorageProvider(await mallory.stores(`spaces/${space}`)).addExpression(stranger);
@@ -214,8 +283,15 @@ describe('space access: who may write', () => {
     });
     await hold(mallory.node, space);
     await until(async () => refused.length > 0, 4000, 'the blind node to refuse it');
-    assert.equal(await createStorageProvider(await blind.stores(`spaces/${space}`)).getExpression(stranger.id), null);
-    assert.equal((await blind.node.records.get(space, written.key))?.verified, true, 'the member’s record stands, unread');
+    assert.equal(
+      await createStorageProvider(await blind.stores(`spaces/${space}`)).getExpression(stranger.id),
+      null,
+    );
+    assert.equal(
+      (await blind.node.records.get(space, written.key))?.verified,
+      true,
+      'the member’s record stands, unread',
+    );
   });
 
   test('just the creator: they write, anyone invited follows and reads', async () => {
@@ -240,7 +316,11 @@ describe('space access: invites', () => {
     assert.equal(access.role?.name, 'editor');
     assert.deepEqual(access.members.map((m) => m.role).sort(), ['editor', 'owner']);
     const note = await bob.node.records.put(space, 'app.note', { text: 'from Bob' });
-    await until(async () => (await alice.node.records.get(space, note.key)) !== null, 4000, 'Bob’s note to reach Alice');
+    await until(
+      async () => (await alice.node.records.get(space, note.key)) !== null,
+      4000,
+      'Bob’s note to reach Alice',
+    );
     assert.equal((await bob.node.spaces.get(space))?.writable, true);
   });
 
@@ -248,7 +328,11 @@ describe('space access: invites', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub);
     const bob = await person(hub);
-    const { id: space } = await alice.node.spaces.create({ name: 'Club', ...community, visibility: 'public' });
+    const { id: space } = await alice.node.spaces.create({
+      name: 'Club',
+      ...community,
+      visibility: 'public',
+    });
     await bob.node.spaces.join(await alice.node.spaces.invite(space, { role: 'moderator' }));
     await hold(alice.node, space);
     await joined(bob.node, space);
@@ -265,9 +349,17 @@ describe('space access: invites', () => {
     const carol = await person(hub);
     await carol.node.spaces.join(invite);
     await hold(carol.node, space);
-    await until(async () => (await carol.node.spaces.access(space)).invites.some((i) => i.key === key && !i.open), 4000, 'the close to reach Carol');
+    await until(
+      async () => (await carol.node.spaces.access(space)).invites.some((i) => i.key === key && !i.open),
+      4000,
+      'the close to reach Carol',
+    );
     // Whether she used it before the close reached her or not, the close came first: she holds nothing.
-    await until(async () => (await carol.node.spaces.access(space)).role === null, 4000, 'Carol to hold no role');
+    await until(
+      async () => (await carol.node.spaces.access(space)).role === null,
+      4000,
+      'Carol to hold no role',
+    );
     assert.equal((await bob.node.spaces.access(space)).role?.name, 'editor');
   });
 
@@ -280,13 +372,23 @@ describe('space access: invites', () => {
 
     const viewOnly = await alice.node.spaces.invite(space, { write: false });
     const preview = bob.node.spaces.preview(viewOnly);
-    assert.deepEqual({ carriesKey: preview.carriesKey, carriesWrite: preview.carriesWrite }, { carriesKey: true, carriesWrite: false });
+    assert.deepEqual(
+      { carriesKey: preview.carriesKey, carriesWrite: preview.carriesWrite },
+      { carriesKey: true, carriesWrite: false },
+    );
     const joinedSpace = await bob.node.spaces.join(viewOnly);
     assert.equal(joinedSpace.readable, true);
     assert.equal(joinedSpace.writable, false);
-    await until(async () => (await bob.node.records.get<{ text: string }>(space, note.key))?.body?.text === 'meet at 8', 4000, 'the note');
+    await until(
+      async () => (await bob.node.records.get<{ text: string }>(space, note.key))?.body?.text === 'meet at 8',
+      4000,
+      'the note',
+    );
     assert.equal(await bob.node.records.can(space, 'create', 'app.note'), false);
-    await assert.rejects(bob.node.records.update(space, note.key, { text: 'meet at 9' }), /shared with you to view/);
+    await assert.rejects(
+      bob.node.records.update(space, note.key, { text: 'meet at 9' }),
+      /shared with you to view/,
+    );
   });
 
   test('invite secrets are never kept: the account registry holds view-only invites', async () => {
@@ -303,11 +405,20 @@ describe('space access: taking it back', () => {
     const { alice, bob, space } = await sharedWithBob();
     const before = await bob.node.records.put(space, 'app.note', { text: 'before' });
     await until(async () => (await alice.node.records.get(space, before.key)) !== null, 4000, 'Bob’s note');
-    const seenThen = (await createStorageProvider(await bob.stores(`spaces/${space}`)).getExpression(before.version))!.seen ?? [];
+    const seenThen =
+      (await createStorageProvider(await bob.stores(`spaces/${space}`)).getExpression(before.version))!
+        .seen ?? [];
 
     await alice.node.spaces.setMember(space, bob.node.did, null);
-    await until(async () => (await bob.node.spaces.access(space)).role === null, 4000, 'the removal to reach Bob');
-    await assert.rejects(bob.node.records.put(space, 'app.note', { text: 'after' }), /shared with you to view/);
+    await until(
+      async () => (await bob.node.spaces.access(space)).role === null,
+      4000,
+      'the removal to reach Bob',
+    );
+    await assert.rejects(
+      bob.node.records.put(space, 'app.note', { text: 'after' }),
+      /shared with you to view/,
+    );
 
     // He forges one that claims to have been written before the removal.
     const backdated = await forge(bob, space, { text: 'backdated' }, seenThen);
@@ -318,7 +429,11 @@ describe('space access: taking it back', () => {
     await letGo(bob.node, space);
     await createStorageProvider(await bob.stores(`spaces/${space}`)).addExpression(backdated);
     await hold(bob.node, space);
-    await until(async () => refused.some((r) => /taken away/.test(r)), 4000, 'Alice to refuse the backdated note');
+    await until(
+      async () => refused.some((r) => /taken away/.test(r)),
+      4000,
+      'Alice to refuse the backdated note',
+    );
 
     // What Alice had seen him write before stays.
     assert.equal((await alice.node.records.get(space, before.key))?.verified, true);
@@ -328,20 +443,31 @@ describe('space access: taking it back', () => {
     const { hub, alice, bob, space } = await sharedWithBob();
     await alice.node.spaces.setMember(space, bob.node.did, 'owner');
     await alice.node.spaces.setMember(space, alice.node.did, null);
-    await until(async () => (await bob.node.spaces.access(space)).members.every((m) => m.did !== alice.node.did), 4000, 'Alice to leave');
+    await until(
+      async () => (await bob.node.spaces.access(space)).members.every((m) => m.did !== alice.node.did),
+      4000,
+      'Alice to leave',
+    );
 
     const carol = await person(hub);
     await carol.node.spaces.join(await bob.node.spaces.invite(space));
     await hold(carol.node, space);
     await joined(carol.node, space);
     assert.equal((await carol.node.spaces.access(space)).role?.name, 'editor');
-    await assert.rejects(alice.node.records.put(space, 'app.note', { text: 'still here?' }), /shared with you to view/);
+    await assert.rejects(
+      alice.node.records.put(space, 'app.note', { text: 'still here?' }),
+      /shared with you to view/,
+    );
   });
 
   test('two owners cannot remove each other', async () => {
     const { alice, bob, space } = await sharedWithBob();
     await alice.node.spaces.setMember(space, bob.node.did, 'owner');
-    await until(async () => (await bob.node.spaces.access(space)).role?.name === 'owner', 4000, 'Bob to be an owner');
+    await until(
+      async () => (await bob.node.spaces.access(space)).role?.name === 'owner',
+      4000,
+      'Bob to be an owner',
+    );
     await assert.rejects(bob.node.spaces.setMember(space, alice.node.did, null), /ranked below them/);
   });
 
@@ -356,14 +482,30 @@ describe('space access: taking it back', () => {
       expiration: Math.floor(Date.now() / 1000) + 3600,
     });
     const store = createStorageProvider(await bob.stores(`spaces/${space}`));
-    const heads = (await store.getExpression((await bob.node.records.put(space, 'app.note', { text: 'Bob' })).version))!.seen ?? [];
+    const heads =
+      (await store.getExpression((await bob.node.records.put(space, 'app.note', { text: 'Bob' })).version))!
+        .seen ?? [];
     const sign = (text: string) =>
-      createSigner(provider).sign(createExpression({ author: appDid, collection: 'app.note', space, body: { text }, proof: note.encoded, seen: heads }), pair.privateKey);
+      createSigner(provider).sign(
+        createExpression({
+          author: appDid,
+          collection: 'app.note',
+          space,
+          body: { text },
+          proof: note.encoded,
+          seen: heads,
+        }),
+        pair.privateKey,
+      );
     const early = await sign('early');
     await letGo(bob.node, space);
     await store.addExpression(early);
     await hold(bob.node, space);
-    await until(async () => (await alice.node.records.get(space, early.key)) !== null, 4000, 'the app’s note');
+    await until(
+      async () => (await alice.node.records.get(space, early.key)) !== null,
+      4000,
+      'the app’s note',
+    );
 
     await bob.node.spaces.revoke(space, note.encoded);
     const late = await sign('late');
@@ -375,8 +517,18 @@ describe('space access: taking it back', () => {
     await createStorageProvider(await bob.stores(`spaces/${space}`)).addExpression(late);
     await hold(bob.node, space);
     // Refused on arrival if the revoke got there first; stored, and then not counted, if not.
-    await until(async () => refused.some((r) => /revoked/.test(r)) || (await (await stored(alice.stores, space)).getExpression(late.id)) !== null, 4000, 'the late note to reach Alice');
-    await until(async () => (await alice.node.records.get(space, late.key)) === null, 4000, 'Alice to stop counting it');
+    await until(
+      async () =>
+        refused.some((r) => /revoked/.test(r)) ||
+        (await (await stored(alice.stores, space)).getExpression(late.id)) !== null,
+      4000,
+      'the late note to reach Alice',
+    );
+    await until(
+      async () => (await alice.node.records.get(space, late.key)) === null,
+      4000,
+      'Alice to stop counting it',
+    );
     assert.equal((await alice.node.records.get(space, early.key))?.verified, true);
   });
 });

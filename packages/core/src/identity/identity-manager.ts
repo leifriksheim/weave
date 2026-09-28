@@ -51,7 +51,7 @@ function prfUnsupported() {
     'PRF has to be requested when a passkey is created, so one made before your ' +
       'provider supported it will never return a secret — create a new passkey. ' +
       'If it still fails, the authenticator itself lacks PRF (hmac-secret): try a ' +
-      'platform passkey (Touch ID, Windows Hello) or an up-to-date password manager.'
+      'platform passkey (Touch ID, Windows Hello) or an up-to-date password manager.',
   );
 }
 
@@ -62,7 +62,7 @@ function prfUnsupported() {
  */
 export function createIdentityManager(config?: IdentityConfig): IdentityManager {
   const provider = config?.provider || createP256Provider();
-  
+
   // Use globalThis.location if available, fallback to localhost for Node/testing
   const defaultRpId = typeof globalThis.location !== 'undefined' ? globalThis.location.hostname : 'localhost';
   const rpId = config?.rpId || defaultRpId;
@@ -78,7 +78,7 @@ export function createIdentityManager(config?: IdentityConfig): IdentityManager 
         rpId,
         rpName,
         userName,
-        ...platformOnly
+        ...platformOnly,
       });
 
       // Some authenticators return the PRF secret from the creation ceremony.
@@ -89,7 +89,7 @@ export function createIdentityManager(config?: IdentityConfig): IdentityManager 
       if (!prfOutput) {
         const auth = await authenticatePasskey(registration.credentialId, {
           rpId,
-          ...(preferences?.preferPlatform ? { hints: ['client-device'] as const } : {})
+          ...(preferences?.preferPlatform ? { hints: ['client-device'] as const } : {}),
         });
         prfOutput = auth.prfOutput;
       }
@@ -106,14 +106,14 @@ export function createIdentityManager(config?: IdentityConfig): IdentityManager 
         credentialId: registration.credentialId,
         publicKey: keyPair.publicKey,
         privateKey: keyPair.privateKey,
-        publicKeyBytes: keyPair.publicKeyBytes
+        publicKeyBytes: keyPair.publicKeyBytes,
       });
     },
 
     async authenticate(credentialId?: string, preferences?: CeremonyPreferences): Promise<Identity> {
       const auth = await authenticatePasskey(credentialId, {
         rpId,
-        ...(preferences?.preferPlatform ? { hints: ['client-device'] as const } : {})
+        ...(preferences?.preferPlatform ? { hints: ['client-device'] as const } : {}),
       });
 
       if (!auth.prfOutput) {
@@ -128,7 +128,7 @@ export function createIdentityManager(config?: IdentityConfig): IdentityManager 
         credentialId: auth.credentialId,
         publicKey: keyPair.publicKey,
         privateKey: keyPair.privateKey,
-        publicKeyBytes: keyPair.publicKeyBytes
+        publicKeyBytes: keyPair.publicKeyBytes,
       });
     },
 
@@ -141,7 +141,7 @@ export function createIdentityManager(config?: IdentityConfig): IdentityManager 
         did,
         publicKey: keyPair.publicKey,
         privateKey: keyPair.privateKey,
-        publicKeyBytes: keyPair.publicKeyBytes
+        publicKeyBytes: keyPair.publicKeyBytes,
       });
     },
 
@@ -159,12 +159,12 @@ export function createIdentityManager(config?: IdentityConfig): IdentityManager 
         did,
         publicKey: keyPair.publicKey,
         privateKey: keyPair.privateKey,
-        publicKeyBytes: keyPair.publicKeyBytes
+        publicKeyBytes: keyPair.publicKeyBytes,
       });
     },
 
     getProvider(): CryptoProvider {
       return provider;
-    }
+    },
   });
 }

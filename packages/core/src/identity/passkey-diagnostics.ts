@@ -100,7 +100,8 @@ function prfOutputLength(results: unknown): number | null {
 export async function inspectPasskeyPrf(options?: DiagnosticsOptions): Promise<PasskeyDiagnostics> {
   const webauthnAvailable = !!globalThis.navigator?.credentials?.create;
   const rpId =
-    options?.rpId ?? (typeof globalThis.location !== 'undefined' ? globalThis.location.hostname : 'localhost');
+    options?.rpId ??
+    (typeof globalThis.location !== 'undefined' ? globalThis.location.hostname : 'localhost');
 
   let platformAuthenticatorAvailable = false;
   try {
@@ -233,8 +234,7 @@ function describe(facts: {
   if (facts.prfWorks) return `${who}supports PRF — identity derivation will work with this passkey.`;
   if (facts.assert.error) return `The assertion failed before PRF could be evaluated: ${facts.assert.error}`;
 
-  const sawPrfKey =
-    facts.create.extensionResults !== null && 'prf' in facts.create.extensionResults;
+  const sawPrfKey = facts.create.extensionResults !== null && 'prf' in facts.create.extensionResults;
 
   if (!sawPrfKey) {
     return `${who}returned no \`prf\` entry at all, which usually means the extension was dropped before reaching the authenticator — the provider handling the ceremony does not implement PRF.`;

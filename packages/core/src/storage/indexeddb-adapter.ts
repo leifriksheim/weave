@@ -34,7 +34,7 @@ function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
 function idbTransaction(
   db: IDBDatabase,
   stores: string[],
-  mode: IDBTransactionMode
+  mode: IDBTransactionMode,
 ): { tx: IDBTransaction; complete: Promise<void> } {
   const tx = db.transaction(stores, mode);
   const complete = new Promise<void>((resolve, reject) => {
@@ -117,7 +117,7 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
       const { tx } = idbTransaction(db, ['kv'], 'readonly');
       const store = tx.objectStore('kv');
       const keys: string[] = [];
-      
+
       let request;
       if (prefix) {
         const bound = prefix + '\uFFFF';
@@ -145,10 +145,10 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
       const { tx } = idbTransaction(db, ['expressions'], 'readonly');
       const store = tx.objectStore('expressions');
       const index = store.index('collection');
-      
+
       const range = IDBKeyRange.only(collection);
       const request = index.openCursor(range);
-      
+
       const results: Expression[] = [];
       let advanced = !cursor;
 
@@ -159,13 +159,13 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
             resolve();
             return;
           }
-          
+
           if (!advanced && cursor && idbCursor.primaryKey === cursor) {
             advanced = true;
             idbCursor.continue();
             return;
           }
-          
+
           if (advanced) {
             results.push(idbCursor.value);
           }
@@ -182,11 +182,18 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
       const store = tx.objectStore('kv');
       const range = IDBKeyRange.bound(prefix, prefix + '\uFFFF', false, false);
       // Both in key order, from one transaction: they line up.
-      const [keys, values] = await Promise.all([idbRequest(store.getAllKeys(range)), idbRequest(store.getAll(range))]);
+      const [keys, values] = await Promise.all([
+        idbRequest(store.getAllKeys(range)),
+        idbRequest(store.getAll(range)),
+      ]);
       return keys.map((key, i) => [key as string, new Uint8Array(values[i] as ArrayBuffer)] as const);
     },
 
-    async commit(write: { readonly store: ReadonlyArray<Expression>; readonly ops: ReadonlyArray<BatchOp>; readonly remove: ReadonlyArray<string> }): Promise<void> {
+    async commit(write: {
+      readonly store: ReadonlyArray<Expression>;
+      readonly ops: ReadonlyArray<BatchOp>;
+      readonly remove: ReadonlyArray<string>;
+    }): Promise<void> {
       const { tx, complete } = idbTransaction(db, ['kv', 'expressions'], 'readwrite');
       const expressions = tx.objectStore('expressions');
       const kv = tx.objectStore('kv');
@@ -203,7 +210,9 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
       if (ids.length === 0) return [];
       const { tx } = idbTransaction(db, ['expressions'], 'readonly');
       const store = tx.objectStore('expressions');
-      return Promise.all(ids.map(async (id) => ((await idbRequest(store.get(id))) as Expression | undefined) ?? null));
+      return Promise.all(
+        ids.map(async (id) => ((await idbRequest(store.get(id))) as Expression | undefined) ?? null),
+      );
     },
 
     async putExpression(expression: Expression): Promise<void> {
@@ -242,6 +251,6 @@ export async function createIndexedDBAdapter(dbName: string = 'weave-storage'): 
 
     async close(): Promise<void> {
       db.close();
-    }
+    },
   });
 }

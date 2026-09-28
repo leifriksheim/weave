@@ -15,7 +15,15 @@
 import type { CarriedCollection } from '@weaveprotocol/core/node';
 import { proposeToHome } from '@weaveprotocol/core/session';
 import type { NotifyProposal } from '@weaveprotocol/core';
-import { ask, askCollections, EXTENSION_NAME, loadGrant, notificationsPage, type CarrierStatus, type SpaceCollections } from './shared';
+import {
+  ask,
+  askCollections,
+  EXTENSION_NAME,
+  loadGrant,
+  notificationsPage,
+  type CarrierStatus,
+  type SpaceCollections,
+} from './shared';
 import { accountLine, h, mark } from './ui';
 
 /** The home takes at most this many in one go */
@@ -37,7 +45,10 @@ function kindOf(collection: Pick<CarriedCollection, 'name' | 'title'>): string {
 }
 
 /** What can be offered for one kind of record, in one space or all of them */
-function offers(collection: CarriedCollection, space: SpaceCollections['space'] | null): Array<{ key: string; label: string; proposal: NotifyProposal }> {
+function offers(
+  collection: CarriedCollection,
+  space: SpaceCollections['space'] | null,
+): Array<{ key: string; label: string; proposal: NotifyProposal }> {
   const where = space ? ` in ${space.name}` : '';
   const spaces = space ? { spaces: [space.id] } : {};
   const kind = kindOf(collection);
@@ -45,12 +56,23 @@ function offers(collection: CarriedCollection, space: SpaceCollections['space'] 
     {
       key: `${space?.id ?? '*'}|${collection.name}`,
       label: `New ${kind}`,
-      proposal: { label: `New ${kind}${where}`.slice(0, 120), collection: collection.name, others: true, ...spaces },
+      proposal: {
+        label: `New ${kind}${where}`.slice(0, 120),
+        collection: collection.name,
+        others: true,
+        ...spaces,
+      },
     },
     ...collection.topics.map((field) => ({
       key: `${space?.id ?? '*'}|${collection.name}|${field}`,
       label: `${kind[0]!.toUpperCase()}${kind.slice(1)} where ${field} is you`,
-      proposal: { label: `${kind} where ${field} is you${where}`.slice(0, 120), collection: collection.name, topic: { field, me: true as const }, others: true, ...spaces },
+      proposal: {
+        label: `${kind} where ${field} is you${where}`.slice(0, 120),
+        collection: collection.name,
+        topic: { field, me: true as const },
+        others: true,
+        ...spaces,
+      },
     })),
   ];
 }
@@ -72,7 +94,11 @@ function everywhere(): CarriedCollection[] {
   return [...byName.values()].sort((a, b) => kindOf(a).localeCompare(kindOf(b)));
 }
 
-function group(title: string, collections: ReadonlyArray<CarriedCollection>, space: SpaceCollections['space'] | null): HTMLElement {
+function group(
+  title: string,
+  collections: ReadonlyArray<CarriedCollection>,
+  space: SpaceCollections['space'] | null,
+): HTMLElement {
   const rows = collections.flatMap((collection) => offers(collection, space));
   return h(
     'section',
@@ -105,7 +131,10 @@ function group(title: string, collections: ReadonlyArray<CarriedCollection>, spa
 function render(): void {
   if (!status) return app.replaceChildren(mark(), h('p', { class: 'hint' }, 'Starting…'));
   if (status.state === 'not-connected' || !status.account) {
-    return app.replaceChildren(mark(), h('p', { class: 'hint' }, 'Connect this extension to your account first.'));
+    return app.replaceChildren(
+      mark(),
+      h('p', { class: 'hint' }, 'Connect this extension to your account first.'),
+    );
   }
   const account = status.account;
   const parts: Array<Node | null> = [
@@ -117,19 +146,43 @@ function render(): void {
       'Pick from what your spaces hold, and your account home asks you to confirm. Notifications show the space and the time — this extension can’t read the message.',
     ),
     h('section', {}, accountLine(account)),
-    added.length ? h('p', { class: 'note' }, `Added: ${added.join(', ')}. They reach this extension in a moment.`) : null,
+    added.length
+      ? h('p', { class: 'note' }, `Added: ${added.join(', ')}. They reach this extension in a moment.`)
+      : null,
     held.length === 0
-      ? h('p', { class: 'hint' }, status.state === 'running' ? 'Nothing in your spaces yet to be notified about.' : 'Starting…')
-      : h('div', {}, group('In every space', everywhere(), null), ...held.map((entry) => group(entry.space.name, entry.collections, entry.space))),
+      ? h(
+          'p',
+          { class: 'hint' },
+          status.state === 'running' ? 'Nothing in your spaces yet to be notified about.' : 'Starting…',
+        )
+      : h(
+          'div',
+          {},
+          group('In every space', everywhere(), null),
+          ...held.map((entry) => group(entry.space.name, entry.collections, entry.space)),
+        ),
     h(
       'div',
       { class: 'actions' },
       h(
         'button',
         { disabled: busy || picked.size === 0, onClick: () => void send(account.home) },
-        busy ? 'Waiting for your account home…' : picked.size ? `Ask my account (${picked.size})` : 'Ask my account',
+        busy
+          ? 'Waiting for your account home…'
+          : picked.size
+            ? `Ask my account (${picked.size})`
+            : 'Ask my account',
       ),
-      h('a', { href: notificationsPage(account.home), target: '_blank', class: 'hint', style: 'align-self: center' }, 'Pause or remove in your account'),
+      h(
+        'a',
+        {
+          href: notificationsPage(account.home),
+          target: '_blank',
+          class: 'hint',
+          style: 'align-self: center',
+        },
+        'Pause or remove in your account',
+      ),
     ),
     picked.size >= MAX ? h('p', { class: 'hint' }, `At most ${MAX} at a time.`) : null,
     error ? h('p', { class: 'error' }, error) : null,
@@ -164,7 +217,8 @@ async function load(next?: CarrierStatus): Promise<void> {
 }
 
 chrome.runtime.onMessage.addListener((message: { to?: string; type?: string; status?: CarrierStatus }) => {
-  if (message?.to === 'pages' && message.type === 'status' && message.status && !busy) void load(message.status);
+  if (message?.to === 'pages' && message.type === 'status' && message.status && !busy)
+    void load(message.status);
 });
 
 render();

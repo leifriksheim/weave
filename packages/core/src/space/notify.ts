@@ -75,7 +75,9 @@ export interface NotifyApp {
 export interface NotifyProposal {
   readonly label: string;
   readonly collection: string;
-  readonly topic?: { readonly field: string; readonly value: string | number | boolean } | { readonly field: string; readonly me: true };
+  readonly topic?:
+    | { readonly field: string; readonly value: string | number | boolean }
+    | { readonly field: string; readonly me: true };
   readonly others?: boolean;
   /** Only these of the spaces the app may reach. Default: all of them. */
   readonly spaces?: ReadonlyArray<string>;
@@ -106,22 +108,38 @@ const COLLECTION = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
 export function checkNotify(when: unknown): string | null {
   const w = when as Partial<NotifyWhen> | null;
   if (typeof w !== 'object' || w === null) return 'A subscription must be an object';
-  if (typeof w.label !== 'string' || !w.label.trim() || w.label.length > 120) return 'label is what the notification says: some text, at most 120 characters';
-  if (typeof w.collection !== 'string' || !COLLECTION.test(w.collection) || w.collection.startsWith('sys.')) return 'collection must be one of the space’s collections, like "app.chat.message"';
-  if (w.spaces !== 'all' && !(Array.isArray(w.spaces) && w.spaces.length > 0 && w.spaces.length <= 256 && w.spaces.every((s) => typeof s === 'string'))) {
+  if (typeof w.label !== 'string' || !w.label.trim() || w.label.length > 120)
+    return 'label is what the notification says: some text, at most 120 characters';
+  if (typeof w.collection !== 'string' || !COLLECTION.test(w.collection) || w.collection.startsWith('sys.'))
+    return 'collection must be one of the space’s collections, like "app.chat.message"';
+  if (
+    w.spaces !== 'all' &&
+    !(
+      Array.isArray(w.spaces) &&
+      w.spaces.length > 0 &&
+      w.spaces.length <= 256 &&
+      w.spaces.every((s) => typeof s === 'string')
+    )
+  ) {
     return 'spaces must be "all" or a list of space ids';
   }
   if (w.topic !== undefined) {
     const t = w.topic as Partial<NonNullable<NotifyWhen['topic']>> | null;
-    if (typeof t !== 'object' || t === null || typeof t.field !== 'string' || checkTopics([t.field]) !== null) return 'topic.field must be a field name';
-    if (!['string', 'number', 'boolean'].includes(typeof t.value)) return 'topic.value must be text, a number or yes/no';
+    if (typeof t !== 'object' || t === null || typeof t.field !== 'string' || checkTopics([t.field]) !== null)
+      return 'topic.field must be a field name';
+    if (!['string', 'number', 'boolean'].includes(typeof t.value))
+      return 'topic.value must be text, a number or yes/no';
   }
   if (w.others !== undefined && typeof w.others !== 'boolean') return 'others must be true or false';
   if (w.paused !== undefined && typeof w.paused !== 'boolean') return 'paused must be true or false';
   if (w.open !== undefined) {
     try {
       const url = new URL(w.open);
-      if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname))) return 'open must be an https:// address';
+      if (
+        url.protocol !== 'https:' &&
+        !(url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname))
+      )
+        return 'open must be an https:// address';
     } catch {
       return 'open must be a web address';
     }
@@ -129,8 +147,10 @@ export function checkNotify(when: unknown): string | null {
   if (typeof w.since !== 'string' || !Number.isFinite(Date.parse(w.since))) return 'since must be a date';
   if (w.app !== undefined) {
     const a = w.app as Partial<NotifyApp> | null;
-    if (typeof a !== 'object' || a === null || typeof a.origin !== 'string' || !isOrigin(a.origin)) return 'app.origin must be a web origin';
-    if (a.name !== undefined && (typeof a.name !== 'string' || a.name.length > 80)) return 'app.name must be text, at most 80 characters';
+    if (typeof a !== 'object' || a === null || typeof a.origin !== 'string' || !isOrigin(a.origin))
+      return 'app.origin must be a web origin';
+    if (a.name !== undefined && (typeof a.name !== 'string' || a.name.length > 80))
+      return 'app.name must be text, at most 80 characters';
   }
   return null;
 }
@@ -157,7 +177,12 @@ export function checkProposal(proposal: unknown, origin: string): string | null 
   const p = proposal as Partial<NotifyProposal> | null;
   if (typeof p !== 'object' || p === null) return 'A proposed subscription must be an object';
   const topic = p.topic as { field?: unknown; value?: unknown; me?: unknown } | undefined;
-  if (topic !== undefined && (typeof topic !== 'object' || topic === null || ('me' in topic && (topic.me !== true || 'value' in topic)))) {
+  if (
+    topic !== undefined &&
+    (typeof topic !== 'object' ||
+      topic === null ||
+      ('me' in topic && (topic.me !== true || 'value' in topic)))
+  ) {
     return 'topic is { field, value } or { field, me: true }';
   }
   const problem = checkNotify({
@@ -171,7 +196,8 @@ export function checkProposal(proposal: unknown, origin: string): string | null 
     app: { origin },
   });
   if (problem) return problem;
-  if (p.open !== undefined && new URL(p.open).origin !== origin) return 'open must be an address on the app’s own site';
+  if (p.open !== undefined && new URL(p.open).origin !== origin)
+    return 'open must be an address on the app’s own site';
   return null;
 }
 
@@ -188,7 +214,12 @@ export function proposalSpaces(proposal: NotifyProposal, reach: NotifySpaces): N
 /** The subscription a proposal becomes, once the person says yes to it */
 export function fromProposal(
   proposal: NotifyProposal,
-  context: { readonly app: NotifyApp; readonly spaces: NotifySpaces; readonly account: string; readonly since?: string },
+  context: {
+    readonly app: NotifyApp;
+    readonly spaces: NotifySpaces;
+    readonly account: string;
+    readonly since?: string;
+  },
 ): NotifyWhen {
   const topic = proposal.topic;
   const when: NotifyWhen = {
@@ -231,14 +262,22 @@ export interface NotifySpace {
  * space's tag. A private space whose key this device doesn't hold gets none,
  * so it never matches — better quiet than wrong.
  */
-export async function carriedFor(when: NotifyWhen, spaces: ReadonlyArray<NotifySpace>): Promise<CarriedSubscription> {
+export async function carriedFor(
+  when: NotifyWhen,
+  spaces: ReadonlyArray<NotifySpace>,
+): Promise<CarriedSubscription> {
   let tags: Record<string, string[]> | undefined;
   if (when.topic) {
     tags = {};
-    const looked = when.spaces === 'all' ? spaces : spaces.filter((s) => (when.spaces as ReadonlyArray<string>).includes(s.id));
+    const looked =
+      when.spaces === 'all'
+        ? spaces
+        : spaces.filter((s) => (when.spaces as ReadonlyArray<string>).includes(s.id));
     for (const space of looked) {
       if (space.visibility === 'private' && !space.key) continue;
-      const key = await topicKey(space.visibility === 'private' ? { spaceKey: space.key!.key } : { spaceId: space.id });
+      const key = await topicKey(
+        space.visibility === 'private' ? { spaceKey: space.key!.key } : { spaceId: space.id },
+      );
       tags[space.id] = [await topicTag(key, when.collection, when.topic.field, when.topic.value)];
     }
   }
@@ -263,7 +302,8 @@ export function readCarried(body: unknown): CarriedSubscription | null {
   if (problem) return null;
   if (b.tags !== undefined) {
     if (typeof b.tags !== 'object' || b.tags === null) return null;
-    for (const list of Object.values(b.tags)) if (!Array.isArray(list) || !list.every((t) => typeof t === 'string')) return null;
+    for (const list of Object.values(b.tags))
+      if (!Array.isArray(list) || !list.every((t) => typeof t === 'string')) return null;
   }
   return b as CarriedSubscription;
 }
@@ -285,12 +325,19 @@ export const NOTIFY_WITHIN_MS = 24 * 60 * 60 * 1000;
  * Whether a record that just arrived in a space is one a subscription asks
  * about — decided from its outside alone.
  */
-export function matchesSubscription(sub: CarriedSubscription, spaceId: string, version: Expression, account: string, now = Date.now()): boolean {
+export function matchesSubscription(
+  sub: CarriedSubscription,
+  spaceId: string,
+  version: Expression,
+  account: string,
+  now = Date.now(),
+): boolean {
   if (sub.paused || version.collection !== sub.collection) return false;
   if (version.seq !== 0 || version.deleted) return false;
   if (sub.spaces !== 'all' && !sub.spaces.includes(spaceId)) return false;
   const written = Date.parse(version.createdAt);
-  if (!Number.isFinite(written) || written < Date.parse(sub.since) || now - written > NOTIFY_WITHIN_MS) return false;
+  if (!Number.isFinite(written) || written < Date.parse(sub.since) || now - written > NOTIFY_WITHIN_MS)
+    return false;
   if (sub.others && rootOf(version) === account) return false;
   if (sub.tags) {
     const wanted = sub.tags[spaceId];

@@ -29,7 +29,8 @@ export function checkLinks(links: unknown): string | null {
     if (typeof link.rel !== 'string' || !LINK_REL_PATTERN.test(link.rel)) {
       return 'A link role is lower camel case, like "about" or "replyTo"';
     }
-    if (typeof link.to !== 'string' || !RECORD_KEY_PATTERN.test(link.to)) return 'A link points at a record key';
+    if (typeof link.to !== 'string' || !RECORD_KEY_PATTERN.test(link.to))
+      return 'A link points at a record key';
     const extra = Object.keys(link).filter((k) => k !== 'rel' && k !== 'to');
     if (extra.length) return `A link has only "rel" and "to" (found ${extra.join(', ')})`;
   }

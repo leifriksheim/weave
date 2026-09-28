@@ -39,7 +39,12 @@ const IV_BYTES = 12;
  * `spaceinvite:`, and an invite secret left out here is anyone-with-the-folder
  * joining a space in your place.
  */
-export const DEFAULT_ENCRYPTED_PREFIXES: ReadonlyArray<string> = ['space:', 'spacekey:', 'spaceinvite:', 'spacerole:'];
+export const DEFAULT_ENCRYPTED_PREFIXES: ReadonlyArray<string> = [
+  'space:',
+  'spacekey:',
+  'spaceinvite:',
+  'spacerole:',
+];
 
 export interface EncryptedAdapterOptions {
   /** Key prefixes whose values are sealed. Defaults to {@link DEFAULT_ENCRYPTED_PREFIXES}. */

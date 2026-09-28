@@ -63,7 +63,10 @@ export class FakeConnection {
   async createOffer(): Promise<RTCSessionDescriptionInit> {
     const token = id('offer');
     offers.set(token, this);
-    return { type: 'offer', sdp: `${token}|${this.transceivers.map((t) => t.receiver.track.kind).join(',')}` };
+    return {
+      type: 'offer',
+      sdp: `${token}|${this.transceivers.map((t) => t.receiver.track.kind).join(',')}`,
+    };
   }
 
   async createAnswer(): Promise<RTCSessionDescriptionInit> {
@@ -73,14 +76,18 @@ export class FakeConnection {
   private remoteToken = '';
 
   async setLocalDescription(_description: RTCSessionDescriptionInit) {
-    setTimeout(() => this.onicecandidate?.({ candidate: { toJSON: () => ({ candidate: id('candidate') }) } }), 1);
+    setTimeout(
+      () => this.onicecandidate?.({ candidate: { toJSON: () => ({ candidate: id('candidate') }) } }),
+      1,
+    );
   }
 
   async setRemoteDescription(description: RTCSessionDescriptionInit) {
     const [first, rest] = String(description.sdp).split('|');
     if (description.type === 'offer') {
       this.remoteToken = first!;
-      for (const kind of (rest ?? '').split(',').filter(Boolean)) this.transceivers.push(new FakeTransceiver(kind as 'audio' | 'video', null));
+      for (const kind of (rest ?? '').split(',').filter(Boolean))
+        this.transceivers.push(new FakeTransceiver(kind as 'audio' | 'video', null));
       return;
     }
     // An answer: the offer it answers names who we're now connected to.
@@ -120,7 +127,10 @@ export function fakeConnection(config: RTCConfiguration): RTCPeerConnection {
 
 /** A camera and microphone that always say yes, and hand out fresh tracks */
 export async function fakeUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream> {
-  const tracks = [constraints.audio ? new FakeTrack('audio') : null, constraints.video ? new FakeTrack('video') : null].filter((t): t is FakeTrack => t !== null);
+  const tracks = [
+    constraints.audio ? new FakeTrack('audio') : null,
+    constraints.video ? new FakeTrack('video') : null,
+  ].filter((t): t is FakeTrack => t !== null);
   return fakeStream(tracks as unknown as MediaStreamTrack[]);
 }
 

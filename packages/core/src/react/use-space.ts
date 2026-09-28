@@ -33,7 +33,11 @@ export function useLinked<T = unknown>(
   key: string,
   options: { rel?: string; collection?: string } = {},
 ): ReadonlyArray<NodeRecord<T>> | undefined {
-  return useLive(spaceId, (node) => node.records.linked<T>(spaceId, key, options), [key, options.rel, options.collection]);
+  return useLive(spaceId, (node) => node.records.linked<T>(spaceId, key, options), [
+    key,
+    options.rel,
+    options.collection,
+  ]);
 }
 
 /** What the space holds: its kinds of things, with their schemas and counts. */

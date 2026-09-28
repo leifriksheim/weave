@@ -34,9 +34,11 @@ const FIELD = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}(\.[a-zA-Z_][a-zA-Z0-9_]{0,63}){0,3}$
 /** Why a list of topic fields can't be a collection's, or null */
 export function checkTopics(topics: unknown, at = 'topics'): string | null {
   if (topics === undefined) return null;
-  if (!Array.isArray(topics) || topics.length > MAX_TOPICS) return `${at} must be a list of at most ${MAX_TOPICS} field names`;
+  if (!Array.isArray(topics) || topics.length > MAX_TOPICS)
+    return `${at} must be a list of at most ${MAX_TOPICS} field names`;
   for (const field of topics) {
-    if (typeof field !== 'string' || !FIELD.test(field)) return `${at}: "${String(field)}" is not a field name, like "channel" or "author.name"`;
+    if (typeof field !== 'string' || !FIELD.test(field))
+      return `${at}: "${String(field)}" is not a field name, like "channel" or "author.name"`;
   }
   return new Set(topics).size === topics.length ? null : `${at} names a field twice`;
 }
@@ -48,20 +50,30 @@ export function topicValues(body: unknown, field: string): Array<string | number
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
     value = (value as Record<string, unknown>)[part];
   }
-  const scalar = (v: unknown): v is string | number | boolean => typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
+  const scalar = (v: unknown): v is string | number | boolean =>
+    typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
   if (Array.isArray(value)) return value.filter(scalar);
   return scalar(value) ? [value] : [];
 }
 
 /** What a space's tags are keyed with: from its key in a private space, from its id in a public one */
-export async function topicKey(material: { readonly spaceKey: CryptoKey } | { readonly spaceId: string }): Promise<CryptoKey> {
+export async function topicKey(
+  material: { readonly spaceKey: CryptoKey } | { readonly spaceId: string },
+): Promise<CryptoKey> {
   const secret =
     'spaceKey' in material
       ? new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', material.spaceKey))
       : utf8Encode(`weave/public-topics/v1|${material.spaceId}`);
-  const base = await globalThis.crypto.subtle.importKey('raw', secret as BufferSource, 'HKDF', false, ['deriveKey']);
+  const base = await globalThis.crypto.subtle.importKey('raw', secret as BufferSource, 'HKDF', false, [
+    'deriveKey',
+  ]);
   return globalThis.crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8Encode('weave/topic-tags/v1') as BufferSource },
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array(0),
+      info: utf8Encode('weave/topic-tags/v1') as BufferSource,
+    },
     base,
     { name: 'HMAC', hash: 'SHA-256', length: 256 },
     false,
@@ -70,7 +82,12 @@ export async function topicKey(material: { readonly spaceKey: CryptoKey } | { re
 }
 
 /** The tag for one value of one topic field of a collection */
-export async function topicTag(key: CryptoKey, collection: string, field: string, value: string | number | boolean): Promise<string> {
+export async function topicTag(
+  key: CryptoKey,
+  collection: string,
+  field: string,
+  value: string | number | boolean,
+): Promise<string> {
   // Collection and field go in too, so one value in two places is two tags.
   const input = utf8Encode(`${collection}\u0000${field}\u0000${canonicalize(value)}`);
   const mac = new Uint8Array(await globalThis.crypto.subtle.sign('HMAC', key, input as BufferSource));
@@ -78,7 +95,12 @@ export async function topicTag(key: CryptoKey, collection: string, field: string
 }
 
 /** Every tag a body carries under a collection's topics: sorted, each once, at most `MAX_TAGS` */
-export async function tagsFor(key: CryptoKey, collection: string, topics: ReadonlyArray<string>, body: unknown): Promise<string[]> {
+export async function tagsFor(
+  key: CryptoKey,
+  collection: string,
+  topics: ReadonlyArray<string>,
+  body: unknown,
+): Promise<string[]> {
   const tags = new Set<string>();
   for (const field of topics) {
     for (const value of topicValues(body, field)) tags.add(await topicTag(key, collection, field, value));

@@ -26,7 +26,8 @@ export function Hosting({ node }: { node: P2PNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const load = () => void node.hosting.list().then(setHosts, (reason: unknown) => setError(message(reason)));
+    const load = () =>
+      void node.hosting.list().then(setHosts, (reason: unknown) => setError(message(reason)));
     load();
     // Back from the host's pay page in the other tab: ask again.
     const back = () => {
@@ -80,9 +81,9 @@ export function Hosting({ node }: { node: P2PNode }) {
       <div>
         <h2 style={{ ...styles.sectionTitle, fontSize: 16, marginBottom: 4 }}>Keep my spaces online</h2>
         <p style={{ color: palette.ink.muted, fontSize: 14, lineHeight: 1.5 }}>
-          Your spaces stay reachable and backed up when your devices are off, and a new device can get everything back from your
-          recovery code alone. The host stores them encrypted and can't read them. It does see which spaces exist, how big they are
-          and when they change.
+          Your spaces stay reachable and backed up when your devices are off, and a new device can get
+          everything back from your recovery code alone. The host stores them encrypted and can't read them.
+          It does see which spaces exist, how big they are and when they change.
         </p>
       </div>
 
@@ -97,7 +98,11 @@ export function Hosting({ node }: { node: P2PNode }) {
             aria-label="Host address"
             style={{ ...styles.input, flex: 1 }}
           />
-          <button onClick={() => void start()} disabled={busy !== null || !address.trim()} style={styles.addButton}>
+          <button
+            onClick={() => void start()}
+            disabled={busy !== null || !address.trim()}
+            style={styles.addButton}
+          >
             {busy === 'start' ? 'Asking…' : 'Keep online'}
           </button>
         </div>
@@ -120,16 +125,23 @@ export function Hosting({ node }: { node: P2PNode }) {
                   {busy === 'pay' ? 'Opening…' : 'Payment'}
                 </button>
               )}
-              <button onClick={() => void stop(host)} disabled={busy !== null} data-variant="quiet" style={styles.smallButton}>
+              <button
+                onClick={() => void stop(host)}
+                disabled={busy !== null}
+                data-variant="quiet"
+                style={styles.smallButton}
+              >
                 {busy === 'stop' ? 'Stopping…' : 'Stop'}
               </button>
             </span>
           </div>
-          {host.pays && needsPaying(host) && host.price && <p style={styles.errorHint}>{host.price}, paid on the host's own page.</p>}
+          {host.pays && needsPaying(host) && host.price && (
+            <p style={styles.errorHint}>{host.price}, paid on the host's own page.</p>
+          )}
           {host.status?.state === 'grace' && (
             <p style={styles.errorHint}>
-              The last payment ran out. Your spaces stay online for a while longer; pay again before then, or the host deletes its copy.
-              Your devices keep theirs either way.
+              The last payment ran out. Your spaces stay online for a while longer; pay again before then, or
+              the host deletes its copy. Your devices keep theirs either way.
             </p>
           )}
         </div>
@@ -154,7 +166,11 @@ function describe(host: HostingView): string {
   if (!status) return unreachable;
   // Not live: the last the host signed, from the registry.
   const offline = host.live ? '' : ` · ${unreachable}`;
-  const until = new Date(status.paidUntil * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const until = new Date(status.paidUntil * 1000).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
   // No count: the host also carries the account's hidden spaces (its registry, its contacts), so any number would look wrong.
   const spaces = host.live && status.carrying ? ' · your spaces are online' : '';
   switch (status.state) {

@@ -16,7 +16,7 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const n = process.argv[2] ?? '1024';
 
 const bundled = await build({
-  entryPoints: [`${here}${process.env.ENTRY ?? "pixel-idb.ts"}`],
+  entryPoints: [`${here}${process.env.ENTRY ?? 'pixel-idb.ts'}`],
   bundle: true,
   format: 'esm',
   platform: 'browser',

@@ -226,10 +226,7 @@ export async function wrapSeedWithDeviceKey(
  * @param deviceKey The local key it names
  * @returns The seed
  */
-export async function unwrapSeedWithDeviceKey(
-  wrap: DeviceWrap,
-  deviceKey: CryptoKey,
-): Promise<Uint8Array> {
+export async function unwrapSeedWithDeviceKey(wrap: DeviceWrap, deviceKey: CryptoKey): Promise<Uint8Array> {
   return open(wrap, deviceKey);
 }
 
@@ -353,9 +350,7 @@ export async function deriveVaultKey(seed: Uint8Array): Promise<CryptoKey> {
  * @returns The device wraps belonging to this origin
  */
 export function deviceWrapsFor(vault: AccountVault, rpId: string): ReadonlyArray<DeviceWrap> {
-  return vault.wraps.filter(
-    (wrap): wrap is DeviceWrap => wrap.kind === 'device' && wrap.rpId === rpId,
-  );
+  return vault.wraps.filter((wrap): wrap is DeviceWrap => wrap.kind === 'device' && wrap.rpId === rpId);
 }
 
 /** Whether a passphrase would get anyone in. */

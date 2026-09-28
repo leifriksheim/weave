@@ -53,6 +53,8 @@ export function folderStores(
   return async (path, storeOptions) => {
     const full = options.basePath ? `${options.basePath}/${path}` : path;
     const adapter = await createFolderAdapter(directory, full);
-    return storeOptions?.seal && options.vaultKey ? createEncryptedAdapter(adapter, options.vaultKey) : adapter;
+    return storeOptions?.seal && options.vaultKey
+      ? createEncryptedAdapter(adapter, options.vaultKey)
+      : adapter;
   };
 }

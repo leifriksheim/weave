@@ -63,7 +63,7 @@ export function SpaceMark({ space, size = 40 }: { space: Pick<SpaceSummary, 'id'
  */
 function describe(visibility: SpaceVisibility): string {
   return visibility === 'private'
-    ? "End-to-end encrypted. Only people you invite get the key, so nobody else can read it — not even the relay that passes it on."
+    ? 'End-to-end encrypted. Only people you invite get the key, so nobody else can read it — not even the relay that passes it on.'
     : 'Not encrypted: anyone with the link can read it. Only people you invite can change it.';
 }
 
@@ -97,12 +97,17 @@ export function SpaceList({
               <button onClick={() => onOpen(space)} style={tileButton}>
                 <SpaceMark space={space} />
                 <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                  <span style={{ ...styles.todoText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span
+                    style={{
+                      ...styles.todoText,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {space.name}
                   </span>
-                  <span style={{ ...styles.todoMeta, marginTop: 0 }}>
-                    {spaceBadges(space)}
-                  </span>
+                  <span style={{ ...styles.todoMeta, marginTop: 0 }}>{spaceBadges(space)}</span>
                 </span>
               </button>
               <button
@@ -126,7 +131,11 @@ export function SpaceList({
       )}
 
       <div style={{ ...styles.linkRow, marginTop: 12 }}>
-        <button onClick={() => setDialog('join')} data-variant="ghost" style={{ ...styles.linkButton, paddingLeft: 0 }}>
+        <button
+          onClick={() => setDialog('join')}
+          data-variant="ghost"
+          style={{ ...styles.linkButton, paddingLeft: 0 }}
+        >
           Have an invite? Join with a link
         </button>
       </div>
@@ -134,12 +143,7 @@ export function SpaceList({
       {error && <p style={{ ...styles.error, marginTop: 10 }}>{error}</p>}
 
       {dialog && (
-        <SpaceDialog
-          initial={dialog}
-          onClose={() => setDialog(null)}
-          onCreate={onCreate}
-          onJoin={onJoin}
-        />
+        <SpaceDialog initial={dialog} onClose={() => setDialog(null)} onCreate={onCreate} onJoin={onJoin} />
       )}
     </>
   );
@@ -236,16 +240,21 @@ export function SpaceDialog({
           <p style={styles.errorHint}>
             Paste a link someone shared with you.
             <Info label="What an invite link carries">
-              The space itself and, for a private one, the key that opens it — in the part after
-              the <code>#</code>, which browsers never send to a server. So it reaches you
-              without passing through whatever is hosting the page.
+              The space itself and, for a private one, the key that opens it — in the part after the{' '}
+              <code>#</code>, which browsers never send to a server. So it reaches you without passing through
+              whatever is hosting the page.
             </Info>
           </p>
           <NameField value={me.name} onChange={me.setName} />
           <button type="submit" disabled={!invite.trim()} data-variant="primary" style={styles.button}>
             Join
           </button>
-          <button type="button" onClick={() => setMode('new')} data-variant="ghost" style={{ ...styles.linkButton, alignSelf: 'center' }}>
+          <button
+            type="button"
+            onClick={() => setMode('new')}
+            data-variant="ghost"
+            style={{ ...styles.linkButton, alignSelf: 'center' }}
+          >
             Make a new space instead
           </button>
         </form>
@@ -276,16 +285,19 @@ export function SpaceDialog({
           ]}
         />
 
-        <p style={styles.errorHint}>
-          {describe(visibility)} This one can't be changed later.
-        </p>
+        <p style={styles.errorHint}>{describe(visibility)} This one can't be changed later.</p>
 
         <NameField value={me.name} onChange={me.setName} />
 
         <button type="submit" disabled={!name.trim()} data-variant="primary" style={styles.button}>
           Create space
         </button>
-        <button type="button" onClick={() => setMode('join')} data-variant="ghost" style={{ ...styles.linkButton, alignSelf: 'center' }}>
+        <button
+          type="button"
+          onClick={() => setMode('join')}
+          data-variant="ghost"
+          style={{ ...styles.linkButton, alignSelf: 'center' }}
+        >
           Have an invite link? Join instead
         </button>
       </form>

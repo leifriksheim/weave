@@ -9,7 +9,8 @@
 import type { JsonSchema, NodeCollection, NodeRecord } from '@weaveprotocol/core';
 
 /** How a field is edited and shown */
-export type FieldKind = 'text' | 'longText' | 'number' | 'integer' | 'boolean' | 'choice' | 'list' | 'object' | 'json';
+export type FieldKind =
+  'text' | 'longText' | 'number' | 'integer' | 'boolean' | 'choice' | 'list' | 'object' | 'json';
 
 export interface Field {
   readonly name: string;
@@ -48,7 +49,10 @@ export function kindOf(schema: JsonSchema): FieldKind {
 
 /** "dueDate" → "Due date" */
 export function humanize(name: string): string {
-  const spaced = name.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+  const spaced = name
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase();
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
@@ -90,7 +94,9 @@ export function recordLabel(record: NodeRecord, schema: JsonSchema | null): stri
 /** What a table shows: short fields, at most four */
 export function columnsOf(schema: JsonSchema | null): ReadonlyArray<Field> {
   const title = titleField(schema);
-  const short = fieldsOf(schema).filter((f) => ['text', 'number', 'integer', 'boolean', 'choice', 'list'].includes(f.kind));
+  const short = fieldsOf(schema).filter((f) =>
+    ['text', 'number', 'integer', 'boolean', 'choice', 'list'].includes(f.kind),
+  );
   return [...short.filter((f) => f.name === title), ...short.filter((f) => f.name !== title)].slice(0, 4);
 }
 
@@ -149,7 +155,9 @@ export type LinkedByRel = Readonly<Record<string, NodeRecord | null | undefined>
 /** Where a field's choices come from, when they live in a linked record */
 export function choicesFrom(schema: JsonSchema): { rel: string; field: string } | null {
   const from = schema['x-choicesFrom'] as { rel?: unknown; field?: unknown } | undefined;
-  return from && typeof from.rel === 'string' && typeof from.field === 'string' ? { rel: from.rel, field: from.field } : null;
+  return from && typeof from.rel === 'string' && typeof from.field === 'string'
+    ? { rel: from.rel, field: from.field }
+    : null;
 }
 
 /**
@@ -160,7 +168,10 @@ export function choicesFrom(schema: JsonSchema): { rel: string; field: string } 
 export function choicesOf(field: Field, linked: LinkedByRel = {}): ReadonlyArray<Choice> | null {
   const { schema } = field;
   if (Array.isArray(schema.oneOf)) {
-    return (schema.oneOf as Array<{ const: unknown; title?: string }>).map((c) => ({ value: c.const, label: c.title ?? String(c.const) }));
+    return (schema.oneOf as Array<{ const: unknown; title?: string }>).map((c) => ({
+      value: c.const,
+      label: c.title ?? String(c.const),
+    }));
   }
   if (Array.isArray(schema.enum)) return schema.enum.map((value) => ({ value, label: String(value) }));
   const from = choicesFrom(schema);
@@ -179,7 +190,10 @@ export function labelOf(field: Field, value: unknown, linked: LinkedByRel = {}):
 }
 
 /** A record's linked records, by role */
-export function byRel(links: ReadonlyArray<{ rel: string; to: string }>, records: ReadonlyArray<NodeRecord | null>): LinkedByRel {
+export function byRel(
+  links: ReadonlyArray<{ rel: string; to: string }>,
+  records: ReadonlyArray<NodeRecord | null>,
+): LinkedByRel {
   return Object.fromEntries(links.map((link, i) => [link.rel, records[i] ?? null]));
 }
 
@@ -204,7 +218,8 @@ export function tally(
   if (!choices) return null;
   const counts = choices.map((c) => ({
     label: c.label,
-    count: pointing.filter((r) => (r.body as Record<string, unknown> | null)?.[field.name] === c.value).length,
+    count: pointing.filter((r) => (r.body as Record<string, unknown> | null)?.[field.name] === c.value)
+      .length,
   }));
   return { field, counts };
 }
@@ -245,6 +260,11 @@ export function metaFields(schema: JsonSchema | null): ReadonlyArray<Field> {
   const title = titleField(schema);
   const check = checkField(schema)?.name;
   return fieldsOf(schema)
-    .filter((f) => f.name !== title && f.name !== check && ['text', 'number', 'integer', 'choice', 'list'].includes(f.kind))
+    .filter(
+      (f) =>
+        f.name !== title &&
+        f.name !== check &&
+        ['text', 'number', 'integer', 'choice', 'list'].includes(f.kind),
+    )
     .slice(0, 3);
 }

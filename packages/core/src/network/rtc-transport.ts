@@ -28,12 +28,12 @@ function fingerprintOf(description: RTCSessionDescription | null): string | null
 
 export const DEFAULT_ICE_SERVERS: ReadonlyArray<RTCIceServer> = [
   { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' }
+  { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
 /**
  * Creates a new WebRTC transport manager.
- * 
+ *
  * @param config - Optional configuration for ICE servers.
  * @returns The RTC transport instance.
  */
@@ -89,11 +89,14 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     return connection;
   };
 
-  const createOffer = async (peerId: string, onCandidate: CandidateSink): Promise<RTCSessionDescriptionInit> => {
+  const createOffer = async (
+    peerId: string,
+    onCandidate: CandidateSink,
+  ): Promise<RTCSessionDescriptionInit> => {
     const connection = createConnection(peerId, onCandidate);
     const channel = connection.createDataChannel('data', { ordered: true });
     setupDataChannel(peerId, channel);
-    
+
     const peerData = connections.get(peerId);
     if (peerData) {
       peerData.channel = channel;
@@ -111,7 +114,7 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     onCandidate: CandidateSink,
   ): Promise<RTCSessionDescriptionInit> => {
     const connection = createConnection(peerId, onCandidate);
-    
+
     connection.ondatachannel = (event) => {
       const channel = event.channel;
       setupDataChannel(peerId, channel);
@@ -187,6 +190,6 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     closeAll,
     binding,
     on,
-    off
+    off,
   });
 }

@@ -60,7 +60,11 @@ async function until(predicate: () => Promise<boolean>, ms = 4000, what = 'condi
 const settle = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A version signed by a member by hand — whatever fields they like — and slipped into their own store. */
-async function forge(who: Person, space: string, fields: Omit<CreateExpressionParams<unknown>, 'author' | 'space' | 'proof'>): Promise<Expression> {
+async function forge(
+  who: Person,
+  space: string,
+  fields: Omit<CreateExpressionParams<unknown>, 'author' | 'space' | 'proof'>,
+): Promise<Expression> {
   const provider = who.manager.getProvider();
   const pair = await provider.generateKeyPair();
   const keyDid = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
@@ -69,7 +73,16 @@ async function forge(who: Person, space: string, fields: Omit<CreateExpressionPa
     capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
     expiration: Math.floor(Date.now() / 1000) + 3600,
   });
-  const authored = await createSigner(provider).sign(createExpression({ seen: await seenBy(who.node, space), ...fields, author: keyDid, space, proof: ucan.encoded }), pair.privateKey);
+  const authored = await createSigner(provider).sign(
+    createExpression({
+      seen: await seenBy(who.node, space),
+      ...fields,
+      author: keyDid,
+      space,
+      proof: ucan.encoded,
+    }),
+    pair.privateKey,
+  );
   const signed = authored;
   await createStorageProvider(await who.stores(`spaces/${space}`)).addExpression(signed);
   return signed;
@@ -91,14 +104,19 @@ async function setup() {
   });
   await hold(alice.node, space);
   await hold(bob.node, space);
-  await until(async () => (await bob.node.collections.list(space)).some((c) => c.name === 'app.poll' && c.version !== null), 4000, 'the definition');
+  await until(
+    async () =>
+      (await bob.node.collections.list(space)).some((c) => c.name === 'app.poll' && c.version !== null),
+    4000,
+    'the definition',
+  );
   const poll = await alice.node.records.put(space, 'app.poll', { question: 'Where?', options: ['a'] });
   await until(async () => (await bob.node.records.get(space, poll.key)) !== null, 4000, 'the poll');
   return { hub, alice, bob, space, poll };
 }
 
 describe('attacks on a shared space', () => {
-  test('a version cannot escape its record\'s rules by naming another record as its first', async () => {
+  test("a version cannot escape its record's rules by naming another record as its first", async () => {
     const { alice, bob, space, poll } = await setup();
     const unruled = await bob.node.records.put(space, 'app.other', { x: 1 });
     await letGo(bob.node, space);
@@ -110,12 +128,17 @@ describe('attacks on a shared space', () => {
     await hold(bob.node, space);
     await until(async () => (await bob.node.spaces.status(space)).peers.length > 0, 4000, 'Bob to reconnect');
     await settle();
-    assert.equal((await alice.node.records.get<{ question: string }>(space, poll.key))?.body?.question, 'Where?');
+    assert.equal(
+      (await alice.node.records.get<{ question: string }>(space, poll.key))?.body?.question,
+      'Where?',
+    );
   });
 
-  test('a member cannot take down a collection\'s definition they did not write', async () => {
+  test("a member cannot take down a collection's definition they did not write", async () => {
     const { alice, bob, space } = await setup();
-    const definition = await createStorageProvider(await bob.stores(`spaces/${space}`)).getCurrent('collection:app.poll');
+    const definition = await createStorageProvider(await bob.stores(`spaces/${space}`)).getCurrent(
+      'collection:app.poll',
+    );
     await letGo(bob.node, space);
     await forge(bob, space, {
       collection: 'sys.collection',
@@ -126,7 +149,11 @@ describe('attacks on a shared space', () => {
     });
     await hold(bob.node, space);
     // It does arrive — and changes nothing.
-    await until(async () => (await (await stored(alice.stores, space)).getCurrent('collection:app.poll'))?.seq === 50, 4000, 'the delete to arrive');
+    await until(
+      async () => (await (await stored(alice.stores, space)).getCurrent('collection:app.poll'))?.seq === 50,
+      4000,
+      'the delete to arrive',
+    );
     const poll = (await alice.node.collections.list(space)).find((c) => c.name === 'app.poll');
     assert.equal(poll?.version, 1);
     assert.deepEqual(poll?.rules, { edit: 'creator', delete: 'creator', fixed: ['options'] });
@@ -146,15 +173,26 @@ describe('attacks on a shared space', () => {
     // No keys at all: just a copy with its signature broken, pushed unasked.
     const stranger = hub.transport('did:key:zstranger', space);
     stranger.on('connected', (peer: string) => {
-      const payload = { v: SYNC_PROTOCOL_VERSION, type: 'push-update', expression: { ...real!, signature: 'AAAA' } };
-      stranger.send(peer, new TextEncoder().encode(JSON.stringify({ type: 'sync', from: 'did:key:zstranger', payload })));
+      const payload = {
+        v: SYNC_PROTOCOL_VERSION,
+        type: 'push-update',
+        expression: { ...real!, signature: 'AAAA' },
+      };
+      stranger.send(
+        peer,
+        new TextEncoder().encode(JSON.stringify({ type: 'sync', from: 'did:key:zstranger', payload })),
+      );
     });
     await stranger.connect();
     await hold(bob.node, space);
     await until(async () => rejected.length > 0, 4000, 'the mangled copy to be refused');
 
     await hold(alice.node, space);
-    await until(async () => (await bob.node.records.get(space, second.key)) !== null, 4000, 'the real record');
+    await until(
+      async () => (await bob.node.records.get(space, second.key)) !== null,
+      4000,
+      'the real record',
+    );
   });
 });
 
@@ -191,7 +229,11 @@ describe('attacks on contacts', () => {
     }
     for (const who of [leif, anna, carol]) await hold(who.node, space);
     for (const who of [leif, anna, carol]) {
-      await until(async () => (await who.node.spaces.profiles(space)).filter((p) => p.contactKey).length === 3, 5000, 'everyone’s contact key');
+      await until(
+        async () => (await who.node.spaces.profiles(space)).filter((p) => p.contactKey).length === 3,
+        5000,
+        'everyone’s contact key',
+      );
     }
     return { hub, leif, anna, carol, space };
   }
@@ -199,7 +241,9 @@ describe('attacks on contacts', () => {
   test('a contact key on a profile signed by another account is ignored', async () => {
     const { leif, anna, carol, space } = await threeIn('public');
     const annasKey = contactPublicKey(await deriveContactKeyBytes(anna.seed));
-    const current = await createStorageProvider(await carol.stores(`spaces/${space}`)).getCurrent(await profileKey(anna.node.did));
+    const current = await createStorageProvider(await carol.stores(`spaces/${space}`)).getCurrent(
+      await profileKey(anna.node.did),
+    );
     await letGo(carol.node, space);
     // Carol writes "Anna's" profile, carrying Carol's own contact key.
     await forge(carol, space, {
@@ -209,7 +253,13 @@ describe('attacks on contacts', () => {
       version: { key: current!.key, seq: current!.seq + 1, prev: current!.id, genesis: current!.id },
     });
     await hold(carol.node, space);
-    await until(async () => (await (await stored(leif.stores, space)).getCurrent(await profileKey(anna.node.did)))?.seq === current!.seq + 1, 4000, 'the forgery to arrive');
+    await until(
+      async () =>
+        (await (await stored(leif.stores, space)).getCurrent(await profileKey(anna.node.did)))?.seq ===
+        current!.seq + 1,
+      4000,
+      'the forgery to arrive',
+    );
     const seen = (await leif.node.spaces.profiles(space)).find((profile) => profile.did === anna.node.did);
     assert.equal(seen?.contactKey, annasKey);
   });
@@ -217,8 +267,14 @@ describe('attacks on contacts', () => {
   test('a request re-posted by someone else, or copied into another space, does not open', async () => {
     const { leif, anna, carol, space } = await threeIn('private');
     await leif.node.contacts.ask(space, anna.node.did);
-    await until(async () => (await carol.node.records.list(space, { collection: 'std.contact-request' })).length === 1, 5000, 'the request');
-    const [original] = await carol.node.records.list<{ to: string; sealed: string }>(space, { collection: 'std.contact-request' });
+    await until(
+      async () => (await carol.node.records.list(space, { collection: 'std.contact-request' })).length === 1,
+      5000,
+      'the request',
+    );
+    const [original] = await carol.node.records.list<{ to: string; sealed: string }>(space, {
+      collection: 'std.contact-request',
+    });
 
     // Carol posts Leif's sealed invite as her own.
     await carol.node.records.put(space, 'std.contact-request', original!.body!);
@@ -231,10 +287,22 @@ describe('attacks on contacts', () => {
     await hold(anna.node, other);
     await hold(leif.node, other);
 
-    await until(async () => (await anna.node.records.list(space, { collection: 'std.contact-request' })).length === 2, 5000, 'Carol’s copy');
-    await until(async () => (await anna.node.records.list(other, { collection: 'std.contact-request' })).length === 1, 5000, 'Leif’s copy');
+    await until(
+      async () => (await anna.node.records.list(space, { collection: 'std.contact-request' })).length === 2,
+      5000,
+      'Carol’s copy',
+    );
+    await until(
+      async () => (await anna.node.records.list(other, { collection: 'std.contact-request' })).length === 1,
+      5000,
+      'Leif’s copy',
+    );
     const here = await anna.node.contacts.requests(space);
-    assert.deepEqual(here.map((request) => request.from), [leif.node.did], 'only the original, from Leif');
+    assert.deepEqual(
+      here.map((request) => request.from),
+      [leif.node.did],
+      'only the original, from Leif',
+    );
     assert.deepEqual(await anna.node.contacts.requests(other), []);
   });
 });

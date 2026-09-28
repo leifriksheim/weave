@@ -31,7 +31,13 @@ export function SpaceRail({
 
   return (
     <nav aria-label="Spaces" className="rail">
-      <button onClick={onHome} data-rail-item className="rail-slot" title="All spaces" aria-label="All spaces">
+      <button
+        onClick={onHome}
+        data-rail-item
+        className="rail-slot"
+        title="All spaces"
+        aria-label="All spaces"
+      >
         <span style={{ ...plain, background: palette.ink.strong, color: '#fff' }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
             <rect x="1" y="1" width="6" height="6" rx="1.5" />
@@ -59,14 +65,25 @@ export function SpaceRail({
             >
               {/* The pill on the edge says which one you are in. */}
               <span data-rail-pill style={{ ...pill, height: on ? 24 : 0, opacity: on ? 1 : 0 }} />
-              <span style={{ borderRadius: 12, boxShadow: on ? `0 0 0 2px ${palette.surface.page}, 0 0 0 4px ${palette.ink.strong}` : undefined }}>
+              <span
+                style={{
+                  borderRadius: 12,
+                  boxShadow: on
+                    ? `0 0 0 2px ${palette.surface.page}, 0 0 0 4px ${palette.ink.strong}`
+                    : undefined,
+                }}
+              >
                 <SpaceMark space={space} size={40} />
               </span>
               {(calls.mine === space.id || calls.others.has(space.id)) && (
                 <span
                   aria-label={calls.mine === space.id ? 'Your call is here' : 'A call is going on here'}
                   title={calls.mine === space.id ? 'Your call is here' : 'A call is going on here'}
-                  style={{ ...callDot, background: calls.mine === space.id ? palette.accent.good : palette.surface.card, borderColor: palette.accent.good }}
+                  style={{
+                    ...callDot,
+                    background: calls.mine === space.id ? palette.accent.good : palette.surface.card,
+                    borderColor: palette.accent.good,
+                  }}
                 />
               )}
             </button>
@@ -74,11 +91,30 @@ export function SpaceRail({
         })}
       </div>
 
-      <button onClick={() => setAdding(true)} data-rail-item data-rail-add className="rail-slot" title="New space" aria-label="New space">
-        <span style={{ ...plain, border: `1px dashed ${palette.surface.lineStrong}`, color: palette.ink.muted, fontSize: 22, fontWeight: 400 }}>+</span>
+      <button
+        onClick={() => setAdding(true)}
+        data-rail-item
+        data-rail-add
+        className="rail-slot"
+        title="New space"
+        aria-label="New space"
+      >
+        <span
+          style={{
+            ...plain,
+            border: `1px dashed ${palette.surface.lineStrong}`,
+            color: palette.ink.muted,
+            fontSize: 22,
+            fontWeight: 400,
+          }}
+        >
+          +
+        </span>
       </button>
 
-      {adding && <SpaceDialog initial="new" onClose={() => setAdding(false)} onCreate={onCreate} onJoin={onJoin} />}
+      {adding && (
+        <SpaceDialog initial="new" onClose={() => setAdding(false)} onCreate={onCreate} onJoin={onJoin} />
+      )}
     </nav>
   );
 }

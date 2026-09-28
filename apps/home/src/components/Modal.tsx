@@ -69,14 +69,7 @@ export function Modal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div
-        ref={card}
-        role="dialog"
-        aria-modal
-        aria-label={title}
-        tabIndex={-1}
-        style={styles.modal}
-      >
+      <div ref={card} role="dialog" aria-modal aria-label={title} tabIndex={-1} style={styles.modal}>
         <h2 style={styles.modalTitle}>{title}</h2>
         {children}
       </div>

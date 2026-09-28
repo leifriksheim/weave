@@ -34,7 +34,12 @@ function MyName({ name }: { name: string }) {
   };
   if (draft === null) {
     return (
-      <button onClick={() => setDraft(name)} data-variant="ghost" title="Rename — everyone in your spaces sees this name" style={{ ...styles.linkButton, fontSize: 14, color: palette.ink.strong }}>
+      <button
+        onClick={() => setDraft(name)}
+        data-variant="ghost"
+        title="Rename — everyone in your spaces sees this name"
+        style={{ ...styles.linkButton, fontSize: 14, color: palette.ink.strong }}
+      >
         {name}
       </button>
     );
@@ -64,7 +69,13 @@ type SpaceAccess = NonNullable<ReturnType<typeof useAccess>>;
  * holds them. Everything is worked out from the roles and each collection's
  * rules — and anything you cannot do is shown switched off, with why.
  */
-export function RolesView({ space, collections }: { space: SpaceSummary; collections: ReadonlyArray<NodeCollection> }) {
+export function RolesView({
+  space,
+  collections,
+}: {
+  space: SpaceSummary;
+  collections: ReadonlyArray<NodeCollection>;
+}) {
   const access = useAccess(space.id);
   const account = useAccount();
   const people = peopleFrom(useProfiles(space.id));
@@ -92,7 +103,13 @@ const titleOf = (role: SpaceRole) => role.title ?? role.name;
 
 // ─── What you can do ──────────────────────────────────────────────────
 
-function WhatYouCanDo({ access, collections }: { access: SpaceAccess; collections: ReadonlyArray<NodeCollection> }) {
+function WhatYouCanDo({
+  access,
+  collections,
+}: {
+  access: SpaceAccess;
+  collections: ReadonlyArray<NodeCollection>;
+}) {
   const { summary, can, cannot } = abilitiesOf(access.role, access.roles, collections);
   return (
     <section style={section} aria-label="What you can do">
@@ -104,7 +121,8 @@ function WhatYouCanDo({ access, collections }: { access: SpaceAccess; collection
           <ul style={list}>
             {can.map((a) => (
               <li key={a.key} style={item}>
-                <span style={{ color: palette.accent.good }}>✓</span> <span style={{ color: palette.ink.strong }}>{capital(a.text)}</span>
+                <span style={{ color: palette.accent.good }}>✓</span>{' '}
+                <span style={{ color: palette.ink.strong }}>{capital(a.text)}</span>
               </li>
             ))}
           </ul>
@@ -116,7 +134,8 @@ function WhatYouCanDo({ access, collections }: { access: SpaceAccess; collection
           <ul style={list}>
             {cannot.map((a) => (
               <li key={a.key} style={item}>
-                <span style={{ color: palette.ink.faint }}>–</span> <span style={{ color: palette.ink.body }}>{capital(a.text)}</span>
+                <span style={{ color: palette.ink.faint }}>–</span>{' '}
+                <span style={{ color: palette.ink.body }}>{capital(a.text)}</span>
                 {a.reason && <span style={{ color: palette.ink.faint }}> · {a.reason}</span>}
               </li>
             ))}
@@ -134,7 +153,15 @@ const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 /** Where a role being edited sits: one being made, or the name of one being changed */
 type Editing = { readonly kind: 'new' } | { readonly kind: 'edit'; readonly name: string } | null;
 
-function Roles({ space, access, collections }: { space: SpaceSummary; access: SpaceAccess; collections: ReadonlyArray<NodeCollection> }) {
+function Roles({
+  space,
+  access,
+  collections,
+}: {
+  space: SpaceSummary;
+  access: SpaceAccess;
+  collections: ReadonlyArray<NodeCollection>;
+}) {
   const node = useNode();
   const me = access.role;
   const [editing, setEditing] = useState<Editing>(null);
@@ -145,7 +172,10 @@ function Roles({ space, access, collections }: { space: SpaceSummary; access: Sp
 
   const remove = async (role: SpaceRole) => {
     const count = holders(role.name);
-    const who = count === 0 ? 'Nobody holds it now.' : `The ${count === 1 ? 'person' : `${count} people`} holding it will have no role — they can still see the space, but not change anything, until someone gives them another.`;
+    const who =
+      count === 0
+        ? 'Nobody holds it now.'
+        : `The ${count === 1 ? 'person' : `${count} people`} holding it will have no role — they can still see the space, but not change anything, until someone gives them another.`;
     if (!globalThis.confirm(`Remove the ${titleOf(role)} role? ${who}`)) return;
     setError(null);
     try {
@@ -157,7 +187,15 @@ function Roles({ space, access, collections }: { space: SpaceSummary; access: Sp
 
   return (
     <section style={section} aria-label="Roles">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
         <h2 style={{ ...styles.appTitle, fontSize: 20 }}>Roles</h2>
         <button
           onClick={() => setEditing({ kind: 'new' })}
@@ -170,12 +208,22 @@ function Roles({ space, access, collections }: { space: SpaceSummary; access: Sp
         </button>
       </div>
       <p style={{ fontSize: 13, color: palette.ink.muted, lineHeight: 1.5 }}>
-        Higher ranks can change lower ones. {cannotManage ? `${cannotManage}, so you can look but not change.` : `You can change roles ranked below ${me ? titleOf(me) : 'yours'}.`}
+        Higher ranks can change lower ones.{' '}
+        {cannotManage
+          ? `${cannotManage}, so you can look but not change.`
+          : `You can change roles ranked below ${me ? titleOf(me) : 'yours'}.`}
       </p>
       {error && <p style={styles.error}>{error}</p>}
 
       {editing?.kind === 'new' && me && (
-        <RoleEditor space={space} me={me} existing={null} roles={roles} collections={collections} onDone={() => setEditing(null)} />
+        <RoleEditor
+          space={space}
+          me={me}
+          existing={null}
+          roles={roles}
+          collections={collections}
+          onDone={() => setEditing(null)}
+        />
       )}
 
       <ul style={{ ...list, gap: 8 }}>
@@ -191,12 +239,15 @@ function Roles({ space, access, collections }: { space: SpaceSummary; access: Sp
                     <strong style={{ color: palette.ink.strong, fontSize: 15 }}>{titleOf(role)}</strong>
                     {me?.name === role.name && <span style={styles.badge}>yours</span>}
                     <span style={{ fontSize: 12, color: palette.ink.faint }}>
-                      <code>{role.name}</code> · rank {role.rank} · {count} {count === 1 ? 'person' : 'people'}
+                      <code>{role.name}</code> · rank {role.rank} · {count}{' '}
+                      {count === 1 ? 'person' : 'people'}
                     </span>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {role.permissions.length === 0 ? (
-                      <span style={{ fontSize: 12, color: palette.ink.faint }}>Only what every role can do</span>
+                      <span style={{ fontSize: 12, color: palette.ink.faint }}>
+                        Only what every role can do
+                      </span>
                     ) : (
                       role.permissions.map((p) => (
                         <span key={p} title={p} style={chip}>
@@ -208,15 +259,36 @@ function Roles({ space, access, collections }: { space: SpaceSummary; access: Sp
                   {why && <span style={{ fontSize: 12, color: palette.ink.faint }}>{why}</span>}
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => setEditing(open ? null : { kind: 'edit', name: role.name })} disabled={!!why} title={why ?? undefined} data-variant="quiet" style={styles.smallButton}>
+                  <button
+                    onClick={() => setEditing(open ? null : { kind: 'edit', name: role.name })}
+                    disabled={!!why}
+                    title={why ?? undefined}
+                    data-variant="quiet"
+                    style={styles.smallButton}
+                  >
                     {open ? 'Close' : 'Edit'}
                   </button>
-                  <button onClick={() => void remove(role)} disabled={!!why} title={why ?? undefined} data-variant="danger" style={{ ...styles.smallButton, color: palette.accent.danger }}>
+                  <button
+                    onClick={() => void remove(role)}
+                    disabled={!!why}
+                    title={why ?? undefined}
+                    data-variant="danger"
+                    style={{ ...styles.smallButton, color: palette.accent.danger }}
+                  >
                     Remove
                   </button>
                 </div>
               </div>
-              {open && me && <RoleEditor space={space} me={me} existing={role} roles={roles} collections={collections} onDone={() => setEditing(null)} />}
+              {open && me && (
+                <RoleEditor
+                  space={space}
+                  me={me}
+                  existing={role}
+                  roles={roles}
+                  collections={collections}
+                  onDone={() => setEditing(null)}
+                />
+              )}
             </li>
           );
         })}
@@ -234,7 +306,8 @@ const slug = (title: string) =>
     .slice(0, 40);
 
 /** A rank strictly between two, whole when there is room */
-const between = (upper: number, lower: number) => (upper - lower >= 2 ? Math.floor((upper + lower) / 2) : (upper + lower) / 2);
+const between = (upper: number, lower: number) =>
+  upper - lower >= 2 ? Math.floor((upper + lower) / 2) : (upper + lower) / 2;
 
 /** Making a role, or changing one: its title, where it ranks, and what it may do */
 function RoleEditor({
@@ -257,23 +330,29 @@ function RoleEditor({
   const lowest = others.at(-1);
   const [title, setTitle] = useState(existing?.title ?? existing?.name ?? '');
   // A new role lands just below the lowest one you may place it under.
-  const [rank, setRank] = useState(String(existing?.rank ?? (lowest && lowest.rank < me.rank ? lowest.rank - 10 : me.rank - 10)));
+  const [rank, setRank] = useState(
+    String(existing?.rank ?? (lowest && lowest.rank < me.rank ? lowest.rank - 10 : me.rank - 10)),
+  );
   const [permissions, setPermissions] = useState<ReadonlySet<string>>(new Set(existing?.permissions ?? []));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const name = existing?.name ?? slug(title);
-  const draft: SpaceRole = { name, title: title.trim() || undefined, rank: Number(rank), permissions: [...permissions] };
-  const problem =
-    !title.trim()
-      ? 'Give it a title'
-      : !name
-        ? 'The title needs at least one letter or number'
-        : !existing && roles.some((r) => r.name === name)
-          ? `There's already a role called “${name}”`
-          : rank.trim() === '' || !Number.isFinite(draft.rank)
-            ? 'Its rank has to be a number'
-            : roleChangeRefusal(me, existing, draft, collections);
+  const draft: SpaceRole = {
+    name,
+    title: title.trim() || undefined,
+    rank: Number(rank),
+    permissions: [...permissions],
+  };
+  const problem = !title.trim()
+    ? 'Give it a title'
+    : !name
+      ? 'The title needs at least one letter or number'
+      : !existing && roles.some((r) => r.name === name)
+        ? `There's already a role called “${name}”`
+        : rank.trim() === '' || !Number.isFinite(draft.rank)
+          ? 'Its rank has to be a number'
+          : roleChangeRefusal(me, existing, draft, collections);
 
   const toggle = (permission: string, on: boolean) => {
     const next = new Set(permissions);
@@ -291,11 +370,20 @@ function RoleEditor({
     });
 
   const options = permissionOptions(collections);
-  const groups = [...new Set(options.map((o) => o.group))].map((group) => ({ group, options: options.filter((o) => o.group === group) }));
+  const groups = [...new Set(options.map((o) => o.group))].map((group) => ({
+    group,
+    options: options.filter((o) => o.group === group),
+  }));
   const known = new Set([...WILDCARD_OPTIONS, ...options].map((o) => o.permission));
   const extras: ReadonlyArray<PermissionOption> = [...permissions]
     .filter((p) => !known.has(p))
-    .map((p) => ({ permission: p, label: permissionLabel(p, collections), description: p, group: 'Other', collection: null }));
+    .map((p) => ({
+      permission: p,
+      label: permissionLabel(p, collections),
+      description: p,
+      group: 'Other',
+      collection: null,
+    }));
 
   const save = async () => {
     setSaving(true);
@@ -311,12 +399,30 @@ function RoleEditor({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: existing ? 14 : 0, padding: 16, borderRadius: palette.radius.md, background: palette.surface.sunken, border: `1px solid ${palette.surface.line}` }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 16,
+        marginTop: existing ? 14 : 0,
+        padding: 16,
+        borderRadius: palette.radius.md,
+        background: palette.surface.sunken,
+        border: `1px solid ${palette.surface.line}`,
+      }}
+    >
       {!existing && <strong style={{ color: palette.ink.strong }}>New role</strong>}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
         <label style={{ flex: '2 1 200px' }}>
           <p style={styles.fieldLabel}>Title</p>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Reviewer" maxLength={80} style={styles.input} autoFocus={!existing} />
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Reviewer"
+            maxLength={80}
+            style={styles.input}
+            autoFocus={!existing}
+          />
           <p style={{ fontSize: 12, color: palette.ink.faint, marginTop: 4 }}>
             {existing ? 'Its key stays ' : 'Its key will be '}
             <code>{name || '…'}</code>
@@ -330,7 +436,11 @@ function RoleEditor({
         {places.length > 0 && (
           <label style={{ flex: '2 1 180px' }}>
             <p style={styles.fieldLabel}>Or place it</p>
-            <select value="" onChange={(e) => e.target.value !== '' && setRank(e.target.value)} style={styles.input}>
+            <select
+              value=""
+              onChange={(e) => e.target.value !== '' && setRank(e.target.value)}
+              style={styles.input}
+            >
               <option value="">Choose a place…</option>
               {places.map((p) => (
                 <option key={p.label} value={String(p.rank)}>
@@ -344,13 +454,39 @@ function RoleEditor({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <p style={{ ...styles.fieldLabel, marginBottom: 0 }}>What it can do, besides what every role can</p>
-        {[{ group: 'Shortcuts', options: WILDCARD_OPTIONS }, ...groups, ...(extras.length ? [{ group: 'Other', options: extras }] : [])].map(({ group, options: shown }) => (
-          <fieldset key={group} style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <legend style={{ fontSize: 13, fontWeight: 600, color: palette.ink.strong, marginBottom: 4, padding: 0 }}>{group}</legend>
+        {[
+          { group: 'Shortcuts', options: WILDCARD_OPTIONS },
+          ...groups,
+          ...(extras.length ? [{ group: 'Other', options: extras }] : []),
+        ].map(({ group, options: shown }) => (
+          <fieldset
+            key={group}
+            style={{
+              border: 'none',
+              padding: 0,
+              margin: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}
+          >
+            <legend
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: palette.ink.strong,
+                marginBottom: 4,
+                padding: 0,
+              }}
+            >
+              {group}
+            </legend>
             {shown.map((o) => {
               const checked = permissions.has(o.permission);
               // Held already through a broader one, like Everything.
-              const coveredBy = [...permissions].find((p) => p !== o.permission && permissionMatches(p, o.permission));
+              const coveredBy = [...permissions].find(
+                (p) => p !== o.permission && permissionMatches(p, o.permission),
+              );
               const mayGive = canGrant(me, o.permission);
               const disabled = !!coveredBy || (!checked && !mayGive);
               const note = coveredBy
@@ -361,11 +497,29 @@ function RoleEditor({
                     : "You can't give this — you don't have it yourself"
                   : null;
               return (
-                <label key={o.permission} style={{ ...styles.checkboxRow, alignItems: 'flex-start', opacity: disabled ? 0.55 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
-                  <input type="checkbox" checked={checked || !!coveredBy} disabled={disabled} onChange={(e) => toggle(o.permission, e.target.checked)} style={styles.checkbox} />
+                <label
+                  key={o.permission}
+                  style={{
+                    ...styles.checkboxRow,
+                    alignItems: 'flex-start',
+                    opacity: disabled ? 0.55 : 1,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked || !!coveredBy}
+                    disabled={disabled}
+                    onChange={(e) => toggle(o.permission, e.target.checked)}
+                    style={styles.checkbox}
+                  />
                   <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <span style={{ color: palette.ink.strong, fontSize: 13, fontWeight: 500 }}>{o.label}</span>
-                    <span style={{ color: palette.ink.muted, fontSize: 12, lineHeight: 1.5 }}>{o.description}</span>
+                    <span style={{ color: palette.ink.strong, fontSize: 13, fontWeight: 500 }}>
+                      {o.label}
+                    </span>
+                    <span style={{ color: palette.ink.muted, fontSize: 12, lineHeight: 1.5 }}>
+                      {o.description}
+                    </span>
                     {note && <span style={{ color: palette.ink.faint, fontSize: 12 }}>{note}</span>}
                   </span>
                 </label>
@@ -379,10 +533,19 @@ function RoleEditor({
       {problem && <p style={{ fontSize: 13, color: palette.ink.muted }}>{problem}</p>}
       {error && <p style={styles.error}>{error}</p>}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => void save()} disabled={!!problem || saving} data-variant="primary" style={{ ...styles.addButton, height: 34 }}>
+        <button
+          onClick={() => void save()}
+          disabled={!!problem || saving}
+          data-variant="primary"
+          style={{ ...styles.addButton, height: 34 }}
+        >
           {saving ? 'Saving…' : existing ? 'Save role' : 'Create role'}
         </button>
-        <button onClick={onDone} data-variant="quiet" style={{ ...variants.quiet, width: 'auto', height: 34 }}>
+        <button
+          onClick={onDone}
+          data-variant="quiet"
+          style={{ ...variants.quiet, width: 'auto', height: 34 }}
+        >
           Cancel
         </button>
       </div>
@@ -391,7 +554,9 @@ function RoleEditor({
 }
 
 const holdersNote = (
-  <p style={{ fontSize: 12, color: palette.ink.faint }}>Lowering a role keeps what its holders already wrote; it only changes what they can do from now on.</p>
+  <p style={{ fontSize: 12, color: palette.ink.faint }}>
+    Lowering a role keeps what its holders already wrote; it only changes what they can do from now on.
+  </p>
 );
 
 // ─── Members ──────────────────────────────────────────────────────────
@@ -429,7 +594,12 @@ function Members({
     }
   };
   const closeInvite = async (key: string) => {
-    if (!globalThis.confirm('Close this invite link? Nobody new can join with it. People who already joined keep their role.')) return;
+    if (
+      !globalThis.confirm(
+        'Close this invite link? Nobody new can join with it. People who already joined keep their role.',
+      )
+    )
+      return;
     setError(null);
     try {
       await node.spaces.closeInvite(space.id, key);
@@ -443,15 +613,19 @@ function Members({
     const name = nameOf(did, people);
     const cannotChange = memberChangeRefusal(mine, self, current, current);
     const cannotRemove = memberChangeRefusal(mine, self, current, null);
-    const choices = current && !giveable.some((r) => r.name === current.name) ? [current, ...giveable] : giveable;
+    const choices =
+      current && !giveable.some((r) => r.name === current.name) ? [current, ...giveable] : giveable;
     return (
       <li key={did} style={{ ...styles.row, padding: '8px 4px' }}>
         <Avatar did={did} size={28} />
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <span style={{ color: palette.ink.strong, fontSize: 14 }}>
-            {self ? <MyName name={people.get(did)?.name ?? name} /> : <Person did={did} />} {self && <span style={{ color: palette.ink.faint, fontWeight: 400 }}>· you</span>}
+            {self ? <MyName name={people.get(did)?.name ?? name} /> : <Person did={did} />}{' '}
+            {self && <span style={{ color: palette.ink.faint, fontWeight: 400 }}>· you</span>}
           </span>
-          {cannotChange && !self && mine && roleHolds(mine, 'manage') && <span style={{ fontSize: 12, color: palette.ink.faint }}>{cannotChange}</span>}
+          {cannotChange && !self && mine && roleHolds(mine, 'manage') && (
+            <span style={{ fontSize: 12, color: palette.ink.faint }}>{cannotChange}</span>
+          )}
         </div>
         {!self && current && <RingButton space={space} did={did} name={name} />}
         {cannotChange ? (
@@ -503,9 +677,21 @@ function Members({
   const invites = access.invites.filter((i) => i.open);
   return (
     <section style={section} aria-label="Members">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
         <h2 style={{ ...styles.appTitle, fontSize: 20 }}>People ({access.members.length})</h2>
-        <button onClick={() => setInviteOpen(!inviteOpen)} data-variant={inviteOpen ? 'quiet' : 'primary'} style={styles.smallButton}>
+        <button
+          onClick={() => setInviteOpen(!inviteOpen)}
+          data-variant={inviteOpen ? 'quiet' : 'primary'}
+          style={styles.smallButton}
+        >
           {inviteOpen ? 'Close' : 'Invite people'}
         </button>
       </div>
@@ -535,10 +721,21 @@ function Members({
                 <li key={invite.key} style={{ ...styles.row, padding: '8px 4px' }}>
                   <span style={{ flex: 1, fontSize: 13, color: palette.ink.body }}>
                     Joins as <strong>{role ? titleOf(role) : invite.role}</strong>
-                    {!role && <span style={{ color: palette.ink.faint }}> — that role is gone, so the link no longer works</span>}
+                    {!role && (
+                      <span style={{ color: palette.ink.faint }}>
+                        {' '}
+                        — that role is gone, so the link no longer works
+                      </span>
+                    )}
                     <span style={{ color: palette.ink.faint }}> · …{invite.key.slice(-6)}</span>
                   </span>
-                  <button onClick={() => void closeInvite(invite.key)} disabled={!!why} title={why ?? undefined} data-variant="quiet" style={styles.smallButton}>
+                  <button
+                    onClick={() => void closeInvite(invite.key)}
+                    disabled={!!why}
+                    title={why ?? undefined}
+                    data-variant="quiet"
+                    style={styles.smallButton}
+                  >
                     Close link
                   </button>
                 </li>
@@ -561,10 +758,21 @@ const VIEW_ONLY = '';
  * “Invite people”, and only for roles up to your own — it lands on the lowest
  * one below yours, so the easy choice never gives away more than it should.
  */
-function Invite({ space, access, collections }: { space: SpaceSummary; access: SpaceAccess; collections: ReadonlyArray<NodeCollection> }) {
+function Invite({
+  space,
+  access,
+  collections,
+}: {
+  space: SpaceSummary;
+  access: SpaceAccess;
+  collections: ReadonlyArray<NodeCollection>;
+}) {
   const node = useNode();
   const mine = access.role;
-  const offered = mine && roleHolds(mine, 'invite') ? [...access.roles].filter((r) => r.rank <= mine.rank).sort((a, b) => b.rank - a.rank) : [];
+  const offered =
+    mine && roleHolds(mine, 'invite')
+      ? [...access.roles].filter((r) => r.rank <= mine.rank).sort((a, b) => b.rank - a.rank)
+      : [];
   const fallback = [...offered].reverse().find((r) => mine && r.rank < mine.rank)?.name ?? VIEW_ONLY;
   const [choice, setChoice] = useState(fallback);
   const [link, setLink] = useState<string | null>(null);
@@ -587,14 +795,29 @@ function Invite({ space, access, collections }: { space: SpaceSummary; access: S
     try {
       const next = await createInviteLink(node, space.id, role?.name ?? null);
       setLink(next);
-      setCopied(await globalThis.navigator.clipboard?.writeText(next).then(() => true, () => false) ?? false);
+      setCopied(
+        (await globalThis.navigator.clipboard?.writeText(next).then(
+          () => true,
+          () => false,
+        )) ?? false,
+      );
     } catch (e) {
       setError(plainError(e));
     }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, borderRadius: palette.radius.md, background: palette.surface.sunken, border: `1px solid ${palette.surface.line}` }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        padding: 16,
+        borderRadius: palette.radius.md,
+        background: palette.surface.sunken,
+        border: `1px solid ${palette.surface.line}`,
+      }}
+    >
       <label style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 14, color: palette.ink.strong }}>People with the link join as</span>
         <select
@@ -615,20 +838,34 @@ function Invite({ space, access, collections }: { space: SpaceSummary; access: S
       </label>
       <p style={{ fontSize: 13, lineHeight: 1.5, color: palette.ink.muted }}>
         {gives}
-        {role && mine && role.rank >= mine.rank && ' That is as much as you have — only pick it for someone you trust to run the space.'}
-        {space.visibility === 'private' && ' The space is encrypted, and the link carries its key, so send it only to the people it is for.'}
+        {role &&
+          mine &&
+          role.rank >= mine.rank &&
+          ' That is as much as you have — only pick it for someone you trust to run the space.'}
+        {space.visibility === 'private' &&
+          ' The space is encrypted, and the link carries its key, so send it only to the people it is for.'}
         {role && ' You can close it later.'}
       </p>
       {offered.length === 0 && mine && (
-        <p style={{ fontSize: 12, color: palette.ink.faint }}>Inviting with a role takes “Invite people”, so you can only share it to view.</p>
+        <p style={{ fontSize: 12, color: palette.ink.faint }}>
+          Inviting with a role takes “Invite people”, so you can only share it to view.
+        </p>
       )}
       {error && <p style={styles.error}>{error}</p>}
-      <button onClick={() => void make()} data-variant="primary" style={{ ...styles.addButton, height: 34, alignSelf: 'flex-start' }}>
+      <button
+        onClick={() => void make()}
+        data-variant="primary"
+        style={{ ...styles.addButton, height: 34, alignSelf: 'flex-start' }}
+      >
         {link ? 'Make another link' : 'Create link'}
       </button>
       {link && (
         <div>
-          <p style={{ fontSize: 12, color: palette.ink.muted }}>{copied ? 'Copied. Send it to them however you like.' : 'Copy this and send it to them however you like.'}</p>
+          <p style={{ fontSize: 12, color: palette.ink.muted }}>
+            {copied
+              ? 'Copied. Send it to them however you like.'
+              : 'Copy this and send it to them however you like.'}
+          </p>
           <code style={styles.token}>{link}</code>
         </div>
       )}
@@ -639,5 +876,10 @@ function Invite({ space, access, collections }: { space: SpaceSummary; access: S
 const section: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 12 };
 const list: CSSProperties = { listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 };
 const item: CSSProperties = { fontSize: 13, lineHeight: 1.6 };
-const card: CSSProperties = { padding: 14, border: `1px solid ${palette.surface.line}`, borderRadius: palette.radius.md, background: palette.surface.card };
+const card: CSSProperties = {
+  padding: 14,
+  border: `1px solid ${palette.surface.line}`,
+  borderRadius: palette.radius.md,
+  background: palette.surface.card,
+};
 const chip: CSSProperties = { ...styles.badge, color: palette.ink.body, background: palette.surface.sunken };

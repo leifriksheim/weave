@@ -11,7 +11,13 @@ import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
-import { checkRelays, replayAccess, type AccessEvent, type AccessGenesis, type Role } from '../src/space/roles.js';
+import {
+  checkRelays,
+  replayAccess,
+  type AccessEvent,
+  type AccessGenesis,
+  type Role,
+} from '../src/space/roles.js';
 import { parseSpaceInvite } from '../src/space/space-manager.js';
 import { team } from '../src/space/presets.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
@@ -21,7 +27,12 @@ import { hold } from './helpers/hold.js';
 
 const admin: Role = { name: 'admin', rank: 100, permissions: ['*'] };
 const member: Role = { name: 'member', rank: 0, permissions: [] };
-const genesis: AccessGenesis = { id: 'space', creator: 'alice', roles: [admin, member], creatorRole: 'admin' };
+const genesis: AccessGenesis = {
+  id: 'space',
+  creator: 'alice',
+  roles: [admin, member],
+  creatorRole: 'admin',
+};
 
 let n = 0;
 const named = (root: string, relays: string[], seen: string[] = []): AccessEvent => ({
@@ -36,7 +47,16 @@ const named = (root: string, relays: string[], seen: string[] = []): AccessEvent
 
 describe('a space’s relays, in its history', () => {
   test('someone who manages the space names them; anyone else is ignored', () => {
-    const bob: AccessEvent = { id: 'm-bob', key: 'member:bob', kind: 'member', root: 'alice', did: 'bob', role: 'member', seen: [], keep: [] };
+    const bob: AccessEvent = {
+      id: 'm-bob',
+      key: 'member:bob',
+      kind: 'member',
+      root: 'alice',
+      did: 'bob',
+      role: 'member',
+      seen: [],
+      keep: [],
+    };
     const byAlice = named('alice', ['wss://relay.one.test'], [bob.id]);
     const byBob = named('bob', ['wss://relay.bob.test'], [byAlice.id]);
     const history = replayAccess(genesis, [bob, byAlice, byBob]);
@@ -68,7 +88,10 @@ async function person(hub: FakeHub, relays: string[]) {
     signer: createLocalRootSigner(me, manager.getProvider()),
     stores: memoryStores(),
     watchIntervalMs: 0,
-    network: { relays, transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
+    network: {
+      relays,
+      transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)],
+    },
   });
   open.push(node);
   return node;
@@ -104,7 +127,11 @@ describe('a space’s relays, through real nodes', () => {
     await until(async () => (await relaysOf(alice, space)).length === 1, 5000, 'the space to name a relay');
 
     await bob.spaces.join(await alice.spaces.invite(space));
-    assert.deepEqual(await relaysOf(bob, space), ['wss://relay.alice.test'], 'from the invite, before any sync');
+    assert.deepEqual(
+      await relaysOf(bob, space),
+      ['wss://relay.alice.test'],
+      'from the invite, before any sync',
+    );
     await hold(bob, space);
     await joined(bob, space);
     // Bob does not manage the space, so his own relays never replace the space's.
@@ -115,7 +142,10 @@ describe('a space’s relays, through real nodes', () => {
     await alice.spaces.setRelays(space, ['wss://relay.new.test', 'wss://relay.alice.test']);
     await until(async () => (await relaysOf(bob, space)).length === 2, 5000, 'Bob to hear of the new relays');
     // And what he invites people with names them too.
-    assert.deepEqual(parseSpaceInvite(await bob.spaces.invite(space, { write: false })).relays, ['wss://relay.new.test', 'wss://relay.alice.test']);
+    assert.deepEqual(parseSpaceInvite(await bob.spaces.invite(space, { write: false })).relays, [
+      'wss://relay.new.test',
+      'wss://relay.alice.test',
+    ]);
   });
 
   test('only someone who manages the space says where it meets, and only somewhere a space may', async () => {
@@ -127,7 +157,10 @@ describe('a space’s relays, through real nodes', () => {
     await bob.spaces.join(await alice.spaces.invite(space));
     await hold(bob, space);
     await joined(bob, space);
-    await assert.rejects(bob.spaces.setRelays(space, ['wss://relay.bob.test']), /may not change where the space meets/);
+    await assert.rejects(
+      bob.spaces.setRelays(space, ['wss://relay.bob.test']),
+      /may not change where the space meets/,
+    );
     await assert.rejects(alice.spaces.setRelays(space, ['http://relay.test']), /not a wss/);
   });
 });

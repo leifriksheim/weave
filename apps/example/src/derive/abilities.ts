@@ -41,7 +41,8 @@ export const SPACE_PERMISSIONS: ReadonlyArray<PermissionOption & { readonly does
     permission: MANAGE,
     label: 'Run the space',
     does: 'change roles, and who holds them',
-    description: 'Make, change and remove roles, and give people roles or take them away — for anyone ranked below them.',
+    description:
+      'Make, change and remove roles, and give people roles or take them away — for anyone ranked below them.',
     group: 'Space',
     collection: null,
   },
@@ -75,15 +76,18 @@ export const WILDCARD_OPTIONS: ReadonlyArray<PermissionOption> = [
   {
     permission: EVERY_COLLECTION_PERMISSION,
     label: 'Every permission on every collection',
-    description: 'Whatever any collection asks for, now and later — but not running the space, inviting, or adding collections.',
+    description:
+      'Whatever any collection asks for, now and later — but not running the space, inviting, or adding collections.',
     group: 'Shortcuts',
     collection: null,
   },
 ];
 
-const whoList = (who: Rule): ReadonlyArray<Who> => (who === undefined ? ['member'] : typeof who === 'string' ? [who] : who);
+const whoList = (who: Rule): ReadonlyArray<Who> =>
+  who === undefined ? ['member'] : typeof who === 'string' ? [who] : who;
 /** The rule for an action; delete falls back to edit, as the protocol does */
-const ruleFor = (c: RuledCollection, action: RecordAction): Rule => (action === 'delete' ? (c.rules.delete ?? c.rules.edit) : c.rules[action]);
+const ruleFor = (c: RuledCollection, action: RecordAction): Rule =>
+  action === 'delete' ? (c.rules.delete ?? c.rules.edit) : c.rules[action];
 
 const joinWith = (word: string) => (items: ReadonlyArray<string>) =>
   items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} ${word} ${items.at(-1)}`;
@@ -91,11 +95,15 @@ export const joinAnd = joinWith('and');
 export const joinOr = joinWith('or');
 
 /** Every permission a role could be given, with a label and what it does: the space's three, then each collection's */
-export function permissionOptions(collections: ReadonlyArray<RuledCollection>): ReadonlyArray<PermissionOption> {
+export function permissionOptions(
+  collections: ReadonlyArray<RuledCollection>,
+): ReadonlyArray<PermissionOption> {
   const own = collections.flatMap((c) =>
     c.permissions.map((p) => {
       const label = collectionLabel(c);
-      const uses = (['create', 'edit', 'delete'] as const).filter((a) => whoList(ruleFor(c, a)).includes(`can:${p}`));
+      const uses = (['create', 'edit', 'delete'] as const).filter((a) =>
+        whoList(ruleFor(c, a)).includes(`can:${p}`),
+      );
       const parts: string[] = [];
       if (uses.includes('create')) parts.push(`add to ${label}`);
       const changes = uses.filter((a) => a !== 'create');
@@ -103,7 +111,9 @@ export function permissionOptions(collections: ReadonlyArray<RuledCollection>): 
       return {
         permission: `${c.name}/${p}`,
         label: humanize(p),
-        description: parts.length ? `Lets them ${joinAnd(parts)}.` : `${label} names it, but none of its rules use it yet.`,
+        description: parts.length
+          ? `Lets them ${joinAnd(parts)}.`
+          : `${label} names it, but none of its rules use it yet.`,
         group: label,
         collection: c.name,
       };
@@ -120,7 +130,10 @@ export function permissionLabel(permission: string, collections: ReadonlyArray<R
   if (slash > 0) {
     const collection = collections.find((c) => c.name === permission.slice(0, slash));
     const name = permission.slice(slash + 1);
-    if (collection) return name === '*' ? `Everything on ${collectionLabel(collection)}` : `${humanize(name)} on ${collectionLabel(collection)}`;
+    if (collection)
+      return name === '*'
+        ? `Everything on ${collectionLabel(collection)}`
+        : `${humanize(name)} on ${collectionLabel(collection)}`;
   }
   return permission;
 }
@@ -148,18 +161,31 @@ export function describeRule(who: Rule, collection?: Pick<NodeCollection, 'name'
 /** How far a role reaches for an action: on anything, only on what they added, or not at all */
 export type Reach = 'any' | 'own' | 'none';
 
-export function reachOf(role: SpaceRole | null | undefined, collection: RuledCollection, action: RecordAction): Reach {
+export function reachOf(
+  role: SpaceRole | null | undefined,
+  collection: RuledCollection,
+  action: RecordAction,
+): Reach {
   // Writing anything at all takes a role in the space.
   if (!role) return 'none';
   const list = whoList(ruleFor(collection, action));
-  if (list.some((w) => w === 'member' || (w.startsWith('can:') && roleHolds(role, `${collection.name}/${w.slice(4)}`)))) return 'any';
+  if (
+    list.some(
+      (w) => w === 'member' || (w.startsWith('can:') && roleHolds(role, `${collection.name}/${w.slice(4)}`)),
+    )
+  )
+    return 'any';
   return action !== 'create' && list.includes('creator') ? 'own' : 'none';
 }
 
 const titleOf = (role: SpaceRole) => role.title ?? humanize(role.name);
 
 /** "needs Moderate on Comments — Admin and Moderator have it" */
-function needsReason(permissions: ReadonlyArray<string>, roles: ReadonlyArray<SpaceRole>, collections: ReadonlyArray<RuledCollection>): string {
+function needsReason(
+  permissions: ReadonlyArray<string>,
+  roles: ReadonlyArray<SpaceRole>,
+  collections: ReadonlyArray<RuledCollection>,
+): string {
   const holders = roles.filter((r) => permissions.some((p) => roleHolds(r, p))).map(titleOf);
   const needs = `Needs ${joinOr(permissions.map((p) => permissionLabel(p, collections)))}`;
   if (holders.length === 0) return `${needs} — no role has it yet`;
@@ -217,26 +243,46 @@ const article = (word: string) => (/^[aeiou]/i.test(word) ? 'an' : 'a');
  * @param role Their role, or null when they only follow the space
  * @param roles Every role in the space, to say who does have what they lack
  */
-export function abilitiesOf(role: SpaceRole | null, roles: ReadonlyArray<SpaceRole>, collections: ReadonlyArray<RuledCollection>): Abilities {
+export function abilitiesOf(
+  role: SpaceRole | null,
+  roles: ReadonlyArray<SpaceRole>,
+  collections: ReadonlyArray<RuledCollection>,
+): Abilities {
   const can: Ability[] = [];
   const cannot: Ability[] = [];
 
   for (const p of SPACE_PERMISSIONS) {
     if (roleHolds(role, p.permission)) {
-      const text = p.permission === MANAGE && role ? `${p.does} — for anyone ranked below ${titleOf(role)}` : p.does;
+      const text =
+        p.permission === MANAGE && role ? `${p.does} — for anyone ranked below ${titleOf(role)}` : p.does;
       can.push({ key: p.permission, text, collection: null });
     } else {
-      cannot.push({ key: p.permission, text: p.does, collection: null, reason: role ? needsReason([p.permission], roles, collections) : FOLLOWING });
+      cannot.push({
+        key: p.permission,
+        text: p.does,
+        collection: null,
+        reason: role ? needsReason([p.permission], roles, collections) : FOLLOWING,
+      });
     }
   }
 
   for (const c of collections) {
     const label = collectionLabel(c);
-    const at = (action: RecordAction) => ({ reach: reachOf(role, c, action), rule: JSON.stringify(whoList(ruleFor(c, action))) });
+    const at = (action: RecordAction) => ({
+      reach: reachOf(role, c, action),
+      rule: JSON.stringify(whoList(ruleFor(c, action))),
+    });
 
     const create = at('create');
-    if (create.reach === 'any') can.push({ key: `${c.name}:create`, text: `add to ${label}`, collection: c.name });
-    else cannot.push({ key: `${c.name}:create`, text: `add to ${label}`, collection: c.name, reason: whyCannot(role, roles, c, 'create') ?? undefined });
+    if (create.reach === 'any')
+      can.push({ key: `${c.name}:create`, text: `add to ${label}`, collection: c.name });
+    else
+      cannot.push({
+        key: `${c.name}:create`,
+        text: `add to ${label}`,
+        collection: c.name,
+        reason: whyCannot(role, roles, c, 'create') ?? undefined,
+      });
 
     // Edit and delete read as one line when the same rule governs both.
     const edit = at('edit');
@@ -256,10 +302,24 @@ export function abilitiesOf(role: SpaceRole | null, roles: ReadonlyArray<SpaceRo
       }
       const reason = whyCannot(role, roles, c, g.action) ?? undefined;
       if (g.reach === 'own') {
-        can.push({ key: `${key}:own`, text: `${g.verbs} only what you added to ${label}`, collection: c.name });
-        cannot.push({ key: `${key}:others`, text: `${g.verbs} what others added to ${label}`, collection: c.name, reason });
+        can.push({
+          key: `${key}:own`,
+          text: `${g.verbs} only what you added to ${label}`,
+          collection: c.name,
+        });
+        cannot.push({
+          key: `${key}:others`,
+          text: `${g.verbs} what others added to ${label}`,
+          collection: c.name,
+          reason,
+        });
       } else {
-        cannot.push({ key: `${key}:any`, text: `${g.verbs} records in ${label}`, collection: c.name, reason });
+        cannot.push({
+          key: `${key}:any`,
+          text: `${g.verbs} records in ${label}`,
+          collection: c.name,
+          reason,
+        });
       }
     }
   }
@@ -284,11 +344,13 @@ export function roleChangeRefusal(
   collections: ReadonlyArray<RuledCollection> = [],
 ): string | null {
   if (!me || !roleHolds(me, MANAGE)) return 'Changing roles takes “Run the space”';
-  if (existing && existing.rank >= me.rank) return `You can only change roles ranked below yours (${titleOf(me)}, rank ${me.rank})`;
+  if (existing && existing.rank >= me.rank)
+    return `You can only change roles ranked below yours (${titleOf(me)}, rank ${me.rank})`;
   if (!next) return null;
   if (next.rank >= me.rank) return `Its rank has to be below yours (${me.rank})`;
   const missing = next.permissions.filter((p) => !canGrant(me, p));
-  if (missing.length) return `You can't give what you don't have yourself: ${joinAnd(missing.map((p) => permissionLabel(p, collections)))}`;
+  if (missing.length)
+    return `You can't give what you don't have yourself: ${joinAnd(missing.map((p) => permissionLabel(p, collections)))}`;
   return null;
 }
 
@@ -299,7 +361,12 @@ export function roleChangeRefusal(
  * @param current The role the person holds now, or null
  * @param next The role to give them, or null to take theirs away
  */
-export function memberChangeRefusal(me: SpaceRole | null | undefined, self: boolean, current: SpaceRole | null, next: SpaceRole | null): string | null {
+export function memberChangeRefusal(
+  me: SpaceRole | null | undefined,
+  self: boolean,
+  current: SpaceRole | null,
+  next: SpaceRole | null,
+): string | null {
   if (self && next === null) return current ? null : "You don't hold a role here";
   if (!me || !roleHolds(me, MANAGE)) return "Changing people's roles takes “Run the space”";
   if (self) return "You can't change your own role — only give it up";
@@ -309,6 +376,9 @@ export function memberChangeRefusal(me: SpaceRole | null | undefined, self: bool
 }
 
 /** The roles `me` may give people: up to their own rank, when they run the space */
-export function assignableRoles(me: SpaceRole | null | undefined, roles: ReadonlyArray<SpaceRole>): ReadonlyArray<SpaceRole> {
+export function assignableRoles(
+  me: SpaceRole | null | undefined,
+  roles: ReadonlyArray<SpaceRole>,
+): ReadonlyArray<SpaceRole> {
   return me && roleHolds(me, MANAGE) ? roles.filter((r) => r.rank <= me.rank) : [];
 }

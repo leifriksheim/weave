@@ -55,7 +55,13 @@ async function startNode(options: { hub?: FakeHub; seed?: Uint8Array; ttl?: numb
     watchIntervalMs: 0,
     ...(options.ttl ? { sessionTtlSeconds: options.ttl } : {}),
     ...(options.hub
-      ? { network: { transports: (spaceId: string, sessionDid: string) => [options.hub!.transport(sessionDid, spaceId)] } }
+      ? {
+          network: {
+            transports: (spaceId: string, sessionDid: string) => [
+              options.hub!.transport(sessionDid, spaceId),
+            ],
+          },
+        }
       : {}),
   });
   open.push(node);
@@ -79,7 +85,10 @@ describe('spaces', () => {
     assert.equal(created.role, 'owner');
     assert.equal(created.readable, true);
     const listed = await node.spaces.list();
-    assert.deepEqual(listed.map((s) => s.name), ['Groceries']);
+    assert.deepEqual(
+      listed.map((s) => s.name),
+      ['Groceries'],
+    );
     assert.equal(JSON.stringify(listed).includes('key"'), false);
   });
 
@@ -111,8 +120,14 @@ describe('records', () => {
     assert.equal(first.root, node.did);
     assert.deepEqual((await node.records.get<Todo>(space, first.key))?.body, { text: 'milk', done: false });
     const listed = await node.records.list<Todo>(space);
-    assert.deepEqual(listed.map((r) => r.key), [first.key, second.key]);
-    assert.deepEqual((await node.records.list(space, { newestFirst: true, limit: 1 })).map((r) => r.key), [second.key]);
+    assert.deepEqual(
+      listed.map((r) => r.key),
+      [first.key, second.key],
+    );
+    assert.deepEqual(
+      (await node.records.list(space, { newestFirst: true, limit: 1 })).map((r) => r.key),
+      [second.key],
+    );
   });
 
   test('a known collection refuses a malformed body; an unknown one takes anything', async () => {
@@ -154,12 +169,16 @@ describe('records', () => {
     const { id: space } = await node.spaces.create({ name: 'Todos', visibility: 'private' });
     await node.records.put(space, 'app.todo.item', { text: 'milk', done: false, tags: ['shop'] });
 
-    const [first] = await node.records.list<Todo & { tags: string[] }>(space, { collection: 'app.todo.item' });
+    const [first] = await node.records.list<Todo & { tags: string[] }>(space, {
+      collection: 'app.todo.item',
+    });
     assert.throws(() => {
       (first!.body as { done: boolean }).done = true;
     }, TypeError);
     assert.throws(() => first!.body!.tags.push('home'), TypeError);
-    const [again] = await node.records.list<Todo & { tags: string[] }>(space, { collection: 'app.todo.item' });
+    const [again] = await node.records.list<Todo & { tags: string[] }>(space, {
+      collection: 'app.todo.item',
+    });
     assert.deepEqual(again!.body, { text: 'milk', done: false, tags: ['shop'] });
   });
 
@@ -191,9 +210,16 @@ describe('two nodes', () => {
 
   test('a record written on one reaches the other, readable', async () => {
     const { alice, bob, space, converged } = await pair();
-    const written = await alice.records.put<Todo>(space, 'app.todo.item', { text: 'from alice', done: false });
+    const written = await alice.records.put<Todo>(space, 'app.todo.item', {
+      text: 'from alice',
+      done: false,
+    });
 
-    await until(async () => (await bob.records.get(space, written.key)) !== null, 3000, 'record to reach bob');
+    await until(
+      async () => (await bob.records.get(space, written.key)) !== null,
+      3000,
+      'record to reach bob',
+    );
     const seen = (await bob.records.get<Todo>(space, written.key)) as NodeRecord<Todo>;
     assert.deepEqual(seen.body, { text: 'from alice', done: false });
     assert.equal(seen.root, alice.did);
@@ -204,10 +230,18 @@ describe('two nodes', () => {
   test('a delete stays deleted after sync instead of coming back', async () => {
     const { alice, bob, space, converged } = await pair();
     const written = await alice.records.put<Todo>(space, 'app.todo.item', { text: 'soon gone', done: false });
-    await until(async () => (await bob.records.get(space, written.key)) !== null, 3000, 'record to reach bob');
+    await until(
+      async () => (await bob.records.get(space, written.key)) !== null,
+      3000,
+      'record to reach bob',
+    );
 
     await alice.records.delete(space, written.key);
-    await until(async () => (await bob.records.get(space, written.key)) === null, 3000, 'delete to reach bob');
+    await until(
+      async () => (await bob.records.get(space, written.key)) === null,
+      3000,
+      'delete to reach bob',
+    );
     await until(converged, 3000, 'roots to match');
 
     // Reconcile again: the record must not be resurrected on either side.
@@ -221,15 +255,26 @@ describe('two nodes', () => {
   test("in a shared space, members tick and delete each other's items", async () => {
     const { alice, bob, space, converged } = await pair();
     const written = await alice.records.put<Todo>(space, 'app.todo.item', { text: "alice's", done: false });
-    await until(async () => (await bob.records.get(space, written.key)) !== null, 3000, 'record to reach bob');
+    await until(
+      async () => (await bob.records.get(space, written.key)) !== null,
+      3000,
+      'record to reach bob',
+    );
 
     // Bob ticks Alice's item: the old version goes away for both, one ticked copy remains.
     const ticked = await bob.records.update<Todo>(space, written.key, { text: "alice's", done: true });
     assert.equal(ticked.key, written.key);
-    await until(async () => (await alice.records.get<Todo>(space, written.key))?.body?.done === true, 3000, 'alice to see it ticked');
+    await until(
+      async () => (await alice.records.get<Todo>(space, written.key))?.body?.done === true,
+      3000,
+      'alice to see it ticked',
+    );
     await until(converged, 3000, 'roots to match');
     const seen = await alice.records.list<Todo>(space);
-    assert.deepEqual(seen.map((r) => [r.key, r.body?.done]), [[written.key, true]]);
+    assert.deepEqual(
+      seen.map((r) => [r.key, r.body?.done]),
+      [[written.key, true]],
+    );
 
     await alice.records.delete(space, ticked.key);
     await until(async () => (await bob.records.list(space)).length === 0, 3000, 'the delete to reach bob');
@@ -240,17 +285,30 @@ describe('two nodes', () => {
     const owner = await startNode({ hub });
     const follower = await startNode({ hub });
     const space = await owner.spaces.create({ name: 'Mine', visibility: 'private' });
-    const written = await owner.records.put<Todo>(space.id, 'app.todo.item', { text: 'only I edit this', done: false });
+    const written = await owner.records.put<Todo>(space.id, 'app.todo.item', {
+      text: 'only I edit this',
+      done: false,
+    });
 
     const joined = await follower.spaces.join(await owner.spaces.invite(space.id));
     assert.equal(joined.writable, false);
     assert.equal((await owner.spaces.get(space.id))?.writable, true);
     await hold(owner, space.id);
     await hold(follower, space.id);
-    await until(async () => (await follower.records.get(space.id, written.key)) !== null, 3000, 'the follower to read it');
+    await until(
+      async () => (await follower.records.get(space.id, written.key)) !== null,
+      3000,
+      'the follower to read it',
+    );
 
-    await assert.rejects(follower.records.update(space.id, written.key, { text: 'x', done: true }), /shared with you to view/);
-    await assert.rejects(follower.records.put(space.id, 'app.todo.item', { text: 'y', done: false }), /shared with you to view/);
+    await assert.rejects(
+      follower.records.update(space.id, written.key, { text: 'x', done: true }),
+      /shared with you to view/,
+    );
+    await assert.rejects(
+      follower.records.put(space.id, 'app.todo.item', { text: 'y', done: false }),
+      /shared with you to view/,
+    );
     await assert.rejects(follower.records.delete(space.id, written.key), /shared with you to view/);
   });
 });
@@ -282,8 +340,14 @@ describe('the account registry', () => {
     const written = await laptop.records.put(space.id, 'app.note', { text: 'dear diary' });
 
     await until(async () => (await names(phone)).includes('Diary'), 3000, 'the phone to join');
-    await until(async () => (await phone.records.get(space.id, written.key)) !== null, 3000, 'the note to reach the phone');
-    assert.deepEqual((await phone.records.get<{ text: string }>(space.id, written.key))?.body, { text: 'dear diary' });
+    await until(
+      async () => (await phone.records.get(space.id, written.key)) !== null,
+      3000,
+      'the note to reach the phone',
+    );
+    assert.deepEqual((await phone.records.get<{ text: string }>(space.id, written.key))?.body, {
+      text: 'dear diary',
+    });
     // The registry itself never shows up as a space.
     assert.deepEqual(await names(laptop), ['Diary']);
   });
@@ -307,7 +371,11 @@ describe('the account registry', () => {
     await laptop.spaces.create({ name: 'While you were away', ...team, visibility: 'private' });
 
     const phone = await device(seed, hub);
-    await until(async () => (await names(phone)).includes('While you were away'), 3000, 'the phone to catch up');
+    await until(
+      async () => (await names(phone)).includes('While you were away'),
+      3000,
+      'the phone to catch up',
+    );
   });
 
   test('spaces from before the registry are recorded, so other devices follow', async () => {
@@ -371,19 +439,25 @@ describe('actions', () => {
     for (const action of NODE_ACTIONS) {
       assert.match(action.name, /^[a-z_]+$/);
       assert.equal(action.input.type, 'object');
-      for (const key of action.input.required ?? []) assert.ok(key in action.input.properties, `${action.name}.${key}`);
+      for (const key of action.input.required ?? [])
+        assert.ok(key in action.input.properties, `${action.name}.${key}`);
     }
   });
 
   test('run by name with checked input, returning plain JSON', async () => {
     const node = await startNode();
-    const space = (await runAction(node, 'spaces_create', { name: 'Via actions', visibility: 'public' })) as { id: string };
+    const space = (await runAction(node, 'spaces_create', { name: 'Via actions', visibility: 'public' })) as {
+      id: string;
+    };
     await runAction(node, 'records_put', { space: space.id, collection: 'app.note', body: { text: 'hi' } });
     const records = await runAction(node, 'records_list', { space: space.id });
 
     assert.deepEqual(JSON.parse(JSON.stringify(records)), records);
     await assert.rejects(runAction(node, 'records_put', { space: space.id }), /Missing "collection"/);
-    await assert.rejects(runAction(node, 'spaces_create', { name: 'x', roles: 'weird', visibility: 'public' }), /must be one of/);
+    await assert.rejects(
+      runAction(node, 'spaces_create', { name: 'x', roles: 'weird', visibility: 'public' }),
+      /must be one of/,
+    );
     await assert.rejects(runAction(node, 'no_such_thing'), /Unknown action/);
   });
 });

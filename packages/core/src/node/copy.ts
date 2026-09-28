@@ -47,7 +47,9 @@ export async function copyAccountData(params: CopyAccountParams): Promise<CopyRe
   const toRegistry = createSpaceManager(toRegistryStore);
 
   // The contacts space is copied like any other, but it is not one the person counts as theirs.
-  const contacts = params.accountKey ? (await deriveContactsSpace(params.accountKey, params.did)).space.id : null;
+  const contacts = params.accountKey
+    ? (await deriveContactsSpace(params.accountKey, params.did)).space.id
+    : null;
   let spacesAdded = 0;
   const spaceIds: string[] = [];
   for (const { space } of await fromRegistry.list()) {

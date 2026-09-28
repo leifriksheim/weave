@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { CarrierSummary, NodeCollection, NotifyView, P2PNode, SpaceSummary } from '@weaveprotocol/core/node';
+import type {
+  CarrierSummary,
+  NodeCollection,
+  NotifyView,
+  P2PNode,
+  SpaceSummary,
+} from '@weaveprotocol/core/node';
 import { styles, palette } from '../styles';
 
 /**
@@ -12,7 +18,13 @@ import { styles, palette } from '../styles';
  * it can only compare. It shows your label, the space and the time; the
  * message itself you read when you open it.
  */
-export function Notifications({ node, carriers }: { node: P2PNode; carriers: ReadonlyArray<CarrierSummary> | null }) {
+export function Notifications({
+  node,
+  carriers,
+}: {
+  node: P2PNode;
+  carriers: ReadonlyArray<CarrierSummary> | null;
+}) {
   const [subscriptions, setSubscriptions] = useState<ReadonlyArray<NotifyView> | null>(null);
   const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
   const [collections, setCollections] = useState<ReadonlyArray<NodeCollection>>([]);
@@ -35,18 +47,26 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
   // What the chosen spaces hold: every defined collection, once, with its topic fields.
   useEffect(() => {
     const looked = where === 'all' ? spaces.map((space) => space.id) : [where];
-    void Promise.all(looked.map((id) => node.collections.list(id).catch(() => [] as NodeCollection[]))).then((lists) => {
-      const byName = new Map<string, NodeCollection>();
-      for (const found of lists.flat()) if (found.version !== null && !byName.has(found.name)) byName.set(found.name, found);
-      setCollections([...byName.values()].sort((a, b) => (a.title ?? a.name).localeCompare(b.title ?? b.name)));
-    });
+    void Promise.all(looked.map((id) => node.collections.list(id).catch(() => [] as NodeCollection[]))).then(
+      (lists) => {
+        const byName = new Map<string, NodeCollection>();
+        for (const found of lists.flat())
+          if (found.version !== null && !byName.has(found.name)) byName.set(found.name, found);
+        setCollections(
+          [...byName.values()].sort((a, b) => (a.title ?? a.name).localeCompare(b.title ?? b.name)),
+        );
+      },
+    );
   }, [node, where, spaces]);
 
   const chosen = collections.find((c) => c.name === collection) ?? null;
   const spaceName = (id: string) => spaces.find((space) => space.id === id)?.name ?? 'a space';
   const suggested = useMemo(() => {
     if (!chosen) return '';
-    const what = field && value ? `${value === node.did ? 'Mentions me' : `${field} is ${value}`}` : `New ${chosen.title ?? chosen.name}`;
+    const what =
+      field && value
+        ? `${value === node.did ? 'Mentions me' : `${field} is ${value}`}`
+        : `New ${chosen.title ?? chosen.name}`;
     return `${what}${where === 'all' ? '' : ` in ${spaceName(where)}`}`;
   }, [chosen, field, value, where, spaces]);
 
@@ -87,7 +107,9 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
       if (!byApp.has(at)) byApp.set(at, [sub.app, []]);
       byApp.get(at)![1].push(sub);
     }
-    return [...byApp.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b))).map(([, group]) => group);
+    return [...byApp.entries()]
+      .sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)))
+      .map(([, group]) => group);
   }, [subscriptions]);
 
   return (
@@ -95,17 +117,23 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
       <div>
         <h2 style={{ ...styles.sectionTitle, fontSize: 16, marginBottom: 4 }}>Notify me when…</h2>
         <p style={{ color: palette.ink.muted, fontSize: 14, lineHeight: 1.5 }}>
-          Your Weave extension lets you know, even with every app closed. It can't read your spaces, so it never learns what you
-          picked here: it matches a code standing in for it. The notification shows your label, the space and the time; you read the
-          message when you open it.
+          Your Weave extension lets you know, even with every app closed. It can't read your spaces, so it
+          never learns what you picked here: it matches a code standing in for it. The notification shows your
+          label, the space and the time; you read the message when you open it.
         </p>
       </div>
 
-      {noCarrier && <p style={styles.errorHint}>Nothing will notify you until the Weave extension is connected to this account.</p>}
+      {noCarrier && (
+        <p style={styles.errorHint}>
+          Nothing will notify you until the Weave extension is connected to this account.
+        </p>
+      )}
 
       {groups.map(([app, subs]) => (
         <div key={app?.origin ?? ''} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <p style={{ ...styles.fieldLabel, margin: 0 }}>{app ? `From ${app.name ?? new URL(app.origin).host}` : 'Added here'}</p>
+          <p style={{ ...styles.fieldLabel, margin: 0 }}>
+            {app ? `From ${app.name ?? new URL(app.origin).host}` : 'Added here'}
+          </p>
           {subs.map((sub) => (
             <div key={sub.id} style={row}>
               <span style={{ opacity: sub.paused ? 0.55 : 1 }}>
@@ -114,7 +142,12 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
               </span>
               <span style={{ display: 'flex', gap: 8 }}>
                 <button
-                  onClick={() => void act(`pause:${sub.id}`, async () => void (await node.notifications.update(sub.id, { paused: !sub.paused })))}
+                  onClick={() =>
+                    void act(
+                      `pause:${sub.id}`,
+                      async () => void (await node.notifications.update(sub.id, { paused: !sub.paused })),
+                    )
+                  }
                   disabled={busy !== null}
                   data-variant="quiet"
                   style={styles.smallButton}
@@ -136,7 +169,12 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
       ))}
 
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
-        <select value={where} onChange={(event) => setWhere(event.target.value)} aria-label="Where" style={styles.input}>
+        <select
+          value={where}
+          onChange={(event) => setWhere(event.target.value)}
+          aria-label="Where"
+          style={styles.input}
+        >
           <option value="all">Every space</option>
           {spaces.map((space) => (
             <option key={space.id} value={space.id}>
@@ -162,7 +200,12 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
           ))}
         </select>
         {chosen && chosen.topics.length > 0 && (
-          <select value={field} onChange={(event) => setField(event.target.value)} aria-label="Only when" style={styles.input}>
+          <select
+            value={field}
+            onChange={(event) => setField(event.target.value)}
+            aria-label="Only when"
+            style={styles.input}
+          >
             <option value="">Any of them</option>
             {chosen.topics.map((topic) => (
               <option key={topic} value={topic}>
@@ -173,7 +216,13 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
         )}
         {field && (
           <span style={{ display: 'flex', gap: 6 }}>
-            <input value={value} onChange={(event) => setValue(event.target.value)} placeholder="a value" aria-label="Value" style={{ ...styles.input, flex: 1 }} />
+            <input
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder="a value"
+              aria-label="Value"
+              style={{ ...styles.input, flex: 1 }}
+            />
             <button onClick={() => setValue(node.did)} data-variant="quiet" style={styles.smallButton}>
               Me
             </button>
@@ -190,10 +239,17 @@ export function Notifications({ node, carriers }: { node: P2PNode; carriers: Rea
             aria-label="What the notification says"
             style={{ ...styles.input, flex: 1, minWidth: 200 }}
           />
-          <label style={{ fontSize: 13, color: palette.ink.muted, display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input type="checkbox" checked={others} onChange={(event) => setOthers(event.target.checked)} /> Only other people's
+          <label
+            style={{ fontSize: 13, color: palette.ink.muted, display: 'flex', gap: 6, alignItems: 'center' }}
+          >
+            <input type="checkbox" checked={others} onChange={(event) => setOthers(event.target.checked)} />{' '}
+            Only other people's
           </label>
-          <button onClick={() => void add()} disabled={busy !== null || !collection || (field !== '' && !value)} style={styles.addButton}>
+          <button
+            onClick={() => void add()}
+            disabled={busy !== null || !collection || (field !== '' && !value)}
+            style={styles.addButton}
+          >
             {busy === 'add' ? 'Adding…' : 'Notify me'}
           </button>
         </div>

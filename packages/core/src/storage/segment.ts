@@ -23,7 +23,10 @@ export function unpackSegment(bytes: Uint8Array): Expression[] {
   try {
     const parsed = JSON.parse(utf8Decode(bytes)) as { v?: unknown; versions?: unknown };
     if (parsed.v !== 1 || !Array.isArray(parsed.versions)) return [];
-    return parsed.versions.filter((version): version is Expression => typeof version === 'object' && version !== null && typeof (version as Expression).id === 'string');
+    return parsed.versions.filter(
+      (version): version is Expression =>
+        typeof version === 'object' && version !== null && typeof (version as Expression).id === 'string',
+    );
   } catch {
     return [];
   }
@@ -31,7 +34,9 @@ export function unpackSegment(bytes: Uint8Array): Expression[] {
 
 /** A segment's file name: `000042-<first 16 hex of its hash>.seg` */
 export async function segmentName(counter: number, bytes: Uint8Array): Promise<string> {
-  const hash = Array.from((await sha256(bytes)).subarray(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
+  const hash = Array.from((await sha256(bytes)).subarray(0, 8), (b) => b.toString(16).padStart(2, '0')).join(
+    '',
+  );
   return `${String(counter).padStart(6, '0')}-${hash}${SEGMENT_SUFFIX}`;
 }
 

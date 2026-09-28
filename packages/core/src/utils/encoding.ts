@@ -94,7 +94,10 @@ export function varintEncode(n: number): Uint8Array {
  * @param {number} [offset=0] - The offset to start decoding from.
  * @returns {{ value: number; bytesRead: number }} The decoded number and the number of bytes read.
  */
-export function varintDecode(bytes: Uint8Array, offset: number = 0): { readonly value: number; readonly bytesRead: number } {
+export function varintDecode(
+  bytes: Uint8Array,
+  offset: number = 0,
+): { readonly value: number; readonly bytesRead: number } {
   let value = 0;
   let shift = 0;
   let bytesRead = 0;

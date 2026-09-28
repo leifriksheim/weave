@@ -27,7 +27,16 @@ import type { StorageAdapter, Expression, BatchOp } from '../types.js';
 import { byVersion, supersedes } from '../records/version.js';
 import { utf8Encode, utf8Decode, bytesToHex } from '../utils/encoding.js';
 import { cidDigest } from '../utils/hash.js';
-import { addToSum, combineSums, EMPTY_SUM, fingerprintOf, ItemSet, removeFromSum, type Item, type Sum } from '../sync/negentropy.js';
+import {
+  addToSum,
+  combineSums,
+  EMPTY_SUM,
+  fingerprintOf,
+  ItemSet,
+  removeFromSum,
+  type Item,
+  type Sum,
+} from '../sync/negentropy.js';
 
 export interface StorageProvider {
   /**
@@ -185,7 +194,9 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
       for (const key of await adapter.list(ITEM_PREFIX)) {
         const parsed = parseItemKey(key);
         if (!parsed) continue;
-        (loaded.get(parsed.collection) ?? loaded.set(parsed.collection, new Map()).get(parsed.collection)!).set(parsed.id, parsed.item);
+        (
+          loaded.get(parsed.collection) ?? loaded.set(parsed.collection, new Map()).get(parsed.collection)!
+        ).set(parsed.id, parsed.item);
       }
       kept = loaded;
       totals = new Map();
@@ -319,7 +330,9 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
       for (const one of ran) one.resolve();
       return;
     }
-    const ops = [...writes].map(([key, value]): BatchOp => (value ? { type: 'put', key, value } : { type: 'delete', key }));
+    const ops = [...writes].map(([key, value]): BatchOp =>
+      value ? { type: 'put', key, value } : { type: 'delete', key },
+    );
     landed++;
     try {
       if (adapter.commit) {
@@ -343,7 +356,8 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
     }
     staging.clear();
     for (const version of toStore.values()) remember(version);
-    for (const [key, value] of writes) if (isPointer(key)) pointers.set(key, value ? utf8Decode(value) : null);
+    for (const [key, value] of writes)
+      if (isPointer(key)) pointers.set(key, value ? utf8Decode(value) : null);
     for (const id of dropped.keys()) bodies.delete(id);
     track([...added.values()], [...dropped.values()]);
     for (const one of ran) one.resolve();
@@ -395,7 +409,9 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
   /** `[entry key, version id]` for every pointer under a prefix, in one read where the adapter can */
   async function pointersUnder(prefix: string): Promise<Array<readonly [string, string]>> {
     if (!adapter.entries) {
-      const found = await Promise.all((await adapter.list(prefix)).map(async (key) => [key, await readId(key)] as const));
+      const found = await Promise.all(
+        (await adapter.list(prefix)).map(async (key) => [key, await readId(key)] as const),
+      );
       return found.filter((entry): entry is readonly [string, string] => entry[1] !== null);
     }
     const before = landed;
@@ -425,7 +441,9 @@ export function createStorageProvider(adapter: StorageAdapter): StorageProvider 
       const [, key, , id] = name.split('/');
       if (key && id) add(key, id);
     }
-    const found = new Map((await load(new Set([...ids.values()].flatMap((held) => [...held])))).map((v) => [v.id, v]));
+    const found = new Map(
+      (await load(new Set([...ids.values()].flatMap((held) => [...held])))).map((v) => [v.id, v]),
+    );
     const result = new Map<string, Expression[]>();
     for (const [key, held] of ids) {
       result.set(key, [...held].flatMap((id) => found.get(id) ?? []).sort(byVersion));

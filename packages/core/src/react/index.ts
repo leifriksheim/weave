@@ -26,7 +26,15 @@
  * `react` is a peer dependency: this entry point is the only part of the
  * protocol that imports it.
  */
-export { WeaveProvider, useWeave, useAuth, useSession, useConnection, useAccount, useNode } from './context.js';
+export {
+  WeaveProvider,
+  useWeave,
+  useAuth,
+  useSession,
+  useConnection,
+  useAccount,
+  useNode,
+} from './context.js';
 export type { WeaveProviderProps } from './context.js';
 export { useWeaveAuth } from './use-weave-auth.js';
 export { WeaveAuth } from './weave-auth.js';
@@ -36,5 +44,14 @@ export { useQuery } from './use-query.js';
 export type { QueryState } from './use-query.js';
 export { useSpaces } from './use-spaces.js';
 export type { SpacesState } from './use-spaces.js';
-export { useHoldSpace, useRecord, useLinked, useCollections, useProfiles, useAccess, useSpaceStatus, useCan } from './use-space.js';
+export {
+  useHoldSpace,
+  useRecord,
+  useLinked,
+  useCollections,
+  useProfiles,
+  useAccess,
+  useSpaceStatus,
+  useCan,
+} from './use-space.js';
 export { CallsProvider, useCalls } from './use-calls.js';

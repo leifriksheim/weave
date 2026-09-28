@@ -21,10 +21,15 @@ export function AccountNotices() {
         <div style={styles.errorBox}>
           <p style={styles.error}>Peers cannot find each other</p>
           <p style={styles.errorHint}>{relayProblem()}</p>
-          <p style={styles.errorHint}>Your spaces still work, and still save. They just will not reach your other devices until this is set.</p>
+          <p style={styles.errorHint}>
+            Your spaces still work, and still save. They just will not reach your other devices until this is
+            set.
+          </p>
         </div>
       )}
-      {!relayProblem() && relayOnlyLocal() && <p style={{ ...styles.errorHint, marginBottom: 12 }}>{relayOnlyLocal()}</p>}
+      {!relayProblem() && relayOnlyLocal() && (
+        <p style={{ ...styles.errorHint, marginBottom: 12 }}>{relayOnlyLocal()}</p>
+      )}
 
       {podChoice && (
         <PodChoice
@@ -60,7 +65,11 @@ export function AccountNotices() {
             </p>
             <div style={{ ...styles.linkRow, gap: 8 }}>
               {!moved.from && (
-                <button onClick={() => void auth.forgetBrowserCopy()} data-variant="quiet" style={styles.smallButton}>
+                <button
+                  onClick={() => void auth.forgetBrowserCopy()}
+                  data-variant="quiet"
+                  style={styles.smallButton}
+                >
                   Remove the browser copy
                 </button>
               )}

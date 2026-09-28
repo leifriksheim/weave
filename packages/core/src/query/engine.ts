@@ -47,18 +47,28 @@ function sortRecords<T extends NodeRecord>(records: T[], sort: Query['sort']): T
 /** Only records whose body this device could open */
 const readable = (r: NodeRecord | null): r is NodeRecord => r !== null && r.body !== null;
 
-async function expand(source: QuerySource, record: NodeRecord, includes: Query['include']): Promise<QueryRecord> {
+async function expand(
+  source: QuerySource,
+  record: NodeRecord,
+  includes: Query['include'],
+): Promise<QueryRecord> {
   if (!includes) return { ...record, included: {} };
   const included: Record<string, ReadonlyArray<QueryRecord> | number> = {};
   for (const [name, include] of Object.entries(includes) as Array<[string, Include]>) {
     let related: NodeRecord[];
     if (include.direction === 'out') {
-      const targets = await Promise.all(record.links.filter((l) => l.rel === include.rel).map((l) => source.get(l.to)));
+      const targets = await Promise.all(
+        record.links.filter((l) => l.rel === include.rel).map((l) => source.get(l.to)),
+      );
       // A link to a record not held here is normal; it simply finds nothing.
-      related = targets.filter((r): r is NodeRecord => readable(r) && (!include.from || r.collection === include.from));
+      related = targets.filter(
+        (r): r is NodeRecord => readable(r) && (!include.from || r.collection === include.from),
+      );
     } else {
       const from = include.from as string | undefined; // names only, after plainQuery
-      related = (await source.linked(record.key, { rel: include.rel, ...(from ? { collection: from } : {}) })).filter(readable);
+      related = (
+        await source.linked(record.key, { rel: include.rel, ...(from ? { collection: from } : {}) })
+      ).filter(readable);
     }
     if (include.where) related = related.filter((r) => matches(r, include.where!));
     if (include.count) {
@@ -94,5 +104,9 @@ export async function runQuery<T = unknown>(source: QuerySource, given: Query): 
   const page = query.limit === undefined ? sorted.slice(start) : sorted.slice(start, start + query.limit);
   const records = await Promise.all(page.map((r) => expand(source, r, query.include)));
   const more = start + page.length < sorted.length && page.length > 0;
-  return { records: records as ReadonlyArray<QueryRecord<T>>, cursor: more ? page[page.length - 1]!.key : null, complete: true };
+  return {
+    records: records as ReadonlyArray<QueryRecord<T>>,
+    cursor: more ? page[page.length - 1]!.key : null,
+    complete: true,
+  };
 }

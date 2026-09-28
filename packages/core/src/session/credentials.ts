@@ -73,8 +73,15 @@ export function deviceCredentialName(name: string): string {
  * @param account The code, and the account it opens
  * @returns A file name and its contents
  */
-export function recoveryKit({ code, name, did }: { code: string; name: string; did: string }): { filename: string; text: string } {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'account';
+export function recoveryKit({ code, name, did }: { code: string; name: string; did: string }): {
+  filename: string;
+  text: string;
+} {
+  const slug =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'account';
   const text = [
     'Weave recovery code',
     '',

@@ -149,7 +149,8 @@ export function createFakeHub(options: FakeHubOptions = {}): FakeHub {
         },
         async handleAnswer(peerId: string, answer: RTCSessionDescriptionInit) {
           if (!offered.has(peerId)) throw new Error(`No offer outstanding to ${peerId}`);
-          if (answer.sdp !== `answer:${peerId}->${did}`) throw new Error('Answer was not meant for this peer');
+          if (answer.sdp !== `answer:${peerId}->${did}`)
+            throw new Error('Answer was not meant for this peer');
           offered.delete(peerId);
           link(room, did, peerId);
         },

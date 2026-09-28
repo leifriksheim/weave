@@ -20,16 +20,33 @@ import { memoryStores } from './helpers/memory-stores.js';
 
 function record(body: unknown, extra: Partial<NodeRecord> = {}): NodeRecord {
   return {
-    id: 'bafy', key: 'k1', version: 'bafy', seq: 0, collection: 'app.x', body,
-    author: 'did:key:session', root: 'did:key:alice', createdBy: 'did:key:alice',
-    createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-02T00:00:00.000Z',
-    verified: true, encrypted: false, links: [], conforms: true,
+    id: 'bafy',
+    key: 'k1',
+    version: 'bafy',
+    seq: 0,
+    collection: 'app.x',
+    body,
+    author: 'did:key:session',
+    root: 'did:key:alice',
+    createdBy: 'did:key:alice',
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-02T00:00:00.000Z',
+    verified: true,
+    encrypted: false,
+    links: [],
+    conforms: true,
     ...extra,
   } as NodeRecord;
 }
 
 describe('filters', () => {
-  const r = record({ text: 'Buy Milk', done: false, amount: 12, tags: ['home', 'shop'], place: { city: 'Oslo' } });
+  const r = record({
+    text: 'Buy Milk',
+    done: false,
+    amount: 12,
+    tags: ['home', 'shop'],
+    place: { city: 'Oslo' },
+  });
 
   test('bare values mean equality; operators compare', () => {
     assert.equal(matches(r, { done: false }), true);
@@ -72,10 +89,16 @@ describe('filters', () => {
   test('a malformed query is refused with a reason', () => {
     assert.equal(checkQuery({ collection: 'app.x', where: { done: false } }), null);
     assert.match(checkQuery({}) ?? '', /collection/);
-    assert.match(checkQuery({ collection: 'app.x', where: { a: { $regex: 'x' } } }) ?? '', /unknown operator "\$regex"/);
+    assert.match(
+      checkQuery({ collection: 'app.x', where: { a: { $regex: 'x' } } }) ?? '',
+      /unknown operator "\$regex"/,
+    );
     assert.match(checkQuery({ collection: 'app.x', where: { $where: 'x' } }) ?? '', /not a field/);
     assert.match(checkQuery({ collection: 'app.x', sort: { a: 'up' } }) ?? '', /"asc" or "desc"/);
-    const deep = { rel: 'about', include: { b: { rel: 'about', include: { c: { rel: 'about', include: { d: { rel: 'about' } } } } } } };
+    const deep = {
+      rel: 'about',
+      include: { b: { rel: 'about', include: { c: { rel: 'about', include: { d: { rel: 'about' } } } } } },
+    };
     assert.match(checkQuery({ collection: 'app.x', include: { a: deep } }) ?? '', /at most 3 deep/);
   });
 });
@@ -89,7 +112,11 @@ describe('queries on a node', () => {
   async function person() {
     const manager = createIdentityManager();
     const me = await manager.fromSeed(generateSeed());
-    const node = await createNode({ signer: createLocalRootSigner(me, manager.getProvider()), stores: memoryStores(), watchIntervalMs: 0 });
+    const node = await createNode({
+      signer: createLocalRootSigner(me, manager.getProvider()),
+      stores: memoryStores(),
+      watchIntervalMs: 0,
+    });
     open.push(node);
     return node;
   }
@@ -98,7 +125,14 @@ describe('queries on a node', () => {
     const { id: space } = await node.spaces.create({ name: 'Todos', visibility });
     const items = [];
     for (const [i, text] of ['milk', 'bread', 'eggs', 'coffee', 'tea'].entries()) {
-      items.push(await node.records.put(space, 'app.todo.item', { text, done: i % 2 === 1, rank: 5 - i }, { key: `todo-${i}` }));
+      items.push(
+        await node.records.put(
+          space,
+          'app.todo.item',
+          { text, done: i % 2 === 1, rank: 5 - i },
+          { key: `todo-${i}` },
+        ),
+      );
     }
     return { space, items };
   }
@@ -111,7 +145,10 @@ describe('queries on a node', () => {
       where: { done: false },
       sort: { rank: 'asc' },
     });
-    assert.deepEqual(open.records.map((r) => r.body.text), ['tea', 'eggs', 'milk']);
+    assert.deepEqual(
+      open.records.map((r) => r.body.text),
+      ['tea', 'eggs', 'milk'],
+    );
     assert.equal(open.cursor, null);
   });
 
@@ -122,7 +159,12 @@ describe('queries on a node', () => {
     let cursor: string | null = null;
     do {
       // Every record ties on done within its group; the key breaks it.
-      const page: QueryResult = await me.records.query(space, { collection: 'app.todo.item', sort: { done: 'asc' }, limit: 2, ...(cursor ? { cursor } : {}) });
+      const page: QueryResult = await me.records.query(space, {
+        collection: 'app.todo.item',
+        sort: { done: 'asc' },
+        limit: 2,
+        ...(cursor ? { cursor } : {}),
+      });
       seen.push(...page.records.map((r) => r.key));
       cursor = page.cursor;
     } while (cursor);
@@ -134,7 +176,10 @@ describe('queries on a node', () => {
     const { space } = await todos(me);
     await me.records.delete(space, 'todo-0');
     const all = await me.records.query(space, { collection: 'app.todo.item' });
-    assert.equal(all.records.some((r) => r.key === 'todo-0'), false);
+    assert.equal(
+      all.records.some((r) => r.key === 'todo-0'),
+      false,
+    );
     assert.equal(all.records.length, 4);
   });
 
@@ -144,8 +189,18 @@ describe('queries on a node', () => {
     const on = (key: string) => [{ rel: 'about', to: key }];
     await me.records.put(space, 'std.reaction', { emoji: '👍' }, { links: on('todo-0') });
     await me.records.put(space, 'std.reaction', { emoji: '🎉' }, { links: on('todo-0') });
-    const comment = await me.records.put(space, 'std.comment', { text: 'oat milk?' }, { links: on('todo-0') });
-    await me.records.put(space, 'std.comment', { text: 'yes' }, { links: [...on(comment.key), { rel: 'replyTo', to: comment.key }] });
+    const comment = await me.records.put(
+      space,
+      'std.comment',
+      { text: 'oat milk?' },
+      { links: on('todo-0') },
+    );
+    await me.records.put(
+      space,
+      'std.comment',
+      { text: 'yes' },
+      { links: [...on(comment.key), { rel: 'replyTo', to: comment.key }] },
+    );
 
     const result = await me.records.query(space, {
       collection: 'app.todo.item',
@@ -153,33 +208,53 @@ describe('queries on a node', () => {
       include: {
         reactions: { rel: 'about', from: 'std.reaction', count: true },
         thumbs: { rel: 'about', from: 'std.reaction', where: { emoji: '👍' } },
-        comments: { rel: 'about', from: 'std.comment', include: { replies: { rel: 'replyTo', from: 'std.comment' } } },
+        comments: {
+          rel: 'about',
+          from: 'std.comment',
+          include: { replies: { rel: 'replyTo', from: 'std.comment' } },
+        },
       },
     });
     const [todo] = result.records;
     assert.equal(todo?.included?.reactions, 2);
     assert.equal((todo?.included?.thumbs as NodeRecord[]).length, 1);
-    const [first] = todo?.included?.comments as Array<{ body: { text: string }; included: { replies: Array<{ body: { text: string } }> } }>;
+    const [first] = todo?.included?.comments as Array<{
+      body: { text: string };
+      included: { replies: Array<{ body: { text: string } }> };
+    }>;
     assert.equal(first?.body.text, 'oat milk?');
-    assert.deepEqual(first?.included.replies.map((r) => r.body.text), ['yes']);
+    assert.deepEqual(
+      first?.included.replies.map((r) => r.body.text),
+      ['yes'],
+    );
   });
 
   test('include with direction "out" follows a record’s own links', async () => {
     const me = await person();
     const { space } = await todos(me, 'public');
-    await me.records.put(space, 'std.comment', { text: 'about milk' }, { links: [{ rel: 'about', to: 'todo-0' }] });
+    await me.records.put(
+      space,
+      'std.comment',
+      { text: 'about milk' },
+      { links: [{ rel: 'about', to: 'todo-0' }] },
+    );
     const result = await me.records.query(space, {
       collection: 'std.comment',
       include: { target: { rel: 'about', direction: 'out', from: todoItems } },
     });
-    assert.deepEqual(result.records[0]?.included.target.map((t) => t.body.text), ['milk']);
+    assert.deepEqual(
+      result.records[0]?.included.target.map((t) => t.body.text),
+      ['milk'],
+    );
   });
 
   test('watch re-runs when records change, and stops when told', async () => {
     const me = await person();
     const { space } = await todos(me);
     const counts: number[] = [];
-    const stop = me.records.watch(space, { collection: 'app.todo.item', where: { done: false } }, (r) => counts.push(r.records.length));
+    const stop = me.records.watch(space, { collection: 'app.todo.item', where: { done: false } }, (r) =>
+      counts.push(r.records.length),
+    );
     const until = async (n: number) => {
       const deadline = Date.now() + 2000;
       while (counts.at(-1) !== n) {
@@ -200,8 +275,18 @@ describe('queries on a node', () => {
   test('an agent queries through the action, and a bad query says what to fix', async () => {
     const me = await person();
     const { space } = await todos(me);
-    const result = (await runAction(me, 'records_query', { space, collection: 'app.todo.item', where: { text: { $contains: 'CO' } } })) as QueryResult<{ text: string }>;
-    assert.deepEqual(result.records.map((r) => r.body?.text), ['coffee']);
-    await assert.rejects(runAction(me, 'records_query', { space, collection: 'app.todo.item', where: { text: { $like: 'x' } } }), /unknown operator "\$like"/);
+    const result = (await runAction(me, 'records_query', {
+      space,
+      collection: 'app.todo.item',
+      where: { text: { $contains: 'CO' } },
+    })) as QueryResult<{ text: string }>;
+    assert.deepEqual(
+      result.records.map((r) => r.body?.text),
+      ['coffee'],
+    );
+    await assert.rejects(
+      runAction(me, 'records_query', { space, collection: 'app.todo.item', where: { text: { $like: 'x' } } }),
+      /unknown operator "\$like"/,
+    );
   });
 });

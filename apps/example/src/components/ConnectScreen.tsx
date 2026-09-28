@@ -33,15 +33,24 @@ export function ConnectScreen() {
 
         {own === null ? (
           <>
-            <button onClick={() => void connection.connect()} disabled={waiting} data-variant="primary" style={styles.button}>
+            <button
+              onClick={() => void connection.connect()}
+              disabled={waiting}
+              data-variant="primary"
+              style={styles.button}
+            >
               {state.status === 'connecting' ? 'Waiting for your account home…' : 'Connect with Weave'}
             </button>
             <p style={{ ...styles.errorHint, marginTop: 16 }}>
-              Opens <strong style={{ color: palette.ink.strong }}>{home}</strong> in a small window. This app gets a note signed by
-              your account for its own key — never your password.
+              Opens <strong style={{ color: palette.ink.strong }}>{home}</strong> in a small window. This app
+              gets a note signed by your account for its own key — never your password.
             </p>
             <div style={styles.linkRow}>
-              <button onClick={() => setOwn('')} data-variant="ghost" style={{ ...styles.linkButton, paddingLeft: 0 }}>
+              <button
+                onClick={() => setOwn('')}
+                data-variant="ghost"
+                style={{ ...styles.linkButton, paddingLeft: 0 }}
+              >
                 Use your own home
               </button>
             </div>
@@ -65,14 +74,24 @@ export function ConnectScreen() {
               autoCapitalize="off"
               style={styles.input}
             />
-            <button type="submit" disabled={waiting || !own.trim()} data-variant="primary" style={styles.button}>
+            <button
+              type="submit"
+              disabled={waiting || !own.trim()}
+              data-variant="primary"
+              style={styles.button}
+            >
               {state.status === 'connecting' ? 'Waiting for your account home…' : 'Connect'}
             </button>
             <p style={{ ...styles.errorHint, marginTop: 8 }}>
               The address of the Weave home you run yourself. This app remembers it.
             </p>
             <div style={styles.linkRow}>
-              <button type="button" onClick={() => setOwn(null)} data-variant="ghost" style={{ ...styles.linkButton, paddingLeft: 0 }}>
+              <button
+                type="button"
+                onClick={() => setOwn(null)}
+                data-variant="ghost"
+                style={{ ...styles.linkButton, paddingLeft: 0 }}
+              >
                 Use {home} instead
               </button>
             </div>

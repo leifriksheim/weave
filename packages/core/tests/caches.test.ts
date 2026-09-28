@@ -32,7 +32,10 @@ interface Person {
   signer: RootSigner;
 }
 
-async function person(hub: FakeHub, options: { cache?: CacheConfig; stores?: StoreFactory; signer?: RootSigner } = {}): Promise<Person> {
+async function person(
+  hub: FakeHub,
+  options: { cache?: CacheConfig; stores?: StoreFactory; signer?: RootSigner } = {},
+): Promise<Person> {
   let signer = options.signer;
   if (!signer) {
     const manager = createIdentityManager();
@@ -76,7 +79,8 @@ async function spaceWithKeepers(hub: FakeHub, options: { keepers?: boolean } = {
   const carol = await person(hub);
   const { id: space } = await alice.node.spaces.create({ name: 'Club', ...team, visibility: 'public' });
   await hold(alice.node, space);
-  for (const name of ['app.chat', 'app.photos']) await alice.node.collections.define(space, { name, schema: { type: 'object' } });
+  for (const name of ['app.chat', 'app.photos'])
+    await alice.node.collections.define(space, { name, schema: { type: 'object' } });
   for (let i = 0; i < 10; i++) {
     await alice.node.records.put(space, 'app.chat', { text: `hello ${i}` });
     await alice.node.records.put(space, 'app.photos', { title: `photo ${i}` });
@@ -86,7 +90,12 @@ async function spaceWithKeepers(hub: FakeHub, options: { keepers?: boolean } = {
     await hold(keeper.node, space);
     await joined(keeper.node, space);
   }
-  await until(async () => (await held(bob, space, 'app.photos')) === 10 && (await held(carol, space, 'app.photos')) === 10, 5000, 'the keepers to hold it all');
+  await until(
+    async () =>
+      (await held(bob, space, 'app.photos')) === 10 && (await held(carol, space, 'app.photos')) === 10,
+    5000,
+    'the keepers to hold it all',
+  );
   if (options.keepers !== false) {
     await alice.node.spaces.setKeepers(space, [
       { did: bob.session(), name: 'Bob’s host' },
@@ -108,20 +117,35 @@ describe('holding part of a space', () => {
   test('with keepers named, an app holds only what it uses, and says when a query is complete', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const { alice, space } = await spaceWithKeepers(hub);
-    assert.deepEqual((await alice.node.spaces.access(space)).keepers.map((k) => k.name), ['Bob’s host', 'Carol’s extension']);
+    assert.deepEqual(
+      (await alice.node.spaces.access(space)).keepers.map((k) => k.name),
+      ['Bob’s host', 'Carol’s extension'],
+    );
 
     const dave = await app(hub, alice, space);
-    await until(async () => (await dave.node.spaces.status(space)).holds !== 'all', 5000, 'the app to hold part of the space');
+    await until(
+      async () => (await dave.node.spaces.status(space)).holds !== 'all',
+      5000,
+      'the app to hold part of the space',
+    );
 
     let result = await dave.node.records.query(space, { collection: 'app.chat' });
-    await until(async () => (result = await dave.node.records.query(space, { collection: 'app.chat' })).complete, 5000, 'the chat to be complete');
+    await until(
+      async () => (result = await dave.node.records.query(space, { collection: 'app.chat' })).complete,
+      5000,
+      'the chat to be complete',
+    );
     assert.equal(result.records.length, 10);
     assert.deepEqual((await dave.node.spaces.status(space)).holds, ['app.chat']);
     await new Promise((resolve) => setTimeout(resolve, 200));
     assert.equal(await held(dave, space, 'app.photos'), 0, 'photos were never asked for');
 
     // Asking for photos brings them.
-    await until(async () => (await dave.node.records.query(space, { collection: 'app.photos' })).complete, 5000, 'the photos');
+    await until(
+      async () => (await dave.node.records.query(space, { collection: 'app.photos' })).complete,
+      5000,
+      'the photos',
+    );
     assert.equal(await held(dave, space, 'app.photos'), 10);
   });
 
@@ -138,7 +162,11 @@ describe('holding part of a space', () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const { alice, carol, space } = await spaceWithKeepers(hub);
     const dave = await app(hub, alice, space);
-    await until(async () => (await dave.node.records.query(space, { collection: 'app.chat' })).complete, 5000, 'the chat');
+    await until(
+      async () => (await dave.node.records.query(space, { collection: 'app.chat' })).complete,
+      5000,
+      'the chat',
+    );
 
     // Carol's keeper is away.
     await letGo(carol.node, space);
@@ -147,19 +175,31 @@ describe('holding part of a space', () => {
     assert.equal((await dave.node.spaces.status(space)).pending, 1, 'one keeper is not enough');
 
     await hold(carol.node, space);
-    await until(async () => (await dave.node.spaces.status(space)).pending === 0, 5000, 'the second keeper to have it');
+    await until(
+      async () => (await dave.node.spaces.status(space)).pending === 0,
+      5000,
+      'the second keeper to have it',
+    );
   });
 
   test('a collection nobody used for a while is dropped when the app opens again; declared ones stay', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const { alice, space } = await spaceWithKeepers(hub);
     const dave = await app(hub, alice, space, { collections: ['app.chat'] });
-    await until(async () => (await dave.node.records.query(space, { collection: 'app.photos' })).complete, 5000, 'the photos');
+    await until(
+      async () => (await dave.node.records.query(space, { collection: 'app.photos' })).complete,
+      5000,
+      'the photos',
+    );
     await until(async () => (await held(dave, space, 'app.chat')) === 10, 5000, 'the chat');
     assert.equal(await held(dave, space, 'app.photos'), 10);
     await dave.node.close();
 
-    const again = await person(hub, { cache: { collections: ['app.chat'], unusedAfterDays: 0 }, stores: dave.stores, signer: dave.signer });
+    const again = await person(hub, {
+      cache: { collections: ['app.chat'], unusedAfterDays: 0 },
+      stores: dave.stores,
+      signer: dave.signer,
+    });
     await hold(again.node, space);
     await until(async () => (await held(again, space, 'app.photos')) === 0, 5000, 'the photos to be dropped');
     assert.equal(await held(again, space, 'app.chat'), 10, 'declared, so kept');
@@ -169,6 +209,9 @@ describe('holding part of a space', () => {
   test('only someone who manages the space names its keepers', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const { bob, space } = await spaceWithKeepers(hub, { keepers: false });
-    await assert.rejects(bob.node.spaces.setKeepers(space, [{ did: bob.session(), name: 'mine' }]), /may not change who keeps the space/);
+    await assert.rejects(
+      bob.node.spaces.setKeepers(space, [{ did: bob.session(), name: 'mine' }]),
+      /may not change who keeps the space/,
+    );
   });
 });

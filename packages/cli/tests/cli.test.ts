@@ -135,14 +135,21 @@ describe('the daemon', () => {
   });
 
   test('answers /health, and says nothing about whose node it is', async () => {
-    const health = (await (await fetch(`http://127.0.0.1:${daemon.port}/health`)).json()) as Record<string, unknown>;
+    const health = (await (await fetch(`http://127.0.0.1:${daemon.port}/health`)).json()) as Record<
+      string,
+      unknown
+    >;
     assert.deepEqual(health, { ok: true });
   });
 
   test('is a relay too: peers meet through it, in several spaces over one socket', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const meshOf = (did: string) =>
-      createMesh({ did, relays: [`ws://127.0.0.1:${daemon.port}`], createTransport: () => hub.signalled(did, 'daemon-relay') });
+      createMesh({
+        did,
+        relays: [`ws://127.0.0.1:${daemon.port}`],
+        createTransport: () => hub.signalled(did, 'daemon-relay'),
+      });
     const [a, b] = [meshOf('did:key:zA'), meshOf('did:key:zB')];
     const rooms = [a.join('one'), a.join('two'), b.join('one'), b.join('two')];
     const met = rooms.map(() => 0);
@@ -162,12 +169,20 @@ describe('the daemon', () => {
     const space = await a.spaces.create({ name: 'Shared', ...team, visibility: 'private' });
     const invite = await a.spaces.invite(space.id);
     await daemon.node.spaces.join(invite);
-    await until(async () => (await daemon.node.spaces.status(space.id)).connection !== 'offline', 3000, 'daemon to open the space');
+    await until(
+      async () => (await daemon.node.spaces.status(space.id)).connection !== 'offline',
+      3000,
+      'daemon to open the space',
+    );
 
     // 1. A writes ten, and goes away.
     await hold(a, space.id);
     for (let i = 0; i < 10; i++) await a.records.put(space.id, 'app.todo.item', { text: `from A ${i}` });
-    await until(async () => (await daemon.node.records.list(space.id)).length === 10, 5000, 'daemon to hold A’s ten');
+    await until(
+      async () => (await daemon.node.records.list(space.id)).length === 10,
+      5000,
+      'daemon to hold A’s ten',
+    );
     await a.close();
 
     // 2. B turns up with A long gone, and gets all ten.
@@ -178,7 +193,11 @@ describe('the daemon', () => {
 
     // 3. B writes five, and goes away.
     for (let i = 0; i < 5; i++) await b.records.put(space.id, 'app.todo.item', { text: `from B ${i}` });
-    await until(async () => (await daemon.node.records.list(space.id)).length === 15, 5000, 'daemon to hold B’s five');
+    await until(
+      async () => (await daemon.node.records.list(space.id)).length === 15,
+      5000,
+      'daemon to hold B’s five',
+    );
     await b.close();
 
     // 4. A comes back and receives B's five.
@@ -202,8 +221,16 @@ describe('the daemon', () => {
     const space = await laptop.spaces.create({ name: 'Found by itself', visibility: 'private' });
     const written = await laptop.records.put(space.id, 'app.note', { text: 'the node never saw an invite' });
 
-    await until(async () => (await daemon.node.spaces.get(space.id)) !== null, 5000, 'the node to join through the registry');
-    await until(async () => (await daemon.node.records.get(space.id, written.key)) !== null, 5000, 'the note to reach the node');
+    await until(
+      async () => (await daemon.node.spaces.get(space.id)) !== null,
+      5000,
+      'the node to join through the registry',
+    );
+    await until(
+      async () => (await daemon.node.records.get(space.id, written.key)) !== null,
+      5000,
+      'the note to reach the node',
+    );
     await laptop.close();
   });
 
@@ -236,8 +263,16 @@ describe('the daemon', () => {
     const [bob, carol] = [await person(), await person()];
     const served = async () => Object.values((await daemon.node.spaces.status(space)).accounts);
     const members = async () => (await daemon.node.spaces.access(space)).members.map((held) => held.did);
-    await until(async () => (await members()).includes(bob.node.did) && (await members()).includes(carol.node.did), 5000, 'both to be members, as the node sees it');
-    await until(async () => (await served()).includes(bob.node.did) && (await served()).includes(carol.node.did), 5000, 'the node to serve both');
+    await until(
+      async () => (await members()).includes(bob.node.did) && (await members()).includes(carol.node.did),
+      5000,
+      'both to be members, as the node sees it',
+    );
+    await until(
+      async () => (await served()).includes(bob.node.did) && (await served()).includes(carol.node.did),
+      5000,
+      'the node to serve both',
+    );
 
     await daemon.node.spaces.setMember(space, carol.node.did, null);
     await until(async () => (await daemon.node.spaces.access(space)).key?.changes === 1, 5000, 'a new key');
@@ -247,12 +282,23 @@ describe('the daemon', () => {
     await daemon.node.records.put(space, 'app.note', { text: 'after' });
     await daemon.node.spaces.send(space, 'who is here?');
     await until(() => bob.heard.includes('who is here?'), 5000, 'Bob to hear it');
-    await until(async () => (await bob.node.records.list<{ text: string }>(space, { collection: 'app.note' })).some((note) => note.body?.text === 'after'), 5000, 'Bob to read the note');
+    await until(
+      async () =>
+        (await bob.node.records.list<{ text: string }>(space, { collection: 'app.note' })).some(
+          (note) => note.body?.text === 'after',
+        ),
+      5000,
+      'Bob to read the note',
+    );
     // Carol's socket redials, proves the old key with her note, and is refused.
     await new Promise((resolve) => setTimeout(resolve, 1500));
     assert.equal((await served()).includes(carol.node.did), false);
     assert.deepEqual(carol.heard, []);
-    assert.equal((await carol.node.records.list(space, { collection: 'app.note' })).length, 0, 'not even the ciphertext');
+    assert.equal(
+      (await carol.node.records.list(space, { collection: 'app.note' })).length,
+      0,
+      'not even the ciphertext',
+    );
   });
 
   test('refuses a stranger to a private space, before sending anything', async () => {
@@ -262,9 +308,12 @@ describe('the daemon', () => {
     socket.addEventListener('message', (event) => {
       frames.push(String(event.data));
       const challenge = JSON.parse(String(event.data));
-      if (challenge.type === 'challenge') socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger', nonce: 'n', sig: 'forged' }));
+      if (challenge.type === 'challenge')
+        socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger', nonce: 'n', sig: 'forged' }));
     });
-    const closed = await new Promise<number>((resolve) => socket.addEventListener('close', (event) => resolve(event.code)));
+    const closed = await new Promise<number>((resolve) =>
+      socket.addEventListener('close', (event) => resolve(event.code)),
+    );
     assert.equal(closed, 4003);
     assert.equal(frames.length, 1); // the challenge, and nothing of the space
   });
@@ -273,7 +322,9 @@ describe('the daemon', () => {
     // Challenged first either way, then the same close: a page cannot ask which spaces it holds.
     const socket = new WebSocket(`${peerUrl}?space=nope`);
     let challenged = false;
-    const closed = new Promise<number>((resolve) => socket.addEventListener('close', (event) => resolve(event.code)));
+    const closed = new Promise<number>((resolve) =>
+      socket.addEventListener('close', (event) => resolve(event.code)),
+    );
     socket.addEventListener('message', (event) => {
       challenged ||= JSON.parse(String(event.data)).type === 'challenge';
       socket.send(JSON.stringify({ type: 'hello', did: 'did:key:zStranger', nonce: 'n' }));
@@ -289,14 +340,25 @@ describe('MCP', () => {
   test('initialises, lists the node actions as tools, and calls them', async () => {
     const manager = createIdentityManager();
     const me = await manager.fromSeed(new Uint8Array(16).fill(3));
-    const node = await createNode({ signer: createLocalRootSigner(me, manager.getProvider()), stores: memoryStores(), watchIntervalMs: 0 });
+    const node = await createNode({
+      signer: createLocalRootSigner(me, manager.getProvider()),
+      stores: memoryStores(),
+      watchIntervalMs: 0,
+    });
 
-    const init = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, info)) as {
+    const init = (await handleMcpMessage(
+      node,
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } },
+      info,
+    )) as {
       result: { protocolVersion: string; capabilities: { tools: unknown } };
     };
     assert.equal(init.result.protocolVersion, '2025-06-18');
     assert.ok(init.result.capabilities.tools);
-    assert.equal(await handleMcpMessage(node, { jsonrpc: '2.0', method: 'notifications/initialized' }, info), null);
+    assert.equal(
+      await handleMcpMessage(node, { jsonrpc: '2.0', method: 'notifications/initialized' }, info),
+      null,
+    );
 
     const list = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, info)) as {
       result: { tools: Array<{ name: string; annotations: { readOnlyHint: boolean } }> };
@@ -305,20 +367,36 @@ describe('MCP', () => {
     assert.equal(list.result.tools.find((t) => t.name === 'records_list')?.annotations.readOnlyHint, true);
 
     const call = async (name: string, args: unknown) =>
-      ((await handleMcpMessage(node, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name, arguments: args } }, info)) as {
-        result: { isError: boolean; structuredContent?: Record<string, unknown>; content: Array<{ text: string }> };
-      }).result;
+      (
+        (await handleMcpMessage(
+          node,
+          { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name, arguments: args } },
+          info,
+        )) as {
+          result: {
+            isError: boolean;
+            structuredContent?: Record<string, unknown>;
+            content: Array<{ text: string }>;
+          };
+        }
+      ).result;
 
     const space = await call('spaces_create', { name: 'Agent made this', visibility: 'public' });
     assert.equal(space.isError, false);
-    const put = await call('records_put', { space: space.structuredContent!.id, collection: 'app.agent.idea', body: { idea: 'polls' } });
+    const put = await call('records_put', {
+      space: space.structuredContent!.id,
+      collection: 'app.agent.idea',
+      body: { idea: 'polls' },
+    });
     assert.equal(put.isError, false);
 
     const bad = await call('records_put', { space: space.structuredContent!.id });
     assert.equal(bad.isError, true);
     assert.match(bad.content[0]!.text, /Missing "collection"/);
 
-    const unknown = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 4, method: 'no/such' }, info)) as { error: { code: number } };
+    const unknown = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 4, method: 'no/such' }, info)) as {
+      error: { code: number };
+    };
     assert.equal(unknown.error.code, -32601);
     await node.close();
   });
@@ -326,17 +404,41 @@ describe('MCP', () => {
   test('an agent is not offered what needs a person, and is told to propose apps instead', async () => {
     const manager = createIdentityManager();
     const me = await manager.fromSeed(new Uint8Array(16).fill(4));
-    const node = await createNode({ signer: createLocalRootSigner(me, manager.getProvider()), stores: memoryStores(), watchIntervalMs: 0 });
+    const node = await createNode({
+      signer: createLocalRootSigner(me, manager.getProvider()),
+      stores: memoryStores(),
+      watchIntervalMs: 0,
+    });
     const agent = { agent: true };
 
-    const init = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }, info, agent)) as { result: { instructions: string } };
+    const init = (await handleMcpMessage(
+      node,
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      info,
+      agent,
+    )) as { result: { instructions: string } };
     assert.match(init.result.instructions, /apps_propose/);
-    const list = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, info, agent)) as { result: { tools: Array<{ name: string }> } };
+    const list = (await handleMcpMessage(
+      node,
+      { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+      info,
+      agent,
+    )) as { result: { tools: Array<{ name: string }> } };
     const names = list.result.tools.map((tool) => tool.name);
     for (const name of PERSON_ONLY) assert.ok(!names.includes(name), `${name} is not offered`);
     assert.ok(names.includes('apps_propose') && names.includes('records_put'));
 
-    const refused = (await handleMcpMessage(node, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'spaces_create', arguments: { name: 'x', visibility: 'public' } } }, info, agent)) as {
+    const refused = (await handleMcpMessage(
+      node,
+      {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'spaces_create', arguments: { name: 'x', visibility: 'public' } },
+      },
+      info,
+      agent,
+    )) as {
       error: { message: string };
     };
     assert.match(refused.error.message, /Unknown tool/);
@@ -348,16 +450,33 @@ describe('the weave command', () => {
   test('init, create and list from a real process', async () => {
     const main = fileURLToPath(new URL('../src/main.ts', import.meta.url));
     const env = { ...process.env, WEAVE_HOME: await tempDir(), WEAVE_PASSPHRASE: 'pw' };
-    const weave = (...args: string[]) => run(process.execPath, ['--conditions=@weaveprotocol/source', '--import', 'tsx', main, ...args], { env });
+    const weave = (...args: string[]) =>
+      run(process.execPath, ['--conditions=@weaveprotocol/source', '--import', 'tsx', main, ...args], {
+        env,
+      });
 
     const { stderr } = await weave('init', '--name', 'Leif', '--passphrase');
     assert.match(stderr, /Recovery code: [0-9A-Z-]+/);
 
-    const created = JSON.parse((await weave('spaces', 'create', '--name', 'Notes', '--visibility', 'private')).stdout);
-    await weave('records', 'put', '--space', created.id, '--collection', 'app.note', '--body', '{"text":"hi"}');
+    const created = JSON.parse(
+      (await weave('spaces', 'create', '--name', 'Notes', '--visibility', 'private')).stdout,
+    );
+    await weave(
+      'records',
+      'put',
+      '--space',
+      created.id,
+      '--collection',
+      'app.note',
+      '--body',
+      '{"text":"hi"}',
+    );
     const listed = JSON.parse((await weave('records', 'list', '--space', created.id)).stdout);
     assert.equal(listed[0].body.text, 'hi');
 
-    await assert.rejects(weave('records', 'put', '--space', created.id, '--nonsense', 'x'), /has no --nonsense/);
+    await assert.rejects(
+      weave('records', 'put', '--space', created.id, '--nonsense', 'x'),
+      /has no --nonsense/,
+    );
   });
 });

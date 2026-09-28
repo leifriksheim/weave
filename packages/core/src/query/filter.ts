@@ -19,7 +19,18 @@ const META: Record<string, (r: NodeRecord) => unknown> = {
   '@collection': (r) => r.collection,
 };
 
-const OPERATORS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin', '$exists', '$contains']);
+const OPERATORS = new Set([
+  '$eq',
+  '$ne',
+  '$gt',
+  '$gte',
+  '$lt',
+  '$lte',
+  '$in',
+  '$nin',
+  '$exists',
+  '$contains',
+]);
 
 /** A field of a record: `@…` for the record itself, a dotted path into its body otherwise. */
 export function fieldValue(record: NodeRecord, path: string): unknown {
@@ -46,7 +57,10 @@ function equal(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) !== Array.isArray(b)) return false;
   const ak = Object.keys(a as object);
   const bk = Object.keys(b as object);
-  return ak.length === bk.length && ak.every((k) => equal((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+  return (
+    ak.length === bk.length &&
+    ak.every((k) => equal((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+  );
 }
 
 /** Ordered comparison, only between two numbers or two strings. */
@@ -85,7 +99,8 @@ function operatorHolds(op: string, value: unknown, operand: unknown): boolean {
     case '$exists':
       return (value !== undefined) === operand;
     case '$contains':
-      if (typeof value === 'string' && typeof operand === 'string') return value.toLowerCase().includes(operand.toLowerCase());
+      if (typeof value === 'string' && typeof operand === 'string')
+        return value.toLowerCase().includes(operand.toLowerCase());
       if (Array.isArray(value)) return value.some((item) => equal(item, operand));
       return false;
     default:
@@ -95,7 +110,11 @@ function operatorHolds(op: string, value: unknown, operand: unknown): boolean {
 
 /** Whether one field satisfies a condition: an operator object, or a value to equal. */
 function conditionHolds(value: unknown, condition: unknown): boolean {
-  if (isPlainObject(condition) && Object.keys(condition).length > 0 && Object.keys(condition).every((k) => k.startsWith('$'))) {
+  if (
+    isPlainObject(condition) &&
+    Object.keys(condition).length > 0 &&
+    Object.keys(condition).every((k) => k.startsWith('$'))
+  ) {
     return Object.entries(condition).every(([op, operand]) => operatorHolds(op, value, operand));
   }
   return equal(value, condition);
@@ -129,11 +148,14 @@ function checkFilter(filter: unknown, at: string): string | null {
       if (problem) return problem;
       continue;
     }
-    if (field.startsWith('$')) return `${at}: "${field}" is not a field or a logical operator ($and, $or, $not)`;
-    if (field.startsWith('@') && !META[field]) return `${at}: unknown record field "${field}" — use one of ${Object.keys(META).join(', ')}`;
+    if (field.startsWith('$'))
+      return `${at}: "${field}" is not a field or a logical operator ($and, $or, $not)`;
+    if (field.startsWith('@') && !META[field])
+      return `${at}: unknown record field "${field}" — use one of ${Object.keys(META).join(', ')}`;
     if (isPlainObject(condition) && Object.keys(condition).some((k) => k.startsWith('$'))) {
       for (const op of Object.keys(condition)) {
-        if (!OPERATORS.has(op)) return `${at}.${field}: unknown operator "${op}" — use one of ${[...OPERATORS].join(', ')}`;
+        if (!OPERATORS.has(op))
+          return `${at}.${field}: unknown operator "${op}" — use one of ${[...OPERATORS].join(', ')}`;
       }
     }
   }
@@ -148,9 +170,12 @@ function checkIncludes(includes: unknown, at: string, depth: number): string | n
     const here = `${at}.${name}`;
     if (!isPlainObject(inc)) return `${here} must be an object`;
     if (typeof inc.rel !== 'string') return `${here}.rel is required: the link role to follow, e.g. "about"`;
-    if (inc.from !== undefined && typeof inc.from !== 'string') return `${here}.from must be a collection name`;
-    if (inc.direction !== undefined && inc.direction !== 'in' && inc.direction !== 'out') return `${here}.direction must be "in" or "out"`;
-    if (inc.limit !== undefined && (!Number.isInteger(inc.limit) || inc.limit < 0)) return `${here}.limit must be a whole number`;
+    if (inc.from !== undefined && typeof inc.from !== 'string')
+      return `${here}.from must be a collection name`;
+    if (inc.direction !== undefined && inc.direction !== 'in' && inc.direction !== 'out')
+      return `${here}.direction must be "in" or "out"`;
+    if (inc.limit !== undefined && (!Number.isInteger(inc.limit) || inc.limit < 0))
+      return `${here}.limit must be a whole number`;
     if (inc.where !== undefined) {
       const problem = checkFilter(inc.where, `${here}.where`);
       if (problem) return problem;
@@ -183,7 +208,9 @@ export function checkQuery(query: unknown): string | null {
       if (field.startsWith('@') && !META[field]) return `sort: unknown record field "${field}"`;
     }
   }
-  if (q.limit !== undefined && (!Number.isInteger(q.limit) || q.limit < 0)) return 'limit must be a whole number';
-  if (q.cursor !== undefined && typeof q.cursor !== 'string') return 'cursor must be the string a previous page returned';
+  if (q.limit !== undefined && (!Number.isInteger(q.limit) || q.limit < 0))
+    return 'limit must be a whole number';
+  if (q.cursor !== undefined && typeof q.cursor !== 'string')
+    return 'cursor must be the string a previous page returned';
   return null;
 }

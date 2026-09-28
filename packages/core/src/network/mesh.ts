@@ -198,7 +198,12 @@ export function createMesh(config: MeshConfig): Mesh {
     if (!room || room.peers.has(peer)) return null;
     let handshake = room.handshakes.get(peer);
     if (!handshake) {
-      handshake = { nonce: peerNonce(), proved: false, verified: room.auth === null, timer: setTimeout(() => refuse(room, peer), authTimeoutMs) };
+      handshake = {
+        nonce: peerNonce(),
+        proved: false,
+        verified: room.auth === null,
+        timer: setTimeout(() => refuse(room, peer), authTimeoutMs),
+      };
       room.handshakes.set(peer, handshake);
       sendFrame(peer, { room: name, type: AUTH_HELLO_MESSAGE, payload: { nonce: handshake.nonce } });
     }
@@ -214,7 +219,12 @@ export function createMesh(config: MeshConfig): Mesh {
       const nonce = (payload as { nonce?: unknown } | null)?.nonce;
       if (!handshake || handshake.proved || typeof nonce !== 'string') return;
       handshake.proved = true;
-      if (room.auth) sendFrame(peer, { room: name, type: AUTH_PROOF_MESSAGE, payload: await room.auth.prove(peer, nonce, binding) });
+      if (room.auth)
+        sendFrame(peer, {
+          room: name,
+          type: AUTH_PROOF_MESSAGE,
+          payload: await room.auth.prove(peer, nonce, binding),
+        });
     } else {
       const handshake = room.handshakes.get(peer);
       if (!handshake || handshake.verified || !room.auth) return;
@@ -262,9 +272,14 @@ export function createMesh(config: MeshConfig): Mesh {
     }
   };
 
-  const throughMesh = (target: string): Deliver => (kind, data) =>
-    floodSignal({ id: signalId(), origin: did, target, kind, data, hops: MAX_HOPS });
-  const throughRelay = (target: string): Deliver => (kind, data) => signaling.signal(kind, target, data);
+  const throughMesh =
+    (target: string): Deliver =>
+    (kind, data) =>
+      floodSignal({ id: signalId(), origin: did, target, kind, data, hops: MAX_HOPS });
+  const throughRelay =
+    (target: string): Deliver =>
+    (kind, data) =>
+      signaling.signal(kind, target, data);
 
   const offerTo = async (peer: string, deliver: Deliver): Promise<void> => {
     try {
@@ -283,7 +298,9 @@ export function createMesh(config: MeshConfig): Mesh {
     try {
       if (kind === 'offer') {
         attempted.add(peer);
-        const answer = await transport.handleOffer(peer, data as RTCSessionDescriptionInit, (candidate) => deliver('candidate', candidate));
+        const answer = await transport.handleOffer(peer, data as RTCSessionDescriptionInit, (candidate) =>
+          deliver('candidate', candidate),
+        );
         deliver('answer', answer);
       } else if (kind === 'answer') {
         await transport.handleAnswer(peer, data as RTCSessionDescriptionInit);
@@ -310,7 +327,10 @@ export function createMesh(config: MeshConfig): Mesh {
   };
 
   signaling.on('peer-joined', (peer, room) => meet(room, peer, throughRelay(peer)));
-  signaling.on('signal', (message) => void onSignal(message.from, message.type, message.payload, throughRelay(message.from)));
+  signaling.on(
+    'signal',
+    (message) => void onSignal(message.from, message.type, message.payload, throughRelay(message.from)),
+  );
 
   /** Acts on somebody's introduction of the peers in a room. */
   const handlePeerList = (name: string, peers: unknown): void => {
@@ -327,7 +347,12 @@ export function createMesh(config: MeshConfig): Mesh {
   const onRelayedSignal = (from: string, signal: RelayedSignal): void => {
     // Flooding means the same signal can arrive by several routes; act once.
     if (typeof signal?.id !== 'string' || signal.id.length > 64 || !seenSignals.accept(signal.id)) return;
-    if (!isPeerDid(signal.origin) || !isPeerDid(signal.target) || !['offer', 'answer', 'candidate'].includes(signal.kind)) return;
+    if (
+      !isPeerDid(signal.origin) ||
+      !isPeerDid(signal.target) ||
+      !['offer', 'answer', 'candidate'].includes(signal.kind)
+    )
+      return;
     if (signal.target === did) {
       void onSignal(signal.origin, signal.kind, signal.data, throughMesh(signal.origin));
     } else if (typeof signal.hops === 'number' && signal.hops > 0) {
@@ -342,10 +367,13 @@ export function createMesh(config: MeshConfig): Mesh {
     for (const name of expected.get(peer) ?? []) greet(name, peer);
     expected.delete(peer);
     // The other side greets in the rooms it knows we share; if none does, the connection has no use.
-    idle.set(peer, setTimeout(() => {
-      idle.delete(peer);
-      closeIfIdle(peer);
-    }, authTimeoutMs));
+    idle.set(
+      peer,
+      setTimeout(() => {
+        idle.delete(peer);
+        closeIfIdle(peer);
+      }, authTimeoutMs),
+    );
   });
 
   transport.on('disconnected', lost);
@@ -363,7 +391,11 @@ export function createMesh(config: MeshConfig): Mesh {
 
     // Before a peer has proved itself somewhere, the handshake is all there is.
     if (type === AUTH_HELLO_MESSAGE || type === AUTH_PROOF_MESSAGE) {
-      if (name) void onHandshake(name, peer, type, payload).catch(() => { const room = rooms.get(name); if (room) refuse(room, peer); });
+      if (name)
+        void onHandshake(name, peer, type, payload).catch(() => {
+          const room = rooms.get(name);
+          if (room) refuse(room, peer);
+        });
       return;
     }
     if (!isAdmitted(peer)) return;
@@ -381,7 +413,9 @@ export function createMesh(config: MeshConfig): Mesh {
     if (!isControlMessage(type)) room.events.emit('message', { type, from: peer, payload });
   });
 
-  transport.on('error', (peer, error) => fail(new Error(`Transport error with peer ${peer}: ${error.message}`)));
+  transport.on('error', (peer, error) =>
+    fail(new Error(`Transport error with peer ${peer}: ${error.message}`)),
+  );
 
   // ─── Rooms ──────────────────────────────────────────────────────────
 
@@ -422,9 +456,15 @@ export function createMesh(config: MeshConfig): Mesh {
     },
 
     join(name: string, auth: MeshAuth | null = null): NetworkManager {
-      const room: Room = { auth, peers: new Map(), handshakes: new Map(), events: createEmitter<NetworkEvents>() };
+      const room: Room = {
+        auth,
+        peers: new Map(),
+        handshakes: new Map(),
+        events: createEmitter<NetworkEvents>(),
+      };
       const send = (peer: string, message: NetworkMessage) => {
-        if (room.peers.has(peer)) sendFrame(peer, { room: name, type: message.type, payload: message.payload });
+        if (room.peers.has(peer))
+          sendFrame(peer, { room: name, type: message.type, payload: message.payload });
       };
 
       return Object.freeze({

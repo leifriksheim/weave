@@ -48,8 +48,18 @@ describe('space manager', () => {
 
     const privatePersonal = await spaces.create({ name: 'Groceries', visibility: 'private', creator: OWNER });
     const publicPersonal = await spaces.create({ name: 'Reading', visibility: 'public', creator: OWNER });
-    const privateShared = await spaces.create({ name: 'Move house', ...team, visibility: 'private', creator: OWNER });
-    const publicShared = await spaces.create({ name: 'Potluck', ...team, visibility: 'public', creator: OWNER });
+    const privateShared = await spaces.create({
+      name: 'Move house',
+      ...team,
+      visibility: 'private',
+      creator: OWNER,
+    });
+    const publicShared = await spaces.create({
+      name: 'Potluck',
+      ...team,
+      visibility: 'public',
+      creator: OWNER,
+    });
 
     // Only private spaces carry a key
     assert.notEqual(privatePersonal.key, null);
@@ -103,7 +113,14 @@ describe('invites', () => {
 
     // The key that arrived must open what the owner sealed
     const sealed = await encryptExpression(
-      { id: 'x', author: OWNER, collection: 'app.test.note', createdAt: 'now', body: { text: 'secret' }, signature: '' },
+      {
+        id: 'x',
+        author: OWNER,
+        collection: 'app.test.note',
+        createdAt: 'now',
+        body: { text: 'secret' },
+        signature: '',
+      },
       record.key!,
     );
     const opened = await decryptExpression(sealed, joined.key!);
@@ -124,7 +141,9 @@ describe('invites', () => {
 
     const record = await mine.create({ name: 'Reading', visibility: 'public', creator: OWNER, ...team });
     const secret = crypto.getRandomValues(new Uint8Array(32));
-    const joined = await theirs.join(await mine.createInvite(record.space.id, OWNER, { secret, role: 'editor' }));
+    const joined = await theirs.join(
+      await mine.createInvite(record.space.id, OWNER, { secret, role: 'editor' }),
+    );
 
     assert.deepEqual(joined.space.roles, record.space.roles);
     assert.equal(joined.space.creator, OWNER);
@@ -154,7 +173,14 @@ describe('private space expressions', () => {
 
     // Encrypt first, then sign: the signature covers the ciphertext.
     const sealed = await encryptExpression(
-      { id: '', author: '', collection: 'app.test.note', createdAt: '', body: { text: 'dinner at eight' }, signature: '' },
+      {
+        id: '',
+        author: '',
+        collection: 'app.test.note',
+        createdAt: '',
+        body: { text: 'dinner at eight' },
+        signature: '',
+      },
       record.key!,
     );
     const unsigned = createExpression({

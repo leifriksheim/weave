@@ -29,8 +29,7 @@ async function makeKey() {
   return { did, privateKey: pair.privateKey, publicKey: pair.publicKey };
 }
 
-const resolvePublicKey = async (did: string) =>
-  provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
+const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
 
 /** Signs a note, optionally carrying a delegation proof. */
 async function signNote(
@@ -96,9 +95,7 @@ describe('structural gate', () => {
       vendor: 'test',
       validate(value: unknown) {
         const v = value as { text?: unknown };
-        return typeof v?.text === 'string'
-          ? { value }
-          : { issues: [{ message: 'text must be a string' }] };
+        return typeof v?.text === 'string' ? { value } : { issues: [{ message: 'text must be a string' }] };
       },
     },
   };
@@ -133,10 +130,7 @@ describe('capability gate', () => {
   test('accepts a delegated author carrying a valid proof', async () => {
     const root = await makeKey();
     const session = await makeKey();
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
 
     const expression = (await signNote(session, 'delegated note', ucan.encoded)) as Expression;
     const result = await gate.validate(expression);
@@ -149,10 +143,7 @@ describe('capability gate', () => {
     const thief = await makeKey();
 
     // A perfectly valid UCAN — for somebody else.
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
 
     const expression = (await signNote(thief, 'stolen proof', ucan.encoded)) as Expression;
     const result = await gate.validate(expression);
@@ -163,10 +154,7 @@ describe('capability gate', () => {
   test('rejects a proof that does not grant the required capability', async () => {
     const root = await makeKey();
     const session = await makeKey();
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [OTHER] },
-      provider,
-    );
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [OTHER] }, provider);
 
     const expression = (await signNote(session, 'wrong space', ucan.encoded)) as Expression;
     const result = await gate.validate(expression);
@@ -199,7 +187,13 @@ describe('capability gate', () => {
     const session = await makeKey();
     const now = Math.floor(Date.now() / 1000);
     const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL], notBefore: now - 10_800, expiration: now - 3600 },
+      {
+        issuer: root,
+        audience: session.did,
+        capabilities: [ALL],
+        notBefore: now - 10_800,
+        expiration: now - 3600,
+      },
       provider,
     );
 
@@ -265,10 +259,7 @@ describe('capability gate', () => {
       isTrustedRoot: (did) => did === trusted.did,
     });
 
-    const ucan = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const ucan = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
     const expression = (await signNote(session, 'stranger', ucan.encoded)) as Expression;
 
     const result = await strictGate.validate(expression);

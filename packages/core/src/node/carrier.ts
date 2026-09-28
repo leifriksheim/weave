@@ -28,7 +28,12 @@ import { createSigner } from '../schema/signer.js';
 import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
 import { carriedRecord, CARRY_CLOSED_KEY, openPass, PASS_COLLECTION } from '../space/pass.js';
-import { matchesSubscription, readCarried, SUBSCRIPTION_COLLECTION, type CarriedSubscription } from '../space/notify.js';
+import {
+  matchesSubscription,
+  readCarried,
+  SUBSCRIPTION_COLLECTION,
+  type CarriedSubscription,
+} from '../space/notify.js';
 import type { Expression } from '../types.js';
 import { createLocalHub, type LocalHub } from '../network/local-transport.js';
 import { meshFor, openSpaceRuntime, type SpaceRuntime } from './space-runtime.js';
@@ -226,7 +231,10 @@ export async function createCarryCore(config: CarryCoreConfig) {
     const hub = createLocalHub();
     const network: NodeNetworkConfig = {
       ...config.network,
-      transports: (space, sessionDid) => [...(config.network?.transports?.(space, sessionDid) ?? []), hub.transport(did)],
+      transports: (space, sessionDid) => [
+        ...(config.network?.transports?.(space, sessionDid) ?? []),
+        hub.transport(did),
+      ],
     };
     const runtime = await open(
       record,
@@ -272,7 +280,10 @@ export async function createCarryCore(config: CarryCoreConfig) {
     id,
     label: sub.label,
     collection: sub.collection,
-    spaces: sub.spaces === 'all' ? [] : sub.spaces.map((space) => carried.get(space)?.record.space.name ?? 'a space'),
+    spaces:
+      sub.spaces === 'all'
+        ? []
+        : sub.spaces.map((space) => carried.get(space)?.record.space.name ?? 'a space'),
     ...(sub.open ? { open: sub.open } : {}),
     paused: sub.paused,
   });
@@ -325,7 +336,8 @@ export async function createCarryCore(config: CarryCoreConfig) {
         // since an account whose pass is behind just hasn't caught up yet.
         const known = wanted.get(pass.space.id);
         const later = (read: SpaceRecord['read']) => !!read && read.did !== pass.space.readKey;
-        if (!known || (!later(known.read) && later(pass.read))) wanted.set(pass.space.id, carriedRecord(pass));
+        if (!known || (!later(known.read) && later(pass.read)))
+          wanted.set(pass.space.id, carriedRecord(pass));
       }
       entry.wants = wants;
     }
@@ -366,7 +378,8 @@ export async function createCarryCore(config: CarryCoreConfig) {
         await registry.remove(carrySpace);
         throw new Error('That is not an invite to a carry space.');
       }
-      if (!carries.has(carrySpace)) carries.set(carrySpace, { account, wants: new Set(), subscriptions: new Map() });
+      if (!carries.has(carrySpace))
+        carries.set(carrySpace, { account, wants: new Set(), subscriptions: new Map() });
       await carry(record);
       await refresh();
       return carrySpace;
@@ -394,7 +407,9 @@ export async function createCarryCore(config: CarryCoreConfig) {
 
     async subscriptions(): Promise<ReadonlyArray<CarriedSubscriptionView>> {
       await refreshing;
-      return [...carries.values()].flatMap((entry) => [...entry.subscriptions].map(([id, sub]) => view(id, sub)));
+      return [...carries.values()].flatMap((entry) =>
+        [...entry.subscriptions].map(([id, sub]) => view(id, sub)),
+      );
     },
 
     async collections(spaceId: string): Promise<ReadonlyArray<CarriedCollection>> {

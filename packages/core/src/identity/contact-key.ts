@@ -42,7 +42,9 @@ export interface ContactKeyPair {
 }
 
 async function hkdf(ikm: Uint8Array, info: string, length: number): Promise<Uint8Array> {
-  const key = await globalThis.crypto.subtle.importKey('raw', ikm as BufferSource, 'HKDF', false, ['deriveBits']);
+  const key = await globalThis.crypto.subtle.importKey('raw', ikm as BufferSource, 'HKDF', false, [
+    'deriveBits',
+  ]);
   const bits = await globalThis.crypto.subtle.deriveBits(
     { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8Encode(info) as BufferSource },
     key,
@@ -95,7 +97,9 @@ export async function deriveDoorKeyBytes(contactKey: Uint8Array, doorId: string)
  * knocks: one key should not both sign and decrypt.
  */
 export async function deriveDoorSignKeyBytes(contactKey: Uint8Array, doorId: string): Promise<Uint8Array> {
-  return p256.utils.randomSecretKey(await hkdf(contactKey, `${DOOR_SIGN_KEY_INFO}|${doorId}`, P256_SEED_BYTES));
+  return p256.utils.randomSecretKey(
+    await hkdf(contactKey, `${DOOR_SIGN_KEY_INFO}|${doorId}`, P256_SEED_BYTES),
+  );
 }
 
 /**
@@ -118,15 +122,34 @@ export async function signWithScalar(secret: Uint8Array, data: Uint8Array): Prom
     false,
     ['sign'],
   );
-  return base64UrlEncode(new Uint8Array(await globalThis.crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, data as BufferSource)));
+  return base64UrlEncode(
+    new Uint8Array(
+      await globalThis.crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, data as BufferSource),
+    ),
+  );
 }
 
 /** Checks what `signWithScalar` signed, against a compressed public key (base64url) */
-export async function verifyWithPoint(publicKey: string, data: Uint8Array, signature: string): Promise<boolean> {
+export async function verifyWithPoint(
+  publicKey: string,
+  data: Uint8Array,
+  signature: string,
+): Promise<boolean> {
   try {
     const point = p256.Point.fromBytes(base64UrlDecode(publicKey)).toBytes(false);
-    const key = await globalThis.crypto.subtle.importKey('raw', point as BufferSource, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-    return await globalThis.crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, base64UrlDecode(signature) as BufferSource, data as BufferSource);
+    const key = await globalThis.crypto.subtle.importKey(
+      'raw',
+      point as BufferSource,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['verify'],
+    );
+    return await globalThis.crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      key,
+      base64UrlDecode(signature) as BufferSource,
+      data as BufferSource,
+    );
   } catch {
     return false;
   }
@@ -172,7 +195,13 @@ export async function contactKeyPair(secret: Uint8Array): Promise<ContactKeyPair
 async function sealKey(shared: ArrayBuffer, ephemeral: Uint8Array, usage: KeyUsage): Promise<CryptoKey> {
   const ikm = new Uint8Array([...new Uint8Array(shared), ...ephemeral]);
   const material = await hkdf(ikm, SEAL_INFO, 32);
-  return globalThis.crypto.subtle.importKey('raw', material as BufferSource, { name: 'AES-GCM', length: 256 }, false, [usage]);
+  return globalThis.crypto.subtle.importKey(
+    'raw',
+    material as BufferSource,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    [usage],
+  );
 }
 
 /**
@@ -190,9 +219,15 @@ export async function sealFor(recipient: string, value: unknown, context: string
     false,
     [],
   );
-  const ephemeral = await globalThis.crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const ephemeral = await globalThis.crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
+    'deriveBits',
+  ]);
   const ephemeralPoint = new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', ephemeral.publicKey));
-  const shared = await globalThis.crypto.subtle.deriveBits({ name: 'ECDH', public: recipientKey }, ephemeral.privateKey, 256);
+  const shared = await globalThis.crypto.subtle.deriveBits(
+    { name: 'ECDH', public: recipientKey },
+    ephemeral.privateKey,
+    256,
+  );
   const key = await sealKey(shared, ephemeralPoint, 'encrypt');
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const ciphertext = new Uint8Array(
@@ -221,7 +256,11 @@ export async function openSealed(privateKey: CryptoKey, sealed: string, context:
       false,
       [],
     );
-    const shared = await globalThis.crypto.subtle.deriveBits({ name: 'ECDH', public: ephemeral }, privateKey, 256);
+    const shared = await globalThis.crypto.subtle.deriveBits(
+      { name: 'ECDH', public: ephemeral },
+      privateKey,
+      256,
+    );
     const key = await sealKey(shared, ephemeralPoint, 'decrypt');
     const plain = await globalThis.crypto.subtle.decrypt(
       {

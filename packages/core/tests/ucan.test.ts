@@ -34,10 +34,7 @@ describe('issueUCAN / verifyUCAN', () => {
     const root = await makeKey();
     const session = await makeKey();
 
-    const token = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [WRITE] },
-      provider,
-    );
+    const token = await issueUCAN({ issuer: root, audience: session.did, capabilities: [WRITE] }, provider);
 
     assert.equal(token.encoded.split('.').length, 3);
     assert.equal(token.header.alg, 'ES256');
@@ -51,10 +48,7 @@ describe('issueUCAN / verifyUCAN', () => {
 
   test('parses without verifying', async () => {
     const root = await makeKey();
-    const token = await issueUCAN(
-      { issuer: root, audience: root.did, capabilities: [READ] },
-      provider,
-    );
+    const token = await issueUCAN({ issuer: root, audience: root.did, capabilities: [READ] }, provider);
     const { header, payload, signature } = parseUCAN(token.encoded);
     assert.equal(header.ucv, '0.10.0');
     assert.equal(payload.iss, root.did);
@@ -96,10 +90,7 @@ describe('issueUCAN / verifyUCAN', () => {
   test('rejects a tampered payload', async () => {
     const root = await makeKey();
     const victim = await makeKey();
-    const token = await issueUCAN(
-      { issuer: root, audience: victim.did, capabilities: [READ] },
-      provider,
-    );
+    const token = await issueUCAN({ issuer: root, audience: victim.did, capabilities: [READ] }, provider);
 
     const [header, , signature] = token.encoded.split('.');
     const forgedPayload = Buffer.from(
@@ -136,10 +127,7 @@ describe('delegateCapabilities', () => {
     const session = await makeKey();
     const guest = await makeKey();
 
-    const parent = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const parent = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
     const child = await delegateCapabilities(
       { parent, issuer: session, audience: guest.did, capabilities: [READ] },
       provider,
@@ -158,16 +146,10 @@ describe('delegateCapabilities', () => {
     const session = await makeKey();
     const guest = await makeKey();
 
-    const parent = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [READ] },
-      provider,
-    );
+    const parent = await issueUCAN({ issuer: root, audience: session.did, capabilities: [READ] }, provider);
 
     await assert.rejects(
-      delegateCapabilities(
-        { parent, issuer: session, audience: guest.did, capabilities: [WRITE] },
-        provider,
-      ),
+      delegateCapabilities({ parent, issuer: session, audience: guest.did, capabilities: [WRITE] }, provider),
       /not a subset/i,
     );
   });
@@ -177,10 +159,7 @@ describe('delegateCapabilities', () => {
     const session = await makeKey();
     const guest = await makeKey();
 
-    const parent = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const parent = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
 
     await assert.rejects(
       delegateCapabilities(
@@ -202,10 +181,7 @@ describe('delegateCapabilities', () => {
     const session = await makeKey();
     const stranger = await makeKey();
 
-    const parent = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const parent = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
 
     await assert.rejects(
       delegateCapabilities(
@@ -220,10 +196,7 @@ describe('delegateCapabilities', () => {
 describe('validateDelegationChain', () => {
   test('accepts a root token with no proofs', async () => {
     const root = await makeKey();
-    const token = await issueUCAN(
-      { issuer: root, audience: root.did, capabilities: [ALL] },
-      provider,
-    );
+    const token = await issueUCAN({ issuer: root, audience: root.did, capabilities: [ALL] }, provider);
     const chain = await validateDelegationChain(token.encoded, [], provider);
     assert.equal(chain.valid, true, chain.reason);
   });
@@ -233,10 +206,7 @@ describe('validateDelegationChain', () => {
     const session = await makeKey();
     const guest = await makeKey();
 
-    const parent = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const parent = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
     const child = await delegateCapabilities(
       { parent, issuer: session, audience: guest.did, capabilities: [READ] },
       provider,
@@ -255,10 +225,7 @@ describe('validateDelegationChain', () => {
 
     // Root delegates to `session`, but `stranger` is the one who signs the child,
     // naming the root token as its proof anyway.
-    const parent = await issueUCAN(
-      { issuer: root, audience: session.did, capabilities: [ALL] },
-      provider,
-    );
+    const parent = await issueUCAN({ issuer: root, audience: session.did, capabilities: [ALL] }, provider);
     const forged = await issueUCAN(
       {
         issuer: stranger,

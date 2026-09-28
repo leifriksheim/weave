@@ -79,11 +79,18 @@ export const app: DefineCollection & Typed<App> = {
 export function checkApp(value: unknown): string | null {
   const body = value as Partial<App> | null;
   if (!body || typeof body !== 'object') return 'An app must be an object';
-  if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 100) return 'An app needs a title of 1–100 characters';
-  if (body.description !== undefined && (typeof body.description !== 'string' || body.description.length > 1000)) {
-    return 'An app\'s description is at most 1000 characters';
+  if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 100)
+    return 'An app needs a title of 1–100 characters';
+  if (
+    body.description !== undefined &&
+    (typeof body.description !== 'string' || body.description.length > 1000)
+  ) {
+    return "An app's description is at most 1000 characters";
   }
-  if (body.updates !== undefined && (typeof body.updates !== 'string' || !body.updates || body.updates.length > 100)) {
+  if (
+    body.updates !== undefined &&
+    (typeof body.updates !== 'string' || !body.updates || body.updates.length > 100)
+  ) {
     return 'An app\'s "updates" is the key of the app it replaces';
   }
   if (!Array.isArray(body.needs) || body.needs.length === 0 || body.needs.length > MAX_APP_COLLECTIONS) {
@@ -93,7 +100,8 @@ export function checkApp(value: unknown): string | null {
   for (const [index, need] of body.needs.entries()) {
     const at = `needs[${index}]`;
     if (!need || typeof need !== 'object') return `${at} must be a collection definition`;
-    if (typeof need.name === 'string' && need.name.startsWith('sys.')) return `${at}: sys.* collections are the protocol's own`;
+    if (typeof need.name === 'string' && need.name.startsWith('sys.'))
+      return `${at}: sys.* collections are the protocol's own`;
     if ('version' in need) return `${at}: leave out "version" — the space decides it when the app is added`;
     const problem = checkStoredCollection({ ...need, version: 1 });
     if (problem) return `${at}: ${problem}`;
@@ -152,7 +160,8 @@ function essence(definition: {
   };
 }
 
-const fieldNames = (schema: unknown) => Object.keys((schema as { properties?: Record<string, unknown> } | null)?.properties ?? {});
+const fieldNames = (schema: unknown) =>
+  Object.keys((schema as { properties?: Record<string, unknown> } | null)?.properties ?? {});
 
 /** What would change, in words, going from what the space has to what the app says */
 function differences(held: NodeCollection, wanted: AppDefinition): string[] {
@@ -168,19 +177,25 @@ function differences(held: NodeCollection, wanted: AppDefinition): string[] {
   if (!added.length && !removed.length && a.schema !== b.schema) out.push('changes the shape of its fields');
   if (a.rules !== b.rules || a.permissions !== b.permissions) out.push('changes who may do what');
   if (a.links !== b.links) out.push('changes what it points at');
-  if (a.history !== b.history) out.push(b.history === 'all' ? 'starts keeping every version' : 'stops keeping old versions');
-  if (a.screen !== b.screen) out.push(!b.screen ? 'takes its screen away' : !a.screen ? 'gives it a screen' : 'changes its screen');
+  if (a.history !== b.history)
+    out.push(b.history === 'all' ? 'starts keeping every version' : 'stops keeping old versions');
+  if (a.screen !== b.screen)
+    out.push(!b.screen ? 'takes its screen away' : !a.screen ? 'gives it a screen' : 'changes its screen');
   if (a.network !== b.network) {
     const before = new Set(held.network ?? []);
     const reached = (wanted.network ?? []).filter((origin) => !before.has(origin));
-    out.push(reached.length ? `lets its screen reach ${reached.join(', ')}` : 'lets its screen reach fewer places');
+    out.push(
+      reached.length ? `lets its screen reach ${reached.join(', ')}` : 'lets its screen reach fewer places',
+    );
   }
   if (a.title !== b.title || a.description !== b.description) out.push('renames or redescribes it');
   return out;
 }
 
 /** The screen an app brings, if any: the first of its collections that carries one, and where it may connect */
-export function appScreen(body: App): { readonly collection: string; readonly screen: string; readonly network: ReadonlyArray<string> } | null {
+export function appScreen(
+  body: App,
+): { readonly collection: string; readonly screen: string; readonly network: ReadonlyArray<string> } | null {
   const found = body.needs.find((need) => typeof need.screen === 'string' && need.screen.trim());
   return found ? { collection: found.name, screen: found.screen!, network: found.network ?? [] } : null;
 }
@@ -208,16 +223,25 @@ export function reviewApp(body: App, collections: ReadonlyArray<NodeCollection>)
  * `updates`, and, through it, each one that app replaced in turn. Adding one
  * of these would only undo the update.
  */
-export function supersededApps(records: ReadonlyArray<NodeRecord<App>>, collections: ReadonlyArray<NodeCollection>): ReadonlySet<string> {
+export function supersededApps(
+  records: ReadonlyArray<NodeRecord<App>>,
+  collections: ReadonlyArray<NodeCollection>,
+): ReadonlySet<string> {
   const replaces = new Map<string, string>();
   for (const record of records) {
-    if (record.body?.updates && record.body.updates !== record.key) replaces.set(record.key, record.body.updates);
+    if (record.body?.updates && record.body.updates !== record.key)
+      replaces.set(record.key, record.body.updates);
   }
   const superseded = new Set<string>();
   for (const record of records) {
     if (!record.body || !reviewApp(record.body, collections).added) continue;
     // Walk back from each added app; the guard stops at a loop.
-    for (let key = replaces.get(record.key); key && !superseded.has(key) && key !== record.key; key = replaces.get(key)) superseded.add(key);
+    for (
+      let key = replaces.get(record.key);
+      key && !superseded.has(key) && key !== record.key;
+      key = replaces.get(key)
+    )
+      superseded.add(key);
   }
   return superseded;
 }
@@ -231,7 +255,8 @@ export async function proposeApp(node: P2PNode, spaceId: string, body: App): Pro
   if (problem) throw new Error(problem);
   if (body.updates) {
     const replaced = await node.records.get(spaceId, body.updates);
-    if (!replaced || replaced.collection !== app.name) throw new Error(`"updates" names no app in this space: ${body.updates}`);
+    if (!replaced || replaced.collection !== app.name)
+      throw new Error(`"updates" names no app in this space: ${body.updates}`);
   }
   return node.records.put<App>(spaceId, app.name, body);
 }
@@ -247,11 +272,13 @@ export async function addApp(node: P2PNode, spaceId: string, key: string): Promi
   if (!record?.body || record.collection !== app.name) throw new Error(`No app ${key} in this space`);
   // Knowing std.app itself means its own rules hold from now on: only its proposer edits a proposal.
   const known = await node.collections.list(spaceId);
-  if (!known.some((c) => c.name === app.name && c.version !== null)) await node.collections.define(spaceId, app);
+  if (!known.some((c) => c.name === app.name && c.version !== null))
+    await node.collections.define(spaceId, app);
   const review = reviewApp(record.body, known);
   if (review.problem) throw new Error(review.problem);
   const apps = await node.records.list<App>(spaceId, { collection: app.name });
-  if (supersededApps(apps, known).has(key)) throw new Error('A newer version of this app has been added; adding this one would undo it');
+  if (supersededApps(apps, known).has(key))
+    throw new Error('A newer version of this app has been added; adding this one would undo it');
   for (const need of review.needs) {
     if (need.status === 'same') continue;
     await node.collections.define(spaceId, need.definition);
@@ -260,9 +287,19 @@ export async function addApp(node: P2PNode, spaceId: string, key: string): Promi
 }
 
 /** Copies an app into another space, as a proposal there — people in that space decide for themselves. */
-export async function copyApp(node: P2PNode, fromSpace: string, key: string, toSpace: string): Promise<NodeRecord<App>> {
+export async function copyApp(
+  node: P2PNode,
+  fromSpace: string,
+  key: string,
+  toSpace: string,
+): Promise<NodeRecord<App>> {
   const record = await node.records.get<App>(fromSpace, key);
   if (!record?.body || record.collection !== app.name) throw new Error(`No app ${key} in this space`);
   const { title, description, needs } = record.body;
-  return proposeApp(node, toSpace, { title, ...(description !== undefined ? { description } : {}), needs, from: `${fromSpace}/${key}` });
+  return proposeApp(node, toSpace, {
+    title,
+    ...(description !== undefined ? { description } : {}),
+    needs,
+    from: `${fromSpace}/${key}`,
+  });
 }

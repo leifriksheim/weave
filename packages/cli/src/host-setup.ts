@@ -5,7 +5,13 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createP256Provider, createS3BlobStore, folderStores, type BlobStore, type StoreFactory } from '@weaveprotocol/core';
+import {
+  createP256Provider,
+  createS3BlobStore,
+  folderStores,
+  type BlobStore,
+  type StoreFactory,
+} from '@weaveprotocol/core';
 import { openFsDirectory } from './fs-directory.js';
 import type { Billing } from './host.js';
 import { createStripeBilling } from './stripe.js';
@@ -61,9 +67,12 @@ export function billingFromEnv(env: NodeJS.ProcessEnv): Billing | null {
 export function walletFromEnv(env: NodeJS.ProcessEnv): WalletPayments | null {
   if (!env.WEAVE_WALLET_ADDRESS) return null;
   const network = (env.WEAVE_WALLET_NETWORK ?? 'base') as NetworkName;
-  if (!(network in NETWORKS)) throw new Error(`WEAVE_WALLET_NETWORK must be ${Object.keys(NETWORKS).join(' or ')}, not "${network}"`);
+  if (!(network in NETWORKS))
+    throw new Error(`WEAVE_WALLET_NETWORK must be ${Object.keys(NETWORKS).join(' or ')}, not "${network}"`);
   if (!env.WEAVE_WALLET_MONTHLY && !env.WEAVE_WALLET_YEARLY) {
-    throw new Error('Wallet payments need a price: WEAVE_WALLET_MONTHLY, WEAVE_WALLET_YEARLY, or both, in dollars (like 4 and 36)');
+    throw new Error(
+      'Wallet payments need a price: WEAVE_WALLET_MONTHLY, WEAVE_WALLET_YEARLY, or both, in dollars (like 4 and 36)',
+    );
   }
   return createWalletPayments({
     network,
@@ -89,13 +98,16 @@ export function presentationFromEnv(env: NodeJS.ProcessEnv): {
   walletConnectProjectId?: string;
 } {
   const url = env.WEAVE_HOST_URL?.trim();
-  if (url && !/^https?:\/\/[^/]+\/?$/.test(url)) throw new Error(`WEAVE_HOST_URL must be an address like https://host.example, not "${url}"`);
+  if (url && !/^https?:\/\/[^/]+\/?$/.test(url))
+    throw new Error(`WEAVE_HOST_URL must be an address like https://host.example, not "${url}"`);
   return {
     ...(env.WEAVE_HOST_NAME ? { name: env.WEAVE_HOST_NAME } : {}),
     ...(env.WEAVE_HOST_PRICE ? { price: env.WEAVE_HOST_PRICE } : {}),
     ...(env.WEAVE_HOST_TERMS ? { terms: env.WEAVE_HOST_TERMS } : {}),
     ...(url ? { publicUrl: url.replace(/\/$/, '') } : {}),
-    ...(env.WEAVE_WALLETCONNECT_PROJECT_ID ? { walletConnectProjectId: env.WEAVE_WALLETCONNECT_PROJECT_ID } : {}),
+    ...(env.WEAVE_WALLETCONNECT_PROJECT_ID
+      ? { walletConnectProjectId: env.WEAVE_WALLETCONNECT_PROJECT_ID }
+      : {}),
   };
 }
 
@@ -107,7 +119,8 @@ export function presentationFromEnv(env: NodeJS.ProcessEnv): {
  */
 export function mirrorFromEnv(env: NodeJS.ProcessEnv): BlobStore | null {
   const { WEAVE_S3_ENDPOINT, WEAVE_S3_BUCKET, WEAVE_S3_ACCESS_KEY_ID, WEAVE_S3_SECRET_ACCESS_KEY } = env;
-  if (!WEAVE_S3_ENDPOINT || !WEAVE_S3_BUCKET || !WEAVE_S3_ACCESS_KEY_ID || !WEAVE_S3_SECRET_ACCESS_KEY) return null;
+  if (!WEAVE_S3_ENDPOINT || !WEAVE_S3_BUCKET || !WEAVE_S3_ACCESS_KEY_ID || !WEAVE_S3_SECRET_ACCESS_KEY)
+    return null;
   return createS3BlobStore({
     endpoint: WEAVE_S3_ENDPOINT,
     bucket: WEAVE_S3_BUCKET,
@@ -125,11 +138,19 @@ const isLoopback = (host: string | undefined) => !host || ['127.0.0.1', 'localho
  * The accounts a host carries for, from `--allow` and WEAVE_HOST_ALLOW
  * (comma separated): account DIDs, as the home shows them. None: any.
  */
-export function allowList(flags: ReadonlyArray<string> | undefined, env: NodeJS.ProcessEnv): ReadonlyArray<string> | null {
-  const named = [...(flags ?? []), ...(env.WEAVE_HOST_ALLOW ?? '').split(',')].map((did) => did.trim()).filter(Boolean);
+export function allowList(
+  flags: ReadonlyArray<string> | undefined,
+  env: NodeJS.ProcessEnv,
+): ReadonlyArray<string> | null {
+  const named = [...(flags ?? []), ...(env.WEAVE_HOST_ALLOW ?? '').split(',')]
+    .map((did) => did.trim())
+    .filter(Boolean);
   if (named.length === 0) return null;
   const wrong = named.find((did) => !/^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$/.test(did));
-  if (wrong) throw new Error(`"${wrong}" is not an account DID — copy it from the account home (Settings, under your name).`);
+  if (wrong)
+    throw new Error(
+      `"${wrong}" is not an account DID — copy it from the account home (Settings, under your name).`,
+    );
   return [...new Set(named)];
 }
 
@@ -138,7 +159,11 @@ export function allowList(flags: ReadonlyArray<string> | undefined, env: NodeJS.
  * paid there, so a stranger could fill its disk. On this machine alone, or
  * limited to named accounts, it is fine.
  */
-export function checkExposure(options: { readonly host?: string; readonly free?: boolean; readonly allow: ReadonlyArray<string> | null }): void {
+export function checkExposure(options: {
+  readonly host?: string;
+  readonly free?: boolean;
+  readonly allow: ReadonlyArray<string> | null;
+}): void {
   if (!options.free || options.allow || isLoopback(options.host)) return;
   throw new Error(
     `A free host on ${options.host} would carry spaces for anyone who finds it. Name the accounts it is for with --allow did:key:… (or WEAVE_HOST_ALLOW), or keep it on this machine.`,

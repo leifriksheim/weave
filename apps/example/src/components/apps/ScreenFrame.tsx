@@ -42,7 +42,9 @@ export function ScreenFrame({
   const [generation, setGeneration] = useState(0);
   const origins = [...network].sort().join(' ');
   const consentKey = `weave.screen-network:${node.did}:${spaceId}:${collection}`;
-  const [answer, setAnswer] = useState<'yes' | 'no' | null>(() => (origins ? readConsent(consentKey, origins) : 'no'));
+  const [answer, setAnswer] = useState<'yes' | 'no' | null>(() =>
+    origins ? readConsent(consentKey, origins) : 'no',
+  );
   useEffect(() => setAnswer(origins ? readConsent(consentKey, origins) : 'no'), [consentKey, origins]);
   const answerWith = (value: 'yes' | 'no') => {
     try {
@@ -60,7 +62,8 @@ export function ScreenFrame({
     let handedOver = false;
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
-      if (!target || event.source !== target || (event.data as { weave?: unknown } | null)?.weave !== 'ready') return;
+      if (!target || event.source !== target || (event.data as { weave?: unknown } | null)?.weave !== 'ready')
+        return;
       if (handedOver) {
         // Only the page we loaded says ready, and only once. Anything after that navigated the frame.
         bridge?.close();
@@ -108,11 +111,12 @@ export function ScreenFrame({
         }}
       >
         <p style={{ fontSize: 14, color: palette.ink.strong, lineHeight: 1.5 }}>
-          This screen wants to connect to <strong>{network.map((origin) => origin.replace(/^[a-z]+:\/\//, '')).join(', ')}</strong>.
+          This screen wants to connect to{' '}
+          <strong>{network.map((origin) => origin.replace(/^[a-z]+:\/\//, '')).join(', ')}</strong>.
         </p>
         <p style={{ fontSize: 13, color: palette.ink.body, lineHeight: 1.5 }}>
-          It runs as you, so it could send there anything you can see in it. Nothing else on the internet is reachable. Without it, the screen runs sealed and
-          may do less.
+          It runs as you, so it could send there anything you can see in it. Nothing else on the internet is
+          reachable. Without it, the screen runs sealed and may do less.
         </p>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => answerWith('yes')} data-variant="primary" style={styles.smallButton}>
@@ -137,8 +141,14 @@ export function ScreenFrame({
         }}
       >
         <p style={styles.error}>This screen tried to open another page, so it was stopped.</p>
-        <p style={styles.errorHint}>It can't reach your data from there. Reload it to try again, or show the records as lists instead.</p>
-        <button onClick={() => setGeneration((n) => n + 1)} data-variant="quiet" style={{ ...styles.smallButton, alignSelf: 'flex-start' }}>
+        <p style={styles.errorHint}>
+          It can't reach your data from there. Reload it to try again, or show the records as lists instead.
+        </p>
+        <button
+          onClick={() => setGeneration((n) => n + 1)}
+          data-variant="quiet"
+          style={{ ...styles.smallButton, alignSelf: 'flex-start' }}
+        >
           Reload the screen
         </button>
       </div>
@@ -160,7 +170,11 @@ export function ScreenFrame({
           }}
         >
           {answer === 'yes' ? `Connects to ${hosts}.` : `Sealed: not connecting to ${hosts}.`}
-          <button onClick={() => answerWith(answer === 'yes' ? 'no' : 'yes')} data-variant="ghost" style={{ ...styles.linkButton, fontSize: 12, padding: 0 }}>
+          <button
+            onClick={() => answerWith(answer === 'yes' ? 'no' : 'yes')}
+            data-variant="ghost"
+            style={{ ...styles.linkButton, fontSize: 12, padding: 0 }}
+          >
             {answer === 'yes' ? 'Seal it' : 'Allow'}
           </button>
         </p>
@@ -188,7 +202,10 @@ export function ScreenFrame({
 /** What this person said to a screen's list of origins, when it was this same list */
 function readConsent(key: string, origins: string): 'yes' | 'no' | null {
   try {
-    const kept = JSON.parse(globalThis.localStorage?.getItem(key) ?? 'null') as { origins?: unknown; answer?: unknown } | null;
+    const kept = JSON.parse(globalThis.localStorage?.getItem(key) ?? 'null') as {
+      origins?: unknown;
+      answer?: unknown;
+    } | null;
     return kept?.origins === origins && (kept.answer === 'yes' || kept.answer === 'no') ? kept.answer : null;
   } catch {
     return null;

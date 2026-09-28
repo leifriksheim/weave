@@ -118,13 +118,17 @@ export interface WalletPayments {
 export function toUnits(price: string): bigint {
   const match = /^(\d{1,7})(?:\.(\d{1,2}))?$/.exec(price.trim());
   if (!match) throw new Error(`"${price}" is not a price in dollars, like 36 or 4.50`);
-  return BigInt(match[1]!) * 10n ** BigInt(USDC_DECIMALS) + BigInt((match[2] ?? '').padEnd(USDC_DECIMALS, '0'));
+  return (
+    BigInt(match[1]!) * 10n ** BigInt(USDC_DECIMALS) + BigInt((match[2] ?? '').padEnd(USDC_DECIMALS, '0'))
+  );
 }
 
 export function createWalletPayments(config: WalletConfig): WalletPayments {
   const network = NETWORKS[config.network];
-  if (!network) throw new Error(`No such network: ${config.network}. Use ${Object.keys(NETWORKS).join(' or ')}.`);
-  if (!ADDRESS.test(config.to)) throw new Error(`"${config.to}" is not an address (0x and 40 hex characters)`);
+  if (!network)
+    throw new Error(`No such network: ${config.network}. Use ${Object.keys(NETWORKS).join(' or ')}.`);
+  if (!ADDRESS.test(config.to))
+    throw new Error(`"${config.to}" is not an address (0x and 40 hex characters)`);
   const call = config.fetch ?? fetch;
   const rpcUrl = config.rpcUrl ?? network.rpcUrl;
   const confirmations = config.confirmations ?? 3;
@@ -132,8 +136,12 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
   const token = network.usdc.toLowerCase();
 
   const plans = [
-    ...(config.yearly ? [{ id: 'yearly', label: 'Yearly', price: config.yearly.trim(), units: toUnits(config.yearly) }] : []),
-    ...(config.monthly ? [{ id: 'monthly', label: 'Monthly', price: config.monthly.trim(), units: toUnits(config.monthly) }] : []),
+    ...(config.yearly
+      ? [{ id: 'yearly', label: 'Yearly', price: config.yearly.trim(), units: toUnits(config.yearly) }]
+      : []),
+    ...(config.monthly
+      ? [{ id: 'monthly', label: 'Monthly', price: config.monthly.trim(), units: toUnits(config.monthly) }]
+      : []),
   ];
   if (plans.length === 0) throw new Error('A wallet price is needed: monthly, yearly, or both');
 
@@ -145,7 +153,8 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
       body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }),
     });
     const answer = (await response.json()) as { result?: T; error?: { message?: string } };
-    if (!response.ok || answer.error) throw new Error(`The network node: ${answer.error?.message ?? response.status}`);
+    if (!response.ok || answer.error)
+      throw new Error(`The network node: ${answer.error?.message ?? response.status}`);
     return answer.result as T;
   }
 
@@ -171,7 +180,15 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
       for (let tries = 0; tries < 200; tries++) {
         const marker = BigInt(1 + (globalThis.crypto.getRandomValues(new Uint32Array(1))[0]! % MARKERS));
         const amount = (plan.units + marker).toString();
-        if (!taken.has(amount)) return { plan: plan.id, chainId: network.chainId, token: network.usdc, to: config.to, amount, decimals: USDC_DECIMALS };
+        if (!taken.has(amount))
+          return {
+            plan: plan.id,
+            chainId: network.chainId,
+            token: network.usdc,
+            to: config.to,
+            amount,
+            decimals: USDC_DECIMALS,
+          };
       }
       throw new Error('Too many payments are open right now; try again in a while');
     },
@@ -184,7 +201,8 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
         logs: ReadonlyArray<{ address: string; topics: ReadonlyArray<string>; data: string }>;
       } | null>('eth_getTransactionReceipt', [tx]);
       if (!receipt) return { state: 'waiting' };
-      if (receipt.status !== '0x1') return { state: 'failed', reason: 'That transaction failed on the network' };
+      if (receipt.status !== '0x1')
+        return { state: 'failed', reason: 'That transaction failed on the network' };
       const latest = BigInt(await rpc<string>('eth_blockNumber', []));
       if (latest - BigInt(receipt.blockNumber) + 1n < BigInt(confirmations)) return { state: 'waiting' };
       const amounts = receipt.logs
@@ -196,8 +214,12 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
             log.topics[2]?.toLowerCase() === `0x${to.slice(2).padStart(64, '0')}`,
         )
         .map((log) => BigInt(log.data).toString());
-      if (amounts.length === 0) return { state: 'failed', reason: `That transaction sent no ${offer.symbol} to this host` };
-      const block = await rpc<{ timestamp: string } | null>('eth_getBlockByNumber', [receipt.blockNumber, false]);
+      if (amounts.length === 0)
+        return { state: 'failed', reason: `That transaction sent no ${offer.symbol} to this host` };
+      const block = await rpc<{ timestamp: string } | null>('eth_getBlockByNumber', [
+        receipt.blockNumber,
+        false,
+      ]);
       if (!block) return { state: 'waiting' };
       return { state: 'sent', amounts, at: Number(BigInt(block.timestamp)) };
     },

@@ -13,10 +13,10 @@ Out of scope here, and specified elsewhere:
 - How versions travel and how they are stored: [05 — Sync and storage](05-sync-and-storage.md).
 - The node API that reads and writes records: [06 — Nodes, sessions and apps](06-nodes-and-sessions.md).
 
-**Terms.** An *expression* is one signed version of a record — the unit that is
-hashed, signed, stored and synced. A *record* is every expression that shares
-one `key` in a space. The *author* is the key that signed an expression
-(usually a session key); the *root* is the account that key acts for, found by
+**Terms.** An _expression_ is one signed version of a record — the unit that is
+hashed, signed, stored and synced. A _record_ is every expression that shares
+one `key` in a space. The _author_ is the key that signed an expression
+(usually a session key); the _root_ is the account that key acts for, found by
 walking its `proof` ([01 — Identity](01-identity.md)), or the author itself when
 there is no proof.
 
@@ -31,25 +31,25 @@ its bytes are that string in UTF-8.
 A value is first read as the JSON data model: objects, arrays, strings, numbers
 as IEEE 754 binary64, `true`, `false`, `null`. Then:
 
-| Value | Canonical form |
-|---|---|
-| `null` | `null` |
-| `true` / `false` | `true` / `false` |
-| number | The ECMAScript `Number::toString` form of the binary64 value: shortest round-tripping digits, `-0` → `0`, exponent form from `1e21` upward (`1.5e+21`) and below `1e-6` (`1e-7`). NaN and ±Infinity cannot occur in JSON. |
-| string | As ECMAScript `JSON.stringify` writes it: in double quotes; `"` → `\"`, `\` → `\\`; U+0008, U+0009, U+000A, U+000C, U+000D → `\b` `\t` `\n` `\f` `\r`; other code points below U+0020 → `\u00xx` with **lower-case** hex; a lone surrogate → `\udxxx` in lower-case hex; every other character, including `/`, non-ASCII and U+2028/U+2029, written as itself. |
-| array | `[` + canonical forms of the elements, in order, separated by `,` + `]` |
-| object | `{` + `"name":value` pairs, separated by `,`, members sorted by name in ascending order of **UTF-16 code units**, + `}`. Names are encoded as strings (above). |
+| Value            | Canonical form                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `null`           | `null`                                                                                                                                                                                                                                                                                                                                                         |
+| `true` / `false` | `true` / `false`                                                                                                                                                                                                                                                                                                                                               |
+| number           | The ECMAScript `Number::toString` form of the binary64 value: shortest round-tripping digits, `-0` → `0`, exponent form from `1e21` upward (`1.5e+21`) and below `1e-6` (`1e-7`). NaN and ±Infinity cannot occur in JSON.                                                                                                                                      |
+| string           | As ECMAScript `JSON.stringify` writes it: in double quotes; `"` → `\"`, `\` → `\\`; U+0008, U+0009, U+000A, U+000C, U+000D → `\b` `\t` `\n` `\f` `\r`; other code points below U+0020 → `\u00xx` with **lower-case** hex; a lone surrogate → `\udxxx` in lower-case hex; every other character, including `/`, non-ASCII and U+2028/U+2029, written as itself. |
+| array            | `[` + canonical forms of the elements, in order, separated by `,` + `]`                                                                                                                                                                                                                                                                                        |
+| object           | `{` + `"name":value` pairs, separated by `,`, members sorted by name in ascending order of **UTF-16 code units**, + `}`. Names are encoded as strings (above).                                                                                                                                                                                                 |
 
 No whitespace appears anywhere outside strings.
 
 - A producer MUST NOT emit an object with two members of the same name. (What
   a reader does with one is not specified; this implementation keeps the last.)
-- Because the form is computed from the *parsed* value, how a value was
+- Because the form is computed from the _parsed_ value, how a value was
   formatted on the wire does not matter: `1.0`, `1` and `1e0` are the same
   number and hash the same. A reader in a language whose JSON numbers are not
   binary64 MUST convert them to binary64 before canonicalizing, or hashes will
   differ for numbers that do not survive the round trip.
-- *Implementation detail:* the reference `canonicalize()` also accepts
+- _Implementation detail:_ the reference `canonicalize()` also accepts
   JavaScript values that JSON cannot carry (an object member whose value is
   `undefined` is left out; `undefined` in an array becomes `null`). Nothing on
   the wire depends on this.
@@ -77,7 +77,7 @@ sorts before lower case.)
 > independent writers produce the same bytes. Reusing ECMAScript's number and
 > string output means a browser gets it from `JSON.stringify` for free.
 
-*Source: `packages/core/src/schema/expression.ts` (`canonicalize`). Tests: `packages/core/tests/validation.test.ts`, `packages/core/tests/versions.test.ts` (ids and signatures depend on it throughout).*
+_Source: `packages/core/src/schema/expression.ts` (`canonicalize`). Tests: `packages/core/tests/validation.test.ts`, `packages/core/tests/versions.test.ts` (ids and signatures depend on it throughout)._
 
 ---
 
@@ -109,7 +109,7 @@ CIDv1: there is no version, codec or multihash prefix before the digest.
 Example: `bh7mi3b35uek5zf46drxzvkhqopnu3z2y3dp3r6din5zfbubiro2a` (the id of the
 expression in §3.4).
 
-*Source: `packages/core/src/utils/hash.ts` (`cidFromBytes`, `cidDigest`, `cidOfDigest`, `base32Encode`, `base32Decode`), `packages/core/src/schema/expression.ts` (`getExpressionId`). Tests: `packages/core/tests/validation.test.ts` ("rejects an id that does not match the content"), `packages/core/tests/sync.test.ts`.*
+_Source: `packages/core/src/utils/hash.ts` (`cidFromBytes`, `cidDigest`, `cidOfDigest`, `base32Encode`, `base32Decode`), `packages/core/src/schema/expression.ts` (`getExpressionId`). Tests: `packages/core/tests/validation.test.ts` ("rejects an id that does not match the content"), `packages/core/tests/sync.test.ts`._
 
 ---
 
@@ -121,31 +121,31 @@ An expression is a JSON object with these members. Optional members are
 **absent** when they do not apply — never `null`, never `false`, never an empty
 list unless a list is meant (an absent member and a present one hash differently).
 
-| Field | Type | Req. | Meaning |
-|---|---|---|---|
-| `id` | string | yes | Content id of the signed part (§2). Not itself signed. |
-| `author` | string | yes | The `did:key` of the P-256 key that signed ([01 — Identity](01-identity.md)). |
-| `collection` | string | yes | The collection the record is in, e.g. `app.todo.item`. |
-| `space` | string | in a space | Id of the space it belongs to. Signed, so it cannot be replayed into another space. A peer MUST refuse an expression whose `space` is not the space it arrived for. |
-| `createdAt` | string | yes | ISO 8601 time the writer's clock gave, e.g. `2026-09-26T12:00:00.000Z`. Decides no ordering (§4.3); used for judging the delegation (§9.3), for display, and as a sync hint ([05](05-sync-and-storage.md)). |
-| `body` | any JSON | yes | The content. `null` on a delete. In a private space, an encryption envelope `{ "ciphertext", "iv", "keyId" }` ([03 — Spaces](03-spaces.md)). |
-| `proof` | string | no | Encoded UCAN delegating to `author` the right to write here ([01 — Identity](01-identity.md)). Absent when the author signs for itself. |
-| `key` | string | yes | The record's identity within the space, stable across versions (§4.1). |
-| `seq` | integer | yes | `0` for the first version; each later version one more than the one it replaces. |
-| `prev` | string | seq > 0 | Id of the version this one replaces. |
-| `genesis` | string | seq > 0 | Id of the record's first version. |
-| `retain` | `true` | no | Keep this version after it is superseded (§4.5). |
-| `seen` | string[] | no | Ids of the latest changes to the space's access history the writer knew of; the version is judged as of those ([03 — Spaces](03-spaces.md)). At most 64, each 1–128 characters. |
-| `deleted` | `true` | no | This version deletes the record; `body` MUST be `null`. |
-| `links` | Link[] | no | What this record points at (§5). Public spaces only; in a private space links are sealed inside the body and this member is absent. |
-| `tags` | string[] | no | Blind topic tags (§8). |
-| `signature` | string | yes | base64url (no padding) of the 64-byte ECDSA P-256 / SHA-256 signature, IEEE P1363 form (r ‖ s), over the signed part. |
+| Field        | Type     | Req.       | Meaning                                                                                                                                                                                                     |
+| ------------ | -------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`         | string   | yes        | Content id of the signed part (§2). Not itself signed.                                                                                                                                                      |
+| `author`     | string   | yes        | The `did:key` of the P-256 key that signed ([01 — Identity](01-identity.md)).                                                                                                                               |
+| `collection` | string   | yes        | The collection the record is in, e.g. `app.todo.item`.                                                                                                                                                      |
+| `space`      | string   | in a space | Id of the space it belongs to. Signed, so it cannot be replayed into another space. A peer MUST refuse an expression whose `space` is not the space it arrived for.                                         |
+| `createdAt`  | string   | yes        | ISO 8601 time the writer's clock gave, e.g. `2026-09-26T12:00:00.000Z`. Decides no ordering (§4.3); used for judging the delegation (§9.3), for display, and as a sync hint ([05](05-sync-and-storage.md)). |
+| `body`       | any JSON | yes        | The content. `null` on a delete. In a private space, an encryption envelope `{ "ciphertext", "iv", "keyId" }` ([03 — Spaces](03-spaces.md)).                                                                |
+| `proof`      | string   | no         | Encoded UCAN delegating to `author` the right to write here ([01 — Identity](01-identity.md)). Absent when the author signs for itself.                                                                     |
+| `key`        | string   | yes        | The record's identity within the space, stable across versions (§4.1).                                                                                                                                      |
+| `seq`        | integer  | yes        | `0` for the first version; each later version one more than the one it replaces.                                                                                                                            |
+| `prev`       | string   | seq > 0    | Id of the version this one replaces.                                                                                                                                                                        |
+| `genesis`    | string   | seq > 0    | Id of the record's first version.                                                                                                                                                                           |
+| `retain`     | `true`   | no         | Keep this version after it is superseded (§4.5).                                                                                                                                                            |
+| `seen`       | string[] | no         | Ids of the latest changes to the space's access history the writer knew of; the version is judged as of those ([03 — Spaces](03-spaces.md)). At most 64, each 1–128 characters.                             |
+| `deleted`    | `true`   | no         | This version deletes the record; `body` MUST be `null`.                                                                                                                                                     |
+| `links`      | Link[]   | no         | What this record points at (§5). Public spaces only; in a private space links are sealed inside the body and this member is absent.                                                                         |
+| `tags`       | string[] | no         | Blind topic tags (§8).                                                                                                                                                                                      |
+| `signature`  | string   | yes        | base64url (no padding) of the 64-byte ECDSA P-256 / SHA-256 signature, IEEE P1363 form (r ‖ s), over the signed part.                                                                                       |
 
 A reader MUST keep and re-hash every member it receives, including ones it does
 not know: the signed part is "everything except `id` and `signature`" (§3.2),
 not a fixed list.
 
-*Implementation detail:* the reference writer always includes `seen` on
+_Implementation detail:_ the reference writer always includes `seen` on
 records written in a space (possibly `[]`), and never includes an empty `links`
 or `tags`.
 
@@ -170,7 +170,7 @@ signatures, one valid and one not. A peer:
   seen before;
 - MUST NOT let a refused copy cause a later copy with the same id, from anyone,
   to be refused (see §9.5);
-- MAY cache a *passing* verdict under the pair (`id`, `signature`).
+- MAY cache a _passing_ verdict under the pair (`id`, `signature`).
 
 ### 3.3 Signing and verifying
 
@@ -187,7 +187,7 @@ To verify, in this order:
 3. base64url-decode `signature` and verify it over the payload. If it does not
    verify, the expression is invalid.
 
-Whether the author was *allowed* to write is a separate question (§9.3–9.4).
+Whether the author was _allowed_ to write is a separate question (§9.3–9.4).
 
 ### 3.4 Example
 
@@ -227,7 +227,7 @@ Member order on the wire is irrelevant. The id is reproducible from the
 canonical text above; the signature is not (ECDSA uses a fresh nonce), but any
 valid signature verifies.
 
-*Source: `packages/core/src/types.ts` (`Expression`, `UnsignedExpression`, `Link`), `packages/core/src/schema/expression.ts` (`createExpression`, `signedPart`, `getExpressionId`, `serializeExpression`), `packages/core/src/schema/signer.ts`, `packages/core/src/validation/crypto-gate.ts`. Tests: `packages/core/tests/validation.test.ts` ("crypto gate"), `packages/core/tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `packages/core/tests/links.test.ts` ("links are signed"), `packages/core/tests/attacks.test.ts` ("a stranger sending a mangled copy first…").*
+_Source: `packages/core/src/types.ts` (`Expression`, `UnsignedExpression`, `Link`), `packages/core/src/schema/expression.ts` (`createExpression`, `signedPart`, `getExpressionId`, `serializeExpression`), `packages/core/src/schema/signer.ts`, `packages/core/src/validation/crypto-gate.ts`. Tests: `packages/core/tests/validation.test.ts` ("crypto gate"), `packages/core/tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `packages/core/tests/links.test.ts` ("links are signed"), `packages/core/tests/attacks.test.ts` ("a stranger sending a mangled copy first…")._
 
 ---
 
@@ -255,10 +255,10 @@ stays on a to-do however often the to-do changes.
 
 ### 4.2 Version fields
 
-| Version | `seq` | `prev` | `genesis` |
-|---|---|---|---|
-| first | `0` | absent | absent |
-| later | previous `seq` + 1 | id of the version it replaces | id of the first version (for seq 1 that is `prev`) |
+| Version | `seq`              | `prev`                        | `genesis`                                          |
+| ------- | ------------------ | ----------------------------- | -------------------------------------------------- |
+| first   | `0`                | absent                        | absent                                             |
+| later   | previous `seq` + 1 | id of the version it replaces | id of the first version (for seq 1 that is `prev`) |
 
 The next version after `current` has `key = current.key`,
 `seq = current.seq + 1`, `prev = current.id`, and
@@ -333,7 +333,7 @@ A writer MUST set `retain: true` when:
   `sys.relays`, `sys.keepers`) — a peer MUST refuse a version of one of these
   without `retain` ([03 — Spaces](03-spaces.md)).
 
-*Implementation detail:* the reference writer also sets `retain` on
+_Implementation detail:_ the reference writer also sets `retain` on
 `sys.profile`, `sys.box` and `sys.memberkey`.
 
 A record whose versions all carry `retain` has a verifiable history: listed
@@ -367,10 +367,10 @@ Checks that depend on what else a peer holds are **not** shape checks:
 - A current version whose `collection` differs from the record's held first
   version is ignored when reading, as if absent.
 
-*Not yet specified:* whether `prev` must name a held version, and whether a
+_Not yet specified:_ whether `prev` must name a held version, and whether a
 `seq` may skip. See the known defect in §4.3, and the plan in §4.7.
 
-*Source: `packages/core/src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `RECORD_KEY_PATTERN`, `MAX_SEEN`), `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepOrDrop`), `packages/core/src/node/space-runtime.ts` (`firstOf`, `consistent`, `write`, `after`). Tests: `packages/core/tests/versions.test.ts` (all), `packages/core/tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first").*
+_Source: `packages/core/src/records/version.ts` (`newRecordKey`, `supersedes`, `byVersion`, `nextVersion`, `checkVersionShape`, `RECORD_KEY_PATTERN`, `MAX_SEEN`), `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepOrDrop`), `packages/core/src/node/space-runtime.ts` (`firstOf`, `consistent`, `write`, `after`). Tests: `packages/core/tests/versions.test.ts` (all), `packages/core/tests/attacks.test.ts` ("a version cannot escape its record's rules by naming another record as its first")._
 
 ### 4.7 Planned: versions whose history can be checked
 
@@ -535,7 +535,7 @@ sealed body with malformed links treats the record as having none.
 
 A delete carries no links.
 
-*Implementation detail:* the node's `update` carries a record's links over
+_Implementation detail:_ the node's `update` carries a record's links over
 to the next version unless new ones are given.
 
 ### 5.2 Link declarations
@@ -550,12 +550,12 @@ A collection declares the link roles its records may carry, in its definition
 }
 ```
 
-| Member | Type | Meaning |
-|---|---|---|
-| (name) | — | The `rel`, `^[a-z][a-zA-Z0-9]{0,63}$` |
-| `to` | `"*"` or non-empty string[] | Collections the target may be in; `"*"` for any |
-| `cardinality` | `"one"` \| `"many"` | How many links of this role one record may carry. Default `"many"`. |
-| `description` | string | Optional |
+| Member        | Type                        | Meaning                                                             |
+| ------------- | --------------------------- | ------------------------------------------------------------------- |
+| (name)        | —                           | The `rel`, `^[a-z][a-zA-Z0-9]{0,63}$`                               |
+| `to`          | `"*"` or non-empty string[] | Collections the target may be in; `"*"` for any                     |
+| `cardinality` | `"one"` \| `"many"`         | How many links of this role one record may carry. Default `"many"`. |
+| `description` | string                      | Optional                                                            |
 
 A record's links **conform** when: the collection is undefined (nothing to
 check), or it is defined and every link's `rel` is declared (a defined
@@ -568,7 +568,7 @@ a record on arrival** (§9.6): whether a link conforms depends on which
 definition and which target a peer holds. A writer SHOULD NOT write links that
 do not conform; the reference node refuses to.
 
-*Source: `packages/core/src/records/links.ts` (`checkLinks`, `LINK_REL_PATTERN`, `MAX_LINKS`, `LinkDeclaration`), `packages/core/src/node/space-runtime.ts` (`openBody`, `linkIssues`, `write`). Tests: `packages/core/tests/links.test.ts` (all).*
+_Source: `packages/core/src/records/links.ts` (`checkLinks`, `LINK_REL_PATTERN`, `MAX_LINKS`, `LinkDeclaration`), `packages/core/src/node/space-runtime.ts` (`openBody`, `linkIssues`, `write`). Tests: `packages/core/tests/links.test.ts` (all)._
 
 ### 5.3 Planned: references to other spaces
 
@@ -579,7 +579,7 @@ do not conform; the reference node refuses to.
 > The plan is a **reference**: a string naming a space and a key, such as
 > `weave:<space>/<key>`, carried in a body field rather than as a link, so
 > links stay same-space and checkable against the definitions (§5.2). A
-> reader resolves it only if it can read that space. *Open:* the exact form;
+> reader resolves it only if it can read that space. _Open:_ the exact form;
 > whether it may pin a version; whether a private space's id in a public
 > record says too much ([03 — Spaces](03-spaces.md) §8.7).
 
@@ -598,20 +598,20 @@ space's access history ([03 — Spaces](03-spaces.md)): it carries `retain: true
 and `seen`, and which definition is in force is decided by replaying that
 history. In a private space its body is encrypted like any other record's.
 
-| Field | Type | Req. | Meaning |
-|---|---|---|---|
-| `name` | string | yes | Reverse-DNS, lower case, at least one dot: `^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$`. MUST NOT start with `sys.`. The record's key MUST be `collection:` + this. |
-| `title` | string | no | Display name |
-| `description` | string | no | The author's words |
-| `schema` | object | yes | JSON Schema for a record's `body`, in the subset of §6.2 |
-| `version` | integer ≥ 1 | yes | Shape version (§6.3) |
-| `history` | `"latest"` \| `"all"` | no | Default `"latest"`. `"all"`: writers mark every version `retain` (§4.5). |
-| `links` | object | no | Link declarations (§5.2) |
-| `permissions` | string[] | no | Permissions its rules may name, each `^[a-z][a-zA-Z0-9]{0,39}$` (§7.1) |
-| `rules` | object | no | §7 |
-| `topics` | string[] | no | §8 |
-| `screen` | string | no | One HTML document, at most 48 KiB of UTF-8, non-blank. What runs it: [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) §5.5. |
-| `network` | string[] | no | The exact origins its `screen` may reach: at most 8, distinct, each `^(https\|wss)://` + a lower-case host with at least one dot + an optional `:port`, no path (`https://api.open-meteo.com`). Only with a `screen`. How it is enforced: [06](06-nodes-and-sessions.md) §5.5. |
+| Field         | Type                  | Req. | Meaning                                                                                                                                                                                                                                                                        |
+| ------------- | --------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`        | string                | yes  | Reverse-DNS, lower case, at least one dot: `^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$`. MUST NOT start with `sys.`. The record's key MUST be `collection:` + this.                                                                                                                 |
+| `title`       | string                | no   | Display name                                                                                                                                                                                                                                                                   |
+| `description` | string                | no   | The author's words                                                                                                                                                                                                                                                             |
+| `schema`      | object                | yes  | JSON Schema for a record's `body`, in the subset of §6.2                                                                                                                                                                                                                       |
+| `version`     | integer ≥ 1           | yes  | Shape version (§6.3)                                                                                                                                                                                                                                                           |
+| `history`     | `"latest"` \| `"all"` | no   | Default `"latest"`. `"all"`: writers mark every version `retain` (§4.5).                                                                                                                                                                                                       |
+| `links`       | object                | no   | Link declarations (§5.2)                                                                                                                                                                                                                                                       |
+| `permissions` | string[]              | no   | Permissions its rules may name, each `^[a-z][a-zA-Z0-9]{0,39}$` (§7.1)                                                                                                                                                                                                         |
+| `rules`       | object                | no   | §7                                                                                                                                                                                                                                                                             |
+| `topics`      | string[]              | no   | §8                                                                                                                                                                                                                                                                             |
+| `screen`      | string                | no   | One HTML document, at most 48 KiB of UTF-8, non-blank. What runs it: [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) §5.5.                                                                                                                                           |
+| `network`     | string[]              | no   | The exact origins its `screen` may reach: at most 8, distinct, each `^(https\|wss)://` + a lower-case host with at least one dot + an optional `:port`, no path (`https://api.open-meteo.com`). Only with a `screen`. How it is enforced: [06](06-nodes-and-sessions.md) §5.5. |
 
 A definition body that fails any check in this section is **invalid**. A peer
 MUST treat an invalid definition as no definition at all: its collection then
@@ -627,7 +627,9 @@ Example (the standard `std.vote`, as stored):
   "description": "A vote on a poll: one per person, changed by voting again.",
   "schema": {
     "type": "object",
-    "properties": { "choice": { "type": "integer", "minimum": 0, "x-choicesFrom": { "rel": "about", "field": "options" } } },
+    "properties": {
+      "choice": { "type": "integer", "minimum": 0, "x-choicesFrom": { "rel": "about", "field": "options" } }
+    },
     "required": ["choice"]
   },
   "version": 1,
@@ -645,19 +647,19 @@ every app in any language agrees on what it means.
 every schema under `properties` and `items`, uses only these keywords, with
 these value types:
 
-| Keyword | Value |
-|---|---|
-| `type` | one of, or a non-empty list of: `object`, `array`, `string`, `number`, `integer`, `boolean`, `null` |
-| `properties` | object of schemas |
-| `required` | list of strings |
-| `items` | one schema |
-| `enum` | non-empty list |
-| `const` | any |
-| `minimum`, `maximum`, `minLength`, `maxLength`, `minItems`, `maxItems` | finite number |
-| `additionalProperties` | boolean only |
-| `title`, `description` | string |
-| `oneOf` | non-empty list of `{ "const": …, "title"?: string, "description"?: … }` — labelled choices only, not general composition |
-| `x-choicesFrom` | `{ "rel": <link role>, "field": <non-empty string> }` |
+| Keyword                                                                | Value                                                                                                                    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `type`                                                                 | one of, or a non-empty list of: `object`, `array`, `string`, `number`, `integer`, `boolean`, `null`                      |
+| `properties`                                                           | object of schemas                                                                                                        |
+| `required`                                                             | list of strings                                                                                                          |
+| `items`                                                                | one schema                                                                                                               |
+| `enum`                                                                 | non-empty list                                                                                                           |
+| `const`                                                                | any                                                                                                                      |
+| `minimum`, `maximum`, `minLength`, `maxLength`, `minItems`, `maxItems` | finite number                                                                                                            |
+| `additionalProperties`                                                 | boolean only                                                                                                             |
+| `title`, `description`                                                 | string                                                                                                                   |
+| `oneOf`                                                                | non-empty list of `{ "const": …, "title"?: string, "description"?: … }` — labelled choices only, not general composition |
+| `x-choicesFrom`                                                        | `{ "rel": <link role>, "field": <non-empty string> }`                                                                    |
 
 Anything else (`pattern`, `$ref`, `format`, `anyOf`, a schema-valued
 `additionalProperties`, …) makes the definition invalid. A `$schema` member is
@@ -673,7 +675,7 @@ this one links to as `rel`, in its field `field`. A number is a position in
 that list; anything else is the option itself. It is a display hint and is
 never checked when validating.
 
-*Implementation detail:* validation uses `@cfworker/json-schema` (draft
+_Implementation detail:_ validation uses `@cfworker/json-schema` (draft
 `2020-12`, not short-circuiting). A validator that describes itself as JSON
 Schema (Standard JSON Schema: Zod 4.2+, ArkType 2.1.28+, Valibot) is converted
 with target `draft-2020-12` before storing, and the result is checked like any
@@ -698,7 +700,7 @@ other.
 > not fit is still kept and flagged (§9.6), so a space using `pattern` stays
 > readable by an app that predates it.
 >
-> *Open:* the publishing check above makes a definition that uses `pattern`
+> _Open:_ the publishing check above makes a definition that uses `pattern`
 > **invalid** to an older peer, and an invalid definition counts as none
 > (§6.1), so that peer would enforce none of its rules. Either the publishing
 > check must tolerate these keywords before any app writes them, or such a
@@ -723,7 +725,7 @@ A writer SHOULD give each new definition of a collection a `version` higher
 than the one in force; the reference node refuses otherwise. Peers do not check
 it.
 
-*Implementation detail:* the reference node refuses to delete a definition
+_Implementation detail:_ the reference node refuses to delete a definition
 while its collection still has records.
 
 ### 6.4 Reserved names
@@ -745,7 +747,7 @@ while its collection still has records.
 - Any other name is the space's to use. Records in a collection nobody has
   defined are still stored and synced; they simply have no schema or rules.
 
-*Source: `packages/core/src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `validateJsonSchema`, `toJsonSchema`, `asStandardSchema`, `MAX_SCREEN_BYTES`, `checkScreenNetwork`, `MAX_SCREEN_ORIGINS`), `packages/core/src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`, `define`, `undefine`), `packages/core/src/space/roles.ts` (`definition` events). Tests: `packages/core/tests/space-catalog.test.ts` (all), `packages/core/tests/schemas.test.ts` ("schemas from a validator you already use"), `packages/core/tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write").*
+_Source: `packages/core/src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `validateJsonSchema`, `toJsonSchema`, `asStandardSchema`, `MAX_SCREEN_BYTES`, `checkScreenNetwork`, `MAX_SCREEN_ORIGINS`), `packages/core/src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`, `define`, `undefine`), `packages/core/src/space/roles.ts` (`definition` events). Tests: `packages/core/tests/space-catalog.test.ts` (all), `packages/core/tests/schemas.test.ts` ("schemas from a validator you already use"), `packages/core/tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write")._
 
 ### 6.5 Planned: compatible definitions
 
@@ -767,10 +769,13 @@ with. The result is two lists of breaks, each a path and a plain sentence:
 
 ```ts
 interface Compatibility {
-  read:  Break[];   // why the app might meet a record it can't read; empty: it can read them all
-  write: Break[];   // why a record the app writes might not fit, or be refused; empty: it can write
+  read: Break[]; // why the app might meet a record it can't read; empty: it can read them all
+  write: Break[]; // why a record the app writes might not fit, or be refused; empty: it can write
 }
-interface Break { path: string; message: string }   // 'rules.edit', "Anyone can edit anyone's messages here; this app assumes only their author"
+interface Break {
+  path: string;
+  message: string;
+} // 'rules.edit', "Anyone can edit anyone's messages here; this app assumes only their author"
 ```
 
 An app that only shows records needs `read` empty; one that writes needs both.
@@ -911,7 +916,7 @@ validating, and `compare` (§6.5) ignores them. They would go in a new
 top-level definition member rather than as schema keywords: unknown
 top-level members are ignored by today's peers, while an unknown schema
 keyword makes the definition invalid (§6.2). Added when a real agent-made app
-shows the derived screen falling short. *Open:* the format.
+shows the derived screen falling short. _Open:_ the format.
 
 ---
 
@@ -933,13 +938,13 @@ version it receives.
 
 ### 7.1 Who
 
-`create`, `edit` and `delete` each take one *who* or a non-empty list of them
+`create`, `edit` and `delete` each take one _who_ or a non-empty list of them
 (a list means any of them):
 
-| Who | Holds when |
-|---|---|
-| `member` | The writer's root holds any role in the space (as of `seen`). |
-| `creator` | The writer's root is the root of the record's first version (§4.6). A fact about the record; nobody grants it. |
+| Who       | Holds when                                                                                                                                                                                                           |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `member`  | The writer's root holds any role in the space (as of `seen`).                                                                                                                                                        |
+| `creator` | The writer's root is the root of the record's first version (§4.6). A fact about the record; nobody grants it.                                                                                                       |
 | `can:<p>` | The writer's role holds the permission `<collection>/<p>`, e.g. `app.poll/moderate` ([03 — Spaces](03-spaces.md)). `<p>` MUST match `^[a-z][a-zA-Z0-9]{0,39}$` and MUST be listed in the definition's `permissions`. |
 
 Defaults: `create` → `member`; `edit` → `member`; `delete` → whatever `edit`
@@ -950,11 +955,11 @@ is. `create` MUST NOT include `creator`.
 For a version of a collection that has a valid definition in force (as of its
 `seen`):
 
-| Version | Action | Rule |
-|---|---|---|
-| `seq == 0` | create | `create` |
-| `seq > 0`, `deleted` | delete | `delete`, else `edit` |
-| `seq > 0`, not deleted | edit | `edit` (including re-creating a deleted key) |
+| Version                | Action | Rule                                         |
+| ---------------------- | ------ | -------------------------------------------- |
+| `seq == 0`             | create | `create`                                     |
+| `seq > 0`, `deleted`   | delete | `delete`, else `edit`                        |
+| `seq > 0`, not deleted | edit   | `edit` (including re-creating a deleted key) |
 
 Independently of rules, the writer's root MUST hold a role in the space as of
 `seen`. With no definition in force, or in a `sys.*` collection, only that
@@ -966,7 +971,7 @@ applies here (the access collections have their own checks, in
 `onePer` is a non-empty list of parts. At most one record exists per
 combination of their values — not by searching other records (no peer holds
 them all) but because the record's **key is derived from them**. A second
-vote by the same person on the same poll *is* the next version of the first.
+vote by the same person on the same poll _is_ the next version of the first.
 
 Parts:
 
@@ -1032,7 +1037,7 @@ and the `edit` rule decides whether it is allowed.
 > known defect above.
 > `profile` keys leak the same way (anyone can confirm which known accounts
 > are in a space; [03 — Spaces](03-spaces.md)). Pairs with encrypting
-> collection names. *Open:* which space key: a record's key must outlive key
+> collection names. _Open:_ which space key: a record's key must outlive key
 > changes, so it cannot simply be the key its body was sealed with (as topic
 > tags use, §8.2); and how a reader finds a record written under an earlier
 > key.
@@ -1043,7 +1048,7 @@ and the `edit` rule decides whether it is allowed.
 > per room per hour" with free-form times, a unique display name) would need a
 > **deterministic fold on read** instead: every reader keeps the same one of
 > the clashing records, by a rule like §4.3, and treats the rest as not
-> current. Not designed. *Open:* the rule's syntax; how a reader that holds
+> current. Not designed. _Open:_ the rule's syntax; how a reader that holds
 > only part of a collection folds; and that a definition with an unknown rule
 > is invalid to older peers (§7.5), so a new rule needs care in rollout.
 
@@ -1072,7 +1077,7 @@ invalid (§6.1).
 > (`creator`) or a permission a person decided (`can:…`). "Did a person have to
 > decide it?" is the test for which one to use.
 
-*Source: `packages/core/src/records/rules.ts` (`checkRules`, `allows`, `onePerKey`, `changedFixedField`, `permissionName`, `PERMISSION_PATTERN`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`, `mayNow`, `put`). Tests: `packages/core/tests/rules.test.ts` (all), `packages/core/tests/schemas.test.ts` ("a poll: one vote per person…").*
+_Source: `packages/core/src/records/rules.ts` (`checkRules`, `allows`, `onePerKey`, `changedFixedField`, `permissionName`, `PERMISSION_PATTERN`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`, `mayNow`, `put`). Tests: `packages/core/tests/rules.test.ts` (all), `packages/core/tests/schemas.test.ts` ("a poll: one vote per person…")._
 
 ---
 
@@ -1145,7 +1150,7 @@ To ask a keeper for records on a topic, a reader computes the tag the same way
 > Rationale: a blind index (as in CipherSweet) — equality only, never ranges or
 > substrings. The keeper learns co-occurrence and frequency, nothing more.
 
-*Source: `packages/core/src/records/topics.ts` (`checkTopics`, `topicValues`, `topicKey`, `topicTag`, `tagsFor`, `sameTags`, `MAX_TOPICS`, `MAX_TAGS`), `packages/core/src/node/space-runtime.ts` (`tagKey`, `tagProblem`, `write`). Tests: `packages/core/tests/topics.test.ts` (all).*
+_Source: `packages/core/src/records/topics.ts` (`checkTopics`, `topicValues`, `topicKey`, `topicTag`, `tagsFor`, `sameTags`, `MAX_TOPICS`, `MAX_TAGS`), `packages/core/src/node/space-runtime.ts` (`tagKey`, `tagProblem`, `write`). Tests: `packages/core/tests/topics.test.ts` (all)._
 
 ---
 
@@ -1163,7 +1168,7 @@ The version-alone checks of §4.6. A body that is an encryption envelope
 Body shape against the collection's schema is **not** checked here on arrival
 (§9.6).
 
-*Implementation detail:* the structural gate can also validate bodies against
+_Implementation detail:_ the structural gate can also validate bodies against
 registered Standard Schemas and refuse unknown collections; the node
 configures it with no schemas and `allowUnknownCollections`, so on arrival it
 performs only the shape check.
@@ -1197,7 +1202,7 @@ The capability every write in space `S` needs is
 
 ### 9.4 Standing (the stateful check)
 
-Given a valid signature and root, whether the version *stands* in this space:
+Given a valid signature and root, whether the version _stands_ in this space:
 
 1. `space` equals this space's id.
 2. If written under an agent's note in a space that admits only the account
@@ -1210,7 +1215,7 @@ Given a valid signature and root, whether the version *stands* in this space:
    4. If a definition is in force and the version is not a delete: tags check (§8.4).
    5. If rules are in force and the version is not a delete: `onePer` (§7.3) on `seq 0`, `fixed` (§7.4) on `seq > 0`.
 
-*Implementation detail:* the validation engine also has a pluggable
+_Implementation detail:_ the validation engine also has a pluggable
 WebAssembly "stateful gate", run after the capability gate: a module
 exporting `memory`, `validate(ptr, len) → i32` and optionally
 `alloc(size) → ptr`, given the expression as `JSON.stringify` UTF-8 bytes;
@@ -1221,11 +1226,11 @@ of the protocol.
 
 A check can end three ways:
 
-| Outcome | When | What the peer does |
-|---|---|---|
-| **stands** | every check passes | Stores it; the ordering rule (§4.3) decides whether it becomes current. |
-| **later** | it depends on something not held: its first version, or access changes named in `seen` | Holds it aside (at most 1,000, oldest dropped) and re-judges waiting versions whenever something new is stored. Nothing is reported. |
-| **refused** | any other failure | Does not store it, does not pass it on, and reports it (a `rejected` event with the peer and reason). Remembers the refusal as (peer, id) — at most 10,000 — only so it does not ask that peer again. |
+| Outcome     | When                                                                                   | What the peer does                                                                                                                                                                                    |
+| ----------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **stands**  | every check passes                                                                     | Stores it; the ordering rule (§4.3) decides whether it becomes current.                                                                                                                               |
+| **later**   | it depends on something not held: its first version, or access changes named in `seen` | Holds it aside (at most 1,000, oldest dropped) and re-judges waiting versions whenever something new is stored. Nothing is reported.                                                                  |
+| **refused** | any other failure                                                                      | Does not store it, does not pass it on, and reports it (a `rejected` event with the peer and reason). Remembers the refusal as (peer, id) — at most 10,000 — only so it does not ask that peer again. |
 
 A peer MUST NOT remember a refusal by id alone, and MUST NOT cache a failing
 verdict: a copy with a mangled signature shares the genuine version's id
@@ -1236,7 +1241,7 @@ removal, a revoked note — [03](03-spaces.md)). When reading, a peer uses the
 current version if it stands; otherwise the newest held version of that record
 that does; otherwise the record is absent.
 
-*Implementation detail:* when admitting a batch, the reference sorts
+_Implementation detail:_ when admitting a batch, the reference sorts
 `sys.collection` versions first, then by ascending `seq`, so little has to wait.
 
 ### 9.6 What is never a reason to refuse
@@ -1252,7 +1257,7 @@ hold, and refusing would leave peers disagreeing forever. Readers flag such a
 record instead (the node reports `conforms: false` with the issues). A writer
 checks them before signing and SHOULD NOT write what does not conform.
 
-*Source: `packages/core/src/validation/validation-engine.ts`, `packages/core/src/validation/structural-gate.ts`, `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/validation/stateful-gate.ts`, `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/attacks.test.ts`.*
+_Source: `packages/core/src/validation/validation-engine.ts`, `packages/core/src/validation/structural-gate.ts`, `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/validation/stateful-gate.ts`, `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/attacks.test.ts`._
 
 ---
 
@@ -1284,10 +1289,10 @@ the schema's `title`s, else the field name in words. A rule the describer does
 not know MUST make it fail rather than stay silent.
 
 This is presentation, not wire format; the exact wording is an
-*implementation detail*, but the rule that every rule produces a sentence is
+_implementation detail_, but the rule that every rule produces a sentence is
 not.
 
-*Source: `packages/core/src/records/describe.ts`. Tests: `packages/core/tests/agents.test.ts` ("what a collection allows, in words").*
+_Source: `packages/core/src/records/describe.ts`. Tests: `packages/core/tests/agents.test.ts` ("what a collection allows, in words")._
 
 ---
 
@@ -1302,7 +1307,7 @@ produced by an agent. It runs against the records one node holds of one space.
 > change. The plan marks this section non-normative, or moves it to the
 > library's documentation, and writes down the interface another query
 > language plugs into, which reports the collections it read so caches (05
-> §9.2) can keep them. Query syntax saved *inside* a space is protocol again:
+> §9.2) can keep them. Query syntax saved _inside_ a space is protocol again:
 > a screen's `weave.list(collection, { where })` takes its own small filter
 > (field equality and `link:<rel>`, `packages/core/src/schemas/screens.ts`),
 > which is not yet specified. Either that filter is specified on its own, or
@@ -1357,7 +1362,7 @@ or a non-integer or negative `limit`; includes nest more than 3 deep; a `sort`
 direction is not `asc`/`desc` or names an unknown `@` field; `limit` is not a
 non-negative integer; `cursor` is not a string.
 
-*Implementation detail:* the TypeScript API also accepts a definition object
+_Implementation detail:_ the TypeScript API also accepts a definition object
 as `collection` or `from`; it is replaced by its `name` before the query runs.
 
 ### 11.2 Candidates
@@ -1377,39 +1382,39 @@ never `null`.
 
 ### 11.3 Field values
 
-| Field | Value |
-|---|---|
-| `@key` | the record key |
-| `@author` | the DID that signed this version |
-| `@root` | the account it acted for |
-| `@createdBy` | the root of the record's first version (or null) |
-| `@createdAt` | `createdAt` of the record's first version (the creator's clock) |
-| `@updatedAt` | `createdAt` of this version |
-| `@seq` | `seq` |
-| `@collection` | `collection` |
-| body path | Walk the body: at each segment, the current value must be a non-null object or array, and the segment is a member name (or array index, as a string); otherwise the value is *missing*. |
+| Field         | Value                                                                                                                                                                                   |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@key`        | the record key                                                                                                                                                                          |
+| `@author`     | the DID that signed this version                                                                                                                                                        |
+| `@root`       | the account it acted for                                                                                                                                                                |
+| `@createdBy`  | the root of the record's first version (or null)                                                                                                                                        |
+| `@createdAt`  | `createdAt` of the record's first version (the creator's clock)                                                                                                                         |
+| `@updatedAt`  | `createdAt` of this version                                                                                                                                                             |
+| `@seq`        | `seq`                                                                                                                                                                                   |
+| `@collection` | `collection`                                                                                                                                                                            |
+| body path     | Walk the body: at each segment, the current value must be a non-null object or array, and the segment is a member name (or array index, as a string); otherwise the value is _missing_. |
 
 ### 11.4 Operators
 
-`value` is the field's value (possibly missing); `x` the operand. *Equal*
+`value` is the field's value (possibly missing); `x` the operand. _Equal_
 means deep equality: same JSON type; objects with the same member names
 (order ignored) and equal values; arrays with equal elements in order.
 
-| Operator | Holds when |
-|---|---|
-| bare value `x` | `value` equals `x` |
-| `$eq` | `value` equals `x` |
-| `$ne` | `value` does not equal `x` — **true for a missing field** |
-| `$gt` `$gte` `$lt` `$lte` | both are numbers, or both strings (compared by UTF-16 code units), and the comparison holds. Any other pairing, including missing, is false. |
-| `$in` | `x` is a list containing an element equal to `value` |
-| `$nin` | `x` is a list containing no element equal to `value` (false if `x` is not a list) |
-| `$exists` | `(value is not missing) == x`. `null` exists. |
-| `$contains` | `value` and `x` are strings and `lower(x)` is a substring of `lower(value)`; or `value` is a list with an element equal to `x`. Otherwise false. Not search. |
+| Operator                  | Holds when                                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| bare value `x`            | `value` equals `x`                                                                                                                                           |
+| `$eq`                     | `value` equals `x`                                                                                                                                           |
+| `$ne`                     | `value` does not equal `x` — **true for a missing field**                                                                                                    |
+| `$gt` `$gte` `$lt` `$lte` | both are numbers, or both strings (compared by UTF-16 code units), and the comparison holds. Any other pairing, including missing, is false.                 |
+| `$in`                     | `x` is a list containing an element equal to `value`                                                                                                         |
+| `$nin`                    | `x` is a list containing no element equal to `value` (false if `x` is not a list)                                                                            |
+| `$exists`                 | `(value is not missing) == x`. `null` exists.                                                                                                                |
+| `$contains`               | `value` and `x` are strings and `lower(x)` is a substring of `lower(value)`; or `value` is a list with an element equal to `x`. Otherwise false. Not search. |
 
 > **Planned: full-text search.** `$contains` scans every candidate, which is
 > honest at browser scale but is not search. Ranking and prefix matching need
 > an inverted index kept beside the records, and a query operator or member
-> for it. Not designed. *Open:* whether the index is a node's local business
+> for it. Not designed. _Open:_ whether the index is a node's local business
 > (specified here only as query syntax and result order) or something peers
 > share; and, for private spaces, that the index holds plaintext and must be
 > kept like the bodies it came from ([05](05-sync-and-storage.md)).
@@ -1434,7 +1439,7 @@ subfilter does not hold.
   records follow it, else `null`. Passing it back resumes after the record with
   that key in the re-sorted candidates.
 - If no candidate has the cursor's key any more, the query is meant to resume
-  from where that record would have been. *Not yet specified:* how "where it
+  from where that record would have been. _Not yet specified:_ how "where it
   would have been" is found once the record is gone.
 
 > **Known defect:** when the cursor's key is gone, the reference starts again
@@ -1470,27 +1475,27 @@ collection the query needs is still arriving
 ([05 — Sync and storage](05-sync-and-storage.md)). The shape of each record
 object is the node's record view ([06 — Nodes, sessions and apps](06-nodes-and-sessions.md)).
 
-*Source: `packages/core/src/query/types.ts`, `packages/core/src/query/filter.ts` (`checkQuery`, `matches`, `fieldValue`, `MAX_INCLUDE_DEPTH`), `packages/core/src/query/engine.ts` (`runQuery`, `sortRecords`, `expand`). Tests: `packages/core/tests/query.test.ts` (all), `packages/core/tests/typed-query.test.ts`.*
+_Source: `packages/core/src/query/types.ts`, `packages/core/src/query/filter.ts` (`checkQuery`, `matches`, `fieldValue`, `MAX_INCLUDE_DEPTH`), `packages/core/src/query/engine.ts` (`runQuery`, `sortRecords`, `expand`). Tests: `packages/core/tests/query.test.ts` (all), `packages/core/tests/typed-query.test.ts`._
 
 ---
 
 ## 12. Limits
 
-| Limit | Value |
-|---|---|
-| Record key | 1–128 chars of `[a-z0-9:._-]` |
-| `seen` | ≤ 64 ids, each 1–128 chars |
-| Links per version | ≤ 32 |
-| Link role | `^[a-z][a-zA-Z0-9]{0,63}$` |
-| Topic fields per collection | ≤ 8, ≤ 4 path segments |
-| Tags per version | ≤ 64 |
-| Permission name | `^[a-z][a-zA-Z0-9]{0,39}$` |
-| Definition `screen` | ≤ 48 KiB UTF-8 |
-| Definition `network` | ≤ 8 origins |
-| Include nesting | ≤ 3 |
-| Future-dated `createdAt` (delegated writes) | ≤ 300 s ahead |
-| Size of a body or an expression | *Not yet specified* — no limit is enforced |
-| Collection name on a record | *Not yet specified* — only definitions constrain names; a record may name any string |
+| Limit                                       | Value                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Record key                                  | 1–128 chars of `[a-z0-9:._-]`                                                        |
+| `seen`                                      | ≤ 64 ids, each 1–128 chars                                                           |
+| Links per version                           | ≤ 32                                                                                 |
+| Link role                                   | `^[a-z][a-zA-Z0-9]{0,63}$`                                                           |
+| Topic fields per collection                 | ≤ 8, ≤ 4 path segments                                                               |
+| Tags per version                            | ≤ 64                                                                                 |
+| Permission name                             | `^[a-z][a-zA-Z0-9]{0,39}$`                                                           |
+| Definition `screen`                         | ≤ 48 KiB UTF-8                                                                       |
+| Definition `network`                        | ≤ 8 origins                                                                          |
+| Include nesting                             | ≤ 3                                                                                  |
+| Future-dated `createdAt` (delegated writes) | ≤ 300 s ahead                                                                        |
+| Size of a body or an expression             | _Not yet specified_ — no limit is enforced                                           |
+| Collection name on a record                 | _Not yet specified_ — only definitions constrain names; a record may name any string |
 
 ---
 
@@ -1503,32 +1508,32 @@ there. All are `version` 1 when first defined. "About" below is
 
 **Annotations** — attach to any record:
 
-| Name | Body | Links | Permissions | Rules |
-|---|---|---|---|---|
-| `std.reaction` | `emoji` string 1–16, required | `about` | — | edit, delete: `creator`; `onePer: [@author, link:about, emoji]` |
-| `std.comment` | `text` string 1–10000, required | `about`; `replyTo` → `std.comment`, one | `moderate` | edit: `creator`; delete: `creator`, `can:moderate` |
-| `std.tag` | `label` string 1–100, required | `about` → `*`, many | `moderate` | edit: `creator`; delete: `creator`, `can:moderate` |
-| `std.attachment` | `name`, `mime` strings ≥1 required; `size` integer ≥ 0; `url` string | `about` | `moderate` | edit: `creator`; delete: `creator`, `can:moderate` |
-| `std.reference` | `note` string | `about`; `to` (both `*`, one) | `moderate` | edit: `creator`; delete: `creator`, `can:moderate` |
+| Name             | Body                                                                 | Links                                   | Permissions | Rules                                                           |
+| ---------------- | -------------------------------------------------------------------- | --------------------------------------- | ----------- | --------------------------------------------------------------- |
+| `std.reaction`   | `emoji` string 1–16, required                                        | `about`                                 | —           | edit, delete: `creator`; `onePer: [@author, link:about, emoji]` |
+| `std.comment`    | `text` string 1–10000, required                                      | `about`; `replyTo` → `std.comment`, one | `moderate`  | edit: `creator`; delete: `creator`, `can:moderate`              |
+| `std.tag`        | `label` string 1–100, required                                       | `about` → `*`, many                     | `moderate`  | edit: `creator`; delete: `creator`, `can:moderate`              |
+| `std.attachment` | `name`, `mime` strings ≥1 required; `size` integer ≥ 0; `url` string | `about`                                 | `moderate`  | edit: `creator`; delete: `creator`, `can:moderate`              |
+| `std.reference`  | `note` string                                                        | `about`; `to` (both `*`, one)           | `moderate`  | edit: `creator`; delete: `creator`, `can:moderate`              |
 
 **Nouns** — shared by apps that do the same thing:
 
-| Name | Body | Links | Permissions | Rules |
-|---|---|---|---|---|
-| `std.message` | `text` string 1–10000, required | `replyTo` → `std.message`, one; `shares` → `*`, one | `moderate` | edit: `creator`; delete: `creator`, `can:moderate` |
-| `std.column` | `name` string 1–200, required; `position` string 1–200 | — | — | defaults |
-| `std.task` | `title` string 1–500, required; `notes` string ≤ 10000; `position` string 1–200 | `column` → `std.column`, one | — | defaults |
-| `std.poll` | `question` string 1–500, required; `options` string[] (each 1–200), required; `closed` boolean | — | `moderate` | edit: `creator`; delete: `creator`, `can:moderate`; `fixed: [options]` |
-| `std.vote` | `choice` integer ≥ 0, required, `x-choicesFrom: {rel: about, field: options}` | `about` → `std.poll`, one | — | edit, delete: `creator`; `onePer: [@author, link:about]` |
-| `std.call` | `status` enum `missed`/`ended`, required; `startedAt` string ≤ 64, required; `to` string ≤ 256; `endedAt` string ≤ 64; `people` string[] (≤ 64, each ≤ 256) | — | — | edit, delete: `creator` |
+| Name          | Body                                                                                                                                                        | Links                                               | Permissions | Rules                                                                  |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ----------- | ---------------------------------------------------------------------- |
+| `std.message` | `text` string 1–10000, required                                                                                                                             | `replyTo` → `std.message`, one; `shares` → `*`, one | `moderate`  | edit: `creator`; delete: `creator`, `can:moderate`                     |
+| `std.column`  | `name` string 1–200, required; `position` string 1–200                                                                                                      | —                                                   | —           | defaults                                                               |
+| `std.task`    | `title` string 1–500, required; `notes` string ≤ 10000; `position` string 1–200                                                                             | `column` → `std.column`, one                        | —           | defaults                                                               |
+| `std.poll`    | `question` string 1–500, required; `options` string[] (each 1–200), required; `closed` boolean                                                              | —                                                   | `moderate`  | edit: `creator`; delete: `creator`, `can:moderate`; `fixed: [options]` |
+| `std.vote`    | `choice` integer ≥ 0, required, `x-choicesFrom: {rel: about, field: options}`                                                                               | `about` → `std.poll`, one                           | —           | edit, delete: `creator`; `onePer: [@author, link:about]`               |
+| `std.call`    | `status` enum `missed`/`ended`, required; `startedAt` string ≤ 64, required; `to` string ≤ 256; `endedAt` string ≤ 64; `people` string[] (≤ 64, each ≤ 256) | —                                                   | —           | edit, delete: `creator`                                                |
 
 **Also exported** from the same module (specified with their features):
 
-| Name | Body | Rules | Where |
-|---|---|---|---|
-| `std.contact` | `did` ≤ 256 and `name` ≤ 200, required; `space` ≤ 256; `note` ≤ 2000; `blocked` boolean | `onePer: [did]` | [03 — Spaces](03-spaces.md) |
-| `std.contact-request` | `to` ≤ 256 and `sealed` ≤ 16000, required | edit, delete: `creator` | [03 — Spaces](03-spaces.md) |
-| `std.app` | `title` 1–100 and `needs` (1–10 objects), required; `description` ≤ 1000; `from` ≤ 300; `updates` 1–100 | edit: `creator`; delete: `creator`, `can:moderate`; permission `moderate` | [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) |
+| Name                  | Body                                                                                                    | Rules                                                                     | Where                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `std.contact`         | `did` ≤ 256 and `name` ≤ 200, required; `space` ≤ 256; `note` ≤ 2000; `blocked` boolean                 | `onePer: [did]`                                                           | [03 — Spaces](03-spaces.md)                               |
+| `std.contact-request` | `to` ≤ 256 and `sealed` ≤ 16000, required                                                               | edit, delete: `creator`                                                   | [03 — Spaces](03-spaces.md)                               |
+| `std.app`             | `title` 1–100 and `needs` (1–10 objects), required; `description` ≤ 1000; `from` ≤ 300; `updates` 1–100 | edit: `creator`; delete: `creator`, `can:moderate`; permission `moderate` | [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) |
 
 **App updates.** An app is changed by proposing a new `std.app` whose
 `updates` is the key of the app, in the same space, that it is a new version
@@ -1557,7 +1562,7 @@ show as a change that undoes the other.
 > **Planned (open question):** with §6.5, an update's review would list
 > `compare`'s breaks.
 
-*Source: `packages/core/src/schemas/apps.ts` (`supersededApps`, `proposeApp`, `addApp`), `packages/core/src/node/actions.ts` (`apps_propose`, `apps_list`), `apps/example/src/components/apps/AppsView.tsx`. Tests: `packages/core/tests/agents.test.ts` ("an update replaces the app it names: once added, the old version is not offered again").*
+_Source: `packages/core/src/schemas/apps.ts` (`supersededApps`, `proposeApp`, `addApp`), `packages/core/src/node/actions.ts` (`apps_propose`, `apps_list`), `apps/example/src/components/apps/AppsView.tsx`. Tests: `packages/core/tests/agents.test.ts` ("an update replaces the app it names: once added, the old version is not offered again")._
 
 **Positions.** `position` is a string that sorts (by plain string comparison)
 where a record goes in a hand-made order. Digits are `0–9a–z`; a position
@@ -1565,7 +1570,7 @@ never ends in `0`, so there is always room between two. Equal positions sort by
 key. A record without one goes at the end. `positionBetween(before, after)` in
 the library makes one; any string that sorts correctly is valid.
 
-*Source: `packages/core/src/schemas/index.ts`, `packages/core/src/schemas/contacts.ts`, `packages/core/src/schemas/apps.ts`. Tests: `packages/core/tests/schemas.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/agents.test.ts`.*
+_Source: `packages/core/src/schemas/index.ts`, `packages/core/src/schemas/contacts.ts`, `packages/core/src/schemas/apps.ts`. Tests: `packages/core/tests/schemas.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/agents.test.ts`._
 
 ### A.1 Planned: a library most apps can share
 
@@ -1593,6 +1598,6 @@ the library makes one; any string that sorts correctly is valid.
 > reference, `std.task` a due date, status, assignees and a `parent` link,
 > `std.message` a `root` link, and `std.vote` more than one choice.
 >
-> *Depends on:* files ([05 — Sync and storage](05-sync-and-storage.md)
+> _Depends on:_ files ([05 — Sync and storage](05-sync-and-storage.md)
 > §16.6, [#37](https://github.com/leifriksheim/weave/issues/37)), references
 > to other spaces (§5.3), `format` (§6.2), and compatible definitions (§6.5).

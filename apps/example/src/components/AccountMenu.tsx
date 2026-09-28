@@ -71,7 +71,16 @@ export function AccountMenu() {
           <div style={{ padding: '14px 14px 12px', display: 'flex', gap: 10, alignItems: 'center' }}>
             <Avatar did={account.did} size={36} />
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, color: palette.ink.strong, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: 14,
+                  color: palette.ink.strong,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {account.name}
               </div>
               <button
@@ -82,7 +91,15 @@ export function AccountMenu() {
                   });
                 }}
                 title={`${account.did} — click to copy`}
-                style={{ border: 'none', background: 'none', padding: 0, marginTop: 2, fontFamily: palette.mono, fontSize: 11.5, color: palette.ink.faint }}
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  padding: 0,
+                  marginTop: 2,
+                  fontFamily: palette.mono,
+                  fontSize: 11.5,
+                  color: palette.ink.faint,
+                }}
               >
                 {copied ? 'Copied' : `${account.did.slice(8, 16)}…${account.did.slice(-6)}`}
               </button>
@@ -105,8 +122,8 @@ export function AccountMenu() {
               Connect an agent
             </Item>
             <p style={{ margin: '4px 10px 6px', fontSize: 12, lineHeight: 1.45, color: palette.ink.faint }}>
-              An agent in this browser works as you, with nothing to set up. One on your computer connects here, and keeps working with
-              this tab closed.
+              An agent in this browser works as you, with nothing to set up. One on your computer connects
+              here, and keeps working with this tab closed.
             </p>
           </div>
 
@@ -125,11 +142,33 @@ export function AccountMenu() {
 }
 
 /** One row of the menu: a label, and optionally a quieter line on the right */
-function Item({ children, hint, onClick, disabled }: { children: ReactNode; hint?: string | undefined; onClick: () => void; disabled?: boolean }) {
+function Item({
+  children,
+  hint,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode;
+  hint?: string | undefined;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button role="menuitem" onClick={onClick} disabled={disabled} data-menu-item style={item}>
       <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{children}</span>
-      {hint && <span style={{ color: palette.ink.faint, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hint}</span>}
+      {hint && (
+        <span
+          style={{
+            color: palette.ink.faint,
+            fontSize: 12,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {hint}
+        </span>
+      )}
     </button>
   );
 }

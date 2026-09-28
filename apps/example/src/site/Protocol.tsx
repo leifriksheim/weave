@@ -10,7 +10,17 @@ import { EXTERNAL, GITHUB, Page, SPEC } from './Site';
 const specPart = (file: string) => `${GITHUB}/blob/main/spec/${file}`;
 
 /** One piece of the picture: a label, a line, and a small mock-up drawn in HTML */
-function Panel({ label, title, children, mock }: { label: string; title: string; children: ReactNode; mock: ReactNode }) {
+function Panel({
+  label,
+  title,
+  children,
+  mock,
+}: {
+  label: string;
+  title: string;
+  children: ReactNode;
+  mock: ReactNode;
+}) {
   return (
     <div className="moment">
       <div className="moment-text">
@@ -147,8 +157,8 @@ const PARTS: ReadonlyArray<Part> = [
         title: 'Your name is your key',
         body: (
           <>
-            Your account’s name is a <code>did:key</code>: its public key, written out. Anyone can check that you signed
-            something without asking a server who you are.
+            Your account’s name is a <code>did:key</code>: its public key, written out. Anyone can check that
+            you signed something without asking a server who you are.
           </>
         ),
       },
@@ -180,8 +190,9 @@ const PARTS: ReadonlyArray<Part> = [
         title: 'Clocks don’t decide',
         body: (
           <>
-            The version with the higher <code>seq</code> wins; a tie goes to the lower id. Replaying an old version
-            can’t roll a record back, a delete stays deleted, and two people who edited offline land on the same result.
+            The version with the higher <code>seq</code> wins; a tie goes to the lower id. Replaying an old
+            version can’t roll a record back, a delete stays deleted, and two people who edited offline land
+            on the same result.
           </>
         ),
       },
@@ -363,9 +374,10 @@ const LIMITS: ReadonlyArray<Point> = [
     title: 'The bugs are written down',
     body: (
       <>
-        Where our implementation does something the protocol shouldn’t need, the spec says so. For example: readers
-        don’t check <code>prev</code> yet, so someone allowed to edit can skip <code>seq</code> ahead; delegation chains
-        longer than one step don’t validate on records yet; and leaving a space only takes effect on your own device.
+        Where our implementation does something the protocol shouldn’t need, the spec says so. For example:
+        readers don’t check <code>prev</code> yet, so someone allowed to edit can skip <code>seq</code> ahead;
+        delegation chains longer than one step don’t validate on records yet; and leaving a space only takes
+        effect on your own device.
       </>
     ),
   },
@@ -407,8 +419,8 @@ export function Protocol() {
             Here’s how.
           </h1>
           <p>
-            Your account is a key you keep. Your data is signed records. Every device checks the rules for itself. This
-            is how each piece works, and what it can’t do.
+            Your account is a key you keep. Your data is signed records. Every device checks the rules for
+            itself. This is how each piece works, and what it can’t do.
           </p>
           <div className="actions">
             <a href={SPEC} {...EXTERNAL} className="btn btn-primary">
@@ -427,25 +439,27 @@ export function Protocol() {
             <div className="kicker">The shape of it</div>
             <h2>Keys sign. Spaces hold. Devices check.</h2>
             <p>
-              Your master key almost never signs data. Records live in spaces, every device in a space checks every
-              record, and relays only make introductions. Nothing in the picture is in charge of the rest.
+              Your master key almost never signs data. Records live in spaces, every device in a space checks
+              every record, and relays only make introductions. Nothing in the picture is in charge of the
+              rest.
             </p>
           </div>
           <div className="moments">
             <Panel label="Keys sign" title="Every change carries a signature" mock={KEYS}>
-              Your root key signs a short pass for a session key, and the session key signs your changes. Anyone can
-              check them without asking a server.
+              Your root key signs a short pass for a session key, and the session key signs your changes.
+              Anyone can check them without asking a server.
             </Panel>
             <Panel label="Spaces hold" title="The rules live with the data" mock={SPACE}>
-              A space holds its roles, what each kind of record allows, and the records. Private ones are encrypted
-              before they leave your device.
+              A space holds its roles, what each kind of record allows, and the records. Private ones are
+              encrypted before they leave your device.
             </Panel>
             <Panel label="Devices check" title="Every device is the referee" mock={CHECKS}>
-              Each change is checked when it arrives. Anything that breaks the rules is refused everywhere, the same way.
+              Each change is checked when it arrives. Anything that breaks the rules is refused everywhere,
+              the same way.
             </Panel>
             <Panel label="Relays introduce" title="Devices talk directly" mock={PEERS}>
-              Relays help devices find each other, then step aside. A host keeps things online without being able to
-              read them.
+              Relays help devices find each other, then step aside. A host keeps things online without being
+              able to read them.
             </Panel>
           </div>
         </div>
@@ -479,8 +493,8 @@ export function Protocol() {
             <div className="kicker">Next</div>
             <h2>Designed, and on the way.</h2>
             <p>
-              Permission chains that travel with a record, edit histories anyone can check, sealing with HPKE, signed
-              writer logs, handles like @you.bsky.social that lead to a door, and more.
+              Permission chains that travel with a record, edit histories anyone can check, sealing with HPKE,
+              signed writer logs, handles like @you.bsky.social that lead to a door, and more.
             </p>
           </div>
           <a href={specPart('README.md#planned-work')} {...EXTERNAL} className="spec-link">
@@ -492,7 +506,10 @@ export function Protocol() {
       <section className="cta">
         <div className="wrap">
           <h2>Check our work.</h2>
-          <p>The spec has every format, every signature and every check a device makes, with the tests behind each rule.</p>
+          <p>
+            The spec has every format, every signature and every check a device makes, with the tests behind
+            each rule.
+          </p>
           <div className="actions">
             <a href={SPEC} {...EXTERNAL} className="btn btn-primary">
               Read the spec

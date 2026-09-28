@@ -44,7 +44,7 @@ export function useSpaces(): SpacesState {
   }, [node, refresh]);
 
   const attempt = useCallback(
-    async <T,>(work: () => Promise<T>, failed: string): Promise<T | null> => {
+    async <T>(work: () => Promise<T>, failed: string): Promise<T | null> => {
       setError(null);
       try {
         const done = await work();

@@ -27,17 +27,31 @@ export function WhoIsHere({ status, people }: { status: SpaceStatus; people: Peo
   const carrierKeys = status.carriers.join(',');
   useEffect(() => {
     if (!carrierKeys) return;
-    void node.carriers.list().then(setCarriers).catch(() => {});
+    void node.carriers
+      .list()
+      .then(setCarriers)
+      .catch(() => {});
   }, [node, carrierKeys]);
 
   if (status.connection === 'offline') return <span style={styles.badge}>○ offline</span>;
   if (status.connection === 'connecting') return <span style={styles.badge}>◌ connecting</span>;
-  if (status.connection === 'error') return <span style={styles.badge} title="Can't reach the relay that introduces peers">○ no relay</span>;
+  if (status.connection === 'error')
+    return (
+      <span style={styles.badge} title="Can't reach the relay that introduces peers">
+        ○ no relay
+      </span>
+    );
 
-  const ownDevices = status.peers.filter((peer) => status.own.includes(peer) || status.accounts[peer] === me).length;
-  const others = status.peers.filter((peer) => !status.own.includes(peer) && !status.carriers.includes(peer) && status.accounts[peer] !== me);
+  const ownDevices = status.peers.filter(
+    (peer) => status.own.includes(peer) || status.accounts[peer] === me,
+  ).length;
+  const others = status.peers.filter(
+    (peer) => !status.own.includes(peer) && !status.carriers.includes(peer) && status.accounts[peer] !== me,
+  );
   // One name per person, however many of their devices are here.
-  const here = [...new Set(others.map((peer) => status.accounts[peer]).filter((account): account is string => !!account))];
+  const here = [
+    ...new Set(others.map((peer) => status.accounts[peer]).filter((account): account is string => !!account)),
+  ];
   const servers = others.filter((peer) => !status.accounts[peer]).length;
   const helpers = status.carriers.map((did) => carriers.find((c) => c.did === did)?.name ?? 'a carrier');
   const parts = [
@@ -54,14 +68,24 @@ export function WhoIsHere({ status, people }: { status: SpaceStatus; people: Peo
         'Syncing directly with, right now:',
         ...here.map((did) => `• ${nameOf(did, people)}`),
         `• ${ownDevices} of your own devices or apps`,
-        ...(servers > 0 ? [`• ${servers} ${servers === 1 ? 'server' : 'servers'} that didn't say whose they are`] : []),
+        ...(servers > 0
+          ? [`• ${servers} ${servers === 1 ? 'server' : 'servers'} that didn't say whose they are`]
+          : []),
         `• ${status.carriers.length} ${status.carriers.length === 1 ? 'carrier' : 'carriers'}, keeping your spaces online without reading them`,
       ].join('\n')}
     >
       {here.length > 0 ? (
         <span style={{ display: 'inline-flex' }} aria-hidden>
           {here.slice(0, 3).map((did, i) => (
-            <span key={did} style={{ marginLeft: i === 0 ? 0 : -5, borderRadius: 4, boxShadow: '0 0 0 1.5px #fff', display: 'inline-flex' }}>
+            <span
+              key={did}
+              style={{
+                marginLeft: i === 0 ? 0 : -5,
+                borderRadius: 4,
+                boxShadow: '0 0 0 1.5px #fff',
+                display: 'inline-flex',
+              }}
+            >
               <Avatar did={did} size={14} />
             </span>
           ))}

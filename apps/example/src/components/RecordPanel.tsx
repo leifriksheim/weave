@@ -75,7 +75,11 @@ export function RecordPanel({
     async () => {
       const record = await node.records.get(space.id, recordKey);
       const linked = await node.records.linked(space.id, recordKey);
-      const targets = record ? await Promise.all(record.links.map(async (link) => ({ link, target: await node.records.get(space.id, link.to) }))) : [];
+      const targets = record
+        ? await Promise.all(
+            record.links.map(async (link) => ({ link, target: await node.records.get(space.id, link.to) })),
+          )
+        : [];
       return { record, linked, targets };
     },
     [recordKey],
@@ -91,7 +95,13 @@ export function RecordPanel({
   const title = titleField(schema);
   const fields = fieldsOf(schema).filter((f) => f.name !== title);
   const extra = Object.keys(body).filter((k) => k !== title && !fieldsOf(schema).some((f) => f.name === k));
-  const linkedHere: LinkedByRel = record && data ? byRel(record.links, data.targets.map((t) => t.target)) : {};
+  const linkedHere: LinkedByRel =
+    record && data
+      ? byRel(
+          record.links,
+          data.targets.map((t) => t.target),
+        )
+      : {};
   const editable = !!may?.edit && record !== null && record.body !== null;
 
   /** Writes one field: the next version of the record, everything else unchanged */
@@ -113,14 +123,19 @@ export function RecordPanel({
   const uses = (name: string) => collections.some((c) => c.name === name && c.version !== null);
   // Grouped by kind and by how they point here, so "Tasks · blocks" reads apart from "Tasks · about".
   const relTo = (r: NodeRecord) => r.links.find((l) => l.to === recordKey)?.rel ?? '';
-  const pointing = groupBy(linked.filter((r) => !ANNOTATIONS.has(r.collection)), (r) => `${r.collection}|${relTo(r)}`);
+  const pointing = groupBy(
+    linked.filter((r) => !ANNOTATIONS.has(r.collection)),
+    (r) => `${r.collection}|${relTo(r)}`,
+  );
 
   /** Takes one link off this record: its next version, pointing at one thing less */
   const unlink = async (index: number) => {
     if (!record) return;
     setError(null);
     try {
-      await node.records.update(space.id, record.key, record.body, { links: record.links.filter((_, i) => i !== index) });
+      await node.records.update(space.id, record.key, record.body, {
+        links: record.links.filter((_, i) => i !== index),
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -130,8 +145,18 @@ export function RecordPanel({
     <>
       <div onClick={onClose} style={scrim} aria-hidden />
       <aside role="dialog" aria-label={record ? recordLabel(record, schema) : 'Record'} style={panel}>
-        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${palette.surface.line}` }}>
-          <span style={{ fontSize: 13, color: palette.ink.muted }}>{collection ? collectionLabel(collection) : record?.collection}</span>
+        <header
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '14px 20px',
+            borderBottom: `1px solid ${palette.surface.line}`,
+          }}
+        >
+          <span style={{ fontSize: 13, color: palette.ink.muted }}>
+            {collection ? collectionLabel(collection) : record?.collection}
+          </span>
           <button onClick={onClose} aria-label="Close" style={iconButton}>
             ✕
           </button>
@@ -142,30 +167,68 @@ export function RecordPanel({
         ) : !record ? (
           <p style={{ ...styles.emptyState, margin: 20 }}>This record is gone — deleted, or not here yet.</p>
         ) : (
-          <div style={{ padding: '20px 20px 40px', display: 'flex', flexDirection: 'column', gap: 22, overflowY: 'auto' }}>
+          <div
+            style={{
+              padding: '20px 20px 40px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 22,
+              overflowY: 'auto',
+            }}
+          >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {title && editable ? (
-                <InlineText value={String(body[title] ?? '')} onSave={(v) => save(title, v)} ariaLabel="Title" big />
+                <InlineText
+                  value={String(body[title] ?? '')}
+                  onSave={(v) => save(title, v)}
+                  ariaLabel="Title"
+                  big
+                />
               ) : (
                 <h2 style={bigTitle}>{recordLabel(record, schema)}</h2>
               )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: palette.ink.muted }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 13,
+                  color: palette.ink.muted,
+                }}
+              >
                 <Avatar did={record.createdBy ?? record.root ?? record.author} size={20} />
                 <span>
                   <Person did={record.createdBy ?? record.root} />
                   {record.viaAgent && record.seq === 0 && ' via agent'}
                 </span>
                 <span>· {ago(record.createdAt)}</span>
-                {record.seq > 0 && <span>· edited {ago(record.updatedAt)}{record.viaAgent && ' via agent'}</span>}
+                {record.seq > 0 && (
+                  <span>
+                    · edited {ago(record.updatedAt)}
+                    {record.viaAgent && ' via agent'}
+                  </span>
+                )}
               </div>
             </div>
 
-            {uses(reaction.name) && <Reactions space={space} target={record.key} reactions={linked.filter((r) => r.collection === reaction.name)} />}
+            {uses(reaction.name) && (
+              <Reactions
+                space={space}
+                target={record.key}
+                reactions={linked.filter((r) => r.collection === reaction.name)}
+              />
+            )}
 
             <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {fields.map((f) => (
                 <Property key={f.name} label={f.label}>
-                  <FieldEditor field={f} value={body[f.name]} linked={linkedHere} editable={editable} onSave={(v) => save(f.name, v)} />
+                  <FieldEditor
+                    field={f}
+                    value={body[f.name]}
+                    linked={linkedHere}
+                    editable={editable}
+                    onSave={(v) => save(f.name, v)}
+                  />
                 </Property>
               ))}
               {extra.map((name) => (
@@ -174,48 +237,73 @@ export function RecordPanel({
                 </Property>
               ))}
               {/* Each kind of link the definition allows, with what this record points at in it */}
-              {[...new Set([...Object.keys(collection?.links ?? {}), ...record.links.map((l) => l.rel)])].map((rel) => {
-                const here = data.targets.map((t, i) => ({ ...t, i })).filter((t) => t.link.rel === rel);
-                const declared = collection?.links[rel];
-                const full = declared?.cardinality === 'one' && here.length > 0;
-                return (
-                  <Property key={rel} label={humanize(rel)}>
-                    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                      {here.map(({ link, target, i }) => (
-                        <span key={link.to} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                          {target ? (
-                            <button onClick={() => onOpen(target)} style={linkish}>
-                              {recordLabel(target, schemaOf(target.collection))} →
-                            </button>
-                          ) : (
-                            <span style={{ color: palette.ink.faint, paddingTop: 6 }}>not here yet</span>
-                          )}
-                          {editable && (
-                            <button onClick={() => void unlink(i)} aria-label={`Remove ${humanize(rel).toLowerCase()} link`} title="Remove this link" style={{ ...iconButton, fontSize: 12 }}>
-                              ✕
-                            </button>
-                          )}
-                        </span>
-                      ))}
-                      {editable && declared && linking !== rel && (
-                        <button onClick={() => setLinking(rel)} title={declared.description} style={{ ...linkish, textDecoration: 'none', color: palette.ink.muted }}>
-                          {full ? 'Change…' : here.length ? '+ Add another' : '+ Add'}
-                        </button>
-                      )}
-                      {!editable && here.length === 0 && <span style={{ color: palette.ink.faint, paddingTop: 6 }}>—</span>}
-                    </span>
-                  </Property>
-                );
-              })}
+              {[...new Set([...Object.keys(collection?.links ?? {}), ...record.links.map((l) => l.rel)])].map(
+                (rel) => {
+                  const here = data.targets.map((t, i) => ({ ...t, i })).filter((t) => t.link.rel === rel);
+                  const declared = collection?.links[rel];
+                  const full = declared?.cardinality === 'one' && here.length > 0;
+                  return (
+                    <Property key={rel} label={humanize(rel)}>
+                      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        {here.map(({ link, target, i }) => (
+                          <span key={link.to} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                            {target ? (
+                              <button onClick={() => onOpen(target)} style={linkish}>
+                                {recordLabel(target, schemaOf(target.collection))} →
+                              </button>
+                            ) : (
+                              <span style={{ color: palette.ink.faint, paddingTop: 6 }}>not here yet</span>
+                            )}
+                            {editable && (
+                              <button
+                                onClick={() => void unlink(i)}
+                                aria-label={`Remove ${humanize(rel).toLowerCase()} link`}
+                                title="Remove this link"
+                                style={{ ...iconButton, fontSize: 12 }}
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                        {editable && declared && linking !== rel && (
+                          <button
+                            onClick={() => setLinking(rel)}
+                            title={declared.description}
+                            style={{ ...linkish, textDecoration: 'none', color: palette.ink.muted }}
+                          >
+                            {full ? 'Change…' : here.length ? '+ Add another' : '+ Add'}
+                          </button>
+                        )}
+                        {!editable && here.length === 0 && (
+                          <span style={{ color: palette.ink.faint, paddingTop: 6 }}>—</span>
+                        )}
+                      </span>
+                    </Property>
+                  );
+                },
+              )}
               {uses(tag.name) && (
                 <Property label="Tags">
-                  <Tags space={space} target={record.key} tags={linked.filter((r) => r.collection === tag.name)} />
+                  <Tags
+                    space={space}
+                    target={record.key}
+                    tags={linked.filter((r) => r.collection === tag.name)}
+                  />
                 </Property>
               )}
             </dl>
 
             {editable && collection && linking && (
-              <LinkPicker key={linking} space={space} record={record} collection={collection} collections={collections} initialRel={linking} onDone={() => setLinking(null)} />
+              <LinkPicker
+                key={linking}
+                space={space}
+                record={record}
+                collection={collection}
+                collections={collections}
+                initialRel={linking}
+                onDone={() => setLinking(null)}
+              />
             )}
 
             {record.conforms === false && (
@@ -231,22 +319,56 @@ export function RecordPanel({
               const counted = c ? tally(c, records, record) : null;
               const labelFor = (r: NodeRecord) =>
                 (counted
-                  ? labelOf(counted.field, (r.body as Record<string, unknown> | null)?.[counted.field.name], { [choicesFrom(counted.field.schema)!.rel]: record })
+                  ? labelOf(counted.field, (r.body as Record<string, unknown> | null)?.[counted.field.name], {
+                      [choicesFrom(counted.field.schema)!.rel]: record,
+                    })
                   : null) ?? recordLabel(r, schemaOf(r.collection));
               return (
-                <section key={group} aria-label={`${c ? collectionLabel(c) : name} pointing here`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <section
+                  key={group}
+                  aria-label={`${c ? collectionLabel(c) : name} pointing here`}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
                   <h3 style={styles.sectionTitle}>
                     {c ? collectionLabel(c) : name}
-                    {rel && rel !== 'about' && <span style={{ color: palette.ink.muted, fontWeight: 400 }}> · {humanize(rel).toLowerCase()} this</span>}{' '}
+                    {rel && rel !== 'about' && (
+                      <span style={{ color: palette.ink.muted, fontWeight: 400 }}>
+                        {' '}
+                        · {humanize(rel).toLowerCase()} this
+                      </span>
+                    )}{' '}
                     <span style={{ color: palette.ink.faint, fontWeight: 400 }}>{records.length}</span>
                   </h3>
                   {counted && (
                     <div aria-label="Tally" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {counted.counts.map(({ label, count }) => (
-                        <div key={label} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 24px', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                        <div
+                          key={label}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '110px 1fr 24px',
+                            alignItems: 'center',
+                            gap: 10,
+                            fontSize: 13,
+                          }}
+                        >
                           <span>{label}</span>
-                          <span style={{ height: 6, borderRadius: 3, background: palette.surface.sunken, overflow: 'hidden' }}>
-                            <span style={{ display: 'block', height: '100%', width: `${(count / Math.max(1, records.length)) * 100}%`, background: '#000' }} />
+                          <span
+                            style={{
+                              height: 6,
+                              borderRadius: 3,
+                              background: palette.surface.sunken,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: 'block',
+                                height: '100%',
+                                width: `${(count / Math.max(1, records.length)) * 100}%`,
+                                background: '#000',
+                              }}
+                            />
                           </span>
                           <span style={{ color: palette.ink.muted, textAlign: 'right' }}>{count}</span>
                         </div>
@@ -257,7 +379,17 @@ export function RecordPanel({
                     {records.map((r) => (
                       <button key={r.key} data-row onClick={() => onOpen(r)} style={miniRow}>
                         <Avatar did={r.root ?? r.author} size={18} />
-                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{labelFor(r)}</span>
+                        <span
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {labelFor(r)}
+                        </span>
                         <span style={{ color: palette.ink.faint, fontSize: 12 }}>
                           {writerOf(r, people)} · {ago(r.createdAt)}
                         </span>
@@ -278,7 +410,9 @@ export function RecordPanel({
                     submitLabel="Add"
                     onCancel={() => setAdding(null)}
                     onSubmit={async (next) => {
-                      await node.records.put(space.id, adding.collection.name, next, { links: [{ rel: adding.rel, to: record.key }] });
+                      await node.records.put(space.id, adding.collection.name, next, {
+                        links: [{ rel: adding.rel, to: record.key }],
+                      });
                       setAdding(null);
                     }}
                   />
@@ -287,7 +421,12 @@ export function RecordPanel({
                 attachable(collections, record.collection, ANNOTATIONS).length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {attachable(collections, record.collection, ANNOTATIONS).map((a) => (
-                      <button key={`${a.collection.name}-${a.rel}`} onClick={() => setAdding(a)} data-variant="quiet" style={styles.smallButton}>
+                      <button
+                        key={`${a.collection.name}-${a.rel}`}
+                        onClick={() => setAdding(a)}
+                        data-variant="quiet"
+                        style={styles.smallButton}
+                      >
                         + Add {collectionLabel(a.collection).toLowerCase()}
                       </button>
                     ))}
@@ -298,11 +437,25 @@ export function RecordPanel({
             {uses(comment.name) && (
               <>
                 <div style={{ height: 1, background: palette.surface.line }} />
-                <Comments space={space} target={record.key} comments={linked.filter((r) => r.collection === comment.name)} />
+                <Comments
+                  space={space}
+                  target={record.key}
+                  comments={linked.filter((r) => r.collection === comment.name)}
+                />
               </>
             )}
 
-            <footer style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingTop: 8, fontSize: 12, color: palette.ink.faint }}>
+            <footer
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                paddingTop: 8,
+                fontSize: 12,
+                color: palette.ink.faint,
+              }}
+            >
               <span>
                 {record.verified ? 'Signature verified' : 'Not verified'}
                 {record.encrypted && ' · encrypted'}
@@ -330,7 +483,17 @@ export function RecordPanel({
 
 function Property({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="property" style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, alignItems: 'start', minHeight: 32, padding: '4px 0' }}>
+    <div
+      className="property"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '120px 1fr',
+        gap: 12,
+        alignItems: 'start',
+        minHeight: 32,
+        padding: '4px 0',
+      }}
+    >
       <dt style={{ fontSize: 13, color: palette.ink.muted, paddingTop: 6 }}>{label}</dt>
       <dd style={{ margin: 0, fontSize: 14, minWidth: 0 }}>{children}</dd>
     </div>
@@ -342,25 +505,61 @@ function Property({ label, children }: { label: string; children: ReactNode }) {
  * save as soon as they change; text and numbers when you press Enter or click
  * away. Lists, objects and JSON get the form's editor and a Save.
  */
-function FieldEditor({ field, value, linked, editable, onSave }: { field: Field; value: unknown; linked: LinkedByRel; editable: boolean; onSave: (value: unknown) => Promise<void> }) {
+function FieldEditor({
+  field,
+  value,
+  linked,
+  editable,
+  onSave,
+}: {
+  field: Field;
+  value: unknown;
+  linked: LinkedByRel;
+  editable: boolean;
+  onSave: (value: unknown) => Promise<void>;
+}) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<unknown>(value);
   useEffect(() => setDraft(value), [value]);
   // In place, the property row already says what the field is.
-  const bare: Field = { ...field, label: '', required: false, schema: { ...field.schema, description: undefined } };
+  const bare: Field = {
+    ...field,
+    label: '',
+    required: false,
+    schema: { ...field.schema, description: undefined },
+  };
 
-  if (!editable) return <div style={{ paddingTop: 6 }}><Value field={field} value={value} linked={linked} /></div>;
+  if (!editable)
+    return (
+      <div style={{ paddingTop: 6 }}>
+        <Value field={field} value={value} linked={linked} />
+      </div>
+    );
 
   if (field.kind === 'boolean') {
     return (
-      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, paddingTop: 6, cursor: 'pointer' }}>
-        <input type="checkbox" checked={value === true} onChange={(e) => void onSave(e.target.checked)} aria-label={field.label} />
+      <label
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, paddingTop: 6, cursor: 'pointer' }}
+      >
+        <input
+          type="checkbox"
+          checked={value === true}
+          onChange={(e) => void onSave(e.target.checked)}
+          aria-label={field.label}
+        />
         <span style={{ color: palette.ink.muted, fontSize: 13 }}>{value === true ? 'Yes' : 'No'}</span>
       </label>
     );
   }
   if (field.kind === 'text' || field.kind === 'longText') {
-    return <InlineText value={typeof value === 'string' ? value : ''} onSave={(v) => onSave(v)} ariaLabel={field.label} multiline={field.kind === 'longText'} />;
+    return (
+      <InlineText
+        value={typeof value === 'string' ? value : ''}
+        onSave={(v) => onSave(v)}
+        ariaLabel={field.label}
+        multiline={field.kind === 'longText'}
+      />
+    );
   }
   if (field.kind === 'choice' || field.kind === 'number' || field.kind === 'integer') {
     // The form's own input, saving on change (choices) or on Enter/blur (numbers).
@@ -387,7 +586,11 @@ function FieldEditor({ field, value, linked, editable, onSave }: { field: Field;
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <FieldInput field={bare} value={draft} linked={linked} onChange={setDraft} />
       <div style={{ display: 'flex', gap: 6 }}>
-        <button onClick={() => void onSave(draft).then(() => setEditing(false))} data-variant="primary" style={{ ...styles.smallButton, background: '#000', color: '#fff', borderColor: '#000' }}>
+        <button
+          onClick={() => void onSave(draft).then(() => setEditing(false))}
+          data-variant="primary"
+          style={{ ...styles.smallButton, background: '#000', color: '#fff', borderColor: '#000' }}
+        >
           Save
         </button>
         <button onClick={() => setEditing(false)} data-variant="quiet" style={styles.smallButton}>
@@ -396,14 +599,31 @@ function FieldEditor({ field, value, linked, editable, onSave }: { field: Field;
       </div>
     </div>
   ) : (
-    <button data-editable onClick={() => setEditing(true)} style={{ ...editable_, textAlign: 'left' }} aria-label={`Edit ${field.label}`}>
+    <button
+      data-editable
+      onClick={() => setEditing(true)}
+      style={{ ...editable_, textAlign: 'left' }}
+      aria-label={`Edit ${field.label}`}
+    >
       <Value field={field} value={value} linked={linked} />
     </button>
   );
 }
 
 /** Text that looks like text until you click it; Enter or clicking away saves, Escape cancels */
-function InlineText({ value, onSave, ariaLabel, big, multiline }: { value: string; onSave: (value: string) => Promise<void> | void; ariaLabel: string; big?: boolean; multiline?: boolean }) {
+function InlineText({
+  value,
+  onSave,
+  ariaLabel,
+  big,
+  multiline,
+}: {
+  value: string;
+  onSave: (value: string) => Promise<void> | void;
+  ariaLabel: string;
+  big?: boolean;
+  multiline?: boolean;
+}) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   const commit = () => {
@@ -416,7 +636,13 @@ function InlineText({ value, onSave, ariaLabel, big, multiline }: { value: strin
     onBlur: commit,
     placeholder: 'Empty',
     'data-editable': true,
-    style: { ...editable_, ...(big ? bigTitle : {}), width: '100%', resize: 'vertical' as const, fontFamily: 'inherit' },
+    style: {
+      ...editable_,
+      ...(big ? bigTitle : {}),
+      width: '100%',
+      resize: 'vertical' as const,
+      fontFamily: 'inherit',
+    },
   };
   return multiline ? (
     <textarea {...common} rows={3} onKeyDown={(e) => e.key === 'Escape' && setDraft(value)} />
@@ -437,7 +663,13 @@ function groupBy<T>(items: ReadonlyArray<T>, key: (item: T) => string): Map<stri
   return groups;
 }
 
-const scrim = { position: 'fixed' as const, inset: 0, background: 'rgba(0,0,0,.18)', zIndex: 30, animation: 'weave-fade .12s ease' };
+const scrim = {
+  position: 'fixed' as const,
+  inset: 0,
+  background: 'rgba(0,0,0,.18)',
+  zIndex: 30,
+  animation: 'weave-fade .12s ease',
+};
 const panel = {
   position: 'fixed' as const,
   top: 0,
@@ -452,10 +684,42 @@ const panel = {
   flexDirection: 'column' as const,
   animation: 'weave-slide .16s ease',
 };
-const bigTitle = { fontSize: 22, fontWeight: 600, letterSpacing: '-0.03em', color: palette.ink.strong, lineHeight: 1.3 };
-const iconButton = { border: 'none', background: 'none', color: palette.ink.muted, fontSize: 14, padding: 6, borderRadius: 6 };
-const linkish = { border: 'none', background: 'none', padding: '6px 0 0', color: palette.ink.strong, textDecoration: 'underline', textUnderlineOffset: 3, fontSize: 14 };
-const miniRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 6px', border: 'none', borderRadius: 6, background: 'none', textAlign: 'left' as const, fontSize: 14, width: '100%' };
+const bigTitle = {
+  fontSize: 22,
+  fontWeight: 600,
+  letterSpacing: '-0.03em',
+  color: palette.ink.strong,
+  lineHeight: 1.3,
+};
+const iconButton = {
+  border: 'none',
+  background: 'none',
+  color: palette.ink.muted,
+  fontSize: 14,
+  padding: 6,
+  borderRadius: 6,
+};
+const linkish = {
+  border: 'none',
+  background: 'none',
+  padding: '6px 0 0',
+  color: palette.ink.strong,
+  textDecoration: 'underline',
+  textUnderlineOffset: 3,
+  fontSize: 14,
+};
+const miniRow = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '8px 6px',
+  border: 'none',
+  borderRadius: 6,
+  background: 'none',
+  textAlign: 'left' as const,
+  fontSize: 14,
+  width: '100%',
+};
 const editable_ = {
   border: '1px solid transparent',
   borderRadius: 6,

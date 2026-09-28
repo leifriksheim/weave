@@ -49,8 +49,18 @@ import {
 } from '../identity/account-vault.js';
 import { deriveContactKeyBytes, deriveMemberKeyBytes } from '../identity/contact-key.js';
 import { createDeviceKey, getDeviceKey, deleteDeviceKey } from '../identity/device-key.js';
-import { registerPasskey, authenticatePasskey, hasPlatformAuthenticator, renamePasskey } from '../identity/webauthn.js';
-import { generateSeed, seedToRecoveryCode, recoveryCodeToSeed, isValidRecoveryCode } from '../identity/recovery-code.js';
+import {
+  registerPasskey,
+  authenticatePasskey,
+  hasPlatformAuthenticator,
+  renamePasskey,
+} from '../identity/webauthn.js';
+import {
+  generateSeed,
+  seedToRecoveryCode,
+  recoveryCodeToSeed,
+  isValidRecoveryCode,
+} from '../identity/recovery-code.js';
 import type { PairingTicket } from '../identity/pairing.js';
 import { isFolderStorageAvailable } from '../storage/directory-access.js';
 import { base64UrlEncode } from '../utils/encoding.js';
@@ -72,8 +82,23 @@ import {
   type PodContents,
 } from './places.js';
 import { createStaySignedIn, type KeyValueStore, type StaySignedIn } from './stay-signed-in.js';
-import { grantCapabilities, MAX_GRANT_DAYS, type CarryGrant, type ConnectRequest, type Grant, type GrantedSpace, type ProposeRequest, type Proposed } from './connect.js';
-import { fromProposal, proposalSpaces, sameSubscription, type NotifySpaces, type NotifyWhen } from '../space/notify.js';
+import {
+  grantCapabilities,
+  MAX_GRANT_DAYS,
+  type CarryGrant,
+  type ConnectRequest,
+  type Grant,
+  type GrantedSpace,
+  type ProposeRequest,
+  type Proposed,
+} from './connect.js';
+import {
+  fromProposal,
+  proposalSpaces,
+  sameSubscription,
+  type NotifySpaces,
+  type NotifyWhen,
+} from '../space/notify.js';
 import {
   clearPairingTicket,
   collectFromDesktop,
@@ -324,7 +349,10 @@ export interface WeaveAuth {
    * it with a pass for every space, and remembers it as connected. The
    * carrier gets no key that reads or writes a space.
    */
-  grantCarry(choice: { readonly origin: string; readonly request: ConnectRequest }): Promise<Omit<CarryGrant, 'home'>>;
+  grantCarry(choice: {
+    readonly origin: string;
+    readonly request: ConnectRequest;
+  }): Promise<Omit<CarryGrant, 'home'>>;
   /**
    * Adds the subscriptions an app or carrier connected from this home
    * proposed later, as the account home — the ones the person kept, naming
@@ -351,7 +379,10 @@ export interface WeaveAuth {
    * `{ agent: true }` disconnects only those agents; `{ audience }` only the
    * one with that key.
    */
-  disconnect(origin: string, options?: { readonly agent?: boolean; readonly audience?: string }): Promise<void>;
+  disconnect(
+    origin: string,
+    options?: { readonly agent?: boolean; readonly audience?: string },
+  ): Promise<void>;
   readonly staySignedIn: {
     choice(): StaySignedIn;
     setChoice(choice: StaySignedIn): Promise<void>;
@@ -371,7 +402,8 @@ function describe(error: unknown): AuthError | null {
   return { message: error instanceof Error ? error.message : 'Something went wrong' };
 }
 
-const afterStorage = (accounts: ReadonlyArray<unknown>): AuthStage => (accounts.length > 0 ? 'signIn' : 'welcome');
+const afterStorage = (accounts: ReadonlyArray<unknown>): AuthStage =>
+  accounts.length > 0 ? 'signIn' : 'welcome';
 
 /**
  * The subscriptions an app's proposals become, for the ones the person kept.
@@ -383,12 +415,20 @@ const afterStorage = (accounts: ReadonlyArray<unknown>): AuthStage => (accounts.
 function subscriptionsFrom(
   proposals: ConnectRequest['notify'] & {},
   kept: ReadonlyArray<number> | undefined,
-  context: { readonly app: NotifyWhen['app'] & {}; readonly reach: NotifySpaces; readonly carrier: boolean; readonly account: string },
+  context: {
+    readonly app: NotifyWhen['app'] & {};
+    readonly reach: NotifySpaces;
+    readonly carrier: boolean;
+    readonly account: string;
+  },
 ): NotifyWhen[] {
   const made: NotifyWhen[] = [];
   for (const [index, proposal] of proposals.entries()) {
     if (kept && !kept.includes(index)) continue;
-    if (context.carrier && proposal.topic && !('me' in proposal.topic)) throw new Error('An extension can’t read your spaces, so it may only suggest “mentions me”, not a value of its choosing.');
+    if (context.carrier && proposal.topic && !('me' in proposal.topic))
+      throw new Error(
+        'An extension can’t read your spaces, so it may only suggest “mentions me”, not a value of its choosing.',
+      );
     const spaces = proposalSpaces(proposal, context.reach);
     if (!spaces) throw new Error(`“${proposal.label}” looks at a space it was not given.`);
     made.push(fromProposal(proposal, { app: context.app, spaces, account: context.account }));
@@ -397,7 +437,11 @@ function subscriptionsFrom(
 }
 
 /** Adds each, unless the same origin already has the same one */
-async function addSubscriptions(node: P2PNode, origin: string, subscriptions: ReadonlyArray<NotifyWhen>): Promise<Array<{ id: string; label: string }>> {
+async function addSubscriptions(
+  node: P2PNode,
+  origin: string,
+  subscriptions: ReadonlyArray<NotifyWhen>,
+): Promise<Array<{ id: string; label: string }>> {
   if (subscriptions.length === 0) return [];
   const existing = (await node.notifications.list()).filter((sub) => sub.app?.origin === origin);
   const added: Array<{ id: string; label: string }> = [];
@@ -417,7 +461,9 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   const appName = config.appName ?? 'Weave';
   const prefix = config.storageKey ?? 'weave';
   const storage: KeyValueStore | null =
-    config.storage !== undefined ? config.storage : ((globalThis as { localStorage?: KeyValueStore }).localStorage ?? null);
+    config.storage !== undefined
+      ? config.storage
+      : ((globalThis as { localStorage?: KeyValueStore }).localStorage ?? null);
   const stay = createStaySignedIn(storage, rpId, prefix);
   const browserAccounts = config.browser?.accounts ?? createBrowserAccountStore;
   const browserStores = config.browser?.stores ?? ((account: AccountSummary) => storesFor(account));
@@ -467,10 +513,16 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   let stopFollowingName: (() => void) | null = null;
   let started: Promise<void> | null = null;
 
-  const browserPlace = async (): Promise<Place> => ({ kind: 'browser', store: await browserAccounts(), directory: null });
+  const browserPlace = async (): Promise<Place> => ({
+    kind: 'browser',
+    store: await browserAccounts(),
+    directory: null,
+  });
 
   const storesOf = (place: Place, account: AccountSummary, key: CryptoKey): StoreFactory =>
-    place.directory ? storesFor(account, { directory: place.directory, vaultKey: key }) : browserStores(account);
+    place.directory
+      ? storesFor(account, { directory: place.directory, vaultKey: key })
+      : browserStores(account);
 
   // ─── Accounts in a place ───────────────────────────────────────────
 
@@ -484,7 +536,9 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     // A wrap whose key is missing from this browser cannot be offered, however
     // confidently the vault lists it.
     const usable = await Promise.all(
-      deviceWrapsFor(vault, rpId).map(async (wrap) => ((await getDeviceKey(wrap.deviceKeyId).catch(() => null)) ? wrap : null)),
+      deviceWrapsFor(vault, rpId).map(async (wrap) =>
+        (await getDeviceKey(wrap.deviceKeyId).catch(() => null)) ? wrap : null,
+      ),
     );
     return {
       summary,
@@ -509,7 +563,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   }
 
   async function refreshEntry(): Promise<void> {
-    if (state.place && state.session) update({ entry: await openEntry(state.place, state.session.account.id) });
+    if (state.place && state.session)
+      update({ entry: await openEntry(state.place, state.session.account.id) });
   }
 
   // ─── Sessions ──────────────────────────────────────────────────────
@@ -529,7 +584,11 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   }
 
   /** Starts the node for an unlocked account. */
-  async function startSession(place: Place, account: AccountSummary, unlocked: Uint8Array): Promise<WeaveSession> {
+  async function startSession(
+    place: Place,
+    account: AccountSummary,
+    unlocked: Uint8Array,
+  ): Promise<WeaveSession> {
     await stopNode();
 
     const manager = createIdentityManager();
@@ -545,7 +604,12 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
     seed = unlocked;
     vaultKey = key;
-    const session: WeaveSession = Object.freeze({ account, did: identity.did, sessionDid: node.sessionDid, node });
+    const session: WeaveSession = Object.freeze({
+      account,
+      did: identity.did,
+      sessionDid: node.sessionDid,
+      node,
+    });
 
     // The account's name follows it: a rename on another device or site
     // arrives through the account registry and is taken here too.
@@ -743,7 +807,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
     // Recent browsers let a site relabel its passkey; older ones ignore it.
     for (const wrap of deviceWrapsFor(vault, rpId)) {
-      if (wrap.userHandle) await renamePasskey({ rpId, userHandle: wrap.userHandle, name: renamed.name }).catch(() => false);
+      if (wrap.userHandle)
+        await renamePasskey({ rpId, userHandle: wrap.userHandle, name: renamed.name }).catch(() => false);
     }
     update({ session: Object.freeze({ ...session, account: renamed }), accounts: await listAccounts(place) });
     return renamed;
@@ -854,17 +919,22 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       return enter(async () => {
         const { place, entry } = state;
         // The account's password, and the CLI's passphrase if a pod has one: either opens it.
-        const wraps = (entry?.vault.wraps ?? []).filter((candidate): candidate is PassphraseWrap => candidate.kind === 'passphrase');
+        const wraps = (entry?.vault.wraps ?? []).filter(
+          (candidate): candidate is PassphraseWrap => candidate.kind === 'passphrase',
+        );
         // Before passwords, the recovery code was this site's login, and a
         // password manager still fills it here. It opens the account either way.
         const code = isValidRecoveryCode(password) ? password : null;
         let failed: unknown = null;
         for (const wrap of place && entry ? wraps : []) {
-          const unlocked = await unwrapSeedWithPassphrase(wrap, password).catch((error: unknown) => ((failed = error), null));
+          const unlocked = await unwrapSeedWithPassphrase(wrap, password).catch(
+            (error: unknown) => ((failed = error), null),
+          );
           if (unlocked) return { session: await begin(place!, entry!.summary, unlocked), byCode: false };
         }
         if (failed && !code) throw failed;
-        if (code) return { session: await openWithCode(code, entry?.summary ?? selectedAccount()), byCode: true };
+        if (code)
+          return { session: await openWithCode(code, entry?.summary ?? selectedAccount()), byCode: true };
         throw protocolError(
           'VAULT_UNLOCK_FAILED',
           'No password is set for this account here.',
@@ -895,7 +965,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
             'Clearing site data removes it. Your recovery code still works, and a new passkey can be set up afterwards.',
           );
         }
-        return { session: await begin(place, entry.summary, await unwrapSeedWithDeviceKey(target, key)), byCode: false };
+        return {
+          session: await begin(place, entry.summary, await unwrapSeedWithDeviceKey(target, key)),
+          byCode: false,
+        };
       });
     },
 
@@ -974,7 +1047,11 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
     dismissPairing() {
       clearPairingTicket();
-      update({ pairing: null, pairingStage: null, stage: state.session ? 'ready' : afterStorage(state.accounts) });
+      update({
+        pairing: null,
+        pairingStage: null,
+        stage: state.session ? 'ready' : afterStorage(state.accounts),
+      });
     },
 
     clearError() {
@@ -1012,13 +1089,20 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     setPassword: (password) =>
       changeShortcut(async (unlocked) => {
         if (password.length < MIN_PASSWORD_LENGTH) {
-          throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters. Your password manager can make one for you.`);
+          throw new Error(
+            `Use at least ${MIN_PASSWORD_LENGTH} characters. Your password manager can make one for you.`,
+          );
         }
         const wrap = await wrapSeedWithPassphrase(unlocked, password, 'Password');
         // One password: the new one replaces the last. The CLI's passphrase is its own, and stays.
         await updateVault(async (vault) => ({
           ...vault,
-          wraps: [...vault.wraps.filter((kept) => kept.kind !== 'passphrase' || kept.label === CLI_PASSPHRASE_LABEL), wrap],
+          wraps: [
+            ...vault.wraps.filter(
+              (kept) => kept.kind !== 'passphrase' || kept.label === CLI_PASSPHRASE_LABEL,
+            ),
+            wrap,
+          ],
         }));
       }),
 
@@ -1027,7 +1111,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         const session = state.session!;
         if (kind === 'passkey') {
           const vault = await state.place!.store.read(session.account.id);
-          for (const wrap of vault ? deviceWrapsFor(vault, rpId) : []) await deleteDeviceKey(wrap.deviceKeyId);
+          for (const wrap of vault ? deviceWrapsFor(vault, rpId) : [])
+            await deleteDeviceKey(wrap.deviceKeyId);
         }
         // Removing every shortcut leaves the account openable by its recovery
         // code alone. Another site's passkey is not this one's to remove.
@@ -1054,7 +1139,13 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           // Use the pod's own copy and bring nothing; what was only here stays here.
           await rememberPod(pod);
           const started = await begin(pod, contents.account, unlocked);
-          update({ session: started, place: pod, accounts: await listAccounts(pod), podChoice: null, moved: null });
+          update({
+            session: started,
+            place: pod,
+            accounts: await listAccounts(pod),
+            podChoice: null,
+            moved: null,
+          });
           return;
         }
 
@@ -1151,23 +1242,45 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const { node } = session;
       const { request } = choice;
 
-      if (request.access === 'carry') throw new Error('A carrier is given passes, not a note — use grantCarry.');
+      if (request.access === 'carry')
+        throw new Error('A carrier is given passes, not a note — use grantCarry.');
       const access = request.access;
       const agent = request.agent === true;
-      if (agent && request.create?.length) throw new Error('An agent works in spaces that exist — none are made for it.');
+      if (agent && request.create?.length)
+        throw new Error('An agent works in spaces that exist — none are made for it.');
       if (agent && request.contacts) throw new Error('An agent is not given your contacts.');
       const whole = request.scope === 'account';
       const app = { origin: choice.origin, ...(request.name ? { name: request.name.slice(0, 80) } : {}) };
       // A proposal looking at a space the app isn't given is refused before anything is made. (It can't name one made for it.)
-      if (!agent && !whole) subscriptionsFrom(request.notify ?? [], choice.notify, { app, reach: choice.spaceIds, carrier: false, account: session.did });
+      if (!agent && !whole)
+        subscriptionsFrom(request.notify ?? [], choice.notify, {
+          app,
+          reach: choice.spaceIds,
+          carrier: false,
+          account: session.did,
+        });
       const created = [];
       for (const params of request.create ?? []) created.push(await node.spaces.create(params));
       // With the whole account the app derives the contacts space itself; otherwise it is one more space it is given.
       const contactsSpace = request.contacts && !whole ? await node.contacts.space() : null;
-      const ids = [...new Set([...choice.spaceIds, ...created.map((space) => space.id), ...(contactsSpace ? [contactsSpace] : [])])];
+      const ids = [
+        ...new Set([
+          ...choice.spaceIds,
+          ...created.map((space) => space.id),
+          ...(contactsSpace ? [contactsSpace] : []),
+        ]),
+      ];
       // Subscriptions the app proposed and the person kept.
       const looked = whole ? ('all' as const) : ids.filter((id) => id !== contactsSpace);
-      const proposed = agent || (looked !== 'all' && looked.length === 0) ? [] : subscriptionsFrom(request.notify ?? [], choice.notify, { app, reach: looked, carrier: false, account: session.did });
+      const proposed =
+        agent || (looked !== 'all' && looked.length === 0)
+          ? []
+          : subscriptionsFrom(request.notify ?? [], choice.notify, {
+              app,
+              reach: looked,
+              carrier: false,
+              account: session.did,
+            });
 
       const spaces: GrantedSpace[] = [];
       for (const id of ids) {
@@ -1176,7 +1289,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         // Read-only: what lets the app write is the note, under this account's own role — never a secret of the space's.
         const invite = await node.spaces.invite(id, { write: false });
         // Only for the spaces granted: each opens that space's next key and nothing else.
-        const memberKey = !whole && space.visibility === 'private' ? base64UrlEncode(await deriveMemberKeyBytes(await deriveVaultKeyBytes(seed), id)) : null;
+        const memberKey =
+          !whole && space.visibility === 'private'
+            ? base64UrlEncode(await deriveMemberKeyBytes(await deriveVaultKeyBytes(seed), id))
+            : null;
         spaces.push({ id, name: space.name, invite, ...(memberKey ? { memberKey } : {}) });
       }
 
@@ -1204,7 +1320,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         ...(agent ? { agent: true as const } : {}),
       };
       // Connecting again replaces the old note. An agent is its own key: connecting one replaces only that one.
-      const replaced = (known: Connection) => (agent ? known.audience === request.audience : known.origin === choice.origin && !known.agent);
+      const replaced = (known: Connection) =>
+        agent ? known.audience === request.audience : known.origin === choice.origin && !known.agent;
       writeConnections([connection, ...auth.connections().filter((known) => !replaced(known))]);
 
       // Written by the home for the app. Connecting again adds nothing twice.
@@ -1220,7 +1337,9 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         spaces,
         ...(whole ? { accountKey: base64UrlEncode(await deriveVaultKeyBytes(seed)) } : {}),
         // Never to an agent: the contact key opens contact requests and knocks on your doors.
-        ...(!agent && (whole || request.contacts) ? { contactKey: base64UrlEncode(await deriveContactKeyBytes(seed)) } : {}),
+        ...(!agent && (whole || request.contacts)
+          ? { contactKey: base64UrlEncode(await deriveContactKeyBytes(seed)) }
+          : {}),
         ...(contactsSpace ? { contactsSpace } : {}),
         ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
         expiresAt,
@@ -1234,7 +1353,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       if (!session) throw new Error('Sign in first.');
       const { node } = session;
       const connection = auth.connections().find((known) => known.origin === origin && !known.agent);
-      if (!connection) throw new Error('Only an app or extension connected to your account here may suggest what to notify you about. Connect it first.');
+      if (!connection)
+        throw new Error(
+          'Only an app or extension connected to your account here may suggest what to notify you about. Connect it first.',
+        );
       const carrier = connection.access === 'carry';
       // What it may reach: every space for a carrier or a whole-account app, else the spaces it was given, less the contacts space.
       let reach: NotifySpaces = 'all';
@@ -1243,7 +1365,14 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         reach = connection.spaces.map((space) => space.id).filter((id) => id !== contactsSpace);
         if (reach.length === 0) throw new Error('It was given no spaces to notify you about.');
       }
-      const app = { origin, ...(connection.name ? { name: connection.name } : request.name ? { name: request.name.slice(0, 80) } : {}) };
+      const app = {
+        origin,
+        ...(connection.name
+          ? { name: connection.name }
+          : request.name
+            ? { name: request.name.slice(0, 80) }
+            : {}),
+      };
       const when = subscriptionsFrom(request.notify, kept, { app, reach, carrier, account: session.did });
       return { v: 1, kind: 'proposed', notify: await addSubscriptions(node, origin, when) };
     },
@@ -1279,7 +1408,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         did: session.did,
         name: session.account.name,
         carry,
-        pod: place?.kind === 'folder' ? { dataPath: session.account.dataPath, folder: place.directory?.name ?? 'your pod' } : null,
+        pod:
+          place?.kind === 'folder'
+            ? { dataPath: session.account.dataPath, folder: place.directory?.name ?? 'your pod' }
+            : null,
         ...(config.network?.relays?.length ? { relays: [...config.network.relays] } : {}),
       };
     },
@@ -1323,7 +1455,10 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           const contactsSpace = await node.contacts.space();
           const covered =
             connection.scope === 'account'
-              ? [...(await node.spaces.list()).filter((space) => space.writable).map((space) => space.id), ...(contactsSpace ? [contactsSpace] : [])]
+              ? [
+                  ...(await node.spaces.list()).filter((space) => space.writable).map((space) => space.id),
+                  ...(contactsSpace ? [contactsSpace] : []),
+                ]
               : connection.spaces.map((space) => space.id);
           for (const spaceId of covered) {
             // A space that is gone, or that this account no longer writes in, has nothing to revoke.
@@ -1335,7 +1470,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         // The app's own subscriptions go with it, and a carrier's: what they look for is theirs to know.
         if (!connection.agent && node) {
           for (const sub of await node.notifications.list()) {
-            if (sub.app?.origin === connection.origin) await node.notifications.remove(sub.id).catch(() => {});
+            if (sub.app?.origin === connection.origin)
+              await node.notifications.remove(sub.id).catch(() => {});
           }
         }
       }
@@ -1351,7 +1487,15 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     async signOut() {
       await stay.forget();
       const leaving = state.session?.node;
-      update({ stage: 'starting', session: null, entry: null, freshCode: null, setup: null, podChoice: null, moved: null });
+      update({
+        stage: 'starting',
+        session: null,
+        entry: null,
+        freshCode: null,
+        setup: null,
+        podChoice: null,
+        moved: null,
+      });
       await stopNode(leaving).catch(() => {});
       const place = state.place;
       update({ stage: place ? afterStorage(await refresh(place)) : 'welcome' });

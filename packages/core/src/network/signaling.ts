@@ -57,7 +57,8 @@ function iceFrom(payload: unknown): { servers: ReadonlyArray<RTCIceServer>; expi
     const urls = (Array.isArray(server?.urls) ? server.urls : [server?.urls]).filter(
       (url): url is string => typeof url === 'string' && url.length < 256 && /^turns?:/.test(url),
     );
-    if (urls.length === 0 || typeof server.username !== 'string' || typeof server.credential !== 'string') continue;
+    if (urls.length === 0 || typeof server.username !== 'string' || typeof server.credential !== 'string')
+      continue;
     kept.push({ urls, username: server.username, credential: server.credential });
   }
   return kept.length > 0 ? { servers: kept, expiresAt } : null;
@@ -114,8 +115,7 @@ export function createSignalingClient(url: string, did: string): SignalingClient
           else if (msg.type === 'ice') {
             const offered = iceFrom(msg.payload);
             if (offered) emit('ice', offered.servers, offered.expiresAt);
-          }
-          else if (typeof msg.room !== 'string') return;
+          } else if (typeof msg.room !== 'string') return;
           else if (msg.type === 'join') emit('peer-joined', msg.from, msg.room);
           else if (msg.type === 'leave') emit('peer-left', msg.from, msg.room);
         } catch (err) {
@@ -176,7 +176,8 @@ export function createSignalingClient(url: string, did: string): SignalingClient
     leave: (room: string) => {
       if (rooms.delete(room)) sendMessage({ type: 'leave', room });
     },
-    signal: (kind: SignalKind, targetDid: string, payload: unknown) => sendMessage({ type: kind, to: targetDid, payload }),
+    signal: (kind: SignalKind, targetDid: string, payload: unknown) =>
+      sendMessage({ type: kind, to: targetDid, payload }),
     requestIce: () => sendMessage({ type: 'ice' }),
     on,
     off,

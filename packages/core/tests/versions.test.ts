@@ -5,7 +5,13 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { supersedes, nextVersion, checkVersionShape, newRecordKey, RECORD_KEY_PATTERN } from '../src/records/version.js';
+import {
+  supersedes,
+  nextVersion,
+  checkVersionShape,
+  newRecordKey,
+  RECORD_KEY_PATTERN,
+} from '../src/records/version.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
 import { createSigner } from '../src/schema/signer.js';
@@ -28,7 +34,10 @@ const provider = createP256Provider();
 const signer = createSigner(provider);
 const author = await (async () => {
   const pair = await provider.generateKeyPair();
-  return { did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC), key: pair.privateKey };
+  return {
+    did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC),
+    key: pair.privateKey,
+  };
 })();
 
 /** Signs a version of `key` with the given fields. */
@@ -36,7 +45,14 @@ async function version(
   key: string,
   seq: number,
   body: unknown,
-  extra: { prev?: string; genesis?: string; retain?: boolean; deleted?: boolean; createdAt?: string; collection?: string } = {},
+  extra: {
+    prev?: string;
+    genesis?: string;
+    retain?: boolean;
+    deleted?: boolean;
+    createdAt?: string;
+    collection?: string;
+  } = {},
 ): Promise<Expression> {
   return signer.sign(
     createExpression({
@@ -44,7 +60,12 @@ async function version(
       collection: extra.collection ?? 'app.test',
       body: extra.deleted ? null : body,
       ...(extra.createdAt ? { createdAt: extra.createdAt } : {}),
-      version: { key, seq, ...(extra.prev ? { prev: extra.prev } : {}), ...(extra.genesis ? { genesis: extra.genesis } : {}) },
+      version: {
+        key,
+        seq,
+        ...(extra.prev ? { prev: extra.prev } : {}),
+        ...(extra.genesis ? { genesis: extra.genesis } : {}),
+      },
       ...(extra.retain ? { retain: true } : {}),
       ...(extra.deleted ? { deleted: true } : {}),
     }),
@@ -63,7 +84,9 @@ async function chain(key: string, length: number, options: { retain?: boolean } 
 
 function permutations<T>(items: T[]): T[][] {
   if (items.length <= 1) return [items];
-  return items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]));
+  return items.flatMap((item, i) =>
+    permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]),
+  );
 }
 
 async function storeOf(versions: Expression[]) {
@@ -83,7 +106,12 @@ describe('the ordering rule', () => {
   test('a version dated a year ahead still loses to a higher seq', async () => {
     const key = newRecordKey();
     const [first, second] = await chain(key, 2);
-    const forged = await version(key, 1, { forged: true }, { ...nextVersion(first!), createdAt: '2099-01-01T00:00:00.000Z' });
+    const forged = await version(
+      key,
+      1,
+      { forged: true },
+      { ...nextVersion(first!), createdAt: '2099-01-01T00:00:00.000Z' },
+    );
     const third = await version(key, 2, { n: 2 }, nextVersion(second!));
     const storage = await storeOf([first!, forged, third]);
     assert.equal((await storage.getCurrent(key))?.id, third.id);
@@ -103,7 +131,8 @@ describe('a store of versions', () => {
     // A concurrent edit: another seq 2, made from v1 on another device.
     const rival = await version(key, 2, { rival: true }, nextVersion(v1!));
     const roots = new Set<string | null>();
-    for (const order of permutations([v0!, v1!, v2!, rival])) roots.add(await (await storeOf(order)).fingerprint());
+    for (const order of permutations([v0!, v1!, v2!, rival]))
+      roots.add(await (await storeOf(order)).fingerprint());
     assert.equal(roots.size, 1);
   });
 
@@ -141,10 +170,16 @@ describe('a store of versions', () => {
     const history = await storage.history(key);
     assert.equal(history.length, 50);
     for (let i = 0; i < history.length - 1; i++) {
-      assert.equal(history[i]!.prev, history[i + 1]!.id, `version ${history[i]!.seq} links to the one before`);
+      assert.equal(
+        history[i]!.prev,
+        history[i + 1]!.id,
+        `version ${history[i]!.seq} links to the one before`,
+      );
     }
     for (const v of history) {
-      const publicKey = await provider.importPublicKey((await import('../src/identity/did.js')).didToPublicKey(v.author).publicKeyBytes);
+      const publicKey = await provider.importPublicKey(
+        (await import('../src/identity/did.js')).didToPublicKey(v.author).publicKeyBytes,
+      );
       assert.equal(await signer.verify(v, publicKey), true);
     }
   });
@@ -206,7 +241,10 @@ describe('versioned records through the node', () => {
     assert.equal(ticked.seq, 1);
     assert.notEqual(ticked.version, made.version);
     assert.equal(ticked.createdBy, me.did);
-    assert.deepEqual((await me.records.list(space)).map((r) => [r.key, (r.body as { done: boolean }).done]), [[made.key, true]]);
+    assert.deepEqual(
+      (await me.records.list(space)).map((r) => [r.key, (r.body as { done: boolean }).done]),
+      [[made.key, true]],
+    );
   });
 
   test('two members editing apart converge on the same version', async () => {
@@ -227,7 +265,9 @@ describe('versioned records through the node', () => {
       bob.records.update(space, made.key, { text: 'oat milk', done: false }),
     ]);
     await until(
-      async () => (await alice.records.get(space, made.key))?.version === (await bob.records.get(space, made.key))?.version,
+      async () =>
+        (await alice.records.get(space, made.key))?.version ===
+        (await bob.records.get(space, made.key))?.version,
       3000,
       'the same winner on both',
     );
@@ -238,15 +278,27 @@ describe('versioned records through the node', () => {
     const alice = await person(hub);
     const bob = await person(hub);
     const { id: space } = await alice.spaces.create({ name: 'Ledger', ...team, visibility: 'public' });
-    await alice.collections.define(space, { name: 'app.ledger.entry', schema: { type: 'object' }, history: 'all' });
+    await alice.collections.define(space, {
+      name: 'app.ledger.entry',
+      schema: { type: 'object' },
+      history: 'all',
+    });
 
     const made = await alice.records.put(space, 'app.ledger.entry', { amount: 1 });
     for (let n = 2; n <= 5; n++) await alice.records.update(space, made.key, { amount: n });
-    assert.deepEqual((await alice.records.history<{ amount: number }>(space, made.key)).map((r) => r.body?.amount), [5, 4, 3, 2, 1]);
+    assert.deepEqual(
+      (await alice.records.history<{ amount: number }>(space, made.key)).map((r) => r.body?.amount),
+      [5, 4, 3, 2, 1],
+    );
 
     await bob.spaces.join(await alice.spaces.invite(space));
     await hold(bob, space);
-    await until(async () => (await alice.spaces.status(space)).fingerprint === (await bob.spaces.status(space)).fingerprint, 3000, 'the stores to match');
+    await until(
+      async () =>
+        (await alice.spaces.status(space)).fingerprint === (await bob.spaces.status(space)).fingerprint,
+      3000,
+      'the stores to match',
+    );
     assert.equal((await bob.records.history(space, made.key)).length, 5);
   });
 
@@ -259,6 +311,9 @@ describe('versioned records through the node', () => {
     const back = await me.records.put(space, 'app.note', { text: 'again' }, { key: 'pinned' });
     assert.equal(back.seq, 2);
     assert.equal(back.key, made.key);
-    await assert.rejects(me.records.put(space, 'app.note', { text: 'twice' }, { key: 'pinned' }), /already exists/);
+    await assert.rejects(
+      me.records.put(space, 'app.note', { text: 'twice' }, { key: 'pinned' }),
+      /already exists/,
+    );
   });
 });

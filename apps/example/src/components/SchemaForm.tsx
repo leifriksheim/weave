@@ -25,8 +25,9 @@ export function SchemaForm({
   onCancel?: () => void;
 }) {
   const fields = fieldsOf(schema);
-  const [value, setValue] = useState<Record<string, unknown>>(() =>
-    (initial as Record<string, unknown>) ?? Object.fromEntries(fields.map((f) => [f.name, emptyValue(f)])),
+  const [value, setValue] = useState<Record<string, unknown>>(
+    () =>
+      (initial as Record<string, unknown>) ?? Object.fromEntries(fields.map((f) => [f.name, emptyValue(f)])),
   );
   const [json, setJson] = useState(() => JSON.stringify(initial ?? {}, null, 2));
   const [error, setError] = useState<string | null>(null);
@@ -57,11 +58,22 @@ export function SchemaForm({
       {fields.length === 0 ? (
         <label style={labelStyle}>
           <span>Body (JSON) — this collection has no schema</span>
-          <textarea value={json} onChange={(e) => setJson(e.target.value)} rows={6} style={{ ...styles.input, fontFamily: 'monospace' }} />
+          <textarea
+            value={json}
+            onChange={(e) => setJson(e.target.value)}
+            rows={6}
+            style={{ ...styles.input, fontFamily: 'monospace' }}
+          />
         </label>
       ) : (
         fields.map((field) => (
-          <FieldInput key={field.name} field={field} linked={linked} value={value[field.name]} onChange={(v) => setValue((old) => ({ ...old, [field.name]: v }))} />
+          <FieldInput
+            key={field.name}
+            field={field}
+            linked={linked}
+            value={value[field.name]}
+            onChange={(v) => setValue((old) => ({ ...old, [field.name]: v }))}
+          />
         ))
       )}
       {error && <p style={styles.error}>{error}</p>}
@@ -81,12 +93,24 @@ export function SchemaForm({
 
 const labelStyle = { display: 'flex', flexDirection: 'column' as const, gap: 4, fontSize: 13 };
 
-export function FieldInput({ field, value, onChange, linked = {} }: { field: Field; value: unknown; onChange: (value: unknown) => void; linked?: LinkedByRel }) {
+export function FieldInput({
+  field,
+  value,
+  onChange,
+  linked = {},
+}: {
+  field: Field;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  linked?: LinkedByRel;
+}) {
   const label = (
     <span>
       {field.label}
       {field.required && ' *'}
-      {typeof field.schema.description === 'string' && <span style={{ opacity: 0.6 }}> — {field.schema.description}</span>}
+      {typeof field.schema.description === 'string' && (
+        <span style={{ opacity: 0.6 }}> — {field.schema.description}</span>
+      )}
     </span>
   );
 
@@ -101,12 +125,33 @@ export function FieldInput({ field, value, onChange, linked = {} }: { field: Fie
     case 'choice': {
       const choices = choicesOf(field, linked);
       // Choices from a linked record that is not here: fall back to a plain input for the type.
-      if (!choices) return <FieldInput field={{ ...field, kind: field.schema.type === 'integer' ? 'integer' : field.schema.type === 'number' ? 'number' : 'text' }} value={value} onChange={onChange} />;
+      if (!choices)
+        return (
+          <FieldInput
+            field={{
+              ...field,
+              kind:
+                field.schema.type === 'integer'
+                  ? 'integer'
+                  : field.schema.type === 'number'
+                    ? 'number'
+                    : 'text',
+            }}
+            value={value}
+            onChange={onChange}
+          />
+        );
       const selected = choices.findIndex((c) => c.value === value);
       return (
         <label style={labelStyle}>
           {label}
-          <select value={selected < 0 ? '' : String(selected)} onChange={(e) => onChange(e.target.value === '' ? undefined : choices[Number(e.target.value)]?.value)} style={styles.input}>
+          <select
+            value={selected < 0 ? '' : String(selected)}
+            onChange={(e) =>
+              onChange(e.target.value === '' ? undefined : choices[Number(e.target.value)]?.value)
+            }
+            style={styles.input}
+          >
             <option value="">—</option>
             {choices.map((choice, i) => (
               <option key={i} value={String(i)}>
@@ -135,11 +180,23 @@ export function FieldInput({ field, value, onChange, linked = {} }: { field: Fie
       return (
         <label style={labelStyle}>
           {label}
-          <textarea value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value)} rows={4} style={styles.input} />
+          <textarea
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => onChange(e.target.value)}
+            rows={4}
+            style={styles.input}
+          />
         </label>
       );
     case 'list':
-      return <ListInput field={field} label={label} value={Array.isArray(value) ? value : []} onChange={onChange} />;
+      return (
+        <ListInput
+          field={field}
+          label={label}
+          value={Array.isArray(value) ? value : []}
+          onChange={onChange}
+        />
+      );
     case 'object':
       return (
         <fieldset style={{ ...labelStyle, border: '1px solid #e6e8ec', borderRadius: 8, padding: 10 }}>
@@ -160,14 +217,29 @@ export function FieldInput({ field, value, onChange, linked = {} }: { field: Fie
       return (
         <label style={labelStyle}>
           {label}
-          <input type="text" value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value)} style={styles.input} />
+          <input
+            type="text"
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => onChange(e.target.value)}
+            style={styles.input}
+          />
         </label>
       );
   }
 }
 
 /** A list of short values: one box each, plus one to add */
-function ListInput({ field, label, value, onChange }: { field: Field; label: React.ReactNode; value: unknown[]; onChange: (value: unknown) => void }) {
+function ListInput({
+  field,
+  label,
+  value,
+  onChange,
+}: {
+  field: Field;
+  label: React.ReactNode;
+  value: unknown[];
+  onChange: (value: unknown) => void;
+}) {
   const numeric = ((field.schema.items ?? {}) as JsonSchema).type !== 'string';
   const parse = (raw: string) => (numeric ? Number(raw) : raw);
   return (
@@ -182,19 +254,38 @@ function ListInput({ field, label, value, onChange }: { field: Field; label: Rea
             onChange={(e) => onChange(value.map((old, i) => (i === index ? parse(e.target.value) : old)))}
             style={{ ...styles.input, flex: 1 }}
           />
-          <button type="button" onClick={() => onChange(value.filter((_, i) => i !== index))} data-variant="ghost" style={styles.linkButton} aria-label={`Remove ${field.label} ${index + 1}`}>
+          <button
+            type="button"
+            onClick={() => onChange(value.filter((_, i) => i !== index))}
+            data-variant="ghost"
+            style={styles.linkButton}
+            aria-label={`Remove ${field.label} ${index + 1}`}
+          >
             ✕
           </button>
         </div>
       ))}
-      <button type="button" onClick={() => onChange([...value, numeric ? 0 : ''])} data-variant="ghost" style={{ ...styles.linkButton, alignSelf: 'flex-start' }}>
+      <button
+        type="button"
+        onClick={() => onChange([...value, numeric ? 0 : ''])}
+        data-variant="ghost"
+        style={{ ...styles.linkButton, alignSelf: 'flex-start' }}
+      >
         + Add {field.label.toLowerCase()}
       </button>
     </div>
   );
 }
 
-function JsonInput({ label, value, onChange }: { label: React.ReactNode; value: unknown; onChange: (value: unknown) => void }) {
+function JsonInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: React.ReactNode;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
   const [raw, setRaw] = useState(() => (value === undefined ? '' : JSON.stringify(value, null, 2)));
   return (
     <label style={labelStyle}>

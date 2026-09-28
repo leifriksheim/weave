@@ -62,8 +62,16 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
   const timeoutMs = options.timeoutMs ?? 8000;
 
   /** Opens a socket, sends one message, and resolves with the first answer `pick` accepts */
-  function ask<T>(relay: string, message: unknown, pick: (answer: Record<string, unknown>) => T | undefined): Promise<T> {
-    return talk(relay, (send) => send(message), async (answer) => pick(answer));
+  function ask<T>(
+    relay: string,
+    message: unknown,
+    pick: (answer: Record<string, unknown>) => T | undefined,
+  ): Promise<T> {
+    return talk(
+      relay,
+      (send) => send(message),
+      async (answer) => pick(answer),
+    );
   }
 
   /**
@@ -118,12 +126,17 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
 
   const client: MailboxClient = {
     drop(relay: string, topic: string, blob: string, ttlSeconds?: number) {
-      return ask(relay, { type: 'drop', topic, blob, ...(ttlSeconds ? { ttl: ttlSeconds } : {}) }, (answer) => {
-        if (answer.topic !== topic) return undefined;
-        if (answer.type === 'dropped' && typeof answer.id === 'string') return answer.id;
-        if (answer.type === 'refused') throw new Error(`${relay} refused the knock: ${String(answer.reason ?? 'no reason given')}`);
-        return undefined;
-      });
+      return ask(
+        relay,
+        { type: 'drop', topic, blob, ...(ttlSeconds ? { ttl: ttlSeconds } : {}) },
+        (answer) => {
+          if (answer.topic !== topic) return undefined;
+          if (answer.type === 'dropped' && typeof answer.id === 'string') return answer.id;
+          if (answer.type === 'refused')
+            throw new Error(`${relay} refused the knock: ${String(answer.reason ?? 'no reason given')}`);
+          return undefined;
+        },
+      );
     },
 
     async fetch(relay: string, topic: string, after = 0) {
@@ -148,12 +161,21 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
         (send) => send({ type: 'challenge' }),
         async (answer, send) => {
           if (answer.type === 'challenge' && typeof answer.nonce === 'string') {
-            send({ type: 'purge', topic, sign, ...(ids ? { ids: [...ids] } : {}), sig: await signChallenge(answer.nonce) });
+            send({
+              type: 'purge',
+              topic,
+              sign,
+              ...(ids ? { ids: [...ids] } : {}),
+              sig: await signChallenge(answer.nonce),
+            });
             return undefined;
           }
           if (answer.topic !== topic) return undefined;
           if (answer.type === 'purged' && typeof answer.count === 'number') return answer.count;
-          if (answer.type === 'refused') throw new Error(`${relay} refused to clear the door: ${String(answer.reason ?? 'no reason given')}`);
+          if (answer.type === 'refused')
+            throw new Error(
+              `${relay} refused to clear the door: ${String(answer.reason ?? 'no reason given')}`,
+            );
           return undefined;
         },
       );

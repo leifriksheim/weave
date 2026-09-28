@@ -21,14 +21,18 @@ let creating: Promise<void> | null = null;
 
 async function ensureOffscreen(): Promise<void> {
   const url = chrome.runtime.getURL(OFFSCREEN);
-  const existing = await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT], documentUrls: [url] });
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+    documentUrls: [url],
+  });
   if (existing.length > 0) return;
   // Two callers at once must not both create it: Chrome allows one.
   creating ??= chrome.offscreen
     .createDocument({
       url: OFFSCREEN,
       reasons: [chrome.offscreen.Reason.WEB_RTC],
-      justification: 'Runs a peer that keeps your Weave spaces synced with your other devices over WebRTC while the browser is open.',
+      justification:
+        'Runs a peer that keeps your Weave spaces synced with your other devices over WebRTC while the browser is open.',
     })
     .finally(() => {
       creating = null;
@@ -78,7 +82,10 @@ async function notify(message: Extract<WorkerMessage, { type: 'notify' }>): Prom
   const count = burst && now - burst.since < BURST_MS ? burst.count + 1 : 1;
   bursts.set(id, { count, since: burst && count > 1 ? burst.since : now });
   opens.set(id, subscription.open ?? accountPage(message.home));
-  const when = new Date(record.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const when = new Date(record.createdAt).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
   await chrome.notifications.create(id, {
     type: 'basic',
     iconUrl: chrome.runtime.getURL('icons/128.png'),
@@ -103,7 +110,8 @@ chrome.notifications.onClosed.addListener((id) => {
 });
 
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) void chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+  if (details.reason === chrome.runtime.OnInstalledReason.INSTALL)
+    void chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
   void ensureOffscreen();
 });
 

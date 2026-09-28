@@ -8,7 +8,17 @@
  */
 import { appKey, connectCarrier, homeAddress, type CarryGrant } from '@weaveprotocol/core/session';
 import { pickDataFolder, rememberDataFolder, type DirectoryHandleLike } from '@weaveprotocol/core/storage';
-import { ask, DEFAULT_HOME, EXTENSION_NAME, KEY_NAME, loadGrant, saveGrant, setRemoved, type CarrierStatus, type StatusChanged } from './shared';
+import {
+  ask,
+  DEFAULT_HOME,
+  EXTENSION_NAME,
+  KEY_NAME,
+  loadGrant,
+  saveGrant,
+  setRemoved,
+  type CarrierStatus,
+  type StatusChanged,
+} from './shared';
 import { accountLine, h, mark, resumePod, spaceList, summary } from './ui';
 
 const app = document.getElementById('app')!;
@@ -45,7 +55,12 @@ async function run(task: () => Promise<void>): Promise<void> {
 // ─── Not connected ────────────────────────────────────────────────────
 
 function connectView(): Array<Node | null> {
-  const input = h('input', { id: 'home', value: new URL(DEFAULT_HOME).host, autocomplete: 'off', spellcheck: 'false' });
+  const input = h('input', {
+    id: 'home',
+    value: new URL(DEFAULT_HOME).host,
+    autocomplete: 'off',
+    spellcheck: 'false',
+  });
   const connect = () =>
     run(async () => {
       const home = homeAddress(input.value);
@@ -57,7 +72,13 @@ function connectView(): Array<Node | null> {
     });
 
   return [
-    status?.removed ? h('p', { class: 'note' }, 'Your account disconnected this extension, and it forgot everything it held.') : null,
+    status?.removed
+      ? h(
+          'p',
+          { class: 'note' },
+          'Your account disconnected this extension, and it forgot everything it held.',
+        )
+      : null,
     h('h1', {}, 'Keep your spaces online'),
     h(
       'p',
@@ -69,11 +90,27 @@ function connectView(): Array<Node | null> {
       {},
       h('label', { for: 'home' }, 'Your account home'),
       input,
-      h('div', { class: 'actions' }, h('button', { class: 'wide', disabled: busy, onClick: () => void connect() }, busy ? 'Waiting for your account home…' : 'Connect')),
-      h('p', { class: 'hint', style: 'margin-top: 12px' }, 'Your account home opens in a new window. Sign in there, and allow it.'),
+      h(
+        'div',
+        { class: 'actions' },
+        h(
+          'button',
+          { class: 'wide', disabled: busy, onClick: () => void connect() },
+          busy ? 'Waiting for your account home…' : 'Connect',
+        ),
+      ),
+      h(
+        'p',
+        { class: 'hint', style: 'margin-top: 12px' },
+        'Your account home opens in a new window. Sign in there, and allow it.',
+      ),
       error ? h('p', { class: 'error' }, error) : null,
     ),
-    h('p', { class: 'faint' }, 'It holds your spaces as they travel, private ones still locked. It never gets your password or the keys that open them.'),
+    h(
+      'p',
+      { class: 'faint' },
+      'It holds your spaces as they travel, private ones still locked. It never gets your password or the keys that open them.',
+    ),
   ];
 }
 
@@ -89,7 +126,14 @@ function connectedView(): Array<Node | null> {
       ? h(
           'section',
           {},
-          accountLine(account, h('button', { class: 'quiet small', disabled: busy, onClick: () => void switchAccount() }, busy ? 'Waiting…' : 'Switch account')),
+          accountLine(
+            account,
+            h(
+              'button',
+              { class: 'quiet small', disabled: busy, onClick: () => void switchAccount() },
+              busy ? 'Waiting…' : 'Switch account',
+            ),
+          ),
           h(
             'p',
             { class: 'hint', style: 'margin-top: 10px' },
@@ -97,8 +141,20 @@ function connectedView(): Array<Node | null> {
           ),
         )
       : null,
-    status?.state === 'error' ? h('p', { class: 'note' }, `Something went wrong: ${status.error ?? 'unknown'}. It will try again when Chrome restarts.`) : null,
-    h('section', {}, h('h2', {}, 'Spaces'), status ? h('p', { class: 'hint' }, summary(status)) : null, status ? spaceList(status) : null),
+    status?.state === 'error'
+      ? h(
+          'p',
+          { class: 'note' },
+          `Something went wrong: ${status.error ?? 'unknown'}. It will try again when Chrome restarts.`,
+        )
+      : null,
+    h(
+      'section',
+      {},
+      h('h2', {}, 'Spaces'),
+      status ? h('p', { class: 'hint' }, summary(status)) : null,
+      status ? spaceList(status) : null,
+    ),
     grant?.pod ? podSection(grant.pod) : null,
     h(
       'section',
@@ -108,8 +164,18 @@ function connectedView(): Array<Node | null> {
       h(
         'div',
         { class: 'actions' },
-        h('button', { class: 'danger small', disabled: busy, onClick: () => void disconnect() }, 'Disconnect'),
-        accountHome ? h('a', { href: accountHome, target: '_blank', class: 'hint', style: 'align-self: center' }, 'Your account home') : null,
+        h(
+          'button',
+          { class: 'danger small', disabled: busy, onClick: () => void disconnect() },
+          'Disconnect',
+        ),
+        accountHome
+          ? h(
+              'a',
+              { href: accountHome, target: '_blank', class: 'hint', style: 'align-self: center' },
+              'Your account home',
+            )
+          : null,
       ),
     ),
     error ? h('p', { class: 'error' }, error) : null,
@@ -127,20 +193,71 @@ function podSection(pod: NonNullable<CarryGrant['pod']>): HTMLElement {
     });
   const resume = () =>
     run(async () => {
-      if (!(await resumePod())) throw new Error('Chrome did not allow it. Try again, or choose the folder again.');
+      if (!(await resumePod()))
+        throw new Error('Chrome did not allow it. Try again, or choose the folder again.');
       await ask({ to: 'offscreen', type: 'reload' });
     });
 
   const body =
     state === 'writing'
-      ? [h('p', { class: 'hint' }, h('span', { class: 'dot good' }), `Everything that arrives is written into “${pod.folder}”.`), h('div', { class: 'actions' }, h('button', { class: 'quiet small', disabled: busy, onClick: () => void choose() }, 'Choose another folder'))]
+      ? [
+          h(
+            'p',
+            { class: 'hint' },
+            h('span', { class: 'dot good' }),
+            `Everything that arrives is written into “${pod.folder}”.`,
+          ),
+          h(
+            'div',
+            { class: 'actions' },
+            h(
+              'button',
+              { class: 'quiet small', disabled: busy, onClick: () => void choose() },
+              'Choose another folder',
+            ),
+          ),
+        ]
       : state === 'needs-permission'
         ? [
-            h('p', { class: 'hint' }, h('span', { class: 'dot warn' }), `Chrome wants a click before this writes to “${pod.folder}” again. Until then, your pod catches up later.`),
-            h('p', { class: 'note', style: 'margin-top: 10px' }, 'When Chrome asks, choose ', h('strong', {}, 'Allow on every visit'), '. Then it keeps writing to your pod without asking again.'),
-            h('div', { class: 'actions' }, h('button', { class: 'small', disabled: busy, onClick: () => void resume() }, 'Resume pod sync')),
+            h(
+              'p',
+              { class: 'hint' },
+              h('span', { class: 'dot warn' }),
+              `Chrome wants a click before this writes to “${pod.folder}” again. Until then, your pod catches up later.`,
+            ),
+            h(
+              'p',
+              { class: 'note', style: 'margin-top: 10px' },
+              'When Chrome asks, choose ',
+              h('strong', {}, 'Allow on every visit'),
+              '. Then it keeps writing to your pod without asking again.',
+            ),
+            h(
+              'div',
+              { class: 'actions' },
+              h(
+                'button',
+                { class: 'small', disabled: busy, onClick: () => void resume() },
+                'Resume pod sync',
+              ),
+            ),
           ]
-        : [h('p', { class: 'hint' }, `Your account lives in a pod, “${pod.folder}”. Choose that folder, and this keeps it up to date while your apps are closed.`), h('div', { class: 'actions' }, h('button', { class: 'small', disabled: busy, onClick: () => void choose() }, 'Choose your pod folder'))];
+        : [
+            h(
+              'p',
+              { class: 'hint' },
+              `Your account lives in a pod, “${pod.folder}”. Choose that folder, and this keeps it up to date while your apps are closed.`,
+            ),
+            h(
+              'div',
+              { class: 'actions' },
+              h(
+                'button',
+                { class: 'small', disabled: busy, onClick: () => void choose() },
+                'Choose your pod folder',
+              ),
+            ),
+          ];
 
   return h('section', {}, h('h2', {}, 'Your pod'), ...body);
 }
@@ -174,7 +291,12 @@ async function switchAccount(): Promise<void> {
 }
 
 async function disconnect(): Promise<void> {
-  if (!confirm('Forget everything this extension holds? Your spaces stay on your devices. To stop your account sending it anything, also disconnect it in your account home.')) return;
+  if (
+    !confirm(
+      'Forget everything this extension holds? Your spaces stay on your devices. To stop your account sending it anything, also disconnect it in your account home.',
+    )
+  )
+    return;
   await run(async () => {
     await ask({ to: 'offscreen', type: 'disconnect' });
   });

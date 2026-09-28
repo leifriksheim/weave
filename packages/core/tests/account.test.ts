@@ -39,7 +39,13 @@ async function device(me: Awaited<ReturnType<typeof account>>, stores = memorySt
     stores,
     accountKey: me.accountKey,
     watchIntervalMs: 0,
-    ...(hub ? { network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] } } : {}),
+    ...(hub
+      ? {
+          network: {
+            transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)],
+          },
+        }
+      : {}),
   });
   open.push(node);
   return node;
@@ -62,11 +68,19 @@ describe('the account name', () => {
 
     assert.equal(await laptop.account.profile(), null);
     await laptop.account.setName('Leif');
-    await until(async () => (await phone.account.profile())?.name === 'Leif', 3000, 'the name to reach the phone');
+    await until(
+      async () => (await phone.account.profile())?.name === 'Leif',
+      3000,
+      'the name to reach the phone',
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 5)); // a later time, as a real rename would be
     await phone.account.setName('Leif R.');
-    await until(async () => (await laptop.account.profile())?.name === 'Leif R.', 3000, 'the rename to reach the laptop');
+    await until(
+      async () => (await laptop.account.profile())?.name === 'Leif R.',
+      3000,
+      'the rename to reach the laptop',
+    );
   });
 
   test('another device hears about it as an event', async () => {
@@ -104,12 +118,23 @@ describe('moving and merging an account', () => {
     await before.account.setName('Leif');
     await before.close();
 
-    const result = await copyAccountData({ from: browser, to: folder, did: me.did, accountKey: me.accountKey });
+    const result = await copyAccountData({
+      from: browser,
+      to: folder,
+      did: me.did,
+      accountKey: me.accountKey,
+    });
     assert.equal(result.spacesAdded, 1);
 
     const after = await device(me, folder);
-    assert.deepEqual((await after.spaces.list()).map((s) => s.name), ['Diary']);
-    assert.deepEqual((await after.records.list<{ text: string }>(diary.id)).map((r) => r.body?.text), ['kept']);
+    assert.deepEqual(
+      (await after.spaces.list()).map((s) => s.name),
+      ['Diary'],
+    );
+    assert.deepEqual(
+      (await after.records.list<{ text: string }>(diary.id)).map((r) => r.body?.text),
+      ['kept'],
+    );
     assert.equal((await after.records.get(diary.id, kept.key))?.encrypted, true);
     assert.equal((await after.account.profile())?.name, 'Leif');
   });
@@ -134,7 +159,11 @@ describe('moving and merging an account', () => {
 
     await copyAccountData({ from: browser, to: folder, did: me.did, accountKey: me.accountKey });
     const merged = await device(me, folder);
-    assert.deepEqual((await merged.spaces.list()).map((s) => s.name).sort(), ['Both', 'Browser only', 'Folder only']);
+    assert.deepEqual((await merged.spaces.list()).map((s) => s.name).sort(), [
+      'Both',
+      'Browser only',
+      'Folder only',
+    ]);
     assert.deepEqual(
       (await merged.records.list<{ text: string }>(shared.id)).map((r) => r.body?.text).sort(),
       ['written in the browser', 'written in the folder'],
@@ -142,7 +171,12 @@ describe('moving and merging an account', () => {
 
     // Doing it again changes nothing.
     await merged.close();
-    const again = await copyAccountData({ from: browser, to: folder, did: me.did, accountKey: me.accountKey });
+    const again = await copyAccountData({
+      from: browser,
+      to: folder,
+      did: me.did,
+      accountKey: me.accountKey,
+    });
     assert.deepEqual([again.spacesAdded, again.recordsAdded], [0, 0]);
   });
 });
@@ -159,11 +193,23 @@ describe('who is connected', () => {
     const trip = await laptop.spaces.create({ name: 'Trip', visibility: 'private', ...team });
     await theirs.spaces.join(await laptop.spaces.invite(trip.id, { role: 'editor' }));
     // The phone hears about the space through the account, and opens it.
-    await until(async () => (await phone.spaces.list()).some((space) => space.id === trip.id), 3000, 'the space to reach the phone');
+    await until(
+      async () => (await phone.spaces.list()).some((space) => space.id === trip.id),
+      3000,
+      'the space to reach the phone',
+    );
     await hold(phone, trip.id);
 
-    await until(async () => (await laptop.spaces.status(trip.id)).peers.length === 2, 3000, 'both peers to connect');
-    await until(async () => (await laptop.spaces.status(trip.id)).own.length === 1, 3000, 'the phone to count as ours');
+    await until(
+      async () => (await laptop.spaces.status(trip.id)).peers.length === 2,
+      3000,
+      'both peers to connect',
+    );
+    await until(
+      async () => (await laptop.spaces.status(trip.id)).own.length === 1,
+      3000,
+      'the phone to count as ours',
+    );
     const status = await laptop.spaces.status(trip.id);
     assert.deepEqual(status.own, [phone.sessionDid]);
     assert.deepEqual(status.carriers, []);

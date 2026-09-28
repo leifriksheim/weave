@@ -34,11 +34,12 @@ describe('TURN passwords from the relay', () => {
   const firstOffer = async (did: string) => {
     const ws = new WebSocket(url);
     await new Promise((resolve) => ws.once('open', resolve));
-    const offer = new Promise<{ servers: { username: string; credential: string }[]; expiresAt: number }>((resolve) =>
-      ws.on('message', (data) => {
-        const message = JSON.parse(String(data));
-        if (message.type === 'ice') resolve(message.payload);
-      }),
+    const offer = new Promise<{ servers: { username: string; credential: string }[]; expiresAt: number }>(
+      (resolve) =>
+        ws.on('message', (data) => {
+          const message = JSON.parse(String(data));
+          if (message.type === 'ice') resolve(message.payload);
+        }),
     );
     ws.send(JSON.stringify({ type: 'join', from: did, room: 'room' }));
     return { ws, offer: await offer };

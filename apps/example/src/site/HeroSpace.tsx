@@ -45,7 +45,11 @@ const SCENES: readonly Scene[] = [
     who: 'Maya',
     ask: 'Can we sort out lifts to away games?',
     admin: 'Anna',
-    allows: ['Any member can offer a ride', 'Only the driver changes their ride', 'One seat per person on each ride'],
+    allows: [
+      'Any member can offer a ride',
+      'Only the driver changes their ride',
+      'One seat per person on each ride',
+    ],
     use: 'Sam takes the last seat in Joe’s car.',
     app: (used) => (
       <div className="demo-app">
@@ -62,11 +66,7 @@ const SCENES: readonly Scene[] = [
             </span>
             <span className="demo-seats">
               {ride.seats.map((name, i) =>
-                name ? (
-                  <Initial key={i} name={name} />
-                ) : (
-                  <span key={i} className="demo-seat" />
-                ),
+                name ? <Initial key={i} name={name} /> : <span key={i} className="demo-seat" />,
               )}
             </span>
           </div>
@@ -116,7 +116,11 @@ const SCENES: readonly Scene[] = [
     who: 'Dev',
     ask: 'We need one list of everything the landlord hasn’t fixed.',
     admin: 'Rosa',
-    allows: ['Any household can report a repair', 'One “us too” per household', 'Only the committee changes the status'],
+    allows: [
+      'Any household can report a repair',
+      'One “us too” per household',
+      'Only the committee changes the status',
+    ],
     use: 'Another household adds “us too”.',
     app: (used) => (
       <div className="demo-app">
@@ -133,7 +137,9 @@ const SCENES: readonly Scene[] = [
               <b>{item.issue}</b>
               <small>{item.status}</small>
             </span>
-            <span className={used && item.count === 15 ? 'demo-pill bump' : 'demo-pill'}>{item.count} households</span>
+            <span className={used && item.count === 15 ? 'demo-pill bump' : 'demo-pill'}>
+              {item.count} households
+            </span>
           </div>
         ))}
       </div>
@@ -196,7 +202,18 @@ const POLL = 'M3 13V8M8 13V3M13 13V6';
 function AppIcon({ name }: { name: string }) {
   const d = name === 'Chat' ? CHAT : name === 'Polls' ? POLL : null;
   return d ? (
-    <svg className="demo-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      className="demo-icon"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d={d} />
     </svg>
   ) : (
@@ -238,7 +255,9 @@ export function HeroSpace() {
     const timer = setTimeout(
       () =>
         setAt(({ scene, phase }) =>
-          phase + 1 < PHASES.length ? { scene, phase: phase + 1 } : { scene: (scene + 1) % SCENES.length, phase: 0 },
+          phase + 1 < PHASES.length
+            ? { scene, phase: phase + 1 }
+            : { scene: (scene + 1) % SCENES.length, phase: 0 },
         ),
       PHASES[at.phase]?.[1] ?? 2000,
     );
@@ -248,7 +267,12 @@ export function HeroSpace() {
   const scene = SCENES[at.scene] ?? SCENES[0]!;
   const phase = PHASES[at.phase]?.[0] ?? 'used';
   const inSpace = phase === 'open' || phase === 'used';
-  const apps = ['Chat', 'Polls', ...scene.has, ...(phase === 'ask' || phase === 'proposal' ? [] : [scene.tool])];
+  const apps = [
+    'Chat',
+    'Polls',
+    ...scene.has,
+    ...(phase === 'ask' || phase === 'proposal' ? [] : [scene.tool]),
+  ];
 
   return (
     <div className="demo" aria-hidden>
@@ -261,7 +285,11 @@ export function HeroSpace() {
           {apps.map((name) => (
             <div
               key={`${scene.group}-${name}`}
-              className={['demo-app-link', name === scene.tool ? 'new' : '', name === scene.tool && inSpace ? 'current' : ''].join(' ')}
+              className={[
+                'demo-app-link',
+                name === scene.tool ? 'new' : '',
+                name === scene.tool && inSpace ? 'current' : '',
+              ].join(' ')}
             >
               <AppIcon name={name} />
               {name}
@@ -271,13 +299,17 @@ export function HeroSpace() {
       </div>
 
       <div className="demo-main">
-        <div className="demo-stage" key={`stage-${at.scene}-${inSpace ? 'app' : phase === 'ask' ? 'ask' : 'proposal'}`}>
+        <div
+          className="demo-stage"
+          key={`stage-${at.scene}-${inSpace ? 'app' : phase === 'ask' ? 'ask' : 'proposal'}`}
+        >
           {phase === 'ask' ? (
             <div className="demo-assistant">
               <div className="demo-assistant-head">{scene.who}’s AI assistant</div>
               <div className="demo-bubble me">{scene.ask}</div>
               <div className="demo-bubble ai">
-                I’ve proposed <b>{scene.tool}</b> to {scene.group}. Someone who can add apps there will see it.
+                I’ve proposed <b>{scene.tool}</b> to {scene.group}. Someone who can add apps there will see
+                it.
               </div>
             </div>
           ) : !inSpace ? (
@@ -286,9 +318,7 @@ export function HeroSpace() {
                 <b>{scene.tool}</b>
                 <span className="demo-tag">{phase === 'added' ? 'Added' : 'Proposal'}</span>
               </div>
-              <div className="demo-by">
-                {scene.who} · via AI
-              </div>
+              <div className="demo-by">{scene.who} · via AI</div>
               <div className="demo-allows">What it allows</div>
               <ul>
                 {scene.allows.map((rule) => (

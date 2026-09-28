@@ -16,11 +16,21 @@ import { createMemoryAdapter } from '../helpers/memory-adapter.js';
 async function fakeExpression(i: number): Promise<Expression> {
   // A real content id: sync compares ids as the 32-byte hashes they name.
   const id = await cidFromBytes(new TextEncoder().encode(`bench:${i}`));
-  return { id, author: 'did:key:zBench', collection: 'app.bench', createdAt: new Date(1_700_000_000_000 + i).toISOString(), body: { i }, signature: 'sig', key: `k${i.toString(36)}`, seq: 0 };
+  return {
+    id,
+    author: 'did:key:zBench',
+    collection: 'app.bench',
+    createdAt: new Date(1_700_000_000_000 + i).toISOString(),
+    body: { i },
+    signature: 'sig',
+    key: `k${i.toString(36)}`,
+    seq: 0,
+  };
 }
 
 /** Bytes of the frame a space actually sends: the sync message inside the network's envelope */
-const wireBytes = (message: unknown) => JSON.stringify({ type: 'sync', from: 'did:key:zBench', payload: message }).length;
+const wireBytes = (message: unknown) =>
+  JSON.stringify({ type: 'sync', from: 'did:key:zBench', payload: message }).length;
 
 async function measure(n: number, differing = 1) {
   const a = createStorageProvider(createMemoryAdapter());
@@ -60,7 +70,7 @@ async function measure(n: number, differing = 1) {
   const started = performance.now();
   engineB.notifyPeers(['a']);
   let rounds = 0;
-  for (let idle = 0; idle < 3; ) {
+  for (let idle = 0; idle < 3;) {
     await new Promise((resolve) => setTimeout(resolve, 0));
     if (queue.length === 0) {
       idle++;
@@ -77,8 +87,16 @@ async function measure(n: number, differing = 1) {
 }
 
 const sizes = process.argv.slice(2).map(Number);
-for (const [n, differing] of (sizes.length ? sizes : [100, 1000, 10000]).flatMap((n) => [[n, 1], [n, 0]] as const)) {
+for (const [n, differing] of (sizes.length ? sizes : [100, 1000, 10000]).flatMap(
+  (n) =>
+    [
+      [n, 1],
+      [n, 0],
+    ] as const,
+)) {
   const r = await measure(n, differing);
   const kb = r.bytes < 10_000 ? `${r.bytes} B` : `${(r.bytes / 1024).toFixed(1)} KB`;
-  console.log(`N=${String(r.n).padEnd(6)} ${differing ? 'one differs' : 'identical  '}  messages=${String(r.messages).padEnd(4)} wire=${kb.padEnd(10)} rounds=${String(r.rounds).padEnd(3)} ${r.ms} ms  converged=${r.converged}`);
+  console.log(
+    `N=${String(r.n).padEnd(6)} ${differing ? 'one differs' : 'identical  '}  messages=${String(r.messages).padEnd(4)} wire=${kb.padEnd(10)} rounds=${String(r.rounds).padEnd(3)} ${r.ms} ms  converged=${r.converged}`,
+  );
 }

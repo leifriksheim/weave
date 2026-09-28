@@ -34,19 +34,18 @@ export type EncryptedExpression = Omit<Expression, 'body'> & {
  * @returns {Promise<SpaceKey>} A promise resolving to a new SpaceKey.
  */
 export async function generateSpaceKey(): Promise<SpaceKey> {
-  const key = await globalThis.crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
+  const key = await globalThis.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, [
+    'encrypt',
+    'decrypt',
+  ]);
   const raw = await globalThis.crypto.subtle.exportKey('raw', key);
   const id = base64UrlEncode(new Uint8Array(await sha256(new Uint8Array(raw))));
-  
+
   return Object.freeze({
     id,
     key,
     createdAt: new Date().toISOString(),
-    version: 1
+    version: 1,
   });
 }
 
@@ -57,25 +56,28 @@ export async function generateSpaceKey(): Promise<SpaceKey> {
  * @param {SpaceKey} spaceKey - The key to use for encryption.
  * @returns {Promise<EncryptedExpression>} A promise resolving to the encrypted expression.
  */
-export async function encryptExpression(expression: Expression, spaceKey: SpaceKey): Promise<EncryptedExpression> {
+export async function encryptExpression(
+  expression: Expression,
+  spaceKey: SpaceKey,
+): Promise<EncryptedExpression> {
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
   const encodedBody = utf8Encode(JSON.stringify(expression.body));
-  
+
   const ciphertextBuffer = await globalThis.crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     spaceKey.key,
-    encodedBody as BufferSource
+    encodedBody as BufferSource,
   );
-  
+
   const ciphertext = base64UrlEncode(new Uint8Array(ciphertextBuffer));
-  
+
   return Object.freeze({
     ...expression,
     body: Object.freeze({
       ciphertext,
       iv: base64UrlEncode(iv),
-      keyId: spaceKey.id
-    })
+      keyId: spaceKey.id,
+    }),
   });
 }
 
@@ -87,25 +89,28 @@ export async function encryptExpression(expression: Expression, spaceKey: SpaceK
  * @returns {Promise<Expression>} A promise resolving to the decrypted expression.
  * @throws {Error} If the key ID doesn't match the space key's ID.
  */
-export async function decryptExpression(encrypted: EncryptedExpression, spaceKey: SpaceKey): Promise<Expression> {
+export async function decryptExpression(
+  encrypted: EncryptedExpression,
+  spaceKey: SpaceKey,
+): Promise<Expression> {
   if (encrypted.body.keyId !== spaceKey.id) {
     throw new Error('Key ID mismatch');
   }
-  
+
   const iv = base64UrlDecode(encrypted.body.iv);
   const ciphertext = base64UrlDecode(encrypted.body.ciphertext);
-  
+
   const decryptedBuffer = await globalThis.crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
     spaceKey.key,
-    ciphertext as BufferSource
+    ciphertext as BufferSource,
   );
-  
+
   const body = JSON.parse(utf8Decode(new Uint8Array(decryptedBuffer)));
-  
+
   return Object.freeze({
     ...encrypted,
-    body
+    body,
   });
 }
 
@@ -114,11 +119,17 @@ export async function decryptExpression(encrypted: EncryptedExpression, spaceKey
  * handed over — in an invite, a box — can be checked against the id a space
  * or its history names.
  */
-export async function spaceKeyFromRaw(raw: Uint8Array, createdAt = new Date().toISOString()): Promise<SpaceKey> {
-  const key = await globalThis.crypto.subtle.importKey('raw', raw as BufferSource, { name: 'AES-GCM', length: 256 }, true, [
-    'encrypt',
-    'decrypt',
-  ]);
+export async function spaceKeyFromRaw(
+  raw: Uint8Array,
+  createdAt = new Date().toISOString(),
+): Promise<SpaceKey> {
+  const key = await globalThis.crypto.subtle.importKey(
+    'raw',
+    raw as BufferSource,
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt'],
+  );
   const id = base64UrlEncode(new Uint8Array(await sha256(raw)));
   return Object.freeze({ id, key, createdAt, version: 1 });
 }
@@ -149,7 +160,11 @@ export async function openWith(spaceKey: SpaceKey, sealed: unknown, context: str
   try {
     const bytes = base64UrlDecode(sealed);
     const plain = await globalThis.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: bytes.subarray(0, 12) as BufferSource, additionalData: utf8Encode(context) as BufferSource },
+      {
+        name: 'AES-GCM',
+        iv: bytes.subarray(0, 12) as BufferSource,
+        additionalData: utf8Encode(context) as BufferSource,
+      },
       spaceKey.key,
       bytes.subarray(12) as BufferSource,
     );

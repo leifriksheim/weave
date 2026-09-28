@@ -15,4 +15,6 @@ injectBaseStyles();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
-createRoot(root).render(<WeaveProvider auth={auth}>{path === '/connect' ? <ConnectPage /> : <App />}</WeaveProvider>);
+createRoot(root).render(
+  <WeaveProvider auth={auth}>{path === '/connect' ? <ConnectPage /> : <App />}</WeaveProvider>,
+);

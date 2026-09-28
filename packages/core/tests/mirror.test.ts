@@ -46,12 +46,24 @@ function counted(inner: BlobStore, delayMs = 2) {
 
 async function author() {
   const pair = await provider.generateKeyPair();
-  return { did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC), key: pair.privateKey };
+  return {
+    did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC),
+    key: pair.privateKey,
+  };
 }
 type Author = Awaited<ReturnType<typeof author>>;
 
 const note = (who: Author, text: string, version?: Parameters<typeof createExpression>[0]['version']) =>
-  signer.sign(createExpression({ author: who.did, collection: 'app.note', space: SPACE, body: { text }, ...(version ? { version } : {}) }), who.key);
+  signer.sign(
+    createExpression({
+      author: who.did,
+      collection: 'app.note',
+      space: SPACE,
+      body: { text },
+      ...(version ? { version } : {}),
+    }),
+    who.key,
+  );
 
 /** A device: its own store, and a mirror onto the shared one */
 async function device(store: BlobStore, refuse: (version: Expression) => boolean = () => false) {
@@ -61,7 +73,14 @@ async function device(store: BlobStore, refuse: (version: Expression) => boolean
     await storage.addExpression(version);
     return 'stored';
   };
-  const mirror = await createMirror({ store, space: SPACE, storage, accept, state: createMemoryAdapter(), flushMs: 5 });
+  const mirror = await createMirror({
+    store,
+    space: SPACE,
+    storage,
+    accept,
+    state: createMemoryAdapter(),
+    flushMs: 5,
+  });
   return { storage, mirror };
 }
 
@@ -84,7 +103,10 @@ describe('a mirror', () => {
 
     assert.deepEqual(await texts(laptop.storage), ['from the laptop', 'from the phone']);
     assert.deepEqual(await texts(phone.storage), ['from the laptop', 'from the phone']);
-    assert.ok([...shared.writes.values()].every((count) => count === 1), 'every file written once');
+    assert.ok(
+      [...shared.writes.values()].every((count) => count === 1),
+      'every file written once',
+    );
     // The phone uploaded only its own note: what it read from the laptop's segment was known already.
     assert.equal((await shared.store.list(`${SPACE}/`)).length, 2);
   });
@@ -115,7 +137,10 @@ describe('a mirror', () => {
     await writer.storage.addExpression(await note(who, 'junk'));
     await writer.mirror.flush();
 
-    const reader = await device(shared.store, (version) => (version.body as { text?: string }).text === 'junk');
+    const reader = await device(
+      shared.store,
+      (version) => (version.body as { text?: string }).text === 'junk',
+    );
     await reader.mirror.pull();
     assert.deepEqual(await texts(reader.storage), ['fine']);
   });
@@ -157,8 +182,13 @@ describe('a mirror', () => {
     laptop.mirror.changed();
     laptop.mirror.changed();
     const deadline = Date.now() + 2000;
-    while ((await shared.store.list(`${SPACE}/`)).length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
-    assert.equal((await shared.store.list(`${SPACE}/`)).length, 1, 'one segment for two changes close together');
+    while ((await shared.store.list(`${SPACE}/`)).length === 0 && Date.now() < deadline)
+      await new Promise((r) => setTimeout(r, 5));
+    assert.equal(
+      (await shared.store.list(`${SPACE}/`)).length,
+      1,
+      'one segment for two changes close together',
+    );
     await laptop.mirror.close();
   });
 
@@ -203,7 +233,9 @@ describe('the S3 driver', () => {
         return new Response(null, { status: 204 });
       }
       if (url.searchParams.get('list-type') === '2') {
-        const all = [...objects.keys()].filter((k) => k.startsWith(url.searchParams.get('prefix') ?? '')).sort();
+        const all = [...objects.keys()]
+          .filter((k) => k.startsWith(url.searchParams.get('prefix') ?? ''))
+          .sort();
         const start = Number(url.searchParams.get('continuation-token') ?? 0);
         const page = all.slice(start, start + pageSize);
         const more = start + pageSize < all.length;
@@ -211,7 +243,9 @@ describe('the S3 driver', () => {
         return new Response(xml, { status: 200 });
       }
       const found = objects.get(key);
-      return found ? new Response(found, { status: 200 }) : new Response('<Error><Code>NoSuchKey</Code></Error>', { status: 404 });
+      return found
+        ? new Response(found, { status: 200 })
+        : new Response('<Error><Code>NoSuchKey</Code></Error>', { status: 404 });
     }) as unknown as typeof fetch;
     return { fetchS3, objects, seen };
   }
@@ -230,17 +264,36 @@ describe('the S3 driver', () => {
     for (const name of ['b', 'c', 'd', 'e']) await store.put(`space/w/${name}.seg`, new Uint8Array([4]));
     assert.deepEqual([...(await store.get('space/w/000001-a&b.seg'))!], [1, 2, 3]);
     assert.equal(await store.get('space/missing'), null);
-    assert.deepEqual((await store.list('space/')).sort(), ['space/w/000001-a&b.seg', 'space/w/b.seg', 'space/w/c.seg', 'space/w/d.seg', 'space/w/e.seg']);
-    assert.ok([...bucket.objects.keys()].every((key) => key.startsWith('host-1/')), 'everything under the prefix');
+    assert.deepEqual((await store.list('space/')).sort(), [
+      'space/w/000001-a&b.seg',
+      'space/w/b.seg',
+      'space/w/c.seg',
+      'space/w/d.seg',
+      'space/w/e.seg',
+    ]);
+    assert.ok(
+      [...bucket.objects.keys()].every((key) => key.startsWith('host-1/')),
+      'everything under the prefix',
+    );
     await store.delete('space/w/b.seg');
     await store.delete('space/w/b.seg');
     assert.equal((await store.list('space/')).length, 4);
-    assert.ok(bucket.seen.every((request) => /^AWS4-HMAC-SHA256 Credential=AKID\//.test(request.headers.get('authorization') ?? '')));
+    assert.ok(
+      bucket.seen.every((request) =>
+        /^AWS4-HMAC-SHA256 Credential=AKID\//.test(request.headers.get('authorization') ?? ''),
+      ),
+    );
   });
 
   test('a host’s whole mirror works over it', async () => {
     const bucket = fakeS3(3);
-    const store = createS3BlobStore({ endpoint: 'https://account.r2.test', bucket: 'weave', accessKeyId: 'A', secretAccessKey: 'S', fetch: bucket.fetchS3 });
+    const store = createS3BlobStore({
+      endpoint: 'https://account.r2.test',
+      bucket: 'weave',
+      accessKeyId: 'A',
+      secretAccessKey: 'S',
+      fetch: bucket.fetchS3,
+    });
     const who = await author();
     const a = await device(store);
     const b = await device(store);

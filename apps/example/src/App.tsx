@@ -61,14 +61,28 @@ function Workspace() {
   const forget = async (id: string) => {
     const space = spaces.find((found) => found.id === id);
     if (!space) return;
-    const pair = (await node.contacts.list().catch(() => [])).find((contact) => contact.space === id && !contact.blocked);
+    const pair = (await node.contacts.list().catch(() => [])).find(
+      (contact) => contact.space === id && !contact.blocked,
+    );
     if (pair) {
-      if (!globalThis.confirm(`${space.name} is your space for two with ${pair.name}. Leaving it removes ${pair.name} from your contacts, and takes back your request if they haven't accepted. They keep their copy.`)) return;
-      const shared = spaces.filter((other) => other.id !== id && other.writable && !other.joining).map((other) => other.id);
+      if (
+        !globalThis.confirm(
+          `${space.name} is your space for two with ${pair.name}. Leaving it removes ${pair.name} from your contacts, and takes back your request if they haven't accepted. They keep their copy.`,
+        )
+      )
+        return;
+      const shared = spaces
+        .filter((other) => other.id !== id && other.writable && !other.joining)
+        .map((other) => other.id);
       await takeBack(node, shared, account.did, pair.did);
       return;
     }
-    if (!globalThis.confirm(`Leave ${space.name}? It goes from all your devices. Others in it keep it, and you need a new invite to come back. If no one else is in it, what's in it is gone.`)) return;
+    if (
+      !globalThis.confirm(
+        `Leave ${space.name}? It goes from all your devices. Others in it keep it, and you need a new invite to come back. If no one else is in it, what's in it is gone.`,
+      )
+    )
+      return;
     await leave(id);
   };
 
@@ -76,7 +90,11 @@ function Workspace() {
   // a role that changes, does not leave a stale copy on screen.
   useEffect(() => {
     const fresh = open && spaces.find((space) => space.id === open.id);
-    if (fresh && (fresh.role !== open.role || fresh.writable !== open.writable || fresh.joining !== open.joining)) setOpen(fresh);
+    if (
+      fresh &&
+      (fresh.role !== open.role || fresh.writable !== open.writable || fresh.joining !== open.joining)
+    )
+      setOpen(fresh);
   }, [spaces, open]);
 
   const inSpace = open !== null;
@@ -117,7 +135,13 @@ function Workspace() {
                   role="tab"
                   aria-selected={home === id}
                   onClick={() => setHome(id)}
-                  style={{ ...styles.appTitle, border: 'none', background: 'none', padding: 0, color: home === id ? palette.ink.strong : palette.ink.faint }}
+                  style={{
+                    ...styles.appTitle,
+                    border: 'none',
+                    background: 'none',
+                    padding: 0,
+                    color: home === id ? palette.ink.strong : palette.ink.faint,
+                  }}
                 >
                   {id === 'spaces' ? 'Spaces' : 'Contacts'}
                 </button>

@@ -24,7 +24,12 @@
  */
 
 import { createEmitter } from '../utils/events.js';
-import { createSignalingClient, type SignalingClient, type SignalingEvents, type SignalKind } from './signaling.js';
+import {
+  createSignalingClient,
+  type SignalingClient,
+  type SignalingEvents,
+  type SignalKind,
+} from './signaling.js';
 
 /** A client over several relays, where a room may name relays of its own */
 export interface MultiSignalingClient extends SignalingClient {
@@ -39,10 +44,7 @@ export interface MultiSignalingClient extends SignalingClient {
  * @param did This peer's identifier
  * @returns A client with the same contract as a single-relay one
  */
-export function createMultiSignalingClient(
-  urls: ReadonlyArray<string>,
-  did: string,
-): MultiSignalingClient {
+export function createMultiSignalingClient(urls: ReadonlyArray<string>, did: string): MultiSignalingClient {
   if (urls.length === 0) {
     throw new Error('At least one relay is needed to introduce peers.');
   }
@@ -140,7 +142,11 @@ export function createMultiSignalingClient(
     client.on('ice', (servers, expiresAt) => {
       turn.set(client, { servers, expiresAt });
       const offers = [...turn.values()];
-      emit('ice', offers.flatMap((offer) => offer.servers), Math.min(...offers.map((offer) => offer.expiresAt)));
+      emit(
+        'ice',
+        offers.flatMap((offer) => offer.servers),
+        Math.min(...offers.map((offer) => offer.expiresAt)),
+      );
     });
 
     client.on('connected', () => {

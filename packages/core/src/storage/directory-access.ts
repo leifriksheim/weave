@@ -53,9 +53,11 @@ export function isFolderStorageAvailable(): boolean {
  * @returns The chosen directory
  */
 export async function pickDataFolder(options?: { id?: string }): Promise<DirectoryHandleLike> {
-  const picker = (globalThis as {
-    showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<DirectoryHandleLike>;
-  }).showDirectoryPicker;
+  const picker = (
+    globalThis as {
+      showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<DirectoryHandleLike>;
+    }
+  ).showDirectoryPicker;
 
   if (!picker) {
     throw protocolError(

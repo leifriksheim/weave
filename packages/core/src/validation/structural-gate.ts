@@ -38,7 +38,10 @@ export interface StructuralGateOptions {
   readonly allowUnknownCollections?: boolean;
 }
 
-export function createStructuralGate(schemaEngine: SchemaEngine, options: StructuralGateOptions = {}): StructuralGate {
+export function createStructuralGate(
+  schemaEngine: SchemaEngine,
+  options: StructuralGateOptions = {},
+): StructuralGate {
   return {
     async validate(expression: Expression): Promise<GateResult> {
       try {
@@ -60,16 +63,16 @@ export function createStructuralGate(schemaEngine: SchemaEngine, options: Struct
 
         const result = await schemaEngine.validate(expression.collection, expression.body);
         if (result.issues) {
-          return { 
-            passed: false, 
-            gate: 'structural', 
-            reason: `Validation failed: ${result.issues.map(i => i.message).join(', ')}` 
+          return {
+            passed: false,
+            gate: 'structural',
+            reason: `Validation failed: ${result.issues.map((i) => i.message).join(', ')}`,
           };
         }
         return { passed: true, gate: 'structural' };
       } catch (err: any) {
         return { passed: false, gate: 'structural', reason: err.message || 'Validation error' };
       }
-    }
+    },
   };
 }

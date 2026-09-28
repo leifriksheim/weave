@@ -71,10 +71,13 @@ export async function passKey(spaceId: string): Promise<string> {
  */
 export async function makePass(record: SpaceRecord): Promise<SpacePass> {
   if (record.space.visibility === 'public') return { v: 1, space: record.space };
-  if (!record.key) throw new Error(`"${record.space.name}" is held here without its key, so it cannot be passed on`);
+  if (!record.key)
+    throw new Error(`"${record.space.name}" is held here without its key, so it cannot be passed on`);
   const seed = await deriveReadSeed(record.key);
   const pass: SpacePass = { v: 1, space: record.space, read: base64UrlEncode(seed) };
-  return record.key.id === record.space.encryptionKeyId ? pass : { ...pass, readKey: (await readKeyFromSeed(seed, createP256Provider())).did };
+  return record.key.id === record.space.encryptionKeyId
+    ? pass
+    : { ...pass, readKey: (await readKeyFromSeed(seed, createP256Provider())).did };
 }
 
 /**
@@ -90,7 +93,9 @@ export async function openPass(value: unknown, provider: CryptoProvider): Promis
   if (typeof pass.read !== 'string') return null;
   try {
     const read = await readKeyFromSeed(base64UrlDecode(pass.read), provider);
-    return read.did === pass.space.readKey || (pass.readKey !== undefined && read.did === pass.readKey) ? { space: pass.space, read } : null;
+    return read.did === pass.space.readKey || (pass.readKey !== undefined && read.did === pass.readKey)
+      ? { space: pass.space, read }
+      : null;
   } catch {
     return null;
   }

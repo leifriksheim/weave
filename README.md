@@ -54,17 +54,25 @@ devices, and every app is a view onto that data rather than its owner.
 
 ```typescript
 import {
-  generateSeed, seedToRecoveryCode, createIdentityManager, createLocalRootSigner,
-  publicKeyToDid, P256_MULTICODEC, createSigner, createExpression,
-  createIndexedDBAdapter, createStorageProvider, createSpaceManager,
+  generateSeed,
+  seedToRecoveryCode,
+  createIdentityManager,
+  createLocalRootSigner,
+  publicKeyToDid,
+  P256_MULTICODEC,
+  createSigner,
+  createExpression,
+  createIndexedDBAdapter,
+  createStorageProvider,
+  createSpaceManager,
 } from '@weaveprotocol/core';
 
 // 1. An account is a 16-byte seed. Show the code once; the user keeps it.
 const seed = generateSeed();
-console.log(seedToRecoveryCode(seed));      // 'K7N6-ERYP-68TZ-A7HN-VJW3-QWKN-CG'
+console.log(seedToRecoveryCode(seed)); // 'K7N6-ERYP-68TZ-A7HN-VJW3-QWKN-CG'
 
 const manager = createIdentityManager();
-const me = await manager.fromSeed(seed);   // same seed → same DID, anywhere
+const me = await manager.fromSeed(seed); // same seed → same DID, anywhere
 const provider = manager.getProvider();
 
 // 2. The root key signs one thing: permission for a session key to write.
@@ -97,7 +105,7 @@ await storage.addExpression(signed);
 ```
 
 Syncing it to other devices is a network manager plus a sync engine with the
-validation engine in front — see *Sync* below. Or skip all of this and use a
+validation engine in front — see _Sync_ below. Or skip all of this and use a
 node, which does the wiring for you — next.
 
 ## The node — start here
@@ -107,25 +115,33 @@ identity, its spaces, validation, encryption and sync into one object, and its
 API is plain data in and out:
 
 ```typescript
-import { createNode, createIdentityManager, createLocalRootSigner, indexedDBStores, rolePresets } from '@weaveprotocol/core';
+import {
+  createNode,
+  createIdentityManager,
+  createLocalRootSigner,
+  indexedDBStores,
+  rolePresets,
+} from '@weaveprotocol/core';
 
 const manager = createIdentityManager();
 const me = await manager.fromRecoveryCode(code);
 
 const node = await createNode({
   signer: createLocalRootSigner(me, manager.getProvider()), // or anything that signs
-  stores: indexedDBStores('my-app'),                       // or folderStores(directory, …)
+  stores: indexedDBStores('my-app'), // or folderStores(directory, …)
   network: { relays: ['wss://relay.example'] },
 });
 
 const space = await node.spaces.create({ name: 'Groceries', visibility: 'private', ...rolePresets.team });
 const milk = await node.records.put(space.id, 'app.todo.item', { text: 'milk', done: false });
 await node.records.update(space.id, milk.key, { text: 'milk', done: true }); // same key, next version
-node.subscribe((event) => { if (event.type === 'records') redraw(); });
+node.subscribe((event) => {
+  if (event.type === 'records') redraw();
+});
 
-const invite = await node.spaces.invite(space.id);  // a friend calls node.spaces.join(invite) — and joins as an Editor
-const view = await node.spaces.invite(space.id, { write: false });  // they can read, not change
-await node.spaces.closeInvite(space.id, invite);    // nobody else joins with that link
+const invite = await node.spaces.invite(space.id); // a friend calls node.spaces.join(invite) — and joins as an Editor
+const view = await node.spaces.invite(space.id, { write: false }); // they can read, not change
+await node.spaces.closeInvite(space.id, invite); // nobody else joins with that link
 ```
 
 What it takes care of:
@@ -158,12 +174,14 @@ Some things should reach whoever is connected right now and be kept nowhere:
 typing, presence, setting up a call. `spaces.send` is for those:
 
 ```typescript
-await node.spaces.send(space.id, { type: 'typing' });            // everyone connected in the space
-await node.spaces.send(space.id, { type: 'nudge' }, anna);        // only Anna's devices (her account DID)
-await node.spaces.send(space.id, { type: 'hi' }, annasLaptop);    // one device (its session DID)
+await node.spaces.send(space.id, { type: 'typing' }); // everyone connected in the space
+await node.spaces.send(space.id, { type: 'nudge' }, anna); // only Anna's devices (her account DID)
+await node.spaces.send(space.id, { type: 'hi' }, annasLaptop); // one device (its session DID)
 
 node.subscribe((event) => {
-  if (event.type === 'message') event.from; event.peer; event.message;  // account, device, what was sent
+  if (event.type === 'message') event.from;
+  event.peer;
+  event.message; // account, device, what was sent
 });
 ```
 
@@ -204,10 +222,13 @@ messages and the browser's WebRTC:
 import { createCalls } from '@weaveprotocol/core/calls';
 
 const calls = createCalls(node);
-await calls.start(space.id, { video: true });   // join the call going on in the space, or start one
-await calls.ring(space.id, anna);               // start one, and ring Anna's devices
-calls.subscribe(() => draw(calls.getState()));  // { current, ringing, around, rejoin }
-await calls.answer(ringing.id);  calls.setMuted(true);  await calls.shareScreen();  await calls.leave();
+await calls.start(space.id, { video: true }); // join the call going on in the space, or start one
+await calls.ring(space.id, anna); // start one, and ring Anna's devices
+calls.subscribe(() => draw(calls.getState())); // { current, ringing, around, rejoin }
+await calls.answer(ringing.id);
+calls.setMuted(true);
+await calls.shareScreen();
+await calls.leave();
 ```
 
 - **A call belongs to a space, not to a screen.** It keeps its space open for
@@ -246,14 +267,14 @@ strangers can knock on — unless you open a door (below).
 const { space } = await node.contacts.ask(club.id, anna, { note: "it's Leif from book club" });
 
 // On Anna's side:
-const [request] = await node.contacts.requests(club.id);   // { from, name, note, pairSpace, … }
-await node.contacts.accept(club.id, request.key);           // joins the space for two, adds Leif
+const [request] = await node.contacts.requests(club.id); // { from, name, note, pairSpace, … }
+await node.contacts.accept(club.id, request.key); // joins the space for two, adds Leif
 
-await node.contacts.list();          // [{ did, name, space, note, blocked }]
-await node.contacts.put({ did, name: 'Anna K' });   // what you call them — only you see it
-await node.contacts.remove(anna);    // off the list, and out of your space with her
-await node.contacts.block(anna);     // and her requests are hidden in every space
-await node.contacts.others(anna);    // anyone else in your space with her: [] unless someone was let in
+await node.contacts.list(); // [{ did, name, space, note, blocked }]
+await node.contacts.put({ did, name: 'Anna K' }); // what you call them — only you see it
+await node.contacts.remove(anna); // off the list, and out of your space with her
+await node.contacts.block(anna); // and her requests are hidden in every space
+await node.contacts.others(anna); // anyone else in your space with her: [] unless someone was let in
 ```
 
 - **The list** is one `std.contact` per person, in a **contacts space**
@@ -296,16 +317,16 @@ contact key and the relays whose mailboxes hold knocks on it, and nothing
 about who you are.
 
 ```typescript
-const door = await anna.doors.open();              // { id, code, relays, … }
+const door = await anna.doors.open(); // { id, code, relays, … }
 share(`https://chat.example/#door=${door.code}`);
 
 // Leif, who has never shared a space with Anna, pastes the link:
-await leif.doors.knock(link, { note: 'We met at the gig' });   // a space for two, its invite sealed to the door
+await leif.doors.knock(link, { note: 'We met at the gig' }); // a space for two, its invite sealed to the door
 
 // Anna, whenever she's next online:
-const [knock] = await anna.doors.knocks();         // { from, name, note, pairSpace, … } — `from` is proven
-await anna.doors.accept(knock.id);                 // joins; Leif is a contact, and she is his once it syncs
-await anna.doors.close(door.id);                   // the code leads nowhere now; contacts stay
+const [knock] = await anna.doors.knocks(); // { from, name, note, pairSpace, … } — `from` is proven
+await anna.doors.accept(knock.id); // joins; Leif is a contact, and she is his once it syncs
+await anna.doors.close(door.id); // the code leads nowhere now; contacts stay
 ```
 
 - **The relay keeps a mailbox**, the one thing it holds: a sealed blob under a
@@ -343,7 +364,7 @@ The protocol ships it, so an app does not write it:
 <script type="module">
   import '@weaveprotocol/core/elements';
   document.querySelector('weave-auth').addEventListener('weave-session', (event) => {
-    const session = event.detail.session;      // { account, did, sessionDid, node }, or null
+    const session = event.detail.session; // { account, did, sessionDid, node }, or null
     if (session) start(session.node);
   });
 </script>
@@ -388,17 +409,17 @@ function Todos({ space }) {
 
 Everything below the provider asks for what it needs:
 
-| Hook | Gives |
-|---|---|
-| `useWeave()` | The flow, its state and the session — or nulls, before sign-in |
-| `useAuth()` / `useSession()` / `useNode()` | The same, for components that only exist once someone is in |
-| `useSpaces()` | The account's spaces, kept current, with `create`, `join`, `leave` |
-| `useQuery(space, query)` | Records matching a query, kept current |
-| `useRecord(space, key)` / `useLinked(space, key)` | One record; what points at it |
-| `useCollections(space)` / `useProfiles(space)` / `useSpaceStatus(space)` | What a space holds, who is in it, whether it is connected |
-| `useCan(space, action, target)` | Whether this account may create, edit or delete — for hiding a button |
-| `useHoldSpace(space)` | Keeps a space syncing while a view is on screen |
-| `useLive(space, load, deps)` | Anything else, reloaded as the space changes |
+| Hook                                                                     | Gives                                                                 |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `useWeave()`                                                             | The flow, its state and the session — or nulls, before sign-in        |
+| `useAuth()` / `useSession()` / `useNode()`                               | The same, for components that only exist once someone is in           |
+| `useSpaces()`                                                            | The account's spaces, kept current, with `create`, `join`, `leave`    |
+| `useQuery(space, query)`                                                 | Records matching a query, kept current                                |
+| `useRecord(space, key)` / `useLinked(space, key)`                        | One record; what points at it                                         |
+| `useCollections(space)` / `useProfiles(space)` / `useSpaceStatus(space)` | What a space holds, who is in it, whether it is connected             |
+| `useCan(space, action, target)`                                          | Whether this account may create, edit or delete — for hiding a button |
+| `useHoldSpace(space)`                                                    | Keeps a space syncing while a view is on screen                       |
+| `useLive(space, load, deps)`                                             | Anything else, reloaded as the space changes                          |
 
 An app connected to an account home passes its node instead:
 `<WeaveProvider node={node}>`. React is an optional peer dependency; only
@@ -424,19 +445,22 @@ const connection = createWeaveConnection({
   home: 'https://weave-home.netlify.app/connect',
   request: {
     name: 'Todo',
-    access: 'write',                                                      // or 'read'
-    scope: 'spaces',                                                      // or 'account': every space
-    create: [{ name: 'Todos', visibility: 'private' }],                   // made by the home, in the account
+    access: 'write', // or 'read'
+    scope: 'spaces', // or 'account': every space
+    create: [{ name: 'Todos', visibility: 'private' }], // made by the home, in the account
   },
   network: { relays },
 });
 
-<WeaveProvider connection={connection}><App /></WeaveProvider>;
+<WeaveProvider connection={connection}>
+  <App />
+</WeaveProvider>;
 
 function App() {
   const { connection, state } = useConnection();
-  if (state.status !== 'ready') return <button onClick={() => connection.connect()}>Connect with Weave</button>;
-  return <Todos />;   // useNode(), useQuery(…) — the same hooks as anywhere
+  if (state.status !== 'ready')
+    return <button onClick={() => connection.connect()}>Connect with Weave</button>;
+  return <Todos />; // useNode(), useQuery(…) — the same hooks as anywhere
 }
 ```
 
@@ -458,7 +482,7 @@ relays still meet. Underneath are
 3. The home signs a note from the account to the app's key: these spaces, read
    or change, for seven days. It hands the note back with invites for those
    spaces, to the app's origin only.
-4. The app's node signs with its own key under that note. It acts *for* the
+4. The app's node signs with its own key under that note. It acts _for_ the
    account — records show the account as their author — but every peer checks
    the note, so it cannot write anywhere it was not given.
 
@@ -468,7 +492,7 @@ key can read all of it, until the space's key changes (`spaces.changeKey`). Spac
 for itself are created by the home, as part of the approval, so they land in
 the account's list on every device.
 
-An app that is a view onto *everything* — like the example — asks for
+An app that is a view onto _everything_ — like the example — asks for
 `scope: 'account'`: a note for every space, plus the key the account's space
 list is derived from, so it sees every space and can make and join them. It
 gets the contacts too (see Contacts, above). It
@@ -520,20 +544,20 @@ keepers confirm is protocol. `spaces.status(id)` shows `holds` and `pending`.
 
 ### Identity (`@weaveprotocol/core/identity`)
 
-| Export | Description |
-|--------|-------------|
-| `generateSeed()` / `seedToRecoveryCode()` / `recoveryCodeToSeed()` | The account seed and its written form |
-| `createIdentityManager()` | `fromSeed`, `fromRecoveryCode`, `fromPassword`; passkey-PRF derivation as an option |
-| `createLocalRootSigner()` | A `RootSigner` for a seed unlocked in this page |
-| `createFolderAccountStore()` / `createBrowserAccountStore()` | Where accounts live: a data folder, or this browser |
-| `wrapSeedWithDeviceKey()` / `wrapSeedWithPassphrase()` | Local ways to unlock a stored seed |
-| `deriveVaultKey()` | Key for sealing an account's space registry at rest |
-| `pairingRoomId()` / `encodePairingTicket()` / `sealPairingPayload()` | Bringing a phone into an account |
-| `issueUCAN()` / `verifyUCAN()` | Capability tokens (UCAN 0.10, `ES256` JWTs) |
-| `delegateCapabilities()` | Attenuated delegation from a parent token |
-| `validateDelegationChain()` | Verify a full root → … → leaf proof chain |
-| `createP256Provider()` | ECDSA P-256 crypto provider (swappable) |
-| `publicKeyToDid()` / `didToPublicKey()` | `did:key` encoding |
+| Export                                                               | Description                                                                         |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `generateSeed()` / `seedToRecoveryCode()` / `recoveryCodeToSeed()`   | The account seed and its written form                                               |
+| `createIdentityManager()`                                            | `fromSeed`, `fromRecoveryCode`, `fromPassword`; passkey-PRF derivation as an option |
+| `createLocalRootSigner()`                                            | A `RootSigner` for a seed unlocked in this page                                     |
+| `createFolderAccountStore()` / `createBrowserAccountStore()`         | Where accounts live: a data folder, or this browser                                 |
+| `wrapSeedWithDeviceKey()` / `wrapSeedWithPassphrase()`               | Local ways to unlock a stored seed                                                  |
+| `deriveVaultKey()`                                                   | Key for sealing an account's space registry at rest                                 |
+| `pairingRoomId()` / `encodePairingTicket()` / `sealPairingPayload()` | Bringing a phone into an account                                                    |
+| `issueUCAN()` / `verifyUCAN()`                                       | Capability tokens (UCAN 0.10, `ES256` JWTs)                                         |
+| `delegateCapabilities()`                                             | Attenuated delegation from a parent token                                           |
+| `validateDelegationChain()`                                          | Verify a full root → … → leaf proof chain                                           |
+| `createP256Provider()`                                               | ECDSA P-256 crypto provider (swappable)                                             |
+| `publicKeyToDid()` / `didToPublicKey()`                              | `did:key` encoding                                                                  |
 
 #### The account is a seed
 
@@ -551,7 +575,7 @@ on a domain that has never seen you, because there is nothing stored there for
 anything else to unlock.
 
 ```typescript
-const code = generateRecoveryCode();            // 'K7N6-ERYP-68TZ-A7HN-VJW3-QWKN-CG'
+const code = generateRecoveryCode(); // 'K7N6-ERYP-68TZ-A7HN-VJW3-QWKN-CG'
 const me = await createIdentityManager().fromRecoveryCode(code);
 // case, spacing and the usual O/0, I/1 slips are all forgiven on the way back in
 ```
@@ -565,18 +589,18 @@ app presents it in a username/password form for exactly that reason.
 Typing the code every visit would be tedious, so each origin can keep **wraps**:
 encrypted copies of the seed, each opened a different way.
 
-| Wrap | Opened by | Notes |
-|---|---|---|
-| `device` | A random, non-extractable key kept in this origin, with a passkey as the gate in front of it | Works with every passkey provider, because nothing is derived from the passkey |
-| `passphrase` | PBKDF2-SHA256 → AES-GCM | A short password for this device |
+| Wrap         | Opened by                                                                                    | Notes                                                                          |
+| ------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `device`     | A random, non-extractable key kept in this origin, with a passkey as the gate in front of it | Works with every passkey provider, because nothing is derived from the passkey |
+| `passphrase` | PBKDF2-SHA256 → AES-GCM                                                                      | A short password for this device                                               |
 
-See *Locking the folder* below for how wraps are stored.
+See _Locking the folder_ below for how wraps are stored.
 
 #### Why passkeys are a gate, not the identity
 
 A passkey can only hand an app a secret through the WebAuthn **PRF** extension.
 Several major credential managers — Bitwarden and 1Password among them — store
-passkeys without PRF, or report it inconsistently. An identity *derived* from a
+passkeys without PRF, or report it inconsistently. An identity _derived_ from a
 passkey would lock those users out, and it would still be a different identity
 on every domain, since a passkey is bound to one.
 
@@ -594,20 +618,26 @@ expiring capabilities to keys that do the day-to-day signing:
 import { issueUCAN, delegateCapabilities, validateDelegationChain } from '@weaveprotocol/core';
 
 // Root grants a session key everything it may do with todos, for an hour
-const sessionUcan = await issueUCAN({
-  issuer: { did: me.did, privateKey: me.privateKey },
-  audience: sessionDid,
-  capabilities: [{ with: 'space:app.example.todo', can: 'expression/*' }],
-  expiration: Math.floor(Date.now() / 1000) + 3600,
-}, provider);
+const sessionUcan = await issueUCAN(
+  {
+    issuer: { did: me.did, privateKey: me.privateKey },
+    audience: sessionDid,
+    capabilities: [{ with: 'space:app.example.todo', can: 'expression/*' }],
+    expiration: Math.floor(Date.now() / 1000) + 3600,
+  },
+  provider,
+);
 
 // The session key hands a guest a strictly weaker, read-only capability
-const guestUcan = await delegateCapabilities({
-  parent: sessionUcan,
-  issuer: { did: sessionDid, privateKey: sessionKey },
-  audience: guestDid,
-  capabilities: [{ with: 'space:app.example.todo', can: 'expression/read' }],
-}, provider);
+const guestUcan = await delegateCapabilities(
+  {
+    parent: sessionUcan,
+    issuer: { did: sessionDid, privateKey: sessionKey },
+    audience: guestDid,
+    capabilities: [{ with: 'space:app.example.todo', can: 'expression/read' }],
+  },
+  provider,
+);
 
 // Any peer can check the whole chain back to the root DID
 const chain = await validateDelegationChain(guestUcan.encoded, [sessionUcan.encoded], provider);
@@ -622,28 +652,28 @@ token may delegate it onward.
 
 Typed, signed data expressions using [Standard Schema](https://standardschema.dev/).
 
-| Export | Description |
-|--------|-------------|
-| `createSchemaEngine()` | Register collections with Standard Schema validators |
+| Export                                        | Description                                                     |
+| --------------------------------------------- | --------------------------------------------------------------- |
+| `createSchemaEngine()`                        | Register collections with Standard Schema validators            |
 | `validateJsonSchema()` / `asStandardSchema()` | The JSON Schema a space stores, and its Standard Schema adapter |
-| `createSigner()` | Sign and verify expressions (JWS-style) |
-| `createExpression()` | Build unsigned expressions (optionally carrying a UCAN `proof`) |
-| `canonicalize()` | Deterministic JSON serialization |
+| `createSigner()`                              | Sign and verify expressions (JWS-style)                         |
+| `createExpression()`                          | Build unsigned expressions (optionally carrying a UCAN `proof`) |
+| `canonicalize()`                              | Deterministic JSON serialization                                |
 
 ### Storage (`@weaveprotocol/core/storage`)
 
 Local-first storage: signed versions, and plain entries saying which is current
 and which versions each collection keeps — the set sync compares.
 
-| Export | Description |
-|--------|-------------|
-| `createStorageProvider()` | Expression storage: current, first and retained versions (`r/`, `g/`, `h/`), and every kept version by collection (`i/`) for sync; `fingerprint()` is equal on two stores keeping the same versions |
-| `createIndexedDBAdapter()` | IndexedDB storage adapter, scoped to this origin |
-| `createFolderAdapter()` | A user-picked directory, shared by every origin given access |
-| `createEncryptedAdapter()` | Seals chosen keys (space records, space keys) at rest |
-| `reconcileFolder()` | Places the files another writer added to a folder, and drops entries whose file is gone |
-| `createMirror()` | Keeps a space in a dumb file store too, synced like a peer that never runs code |
-| `createS3BlobStore()` / `createMemoryBlobStore()` | File stores a mirror can use: any S3-compatible bucket (R2, B2, MinIO, AWS), or memory |
+| Export                                            | Description                                                                                                                                                                                         |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createStorageProvider()`                         | Expression storage: current, first and retained versions (`r/`, `g/`, `h/`), and every kept version by collection (`i/`) for sync; `fingerprint()` is equal on two stores keeping the same versions |
+| `createIndexedDBAdapter()`                        | IndexedDB storage adapter, scoped to this origin                                                                                                                                                    |
+| `createFolderAdapter()`                           | A user-picked directory, shared by every origin given access                                                                                                                                        |
+| `createEncryptedAdapter()`                        | Seals chosen keys (space records, space keys) at rest                                                                                                                                               |
+| `reconcileFolder()`                               | Places the files another writer added to a folder, and drops entries whose file is gone                                                                                                             |
+| `createMirror()`                                  | Keeps a space in a dumb file store too, synced like a peer that never runs code                                                                                                                     |
+| `createS3BlobStore()` / `createMemoryBlobStore()` | File stores a mirror can use: any S3-compatible bucket (R2, B2, MinIO, AWS), or memory                                                                                                              |
 
 **Mirrors.** A bucket or an app folder can hold a space: each writer (one store
 on one device, with a random id) only ever adds immutable segments in its own
@@ -662,23 +692,23 @@ may write in it is decided by its **roles** — the space's own, not the
 protocol's. A private notebook is a space whose creator never invited anyone;
 a team list is one where everyone invited holds an Editor role.
 
-| Export | Description |
-|--------|-------------|
-| `createSpaceManager()` | Create, list, join and forget spaces; mint invites |
-| `parseSpaceInvite()` | Read an invite without joining, to show what it offers |
-| `checkSpace()` / `spaceIdOf()` | Whether a space you were handed is the one its id names |
-| `rolePresets` | Starting roles to use or ignore: `solo`, `team`, `community` |
-| `replayAccess()` | The access history, replayed — who holds what, as of any point |
-| `deriveInviteKey()` / `deriveReadKey()` | An invite link's key, and a private space's read key |
+| Export                                  | Description                                                    |
+| --------------------------------------- | -------------------------------------------------------------- |
+| `createSpaceManager()`                  | Create, list, join and forget spaces; mint invites             |
+| `parseSpaceInvite()`                    | Read an invite without joining, to show what it offers         |
+| `checkSpace()` / `spaceIdOf()`          | Whether a space you were handed is the one its id names        |
+| `rolePresets`                           | Starting roles to use or ignore: `solo`, `team`, `community`   |
+| `replayAccess()`                        | The access history, replayed — who holds what, as of any point |
+| `deriveInviteKey()` / `deriveReadKey()` | An invite link's key, and a private space's read key           |
 
 ```typescript
 const spaces = createSpaceManager(adapter);
 
 const { space, key } = await spaces.create({
   name: 'Move house',
-  visibility: 'private',   // key generated, bodies encrypted
+  visibility: 'private', // key generated, bodies encrypted
   creator: me.did,
-  ...rolePresets.team,     // Owner, and Editor for whoever is invited
+  ...rolePresets.team, // Owner, and Editor for whoever is invited
 });
 ```
 
@@ -803,7 +833,7 @@ neighbours, so moving a card rewrites only that card:
 ```typescript
 import { reaction, useSchemas } from '@weaveprotocol/core/schemas';
 
-await useSchemas(node, space.id, [reaction]);   // defines only what the space lacks
+await useSchemas(node, space.id, [reaction]); // defines only what the space lacks
 await node.records.put(space.id, reaction.name, { emoji: '👍' }, { links: [{ rel: 'about', to: post.key }] });
 ```
 
@@ -820,7 +850,7 @@ await node.collections.define(space.id, {
   name: 'app.poll.vote',
   schema: voteSchema,
   links: { about: { to: ['app.poll'], cardinality: 'one' } },
-  rules: { edit: 'creator', onePer: ['@author', 'link:about'] },  // one vote per person per poll
+  rules: { edit: 'creator', onePer: ['@author', 'link:about'] }, // one vote per person per poll
 });
 ```
 
@@ -830,7 +860,7 @@ permission the collection declares in `permissions`. The test for which: did a
 person have to decide it? "The creator edits" follows from the data; "moderators
 delete" needs `can:moderate`, and the space decides which roles hold
 `app.poll/moderate`. `onePer` derives the record's key from what must be
-unique, so voting again *is* changing your vote — no peer ever needs to see every
+unique, so voting again _is_ changing your vote — no peer ever needs to see every
 vote to stop a second one. `fixed` fields keep their first value. Each version
 is judged by the definition in force as of the access history it saw, so every
 peer judges it by the same rules: a forged edit or a second vote is refused
@@ -857,7 +887,7 @@ name, so the query is still plain data.
 ```typescript
 import { collection } from '@weaveprotocol/core';
 
-const polls = collection({ name: 'app.poll', schema: Poll });    // Poll is a Zod object
+const polls = collection({ name: 'app.poll', schema: Poll }); // Poll is a Zod object
 const votes = collection({ name: 'app.poll.vote', schema: Vote });
 
 await node.records.put(space.id, polls, { question: 'Where?', options: ['Oslo', 'Lisbon'] }); // checked against Poll
@@ -866,8 +896,8 @@ const { records } = await node.records.query(space.id, {
   collection: polls,
   include: { votes: { rel: 'about', from: votes } },
 });
-records[0].body.question;                  // string
-records[0].included.votes[0].body.choice;  // number
+records[0].body.question; // string
+records[0].included.votes[0].body.choice; // number
 ```
 
 **The account registry.** Which spaces an account belongs to is itself kept in
@@ -897,7 +927,7 @@ not inside the identity — bringing a DID back on a new device restores who you
 are, and an invite (even one you send yourself) restores what you had. Expressions name their space in a signed
 field, which stops one being replayed into another.
 
-**Encrypt, then sign.** A private space encrypts the body *before* the expression
+**Encrypt, then sign.** A private space encrypts the body _before_ the expression
 is signed, so the signature covers the ciphertext: peers without the key still
 verify and relay the data, they simply cannot read it. The structural gate steps
 aside for encrypted bodies — their shape is checked by members after decryption.
@@ -906,16 +936,16 @@ aside for encrypted bodies — their shape is checked by members after decryptio
 
 Browser-to-browser communication via WebRTC.
 
-| Export | Description |
-|--------|-------------|
-| `createMesh()` | One node's WebRTC connections through relays, shared by every space: `mesh.join(room, auth)` gives a space its peers |
-| `createNetworkManager()` | Peers over a transport that dials on its own — a node's socket, a local link |
-| `createSignalingClient()` | WebSocket signaling for ICE/SDP exchange |
-| `createMultiSignalingClient()` | Several relays used at once, de-duplicated |
-| `createRTCTransport()` | WebRTC data channel management (the default transport) |
-| `createWebSocketTransport()` | A socket to one always-on node — no relay, no TURN |
-| `createMeshAuth()` | The peer-to-peer handshake: each side proves its DID, and in a private space that it may read |
-| `createClientAuth()` / `createServerAuth()` | The handshake with a node: the client proves its DID (and the read key, if private), the node signs with its own |
+| Export                                      | Description                                                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `createMesh()`                              | One node's WebRTC connections through relays, shared by every space: `mesh.join(room, auth)` gives a space its peers |
+| `createNetworkManager()`                    | Peers over a transport that dials on its own — a node's socket, a local link                                         |
+| `createSignalingClient()`                   | WebSocket signaling for ICE/SDP exchange                                                                             |
+| `createMultiSignalingClient()`              | Several relays used at once, de-duplicated                                                                           |
+| `createRTCTransport()`                      | WebRTC data channel management (the default transport)                                                               |
+| `createWebSocketTransport()`                | A socket to one always-on node — no relay, no TURN                                                                   |
+| `createMeshAuth()`                          | The peer-to-peer handshake: each side proves its DID, and in a private space that it may read                        |
+| `createClientAuth()` / `createServerAuth()` | The handshake with a node: the client proves its DID (and the read key, if private), the node signs with its own     |
 
 #### Signaling relay
 
@@ -964,9 +994,9 @@ the offer and the two never collide.
 
 Range-based set reconciliation (Negentropy, as Nostr's NIP-77), one collection at a time.
 
-| Export | Description |
-|--------|-------------|
-| `createSyncEngine()` | Reconciles a space with its peers, with a heartbeat |
+| Export                                               | Description                                                          |
+| ---------------------------------------------------- | -------------------------------------------------------------------- |
+| `createSyncEngine()`                                 | Reconciles a space with its peers, with a heartbeat                  |
 | `createReconciler()` / `ItemSet` / `fingerprintOf()` | Negentropy itself, wire-compatible with the reference implementation |
 
 A peer says hello with a fingerprint of each collection it keeps — in essence
@@ -993,15 +1023,15 @@ dropped and surface as a `rejected` event with the reason.
 
 A pipeline of gates for incoming expressions.
 
-| Export | Description |
-|--------|-------------|
-| `createValidationEngine()` | Full gatekeeper pipeline |
-| `createCryptoGate()` | Expression id + signature verification |
-| `createStructuralGate()` | Schema conformance via Standard Schema |
-| `createCapabilityGate()` | UCAN authorization: may this key write this? |
-| `createStatefulGate()` | Custom Wasm rules |
+| Export                     | Description                                  |
+| -------------------------- | -------------------------------------------- |
+| `createValidationEngine()` | Full gatekeeper pipeline                     |
+| `createCryptoGate()`       | Expression id + signature verification       |
+| `createStructuralGate()`   | Schema conformance via Standard Schema       |
+| `createCapabilityGate()`   | UCAN authorization: may this key write this? |
+| `createStatefulGate()`     | Custom Wasm rules                            |
 
-The crypto gate settles *who* signed an expression. The capability gate answers
+The crypto gate settles _who_ signed an expression. The capability gate answers
 the next question: were they allowed to? An expression signed by a delegated key
 carries its UCAN in `proof` — a signed field, so it cannot be swapped out — and
 the gate walks that chain back to a root identity, rejecting anything expired,
@@ -1027,11 +1057,11 @@ const validation = createValidationEngine({
 
 End-to-end encryption for private Spaces.
 
-| Export | Description |
-|--------|-------------|
-| `createPrivacyGuard()` | Transparent E2EE orchestrator |
-| `generateSpaceKey()` | AES-GCM-256 space keys |
-| `wrapSpaceKey()` | ECDH + AES-KW key distribution |
+| Export                 | Description                    |
+| ---------------------- | ------------------------------ |
+| `createPrivacyGuard()` | Transparent E2EE orchestrator  |
+| `generateSpaceKey()`   | AES-GCM-256 space keys         |
+| `wrapSpaceKey()`       | ECDH + AES-KW key distribution |
 
 ## Storage Adapters
 
@@ -1061,7 +1091,7 @@ The always-on node (`weave run`) uses the folder adapter on disk, in the same la
 
 (The app calls a data folder a **pod**.)
 
-Every in-browser store is keyed by origin. IndexedDB, localStorage, Cache API and OPFS (the name is the spec: *Origin Private* File System) all partition by it, so two deployments of one app on two domains can never read each other's data, and a passkey — bound to an RP ID, which is a domain — derives a different identity on each. Two views of the same app become two unrelated accounts.
+Every in-browser store is keyed by origin. IndexedDB, localStorage, Cache API and OPFS (the name is the spec: _Origin Private_ File System) all partition by it, so two deployments of one app on two domains can never read each other's data, and a passkey — bound to an RP ID, which is a domain — derives a different identity on each. Two views of the same app become two unrelated accounts.
 
 A directory handle is the exception. Each origin asks for permission once, and both end up looking at the same files:
 
@@ -1080,21 +1110,27 @@ rather than two.
 
 ```typescript
 import {
-  pickDataFolder, createFolderAccountStore, recoveryCodeToSeed, deriveVaultKey,
-  createFolderAdapter, createEncryptedAdapter, reconcileFolder,
-  createIdentityManager, createStorageProvider,
+  pickDataFolder,
+  createFolderAccountStore,
+  recoveryCodeToSeed,
+  deriveVaultKey,
+  createFolderAdapter,
+  createEncryptedAdapter,
+  reconcileFolder,
+  createIdentityManager,
+  createStorageProvider,
 } from '@weaveprotocol/core';
 
-const folder = await pickDataFolder();                 // needs a user gesture
+const folder = await pickDataFolder(); // needs a user gesture
 const accounts = createFolderAccountStore(folder);
-const [account] = await accounts.list();               // names and DIDs; nothing unlocked yet
+const [account] = await accounts.list(); // names and DIDs; nothing unlocked yet
 
-const seed = recoveryCodeToSeed(code);                 // or open one of its wraps, below
+const seed = recoveryCodeToSeed(code); // or open one of its wraps, below
 const identity = await createIdentityManager().fromSeed(seed);
 
 const adapter = await createFolderAdapter(folder, `${account.dataPath}/spaces/${spaceId}`);
 const storage = createStorageProvider(adapter);
-await reconcileFolder(storage, adapter);               // pick up other writers
+await reconcileFolder(storage, adapter); // pick up other writers
 
 // The registry is sealed under a key only an unlocked folder can derive.
 const registry = createEncryptedAdapter(
@@ -1122,15 +1158,15 @@ account seed (16 bytes, never written in the clear)
         passphrase  PBKDF2-SHA256 → AES-GCM
 ```
 
-A device wrap is opened by a random key kept in one origin's storage, with a passkey as the gate in front of it — **not** derived from the passkey (see *Why passkeys are a gate, not the identity*). So every provider works, and each origin adds a wrap of its own:
+A device wrap is opened by a random key kept in one origin's storage, with a passkey as the gate in front of it — **not** derived from the passkey (see _Why passkeys are a gate, not the identity_). So every provider works, and each origin adds a wrap of its own:
 
 ```typescript
-const deviceKey = await createDeviceKey();                 // non-extractable, local
+const deviceKey = await createDeviceKey(); // non-extractable, local
 const wrap = await wrapSeedWithDeviceKey(seed, deviceKey, { rpId, credentialId });
 await accounts.write(account, withWrap(vault, wrap));
 ```
 
-`deviceWrapsFor(vault, rpId)` says which wraps this origin can even attempt; the rest name keys it cannot reach. The gate is enforced in application code rather than by cryptography — see `packages/core/src/identity/device-key.ts` for what that does and does not protect against. The recovery code needs no wrap, because it *is* the seed in printable form — it opens the folder anywhere, including on a phone or in a browser with no File System Access API, and it is shown once and stored nowhere.
+`deviceWrapsFor(vault, rpId)` says which wraps this origin can even attempt; the rest name keys it cannot reach. The gate is enforced in application code rather than by cryptography — see `packages/core/src/identity/device-key.ts` for what that does and does not protect against. The recovery code needs no wrap, because it _is_ the seed in printable form — it opens the folder anywhere, including on a phone or in a browser with no File System Access API, and it is shown once and stored nowhere.
 
 `createEncryptedAdapter` seals `space:`, `spacekey:`, `spaceinvite:` and `spacerole:` values under the vault key, which is what makes a private space genuinely unreadable to someone holding the folder. It is scoped deliberately narrowly: expressions and index entries pass through, so what stays legible is each record's author, timestamp and collection, plus anything in a space its owner made public. Sealing those too would mean an opaque blob store, which would cost the property that makes a folder worth having.
 
@@ -1145,7 +1181,7 @@ to move for the key to live somewhere else:
 export interface RootSigner {
   readonly did: string;
   readonly custody: 'local' | 'remote';
-  delegate(params: { audience, capabilities, expiration }): Promise<UCANToken>;
+  delegate(params: { audience; capabilities; expiration }): Promise<UCANToken>;
 }
 ```
 
@@ -1196,7 +1232,7 @@ space to another relay, a self-hosted one say, is one change, and everyone
 follows. No DHT: browsers can't be DHT nodes, and would need a relay to reach
 one anyway.
 
-**Peers introduce peers**, so a relay is only needed for the *first* connection.
+**Peers introduce peers**, so a relay is only needed for the _first_ connection.
 Once you are connected to someone, their data channel carries signalling for the
 peers you have not met: `__peers` says who I can see, `__signal` carries
 somebody else's offer onward, bounded by a hop count and de-duplicated by id.
@@ -1214,8 +1250,11 @@ and the list of spaces — and only the first fits in a QR code:
 
 ```typescript
 import {
-  pairingRoomId, derivePairingKey, encodePairingTicket,
-  sealPairingPayload, openPairingPayload,
+  pairingRoomId,
+  derivePairingKey,
+  encodePairingTicket,
+  sealPairingPayload,
+  openPairingPayload,
 } from '@weaveprotocol/core';
 
 // Desktop: a link for the QR. The fragment never reaches a server.
@@ -1320,7 +1359,7 @@ has **Keep my spaces online**.
 `apps/example/` is the Weave website — a front page for communities at `/`, and
 one for developers at `/developers` — and, at `/app`, a general-purpose app for your spaces — Vite + React, consuming
 the protocol straight from `packages/core/src/`. It knows no kinds of data in advance: every
-screen is worked out from what a space says about itself (see *Derived UI* below):
+screen is worked out from what a space says about itself (see _Derived UI_ below):
 
 ```bash
 npm install     # one install for the whole workspace: core, CLI, relay and the apps
@@ -1329,13 +1368,13 @@ npm run dev
 
 That starts everything, with coloured output per part, and Ctrl-C stops it all:
 
-| Part | Where | What |
-|---|---|---|
-| app | http://localhost:5173 | The example app |
-| home | http://localhost:5174 | The account home it connects to |
-| node | port 8787 | An always-on node that is also the relay; a throwaway identity on first run (`packages/cli/.env.dev`, data in `.weave-dev/`) |
-| host | http://localhost:8788 | `weave host`, what "Keep my spaces online" uses, with its pay page at `/pay`; settings in `packages/cli/.env.host.dev` |
-| stripe | — | Only when you add a Stripe test key (below): forwards Stripe's webhooks to the host |
+| Part   | Where                 | What                                                                                                                         |
+| ------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| app    | http://localhost:5173 | The example app                                                                                                              |
+| home   | http://localhost:5174 | The account home it connects to                                                                                              |
+| node   | port 8787             | An always-on node that is also the relay; a throwaway identity on first run (`packages/cli/.env.dev`, data in `.weave-dev/`) |
+| host   | http://localhost:8788 | `weave host`, what "Keep my spaces online" uses, with its pay page at `/pay`; settings in `packages/cli/.env.host.dev`       |
+| stripe | —                     | Only when you add a Stripe test key (below): forwards Stripe's webhooks to the host                                          |
 
 `apps/example/.env.development` and `apps/home/.env.development` point the app and home
 at the rest. Override any of them in a `.env.local`, and the host in
@@ -1389,8 +1428,8 @@ example: make private or public spaces, just yours or with people you invite, an
 friend via an invite link. Everyone in a space is shown by the name
 they gave. Every record is signed by a delegated session key, stored in that
 space's own store, encrypted first if the space is private, and gossiped to peers over
-WebRTC; a record says *verified* once its signature and its delegation chain
-check out here, and *encrypted* when it arrived encrypted.
+WebRTC; a record says _verified_ once its signature and its delegation chain
+check out here, and _encrypted_ when it arrived encrypted.
 
 **Derived UI.** A space opens on its **Apps** tab: apps built on the standard
 schemas (a chat, a kanban board) show up once the space holds the collections
@@ -1470,15 +1509,15 @@ What the protocol still has planned is in [the spec](spec/README.md), under
 
 One npm workspace, installed once at the root (`npm install`):
 
-| Folder | Package | |
-|---|---|---|
-| `packages/core` | `@weaveprotocol/core` (published) | The protocol library, and its tests |
-| `packages/cli` | `@weaveprotocol/cli` (published) | `weave`: the always-on node, hosting, agents, MCP |
-| `packages/relay` | `@weaveprotocol/relay` (private) | The signaling relay and its mailbox, run alone on Fly and inside every node |
-| `apps/home` | — | The account home |
-| `apps/example` | — | The website and the example app |
-| `apps/extension` | — | The Chrome extension |
-| `spec` | — | The protocol specification |
+| Folder           | Package                           |                                                                             |
+| ---------------- | --------------------------------- | --------------------------------------------------------------------------- |
+| `packages/core`  | `@weaveprotocol/core` (published) | The protocol library, and its tests                                         |
+| `packages/cli`   | `@weaveprotocol/cli` (published)  | `weave`: the always-on node, hosting, agents, MCP                           |
+| `packages/relay` | `@weaveprotocol/relay` (private)  | The signaling relay and its mailbox, run alone on Fly and inside every node |
+| `apps/home`      | —                                 | The account home                                                            |
+| `apps/example`   | —                                 | The website and the example app                                             |
+| `apps/extension` | —                                 | The Chrome extension                                                        |
+| `spec`           | —                                 | The protocol specification                                                  |
 
 Everything imports the protocol by name, `@weaveprotocol/core`, and only
 through what it exports. Inside the workspace, the `@weaveprotocol/source`

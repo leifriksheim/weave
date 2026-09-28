@@ -24,7 +24,14 @@
  * It fills whatever box it is put in — a page, a modal, a panel — and draws
  * nothing once signed in; the host decides what happens then.
  */
-import { createWeaveAuth, MIN_PASSWORD_LENGTH, type AuthError, type AuthState, type WeaveAuth, type WeaveSession } from '../session/auth.js';
+import {
+  createWeaveAuth,
+  MIN_PASSWORD_LENGTH,
+  type AuthError,
+  type AuthState,
+  type WeaveAuth,
+  type WeaveSession,
+} from '../session/auth.js';
 import { accountCredentialName, offerToSave, recoveryKit } from '../session/credentials.js';
 import type { PairingStage } from '../session/pairing.js';
 import type { AccountSummary } from '../identity/account-store.js';
@@ -113,11 +120,22 @@ function errorBox(error: AuthError | null): HTMLElement | null {
   );
 }
 
-function option(title: string, text: string, onclick: () => void, disabled: boolean, recommended = false): HTMLElement {
+function option(
+  title: string,
+  text: string,
+  onclick: () => void,
+  disabled: boolean,
+  recommended = false,
+): HTMLElement {
   return h(
     'button',
     { type: 'button', class: 'wa-option', onclick, disabled },
-    h('span', { class: 'wa-option-title' }, title, recommended ? h('span', { class: 'wa-badge' }, 'Recommended') : null),
+    h(
+      'span',
+      { class: 'wa-option-title' },
+      title,
+      recommended ? h('span', { class: 'wa-badge' }, 'Recommended') : null,
+    ),
     h('span', { class: 'wa-option-text' }, text),
   );
 }
@@ -172,8 +190,14 @@ export class WeaveAuthElement extends Base {
     this.#auth ??= createWeaveAuth({
       ...(this.getAttribute('app-name') ? { appName: this.getAttribute('app-name')! } : {}),
       network: {
-        relays: (this.getAttribute('relays') ?? '').split(',').map((url) => url.trim()).filter(Boolean),
-        nodes: (this.getAttribute('nodes') ?? '').split(',').map((url) => url.trim()).filter(Boolean),
+        relays: (this.getAttribute('relays') ?? '')
+          .split(',')
+          .map((url) => url.trim())
+          .filter(Boolean),
+        nodes: (this.getAttribute('nodes') ?? '')
+          .split(',')
+          .map((url) => url.trim())
+          .filter(Boolean),
       },
     });
     return this.#auth;
@@ -224,7 +248,11 @@ export class WeaveAuthElement extends Base {
     if (session !== this.#announced) {
       this.#announced = session;
       this.dispatchEvent(
-        new CustomEvent<WeaveSessionEventDetail>('weave-session', { detail: { session }, bubbles: true, composed: true }),
+        new CustomEvent<WeaveSessionEventDetail>('weave-session', {
+          detail: { session },
+          bubbles: true,
+          composed: true,
+        }),
       );
     }
   }
@@ -315,7 +343,11 @@ export class WeaveAuthElement extends Base {
       { class: 'wa-card' },
       wordmark(),
       h('h1', { class: 'wa-title' }, 'Welcome to Weave'),
-      h('p', { class: 'wa-subtitle' }, 'One account for every Weave app. Your data stays with you, not on a server.'),
+      h(
+        'p',
+        { class: 'wa-subtitle' },
+        'One account for every Weave app. Your data stays with you, not on a server.',
+      ),
       h(
         'div',
         { class: 'wa-options' },
@@ -325,7 +357,12 @@ export class WeaveAuthElement extends Base {
           () => auth.startCreating(),
           state.busy,
         ),
-        option('I already have one', 'Open your pod, use your recovery code, or add this device from another.', () => auth.showExisting(), state.busy),
+        option(
+          'I already have one',
+          'Open your pod, use your recovery code, or add this device from another.',
+          () => auth.showExisting(),
+          state.busy,
+        ),
       ),
       errorBox(state.error),
       this.#podLine(state),
@@ -437,7 +474,8 @@ export class WeaveAuthElement extends Base {
       }
     });
 
-    const wrong = selected !== null && this.#filledAs !== '' && this.#filledAs !== accountCredentialName(selected.name);
+    const wrong =
+      selected !== null && this.#filledAs !== '' && this.#filledAs !== accountCredentialName(selected.name);
     return [
       h(
         'form',
@@ -451,7 +489,11 @@ export class WeaveAuthElement extends Base {
         },
         username,
         code,
-        h('button', { type: 'submit', class: 'wa-button', disabled: state.busy }, state.busy ? 'Opening…' : 'Continue'),
+        h(
+          'button',
+          { type: 'submit', class: 'wa-button', disabled: state.busy },
+          state.busy ? 'Opening…' : 'Continue',
+        ),
       ),
       wrong
         ? h(
@@ -499,7 +541,11 @@ export class WeaveAuthElement extends Base {
         'aria-hidden': 'true',
       }),
       password,
-      h('button', { type: 'submit', class: 'wa-button', disabled: state.busy }, state.busy ? 'Signing in…' : 'Sign in'),
+      h(
+        'button',
+        { type: 'submit', class: 'wa-button', disabled: state.busy },
+        state.busy ? 'Signing in…' : 'Sign in',
+      ),
     );
   }
 
@@ -522,7 +568,13 @@ export class WeaveAuthElement extends Base {
           body.push(
             h(
               'button',
-              { type: 'button', class: 'wa-button', 'data-key': 'passkey', disabled: state.busy, onclick: () => void auth.signInWithPasskey() },
+              {
+                type: 'button',
+                class: 'wa-button',
+                'data-key': 'passkey',
+                disabled: state.busy,
+                onclick: () => void auth.signInWithPasskey(),
+              },
               state.busy ? 'Waiting…' : 'Sign in with passkey',
             ),
           );
@@ -530,7 +582,13 @@ export class WeaveAuthElement extends Base {
         if (entry.hasPassword) body.push(this.#passwordForm(state, account));
 
         if (hasShortcut || entry.hasPassword) {
-          body.push(h('div', { class: 'wa-links' }, link('Use my recovery code', () => auth.showRestore(), state.busy)));
+          body.push(
+            h(
+              'div',
+              { class: 'wa-links' },
+              link('Use my recovery code', () => auth.showRestore(), state.busy),
+            ),
+          );
         } else {
           body.push(
             h(
@@ -579,7 +637,11 @@ export class WeaveAuthElement extends Base {
       { class: 'wa-card' },
       wordmark(),
       h('h1', { class: 'wa-title' }, 'Welcome back'),
-      h('p', { class: 'wa-subtitle' }, accounts.length > 0 ? 'Choose your account.' : 'There are no accounts here yet.'),
+      h(
+        'p',
+        { class: 'wa-subtitle' },
+        accounts.length > 0 ? 'Choose your account.' : 'There are no accounts here yet.',
+      ),
       ...rows,
       errorBox(state.error),
       h(
@@ -589,14 +651,26 @@ export class WeaveAuthElement extends Base {
         link('Create a new account', () => auth.startCreating(), state.busy),
       ),
       place
-        ? h('p', { class: 'wa-small', style: 'margin-top:16px' }, place.kind === 'folder' ? `Pod: ${place.directory?.name ?? 'your folder'}` : 'Accounts kept in this browser')
+        ? h(
+            'p',
+            { class: 'wa-small', style: 'margin-top:16px' },
+            place.kind === 'folder'
+              ? `Pod: ${place.directory?.name ?? 'your folder'}`
+              : 'Accounts kept in this browser',
+          )
         : null,
       state.folderAvailable
         ? h(
             'div',
             { class: 'wa-links' },
-            link(place?.kind === 'folder' ? 'Open a different pod' : 'Open a pod', () => void auth.choosePod(), state.busy),
-            place?.kind === 'folder' ? link('Use this browser instead', () => void auth.useBrowser(), state.busy) : null,
+            link(
+              place?.kind === 'folder' ? 'Open a different pod' : 'Open a pod',
+              () => void auth.choosePod(),
+              state.busy,
+            ),
+            place?.kind === 'folder'
+              ? link('Use this browser instead', () => void auth.useBrowser(), state.busy)
+              : null,
           )
         : null,
     );
@@ -661,11 +735,23 @@ export class WeaveAuthElement extends Base {
           },
         },
         name,
-        h('button', { type: 'submit', class: 'wa-button', disabled: state.busy }, state.busy ? 'Creating…' : 'Continue'),
+        h(
+          'button',
+          { type: 'submit', class: 'wa-button', disabled: state.busy },
+          state.busy ? 'Creating…' : 'Continue',
+        ),
       ),
-      h('p', { class: 'wa-small' }, "Next: a recovery code to keep safe, then a passkey or password for signing in."),
+      h(
+        'p',
+        { class: 'wa-small' },
+        'Next: a recovery code to keep safe, then a passkey or password for signing in.',
+      ),
       errorBox(state.error),
-      h('div', { class: 'wa-links' }, link('I already have an account', () => auth.showExisting(), state.busy)),
+      h(
+        'div',
+        { class: 'wa-links' },
+        link('I already have an account', () => auth.showExisting(), state.busy),
+      ),
       this.#podLine(state),
     );
   }
@@ -726,7 +812,10 @@ export class WeaveAuthElement extends Base {
           {
             type: 'button',
             class: 'wa-secondary',
-            onclick: () => download(recoveryKit({ code, name: account?.name ?? 'My account', did: state.session?.did ?? '' })),
+            onclick: () =>
+              download(
+                recoveryKit({ code, name: account?.name ?? 'My account', did: state.session?.did ?? '' }),
+              ),
           },
           'Download',
         ),
@@ -744,7 +833,11 @@ export class WeaveAuthElement extends Base {
         }),
         h('span', null, "I've stored my recovery code somewhere safe."),
       ),
-      h('button', { type: 'button', class: 'wa-button', disabled: !this.#stored, onclick: () => auth.codeSaved() }, 'Continue'),
+      h(
+        'button',
+        { type: 'button', class: 'wa-button', disabled: !this.#stored, onclick: () => auth.codeSaved() },
+        'Continue',
+      ),
     );
   }
 
@@ -756,7 +849,8 @@ export class WeaveAuthElement extends Base {
   #unlock(state: AuthState): HTMLElement {
     const auth = this.auth;
     const account = state.session?.account;
-    const passkeys = typeof (globalThis as { PublicKeyCredential?: unknown }).PublicKeyCredential !== 'undefined';
+    const passkeys =
+      typeof (globalThis as { PublicKeyCredential?: unknown }).PublicKeyCredential !== 'undefined';
 
     const choosing = this.#choosingPassword || !passkeys;
     const form = () => {
@@ -807,8 +901,16 @@ export class WeaveAuthElement extends Base {
         password,
         confirm,
         this.#mismatch ? h('p', { class: 'wa-error' }, 'Those two do not match.') : null,
-        h('button', { type: 'submit', class: 'wa-button', disabled: state.busy }, state.busy ? 'Saving…' : 'Use this password'),
-        h('p', { class: 'wa-small', style: 'margin-top:0' }, `At least ${MIN_PASSWORD_LENGTH} characters. Let your password manager make one.`),
+        h(
+          'button',
+          { type: 'submit', class: 'wa-button', disabled: state.busy },
+          state.busy ? 'Saving…' : 'Use this password',
+        ),
+        h(
+          'p',
+          { class: 'wa-small', style: 'margin-top:0' },
+          `At least ${MIN_PASSWORD_LENGTH} characters. Let your password manager make one.`,
+        ),
       );
     };
 
@@ -830,18 +932,36 @@ export class WeaveAuthElement extends Base {
         'div',
         { class: 'wa-options' },
         passkeys
-          ? option('Passkey', 'Touch ID, Windows Hello, or your password manager. Nothing to type.', () => void auth.addPasskey(), state.busy, true)
+          ? option(
+              'Passkey',
+              'Touch ID, Windows Hello, or your password manager. Nothing to type.',
+              () => void auth.addPasskey(),
+              state.busy,
+              true,
+            )
           : null,
         passkeys && !choosing
-          ? option('Password', 'Saved in your password manager, like any other login.', () => {
-              this.#choosingPassword = true;
-              this.#redraw();
-            }, state.busy)
+          ? option(
+              'Password',
+              'Saved in your password manager, like any other login.',
+              () => {
+                this.#choosingPassword = true;
+                this.#redraw();
+              },
+              state.busy,
+            )
           : null,
       ),
       choosing ? form() : null,
       state.setup === 'paired' && state.pairingStage
-        ? h('p', { class: state.pairingStage.kind === 'failed' ? 'wa-error' : 'wa-small', style: 'margin-top:16px' }, describePairing(state.pairingStage))
+        ? h(
+            'p',
+            {
+              class: state.pairingStage.kind === 'failed' ? 'wa-error' : 'wa-small',
+              style: 'margin-top:16px',
+            },
+            describePairing(state.pairingStage),
+          )
         : null,
       errorBox(state.error),
     );
@@ -863,10 +983,19 @@ export class WeaveAuthElement extends Base {
       h(
         'div',
         { class: 'wa-options' },
-        option('Choose a folder', 'Your browser will ask to see it, then to save into it.', () => void auth.choosePod(), state.busy),
+        option(
+          'Choose a folder',
+          'Your browser will ask to see it, then to save into it.',
+          () => void auth.choosePod(),
+          state.busy,
+        ),
       ),
       errorBox(state.error),
-      h('div', { class: 'wa-links' }, link('Not now — keep it in this browser', () => auth.finishSetup(), state.busy)),
+      h(
+        'div',
+        { class: 'wa-links' },
+        link('Not now — keep it in this browser', () => auth.finishSetup(), state.busy),
+      ),
       h('p', { class: 'wa-small' }, 'You can move it to a pod any time from your account page.'),
     );
   }
@@ -898,15 +1027,31 @@ export class WeaveAuthElement extends Base {
       ),
       h(
         'button',
-        { type: 'button', class: 'wa-button', disabled: state.busy, onclick: () => void auth.acceptPairing() },
+        {
+          type: 'button',
+          class: 'wa-button',
+          disabled: state.busy,
+          onclick: () => void auth.acceptPairing(),
+        },
         state.busy ? 'Setting up…' : 'Set up this phone',
       ),
       state.pairingStage
-        ? h('p', { class: state.pairingStage.kind === 'failed' ? 'wa-error' : 'wa-hint', style: 'margin-top:12px' }, describePairing(state.pairingStage))
+        ? h(
+            'p',
+            {
+              class: state.pairingStage.kind === 'failed' ? 'wa-error' : 'wa-hint',
+              style: 'margin-top:12px',
+            },
+            describePairing(state.pairingStage),
+          )
         : null,
       errorBox(state.error),
       h('p', { class: 'wa-small' }, 'Keep the code showing until this finishes.'),
-      h('div', { class: 'wa-links' }, link('Not now', () => auth.dismissPairing(), state.busy)),
+      h(
+        'div',
+        { class: 'wa-links' },
+        link('Not now', () => auth.dismissPairing(), state.busy),
+      ),
     );
   }
 }

@@ -110,10 +110,7 @@ describe('folder adapter — expressions', () => {
 
     const found = await adapter.queryExpressions(COLLECTION, 50);
     assert.equal(found.length, 2);
-    assert.deepEqual(
-      found.map((expression) => expression.id).sort(),
-      [first.id, second.id].sort(),
-    );
+    assert.deepEqual(found.map((expression) => expression.id).sort(), [first.id, second.id].sort());
 
     assert.deepEqual(await adapter.getExpression(first.id), first);
     assert.equal(await adapter.getExpression('nope'), null);
@@ -194,7 +191,10 @@ describe('two origins, one folder', () => {
     assert.equal(result.changed, true);
 
     const seen = await b.storage.queryExpressions(COLLECTION, 50);
-    assert.deepEqual(seen.map((item) => item.id), [expression.id]);
+    assert.deepEqual(
+      seen.map((item) => item.id),
+      [expression.id],
+    );
   });
 
   test('a delete on one origin propagates to the other', async () => {

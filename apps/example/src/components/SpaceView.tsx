@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
-import { useAccess, useCollections, useHoldSpace, useProfiles, useAccount, useSpaceStatus } from '@weaveprotocol/core/react';
+import {
+  useAccess,
+  useCollections,
+  useHoldSpace,
+  useProfiles,
+  useAccount,
+  useSpaceStatus,
+} from '@weaveprotocol/core/react';
 import { collectionLabel } from '../derive/schema-ui';
 import { CollectionView } from './CollectionView';
 import { RecordPanel } from './RecordPanel';
@@ -43,7 +50,13 @@ type Tab = (typeof TABS)[number]['id'];
  * it drawn from what the space says about itself — nothing here knows what
  * any of the records are.
  */
-export function SpaceView({ space, onOpenSpace }: { space: SpaceSummary; onOpenSpace?: (id: string) => void }) {
+export function SpaceView({
+  space,
+  onOpenSpace,
+}: {
+  space: SpaceSummary;
+  onOpenSpace?: (id: string) => void;
+}) {
   const account = useAccount();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
   const [tab, setTab] = useState<Tab>('apps');
@@ -56,28 +69,60 @@ export function SpaceView({ space, onOpenSpace }: { space: SpaceSummary; onOpenS
   const people = peopleFrom(profiles);
   const status = useSpaceStatus(space.id);
   const access = useAccess(space.id);
-  const roleOf = new Map((access?.members ?? []).map((m) => [m.did, access?.roles.find((r) => r.name === m.role)?.title ?? m.role]));
+  const roleOf = new Map(
+    (access?.members ?? []).map((m) => [
+      m.did,
+      access?.roles.find((r) => r.name === m.role)?.title ?? m.role,
+    ]),
+  );
 
   // The space's own collections come before the standard ones.
-  const ordered = [...collections].sort((a, b) => Number(a.name.startsWith('std.')) - Number(b.name.startsWith('std.')));
+  const ordered = [...collections].sort(
+    (a, b) => Number(a.name.startsWith('std.')) - Number(b.name.startsWith('std.')),
+  );
   // Land on the first collection rather than an empty page.
-  const selected = place.collection === NEW ? NEW : ordered.some((c) => c.name === place.collection) ? place.collection : (ordered[0]?.name ?? null);
+  const selected =
+    place.collection === NEW
+      ? NEW
+      : ordered.some((c) => c.name === place.collection)
+        ? place.collection
+        : (ordered[0]?.name ?? null);
   const current = collections.find((c) => c.name === selected) ?? null;
-  const openRecord = (r: NodeRecord) => setPlace({ collection: ordered.some((c) => c.name === r.collection) ? r.collection : selected, key: r.key });
+  const openRecord = (r: NodeRecord) =>
+    setPlace({
+      collection: ordered.some((c) => c.name === r.collection) ? r.collection : selected,
+      key: r.key,
+    });
 
   return (
-    <PersonScopeProvider space={space} people={people} roles={roleOf} me={account.did} {...(onOpenSpace ? { openSpace: onOpenSpace } : {})}>
+    <PersonScopeProvider
+      space={space}
+      people={people}
+      roles={roleOf}
+      me={account.did}
+      {...(onOpenSpace ? { openSpace: onOpenSpace } : {})}
+    >
       <header style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h1 style={{ ...styles.appTitle, fontSize: 26 }}>{space.name}</h1>
-          <span style={{ ...styles.badge, display: 'inline-flex', alignItems: 'center', gap: 5 }} title={space.visibility === 'private' ? 'Encrypted end to end: only people in the space hold the key' : 'Not encrypted: anyone with the link can read it'}>
+          <span
+            style={{ ...styles.badge, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            title={
+              space.visibility === 'private'
+                ? 'Encrypted end to end: only people in the space hold the key'
+                : 'Not encrypted: anyone with the link can read it'
+            }
+          >
             <Icon name={space.visibility === 'private' ? 'lock' : 'globe'} size={12} />
             {spaceBadges(space)}
           </span>
           {status && <WhoIsHere status={status} people={people} />}
           <CallButton space={space} />
           {status && status.rejected > 0 && (
-            <span style={{ ...styles.badge, color: palette.accent.danger }} title="Records peers sent that failed validation">
+            <span
+              style={{ ...styles.badge, color: palette.accent.danger }}
+              title="Records peers sent that failed validation"
+            >
               {status.rejected} rejected
             </span>
           )}
@@ -89,7 +134,17 @@ export function SpaceView({ space, onOpenSpace }: { space: SpaceSummary; onOpenS
               : "You're following this space: you can see it but not change it. Someone who runs it can give you a role."}
           </p>
         )}
-        <nav role="tablist" aria-label="Views of this space" className="scroll-x" style={{ display: 'flex', gap: 4, boxShadow: `inset 0 -1px 0 ${palette.surface.line}`, marginTop: 12 }}>
+        <nav
+          role="tablist"
+          aria-label="Views of this space"
+          className="scroll-x"
+          style={{
+            display: 'flex',
+            gap: 4,
+            boxShadow: `inset 0 -1px 0 ${palette.surface.line}`,
+            marginTop: 12,
+          }}
+        >
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -119,66 +174,128 @@ export function SpaceView({ space, onOpenSpace }: { space: SpaceSummary; onOpenS
       {tab === 'query' && <QueryPlayground space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'roles' && <RolesView space={space} collections={collections} />}
 
-      {tab === 'data' && <div className="space-layout">
-        <aside className="space-side">
-          <nav aria-label="Collections" className="collection-nav">
-            <span className="collection-nav-heading" style={sideHeading}>In this space</span>
-            {ordered.map((c) => (
-              <button
-                key={c.name}
-                onClick={() => setPlace({ collection: c.name, key: null })}
-                aria-current={selected === c.name ? 'page' : undefined}
-                data-nav
-                style={{ ...navItem, ...(selected === c.name ? navItemOn : {}) }}
-              >
-                <span>{collectionLabel(c)}</span>
-                <span style={{ color: palette.ink.faint, fontSize: 12 }}>{c.records}</span>
-              </button>
-            ))}
-            {ordered.length === 0 && <span style={{ fontSize: 13, color: palette.ink.faint, padding: '6px 10px' }}>Nothing yet</span>}
-            {space.writable && (
-              <button onClick={() => setPlace({ collection: NEW, key: null })} aria-current={selected === NEW ? 'page' : undefined} data-nav style={{ ...navItem, color: palette.ink.muted, ...(selected === NEW ? navItemOn : {}) }}>
-                + New collection
-              </button>
-            )}
-          </nav>
-        </aside>
-
-        <main style={{ minWidth: 0 }}>
-          {selected === NEW ? (
-            <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <h2 style={{ ...styles.appTitle, fontSize: 22 }}>New collection</h2>
-              <p style={{ fontSize: 13, color: palette.ink.muted }}>Give it a name and some fields. Everything else — forms, lists, boards — is worked out from this.</p>
-              <NewCollection space={space} onDone={(name) => setPlace({ collection: name, key: null })} />
-              <Library space={space} collections={collections} title="Or add one from the library" onAdded={(name) => setPlace({ collection: name, key: null })} />
-            </section>
-          ) : selected ? (
-            <CollectionView key={selected} space={space} name={selected} collection={current} collections={collections} onOpen={openRecord} />
-          ) : (
-            <div style={{ ...styles.emptyState, padding: '64px 24px', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
-              <strong style={{ color: palette.ink.strong, fontSize: 15 }}>This space is empty</strong>
-              <span>Define a collection — or ask an agent: this page offers the space's operations as WebMCP tools.</span>
+      {tab === 'data' && (
+        <div className="space-layout">
+          <aside className="space-side">
+            <nav aria-label="Collections" className="collection-nav">
+              <span className="collection-nav-heading" style={sideHeading}>
+                In this space
+              </span>
+              {ordered.map((c) => (
+                <button
+                  key={c.name}
+                  onClick={() => setPlace({ collection: c.name, key: null })}
+                  aria-current={selected === c.name ? 'page' : undefined}
+                  data-nav
+                  style={{ ...navItem, ...(selected === c.name ? navItemOn : {}) }}
+                >
+                  <span>{collectionLabel(c)}</span>
+                  <span style={{ color: palette.ink.faint, fontSize: 12 }}>{c.records}</span>
+                </button>
+              ))}
+              {ordered.length === 0 && (
+                <span style={{ fontSize: 13, color: palette.ink.faint, padding: '6px 10px' }}>
+                  Nothing yet
+                </span>
+              )}
               {space.writable && (
-                <button onClick={() => setPlace({ collection: NEW, key: null })} data-variant="primary" style={{ ...styles.addButton, alignSelf: 'center' }}>
-                  New collection
+                <button
+                  onClick={() => setPlace({ collection: NEW, key: null })}
+                  aria-current={selected === NEW ? 'page' : undefined}
+                  data-nav
+                  style={{ ...navItem, color: palette.ink.muted, ...(selected === NEW ? navItemOn : {}) }}
+                >
+                  + New collection
                 </button>
               )}
-            </div>
-          )}
-          {!selected && (
-            <Library space={space} collections={collections} title="Start with a standard schema" onAdded={(name) => setPlace({ collection: name, key: null })} />
-          )}
-        </main>
-      </div>}
+            </nav>
+          </aside>
+
+          <main style={{ minWidth: 0 }}>
+            {selected === NEW ? (
+              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <h2 style={{ ...styles.appTitle, fontSize: 22 }}>New collection</h2>
+                <p style={{ fontSize: 13, color: palette.ink.muted }}>
+                  Give it a name and some fields. Everything else — forms, lists, boards — is worked out from
+                  this.
+                </p>
+                <NewCollection space={space} onDone={(name) => setPlace({ collection: name, key: null })} />
+                <Library
+                  space={space}
+                  collections={collections}
+                  title="Or add one from the library"
+                  onAdded={(name) => setPlace({ collection: name, key: null })}
+                />
+              </section>
+            ) : selected ? (
+              <CollectionView
+                key={selected}
+                space={space}
+                name={selected}
+                collection={current}
+                collections={collections}
+                onOpen={openRecord}
+              />
+            ) : (
+              <div
+                style={{
+                  ...styles.emptyState,
+                  padding: '64px 24px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  alignItems: 'center',
+                }}
+              >
+                <strong style={{ color: palette.ink.strong, fontSize: 15 }}>This space is empty</strong>
+                <span>
+                  Define a collection — or ask an agent: this page offers the space's operations as WebMCP
+                  tools.
+                </span>
+                {space.writable && (
+                  <button
+                    onClick={() => setPlace({ collection: NEW, key: null })}
+                    data-variant="primary"
+                    style={{ ...styles.addButton, alignSelf: 'center' }}
+                  >
+                    New collection
+                  </button>
+                )}
+              </div>
+            )}
+            {!selected && (
+              <Library
+                space={space}
+                collections={collections}
+                title="Start with a standard schema"
+                onAdded={(name) => setPlace({ collection: name, key: null })}
+              />
+            )}
+          </main>
+        </div>
+      )}
 
       {place.key && (
-        <RecordPanel space={space} recordKey={place.key} collections={collections} onOpen={openRecord} onClose={() => setPlace({ collection: selected, key: null })} />
+        <RecordPanel
+          space={space}
+          recordKey={place.key}
+          collections={collections}
+          onOpen={openRecord}
+          onClose={() => setPlace({ collection: selected, key: null })}
+        />
       )}
     </PersonScopeProvider>
   );
 }
 
-const sideHeading = { fontSize: 12, fontWeight: 500, color: palette.ink.faint, textTransform: 'uppercase' as const, letterSpacing: '.05em', padding: '0 10px 6px' };
+const sideHeading = {
+  fontSize: 12,
+  fontWeight: 500,
+  color: palette.ink.faint,
+  textTransform: 'uppercase' as const,
+  letterSpacing: '.05em',
+  padding: '0 10px 6px',
+};
 const navItem = {
   display: 'flex',
   alignItems: 'center',

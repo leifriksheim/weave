@@ -32,14 +32,14 @@ How peers connect and prove they may read is in [04 — Network](04-network.md).
 
 Terms used throughout:
 
-| Term | Meaning |
-|---|---|
-| **account** | An identity's root DID (`did:key:zDn…`, [01](01-identity.md)). What a role is held by. |
+| Term                  | Meaning                                                                                                                                                                                                                       |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **account**           | An identity's root DID (`did:key:zDn…`, [01](01-identity.md)). What a role is held by.                                                                                                                                        |
 | **root** of a version | The account the signing key speaks for: the issuer at the root of the version's note chain, resolved as of the version's `createdAt`, or the author itself when there is no note ([01](01-identity.md), [02](02-records.md)). |
-| **member** | An account that holds a role that still exists, in a given state of the history. |
-| **reader** | Same as member, as far as key distribution is concerned (`readers()`). |
-| **hex40(x)** | The first 20 bytes of SHA-256(UTF-8 `x`), as 40 lower-case hex characters. |
-| **cid(x)** | `"b"` + lower-case RFC 4648 base32 (no padding) of SHA-256(`x`). The id format of [02](02-records.md). |
+| **member**            | An account that holds a role that still exists, in a given state of the history.                                                                                                                                              |
+| **reader**            | Same as member, as far as key distribution is concerned (`readers()`).                                                                                                                                                        |
+| **hex40(x)**          | The first 20 bytes of SHA-256(UTF-8 `x`), as 40 lower-case hex characters.                                                                                                                                                    |
+| **cid(x)**            | `"b"` + lower-case RFC 4648 base32 (no padding) of SHA-256(`x`). The id format of [02](02-records.md).                                                                                                                        |
 
 ---
 
@@ -50,18 +50,18 @@ Terms used throughout:
 A space, as it is handed around (in invites, passes, the space manager), is a
 JSON object:
 
-| Field | Type | Notes |
-|---|---|---|
-| `id` | string | `cid(canonical(genesis))`, see 1.2 |
-| `name` | string | Display name. **Not** part of the id; unauthenticated and may differ between copies. |
-| `visibility` | `"public"` \| `"private"` | Fixed at creation. Private means record bodies are encrypted (§8). |
-| `creator` | string | The creator's account DID. Starts holding `creatorRole`. |
-| `roles` | Role[] | The roles it starts with (§2). 1–64 roles, names unique. |
-| `creatorRole` | string | Name of one of `roles`. |
-| `createdAt` | string | ISO 8601 timestamp. |
-| `nonce` | string | base64url of 12 random bytes (16 characters). Keeps two spaces made alike apart. |
-| `readKey` | string | Private only: the `did:key` of the space's first read key (§8.4). |
-| `encryptionKeyId` | string | Private only: the id of the space's first key (§8.1). |
+| Field             | Type                      | Notes                                                                                |
+| ----------------- | ------------------------- | ------------------------------------------------------------------------------------ |
+| `id`              | string                    | `cid(canonical(genesis))`, see 1.2                                                   |
+| `name`            | string                    | Display name. **Not** part of the id; unauthenticated and may differ between copies. |
+| `visibility`      | `"public"` \| `"private"` | Fixed at creation. Private means record bodies are encrypted (§8).                   |
+| `creator`         | string                    | The creator's account DID. Starts holding `creatorRole`.                             |
+| `roles`           | Role[]                    | The roles it starts with (§2). 1–64 roles, names unique.                             |
+| `creatorRole`     | string                    | Name of one of `roles`.                                                              |
+| `createdAt`       | string                    | ISO 8601 timestamp.                                                                  |
+| `nonce`           | string                    | base64url of 12 random bytes (16 characters). Keeps two spaces made alike apart.     |
+| `readKey`         | string                    | Private only: the `did:key` of the space's first read key (§8.4).                    |
+| `encryptionKeyId` | string                    | Private only: the id of the space's first key (§8.1).                                |
 
 ### 1.2 The genesis and the id
 
@@ -117,10 +117,10 @@ generates a space key (§8.1) and derives its read key (§8.4). Then it computes
 the id. Nothing is written into the space at creation: the genesis alone
 makes the creator a member.
 
-*Implementation detail:* with no roles given the `solo` preset is used; with
+_Implementation detail:_ with no roles given the `solo` preset is used; with
 roles but no `creatorRole`, the highest-ranked role is the creator's.
 
-*Source: `packages/core/src/space/space-access.ts` (`spaceGenesis`, `spaceIdOf`, `checkSpace`, `checkStartingRoles`), `packages/core/src/space/space-manager.ts` (`create`), `packages/core/src/types.ts` (`Space`). Tests: `packages/core/tests/space.test.ts`, `packages/core/tests/space-access.test.ts` ("the space vouches for itself").*
+_Source: `packages/core/src/space/space-access.ts` (`spaceGenesis`, `spaceIdOf`, `checkSpace`, `checkStartingRoles`), `packages/core/src/space/space-manager.ts` (`create`), `packages/core/src/types.ts` (`Space`). Tests: `packages/core/tests/space.test.ts`, `packages/core/tests/space-access.test.ts` ("the space vouches for itself")._
 
 ---
 
@@ -143,11 +143,11 @@ A role is well-formed (`checkRole`) when:
 
 A permission is a plain string. Three are checked by the protocol itself:
 
-| Permission | Lets its holder |
-|---|---|
-| `manage` | change roles and members (§6), change the space key (§9), name relays and keepers (§10), change any collection definition |
-| `invite` | open and close invites (§7) |
-| `define` | define a new collection (§3.1) |
+| Permission | Lets its holder                                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `manage`   | change roles and members (§6), change the space key (§9), name relays and keepers (§10), change any collection definition |
+| `invite`   | open and close invites (§7)                                                                                               |
+| `define`   | define a new collection (§3.1)                                                                                            |
 
 Every other permission belongs to a collection and is named
 `<collection>/<permission>` — a rule `can:moderate` in collection `app.poll`
@@ -163,15 +163,15 @@ permission, `app.forum.*/moderate` matches `app.forum.post/moderate`. A role
 ### 2.3 Presets
 
 Presets are plain data for applications; the protocol never looks at a
-preset's name. *Implementation detail.*
+preset's name. _Implementation detail._
 
-| Preset | Roles (name, rank, permissions) | Creator |
-|---|---|---|
-| `solo` | owner 100 `["*"]` | owner |
-| `team` | owner 100 `["*"]`; editor 10 `["invite","define"]` | owner |
-| `community` | admin 100 `["*"]`; moderator 50 `["invite","*/*"]`; member 0 `[]` | admin |
+| Preset      | Roles (name, rank, permissions)                                   | Creator |
+| ----------- | ----------------------------------------------------------------- | ------- |
+| `solo`      | owner 100 `["*"]`                                                 | owner   |
+| `team`      | owner 100 `["*"]`; editor 10 `["invite","define"]`                | owner   |
+| `community` | admin 100 `["*"]`; moderator 50 `["invite","*/*"]`; member 0 `[]` | admin   |
 
-*Source: `packages/core/src/space/roles.ts` (`checkRole`, `permissionMatches`, `roleHolds`), `packages/core/src/space/presets.ts`, `packages/core/src/records/rules.ts` (`permissionName`). Tests: `packages/core/tests/roles.test.ts` ("permissions").*
+_Source: `packages/core/src/space/roles.ts` (`checkRole`, `permissionMatches`, `roleHolds`), `packages/core/src/space/presets.ts`, `packages/core/src/records/rules.ts` (`permissionName`). Tests: `packages/core/tests/roles.test.ts` ("permissions")._
 
 ---
 
@@ -185,16 +185,16 @@ space itself. These records form the **access history**.
 Each access record lives at a fixed record key, derived from what it changes.
 Bodies are JSON objects; `keep` is optional everywhere it appears (§6.3).
 
-| Collection | Record key | Body | Event kind |
-|---|---|---|---|
-| `sys.role` | `role:<name>` | `{ name, title?, rank, permissions, keep? }` or `{ name, removed: true, keep? }` | `role` |
-| `sys.member` | `member:<hex40(account DID)>` | `{ did, role: string \| null, keep?, invite?: { key, signature } }` | `member` |
-| `sys.invite` | `invite:<hex40(invite DID)>` | `{ key: <invite DID>, role, open: boolean, keep? }` | `invite` |
-| `sys.revoke` | `revoke:<hex40(cid(note))>` | `{ note: <encoded UCAN>, keep? }` | `revoke` |
-| `sys.collection` | `collection:<name>` | a collection definition ([02](02-records.md)); may be encrypted | `definition` |
-| `sys.key` | `key:space` | `{ keyId, readKey, earlier }` (§9) | `key` |
-| `sys.relays` | `relays:space` | `{ relays: string[] }` (§10) | `relays` |
-| `sys.keepers` | `keepers:space` | `{ keepers: [{ did, name }], copies: number \| null }` (§10) | `keepers` |
+| Collection       | Record key                    | Body                                                                             | Event kind   |
+| ---------------- | ----------------------------- | -------------------------------------------------------------------------------- | ------------ |
+| `sys.role`       | `role:<name>`                 | `{ name, title?, rank, permissions, keep? }` or `{ name, removed: true, keep? }` | `role`       |
+| `sys.member`     | `member:<hex40(account DID)>` | `{ did, role: string \| null, keep?, invite?: { key, signature } }`              | `member`     |
+| `sys.invite`     | `invite:<hex40(invite DID)>`  | `{ key: <invite DID>, role, open: boolean, keep? }`                              | `invite`     |
+| `sys.revoke`     | `revoke:<hex40(cid(note))>`   | `{ note: <encoded UCAN>, keep? }`                                                | `revoke`     |
+| `sys.collection` | `collection:<name>`           | a collection definition ([02](02-records.md)); may be encrypted                  | `definition` |
+| `sys.key`        | `key:space`                   | `{ keyId, readKey, earlier }` (§9)                                               | `key`        |
+| `sys.relays`     | `relays:space`                | `{ relays: string[] }` (§10)                                                     | `relays`     |
+| `sys.keepers`    | `keepers:space`               | `{ keepers: [{ did, name }], copies: number \| null }` (§10)                     | `keepers`    |
 
 `cid(note)` is `cid` of the UTF-8 bytes of the encoded note string.
 
@@ -236,23 +236,23 @@ Otherwise the event is `{ id: version.id, key: version.key, root, seen: version.
 where `keep` is `body.keep` if it is a list of strings (first 10 000 taken),
 else `[]` (always `[]` for `definition`, `key`, `relays`, `keepers`), and:
 
-| Kind | Checks | Event fields |
-|---|---|---|
-| `definition` | key starts with `collection:` | `name` = key after `collection:`; `deleted` = version is deleted |
-| `role` | `body.name` is a string, key = `role:<name>` | `removed: true` → `role: null`; else `role = {name, title?, rank, permissions}` which must pass `checkRole` |
-| `member` | `did` string, `role` string or null, key = `member:<hex40(did)>`; if `invite` present it must be `{key: string, signature: string}` and verify (§7.3) | `did`, `role`, `viaInvite` = `invite.key` when present |
-| `invite` | `key` string, `role` string, `open` boolean, record key = `invite:<hex40(key)>` | `inviteKey`, `role`, `open` |
-| `key` | record key `key:space`, `keyId` string ≤ 64 chars, `readKey` starts with `did:key:` | `keyId`, `readKey` |
-| `relays` | record key `relays:space`, `relays` list of strings, ≤ 8 | `relays` |
-| `keepers` | record key `keepers:space`, `checkKeepers(keepers, copies ?? null)` passes (§10) | `keepers`, `copies` |
-| `revoke` | `note` string parsing as a UCAN; key = `revoke:<hex40(cid(note))>` | `note` = `cid(note)`, `issuer` = the note's `iss` |
+| Kind         | Checks                                                                                                                                                | Event fields                                                                                                |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `definition` | key starts with `collection:`                                                                                                                         | `name` = key after `collection:`; `deleted` = version is deleted                                            |
+| `role`       | `body.name` is a string, key = `role:<name>`                                                                                                          | `removed: true` → `role: null`; else `role = {name, title?, rank, permissions}` which must pass `checkRole` |
+| `member`     | `did` string, `role` string or null, key = `member:<hex40(did)>`; if `invite` present it must be `{key: string, signature: string}` and verify (§7.3) | `did`, `role`, `viaInvite` = `invite.key` when present                                                      |
+| `invite`     | `key` string, `role` string, `open` boolean, record key = `invite:<hex40(key)>`                                                                       | `inviteKey`, `role`, `open`                                                                                 |
+| `key`        | record key `key:space`, `keyId` string ≤ 64 chars, `readKey` starts with `did:key:`                                                                   | `keyId`, `readKey`                                                                                          |
+| `relays`     | record key `relays:space`, `relays` list of strings, ≤ 8                                                                                              | `relays`                                                                                                    |
+| `keepers`    | record key `keepers:space`, `checkKeepers(keepers, copies ?? null)` passes (§10)                                                                      | `keepers`, `copies`                                                                                         |
+| `revoke`     | `note` string parsing as a UCAN; key = `revoke:<hex40(cid(note))>`                                                                                    | `note` = `cid(note)`, `issuer` = the note's `iss`                                                           |
 
 A deleted version in any access collection other than `sys.collection` is
 therefore ignored: access is taken away by writing a change, never by deleting.
 
 ### 3.4 Storing access records
 
-Whether an access event *counts* can change as others arrive, so a peer stores
+Whether an access event _counts_ can change as others arrive, so a peer stores
 every well-formed one and lets the replay decide. A peer **MUST NOT** store an
 access version from outside (a peer, a folder) unless:
 
@@ -268,7 +268,7 @@ access version from outside (a peer, a folder) unless:
 > free. Only accounts the history has heard of can get anything stored, and
 > "named" only grows, so two peers never disagree for good.
 
-*Source: `packages/core/src/space/roles.ts` (collection constants), `packages/core/src/space/space-access.ts` (record keys), `packages/core/src/node/space-runtime.ts` (`buildEvent`, `loadAccess`, `admissible`). Tests: `packages/core/tests/space-access.test.ts` ("a stranger who knows the space cannot write in it"), `packages/core/tests/attacks.test.ts`.*
+_Source: `packages/core/src/space/roles.ts` (collection constants), `packages/core/src/space/space-access.ts` (record keys), `packages/core/src/node/space-runtime.ts` (`buildEvent`, `loadAccess`, `admissible`). Tests: `packages/core/tests/space-access.test.ts` ("a stranger who knows the space cannot write in it"), `packages/core/tests/attacks.test.ts`._
 
 ---
 
@@ -339,23 +339,23 @@ and place the ready event with the lexicographically smallest
 
 `takesAway(e, S)`, judged against the state:
 
-| Kind | Takes away when |
-|---|---|
-| `revoke` | always |
-| `invite` | `open` is false |
-| `member` | `role` is null; or the person has a role now and the new role's rank (−∞ if the role doesn't exist) is lower |
-| `role` | the role exists now and: it is removed, or its rank goes down, or it loses any permission string it had |
-| `definition`, `key`, `relays`, `keepers` | never |
+| Kind                                     | Takes away when                                                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `revoke`                                 | always                                                                                                       |
+| `invite`                                 | `open` is false                                                                                              |
+| `member`                                 | `role` is null; or the person has a role now and the new role's rank (−∞ if the role doesn't exist) is lower |
+| `role`                                   | the role exists now and: it is removed, or its rank goes down, or it loses any permission string it had      |
+| `definition`, `key`, `relays`, `keepers` | never                                                                                                        |
 
 `mayTakeAway(e)`, judged from the event alone (for events not yet reachable):
 
-| Kind | May take away when |
-|---|---|
-| `revoke` | always |
-| `invite` | `open` is false |
+| Kind     | May take away when                                                |
+| -------- | ----------------------------------------------------------------- |
+| `revoke` | always                                                            |
+| `invite` | `open` is false                                                   |
 | `member` | `role` is null, or (`root ≠ did` and it is not joining by invite) |
-| `role` | always |
-| others | never |
+| `role`   | always                                                            |
+| others   | never                                                             |
 
 > Rationale: among changes that did not see each other, taking away goes first
 > — counting everything on the way to one, so a removal that also saw
@@ -380,16 +380,16 @@ Dropped events stay placed: their children may still become ready.
 
 Applying (`apply`):
 
-| Kind | Change to `S` |
-|---|---|
-| `role` | set `roles[name] = role`, or delete it when `role` is null |
-| `member` | set `members[did] = role`, or delete it when `role` is null |
-| `invite` | `invites[inviteKey] = { role, open, event: id }` |
-| `revoke` | nothing (recorded separately: the first applied revoke of each note, with its keep list) |
+| Kind         | Change to `S`                                                                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `role`       | set `roles[name] = role`, or delete it when `role` is null                                                                                           |
+| `member`     | set `members[did] = role`, or delete it when `role` is null                                                                                          |
+| `invite`     | `invites[inviteKey] = { role, open, event: id }`                                                                                                     |
+| `revoke`     | nothing (recorded separately: the first applied revoke of each note, with its keep list)                                                             |
 | `definition` | delete `definitions[name]` when `deleted`; else set it to `{ event: id, definedBy }` where `definedBy` is the existing `definedBy`, or `root` if new |
-| `key` | append `{ keyId, readKey, event: id }` to `keys`; set `keyDue = false` |
-| `relays` | `relays = relays` |
-| `keepers` | `keepers`, `copies` as given |
+| `key`        | append `{ keyId, readKey, event: id }` to `keys`; set `keyDue = false`                                                                               |
+| `relays`     | `relays = relays`                                                                                                                                    |
+| `keepers`    | `keepers`, `copies` as given                                                                                                                         |
 
 After any non-`key` event, if `keys` is non-empty and some account that was in
 `readers(S)` before is not after, set `keyDue = true`.
@@ -399,6 +399,7 @@ After any non-`key` event, if `keys` is non-empty and some account that was in
 `refusal(e, S)` with `A = role(S, e.root)` is:
 
 **`role`**
+
 - `A` must hold `manage`;
 - if the role exists, its rank must be below `A.rank`;
 - removing: the role must exist;
@@ -407,15 +408,17 @@ After any non-`key` event, if `keys` is non-empty and some account that was in
   matches anything, including a `*`).
 
 **`member`**
-- *Joining by invite* (`viaInvite` set): `root` must equal `did`; the invite
+
+- _Joining by invite_ (`viaInvite` set): `root` must equal `did`; the invite
   must exist and be open; its role must equal `e.role`; `did` must have no
   role now; the invite's role must exist.
-- *Leaving*: `root = did` and `role` null is allowed when `did` has a role now.
-- *Otherwise*: `A` must hold `manage`; if `did` has a role now, its rank must
+- _Leaving_: `root = did` and `role` null is allowed when `did` has a role now.
+- _Otherwise_: `A` must hold `manage`; if `did` has a role now, its rank must
   be below `A.rank`; removing requires `did` to have a role; a new role must
   exist and its rank must be **at most** `A.rank`.
 
 **`invite`**
+
 - `A` must hold `invite`;
 - if the invite exists and its current role exists, that role's rank must be
   at most `A.rank`;
@@ -425,6 +428,7 @@ After any non-`key` event, if `keys` is non-empty and some account that was in
 **`revoke`** — `root` must equal the note's issuer.
 
 **`definition`**
+
 - a new collection: `A` must hold `define`;
 - an existing one (change or delete): `A` holds `manage`, or `A` is non-null
   and `root` is the collection's `definedBy`.
@@ -440,7 +444,7 @@ A consequence of the rank rule: two accounts of equal rank can never remove or
 demote each other, only themselves.
 
 **Reductions.** Before applying an applied `member` or `role` event, for each
-*affected* account — the `did` of a `member` event; every current holder of the
+_affected_ account — the `did` of a `member` event; every current holder of the
 role for a `role` event — record `{ event: id, did, before: role(S, did), after: role(S', did) }`
 where `S'` is the state after applying. Reductions drive §5.
 
@@ -464,7 +468,7 @@ Alice's removal takes away with author rank 100 (`p1 = −100`); Bob's with rank
 so his removal of Carol is dropped. Every arrival order gives Bob: none,
 Carol: member.
 
-*Source: `packages/core/src/space/roles.ts` (`replayAccess`, `takesAway`, `mayTakeAway`, `refusal`, `apply`). Tests: `packages/core/tests/roles.test.ts` (all of "the rank rule", "invites", "offline conflicts"), `packages/core/tests/key-change.test.ts` ("when a new key is due").*
+_Source: `packages/core/src/space/roles.ts` (`replayAccess`, `takesAway`, `mayTakeAway`, `refusal`, `apply`). Tests: `packages/core/tests/roles.test.ts` (all of "the rank rule", "invites", "offline conflicts"), `packages/core/tests/key-change.test.ts` ("when a new key is due")._
 
 ---
 
@@ -495,7 +499,7 @@ A version outside the access collections **stands** when, in this order:
 1. its `space` equals the space id;
 2. its signature and note chain verify ([02](02-records.md)) — giving `root`;
 3. in the account's own spaces (registry, contacts, carry spaces) it is not
-   written under an agent note (*implementation detail*: `peopleOnly`);
+   written under an agent note (_implementation detail_: `peopleOnly`);
 4. its first version is present, is `seq` 0, has the same key and collection;
 5. `at(seen)` is available (else: not yet);
 6. with `rules` = the rules of the definition in force for its collection in
@@ -515,7 +519,7 @@ An access record stands when its event's status is `applied`.
 A non-member — including someone holding only a view-only invite — can
 therefore write nothing at all in a space, not even `sys.profile`.
 
-*Source: `packages/core/src/space/roles.ts` (`judge`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`). Tests: `packages/core/tests/roles.test.ts` ("records against the history"), `packages/core/tests/space-access.test.ts` ("who may write", "taking it back"), `packages/core/tests/rules.test.ts`.*
+_Source: `packages/core/src/space/roles.ts` (`judge`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`). Tests: `packages/core/tests/roles.test.ts` ("records against the history"), `packages/core/tests/space-access.test.ts` ("who may write", "taking it back"), `packages/core/tests/rules.test.ts`._
 
 ---
 
@@ -592,7 +596,7 @@ versions written under that note that the revoker has seen and wants to stand.
 From the first applied revoke on, every version written under that note
 stands only if kept (§5.1 step 2) — whatever it saw.
 
-*Source: `packages/core/src/node/space-runtime.ts` (`setMember`, `putRole`, `removeRole`, `revoke`, `keepFrom`), `packages/core/src/node/node.ts` (`spaces.leave`). Tests: `packages/core/tests/roles.test.ts` ("handing over…", "a revoked note…"), `packages/core/tests/space-access.test.ts` ("taking it back").*
+_Source: `packages/core/src/node/space-runtime.ts` (`setMember`, `putRole`, `removeRole`, `revoke`, `keepFrom`), `packages/core/src/node/node.ts` (`spaces.leave`). Tests: `packages/core/tests/roles.test.ts` ("handing over…", "a revoked note…"), `packages/core/tests/space-access.test.ts` ("taking it back")._
 
 ---
 
@@ -664,7 +668,7 @@ the same bytes; a member record whose `invite` does not verify yields no event
 
 If the joiner already holds a role, joining is a no-op. If the invite's record
 has not arrived yet, the joiner keeps the secret and tries again as records
-arrive; once joined it forgets the secret. *Implementation detail:* this is
+arrive; once joined it forgets the secret. _Implementation detail:_ this is
 written even though the joiner is not yet a member (`joining: true`), and its
 `seen` is the joiner's heads, which must include the invite event.
 
@@ -680,14 +684,14 @@ written even though the joiner is not yet a member (`joining: true`), and its
 An invite is `base64url( UTF-8( JSON.stringify(SpaceInvite) ) )` — plain
 `JSON.stringify`, not canonical:
 
-| Field | Type | Present |
-|---|---|---|
-| `space` | space object (§1.1), including `name` | always |
-| `invitedBy` | string, the inviter's account DID | always; unauthenticated, for display |
-| `key` | base64url of the raw 32-byte AES key | private spaces (the inviter's current key) |
-| `invite` | base64url of the 32-byte secret | role invites only |
-| `role` | string | role invites only; for display — the invite record is what counts |
-| `relays` | string[] | when known: the space's relays (§10), else the inviter's own |
+| Field       | Type                                  | Present                                                           |
+| ----------- | ------------------------------------- | ----------------------------------------------------------------- |
+| `space`     | space object (§1.1), including `name` | always                                                            |
+| `invitedBy` | string, the inviter's account DID     | always; unauthenticated, for display                              |
+| `key`       | base64url of the raw 32-byte AES key  | private spaces (the inviter's current key)                        |
+| `invite`    | base64url of the 32-byte secret       | role invites only                                                 |
+| `role`      | string                                | role invites only; for display — the invite record is what counts |
+| `relays`    | string[]                              | when known: the space's relays (§10), else the inviter's own      |
 
 > **Known defect:** `space.name` and `invitedBy` are not authenticated. Neither
 > is in the space's genesis (§1.2), and nothing signs the invite string, so
@@ -698,7 +702,28 @@ An invite is `base64url( UTF-8( JSON.stringify(SpaceInvite) ) )` — plain
 Example (private space of §1.2, role invite with the secret of §7.1), decoded:
 
 ```json
-{"space":{"id":"b63yb6wiefzfrngbgbmozhv7zcf5ikunjr4al6njqyxvbf62dvi7a","visibility":"private","creator":"did:key:zDnaeZLoH5izvFBqsJ62j3zJ2DYJWASAB7QFmkYR6aeAzhCLg","roles":[{"name":"owner","title":"Owner","rank":100,"permissions":["*"]},{"name":"editor","title":"Editor","rank":10,"permissions":["invite","define"]}],"creatorRole":"owner","createdAt":"2026-01-01T00:00:00.000Z","nonce":"AAECAwQFBgcICQoL","readKey":"did:key:zDnaem2ikLwS3eYm46gspC7nm6dmYYCMHUHU5yvVHNgARcsWf","encryptionKeyId":"GGXACDHnP37iP8E8stD1iLnDQYNcp0cvjsA1q6S3idY","name":"Plans"},"invitedBy":"did:key:zDnaeZLoH5izvFBqsJ62j3zJ2DYJWASAB7QFmkYR6aeAzhCLg","key":"__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA","invite":"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8","role":"editor","relays":["wss://relay.example"]}
+{
+  "space": {
+    "id": "b63yb6wiefzfrngbgbmozhv7zcf5ikunjr4al6njqyxvbf62dvi7a",
+    "visibility": "private",
+    "creator": "did:key:zDnaeZLoH5izvFBqsJ62j3zJ2DYJWASAB7QFmkYR6aeAzhCLg",
+    "roles": [
+      { "name": "owner", "title": "Owner", "rank": 100, "permissions": ["*"] },
+      { "name": "editor", "title": "Editor", "rank": 10, "permissions": ["invite", "define"] }
+    ],
+    "creatorRole": "owner",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "nonce": "AAECAwQFBgcICQoL",
+    "readKey": "did:key:zDnaem2ikLwS3eYm46gspC7nm6dmYYCMHUHU5yvVHNgARcsWf",
+    "encryptionKeyId": "GGXACDHnP37iP8E8stD1iLnDQYNcp0cvjsA1q6S3idY",
+    "name": "Plans"
+  },
+  "invitedBy": "did:key:zDnaeZLoH5izvFBqsJ62j3zJ2DYJWASAB7QFmkYR6aeAzhCLg",
+  "key": "__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA",
+  "invite": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "role": "editor",
+  "relays": ["wss://relay.example"]
+}
 ```
 
 encoded: `eyJzcGFjZSI6eyJpZCI6ImI2M3liNndpZWZ6ZnJuZ2JnYm1vemh2N3pjZjVpa3VuanI0YWw2bmpxeXh2YmY2MmR2aTdhIiwidmlzaWJpbGl0eSI6InByaXZhdGUi…`
@@ -717,7 +742,7 @@ next `&` or whitespace.
   standing: the holder writes nothing.
 - A **role** invite also carries the secret of an open `sys.invite` record.
 
-*Implementation detail* (`node.spaces.invite`): with no role given, the node
+_Implementation detail_ (`node.spaces.invite`): with no role given, the node
 opens an invite for the lowest-ranked role strictly below the inviter's; when
 there is none (e.g. `solo`) it makes a view-only invite. `write: false` forces
 view-only. Each role invite gets its own fresh secret and record.
@@ -738,12 +763,12 @@ used only if they pass `checkRelays` and the node holds no relay list for the
 space yet.
 
 A **preview** decodes without storing: `{ space: {id, name, visibility, creator, createdAt}, invitedBy, carriesKey, carriesWrite, role }`
-(`role` null for a view-only invite). *Implementation detail.*
+(`role` null for a view-only invite). _Implementation detail._
 
 Closing an invite by its link: derive the invite DID from the link's secret
 (§7.1) and close that record.
 
-*Source: `packages/core/src/space/space-access.ts` (`generateInviteSecret`, `deriveInviteKey`, `signInvite`, `verifyInvite`), `packages/core/src/space/space-manager.ts` (`encodeSpaceInvite`, `parseSpaceInvite`, `join`), `packages/core/src/node/space-runtime.ts` (`openInvite`, `closeInvite`, `join`), `packages/core/src/node/node.ts` (`spaces.invite`, `preview`, `join`, `closeInvite`, `bareInvite`). Tests: `packages/core/tests/space-access.test.ts` ("the keys", "invites"), `packages/core/tests/space.test.ts` ("invites"), `packages/core/tests/roles.test.ts` ("invites").*
+_Source: `packages/core/src/space/space-access.ts` (`generateInviteSecret`, `deriveInviteKey`, `signInvite`, `verifyInvite`), `packages/core/src/space/space-manager.ts` (`encodeSpaceInvite`, `parseSpaceInvite`, `join`), `packages/core/src/node/space-runtime.ts` (`openInvite`, `closeInvite`, `join`), `packages/core/src/node/node.ts` (`spaces.invite`, `preview`, `join`, `closeInvite`, `bareInvite`). Tests: `packages/core/tests/space-access.test.ts` ("the keys", "invites"), `packages/core/tests/space.test.ts` ("invites"), `packages/core/tests/roles.test.ts` ("invites")._
 
 ---
 
@@ -797,7 +822,11 @@ A reader treats a body as encrypted when it has string `ciphertext` and string
 Example (key of §8.1, plaintext `{"body":{"text":"hi"}}`):
 
 ```json
-{"ciphertext":"nXyTdBm1FywtTGY8N_G5n-xLwRddVhSp8oqaULS-20O7Ay2RDMk","iv":"0nDFOs-BiAkLaQfC","keyId":"GGXACDHnP37iP8E8stD1iLnDQYNcp0cvjsA1q6S3idY"}
+{
+  "ciphertext": "nXyTdBm1FywtTGY8N_G5n-xLwRddVhSp8oqaULS-20O7Ay2RDMk",
+  "iv": "0nDFOs-BiAkLaQfC",
+  "keyId": "GGXACDHnP37iP8E8stD1iLnDQYNcp0cvjsA1q6S3idY"
+}
 ```
 
 ### 8.4 The read key
@@ -834,7 +863,7 @@ changed value. Inputs longer than 1 000 000 characters are not tried.
 nothing in the node. They are **not** part of the protocol; key distribution is
 §9.
 
-*Source: `packages/core/src/privacy/space-encryption.ts`, `packages/core/src/node/space-runtime.ts` (`IN_THE_CLEAR`, `write`, `openBody`), `packages/core/src/space/space-access.ts` (`deriveReadKey`, `deriveReadSeed`). Tests: `packages/core/tests/space.test.ts` ("private space expressions"), `packages/core/tests/space-access.test.ts` ("a view-only invite to a private space reads everything and writes nothing"; the read-key vector).*
+_Source: `packages/core/src/privacy/space-encryption.ts`, `packages/core/src/node/space-runtime.ts` (`IN_THE_CLEAR`, `write`, `openBody`), `packages/core/src/space/space-access.ts` (`deriveReadKey`, `deriveReadSeed`). Tests: `packages/core/tests/space.test.ts` ("private space expressions"), `packages/core/tests/space-access.test.ts` ("a view-only invite to a private space reads everything and writes nothing"; the read-key vector)._
 
 ### 8.7 Planned: what a private space still shows
 
@@ -960,7 +989,7 @@ write, and proves it may read with the newest key it holds (see
 [04](04-network.md)). A view-only invite made before a change carries only the
 old key; its holder is not a reader and gets no box.
 
-*Source: `packages/core/src/node/space-runtime.ts` (`learnKeys`, `rotateKey`, `boxForMembers`, `upkeep`, `loadMemberKeys`), `packages/core/src/space/space-access.ts` (`MEMBER_KEY_COLLECTION`, `BOX_COLLECTION`, `boxKey`, `boxContext`, `earlierKeysContext`, `SPACE_KEY_RECORD`), `packages/core/src/identity/contact-key.ts` (`deriveMemberKeyBytes`, `sealFor`). Tests: `packages/core/tests/key-change.test.ts`.*
+_Source: `packages/core/src/node/space-runtime.ts` (`learnKeys`, `rotateKey`, `boxForMembers`, `upkeep`, `loadMemberKeys`), `packages/core/src/space/space-access.ts` (`MEMBER_KEY_COLLECTION`, `BOX_COLLECTION`, `boxKey`, `boxContext`, `earlierKeysContext`, `SPACE_KEY_RECORD`), `packages/core/src/identity/contact-key.ts` (`deriveMemberKeyBytes`, `sealFor`). Tests: `packages/core/tests/key-change.test.ts`._
 
 ---
 
@@ -981,7 +1010,7 @@ at most 200 characters, each `name` a string of at most 80 characters, no
 `did` twice, and `copies` is null or an integer 1–16. Only `manage` may set it.
 What keepers do is in [05 — Sync and storage](05-sync-and-storage.md).
 
-*Source: `packages/core/src/space/roles.ts` (`checkRelays`, `checkKeepers`, `MAX_RELAYS`, `MAX_KEEPERS`), `packages/core/src/node/space-runtime.ts` (`nameRelays`, `setRelays`, `setKeepers`). Tests: `packages/core/tests/space-relays.test.ts`, `packages/core/tests/carrier.test.ts` ("is named a keeper…").*
+_Source: `packages/core/src/space/roles.ts` (`checkRelays`, `checkKeepers`, `MAX_RELAYS`, `MAX_KEEPERS`), `packages/core/src/node/space-runtime.ts` (`nameRelays`, `setRelays`, `setKeepers`). Tests: `packages/core/tests/space-relays.test.ts`, `packages/core/tests/carrier.test.ts` ("is named a keeper…")._
 
 ---
 
@@ -1009,7 +1038,7 @@ A reader resolves each profile key to one profile:
   P-256 point, so a newer version written without one does not hide it.
 
 A writer that does not hold the contact key **MUST** carry forward the
-`contactKey` of its current profile. *Implementation detail:* the node
+`contactKey` of its current profile. _Implementation detail:_ the node
 publishes the account's name (from the registry, §13) into every space it
 opens and again on a rename, except the registry, the contacts space and
 agent sessions; a non-member publishes nothing.
@@ -1032,28 +1061,28 @@ agent sessions; a non-member publishes nothing.
 > whether nicknames for people who are not contacts get a collection of their
 > own. `profile:` keys may also change (§8.7).
 
-*Source: `packages/core/src/node/space-runtime.ts` (`profileKey`, `loadProfiles`, `publishProfile`), `packages/core/src/node/node.ts` (`publishProfile`). Tests: `packages/core/tests/profiles.test.ts`, `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored").*
+_Source: `packages/core/src/node/space-runtime.ts` (`profileKey`, `loadProfiles`, `publishProfile`), `packages/core/src/node/node.ts` (`publishProfile`). Tests: `packages/core/tests/profiles.test.ts`, `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored")._
 
 ---
 
 ## 12. The space manager
 
-*Implementation detail throughout.* The space manager keeps, per space, in a
+_Implementation detail throughout._ The space manager keeps, per space, in a
 storage adapter (sealed at rest, see [05](05-sync-and-storage.md)):
 
-| Storage key | Value |
-|---|---|
-| `space:<id>` | JSON space object |
-| `spacekey:<id>` | JSON `{ keys: [{ id, raw, createdAt, version }], current }` — every key held, `raw` base64url |
-| `spaceinvite:<id>` | base64url invite secret, until used |
-| `spacerole:<id>` | the role last held — a hint for listing, never a gate |
-| `spacememberkey:<id>` | base64url member key scalar, for a node given it without the vault key |
-| `spacerelays:<id>` | JSON relay list last heard |
+| Storage key           | Value                                                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `space:<id>`          | JSON space object                                                                             |
+| `spacekey:<id>`       | JSON `{ keys: [{ id, raw, createdAt, version }], current }` — every key held, `raw` base64url |
+| `spaceinvite:<id>`    | base64url invite secret, until used                                                           |
+| `spacerole:<id>`      | the role last held — a hint for listing, never a gate                                         |
+| `spacememberkey:<id>` | base64url member key scalar, for a node given it without the vault key                        |
+| `spacerelays:<id>`    | JSON relay list last heard                                                                    |
 
 `remove` deletes all six. Joining again with a secret while one is waiting
 keeps the newer one.
 
-*Source: `packages/core/src/space/space-manager.ts`. Tests: `packages/core/tests/space.test.ts` ("space manager").*
+_Source: `packages/core/src/space/space-manager.ts`. Tests: `packages/core/tests/space.test.ts` ("space manager")._
 
 ---
 
@@ -1074,10 +1103,10 @@ space   = { visibility: "private", creator: accountDid, roles: solo.roles, creat
 id      = cid(canonical(genesis))            // §1.2
 ```
 
-| Label | Space | Name |
-|---|---|---|
-| `weave/account-registry` | the account registry | `Account registry` |
-| `weave/contacts` | the contacts space (§16) | `Contacts` |
+| Label                    | Space                    | Name               |
+| ------------------------ | ------------------------ | ------------------ |
+| `weave/account-registry` | the account registry     | `Account registry` |
+| `weave/contacts`         | the contacts space (§16) | `Contacts`         |
 
 Example (seed `01 02 … 10`): registry `bkbogrf2jtmudunoee5mtpgfdenyrwbdnagfkogw4jvphavoelteq`
 (nonce `isIO1Hq-k9yg1wNZ`), contacts `by2fwk6cy2g73mni4fy3bjcbv2arn4xi5qsw7rzu22rpxnxvzmotq`.
@@ -1090,13 +1119,13 @@ account is ignored by readers), and agents write nothing.
 
 ### 13.2 What the registry records
 
-| Collection | Record key | Body | Meaning |
-|---|---|---|---|
-| `sys.joined` | `space:<spaceId>` | `{ space: spaceId, invite }` | The account belongs to the space. `invite` is a **view-only** invite (§7.5) — secrets are never kept. Deleted: the account left. |
-| `sys.profile` | `profile` | `{ name }` | The account's name. Newest wins. |
-| `sys.carrier` | `carrier:<hex40(carrySpaceId)>` | `{ space, invite, did, name, since }` | A carrier the account uses (§14). |
-| `sys.notify` | `notify:<base32 of 10 random bytes>` | `NotifyWhen` (§15) | A subscription. |
-| `sys.hosting` | — | — | Hosting; see [06](06-nodes-and-sessions.md). |
+| Collection    | Record key                           | Body                                  | Meaning                                                                                                                          |
+| ------------- | ------------------------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `sys.joined`  | `space:<spaceId>`                    | `{ space: spaceId, invite }`          | The account belongs to the space. `invite` is a **view-only** invite (§7.5) — secrets are never kept. Deleted: the account left. |
+| `sys.profile` | `profile`                            | `{ name }`                            | The account's name. Newest wins.                                                                                                 |
+| `sys.carrier` | `carrier:<hex40(carrySpaceId)>`      | `{ space, invite, did, name, since }` | A carrier the account uses (§14).                                                                                                |
+| `sys.notify`  | `notify:<base32 of 10 random bytes>` | `NotifyWhen` (§15)                    | A subscription.                                                                                                                  |
+| `sys.hosting` | —                                    | —                                     | Hosting; see [06](06-nodes-and-sessions.md).                                                                                     |
 
 A membership counts only if it verifies, its root is the account, and (unless
 deleted) its key is `space:<body.space>`.
@@ -1108,7 +1137,7 @@ record it. When a space's key changes, a device that learns the new key
 rewrites the membership with an invite carrying it, so new devices join with
 the current key.
 
-*Source: `packages/core/src/space/account-registry.ts`, `packages/core/src/node/node.ts` (`memberships`, `remember`, `forget`, `reconcileOnce`, `ownName`). Tests: `packages/core/tests/node.test.ts` ("the account registry"), `packages/core/tests/account.test.ts` ("the account name"), `packages/core/tests/space-access.test.ts` ("invite secrets are never kept").*
+_Source: `packages/core/src/space/account-registry.ts`, `packages/core/src/node/node.ts` (`memberships`, `remember`, `forget`, `reconcileOnce`, `ownName`). Tests: `packages/core/tests/node.test.ts` ("the account registry"), `packages/core/tests/account.test.ts` ("the account name"), `packages/core/tests/space-access.test.ts` ("invite secrets are never kept")._
 
 ---
 
@@ -1140,7 +1169,7 @@ When the account stops using a carrier, it deletes the passes and writes
 reads it forgets everything. The account registry and contacts space are
 passed too.
 
-*Source: `packages/core/src/space/pass.ts`, `packages/core/src/node/node.ts` (`syncPasses`, `carriers`). Tests: `packages/core/tests/carrier.test.ts` ("passes", "a carrier").*
+_Source: `packages/core/src/space/pass.ts`, `packages/core/src/node/node.ts` (`syncPasses`, `carriers`). Tests: `packages/core/tests/carrier.test.ts` ("passes", "a carrier")._
 
 ---
 
@@ -1189,10 +1218,10 @@ A carrier matches an arriving version when: not paused; same collection; `seq`
 is 0 and not deleted; the space is in `spaces` (or `"all"`); its `createdAt`
 is at or after `since` and within 24 hours of now; if `others`, its root is
 not the account; and if `tags` is present, the version's `tags` include one of
-`tags[spaceId]`. *Implementation detail:* the carrier then shows a
+`tags[spaceId]`. _Implementation detail:_ the carrier then shows a
 notification with `label`.
 
-*Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier").*
+_Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
 
 > **Planned: devices deliver subscriptions.** Issue:
 > [#30](https://github.com/leifriksheim/weave/issues/30). Delivery moves to
@@ -1281,7 +1310,7 @@ then reject the value unless `invite` parses as an invite (§7.4) to a
 
 ### 16.5 Asking, accepting and the rest
 
-*Implementation detail* (`node.contacts`), except where the formats above apply:
+_Implementation detail_ (`node.contacts`), except where the formats above apply:
 
 - **ask(space, did, note?)** needs whole-account access and the askee's
   `contactKey` on their profile in that space. It defines
@@ -1319,7 +1348,7 @@ then reject the value unless `invite` parses as an invite (§7.4) to a
 >
 > Tracked in [#40](https://github.com/leifriksheim/weave/issues/40).
 
-*Source: `packages/core/src/schemas/contacts.ts`, `packages/core/src/identity/contact-key.ts` (`sealFor`, `openSealed`, `deriveContactKeyBytes`), `packages/core/src/node/node.ts` (contacts section: `requestContext`, `openRequest`, `contacts`), `packages/core/src/space/account-registry.ts` (`deriveContactsSpace`). Tests: `packages/core/tests/contacts.test.ts`, `packages/core/tests/attacks.test.ts`.*
+_Source: `packages/core/src/schemas/contacts.ts`, `packages/core/src/identity/contact-key.ts` (`sealFor`, `openSealed`, `deriveContactKeyBytes`), `packages/core/src/node/node.ts` (contacts section: `requestContext`, `openRequest`, `contacts`), `packages/core/src/space/account-registry.ts` (`deriveContactsSpace`). Tests: `packages/core/tests/contacts.test.ts`, `packages/core/tests/attacks.test.ts`._
 
 ---
 

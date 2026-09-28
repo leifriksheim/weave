@@ -24,7 +24,12 @@ export function h(tag: string, props: Props | null = null, ...children: Child[])
       element.addEventListener(name.slice(2), value as EventListener);
     } else if (value === true) {
       element.setAttribute(name, '');
-    } else if (ATTRIBUTES.has(name) || name.startsWith('data-') || name.startsWith('aria-') || !(name in element)) {
+    } else if (
+      ATTRIBUTES.has(name) ||
+      name.startsWith('data-') ||
+      name.startsWith('aria-') ||
+      !(name in element)
+    ) {
       element.setAttribute(name, String(value));
     } else {
       (element as unknown as Record<string, unknown>)[name] = value;
@@ -38,7 +43,10 @@ function append(parent: Node, children: ReadonlyArray<Child>): void {
   for (const child of children) {
     if (child === null || child === undefined || child === false) continue;
     if (Array.isArray(child)) append(parent, child);
-    else parent.appendChild(typeof child === 'object' ? (child as Node) : globalThis.document.createTextNode(String(child)));
+    else
+      parent.appendChild(
+        typeof child === 'object' ? (child as Node) : globalThis.document.createTextNode(String(child)),
+      );
   }
 }
 
@@ -62,7 +70,11 @@ export function adoptStyles(id: string, css: string): void {
   if (doc.__weaveStyles.has(id)) return;
   doc.__weaveStyles.add(id);
 
-  if ('adoptedStyleSheets' in doc && typeof CSSStyleSheet === 'function' && 'replaceSync' in CSSStyleSheet.prototype) {
+  if (
+    'adoptedStyleSheets' in doc &&
+    typeof CSSStyleSheet === 'function' &&
+    'replaceSync' in CSSStyleSheet.prototype
+  ) {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
     doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];

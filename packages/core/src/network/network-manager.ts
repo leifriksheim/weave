@@ -68,7 +68,9 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
     }
   });
 
-  transport.on('error', (peerId, error) => emit('error', new Error(`Transport error with peer ${peerId}: ${error.message}`)));
+  transport.on('error', (peerId, error) =>
+    emit('error', new Error(`Transport error with peer ${peerId}: ${error.message}`)),
+  );
 
   const send = (peerId: string, message: NetworkMessage): void => {
     try {

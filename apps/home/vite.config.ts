@@ -41,7 +41,13 @@ function securityHeaders(mode: string): Plugin {
       this.emitFile({
         type: 'asset',
         fileName: '_headers',
-        source: ['/*', `  Content-Security-Policy: ${policy}`, '  Referrer-Policy: no-referrer', '  X-Content-Type-Options: nosniff', ''].join('\n'),
+        source: [
+          '/*',
+          `  Content-Security-Policy: ${policy}`,
+          '  Referrer-Policy: no-referrer',
+          '  X-Content-Type-Options: nosniff',
+          '',
+        ].join('\n'),
       });
     },
   };

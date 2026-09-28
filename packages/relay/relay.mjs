@@ -121,7 +121,10 @@ const CLOSE_DID_TAKEN = 4009;
  */
 export function turnFromEnv(env) {
   const secret = env.TURN_SECRET ?? '';
-  const urls = (env.TURN_URLS ?? '').split(',').map((url) => url.trim()).filter(Boolean);
+  const urls = (env.TURN_URLS ?? '')
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
   if (!secret || urls.length === 0) return undefined;
   return { secret, urls, ttlSeconds: Number(env.TURN_TTL_SECONDS ?? 4 * 3600) };
 }
@@ -170,7 +173,18 @@ export function createRelay(options = {}) {
    * DID for the life of the socket.
    */
   function accept(ws, legacyRoom, ip) {
-    const client = { ws, legacyRoom, ip, did: null, rooms: new Set(), watching: new Set(), nonce: null, alive: true, tokens: RATE_BURST, refilled: Date.now() };
+    const client = {
+      ws,
+      legacyRoom,
+      ip,
+      did: null,
+      rooms: new Set(),
+      watching: new Set(),
+      nonce: null,
+      alive: true,
+      tokens: RATE_BURST,
+      refilled: Date.now(),
+    };
 
     clients.add(client);
     perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
@@ -248,7 +262,13 @@ export function createRelay(options = {}) {
       return;
     }
 
-    if (message.type === 'drop' || message.type === 'fetch' || message.type === 'unwatch' || message.type === 'challenge' || message.type === 'purge') {
+    if (
+      message.type === 'drop' ||
+      message.type === 'fetch' ||
+      message.type === 'unwatch' ||
+      message.type === 'challenge' ||
+      message.type === 'purge'
+    ) {
       handleMail(client, message);
       return;
     }
@@ -267,7 +287,10 @@ export function createRelay(options = {}) {
     for (const shared of client.rooms) {
       const target = findPeer(shared, message.to);
       if (target && target !== client) {
-        send(target, JSON.stringify({ type: message.type, from: client.did, to: message.to, payload: message.payload }));
+        send(
+          target,
+          JSON.stringify({ type: message.type, from: client.did, to: message.to, payload: message.payload }),
+        );
         return;
       }
     }
@@ -299,7 +322,11 @@ export function createRelay(options = {}) {
 
     if (message.type === 'fetch') {
       const after = Number.isSafeInteger(message.after) ? message.after : 0;
-      if (message.watch === true && !client.watching.has(topic) && client.watching.size < MAX_WATCHES_PER_SOCKET) {
+      if (
+        message.watch === true &&
+        !client.watching.has(topic) &&
+        client.watching.size < MAX_WATCHES_PER_SOCKET
+      ) {
         client.watching.add(topic);
         if (!watchers.has(topic)) watchers.set(topic, new Set());
         watchers.get(topic).add(client);
@@ -324,7 +351,12 @@ export function createRelay(options = {}) {
     // drop
     const refuse = (reason) => send(client, JSON.stringify({ type: 'refused', topic, reason }));
     const { blob } = message;
-    if (typeof blob !== 'string' || blob.length === 0 || blob.length > MAX_BLOB_LENGTH || !/^[A-Za-z0-9_-]+$/.test(blob)) {
+    if (
+      typeof blob !== 'string' ||
+      blob.length === 0 ||
+      blob.length > MAX_BLOB_LENGTH ||
+      !/^[A-Za-z0-9_-]+$/.test(blob)
+    ) {
       refuse('A knock is base64url, at most 12000 characters');
       return;
     }
@@ -339,14 +371,18 @@ export function createRelay(options = {}) {
     const network = networkOf(client.ip);
     const here = countOf(`${network}|${topic}`, now);
     const everywhere = countOf(network, now);
-    if (here >= limits.dropsPerNetworkPerTopic) return refuse('Too many knocks on this door from here; try later');
+    if (here >= limits.dropsPerNetworkPerTopic)
+      return refuse('Too many knocks on this door from here; try later');
     if (everywhere >= limits.dropsPerNetwork) return refuse('Too many knocks from here; try later');
     if (held.length >= MAX_MAIL_PER_TOPIC) return refuse('This door is full');
     if (!mailbox.has(topic) && mailbox.size >= limits.maxTopics) return refuse('The mailbox is full');
     const room = held.length < RESERVED_PER_TOPIC ? limits.maxChars + limits.reserveChars : limits.maxChars;
     if (mailChars + blob.length > room) return refuse('The mailbox is full');
 
-    const ttl = Number.isFinite(message.ttl) && message.ttl > 0 ? Math.min(message.ttl, limits.ttlSeconds) : limits.ttlSeconds;
+    const ttl =
+      Number.isFinite(message.ttl) && message.ttl > 0
+        ? Math.min(message.ttl, limits.ttlSeconds)
+        : limits.ttlSeconds;
     const item = { seq: ++mailSeq, id, at: now, expires: now + ttl * 1000, blob };
     held.push(item);
     mailbox.set(topic, held);
@@ -386,16 +422,37 @@ export function createRelay(options = {}) {
     client.nonce = null;
     const ids = message.ids === undefined ? null : message.ids;
     if (!nonce) return refuse('Ask for a challenge first');
-    if (typeof sign !== 'string' || !/^[A-Za-z0-9_-]{44}$/.test(sign) || typeof sig !== 'string' || sig.length > 200) return refuse('Not a purge');
-    if (ids !== null && (!Array.isArray(ids) || ids.length > MAX_MAIL_PER_TOPIC || !ids.every((id) => typeof id === 'string' && id.length <= 64))) {
+    if (
+      typeof sign !== 'string' ||
+      !/^[A-Za-z0-9_-]{44}$/.test(sign) ||
+      typeof sig !== 'string' ||
+      sig.length > 200
+    )
+      return refuse('Not a purge');
+    if (
+      ids !== null &&
+      (!Array.isArray(ids) ||
+        ids.length > MAX_MAIL_PER_TOPIC ||
+        !ids.every((id) => typeof id === 'string' && id.length <= 64))
+    ) {
       return refuse('Not a purge');
     }
-    if (createHash('sha256').update(`weave/door-topic/v1|${sign}`).digest('base64url') !== topic) return refuse('That key is not this door’s');
+    if (createHash('sha256').update(`weave/door-topic/v1|${sign}`).digest('base64url') !== topic)
+      return refuse('That key is not this door’s');
     let good = false;
     try {
-      const key = createPublicKey({ key: Buffer.concat([PURGE_SPKI_PREFIX, Buffer.from(sign, 'base64url')]), format: 'der', type: 'spki' });
+      const key = createPublicKey({
+        key: Buffer.concat([PURGE_SPKI_PREFIX, Buffer.from(sign, 'base64url')]),
+        format: 'der',
+        type: 'spki',
+      });
       const signed = `weave/door-purge/v1|${topic}|${nonce}|${ids ? [...ids].sort().join(',') : '*'}`;
-      good = verify('sha256', Buffer.from(signed), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(sig, 'base64url'));
+      good = verify(
+        'sha256',
+        Buffer.from(signed),
+        { key, dsaEncoding: 'ieee-p1363' },
+        Buffer.from(sig, 'base64url'),
+      );
     } catch {
       good = false;
     }
@@ -449,7 +506,13 @@ export function createRelay(options = {}) {
       turnByNetwork.set(network, held);
     }
     const { username, credential, expires } = held;
-    send(client, JSON.stringify({ type: 'ice', payload: { servers: [{ urls: turn.urls, username, credential }], expiresAt: expires * 1000 } }));
+    send(
+      client,
+      JSON.stringify({
+        type: 'ice',
+        payload: { servers: [{ urls: turn.urls, username, credential }], expiresAt: expires * 1000 },
+      }),
+    );
   }
 
   function leave(client, room) {
@@ -526,10 +589,13 @@ export function createRelay(options = {}) {
       const legacyRoom = new URL(req.url ?? '/', 'http://relay').searchParams.get('room');
       const ip = clientIp(req);
       const refusal =
-        legacyRoom !== null && !canEnter(legacyRoom) ? [503, 'Room full'] :
-        clients.size >= MAX_CONNECTIONS ? [503, 'Relay full'] :
-        (perIp.get(ip) ?? 0) >= MAX_CONNECTIONS_PER_IP ? [429, 'Too many connections'] :
-        null;
+        legacyRoom !== null && !canEnter(legacyRoom)
+          ? [503, 'Room full']
+          : clients.size >= MAX_CONNECTIONS
+            ? [503, 'Relay full']
+            : (perIp.get(ip) ?? 0) >= MAX_CONNECTIONS_PER_IP
+              ? [429, 'Too many connections']
+              : null;
       if (refusal) {
         socket.end(`HTTP/1.1 ${refusal[0]} ${refusal[1]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
         return;
@@ -569,8 +635,13 @@ function networkOf(ip) {
   const [head, tail = ''] = ip.split('%')[0].toLowerCase().split('::');
   const left = head ? head.split(':') : [];
   const right = tail ? tail.split(':') : [];
-  const groups = ip.includes('::') ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right] : left;
-  return `${groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+  const groups = ip.includes('::')
+    ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right]
+    : left;
+  return `${groups
+    .slice(0, 4)
+    .map((group) => group.replace(/^0+(?=.)/, ''))
+    .join(':')}::/64`;
 }
 
 const short = (room) => (room.length > 12 ? `${room.slice(0, 12)}…` : room);

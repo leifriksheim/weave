@@ -126,7 +126,8 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
       const handle = async (event: MessageEvent) => {
         if (stage === 'challenge') {
           const challenge = parseFrame(event.data, 'challenge');
-          if (!challenge || typeof challenge.nonce !== 'string') return refuse('Expected a challenge from the node');
+          if (!challenge || typeof challenge.nonce !== 'string')
+            return refuse('Expected a challenge from the node');
           nodeDid = challenge.did as string;
           const proof = authenticator ? await authenticator.hello(config.did, nodeDid, challenge.nonce) : {};
           socket.send(JSON.stringify({ type: 'hello', did: config.did, nonce: ourNonce, ...proof }));
@@ -138,7 +139,10 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
           const welcome = parseFrame(event.data, 'welcome');
           if (!welcome) return refuse('Expected a welcome from the node');
           const did = welcome.did as string;
-          if (authenticator && (did !== nodeDid || !(await authenticator.checkWelcome(did, ourNonce, welcome.sig)))) {
+          if (
+            authenticator &&
+            (did !== nodeDid || !(await authenticator.checkWelcome(did, ourNonce, welcome.sig)))
+          ) {
             return refuse('The node could not prove it is the node that answered');
           }
           stage = 'open';

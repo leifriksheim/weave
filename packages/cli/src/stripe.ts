@@ -44,7 +44,12 @@ function form(params: Record<string, string | undefined>): string {
  * Whether a webhook body is Stripe's: `Stripe-Signature: t=…,v1=…`, an
  * HMAC-SHA256 of `t.body` under the webhook secret, made recently.
  */
-export function verifyStripeSignature(body: string, header: string | undefined, secret: string, now = Math.floor(Date.now() / 1000)): boolean {
+export function verifyStripeSignature(
+  body: string,
+  header: string | undefined,
+  secret: string,
+  now = Math.floor(Date.now() / 1000),
+): boolean {
   if (!header) return false;
   const parts = header.split(',').map((part) => part.split('=') as [string, string]);
   const at = Number(parts.find(([key]) => key === 't')?.[1]);
@@ -73,7 +78,11 @@ export function createStripeBilling(config: StripeConfig): Billing {
   const api = config.api ?? 'https://api.stripe.com';
   const now = config.now ?? (() => Math.floor(Date.now() / 1000));
 
-  async function stripe<T>(method: 'GET' | 'POST', path: string, params: Record<string, string | undefined> = {}): Promise<T> {
+  async function stripe<T>(
+    method: 'GET' | 'POST',
+    path: string,
+    params: Record<string, string | undefined> = {},
+  ): Promise<T> {
     const response = await call(`${api}${path}`, {
       method,
       headers: {
@@ -94,7 +103,10 @@ export function createStripeBilling(config: StripeConfig): Billing {
 
   /** What a Stripe subscription says: whose it is here, and paid until when */
   async function paidBy(subscriptionId: string) {
-    const subscription = await stripe<StripeSubscription>('GET', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`);
+    const subscription = await stripe<StripeSubscription>(
+      'GET',
+      `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    );
     const ours = subscription.metadata?.[METADATA_KEY];
     const until = subscription.items?.data[0]?.current_period_end ?? subscription.current_period_end;
     if (!ours || !until) return null;
@@ -121,20 +133,35 @@ export function createStripeBilling(config: StripeConfig): Billing {
     },
 
     async manage({ customer, returnUrl }) {
-      const session = await stripe<{ url: string }>('POST', '/v1/billing_portal/sessions', { customer, return_url: returnUrl });
+      const session = await stripe<{ url: string }>('POST', '/v1/billing_portal/sessions', {
+        customer,
+        return_url: returnUrl,
+      });
       return session.url;
     },
 
     async webhook(body: string, headers: IncomingMessage['headers']) {
       const signature = headers['stripe-signature'];
-      if (!verifyStripeSignature(body, Array.isArray(signature) ? signature[0] : signature, config.webhookSecret, now())) return null;
+      if (
+        !verifyStripeSignature(
+          body,
+          Array.isArray(signature) ? signature[0] : signature,
+          config.webhookSecret,
+          now(),
+        )
+      )
+        return null;
       const event = JSON.parse(body) as { type?: string; data?: { object?: Record<string, unknown> } };
       const object = event.data?.object ?? {};
       // Paying the first time, and every renewal: both lead to the subscription, whose period says until when.
-      if (event.type === 'checkout.session.completed' && typeof object.subscription === 'string') return paidBy(object.subscription);
+      if (event.type === 'checkout.session.completed' && typeof object.subscription === 'string')
+        return paidBy(object.subscription);
       if (event.type === 'invoice.paid') {
         const parent = object.parent as { subscription_details?: { subscription?: unknown } } | undefined;
-        const id = typeof object.subscription === 'string' ? object.subscription : parent?.subscription_details?.subscription;
+        const id =
+          typeof object.subscription === 'string'
+            ? object.subscription
+            : parent?.subscription_details?.subscription;
         if (typeof id === 'string') return paidBy(id);
       }
       return null;

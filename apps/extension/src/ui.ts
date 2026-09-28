@@ -17,12 +17,14 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   const element = document.createElement(tag);
   for (const [name, value] of Object.entries(attributes)) {
     if (value === undefined || value === null || value === false) continue;
-    if (name.startsWith('on') && typeof value === 'function') element.addEventListener(name.slice(2).toLowerCase(), value as EventListener);
+    if (name.startsWith('on') && typeof value === 'function')
+      element.addEventListener(name.slice(2).toLowerCase(), value as EventListener);
     else if (name === 'class') element.className = String(value);
     else if (value === true) element.setAttribute(name, '');
     else element.setAttribute(name, String(value));
   }
-  for (const child of children) if (child !== null && child !== false && child !== undefined) element.append(child);
+  for (const child of children)
+    if (child !== null && child !== false && child !== undefined) element.append(child);
   return element;
 }
 
@@ -32,7 +34,8 @@ export function mark(): HTMLElement {
   svg.setAttribute('width', '20');
   svg.setAttribute('height', '20');
   svg.setAttribute('viewBox', '0 0 20 20');
-  svg.innerHTML = '<path d="M2 5 L7 15 L10 8 L13 15 L18 5" fill="none" stroke="#000" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>';
+  svg.innerHTML =
+    '<path d="M2 5 L7 15 L10 8 L13 15 L18 5" fill="none" stroke="#000" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>';
   return h('div', { class: 'mark' }, svg, 'Weave');
 }
 
@@ -79,19 +82,31 @@ export function accountLine(account: NonNullable<CarrierStatus['account']>, acti
     'div',
     { class: 'account' },
     avatar(account.did),
-    h('div', { class: 'who' }, h('strong', {}, account.name), h('span', { class: 'faint' }, `through ${new URL(account.home).host}`)),
+    h(
+      'div',
+      { class: 'who' },
+      h('strong', {}, account.name),
+      h('span', { class: 'faint' }, `through ${new URL(account.home).host}`),
+    ),
     action ?? null,
   );
 }
 
 /** What to call a carried space — the account's own list has no name of its own worth showing */
-const nameOf = (space: CarriedSpace) => (space.name === 'Account registry' ? 'Your list of spaces' : space.name);
+const nameOf = (space: CarriedSpace) =>
+  space.name === 'Account registry' ? 'Your list of spaces' : space.name;
 
 /** The spaces being carried, with whether each is reaching anyone */
 export function spaceList(status: CarrierStatus): HTMLElement {
   const spaces = status.spaces.filter((space) => !space.carry);
   if (spaces.length === 0) {
-    return h('p', { class: 'hint' }, status.state === 'starting' ? 'Starting…' : 'No spaces yet. They appear here as your account adds them.');
+    return h(
+      'p',
+      { class: 'hint' },
+      status.state === 'starting'
+        ? 'Starting…'
+        : 'No spaces yet. They appear here as your account adds them.',
+    );
   }
   return h(
     'ul',
@@ -100,8 +115,21 @@ export function spaceList(status: CarrierStatus): HTMLElement {
       h(
         'li',
         {},
-        h('span', { class: 'name' }, h('span', { class: `dot ${space.connection === 'connected' ? 'good' : space.connection === 'error' ? 'bad' : ''}` }), nameOf(space)),
-        h('span', { class: 'meta' }, space.peers === 0 ? 'nobody else online' : `with ${space.peers} other${space.peers === 1 ? '' : 's'}`),
+        h(
+          'span',
+          { class: 'name' },
+          h('span', {
+            class: `dot ${space.connection === 'connected' ? 'good' : space.connection === 'error' ? 'bad' : ''}`,
+          }),
+          nameOf(space),
+        ),
+        h(
+          'span',
+          { class: 'meta' },
+          space.peers === 0
+            ? 'nobody else online'
+            : `with ${space.peers} other${space.peers === 1 ? '' : 's'}`,
+        ),
       ),
     ),
   );
@@ -111,7 +139,9 @@ export function spaceList(status: CarrierStatus): HTMLElement {
 export function summary(status: CarrierStatus): string {
   const spaces = status.spaces.filter((space) => !space.carry);
   const count = `${spaces.length} space${spaces.length === 1 ? '' : 's'}`;
-  return spaces.some((space) => space.peers > 0) ? `Keeping ${count} online.` : `Keeping ${count} online. Nobody else is online right now.`;
+  return spaces.some((space) => space.peers > 0)
+    ? `Keeping ${count} online.`
+    : `Keeping ${count} online. Nobody else is online right now.`;
 }
 
 /**

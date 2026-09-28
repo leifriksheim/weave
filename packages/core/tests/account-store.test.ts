@@ -53,7 +53,10 @@ describe('several accounts in one folder', () => {
 
     await store.write(summary, vault);
 
-    assert.deepEqual((await store.list()).map((a) => a.name), ['Leif']);
+    assert.deepEqual(
+      (await store.list()).map((a) => a.name),
+      ['Leif'],
+    );
     assert.equal((await store.read(summary.id))?.did, summary.did);
   });
 
@@ -97,11 +100,17 @@ describe('several accounts in one folder', () => {
     await store.write(newer.summary, newer.vault);
     await store.write(older.summary, older.vault);
 
-    assert.deepEqual((await store.list()).map((a) => a.name), ['Newer', 'Older']);
+    assert.deepEqual(
+      (await store.list()).map((a) => a.name),
+      ['Newer', 'Older'],
+    );
 
     // Signing in updates the order the picker opens on.
     await store.write({ ...older.summary, lastUsedAt: '2026-03-01T00:00:00.000Z' }, older.vault);
-    assert.deepEqual((await store.list()).map((a) => a.name), ['Older', 'Newer']);
+    assert.deepEqual(
+      (await store.list()).map((a) => a.name),
+      ['Older', 'Newer'],
+    );
   });
 
   test('rewriting an account replaces it rather than duplicating', async () => {
@@ -112,7 +121,10 @@ describe('several accounts in one folder', () => {
     await store.write(summary, vault);
     await store.write({ ...summary, name: 'Leif (renamed)' }, vault);
 
-    assert.deepEqual((await store.list()).map((a) => a.name), ['Leif (renamed)']);
+    assert.deepEqual(
+      (await store.list()).map((a) => a.name),
+      ['Leif (renamed)'],
+    );
   });
 
   test('removing an account takes its keys with it', async () => {

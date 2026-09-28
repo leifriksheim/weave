@@ -15,7 +15,7 @@ account.
 In this repo, `npm run dev` (at the root) already runs a node with a throwaway
 identity, and `npm run weave -- <command>` talks to it — no setup.
 
-To make the dev node *your* account's node — so it serves every list you make
+To make the dev node _your_ account's node — so it serves every list you make
 in the browser, with nothing to hand it — give it your account password once:
 
 ```bash
@@ -54,11 +54,11 @@ prints them all with their schemas. `--json '{…}'` passes an input whole.
 
 Secrets never go on the command line, where `ps` shows them:
 
-| | |
-|---|---|
-| `WEAVE_RECOVERY_CODE` or `--code-file FILE` | the account's recovery code |
+|                                                |                                             |
+| ---------------------------------------------- | ------------------------------------------- |
+| `WEAVE_RECOVERY_CODE` or `--code-file FILE`    | the account's recovery code                 |
 | `WEAVE_PASSPHRASE` or `--passphrase-file FILE` | a passphrase added with `init --passphrase` |
-| neither | you are asked, without echo |
+| neither                                        | you are asked, without echo                 |
 
 Nothing ever writes the seed in the clear: the account file holds only wrapped
 copies, exactly as in a browser folder.
@@ -138,6 +138,7 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   with test USDC; `WEAVE_WALLET_RPC` points at a network node of your own or a
   provider's (default: the network's public one). Keep the address's private
   key off the host — it only needs to receive.
+
 - Phone wallets and every other wallet, by QR code: set
   `WEAVE_WALLETCONNECT_PROJECT_ID` (free at dashboard.reown.com) and build the
   WalletConnect bundle once with `npm run bundle:pay` in `cli/` (the published
@@ -176,7 +177,11 @@ account home stops its note working everywhere.
 `weave mcp --account` serves the unlocked account instead, as you:
 
 ```json
-{ "mcpServers": { "weave": { "command": "weave", "args": ["mcp", "--account"], "env": { "WEAVE_PASSPHRASE": "…" } } } }
+{
+  "mcpServers": {
+    "weave": { "command": "weave", "args": ["mcp", "--account"], "env": { "WEAVE_PASSPHRASE": "…" } }
+  }
+}
 ```
 
 It works offline against the folder; with `weave run` on the same folder,
@@ -206,7 +211,7 @@ clear, so a node holding no key of a private space still judges its writes.
 
 ## Your node follows your account
 
-Run the node as *your* account (`weave init --existing` with your recovery code)
+Run the node as _your_ account (`weave init --existing` with your recovery code)
 and it follows the account registry: every space you create or join, on any
 device, is served by the node within moments — no invites to hand it. Leaving a
 space anywhere leaves it everywhere.

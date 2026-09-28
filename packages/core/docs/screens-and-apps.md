@@ -57,17 +57,19 @@ its viewer couldn't.
 
 ```html
 <ul id="list"></ul>
-<form id="add"><input name="title" required><button>Add</button></form>
+<form id="add"><input name="title" required /><button>Add</button></form>
 <script>
   const list = document.getElementById('list');
   async function draw() {
     const chores = await weave.list({ collection: 'app.chores.task' });
-    list.replaceChildren(...chores.map((chore) => {
-      const item = document.createElement('li');
-      item.textContent = chore.body.title + (chore.body.done ? ' ✓' : '');
-      item.onclick = () => weave.update(chore.key, { ...chore.body, done: !chore.body.done });
-      return item;
-    }));
+    list.replaceChildren(
+      ...chores.map((chore) => {
+        const item = document.createElement('li');
+        item.textContent = chore.body.title + (chore.body.done ? ' ✓' : '');
+        item.onclick = () => weave.update(chore.key, { ...chore.body, done: !chore.body.done });
+        return item;
+      }),
+    );
   }
   document.getElementById('add').onsubmit = async (event) => {
     event.preventDefault();
@@ -81,17 +83,17 @@ its viewer couldn't.
 
 `window.weave`:
 
-| | |
-|---|---|
-| `weave.me` | `{ did, name }`: who is looking |
-| `weave.collections` | The collection names this screen may use (its app's) |
-| `await weave.list({ collection, where })` | Records, oldest first. `where: { "link:<rel>": key }` or `{ field: value }` |
-| `await weave.get(key)` | One record, or null |
-| `await weave.put(collection, body, { links, key })` | Writes a record as the person looking |
-| `await weave.update(key, body, { links })` | The next version |
-| `await weave.remove(key)` | Deletes |
-| `await weave.people()` | `[{ did, name }]` of the space |
-| `weave.onChange(callback)` | Called when records change, here or on another device. Returns a stop function |
+|                                                     |                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `weave.me`                                          | `{ did, name }`: who is looking                                                |
+| `weave.collections`                                 | The collection names this screen may use (its app's)                           |
+| `await weave.list({ collection, where })`           | Records, oldest first. `where: { "link:<rel>": key }` or `{ field: value }`    |
+| `await weave.get(key)`                              | One record, or null                                                            |
+| `await weave.put(collection, body, { links, key })` | Writes a record as the person looking                                          |
+| `await weave.update(key, body, { links })`          | The next version                                                               |
+| `await weave.remove(key)`                           | Deletes                                                                        |
+| `await weave.people()`                              | `[{ did, name }]` of the space                                                 |
+| `weave.onChange(callback)`                          | Called when records change, here or on another device. Returns a stop function |
 
 Each record is `{ key, collection, body, links, createdBy, createdAt, updatedAt, mine, viaAgent }`.
 

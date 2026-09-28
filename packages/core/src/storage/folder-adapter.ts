@@ -166,7 +166,11 @@ export async function readFolderFile(dir: DirectoryHandleLike, name: string): Pr
  * @param name The filename
  * @param bytes The contents
  */
-export async function writeFolderFile(dir: DirectoryHandleLike, name: string, bytes: Uint8Array): Promise<void> {
+export async function writeFolderFile(
+  dir: DirectoryHandleLike,
+  name: string,
+  bytes: Uint8Array,
+): Promise<void> {
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
   await writable.write(bytes);
@@ -199,10 +203,7 @@ async function removeFile(dir: DirectoryHandleLike, name: string): Promise<void>
  *   accounts can each have a subtree of their own.
  * @returns An adapter over that directory, already populated
  */
-export async function createFolderAdapter(
-  root: DirectoryHandleLike,
-  path: string,
-): Promise<FolderAdapter> {
+export async function createFolderAdapter(root: DirectoryHandleLike, path: string): Promise<FolderAdapter> {
   const segments = path.split('/').filter(Boolean).map(encodeKey);
   if (segments.length === 0) {
     throw new Error('A folder adapter needs a path to live in.');

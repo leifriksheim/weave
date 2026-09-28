@@ -63,7 +63,9 @@ const options = {
   conditions: ['@weaveprotocol/source'],
   define: {
     __WEAVE_HOME__: JSON.stringify(setting('WEAVE_HOME', 'http://localhost:5174')),
-    __WEAVE_RELAYS__: JSON.stringify(setting('WEAVE_RELAYS', 'ws://localhost:8787,wss://p2p-web-relay.fly.dev')),
+    __WEAVE_RELAYS__: JSON.stringify(
+      setting('WEAVE_RELAYS', 'ws://localhost:8787,wss://p2p-web-relay.fly.dev'),
+    ),
   },
   logLevel: 'info',
 };

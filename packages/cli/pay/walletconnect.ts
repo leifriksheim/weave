@@ -36,7 +36,16 @@ export async function connect(options: ConnectOptions): Promise<Eip1193> {
     defaultNetwork: network,
     metadata: { name: options.name, description: `Pay ${options.name}`, url: location.origin, icons: [] },
     // Only connecting: no sign-in by email, swaps, buying crypto or tracking.
-    features: { analytics: false, email: false, socials: false, swaps: false, onramp: false, send: false, receive: false, history: false },
+    features: {
+      analytics: false,
+      email: false,
+      socials: false,
+      swaps: false,
+      onramp: false,
+      send: false,
+      receive: false,
+      history: false,
+    },
   });
   const ready = () => {
     const provider = modal!.getWalletProvider() as Eip1193 | undefined;

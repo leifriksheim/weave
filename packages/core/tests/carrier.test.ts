@@ -46,9 +46,16 @@ async function account(seed = generateSeed()) {
 }
 type Account = Awaited<ReturnType<typeof account>>;
 
-const onHub = (hub: FakeHub) => ({ transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] });
+const onHub = (hub: FakeHub) => ({
+  transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)],
+});
 
-async function device(me: Account, hub: FakeHub | null, stores = memoryStores(), options: { accountKey?: boolean } = {}): Promise<P2PNode> {
+async function device(
+  me: Account,
+  hub: FakeHub | null,
+  stores = memoryStores(),
+  options: { accountKey?: boolean } = {},
+): Promise<P2PNode> {
   const node = await createNode({
     signer: me.signer,
     stores,
@@ -65,7 +72,13 @@ async function carrierKey() {
   return { keys, did: publicKeyToDid(await provider.exportPublicKey(keys.publicKey), P256_MULTICODEC) };
 }
 
-async function carrier(me: Account, invite: string, hub: FakeHub, stores = memoryStores(), key?: CryptoKeyPair): Promise<CarrierNode> {
+async function carrier(
+  me: Account,
+  invite: string,
+  hub: FakeHub,
+  stores = memoryStores(),
+  key?: CryptoKeyPair,
+): Promise<CarrierNode> {
   const node = await createCarrierNode({
     key: key ?? (await carrierKey()).keys,
     account: me.did,
@@ -86,49 +99,74 @@ async function until(check: () => Promise<boolean>, ms = 5000, what = 'condition
   }
 }
 
-const carries = (node: CarrierNode, spaceId: string) => async () => (await node.spaces()).some((space) => space.id === spaceId);
+const carries = (node: CarrierNode, spaceId: string) => async () =>
+  (await node.spaces()).some((space) => space.id === spaceId);
 
 describe('passes', () => {
   test('a pass opens a private space for carrying, and holds no key', async () => {
     const registry = createSpaceManager(createMemoryAdapter(), provider);
-    const record = await registry.create({ name: 'Notes', visibility: 'private', creator: 'did:key:zCreator' });
+    const record = await registry.create({
+      name: 'Notes',
+      visibility: 'private',
+      creator: 'did:key:zCreator',
+    });
     const pass = await makePass(record);
 
-    assert.equal(JSON.stringify(pass).includes(parseSpaceInvite(await registry.createInvite(record.space.id, 'x')).key!), false);
+    assert.equal(
+      JSON.stringify(pass).includes(parseSpaceInvite(await registry.createInvite(record.space.id, 'x')).key!),
+      false,
+    );
     const opened = await openPass(pass, provider);
     assert.ok(opened);
     assert.equal(opened.read?.did, record.space.readKey);
     assert.equal(carriedRecord(opened).key, null);
   });
 
-  test('a pass whose space was edited, or whose read key is another space\'s, is refused', async () => {
+  test("a pass whose space was edited, or whose read key is another space's, is refused", async () => {
     const registry = createSpaceManager(createMemoryAdapter(), provider);
     const a = await registry.create({ name: 'A', visibility: 'private', creator: 'did:key:zCreator' });
     const b = await registry.create({ name: 'B', visibility: 'private', creator: 'did:key:zCreator' });
     const pass = await makePass(a);
 
-    assert.equal(await openPass({ ...pass, space: { ...pass.space, creator: 'did:key:zSomeoneElse' } }, provider), null);
+    assert.equal(
+      await openPass({ ...pass, space: { ...pass.space, creator: 'did:key:zSomeoneElse' } }, provider),
+      null,
+    );
     assert.equal(await openPass({ ...pass, read: (await makePass(b)).read }, provider), null);
     assert.equal(await openPass({ v: 1, space: pass.space }, provider), null);
   });
 
-  test('the read key from a pass is enough to join the space\'s peers', async () => {
+  test("the read key from a pass is enough to join the space's peers", async () => {
     const registry = createSpaceManager(createMemoryAdapter(), provider);
-    const record = await registry.create({ name: 'Notes', visibility: 'private', creator: 'did:key:zCreator' });
+    const record = await registry.create({
+      name: 'Notes',
+      visibility: 'private',
+      creator: 'did:key:zCreator',
+    });
     const opened = (await openPass(await makePass(record), provider))!;
 
     const one = await carrierKey();
     const two = await carrierKey();
     const read = { key: opened.read, publicDid: record.space.readKey! };
-    const prover = createMeshAuth(record.space.id, { did: one.did, key: one.keys.privateKey }, read, provider);
-    const checker = createMeshAuth(record.space.id, { did: two.did, key: two.keys.privateKey }, read, provider);
+    const prover = createMeshAuth(
+      record.space.id,
+      { did: one.did, key: one.keys.privateKey },
+      read,
+      provider,
+    );
+    const checker = createMeshAuth(
+      record.space.id,
+      { did: two.did, key: two.keys.privateKey },
+      read,
+      provider,
+    );
     const proof = await prover.prove(two.did, 'nonce', null);
     assert.equal(await checker.check(one.did, 'nonce', null, proof), true);
   });
 });
 
 describe('a carrier', () => {
-  test('carries every space of the account, and holds no key but its carry space\'s', async () => {
+  test("carries every space of the account, and holds no key but its carry space's", async () => {
     const me = await account();
     const hub = createFakeHub({ latencyMs: 1 });
     const laptop = await device(me, hub);
@@ -142,16 +180,29 @@ describe('a carrier', () => {
 
     await until(carries(node, notes.id), 5000, 'the private space to be carried');
     await until(carries(node, blog.id), 5000, 'the public space to be carried');
-    assert.deepEqual((await laptop.carriers.list()).map((c) => c.did), [did]);
+    assert.deepEqual(
+      (await laptop.carriers.list()).map((c) => c.did),
+      [did],
+    );
     // Connected in the space, it is named a carrier — not one of the account's devices.
-    await until(async () => (await laptop.spaces.status(notes.id)).carriers.includes(did), 5000, 'the carrier to be named');
+    await until(
+      async () => (await laptop.spaces.status(notes.id)).carriers.includes(did),
+      5000,
+      'the carrier to be named',
+    );
     assert.deepEqual((await laptop.spaces.status(notes.id)).own, []);
     // The carry space is the account's, but not a space it uses.
-    assert.equal((await laptop.spaces.list()).some((space) => space.id === added.space), false);
+    assert.equal(
+      (await laptop.spaces.list()).some((space) => space.id === added.space),
+      false,
+    );
 
     // Its own registry holds one space — the carry space — and so one key.
     const registry = createSpaceManager(await stores('registry'), provider);
-    assert.deepEqual((await registry.list()).map((record) => record.space.id), [added.space]);
+    assert.deepEqual(
+      (await registry.list()).map((record) => record.space.id),
+      [added.space],
+    );
   });
 
   test('is named a keeper of the spaces the account manages, and no longer once removed', async () => {
@@ -163,12 +214,20 @@ describe('a carrier', () => {
 
     const { did } = await carrierKey();
     const added = await laptop.carriers.add({ did, name: 'Chrome' });
-    await until(async () => (await keepers()).some((k) => k.did === did), 5000, 'the carrier to be named a keeper');
+    await until(
+      async () => (await keepers()).some((k) => k.did === did),
+      5000,
+      'the carrier to be named a keeper',
+    );
     assert.deepEqual(await keepers(), [{ did, name: 'Chrome' }]);
 
     // A space made after the carrier was added names it too.
     const later = await laptop.spaces.create({ name: 'Later', visibility: 'public' });
-    await until(async () => (await laptop.spaces.access(later.id)).keepers.length === 1, 5000, 'the new space to name it');
+    await until(
+      async () => (await laptop.spaces.access(later.id)).keepers.length === 1,
+      5000,
+      'the new space to name it',
+    );
 
     await laptop.carriers.remove(added.space);
     await until(async () => (await keepers()).length === 0, 5000, 'the carrier to be no longer named');
@@ -184,12 +243,18 @@ describe('a carrier', () => {
     const stores = memoryStores();
     const node = await carrier(me, added.invite, hub, stores);
 
-    const rootOf = async (n: { spaces: { status(id: string): Promise<{ fingerprint: string }> } }) => (await n.spaces.status(notes.id)).fingerprint;
-    const carriedRoot = async () => (await node.spaces()).find((s) => s.id === notes.id) && (await laptopStatusRoot());
+    const rootOf = async (n: { spaces: { status(id: string): Promise<{ fingerprint: string }> } }) =>
+      (await n.spaces.status(notes.id)).fingerprint;
+    const carriedRoot = async () =>
+      (await node.spaces()).find((s) => s.id === notes.id) && (await laptopStatusRoot());
     const laptopStatusRoot = async () => rootOf(laptop);
     await until(async () => !!(await carriedRoot()), 5000, 'the space to be carried');
     // Wait until the carrier holds what the laptop holds.
-    await until(async () => (await stores(`spaces/${notes.id}`)).list('').then((keys) => keys.length > 0), 5000, 'records at the carrier');
+    await until(
+      async () => (await stores(`spaces/${notes.id}`)).list('').then((keys) => keys.length > 0),
+      5000,
+      'records at the carrier',
+    );
     await new Promise((resolve) => setTimeout(resolve, 300));
     await laptop.close();
 
@@ -202,8 +267,16 @@ describe('a carrier', () => {
 
     // A phone that was never online with the laptop gets everything from the carrier.
     const phone = await device(me, hub);
-    await until(async () => (await phone.spaces.list()).some((space) => space.id === notes.id), 5000, 'the phone to learn of the space');
-    await until(async () => (await phone.records.list(notes.id)).length === 1, 5000, 'the note to reach the phone');
+    await until(
+      async () => (await phone.spaces.list()).some((space) => space.id === notes.id),
+      5000,
+      'the phone to learn of the space',
+    );
+    await until(
+      async () => (await phone.records.list(notes.id)).length === 1,
+      5000,
+      'the note to reach the phone',
+    );
     assert.deepEqual((await phone.records.list(notes.id))[0]?.body, { text: 'the secret plan' });
   });
 
@@ -244,7 +317,11 @@ describe('a carrier', () => {
 
     const theirs = await device(friend, hub);
     await theirs.spaces.join(invite);
-    await until(async () => (await theirs.records.can(shared.id, 'create', 'note')), 5000, 'the friend to join');
+    await until(
+      async () => await theirs.records.can(shared.id, 'create', 'note'),
+      5000,
+      'the friend to join',
+    );
     await new Promise((resolve) => setTimeout(resolve, 300));
     await home.close();
 
@@ -255,11 +332,24 @@ describe('a carrier', () => {
 
     // The home opens on the pod, with nobody online at all, and it is there.
     const back = await device(me, null, podStores());
-    await until(async () => (await back.records.list(shared.id)).length === 1, 5000, 'the note to be in the pod');
+    await until(
+      async () => (await back.records.list(shared.id)).length === 1,
+      5000,
+      'the note to be in the pod',
+    );
     assert.deepEqual((await back.records.list(shared.id))[0]?.body, { text: 'while you were away' });
 
     // It only ever wrote spaces: the account's sealed registry is the home's alone.
-    assert.ok(pod.paths().every((path) => !path.startsWith(`${dataPath}/`) || path.startsWith(`${dataPath}/spaces/`) || path.startsWith(`${dataPath}/registry/`)));
+    assert.ok(
+      pod
+        .paths()
+        .every(
+          (path) =>
+            !path.startsWith(`${dataPath}/`) ||
+            path.startsWith(`${dataPath}/spaces/`) ||
+            path.startsWith(`${dataPath}/registry/`),
+        ),
+    );
   });
 
   test('removing it tells it to forget, and stops the passes', async () => {
@@ -295,24 +385,57 @@ describe('a carrier', () => {
 describe('notifications through a carrier', () => {
   test('a carrier gets tags, never the values it matches', async () => {
     const key = await generateSpaceKey();
-    const when = { label: 'Mentioned', collection: 'app.chat', spaces: 'all' as const, topic: { field: 'mentions', value: 'did:key:zMe' }, since: new Date().toISOString() };
+    const when = {
+      label: 'Mentioned',
+      collection: 'app.chat',
+      spaces: 'all' as const,
+      topic: { field: 'mentions', value: 'did:key:zMe' },
+      since: new Date().toISOString(),
+    };
     const carried = await carriedFor(when, [
       { id: 'club', key, visibility: 'private' },
       { id: 'blog', key: null, visibility: 'public' },
       { id: 'locked', key: null, visibility: 'private' },
     ]);
     assert.equal(JSON.stringify(carried).includes('zMe'), false);
-    assert.deepEqual(Object.keys(carried.tags ?? {}).sort(), ['blog', 'club'], 'a private space with no key here gets no tag, so never matches');
+    assert.deepEqual(
+      Object.keys(carried.tags ?? {}).sort(),
+      ['blog', 'club'],
+      'a private space with no key here gets no tag, so never matches',
+    );
     const version = {
-      id: 'x', author: 'did:key:zAnna', collection: 'app.chat', createdAt: new Date().toISOString(), body: {}, key: 'k', seq: 0, signature: 's',
+      id: 'x',
+      author: 'did:key:zAnna',
+      collection: 'app.chat',
+      createdAt: new Date().toISOString(),
+      body: {},
+      key: 'k',
+      seq: 0,
+      signature: 's',
       tags: carried.tags!['club']!,
     };
     assert.equal(matchesSubscription(carried, 'club', version, 'did:key:zMe'), true);
     assert.equal(matchesSubscription(carried, 'blog', version, 'did:key:zMe'), false, 'another space’s tag');
-    assert.equal(matchesSubscription(carried, 'club', { ...version, author: 'did:key:zMe' }, 'did:key:zMe'), false, 'my own');
-    assert.equal(matchesSubscription(carried, 'club', { ...version, seq: 1 }, 'did:key:zMe'), false, 'an edit, not a new record');
-    assert.equal(matchesSubscription(carried, 'club', { ...version, createdAt: '2020-01-01T00:00:00Z' }, 'did:key:zMe'), false, 'from before it was made');
-    assert.equal(matchesSubscription({ ...carried, paused: true }, 'club', version, 'did:key:zMe'), false, 'paused');
+    assert.equal(
+      matchesSubscription(carried, 'club', { ...version, author: 'did:key:zMe' }, 'did:key:zMe'),
+      false,
+      'my own',
+    );
+    assert.equal(
+      matchesSubscription(carried, 'club', { ...version, seq: 1 }, 'did:key:zMe'),
+      false,
+      'an edit, not a new record',
+    );
+    assert.equal(
+      matchesSubscription(carried, 'club', { ...version, createdAt: '2020-01-01T00:00:00Z' }, 'did:key:zMe'),
+      false,
+      'from before it was made',
+    );
+    assert.equal(
+      matchesSubscription({ ...carried, paused: true }, 'club', version, 'did:key:zMe'),
+      false,
+      'paused',
+    );
   });
 
   test('what a carrier can offer to notify about: the kinds of record, by name; a title and topics only where it can read the definition', async () => {
@@ -322,7 +445,12 @@ describe('notifications through a carrier', () => {
     const club = await laptop.spaces.create({ name: 'Club', visibility: 'private' });
     const blog = await laptop.spaces.create({ name: 'Blog', visibility: 'public' });
     for (const space of [club, blog]) {
-      await laptop.collections.define(space.id, { name: 'app.chat', title: 'Chat message', schema: { type: 'object' }, topics: ['mentions'] });
+      await laptop.collections.define(space.id, {
+        name: 'app.chat',
+        title: 'Chat message',
+        schema: { type: 'object' },
+        topics: ['mentions'],
+      });
       await laptop.records.put(space.id, 'app.chat', { text: 'hi' });
     }
 
@@ -332,11 +460,21 @@ describe('notifications through a carrier', () => {
       const [found] = await node.collections(spaceId);
       return found?.records === 1 && found.title === title;
     };
-    await until(() => settled(club.id), 5000, 'the private space\'s record to be carried');
-    await until(() => settled(blog.id, 'Chat message'), 5000, 'the public space\'s record and definition to be carried');
+    await until(() => settled(club.id), 5000, "the private space's record to be carried");
+    await until(
+      () => settled(blog.id, 'Chat message'),
+      5000,
+      "the public space's record and definition to be carried",
+    );
 
-    assert.deepEqual(await node.collections(club.id), [{ name: 'app.chat', topics: [], records: 1 }], 'private: the name, from the outside of records');
-    assert.deepEqual(await node.collections(blog.id), [{ name: 'app.chat', title: 'Chat message', topics: ['mentions'], records: 1 }]);
+    assert.deepEqual(
+      await node.collections(club.id),
+      [{ name: 'app.chat', topics: [], records: 1 }],
+      'private: the name, from the outside of records',
+    );
+    assert.deepEqual(await node.collections(blog.id), [
+      { name: 'app.chat', title: 'Chat message', topics: ['mentions'], records: 1 },
+    ]);
     assert.deepEqual(await node.collections(node.carrySpace), [], 'its carry space offers nothing');
   });
 
@@ -347,12 +485,20 @@ describe('notifications through a carrier', () => {
     const laptop = await device(me, hub);
     const annaNode = await device(anna, hub);
     const club = await laptop.spaces.create({ name: 'Club', ...team, visibility: 'private' });
-    await laptop.collections.define(club.id, { name: 'app.chat', schema: { type: 'object' }, topics: ['mentions', 'channel'] });
+    await laptop.collections.define(club.id, {
+      name: 'app.chat',
+      schema: { type: 'object' },
+      topics: ['mentions', 'channel'],
+    });
     await annaNode.spaces.join(await laptop.spaces.invite(club.id, { role: 'editor' }));
     await hold(laptop, club.id);
     await hold(annaNode, club.id);
     await joined(annaNode, club.id);
-    await until(async () => (await annaNode.collections.list(club.id)).some((c) => c.topics.length === 2), 5000, 'the definition to reach Anna');
+    await until(
+      async () => (await annaNode.collections.list(club.id)).some((c) => c.topics.length === 2),
+      5000,
+      'the definition to reach Anna',
+    );
 
     const added = await laptop.carriers.add({ did: (await carrierKey()).did, name: 'Chrome' });
     const node = await carrier(me, added.invite, hub);
@@ -362,13 +508,37 @@ describe('notifications through a carrier', () => {
     });
     await until(carries(node, club.id), 5000, 'the space to be carried');
 
-    const mentioned = await laptop.notifications.add({ label: 'Mentioned in Club', collection: 'app.chat', spaces: 'all', topic: { field: 'mentions', value: me.did } });
-    await laptop.notifications.add({ label: 'Anything in #design', collection: 'app.chat', spaces: [club.id], topic: { field: 'channel', value: 'design' } });
-    await until(async () => (await node.subscriptions()).length === 2, 5000, 'the carrier to hold the subscriptions');
-    assert.deepEqual((await node.subscriptions()).map((s) => s.label).sort(), ['Anything in #design', 'Mentioned in Club']);
-    assert.deepEqual((await laptop.notifications.list()).map((s) => s.label), ['Mentioned in Club', 'Anything in #design']);
+    const mentioned = await laptop.notifications.add({
+      label: 'Mentioned in Club',
+      collection: 'app.chat',
+      spaces: 'all',
+      topic: { field: 'mentions', value: me.did },
+    });
+    await laptop.notifications.add({
+      label: 'Anything in #design',
+      collection: 'app.chat',
+      spaces: [club.id],
+      topic: { field: 'channel', value: 'design' },
+    });
+    await until(
+      async () => (await node.subscriptions()).length === 2,
+      5000,
+      'the carrier to hold the subscriptions',
+    );
+    assert.deepEqual((await node.subscriptions()).map((s) => s.label).sort(), [
+      'Anything in #design',
+      'Mentioned in Club',
+    ]);
+    assert.deepEqual(
+      (await laptop.notifications.list()).map((s) => s.label),
+      ['Mentioned in Club', 'Anything in #design'],
+    );
 
-    await annaNode.records.put(club.id, 'app.chat', { text: 'look, @you', mentions: [me.did], channel: 'random' });
+    await annaNode.records.put(club.id, 'app.chat', {
+      text: 'look, @you',
+      mentions: [me.did],
+      channel: 'random',
+    });
     await until(async () => heard.length === 1, 5000, 'the mention to be noticed');
     assert.equal(heard[0]!.subscription.label, 'Mentioned in Club');
     assert.equal(heard[0]!.space.name, 'Club');
@@ -380,16 +550,27 @@ describe('notifications through a carrier', () => {
     await annaNode.records.put(club.id, 'app.chat', { text: 'new logo', channel: 'design' });
     await until(async () => heard.length === 2, 5000, 'the #design message to be noticed');
     await new Promise((resolve) => setTimeout(resolve, 200));
-    assert.deepEqual(heard.map((h) => h.subscription.label), ['Mentioned in Club', 'Anything in #design']);
+    assert.deepEqual(
+      heard.map((h) => h.subscription.label),
+      ['Mentioned in Club', 'Anything in #design'],
+    );
 
     // Paused: quiet.
     await laptop.notifications.update(mentioned.id, { paused: true });
-    await until(async () => (await node.subscriptions()).some((s) => s.paused), 5000, 'the pause to reach the carrier');
+    await until(
+      async () => (await node.subscriptions()).some((s) => s.paused),
+      5000,
+      'the pause to reach the carrier',
+    );
     await annaNode.records.put(club.id, 'app.chat', { text: 'again, @you', mentions: [me.did] });
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(heard.length, 2);
 
     await laptop.notifications.remove(mentioned.id);
-    await until(async () => (await node.subscriptions()).length === 1, 5000, 'the removal to reach the carrier');
+    await until(
+      async () => (await node.subscriptions()).length === 1,
+      5000,
+      'the removal to reach the carrier',
+    );
   });
 });

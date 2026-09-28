@@ -12,7 +12,15 @@ export const labelOf = (r: NodeRecord) => (r.body as { label?: string } | null)?
  * the thing it labels — so removing one is deleting it, and anyone's app that
  * uses `std.tag` sees the same labels.
  */
-export function Tags({ space, target, tags }: { space: SpaceSummary; target: string; tags: ReadonlyArray<NodeRecord> }) {
+export function Tags({
+  space,
+  target,
+  tags,
+}: {
+  space: SpaceSummary;
+  target: string;
+  tags: ReadonlyArray<NodeRecord>;
+}) {
   const node = useNode();
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
@@ -46,11 +54,21 @@ export function Tags({ space, target, tags }: { space: SpaceSummary; target: str
               onBlur={add}
               placeholder="tag"
               aria-label="New tag"
-              style={{ height: 26, width: 110, padding: '0 8px', border: `1px solid ${palette.surface.lineStrong}`, borderRadius: 999, fontSize: 12 }}
+              style={{
+                height: 26,
+                width: 110,
+                padding: '0 8px',
+                border: `1px solid ${palette.surface.lineStrong}`,
+                borderRadius: 999,
+                fontSize: 12,
+              }}
             />
           </form>
         ) : (
-          <button onClick={() => setAdding(true)} style={{ ...chip, color: palette.ink.muted, background: 'none', borderStyle: 'dashed' }}>
+          <button
+            onClick={() => setAdding(true)}
+            style={{ ...chip, color: palette.ink.muted, background: 'none', borderStyle: 'dashed' }}
+          >
             + Tag
           </button>
         ))}
@@ -79,7 +97,11 @@ function TagChip({ space, tag: t }: { space: SpaceSummary; tag: NodeRecord }) {
     <span style={chip}>
       #{labelOf(t)}
       {mayRemove && (
-        <button onClick={() => void node.records.delete(space.id, t.key)} aria-label={`Remove tag ${labelOf(t)}`} style={{ border: 'none', background: 'none', padding: 0, color: palette.ink.faint, fontSize: 12 }}>
+        <button
+          onClick={() => void node.records.delete(space.id, t.key)}
+          aria-label={`Remove tag ${labelOf(t)}`}
+          style={{ border: 'none', background: 'none', padding: 0, color: palette.ink.faint, fontSize: 12 }}
+        >
           ✕
         </button>
       )}

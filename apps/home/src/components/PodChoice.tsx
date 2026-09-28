@@ -36,7 +36,8 @@ export function PodChoice({
 }) {
   const [how, setHow] = useState<'combine' | 'switch'>('combine');
   const podName = pod.directory?.name ?? 'this pod';
-  const here = from.kind === 'folder' ? `in “${from.directory?.name ?? 'your current pod'}”` : 'in this browser';
+  const here =
+    from.kind === 'folder' ? `in “${from.directory?.name ?? 'your current pod'}”` : 'in this browser';
   const others =
     contents.others > 0
       ? ` The pod also has ${contents.others} other ${contents.others === 1 ? 'account' : 'accounts'} — ${contents.others === 1 ? 'it' : 'they'} won't be touched.`
@@ -46,12 +47,19 @@ export function PodChoice({
     return (
       <Modal title={`Move to “${podName}”?`} onClose={onCancel}>
         <p style={text}>
-          Your account and all its spaces will be copied into this pod, and Weave will keep your data there from now on.
+          Your account and all its spaces will be copied into this pod, and Weave will keep your data there
+          from now on.
           {others}
         </p>
         <p style={note}>Nothing is deleted. The copy {here} stays until you remove it.</p>
         {error && <p style={styles.error}>{error.message}</p>}
-        <Actions loading={loading} confirm="Move to pod" busy="Moving…" onConfirm={() => onConfirm('combine')} onCancel={onCancel} />
+        <Actions
+          loading={loading}
+          confirm="Move to pod"
+          busy="Moving…"
+          onConfirm={() => onConfirm('combine')}
+          onCancel={onCancel}
+        />
       </Modal>
     );
   }
@@ -61,7 +69,11 @@ export function PodChoice({
       <p style={text}>
         What should happen to the data {here}?{others}
       </p>
-      <div role="radiogroup" aria-label="What to do with your data" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div
+        role="radiogroup"
+        aria-label="What to do with your data"
+        style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+      >
         <Choice
           checked={how === 'combine'}
           onSelect={() => setHow('combine')}
@@ -77,12 +89,30 @@ export function PodChoice({
         />
       </div>
       {error && <p style={styles.error}>{error.message}</p>}
-      <Actions loading={loading} confirm="Continue" busy={how === 'combine' ? 'Combining…' : 'Switching…'} onConfirm={() => onConfirm(how)} onCancel={onCancel} />
+      <Actions
+        loading={loading}
+        confirm="Continue"
+        busy={how === 'combine' ? 'Combining…' : 'Switching…'}
+        onConfirm={() => onConfirm(how)}
+        onCancel={onCancel}
+      />
     </Modal>
   );
 }
 
-function Choice({ checked, onSelect, title, description, recommended }: { checked: boolean; onSelect: () => void; title: string; description: string; recommended?: boolean }) {
+function Choice({
+  checked,
+  onSelect,
+  title,
+  description,
+  recommended,
+}: {
+  checked: boolean;
+  onSelect: () => void;
+  title: string;
+  description: string;
+  recommended?: boolean;
+}) {
   return (
     <button
       role="radio"
@@ -114,7 +144,16 @@ function Choice({ checked, onSelect, title, description, recommended }: { checke
         }}
       />
       <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 500, fontSize: 14, color: palette.ink.strong }}>
+        <span
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontWeight: 500,
+            fontSize: 14,
+            color: palette.ink.strong,
+          }}
+        >
           {title}
           {recommended && <span style={{ ...styles.badge, fontSize: 11 }}>Recommended</span>}
         </span>
@@ -124,13 +163,35 @@ function Choice({ checked, onSelect, title, description, recommended }: { checke
   );
 }
 
-function Actions({ loading, confirm, busy, onConfirm, onCancel }: { loading: boolean; confirm: string; busy: string; onConfirm: () => void; onCancel: () => void }) {
+function Actions({
+  loading,
+  confirm,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  loading: boolean;
+  confirm: string;
+  busy: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
-      <button onClick={onCancel} disabled={loading} data-variant="quiet" style={{ ...styles.smallButton, height: 36 }}>
+      <button
+        onClick={onCancel}
+        disabled={loading}
+        data-variant="quiet"
+        style={{ ...styles.smallButton, height: 36 }}
+      >
         Cancel
       </button>
-      <button onClick={onConfirm} disabled={loading} data-variant="primary" style={{ ...styles.addButton, height: 36 }}>
+      <button
+        onClick={onConfirm}
+        disabled={loading}
+        data-variant="primary"
+        style={{ ...styles.addButton, height: 36 }}
+      >
         {loading ? busy : confirm}
       </button>
     </div>

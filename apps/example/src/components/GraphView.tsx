@@ -1,4 +1,13 @@
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactElement,
+} from 'react';
 import { useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { collectionLabel, fieldsOf, humanize, recordLabel, titleField } from '../derive/schema-ui';
@@ -240,7 +249,12 @@ export function GraphView({
         pairs.set(id, pair);
       }
     }
-    const lines: Line[] = [...pairs.entries()].map(([id, p]) => ({ id, from: p.from, to: p.to, label: p.rels.join(' · ') }));
+    const lines: Line[] = [...pairs.entries()].map(([id, p]) => ({
+      id,
+      from: p.from,
+      to: p.to,
+      label: p.rels.join(' · '),
+    }));
     const dots: Dot[] = shown.map((r) => ({
       id: r.key,
       record: r,
@@ -256,7 +270,14 @@ export function GraphView({
         const id = PERSON + did;
         if (!seen.has(did)) {
           seen.add(did);
-          dots.push({ id, did, collection: '', label: nameOf(did, people), color: palette.ink.strong, r: 11 });
+          dots.push({
+            id,
+            did,
+            collection: '',
+            label: nameOf(did, people),
+            color: palette.ink.strong,
+            r: 11,
+          });
         }
         lines.push({ id: `${id}>${r.key}`, from: id, to: r.key, label: 'Wrote' });
       }
@@ -407,7 +428,11 @@ export function GraphView({
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / 350);
       const e = 1 - Math.pow(1 - t, 3);
-      setView({ x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e, k: from.k + (to.k - from.k) * e });
+      setView({
+        x: from.x + (to.x - from.x) * e,
+        y: from.y + (to.y - from.y) * e,
+        k: from.k + (to.k - from.k) * e,
+      });
       flight.current = t < 1 ? requestAnimationFrame(step) : null;
     };
     flight.current = requestAnimationFrame(step);
@@ -431,7 +456,11 @@ export function GraphView({
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / 350);
       const e = 1 - Math.pow(1 - t, 3);
-      setView({ x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e, k: from.k + (to.k - from.k) * e });
+      setView({
+        x: from.x + (to.x - from.x) * e,
+        y: from.y + (to.y - from.y) * e,
+        k: from.k + (to.k - from.k) * e,
+      });
       flight.current = t < 1 ? requestAnimationFrame(step) : null;
     };
     flight.current = requestAnimationFrame(step);
@@ -546,25 +575,31 @@ export function GraphView({
     <header>
       <h2 style={{ ...styles.appTitle, fontSize: 22 }}>Explore</h2>
       <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 4, lineHeight: 1.6 }}>
-        Everything in this space, with a line wherever one record points at another. Drag to move around, scroll to zoom, and click a dot to see what it is and follow
-        its lines.
+        Everything in this space, with a line wherever one record points at another. Drag to move around,
+        scroll to zoom, and click a dot to see what it is and follow its lines.
       </p>
     </header>
   );
 
   if (!hasGraph) {
     return (
-      <section aria-label="Explore" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+      <section
+        aria-label="Explore"
+        style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}
+      >
         {header}
-        <div style={styles.emptyState}>Nothing here yet. Once records are added to this space, they show up here — joined by a line wherever one points at another.</div>
+        <div style={styles.emptyState}>
+          Nothing here yet. Once records are added to this space, they show up here — joined by a line
+          wherever one points at another.
+        </div>
       </section>
     );
   }
 
   const { k } = view;
   const allLabels = k >= 1.3 || graph.dots.length <= 40;
-  const pick = selected ? dotById.get(selected) ?? null : null;
-  const hover = hovered ? dotById.get(hovered) ?? null : null;
+  const pick = selected ? (dotById.get(selected) ?? null) : null;
+  const hover = hovered ? (dotById.get(hovered) ?? null) : null;
   const hoverAt = hover ? places.current.get(hover.id) : undefined;
 
   return (
@@ -583,14 +618,27 @@ export function GraphView({
               onClick={() => toggle(name)}
               style={{ ...chip, opacity: off ? 0.5 : 1, textDecoration: off ? 'line-through' : 'none' }}
             >
-              <span style={{ width: 8, height: 8, borderRadius: 99, background: off ? 'transparent' : colour, border: `1.5px solid ${colour}`, flexShrink: 0 }} />
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 99,
+                  background: off ? 'transparent' : colour,
+                  border: `1.5px solid ${colour}`,
+                  flexShrink: 0,
+                }}
+              />
               {nameOfCollection(name)}
               <span style={{ color: palette.ink.faint, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
             </button>
           );
         })}
         <span style={{ flex: 1 }} />
-        <button aria-pressed={showPeople} onClick={() => setShowPeople((v) => !v)} style={{ ...chip, ...(showPeople ? chipOn : {}) }}>
+        <button
+          aria-pressed={showPeople}
+          onClick={() => setShowPeople((v) => !v)}
+          style={{ ...chip, ...(showPeople ? chipOn : {}) }}
+        >
           Show people
         </button>
         <button onClick={() => fit()} style={chip}>
@@ -619,7 +667,12 @@ export function GraphView({
           onPointerMove={onMove}
           onPointerUp={onUp}
           onPointerCancel={onUp}
-          style={{ display: 'block', touchAction: 'none', cursor: gesture.current?.kind === 'pan' ? 'grabbing' : 'grab', userSelect: 'none' }}
+          style={{
+            display: 'block',
+            touchAction: 'none',
+            cursor: gesture.current?.kind === 'pan' ? 'grabbing' : 'grab',
+            userSelect: 'none',
+          }}
         >
           <defs>
             {(['base', 'lit'] as const).map((tone) => (
@@ -633,7 +686,10 @@ export function GraphView({
                 markerHeight={6}
                 orient="auto-start-reverse"
               >
-                <path d="M0,1 L9,5 L0,9 z" fill={tone === 'lit' ? palette.ink.body : palette.surface.lineStrong} />
+                <path
+                  d="M0,1 L9,5 L0,9 z"
+                  fill={tone === 'lit' ? palette.ink.body : palette.surface.lineStrong}
+                />
               </marker>
             ))}
           </defs>
@@ -689,7 +745,8 @@ export function GraphView({
               if (!p) return null;
               const isPicked = dot.id === selected;
               const dim = !!lit && !lit.has(dot.id);
-              const showLabel = isPicked || dot.id === hovered || (lit ? lit.has(dot.id) : allLabels || !!dot.did);
+              const showLabel =
+                isPicked || dot.id === hovered || (lit ? lit.has(dot.id) : allLabels || !!dot.did);
               return (
                 <g
                   key={dot.id}
@@ -700,10 +757,24 @@ export function GraphView({
                   onPointerLeave={() => setHovered((h) => (h === dot.id ? null : h))}
                   style={{ cursor: 'pointer' }}
                 >
-                  {isPicked && <circle r={dot.r + 4} fill="none" stroke={palette.ink.strong} strokeWidth={1.5 / Math.max(k, 0.6)} />}
+                  {isPicked && (
+                    <circle
+                      r={dot.r + 4}
+                      fill="none"
+                      stroke={palette.ink.strong}
+                      strokeWidth={1.5 / Math.max(k, 0.6)}
+                    />
+                  )}
                   {dot.did ? (
                     <g transform={`translate(${-dot.r},${-dot.r})`}>
-                      <rect width={dot.r * 2} height={dot.r * 2} rx={dot.r / 2} fill={palette.surface.card} stroke={palette.ink.strong} strokeWidth={1} />
+                      <rect
+                        width={dot.r * 2}
+                        height={dot.r * 2}
+                        rx={dot.r / 2}
+                        fill={palette.surface.card}
+                        stroke={palette.ink.strong}
+                        strokeWidth={1}
+                      />
                       <g transform="translate(2,2)">
                         <Avatar did={dot.did} size={dot.r * 2 - 4} />
                       </g>
@@ -746,9 +817,18 @@ export function GraphView({
             }}
           >
             <div style={{ fontWeight: 600, color: palette.ink.strong }}>{short(hover.label, 60)}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, color: palette.ink.muted }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                marginTop: 4,
+                color: palette.ink.muted,
+              }}
+            >
               <Avatar did={writerOf(hover.record)} size={14} />
-              {nameOf(writerOf(hover.record), people)} · {nameOfCollection(hover.collection)} · {ago(hover.record.createdAt)}
+              {nameOf(writerOf(hover.record), people)} · {nameOfCollection(hover.collection)} ·{' '}
+              {ago(hover.record.createdAt)}
             </div>
           </div>
         )}
@@ -770,8 +850,18 @@ export function GraphView({
         )}
 
         {!pick && (
-          <p style={{ position: 'absolute', left: 12, bottom: 10, fontSize: 12, color: palette.ink.faint, pointerEvents: 'none' }}>
-            {graph.dots.length} {graph.dots.length === 1 ? 'record' : 'records'} · {graph.lines.length} {graph.lines.length === 1 ? 'line' : 'lines'}
+          <p
+            style={{
+              position: 'absolute',
+              left: 12,
+              bottom: 10,
+              fontSize: 12,
+              color: palette.ink.faint,
+              pointerEvents: 'none',
+            }}
+          >
+            {graph.dots.length} {graph.dots.length === 1 ? 'record' : 'records'} · {graph.lines.length}{' '}
+            {graph.lines.length === 1 ? 'line' : 'lines'}
           </p>
         )}
       </div>
@@ -811,14 +901,39 @@ function Details({
   const labelOf = (r: NodeRecord) => recordLabel(r, schemaOf(r.collection));
   const step = (key: string, rel: string | null, record: NodeRecord | undefined) => (
     <li key={`${rel ?? ''}:${key}`}>
-      <button onClick={() => record && onWalk(key)} disabled={!record} data-row style={{ ...styles.row, padding: '7px 8px', gap: 8, alignItems: 'flex-start' }}>
-        <span style={{ width: 8, height: 8, marginTop: 5, borderRadius: 99, flexShrink: 0, background: record ? colourOf(record.collection) : palette.surface.lineStrong }} />
+      <button
+        onClick={() => record && onWalk(key)}
+        disabled={!record}
+        data-row
+        style={{ ...styles.row, padding: '7px 8px', gap: 8, alignItems: 'flex-start' }}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            marginTop: 5,
+            borderRadius: 99,
+            flexShrink: 0,
+            background: record ? colourOf(record.collection) : palette.surface.lineStrong,
+          }}
+        />
         <span style={{ minWidth: 0, flex: 1 }}>
-          <span style={{ display: 'block', fontSize: 13, color: palette.ink.strong, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span
+            style={{
+              display: 'block',
+              fontSize: 13,
+              color: palette.ink.strong,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
             {record ? labelOf(record) : 'Something not in this space'}
           </span>
           <span style={{ display: 'block', fontSize: 11.5, color: palette.ink.faint }}>
-            {[rel ? humanize(rel) : null, record ? collectionName(record.collection) : null].filter(Boolean).join(' · ')}
+            {[rel ? humanize(rel) : null, record ? collectionName(record.collection) : null]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         </span>
       </button>
@@ -826,8 +941,18 @@ function Details({
   );
 
   const header = (label: string, colour: string | null) => (
-    <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px 10px 16px', borderBottom: `1px solid ${palette.surface.line}` }}>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: palette.ink.muted }}>
+    <header
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '10px 12px 10px 16px',
+        borderBottom: `1px solid ${palette.surface.line}`,
+      }}
+    >
+      <span
+        style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: palette.ink.muted }}
+      >
         {colour && <span style={{ width: 8, height: 8, borderRadius: 99, background: colour }} />}
         {label}
       </span>
@@ -847,7 +972,11 @@ function Details({
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Avatar did={did} size={32} />
             <div>
-              <h3 style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong, letterSpacing: '-0.02em' }}><Person did={did} /></h3>
+              <h3
+                style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong, letterSpacing: '-0.02em' }}
+              >
+                <Person did={did} />
+              </h3>
               <p style={{ fontSize: 12, color: palette.ink.faint }}>
                 Wrote {wrote.length} {wrote.length === 1 ? 'record' : 'records'} here
               </p>
@@ -864,8 +993,14 @@ function Details({
   const body = (record.body ?? {}) as Record<string, unknown>;
   const title = titleField(schema);
   const known = fieldsOf(schema);
-  const fields = (known.length > 0 ? known.map((f) => ({ name: f.name, label: f.label, field: f })) : Object.keys(body).map((name) => ({ name, label: humanize(name), field: undefined })))
-    .filter((f) => f.name !== title && body[f.name] !== undefined && body[f.name] !== null && body[f.name] !== '')
+  const fields = (
+    known.length > 0
+      ? known.map((f) => ({ name: f.name, label: f.label, field: f }))
+      : Object.keys(body).map((name) => ({ name, label: humanize(name), field: undefined }))
+  )
+    .filter(
+      (f) => f.name !== title && body[f.name] !== undefined && body[f.name] !== null && body[f.name] !== '',
+    )
     .slice(0, 6);
   const writer = writerOf(record);
   const into = incoming.get(record.key) ?? [];
@@ -875,9 +1010,34 @@ function Details({
       {header(collectionName(record.collection), colourOf(record.collection))}
       <div style={panelBody}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong, letterSpacing: '-0.02em', lineHeight: 1.35, wordBreak: 'break-word' }}>{dot.label}</h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12, color: palette.ink.muted, flexWrap: 'wrap' }}>
-            <button onClick={() => onWalk(PERSON + writer)} style={{ ...plain, display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Show this person">
+          <h3
+            style={{
+              fontSize: 16,
+              fontWeight: 600,
+              color: palette.ink.strong,
+              letterSpacing: '-0.02em',
+              lineHeight: 1.35,
+              wordBreak: 'break-word',
+            }}
+          >
+            {dot.label}
+          </h3>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginTop: 8,
+              fontSize: 12,
+              color: palette.ink.muted,
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              onClick={() => onWalk(PERSON + writer)}
+              style={{ ...plain, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              title="Show this person"
+            >
               <Avatar did={writer} size={18} />
               <span style={{ color: palette.ink.body, fontWeight: 500 }}>{nameOf(writer, people)}</span>
             </button>
@@ -889,14 +1049,32 @@ function Details({
         </div>
 
         {record.body === null ? (
-          <p style={{ fontSize: 12.5, color: palette.ink.muted, lineHeight: 1.6 }}>This one is locked — this device does not have the key to read it.</p>
+          <p style={{ fontSize: 12.5, color: palette.ink.muted, lineHeight: 1.6 }}>
+            This one is locked — this device does not have the key to read it.
+          </p>
         ) : (
           fields.length > 0 && (
-            <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(70px, auto) 1fr', gap: '6px 12px', margin: 0, fontSize: 12.5 }}>
+            <dl
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(70px, auto) 1fr',
+                gap: '6px 12px',
+                margin: 0,
+                fontSize: 12.5,
+              }}
+            >
               {fields.map((f) => (
                 <div key={f.name} style={{ display: 'contents' }}>
                   <dt style={{ color: palette.ink.faint }}>{f.label}</dt>
-                  <dd style={{ margin: 0, color: palette.ink.body, maxHeight: 54, overflow: 'hidden', wordBreak: 'break-word' }}>
+                  <dd
+                    style={{
+                      margin: 0,
+                      color: palette.ink.body,
+                      maxHeight: 54,
+                      overflow: 'hidden',
+                      wordBreak: 'break-word',
+                    }}
+                  >
                     <Value field={f.field} value={body[f.name]} compact />
                   </dd>
                 </div>
@@ -913,7 +1091,11 @@ function Details({
         </Group>
       </div>
       <footer style={{ padding: 12, borderTop: `1px solid ${palette.surface.line}` }}>
-        <button data-variant="primary" onClick={() => onOpen(record)} style={{ ...styles.button, height: 36 }}>
+        <button
+          data-variant="primary"
+          onClick={() => onOpen(record)}
+          style={{ ...styles.button, height: 36 }}
+        >
           Open
         </button>
       </footer>
@@ -921,12 +1103,22 @@ function Details({
   );
 }
 
-function Group({ title, empty, children }: { title: string; empty?: string; children: ReadonlyArray<ReactElement> }) {
+function Group({
+  title,
+  empty,
+  children,
+}: {
+  title: string;
+  empty?: string;
+  children: ReadonlyArray<ReactElement>;
+}) {
   return (
     <div>
       <h4 style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: palette.ink.muted }}>
         {title}
-        {children.length > 0 && <span style={{ color: palette.ink.faint, fontWeight: 400 }}> · {children.length}</span>}
+        {children.length > 0 && (
+          <span style={{ color: palette.ink.faint, fontWeight: 400 }}> · {children.length}</span>
+        )}
       </h4>
       {children.length > 0 ? (
         <ul style={{ listStyle: 'none', margin: '0 -8px' }}>{children}</ul>
@@ -951,8 +1143,18 @@ const chip: CSSProperties = {
   fontWeight: 500,
   whiteSpace: 'nowrap',
 };
-const chipOn: CSSProperties = { background: palette.ink.strong, color: '#fff', borderColor: palette.ink.strong };
-const plain: CSSProperties = { border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit' };
+const chipOn: CSSProperties = {
+  background: palette.ink.strong,
+  color: '#fff',
+  borderColor: palette.ink.strong,
+};
+const plain: CSSProperties = {
+  border: 'none',
+  background: 'none',
+  padding: 0,
+  font: 'inherit',
+  color: 'inherit',
+};
 const tooltip: CSSProperties = {
   position: 'absolute',
   maxWidth: 240,
@@ -981,4 +1183,11 @@ const panel: CSSProperties = {
   animation: 'weave-fade .12s ease',
   zIndex: 3,
 };
-const panelBody: CSSProperties = { flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 18 };
+const panelBody: CSSProperties = {
+  flex: 1,
+  overflowY: 'auto',
+  padding: 16,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 18,
+};

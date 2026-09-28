@@ -31,7 +31,10 @@ describe('topic tags, worked out', () => {
     assert.match(checkTopics(['channel', 'channel'])!, /twice/);
     assert.match(checkTopics(['not a field'])!, /not a field name/);
     assert.match(checkTopics(Array.from({ length: 9 }, (_, i) => `f${i}`))!, /at most 8/);
-    assert.match(checkStoredCollection({ name: 'app.chat', version: 1, schema: { type: 'object' }, topics: [1] })!, /not a field name/);
+    assert.match(
+      checkStoredCollection({ name: 'app.chat', version: 1, schema: { type: 'object' }, topics: [1] })!,
+      /not a field name/,
+    );
   });
 
   test('a field’s values: text, numbers and yes/no, or each of those in a list', () => {
@@ -49,19 +52,36 @@ describe('topic tags, worked out', () => {
     assert.notEqual(await topicTag(key, 'app.chat', 'topic', 'design'), tag);
     assert.notEqual(await topicTag(key, 'app.mail', 'channel', 'design'), tag);
     assert.notEqual(await topicTag(key, 'app.chat', 'channel', 'Design'), tag);
-    assert.notEqual(await topicTag(await topicKey({ spaceKey: (await generateSpaceKey()).key }), 'app.chat', 'channel', 'design'), tag);
+    assert.notEqual(
+      await topicTag(
+        await topicKey({ spaceKey: (await generateSpaceKey()).key }),
+        'app.chat',
+        'channel',
+        'design',
+      ),
+      tag,
+    );
     assert.notEqual(await topicTag(key, 'app.n', 'n', 1), await topicTag(key, 'app.n', 'n', '1'));
     assert.equal(tag.includes('design'), false);
     // One per value, sorted, each once.
-    const tags = await tagsFor(key, 'app.chat', ['channel', 'mentions'], { channel: 'design', mentions: ['a', 'b', 'a'] });
+    const tags = await tagsFor(key, 'app.chat', ['channel', 'mentions'], {
+      channel: 'design',
+      mentions: ['a', 'b', 'a'],
+    });
     assert.equal(tags.length, 3);
     assert.deepEqual(tags, [...tags].sort());
   });
 
   test('a public space’s tags come from its id: anyone can work them out, and they differ per space', async () => {
     const one = await topicTag(await topicKey({ spaceId: 'space-one' }), 'app.chat', 'channel', 'design');
-    assert.equal(await topicTag(await topicKey({ spaceId: 'space-one' }), 'app.chat', 'channel', 'design'), one);
-    assert.notEqual(await topicTag(await topicKey({ spaceId: 'space-two' }), 'app.chat', 'channel', 'design'), one);
+    assert.equal(
+      await topicTag(await topicKey({ spaceId: 'space-one' }), 'app.chat', 'channel', 'design'),
+      one,
+    );
+    assert.notEqual(
+      await topicTag(await topicKey({ spaceId: 'space-two' }), 'app.chat', 'channel', 'design'),
+      one,
+    );
   });
 });
 
@@ -104,7 +124,11 @@ async function chatSpace(visibility: 'public' | 'private') {
   await hold(alice.node, space);
   await hold(bob.node, space);
   await joined(bob.node, space);
-  await until(async () => (await bob.node.collections.list(space)).some((c) => c.topics.length === 2), 4000, 'the definition to reach Bob');
+  await until(
+    async () => (await bob.node.collections.list(space)).some((c) => c.topics.length === 2),
+    4000,
+    'the definition to reach Bob',
+  );
   return { alice, bob, space };
 }
 
@@ -112,8 +136,14 @@ describe('topic tags on records', () => {
   for (const visibility of ['private', 'public'] as const) {
     test(`a record carries a tag per value, the one \`collections.tag\` gives — ${visibility}`, async () => {
       const { alice, bob, space } = await chatSpace(visibility);
-      const message = await alice.node.records.put(space, 'app.chat', { text: 'hi', channel: 'design', mentions: [bob.me.did] });
-      const stored = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(message.key);
+      const message = await alice.node.records.put(space, 'app.chat', {
+        text: 'hi',
+        channel: 'design',
+        mentions: [bob.me.did],
+      });
+      const stored = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(
+        message.key,
+      );
       const expected = [
         await alice.node.collections.tag(space, 'app.chat', 'channel', 'design'),
         await alice.node.collections.tag(space, 'app.chat', 'mentions', bob.me.did),
@@ -121,11 +151,22 @@ describe('topic tags on records', () => {
       assert.deepEqual(stored?.tags, expected);
       // Bob works out the same tags, and takes the record: they match what it says.
       assert.deepEqual(
-        [await bob.node.collections.tag(space, 'app.chat', 'channel', 'design'), await bob.node.collections.tag(space, 'app.chat', 'mentions', bob.me.did)].sort(),
+        [
+          await bob.node.collections.tag(space, 'app.chat', 'channel', 'design'),
+          await bob.node.collections.tag(space, 'app.chat', 'mentions', bob.me.did),
+        ].sort(),
         expected,
       );
-      await until(async () => (await bob.node.records.get(space, message.key)) !== null, 4000, 'the message to reach Bob');
-      assert.equal(JSON.stringify(stored).includes('"design"'), visibility === 'public', 'in a private space the value stays sealed');
+      await until(
+        async () => (await bob.node.records.get(space, message.key)) !== null,
+        4000,
+        'the message to reach Bob',
+      );
+      assert.equal(
+        JSON.stringify(stored).includes('"design"'),
+        visibility === 'public',
+        'in a private space the value stays sealed',
+      );
     });
   }
 
@@ -171,6 +212,9 @@ describe('topic tags on records', () => {
     const { id: space } = await alice.node.spaces.create({ name: 'Club', ...team, visibility: 'public' });
     await alice.node.collections.define(space, { name: 'app.note', schema: { type: 'object' } });
     const note = await alice.node.records.put(space, 'app.note', { channel: 'design' });
-    assert.equal((await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(note.key))?.tags, undefined);
+    assert.equal(
+      (await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(note.key))?.tags,
+      undefined,
+    );
   });
 });

@@ -33,7 +33,14 @@ import { createExpression } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
 import { newRecordKey, nextVersion, RECORD_KEY_PATTERN } from '../records/version.js';
 import { checkLinks } from '../records/links.js';
-import { allows, changedFixedField, describeWho, onePerKey, permissionName, type CollectionRules } from '../records/rules.js';
+import {
+  allows,
+  changedFixedField,
+  describeWho,
+  onePerKey,
+  permissionName,
+  type CollectionRules,
+} from '../records/rules.js';
 import type { Link } from '../types.js';
 import { reconcileFolder } from '../storage/folder-reconcile.js';
 import type { BlobStore } from '../storage/blob-store.js';
@@ -58,7 +65,12 @@ import {
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
 import { createMesh, type Mesh } from '../network/mesh.js';
 import { createWebSocketTransport } from '../network/ws-transport.js';
-import { createClientAuth, createMeshAuth, MAX_EARLIER_READ_KEYS, type ReadAccess } from '../network/peer-auth.js';
+import {
+  createClientAuth,
+  createMeshAuth,
+  MAX_EARLIER_READ_KEYS,
+  type ReadAccess,
+} from '../network/peer-auth.js';
 import {
   BOX_COLLECTION,
   MEMBER_KEY_COLLECTION,
@@ -137,7 +149,15 @@ import type {
 } from './types.js';
 
 /** Collections the node writes itself, through their own calls — never through `put` */
-const MANAGED = new Set([MEMBERSHIP_COLLECTION, PROFILE_COLLECTION, CARRIER_COLLECTION, PASS_COLLECTION, BOX_COLLECTION, MEMBER_KEY_COLLECTION, ...ACCESS_COLLECTIONS]);
+const MANAGED = new Set([
+  MEMBERSHIP_COLLECTION,
+  PROFILE_COLLECTION,
+  CARRIER_COLLECTION,
+  PASS_COLLECTION,
+  BOX_COLLECTION,
+  MEMBER_KEY_COLLECTION,
+  ...ACCESS_COLLECTIONS,
+]);
 
 /**
  * Access records a peer without the space key must still be able to judge:
@@ -145,7 +165,17 @@ const MANAGED = new Set([MEMBERSHIP_COLLECTION, PROFILE_COLLECTION, CARRIER_COLL
  * private space. Collection definitions stay sealed — a peer that cannot
  * read the records has no use for their rules.
  */
-const IN_THE_CLEAR = new Set([ROLE_COLLECTION, MEMBER_COLLECTION, INVITE_COLLECTION, REVOKE_COLLECTION, KEY_COLLECTION, BOX_COLLECTION, MEMBER_KEY_COLLECTION, RELAYS_COLLECTION, KEEPERS_COLLECTION]);
+const IN_THE_CLEAR = new Set([
+  ROLE_COLLECTION,
+  MEMBER_COLLECTION,
+  INVITE_COLLECTION,
+  REVOKE_COLLECTION,
+  KEY_COLLECTION,
+  BOX_COLLECTION,
+  MEMBER_KEY_COLLECTION,
+  RELAYS_COLLECTION,
+  KEEPERS_COLLECTION,
+]);
 
 /** Which collection each access record key belongs to */
 const ACCESS_KEYS: ReadonlyArray<readonly [string, string]> = [
@@ -193,7 +223,11 @@ export async function relayRoom(spaceId: string): Promise<string> {
 /** The one mesh a node's spaces share, when it has relays to meet on */
 export function meshFor(network: NodeNetworkConfig | undefined, did: string): Mesh | undefined {
   if (!network?.relays?.length) return undefined;
-  return createMesh({ did, relays: network.relays, ...(network.iceServers ? { iceServers: network.iceServers } : {}) });
+  return createMesh({
+    did,
+    relays: network.relays,
+    ...(network.iceServers ? { iceServers: network.iceServers } : {}),
+  });
 }
 
 /** The capability a record in a space requires */
@@ -261,9 +295,20 @@ export interface SpaceRuntimeDeps {
 export interface SpaceRuntime {
   list<T>(options?: ListOptions): Promise<ReadonlyArray<NodeRecord<T>>>;
   get<T>(key: string): Promise<NodeRecord<T> | null>;
-  put<T>(collection: string, body: T, options?: { key?: string; links?: ReadonlyArray<Link>; as?: ActiveSession }): Promise<NodeRecord<T>>;
-  update<T>(key: string, body: T, options?: { links?: ReadonlyArray<Link>; as?: ActiveSession }): Promise<NodeRecord<T>>;
-  linked<T>(key: string, options?: { rel?: string; collection?: string }): Promise<ReadonlyArray<NodeRecord<T>>>;
+  put<T>(
+    collection: string,
+    body: T,
+    options?: { key?: string; links?: ReadonlyArray<Link>; as?: ActiveSession },
+  ): Promise<NodeRecord<T>>;
+  update<T>(
+    key: string,
+    body: T,
+    options?: { links?: ReadonlyArray<Link>; as?: ActiveSession },
+  ): Promise<NodeRecord<T>>;
+  linked<T>(
+    key: string,
+    options?: { rel?: string; collection?: string },
+  ): Promise<ReadonlyArray<NodeRecord<T>>>;
   remove(key: string, options?: { as?: ActiveSession }): Promise<void>;
   history<T>(key: string): Promise<ReadonlyArray<NodeRecord<T>>>;
   /** For the node itself: writes the next version of a record in a collection `put` refuses, like the profile */
@@ -348,7 +393,8 @@ interface Verdict {
   readonly reason?: string;
 }
 
-type Standing = { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly later?: boolean };
+type Standing =
+  { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly later?: boolean };
 const STANDS: Standing = { ok: true };
 
 function looksEncrypted(body: unknown): boolean {
@@ -360,7 +406,8 @@ function isFolderAdapter(adapter: StorageAdapter): adapter is FolderAdapter {
   return typeof (adapter as FolderAdapter).reload === 'function';
 }
 
-const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === 'string');
+const isStringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((v) => typeof v === 'string');
 
 // ─── What a node holding part of a space remembers ──────────────────
 
@@ -393,7 +440,11 @@ async function loadCacheState(adapter: StorageAdapter): Promise<CacheState> {
     const bytes = await adapter.get(CACHE_KEY);
     const saved = bytes ? (JSON.parse(utf8Decode(bytes)) as Partial<CacheState>) : {};
     const numbers = (value: unknown): Record<string, number> =>
-      Object.fromEntries(Object.entries(typeof value === 'object' && value !== null ? value : {}).filter(([, v]) => typeof v === 'number'));
+      Object.fromEntries(
+        Object.entries(typeof value === 'object' && value !== null ? value : {}).filter(
+          ([, v]) => typeof v === 'number',
+        ),
+      );
     return { settled: saved.settled === true, used: numbers(saved.used), level: numbers(saved.level) };
   } catch {
     return { settled: false, used: {}, level: {} };
@@ -425,13 +476,15 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   const cache = deps.cache ?? null;
   const cacheState = await loadCacheState(adapter);
   // The collections the app declared are held from the start.
-  for (const collection of cache?.collections ?? []) if (!collection.startsWith('sys.')) cacheState.used[collection] ??= Date.now();
+  for (const collection of cache?.collections ?? [])
+    if (!collection.startsWith('sys.')) cacheState.used[collection] ??= Date.now();
   // A node that may hold part of the space starts by holding only what it
   // uses: whether the space names keepers is only known once it has caught up.
   let partial = cache !== null;
   const holds = (): Holds => (partial ? new Set(Object.keys(cacheState.used)) : 'all');
 
-  const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
+  const resolvePublicKey = async (did: string) =>
+    provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
 
   const validation = createValidationEngine({
     cryptoGate: createCryptoGate(provider),
@@ -468,7 +521,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       verdict = { verified: false, root: null, ...(failed?.reason ? { reason: failed.reason } : {}) };
     } else {
       const at = Math.floor(Date.parse(expression.createdAt) / 1000);
-      const chain = expression.proof ? await resolveDelegationRoot(expression.proof, () => null, provider, { at }) : null;
+      const chain = expression.proof
+        ? await resolveDelegationRoot(expression.proof, () => null, provider, { at })
+        : null;
       verdict = { verified: true, root: chain?.valid ? chain.rootDid : expression.author };
       verdicts.set(verdictKey(expression), verdict);
     }
@@ -489,14 +544,21 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
    * points at.
    */
   async function openBody(expression: Expression): Promise<Opened> {
-    if (!looksEncrypted(expression.body)) return { body: expression.body, links: expression.links ?? [], encrypted: false };
+    if (!looksEncrypted(expression.body))
+      return { body: expression.body, links: expression.links ?? [], encrypted: false };
     const known = openedBodies.get(expression.id);
     if (known) return known;
     const sealedWith = keyring.get(String((expression.body as { keyId?: unknown }).keyId));
     if (!sealedWith) return { body: null, links: [], encrypted: true };
     try {
-      const opened = (await decryptExpression(expression as EncryptedExpression, sealedWith)).body as { body?: unknown; links?: unknown };
-      const links = checkLinks(opened?.links ?? []) === null ? ((opened?.links as ReadonlyArray<Link> | undefined) ?? []) : [];
+      const opened = (await decryptExpression(expression as EncryptedExpression, sealedWith)).body as {
+        body?: unknown;
+        links?: unknown;
+      };
+      const links =
+        checkLinks(opened?.links ?? []) === null
+          ? ((opened?.links as ReadonlyArray<Link> | undefined) ?? [])
+          : [];
       const result: Opened = Object.freeze({ body: opened?.body ?? null, links, encrypted: true });
       // An id names its content, so what opened once opens the same way again.
       openedBodies.set(expression.id, result);
@@ -571,7 +633,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     if (version.collection === DEFINITION_COLLECTION) {
       if (!version.key.startsWith('collection:')) return null;
-      return { ...base, keep: [], kind: 'definition', name: version.key.slice('collection:'.length), deleted: !!version.deleted };
+      return {
+        ...base,
+        keep: [],
+        kind: 'definition',
+        name: version.key.slice('collection:'.length),
+        deleted: !!version.deleted,
+      };
     }
     // Everything else in the history is taken away by a change, never deleted: a delete has no body to carry a keep list.
     if (version.deleted || looksEncrypted(version.body)) return null;
@@ -604,27 +672,47 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
           if (!(await verifyInvite(space.id, did, invite.key, invite.signature, provider))) return null;
           viaInvite = invite.key;
         }
-        return { ...base, keep, kind: 'member', did, role, ...(viaInvite !== undefined ? { viaInvite } : {}) };
+        return {
+          ...base,
+          keep,
+          kind: 'member',
+          did,
+          role,
+          ...(viaInvite !== undefined ? { viaInvite } : {}),
+        };
       }
       case INVITE_COLLECTION: {
         const inviteDid = body.key;
-        if (typeof inviteDid !== 'string' || typeof body.role !== 'string' || typeof body.open !== 'boolean') return null;
+        if (typeof inviteDid !== 'string' || typeof body.role !== 'string' || typeof body.open !== 'boolean')
+          return null;
         if (version.key !== (await inviteRecordKey(inviteDid))) return null;
         return { ...base, keep, kind: 'invite', inviteKey: inviteDid, role: body.role, open: body.open };
       }
       case KEY_COLLECTION: {
-        if (version.key !== SPACE_KEY_RECORD || typeof body.keyId !== 'string' || body.keyId.length > 64) return null;
+        if (version.key !== SPACE_KEY_RECORD || typeof body.keyId !== 'string' || body.keyId.length > 64)
+          return null;
         if (typeof body.readKey !== 'string' || !body.readKey.startsWith('did:key:')) return null;
         return { ...base, keep: [], kind: 'key', keyId: body.keyId, readKey: body.readKey };
       }
       case RELAYS_COLLECTION: {
-        if (version.key !== SPACE_RELAYS_RECORD || !isStringList(body.relays) || body.relays.length > MAX_RELAYS) return null;
+        if (
+          version.key !== SPACE_RELAYS_RECORD ||
+          !isStringList(body.relays) ||
+          body.relays.length > MAX_RELAYS
+        )
+          return null;
         return { ...base, keep: [], kind: 'relays', relays: body.relays };
       }
       case KEEPERS_COLLECTION: {
         const copies = body.copies ?? null;
         if (version.key !== SPACE_KEEPERS_RECORD || checkKeepers(body.keepers, copies) !== null) return null;
-        return { ...base, keep: [], kind: 'keepers', keepers: body.keepers as Keeper[], copies: copies as number | null };
+        return {
+          ...base,
+          keep: [],
+          kind: 'keepers',
+          keepers: body.keepers as Keeper[],
+          copies: copies as number | null,
+        };
       }
       case REVOKE_COLLECTION: {
         if (typeof body.note !== 'string') return null;
@@ -658,7 +746,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   let relays: ReadonlyArray<string> = record.relays ?? [];
   let meshRoom: string | null = null;
   function useRelays(named: ReadonlyArray<string>): void {
-    if (named.length === 0 || (named.length === relays.length && named.every((url, i) => url === relays[i]))) return;
+    if (named.length === 0 || (named.length === relays.length && named.every((url, i) => url === relays[i])))
+      return;
     relays = [...named];
     if (meshRoom) deps.mesh?.useRelays(meshRoom, relays);
     void deps.onRelays?.(relays).catch(() => {});
@@ -717,7 +806,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         const opened = await openBody(version);
         if (opened.body === null) return 'unreadable';
         const definition = opened.body as StoredCollection;
-        if (checkStoredCollection(definition) !== null || version.key !== `collection:${definition.name}`) return 'invalid';
+        if (checkStoredCollection(definition) !== null || version.key !== `collection:${definition.name}`)
+          return 'invalid';
         return { definition };
       })();
       definitions.set(id, found);
@@ -728,12 +818,17 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   }
 
   /** The rules and topics in force for a collection in one state of the history — null when there are none to judge by */
-  async function rulesAt(state: AccessState, collection: string): Promise<{ rules: CollectionRules; topics: ReadonlyArray<string> } | null> {
+  async function rulesAt(
+    state: AccessState,
+    collection: string,
+  ): Promise<{ rules: CollectionRules; topics: ReadonlyArray<string> } | null> {
     if (collection.startsWith('sys.')) return null;
     const entry = state.definitions.get(collection);
     if (!entry) return null;
     const found = await definitionIn(entry.event);
-    return typeof found === 'string' ? null : { rules: found.definition.rules ?? {}, topics: found.definition.topics ?? [] };
+    return typeof found === 'string'
+      ? null
+      : { rules: found.definition.rules ?? {}, topics: found.definition.topics ?? [] };
   }
 
   // ─── Topic tags ────────────────────────────────────────────────────
@@ -766,7 +861,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const key = tagKey(opened.encrypted ? String((expression.body as { keyId?: unknown }).keyId) : null);
     if (!key) return null;
     const expected = await tagsFor(await key, expression.collection, topics, opened.body);
-    return sameTags(expression.tags, expected) ? null : { ok: false, reason: `Its topic tags don't match what it says` };
+    return sameTags(expression.tags, expected)
+      ? null
+      : { ok: false, reason: `Its topic tags don't match what it says` };
   }
 
   const standings = new Map<string, Promise<Standing>>();
@@ -797,39 +894,61 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     // A version may only claim the space it actually sits in.
     if (expression.space !== space.id) return { ok: false, reason: 'It belongs to a different space' };
     const verdict = await judge(expression);
-    if (!verdict.verified || !verdict.root) return { ok: false, reason: verdict.reason ?? 'Its signature does not check out' };
-    if (deps.peopleOnly && isAgentNote(expression.proof)) return { ok: false, reason: 'Only the account itself writes here, not an agent' };
+    if (!verdict.verified || !verdict.root)
+      return { ok: false, reason: verdict.reason ?? 'Its signature does not check out' };
+    if (deps.peopleOnly && isAgentNote(expression.proof))
+      return { ok: false, reason: 'Only the account itself writes here, not an agent' };
     const { history } = await access();
 
     if (ACCESS_COLLECTIONS.has(expression.collection)) {
       const event = await toEvent(expression);
       if (!event) return { ok: false, reason: 'It is not a well-formed change to who may do what' };
       const status = history.status(event.id);
-      if (!status || status.status === 'waiting') return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+      if (!status || status.status === 'waiting')
+        return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
       return status.status === 'applied' ? STANDS : { ok: false, reason: status.reason };
     }
 
-    const first = expression.seq === 0 ? expression : expression.genesis ? await storage.getExpression(expression.genesis) : null;
+    const first =
+      expression.seq === 0
+        ? expression
+        : expression.genesis
+          ? await storage.getExpression(expression.genesis)
+          : null;
     if (!first) return { ok: false, reason: 'Its first version has not arrived yet', later: true };
-    if (!firstOf(expression, first)) return { ok: false, reason: 'The first version it names is not this record\'s' };
+    if (!firstOf(expression, first))
+      return { ok: false, reason: "The first version it names is not this record's" };
 
     const seen = expression.seen ?? [];
     const state = history.at(seen);
-    if (!state) return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+    if (!state)
+      return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
 
     const root = verdict.root;
     const found = await rulesAt(state, expression.collection);
     const rules = found?.rules;
     const action = expression.seq === 0 ? 'create' : expression.deleted ? 'delete' : 'edit';
-    const who = !rules ? undefined : action === 'create' ? rules.create : action === 'delete' ? (rules.delete ?? rules.edit) : rules.edit;
+    const who = !rules
+      ? undefined
+      : action === 'create'
+        ? rules.create
+        : action === 'delete'
+          ? (rules.delete ?? rules.edit)
+          : rules.edit;
     const creator = action !== 'create' && (await judge(first)).root === root;
     const needs = (role: Role | null) =>
       role !== null &&
-      (!rules || allows(who, { member: true, creator, can: (permission) => roleHolds(role, permissionName(expression.collection, permission)) }));
+      (!rules ||
+        allows(who, {
+          member: true,
+          creator,
+          can: (permission) => roleHolds(role, permissionName(expression.collection, permission)),
+        }));
 
     // The two refusals worth telling apart: not a member at all, and not allowed by the rules.
     const role = standing(state, root);
-    if (!role) return { ok: false, reason: 'Its author was not a member of this space, as of what it had seen' };
+    if (!role)
+      return { ok: false, reason: 'Its author was not a member of this space, as of what it had seen' };
     if (!needs(role)) {
       return {
         ok: false,
@@ -850,16 +969,27 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (expression.seq === 0 && rules.onePer) {
       const opened = await openBody(expression);
       if (opened.body === null && opened.encrypted) return STANDS;
-      const expected = await onePerKey(expression.collection, rules.onePer, { root, links: opened.links, body: opened.body });
+      const expected = await onePerKey(expression.collection, rules.onePer, {
+        root,
+        links: opened.links,
+        body: opened.body,
+      });
       if (expected !== expression.key) {
-        return { ok: false, reason: `${expression.collection} allows one per ${rules.onePer.join(' + ')} — its key must be derived from them` };
+        return {
+          ok: false,
+          reason: `${expression.collection} allows one per ${rules.onePer.join(' + ')} — its key must be derived from them`,
+        };
       }
     }
     if (expression.seq > 0 && rules.fixed?.length) {
       const [now, then] = await Promise.all([openBody(expression), openBody(first)]);
       if (now.body !== null && then.body !== null) {
         const field = changedFixedField(rules.fixed, then.body, now.body);
-        if (field) return { ok: false, reason: `"${field}" is fixed once a ${expression.collection} record is created` };
+        if (field)
+          return {
+            ok: false,
+            reason: `"${field}" is fixed once a ${expression.collection} record is created`,
+          };
       }
     }
     return STANDS;
@@ -876,9 +1006,14 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (expression.space !== space.id) return { ok: false, reason: 'It belongs to a different space' };
     if (!expression.retain) return { ok: false, reason: 'A change to who may do what must be kept' };
     const event = await toEvent(expression);
-    if (!event) return { ok: false, reason: (await judge(expression)).reason ?? 'It is not a well-formed change to who may do what' };
+    if (!event)
+      return {
+        ok: false,
+        reason: (await judge(expression)).reason ?? 'It is not a well-formed change to who may do what',
+      };
     const { history } = await access();
-    if (!history.at(event.seen)) return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+    if (!history.at(event.seen))
+      return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
     const known =
       history.named(event.root) ||
       (event.kind === 'member' && event.viaInvite !== undefined && history.knownInvite(event.viaInvite)) ||
@@ -887,7 +1022,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   }
 
   /** Whether a version from outside — a peer, a folder — may be stored */
-  const admit = (expression: Expression) => (ACCESS_COLLECTIONS.has(expression.collection) ? admissible(expression) : standingOf(expression));
+  const admit = (expression: Expression) =>
+    ACCESS_COLLECTIONS.has(expression.collection) ? admissible(expression) : standingOf(expression);
 
   /**
    * The version of a record that counts: the current one, unless it no longer
@@ -923,13 +1059,19 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   /** One read of the index at a time, so a key is never brought up to date twice at once */
   let indexing: Promise<unknown> = Promise.resolve();
 
-  const countedEntry = async (version: Expression): Promise<Counted> => ({ version, createdAt: await createdAtOf(version) });
+  const countedEntry = async (version: Expression): Promise<Counted> => ({
+    version,
+    createdAt: await createdAtOf(version),
+  });
 
   async function buildIndex(): Promise<Map<string, Counted>> {
     staleKeys.clear();
     const index = new Map<string, Counted>();
     for (const version of await storage.listCurrent()) {
-      const counted = (await standingOf(version)).ok && (await consistent(version)) ? version : await currentOf(version.key);
+      const counted =
+        (await standingOf(version)).ok && (await consistent(version))
+          ? version
+          : await currentOf(version.key);
       if (counted) index.set(counted.key, await countedEntry(counted));
     }
     return index;
@@ -956,7 +1098,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   /** Every record that counts, current version each — deletes included */
   async function everyCurrent(collection?: string): Promise<Expression[]> {
     const shown: Expression[] = [];
-    for (const entry of (await counted()).values()) if (!collection || entry.version.collection === collection) shown.push(entry.version);
+    for (const entry of (await counted()).values())
+      if (!collection || entry.version.collection === collection) shown.push(entry.version);
     return shown;
   }
 
@@ -971,7 +1114,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     // One record is handed to every reader, so nobody may change it under the others.
     deepFreeze(body);
     deepFreeze(links);
-    const issues = body === null || expression.deleted ? null : await contentIssues(expression.collection, body, links);
+    const issues =
+      body === null || expression.deleted ? null : await contentIssues(expression.collection, body, links);
     const reason = !verdict.verified ? verdict.reason : !stands.ok ? stands.reason : undefined;
     return Object.freeze({
       key: expression.key,
@@ -1051,31 +1195,45 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (links.length === 0) return [];
     const declared = (await definitionOf(collection))?.links;
     // An undescribed collection says nothing about its links, so nothing is wrong.
-    if (!declared) return (await definitionOf(collection)) ? [{ path: '/links', message: `${collection} declares no links` }] : [];
+    if (!declared)
+      return (await definitionOf(collection))
+        ? [{ path: '/links', message: `${collection} declares no links` }]
+        : [];
 
     const issues: SchemaIssue[] = [];
     const perRole = new Map<string, number>();
     for (const [index, link] of links.entries()) {
       const declaration = declared[link.rel];
       if (!declaration) {
-        issues.push({ path: `/links/${index}`, message: `${collection} has no "${link.rel}" link (it has: ${Object.keys(declared).join(', ')})` });
+        issues.push({
+          path: `/links/${index}`,
+          message: `${collection} has no "${link.rel}" link (it has: ${Object.keys(declared).join(', ')})`,
+        });
         continue;
       }
       perRole.set(link.rel, (perRole.get(link.rel) ?? 0) + 1);
       if (declaration.to === '*') continue;
       const target = await currentOf(link.to);
       if (target && !target.deleted && !declaration.to.includes(target.collection)) {
-        issues.push({ path: `/links/${index}`, message: `"${link.rel}" must point at ${declaration.to.join(' or ')}, not ${target.collection}` });
+        issues.push({
+          path: `/links/${index}`,
+          message: `"${link.rel}" must point at ${declaration.to.join(' or ')}, not ${target.collection}`,
+        });
       }
     }
     for (const [rel, count] of perRole) {
-      if (declared[rel]?.cardinality === 'one' && count > 1) issues.push({ path: '/links', message: `At most one "${rel}" link` });
+      if (declared[rel]?.cardinality === 'one' && count > 1)
+        issues.push({ path: '/links', message: `At most one "${rel}" link` });
     }
     return issues;
   }
 
   /** Shape and link issues together; null when neither has anything to check against. */
-  async function contentIssues(collection: string, body: unknown, links: ReadonlyArray<Link>): Promise<ReadonlyArray<SchemaIssue> | null> {
+  async function contentIssues(
+    collection: string,
+    body: unknown,
+    links: ReadonlyArray<Link>,
+  ): Promise<ReadonlyArray<SchemaIssue> | null> {
     const shape = await shapeIssues(collection, body);
     const linked = await linkIssues(collection, links);
     if (shape === null && linked.length === 0 && !(await definitionOf(collection))) return null;
@@ -1165,7 +1323,6 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
     return result;
   }
-
 
   /**
    * Each member's member key, from their own record of it — kept in the
@@ -1268,15 +1425,21 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         for (const version of versions) {
           if (version.collection !== BOX_COLLECTION || version.deleted || opened.has(version.id)) continue;
           const body = version.body as { keyId?: unknown; to?: unknown; sealed?: unknown } | null;
-          if (body?.to !== deps.rootDid || typeof body.keyId !== 'string' || typeof body.sealed !== 'string') continue;
+          if (body?.to !== deps.rootDid || typeof body.keyId !== 'string' || typeof body.sealed !== 'string')
+            continue;
           const epoch = epochs.find((known) => known.keyId === body.keyId);
           if (!epoch || keyring.has(epoch.keyId)) continue;
           opened.add(version.id);
-          const content = (await openSealed(memberPair.privateKey, body.sealed, boxContext(space.id, epoch.keyId, deps.rootDid))) as { key?: unknown } | null;
+          const content = (await openSealed(
+            memberPair.privateKey,
+            body.sealed,
+            boxContext(space.id, epoch.keyId, deps.rootDid),
+          )) as { key?: unknown } | null;
           if (typeof content?.key !== 'string') continue;
           // Whoever sealed it, it is the key the history names or it is nothing.
           const found = await spaceKeyFromRaw(base64UrlDecode(content.key)).catch(() => null);
-          if (found?.id === epoch.keyId && (await deriveReadKey(found, provider)).did === epoch.readKey) take(found);
+          if (found?.id === epoch.keyId && (await deriveReadKey(found, provider)).did === epoch.readKey)
+            take(found);
         }
       }
     }
@@ -1288,7 +1451,12 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       for (const versions of (await storage.histories('key:')).values()) {
         for (const version of versions) {
           const body = version.body as { keyId?: unknown; earlier?: unknown } | null;
-          if (version.collection !== KEY_COLLECTION || opened.has(version.id) || typeof body?.keyId !== 'string') continue;
+          if (
+            version.collection !== KEY_COLLECTION ||
+            opened.has(version.id) ||
+            typeof body?.keyId !== 'string'
+          )
+            continue;
           const holder = keyring.get(body.keyId);
           if (!holder) continue;
           opened.add(version.id);
@@ -1312,10 +1480,14 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   async function rotateKey(): Promise<void> {
     if (space.visibility !== 'private') throw new Error('A public space has no key to change');
     const { history } = await access();
-    if (!roleHolds(standing(history.current, deps.rootDid), MANAGE)) throw new Error(`Only someone who manages "${space.name}" can change its key`);
-    if (!currentKey(history.current)) throw new Error(`This device doesn't hold the current key of "${space.name}" yet`);
+    if (!roleHolds(standing(history.current, deps.rootDid), MANAGE))
+      throw new Error(`Only someone who manages "${space.name}" can change its key`);
+    if (!currentKey(history.current))
+      throw new Error(`This device doesn't hold the current key of "${space.name}" yet`);
     const next = await generateSpaceKey();
-    const earlier = await Promise.all([...keyring.values()].map(async (held) => base64UrlEncode(await spaceKeyBytes(held))));
+    const earlier = await Promise.all(
+      [...keyring.values()].map(async (held) => base64UrlEncode(await spaceKeyBytes(held))),
+    );
     const body = {
       keyId: next.id,
       readKey: (await deriveReadKey(next, provider)).did,
@@ -1348,7 +1520,12 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     for (const versions of (await storage.histories('box:')).values()) {
       for (const version of versions) {
         const body = version.body as { keyId?: unknown; to?: unknown } | null;
-        if (version.collection !== BOX_COLLECTION || body?.keyId !== epoch.keyId || typeof body.to !== 'string') continue;
+        if (
+          version.collection !== BOX_COLLECTION ||
+          body?.keyId !== epoch.keyId ||
+          typeof body.to !== 'string'
+        )
+          continue;
         const { root } = await judge(version);
         if (root && (root === deps.rootDid || roleHolds(standing(state, root), MANAGE))) boxed.add(body.to);
       }
@@ -1359,7 +1536,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const publicKey = memberKeys.get(did);
       if (boxed.has(did) || !publicKey) continue;
       const sealed = await sealFor(publicKey, { key: raw }, boxContext(space.id, epoch.keyId, did));
-      await upsert(BOX_COLLECTION, await boxKey(epoch.keyId, did, deps.rootDid), { keyId: epoch.keyId, to: did, sealed });
+      await upsert(BOX_COLLECTION, await boxKey(epoch.keyId, did, deps.rootDid), {
+        keyId: epoch.keyId,
+        to: did,
+        sealed,
+      });
     }
   }
 
@@ -1381,7 +1562,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
     const mine = await memberKeyMap();
     if (memberPair && mine.get(deps.rootDid) !== memberPair.publicKey && !(await cannotWrite())) {
-      await upsert(MEMBER_KEY_COLLECTION, await memberKeyRecordKey(deps.rootDid), { key: memberPair.publicKey });
+      await upsert(MEMBER_KEY_COLLECTION, await memberKeyRecordKey(deps.rootDid), {
+        key: memberPair.publicKey,
+      });
     }
     await learnKeys();
     const { history } = await access();
@@ -1397,10 +1580,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
    * relays this node uses, so the invites and devices that follow meet there.
    */
   async function nameRelays(): Promise<void> {
-    const own = (deps.network?.relays ?? []).filter((url) => checkRelays([url]) === null).slice(0, MAX_RELAYS);
+    const own = (deps.network?.relays ?? [])
+      .filter((url) => checkRelays([url]) === null)
+      .slice(0, MAX_RELAYS);
     if (own.length === 0) return;
     const { history } = await access();
-    if (history.current.relays.length > 0 || !roleHolds(standing(history.current, deps.rootDid), MANAGE)) return;
+    if (history.current.relays.length > 0 || !roleHolds(standing(history.current, deps.rootDid), MANAGE))
+      return;
     await upsert(RELAYS_COLLECTION, SPACE_RELAYS_RECORD, { relays: own });
   }
 
@@ -1442,8 +1628,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
           async earlier() {
             const { current } = (await access()).history;
             const newest = newestKey(current);
-            const older = [...current.keys].reverse().map((epoch) => keyring.get(epoch.keyId)).filter((held): held is SpaceKey => held !== undefined && held !== newest);
-            return Promise.all(older.slice(0, MAX_EARLIER_READ_KEYS).map((held) => deriveReadKey(held, provider)));
+            const older = [...current.keys]
+              .reverse()
+              .map((epoch) => keyring.get(epoch.keyId))
+              .filter((held): held is SpaceKey => held !== undefined && held !== newest);
+            return Promise.all(
+              older.slice(0, MAX_EARLIER_READ_KEYS).map((held) => deriveReadKey(held, provider)),
+            );
           },
           async membership() {
             const held = newestKey((await access()).history.current);
@@ -1454,7 +1645,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
             const epoch = history.current.keys.find((known) => known.readKey === readKey);
             const held = epoch ? keyring.get(epoch.keyId) : undefined;
             if (!held) return false;
-            const { account } = await accountOf(peerDid, await openWith(held, membership, membershipContext(space.id)));
+            const { account } = await accountOf(
+              peerDid,
+              await openWith(held, membership, membershipContext(space.id)),
+            );
             return account !== null && readers(history.current).has(account);
           },
           admitted(peerDid: string, readKey: string) {
@@ -1518,7 +1712,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     },
     validate: async (expression) => {
       const verdict = await admit(expression);
-      return verdict.ok ? { valid: true } : { valid: false, reason: verdict.reason, ...(verdict.later ? { later: true } : {}) };
+      return verdict.ok
+        ? { valid: true }
+        : { valid: false, reason: verdict.reason, ...(verdict.later ? { later: true } : {}) };
     },
   });
 
@@ -1561,7 +1757,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       networks.push(deps.mesh.join(meshRoom, createMeshAuth(space.id, session, readAccess, provider)));
     }
     // Both sides of a socket to a node prove who they are; in a private space the client also proves it may read.
-    const authenticator = net.nodes?.length ? createClientAuth(space.id, session, readAccess, provider) : null;
+    const authenticator = net.nodes?.length
+      ? createClientAuth(space.id, session, readAccess, provider)
+      : null;
     for (const node of net.nodes ?? []) {
       const url = `${node}${node.includes('?') ? '&' : '?'}space=${room}`;
       networks.push(
@@ -1576,7 +1774,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
   }
 
-  const connectedPeers = () => [...new Set(networks.flatMap((network) => network.getPeers().map((peer) => peer.did)))];
+  const connectedPeers = () => [
+    ...new Set(networks.flatMap((network) => network.getPeers().map((peer) => peer.did))),
+  ];
 
   // ─── Live messages ─────────────────────────────────────────────────
   //
@@ -1824,7 +2024,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
    * one in a collection it is level on. Once enough keepers have one, it
    * stops being pending. Only keepers the space names count.
    */
-  async function confirm(peer: string, which: { ids?: ReadonlySet<string>; collection?: string }): Promise<void> {
+  async function confirm(
+    peer: string,
+    which: { ids?: ReadonlySet<string>; collection?: string },
+  ): Promise<void> {
     if (!cache) return;
     const state = (await access()).history.current;
     if (!state.keepers.some((keeper) => keeper.did === peer)) return;
@@ -1881,7 +2084,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // No longer held first, so nothing syncs it back while it goes.
       delete cacheState.used[collection];
       delete cacheState.level[collection];
-      for (const item of (await storage.items(collection)).items) await storage.removeExpression(cidOfDigest(item.id));
+      for (const item of (await storage.items(collection)).items)
+        await storage.removeExpression(cidOfDigest(item.id));
       dropped = true;
     }
     if (!dropped) return;
@@ -1922,13 +2126,14 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     options: { joining?: boolean; as?: ActiveSession } = {},
   ): Promise<Expression> {
     const writer = options.as ?? session;
-    if (deps.peopleOnly && isAgentNote(writer.proof())) throw new Error('An agent can\'t change the account itself. Ask the person to do it.');
+    if (deps.peopleOnly && isAgentNote(writer.proof()))
+      throw new Error("An agent can't change the account itself. Ask the person to do it.");
     // Every peer would ignore it (see buildEvent); say why here instead.
     if (ACCESS_COLLECTIONS.has(collection) && isAgentNote(writer.proof())) {
       throw new Error(
         collection === CATALOG_COLLECTION
-          ? 'An agent can\'t add or change collections. Propose an app instead (apps_propose), and a person in the space adds it.'
-          : 'An agent can\'t change who may do what in a space. Ask the person to do it.',
+          ? "An agent can't add or change collections. Propose an app instead (apps_propose), and a person in the space adds it."
+          : "An agent can't change who may do what in a space. Ask the person to do it.",
       );
     }
     // Every other copy would refuse it, so refuse it here rather than show a
@@ -1945,7 +2150,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // and flagged instead — see `conforms`.
       const issues = await contentIssues(collection, body, links);
       if (issues?.length) {
-        throw new Error(`Not a valid ${collection}: ${issues.map((i) => (i.path === '/' ? i.message : `${i.path} ${i.message}`)).join('; ')}`);
+        throw new Error(
+          `Not a valid ${collection}: ${issues.map((i) => (i.path === '/' ? i.message : `${i.path} ${i.message}`)).join('; ')}`,
+        );
       }
 
       // Encrypt *before* signing: peers without the key still verify the
@@ -1964,13 +2171,24 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         // Body and links sealed together: a relay learns neither.
         const content = links.length ? { body, links } : { body };
         const sealed = await encryptExpression(
-          { id: '', author: '', collection, createdAt: '', body: content, signature: '', key: version.key, seq: version.seq },
+          {
+            id: '',
+            author: '',
+            collection,
+            createdAt: '',
+            body: content,
+            signature: '',
+            key: version.key,
+            seq: version.seq,
+          },
           key,
         );
         payload = sealed.body;
       }
       // Worked out from the body, with the key it is sealed with: what every reader will check.
-      const topics = collection.startsWith('sys.') ? [] : ((await catalog()).get(collection)?.definition.topics ?? []);
+      const topics = collection.startsWith('sys.')
+        ? []
+        : ((await catalog()).get(collection)?.definition.topics ?? []);
       if (topics.length) {
         const sealedWith = looksEncrypted(payload) ? String((payload as { keyId?: unknown }).keyId) : null;
         const key = tagKey(sealedWith);
@@ -2015,7 +2233,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const event = await toEvent(signed);
       if (!event) throw new Error('That is not a well-formed change to who may do what');
       const status = replayAccess(accessGenesis, [...held, event]).status(event.id);
-      if (status?.status !== 'applied') throw new Error(status?.status === 'dropped' ? status.reason : 'That change could not be made');
+      if (status?.status !== 'applied')
+        throw new Error(status?.status === 'dropped' ? status.reason : 'That change could not be made');
     } else {
       const stands = await standingOf(signed);
       if (!stands.ok) throw new Error(stands.reason);
@@ -2046,14 +2265,26 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return held ? nextVersion(held) : { key: recordKey, seq: 0 };
   }
 
-  async function writeFirst<T>(collection: string, body: T, recordKey: string, links: ReadonlyArray<Link>, as?: ActiveSession): Promise<Expression> {
+  async function writeFirst<T>(
+    collection: string,
+    body: T,
+    recordKey: string,
+    links: ReadonlyArray<Link>,
+    as?: ActiveSession,
+  ): Promise<Expression> {
     const current = await currentOf(recordKey);
-    if (current && !current.deleted) throw new Error(`A record ${recordKey} already exists — update it instead`);
+    if (current && !current.deleted)
+      throw new Error(`A record ${recordKey} already exists — update it instead`);
     // Writing a key that was deleted brings it back: the next version after the delete.
     return write(collection, body, await after(recordKey), false, links, as ? { as } : {});
   }
 
-  async function upsert<T>(collection: string, recordKey: string, body: T, options: { joining?: boolean } = {}): Promise<NodeRecord<T>> {
+  async function upsert<T>(
+    collection: string,
+    recordKey: string,
+    body: T,
+    options: { joining?: boolean } = {},
+  ): Promise<NodeRecord<T>> {
     return view<T>(await write(collection, body, await after(recordKey), false, [], options));
   }
 
@@ -2067,7 +2298,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   };
 
   /** Display order: when a record was created, then its key. It decides nothing. */
-  const createdAtOf = async (version: Expression) => (await genesisOf(version))?.createdAt ?? version.createdAt;
+  const createdAtOf = async (version: Expression) =>
+    (await genesisOf(version))?.createdAt ?? version.createdAt;
 
   /**
    * What a change taking power from these people keeps: every record of
@@ -2084,15 +2316,28 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   }
 
   /** The rules and standing that decide whether this account may do something now */
-  async function mayNow(collection: string, action: 'create' | 'edit' | 'delete', first: Expression | null): Promise<boolean> {
+  async function mayNow(
+    collection: string,
+    action: 'create' | 'edit' | 'delete',
+    first: Expression | null,
+  ): Promise<boolean> {
     const { history } = await access();
     const role = standing(history.current, deps.rootDid);
     if (!role) return false;
     const found = await rulesAt(history.current, collection);
     if (!found) return true;
-    const who = action === 'create' ? found.rules.create : action === 'delete' ? (found.rules.delete ?? found.rules.edit) : found.rules.edit;
+    const who =
+      action === 'create'
+        ? found.rules.create
+        : action === 'delete'
+          ? (found.rules.delete ?? found.rules.edit)
+          : found.rules.edit;
     const creator = !!first && (await judge(first)).root === deps.rootDid;
-    return allows(who, { member: true, creator, can: (permission) => roleHolds(role, permissionName(collection, permission)) });
+    return allows(who, {
+      member: true,
+      creator,
+      can: (permission) => roleHolds(role, permissionName(collection, permission)),
+    });
   }
 
   // Once at open, then after every change.
@@ -2109,7 +2354,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         if (deleted && !options.includeDeleted) continue;
         shown.push(entry);
       }
-      shown.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.version.key.localeCompare(b.version.key));
+      shown.sort(
+        (a, b) => a.createdAt.localeCompare(b.createdAt) || a.version.key.localeCompare(b.version.key),
+      );
       if (options.newestFirst) shown.reverse();
       const page = options.limit === undefined ? shown : shown.slice(0, options.limit);
       const shownOf = (entry: Counted) =>
@@ -2122,7 +2369,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     get,
 
-    async put<T>(collection: string, body: T, options: { key?: string; links?: ReadonlyArray<Link>; as?: ActiveSession } = {}): Promise<NodeRecord<T>> {
+    async put<T>(
+      collection: string,
+      body: T,
+      options: { key?: string; links?: ReadonlyArray<Link>; as?: ActiveSession } = {},
+    ): Promise<NodeRecord<T>> {
       guard(collection);
       if (options.key !== undefined && !RECORD_KEY_PATTERN.test(options.key)) {
         throw new Error('A record key is 1–128 characters of a–z, 0–9 and : . _ -');
@@ -2132,8 +2383,18 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const onePer = (await catalog()).get(collection)?.definition.rules?.onePer;
       if (onePer && options.key === undefined) {
         const derived = await onePerKey(collection, onePer, { root: deps.rootDid, links, body });
-        if (!derived) throw new Error(`${collection} is one per ${onePer.join(' + ')} — give it every one of those`);
-        return view<T>(await write(collection, body, await after(derived), false, links, options.as ? { as: options.as } : {}));
+        if (!derived)
+          throw new Error(`${collection} is one per ${onePer.join(' + ')} — give it every one of those`);
+        return view<T>(
+          await write(
+            collection,
+            body,
+            await after(derived),
+            false,
+            links,
+            options.as ? { as: options.as } : {},
+          ),
+        );
       }
       return view<T>(await writeFirst(collection, body, options.key ?? newRecordKey(), links, options.as));
     },
@@ -2145,10 +2406,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return mayNow(current.collection, action, await genesisOf(current));
     },
 
-    upsertSystem: <T>(collection: string, recordKey: string, body: T) => upsert<T>(collection, recordKey, body),
+    upsertSystem: <T>(collection: string, recordKey: string, body: T) =>
+      upsert<T>(collection, recordKey, body),
 
     async profiles() {
-      return [...(await profileMap()).values()].sort((a, b) => a.name.localeCompare(b.name) || a.did.localeCompare(b.did));
+      return [...(await profileMap()).values()].sort(
+        (a, b) => a.name.localeCompare(b.name) || a.did.localeCompare(b.did),
+      );
     },
 
     async publishProfile(profile: { name: string; contactKey?: string }) {
@@ -2159,7 +2423,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // An app without the contact key must not take away the one another device published.
       const contactKey = profile.contactKey ?? mine?.contactKey;
       if (!name || (mine?.name === name && mine.contactKey === contactKey)) return;
-      await upsert(PROFILE_COLLECTION, await profileKey(deps.rootDid), { name, ...(contactKey ? { contactKey } : {}) });
+      await upsert(PROFILE_COLLECTION, await profileKey(deps.rootDid), {
+        name,
+        ...(contactKey ? { contactKey } : {}),
+      });
     },
 
     rotateKey,
@@ -2189,18 +2456,36 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       await upsert(KEEPERS_COLLECTION, SPACE_KEEPERS_RECORD, { keepers: named, copies });
     },
 
-    async update<T>(recordKey: string, body: T, options: { links?: ReadonlyArray<Link>; as?: ActiveSession } = {}): Promise<NodeRecord<T>> {
+    async update<T>(
+      recordKey: string,
+      body: T,
+      options: { links?: ReadonlyArray<Link>; as?: ActiveSession } = {},
+    ): Promise<NodeRecord<T>> {
       const current = await requireLive(recordKey);
       guard(current.collection);
       // Links carry over unless replaced: ticking a todo should not unhook it from anything.
       const links = options.links ?? (await openBody(current)).links;
-      return view<T>(await write(current.collection, body, await after(recordKey), false, links, options.as ? { as: options.as } : {}));
+      return view<T>(
+        await write(
+          current.collection,
+          body,
+          await after(recordKey),
+          false,
+          links,
+          options.as ? { as: options.as } : {},
+        ),
+      );
     },
 
-    async linked<T>(recordKey: string, options: { rel?: string; collection?: string } = {}): Promise<ReadonlyArray<NodeRecord<T>>> {
+    async linked<T>(
+      recordKey: string,
+      options: { rel?: string; collection?: string } = {},
+    ): Promise<ReadonlyArray<NodeRecord<T>>> {
       if (options.collection) use([options.collection]);
       const pointing = (await linkIndex()).get(recordKey) ?? [];
-      const keys = [...new Set(pointing.filter((p) => !options.rel || p.rel === options.rel).map((p) => p.from))];
+      const keys = [
+        ...new Set(pointing.filter((p) => !options.rel || p.rel === options.rel).map((p) => p.from)),
+      ];
       const found: NodeRecord<T>[] = [];
       for (const from of keys) {
         const current = await currentOf(from);
@@ -2257,7 +2542,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const problem = checkStoredCollection(definition);
       if (problem) throw new Error(problem);
       if (current && version <= current.definition.version) {
-        throw new Error(`${input.name} is at version ${current.definition.version}; a new definition needs a higher one`);
+        throw new Error(
+          `${input.name} is at version ${current.definition.version}; a new definition needs a higher one`,
+        );
       }
       await upsert(CATALOG_COLLECTION, recordKey, definition);
       const entry = (await catalog()).get(input.name) ?? null;
@@ -2269,7 +2556,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (!(await catalog()).has(name)) throw new Error(`${name} is not defined in this space`);
       // Records left behind would lose their shape and their rules, so they go first.
       const left = (await everyCurrent(name)).filter((e) => !e.deleted).length;
-      if (left) throw new Error(`${name} still has ${left} record${left === 1 ? '' : 's'}; delete them first`);
+      if (left)
+        throw new Error(`${name} still has ${left} record${left === 1 ? '' : 's'}; delete them first`);
       await removeKey(`collection:${name}`);
     },
 
@@ -2281,8 +2569,16 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         roles: [...state.roles.values()].sort((a, b) => b.rank - a.rank || a.name.localeCompare(b.name)),
         members: [...state.members]
           .map(([did, name]) => ({ did, role: name }))
-          .sort((a, b) => (state.roles.get(b.role)?.rank ?? -1) - (state.roles.get(a.role)?.rank ?? -1) || a.did.localeCompare(b.did)),
-        invites: [...state.invites].map(([inviteDid, invite]) => ({ key: inviteDid, role: invite.role, open: invite.open })),
+          .sort(
+            (a, b) =>
+              (state.roles.get(b.role)?.rank ?? -1) - (state.roles.get(a.role)?.rank ?? -1) ||
+              a.did.localeCompare(b.did),
+          ),
+        invites: [...state.invites].map(([inviteDid, invite]) => ({
+          key: inviteDid,
+          role: invite.role,
+          open: invite.open,
+        })),
         role,
         heads: history.heads(),
         key: state.keys.length ? { changes: state.keys.length - 1, held: currentKey(state) !== null } : null,
@@ -2298,7 +2594,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const next = role === null ? null : history.current.roles.get(role);
       if (role !== null && !next) throw new Error(`There is no role "${role}" in "${space.name}"`);
       // Taking power away keeps what this node has seen them write.
-      const lowers = was && (!next || next.rank < was.rank || was.permissions.some((p) => !next.permissions.includes(p)));
+      const lowers =
+        was && (!next || next.rank < was.rank || was.permissions.some((p) => !next.permissions.includes(p)));
       const keep = lowers ? await keepFrom(new Set([did])) : [];
       await upsert(MEMBER_COLLECTION, await memberKey(did), { did, role, ...(keep.length ? { keep } : {}) });
     },
@@ -2308,8 +2605,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (problem) throw new Error(problem);
       const { history } = await access();
       const was = history.current.roles.get(role.name);
-      const lowers = was && (role.rank < was.rank || was.permissions.some((p) => !role.permissions.includes(p)));
-      const holders = new Set([...history.current.members].filter(([, name]) => name === role.name).map(([did]) => did));
+      const lowers =
+        was && (role.rank < was.rank || was.permissions.some((p) => !role.permissions.includes(p)));
+      const holders = new Set(
+        [...history.current.members].filter(([, name]) => name === role.name).map(([did]) => did),
+      );
       const keep = lowers && holders.size ? await keepFrom(holders) : [];
       await upsert(ROLE_COLLECTION, roleKey(role.name), {
         name: role.name,
@@ -2323,7 +2623,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     async removeRole(name: string) {
       const { history } = await access();
       if (!history.current.roles.has(name)) throw new Error(`There is no role "${name}" in "${space.name}"`);
-      const holders = new Set([...history.current.members].filter(([, held]) => held === name).map(([did]) => did));
+      const holders = new Set(
+        [...history.current.members].filter(([, held]) => held === name).map(([did]) => did),
+      );
       const keep = holders.size ? await keepFrom(holders) : [];
       await upsert(ROLE_COLLECTION, roleKey(name), { name, removed: true, ...(keep.length ? { keep } : {}) });
     },
@@ -2340,7 +2642,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       const invite = history.current.invites.get(inviteDid);
       if (!invite) throw new Error('There is no such invite in this space');
       // Who joined with it before this node closed it stays: the close names what it saw, and the replay does the rest.
-      await upsert(INVITE_COLLECTION, await inviteRecordKey(inviteDid), { key: inviteDid, role: invite.role, open: false });
+      await upsert(INVITE_COLLECTION, await inviteRecordKey(inviteDid), {
+        key: inviteDid,
+        role: invite.role,
+        open: false,
+      });
     },
 
     async revoke(token: string) {
@@ -2349,7 +2655,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       for (const version of await everyCurrent()) {
         if (version.proof && (await noteCid(version.proof)) === cid) keep.push(version.id);
       }
-      await upsert(REVOKE_COLLECTION, await revokeKey(cid), { note: token, ...(keep.length ? { keep: keep.slice(0, MAX_KEEP) } : {}) });
+      await upsert(REVOKE_COLLECTION, await revokeKey(cid), {
+        note: token,
+        ...(keep.length ? { keep: keep.slice(0, MAX_KEEP) } : {}),
+      });
     },
 
     async isRevoked(token: string) {
@@ -2369,7 +2678,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       await upsert(
         MEMBER_COLLECTION,
         await memberKey(deps.rootDid),
-        { did: deps.rootDid, role: invite.role, invite: { key: pair.did, signature: await signInvite(space.id, deps.rootDid, pair, provider) } },
+        {
+          did: deps.rootDid,
+          role: invite.role,
+          invite: { key: pair.did, signature: await signInvite(space.id, deps.rootDid, pair, provider) },
+        },
         { joining: true },
       );
       waitingInvite = false;
@@ -2382,7 +2695,11 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         space: space.id,
         connection,
         peers: connectedPeers(),
-        accounts: Object.fromEntries([...knownAccounts].flatMap(([peer, known]) => (known.account && routes.has(peer) ? [[peer, known.account]] : []))),
+        accounts: Object.fromEntries(
+          [...knownAccounts].flatMap(([peer, known]) =>
+            known.account && routes.has(peer) ? [[peer, known.account]] : [],
+          ),
+        ),
         fingerprint: await storage.fingerprint(),
         rejected,
         holds: partial ? Object.keys(cacheState.used).sort() : ('all' as const),

@@ -11,7 +11,9 @@ function open(name: string, indexed: boolean): Promise<IDBDatabase> {
     const request = indexedDB.open(name, 1);
     request.onupgradeneeded = () => {
       const store = request.result.createObjectStore('expressions', { keyPath: 'id' });
-      if (indexed) for (const index of ['collection', 'author', 'createdAt']) store.createIndex(index, index, { unique: false });
+      if (indexed)
+        for (const index of ['collection', 'author', 'createdAt'])
+          store.createIndex(index, index, { unique: false });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -45,10 +47,14 @@ async function run(indexed: boolean) {
   const range = (from: number, n: number) => Array.from({ length: n }, (_, j) => from + j);
   let t = performance.now();
   for (let i = 0; i < N; i += 16) await write(db, range(i, 16), []);
-  log(`${indexed ? 'indexed' : 'plain  '}: 16 puts per transaction: ${((performance.now() - t) / (N / 16)).toFixed(2)}ms each`);
+  log(
+    `${indexed ? 'indexed' : 'plain  '}: 16 puts per transaction: ${((performance.now() - t) / (N / 16)).toFixed(2)}ms each`,
+  );
   t = performance.now();
   for (let i = 0; i < N; i += 16) await write(db, range(N + i, 16), range(i, 16));
-  log(`${indexed ? 'indexed' : 'plain  '}: 16 puts and 16 deletes per transaction: ${((performance.now() - t) / (N / 16)).toFixed(2)}ms each`);
+  log(
+    `${indexed ? 'indexed' : 'plain  '}: 16 puts and 16 deletes per transaction: ${((performance.now() - t) / (N / 16)).toFixed(2)}ms each`,
+  );
   db.close();
 }
 

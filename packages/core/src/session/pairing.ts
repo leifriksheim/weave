@@ -87,7 +87,10 @@ export async function offerToPhone(
         // bundle of them at once.
         const spaces = await node.spaces.list();
         const invites = await Promise.all(spaces.map((space) => node.spaces.invite(space.id)));
-        const sealed = await sealPairingPayload(utf8Encode(JSON.stringify({ spaces: invites } satisfies Handover)), key);
+        const sealed = await sealPairingPayload(
+          utf8Encode(JSON.stringify({ spaces: invites } satisfies Handover)),
+          key,
+        );
 
         network.send(peer.did, { type: PAIR_MESSAGE, from: node.sessionDid, payload: Array.from(sealed) });
         onStage({ kind: 'sent', spaces: invites.length });
@@ -98,7 +101,8 @@ export async function offerToPhone(
   });
 
   network.on('error', () => {
-    if (!network.isConnected()) onStage({ kind: 'failed', reason: 'Could not reach the relay from this page.' });
+    if (!network.isConnected())
+      onStage({ kind: 'failed', reason: 'Could not reach the relay from this page.' });
   });
 
   onStage({ kind: 'waiting' });
@@ -149,7 +153,9 @@ export async function collectFromDesktop(
 
   // The phone uses the relay named in the ticket: it is the one the computer
   // showing the code is definitely on, and the phone has no configuration.
-  const network = createMesh({ relays: [ticket.relay], did: node.sessionDid }).join(await pairingRoomId(seed));
+  const network = createMesh({ relays: [ticket.relay], did: node.sessionDid }).join(
+    await pairingRoomId(seed),
+  );
 
   return new Promise<number>((resolve) => {
     let settled = false;
@@ -167,7 +173,8 @@ export async function collectFromDesktop(
       () =>
         finish(0, {
           kind: 'failed',
-          reason: 'The computer did not answer. Check the code is still showing, and that both devices are on the same network.',
+          reason:
+            'The computer did not answer. Check the code is still showing, and that both devices are on the same network.',
         }),
       timeoutMs,
     );
@@ -184,12 +191,17 @@ export async function collectFromDesktop(
           for (const invite of spaces) await node.spaces.join(invite);
           finish(spaces.length, { kind: 'received', spaces: spaces.length });
         } catch (error) {
-          finish(0, { kind: 'failed', reason: error instanceof Error ? error.message : 'That handover could not be read.' });
+          finish(0, {
+            kind: 'failed',
+            reason: error instanceof Error ? error.message : 'That handover could not be read.',
+          });
         }
       })();
     });
 
     onStage({ kind: 'waiting' });
-    network.connect().catch(() => finish(0, { kind: 'failed', reason: 'Could not reach the relay from this phone.' }));
+    network
+      .connect()
+      .catch(() => finish(0, { kind: 'failed', reason: 'Could not reach the relay from this phone.' }));
   });
 }

@@ -8,7 +8,11 @@
  *   browser. That is a place.
  * - **Who am I?** An account in that place. A place can hold several.
  */
-import { createBrowserAccountStore, createFolderAccountStore, listFolderAccounts } from '../identity/account-store.js';
+import {
+  createBrowserAccountStore,
+  createFolderAccountStore,
+  listFolderAccounts,
+} from '../identity/account-store.js';
 import type { AccountStore, AccountSummary } from '../identity/account-store.js';
 import {
   forgetDataFolder,

@@ -79,7 +79,9 @@ export function CollectionView({
   const groups = groupFields(schema);
   const [groupName, setGroupName] = useState(() => remembered(groupKey(space.id, name)));
   const group = groups.find((f) => f.name === groupName) ?? groups[0] ?? null;
-  const [layout, setLayout] = useState<Layout>(() => (remembered(layoutKey(space.id, name)) as Layout | null) ?? 'list');
+  const [layout, setLayout] = useState<Layout>(
+    () => (remembered(layoutKey(space.id, name)) as Layout | null) ?? 'list',
+  );
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
   const people = peopleFrom(useProfiles(space.id));
@@ -113,7 +115,12 @@ export function CollectionView({
       return Promise.all(
         records.map(async (record) => ({
           record,
-          linked: needsLinked ? byRel(record.links, await Promise.all(record.links.map((l) => node.records.get(space.id, l.to)))) : {},
+          linked: needsLinked
+            ? byRel(
+                record.links,
+                await Promise.all(record.links.map((l) => node.records.get(space.id, l.to))),
+              )
+            : {},
         })),
       );
     },
@@ -129,12 +136,27 @@ export function CollectionView({
   const visible = (rows ?? []).filter((r) => r.record.body !== null);
 
   if (defining && collection) {
-    return <DefinitionEditor space={space} collection={collection} collections={collections} onDone={() => setDefining(false)} />;
+    return (
+      <DefinitionEditor
+        space={space}
+        collection={collection}
+        collections={collections}
+        onDone={() => setDefining(false)}
+      />
+    );
   }
 
   return (
     <section aria-label={label} style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
-      <header style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: 16,
+          flexWrap: 'wrap',
+        }}
+      >
         <div>
           <h2 style={{ ...styles.appTitle, fontSize: 22 }}>{label}</h2>
           <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 4 }}>
@@ -153,7 +175,15 @@ export function CollectionView({
             />
           )}
           {shownLayout === 'board' && groups.length > 1 && group && (
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: palette.ink.muted }}>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 13,
+                color: palette.ink.muted,
+              }}
+            >
               Columns by
               <select
                 value={group.name}
@@ -184,7 +214,13 @@ export function CollectionView({
           )}
           <div role="tablist" aria-label="Layout" style={segmented}>
             {(['list', 'table', 'board'] as Layout[]).map((l) => (
-              <button key={l} role="tab" aria-selected={shownLayout === l} onClick={() => choose(l)} style={shownLayout === l ? { ...segment, ...segmentOn } : segment}>
+              <button
+                key={l}
+                role="tab"
+                aria-selected={shownLayout === l}
+                onClick={() => choose(l)}
+                style={shownLayout === l ? { ...segment, ...segmentOn } : segment}
+              >
                 {l[0]!.toUpperCase() + l.slice(1)}
               </button>
             ))}
@@ -192,33 +228,70 @@ export function CollectionView({
         </div>
       </header>
 
-      {onOthers && <p style={{ fontSize: 13, color: palette.ink.muted }}>These are added on the record they're about — open any record to add one.</p>}
+      {onOthers && (
+        <p style={{ fontSize: 13, color: palette.ink.muted }}>
+          These are added on the record they're about — open any record to add one.
+        </p>
+      )}
 
-      {mayCreate && !onOthers &&
+      {mayCreate &&
+        !onOthers &&
         (adding ? (
           <div style={{ border: `1px solid ${palette.surface.line}`, borderRadius: 12, padding: 16 }}>
-            <SchemaForm schema={schema} initial={adding} submitLabel="Add" onCancel={() => setAdding(null)} onSubmit={add} />
+            <SchemaForm
+              schema={schema}
+              initial={adding}
+              submitLabel="Add"
+              onCancel={() => setAdding(null)}
+              onSubmit={add}
+            />
           </div>
         ) : (
           <QuickAdd label={label} schema={schema} onAdd={add} onMore={(prefill) => setAdding(prefill)} />
         ))}
 
-      {rows && visible.length === 0 && <p style={styles.emptyState}>{search ? 'Nothing matches.' : `No ${label.toLowerCase()} yet.`}</p>}
+      {rows && visible.length === 0 && (
+        <p style={styles.emptyState}>{search ? 'Nothing matches.' : `No ${label.toLowerCase()} yet.`}</p>
+      )}
 
-      {visible.length > 0 && shownLayout === 'list' && <ListLayout rows={visible} schema={schema} people={people} space={space} onOpen={onOpen} />}
-      {visible.length > 0 && shownLayout === 'table' && <TableLayout rows={visible} schema={schema} onOpen={onOpen} />}
+      {visible.length > 0 && shownLayout === 'list' && (
+        <ListLayout rows={visible} schema={schema} people={people} space={space} onOpen={onOpen} />
+      )}
+      {visible.length > 0 && shownLayout === 'table' && (
+        <TableLayout rows={visible} schema={schema} onOpen={onOpen} />
+      )}
       {shownLayout === 'board' && !group && (
         <p style={styles.emptyState}>
-          A board makes a column for each option of a choice field — like a status of To do, Doing and Done. {label} has no field like that yet{redefine.may ? ' — add one with Edit definition' : ''}.
+          A board makes a column for each option of a choice field — like a status of To do, Doing and Done.{' '}
+          {label} has no field like that yet{redefine.may ? ' — add one with Edit definition' : ''}.
         </p>
       )}
-      {visible.length > 0 && shownLayout === 'board' && group && <BoardLayout rows={visible} schema={schema} field={group} people={people} space={space} onOpen={onOpen} />}
+      {visible.length > 0 && shownLayout === 'board' && group && (
+        <BoardLayout
+          rows={visible}
+          schema={schema}
+          field={group}
+          people={people}
+          space={space}
+          onOpen={onOpen}
+        />
+      )}
     </section>
   );
 }
 
 /** One line to add a record by its title; "More fields" when there is more to say */
-function QuickAdd({ label, schema, onAdd, onMore }: { label: string; schema: NodeCollection['schema']; onAdd: (body: unknown) => Promise<void>; onMore: (prefill: Record<string, unknown>) => void }) {
+function QuickAdd({
+  label,
+  schema,
+  onAdd,
+  onMore,
+}: {
+  label: string;
+  schema: NodeCollection['schema'];
+  onAdd: (body: unknown) => Promise<void>;
+  onMore: (prefill: Record<string, unknown>) => void;
+}) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const title = titleField(schema);
@@ -248,8 +321,19 @@ function QuickAdd({ label, schema, onAdd, onMore }: { label: string; schema: Nod
       style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
     >
       <div style={{ display: 'flex', gap: 8 }}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Add ${noun}…`} aria-label={`Add ${noun}`} style={{ ...styles.input, flex: 1 }} />
-        <button type="button" onClick={() => onMore(text.trim() ? { [title]: text.trim() } : {})} data-variant="quiet" style={{ ...styles.smallButton, height: 40 }}>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={`Add ${noun}…`}
+          aria-label={`Add ${noun}`}
+          style={{ ...styles.input, flex: 1 }}
+        />
+        <button
+          type="button"
+          onClick={() => onMore(text.trim() ? { [title]: text.trim() } : {})}
+          data-variant="quiet"
+          style={{ ...styles.smallButton, height: 40 }}
+        >
           More fields
         </button>
       </div>
@@ -260,27 +344,67 @@ function QuickAdd({ label, schema, onAdd, onMore }: { label: string; schema: Nod
 
 // ─── Layouts ───────────────────────────────────────────────────────
 
-function ListLayout({ rows, schema, people, space, onOpen }: { rows: Row[]; schema: NodeCollection['schema']; people: People; space: SpaceSummary; onOpen: (r: NodeRecord) => void }) {
+function ListLayout({
+  rows,
+  schema,
+  people,
+  space,
+  onOpen,
+}: {
+  rows: Row[];
+  schema: NodeCollection['schema'];
+  people: People;
+  space: SpaceSummary;
+  onOpen: (r: NodeRecord) => void;
+}) {
   const node = useNode();
   const check = checkField(schema);
   const meta = metaFields(schema);
   return (
-    <div role="list" style={{ border: `1px solid ${palette.surface.line}`, borderRadius: 12, overflow: 'hidden' }}>
+    <div
+      role="list"
+      style={{ border: `1px solid ${palette.surface.line}`, borderRadius: 12, overflow: 'hidden' }}
+    >
       {rows.map(({ record, linked }, i) => {
         const body = record.body as Record<string, unknown>;
         const done = check ? body[check.name] === true : false;
         return (
-          <div key={record.key} role="listitem" data-row style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: i === 0 ? 'none' : `1px solid ${palette.surface.line}`, cursor: 'pointer' }} onClick={() => onOpen(record)}>
+          <div
+            key={record.key}
+            role="listitem"
+            data-row
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '12px 16px',
+              borderTop: i === 0 ? 'none' : `1px solid ${palette.surface.line}`,
+              cursor: 'pointer',
+            }}
+            onClick={() => onOpen(record)}
+          >
             {check && (
               <Check
                 checked={done}
                 disabled={!space.writable}
                 label={`${check.label}: ${recordLabel(record, schema)}`}
-                onChange={(checked) => node.records.update(space.id, record.key, { ...body, [check.name]: checked })}
+                onChange={(checked) =>
+                  node.records.update(space.id, record.key, { ...body, [check.name]: checked })
+                }
               />
             )}
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 14, fontWeight: 500, color: done ? palette.ink.faint : palette.ink.strong, textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: done ? palette.ink.faint : palette.ink.strong,
+                  textDecoration: done ? 'line-through' : 'none',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {recordLabel(record, schema)}
               </span>
               <Meta record={record} fields={meta} linked={linked} />
@@ -294,7 +418,17 @@ function ListLayout({ rows, schema, people, space, onOpen }: { rows: Row[]; sche
 }
 
 /** A checkbox that answers at once, and settles when the new version comes back (or fails) */
-function Check({ checked, disabled, label, onChange }: { checked: boolean; disabled: boolean; label: string; onChange: (checked: boolean) => Promise<unknown> }) {
+function Check({
+  checked,
+  disabled,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  label: string;
+  onChange: (checked: boolean) => Promise<unknown>;
+}) {
   const [shown, setShown] = useState(checked);
   useEffect(() => setShown(checked), [checked]);
   return (
@@ -314,7 +448,15 @@ function Check({ checked, disabled, label, onChange }: { checked: boolean; disab
   );
 }
 
-function TableLayout({ rows, schema, onOpen }: { rows: Row[]; schema: NodeCollection['schema']; onOpen: (r: NodeRecord) => void }) {
+function TableLayout({
+  rows,
+  schema,
+  onOpen,
+}: {
+  rows: Row[];
+  schema: NodeCollection['schema'];
+  onOpen: (r: NodeRecord) => void;
+}) {
   const columns = columnsOf(schema);
   return (
     <div style={{ border: `1px solid ${palette.surface.line}`, borderRadius: 12, overflowX: 'auto' }}>
@@ -332,18 +474,32 @@ function TableLayout({ rows, schema, onOpen }: { rows: Row[]; schema: NodeCollec
         </thead>
         <tbody>
           {rows.map(({ record, linked }) => (
-            <tr key={record.key} onClick={() => onOpen(record)} style={{ cursor: 'pointer' }} aria-label={recordLabel(record, schema)}>
+            <tr
+              key={record.key}
+              onClick={() => onOpen(record)}
+              style={{ cursor: 'pointer' }}
+              aria-label={recordLabel(record, schema)}
+            >
               {columns.length ? (
                 columns.map((c) => (
                   <td key={c.name} style={td}>
-                    <Value field={c} value={(record.body as Record<string, unknown>)[c.name]} linked={linked} compact />
+                    <Value
+                      field={c}
+                      value={(record.body as Record<string, unknown>)[c.name]}
+                      linked={linked}
+                      compact
+                    />
                   </td>
                 ))
               ) : (
                 <td style={td}>{recordLabel(record, schema)}</td>
               )}
-              <td style={{ ...td, color: palette.ink.muted, whiteSpace: 'nowrap' }}><Person did={record.createdBy ?? record.root} /></td>
-              <td style={{ ...td, color: palette.ink.muted, textAlign: 'right', whiteSpace: 'nowrap' }}>{ago(record.createdAt)}</td>
+              <td style={{ ...td, color: palette.ink.muted, whiteSpace: 'nowrap' }}>
+                <Person did={record.createdBy ?? record.root} />
+              </td>
+              <td style={{ ...td, color: palette.ink.muted, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                {ago(record.createdAt)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -353,11 +509,28 @@ function TableLayout({ rows, schema, onOpen }: { rows: Row[]; schema: NodeCollec
 }
 
 /** Columns by a fixed-choice field; drag a card to another column to change it */
-function BoardLayout({ rows, schema, field, people, space, onOpen }: { rows: Row[]; schema: NodeCollection['schema']; field: Field; people: People; space: SpaceSummary; onOpen: (r: NodeRecord) => void }) {
+function BoardLayout({
+  rows,
+  schema,
+  field,
+  people,
+  space,
+  onOpen,
+}: {
+  rows: Row[];
+  schema: NodeCollection['schema'];
+  field: Field;
+  people: People;
+  space: SpaceSummary;
+  onOpen: (r: NodeRecord) => void;
+}) {
   const node = useNode();
   const [over, setOver] = useState<string | null>(null);
   const choices = choicesOf(field) ?? [];
-  const columns = [...choices.map((c, i) => ({ id: String(i), label: c.label, value: c.value })), { id: 'none', label: `No ${field.label.toLowerCase()}`, value: undefined }];
+  const columns = [
+    ...choices.map((c, i) => ({ id: String(i), label: c.label, value: c.value })),
+    { id: 'none', label: `No ${field.label.toLowerCase()}`, value: undefined },
+  ];
   const meta = metaFields(schema).filter((f) => f.name !== field.name);
   const columnOf = (r: Row) => {
     const i = choices.findIndex((c) => c.value === (r.record.body as Record<string, unknown>)[field.name]);
@@ -374,7 +547,16 @@ function BoardLayout({ rows, schema, field, people, space, onOpen }: { rows: Row
   };
 
   return (
-    <div style={{ display: 'grid', gridAutoFlow: 'column', gridAutoColumns: 'minmax(220px, 1fr)', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
+    <div
+      style={{
+        display: 'grid',
+        gridAutoFlow: 'column',
+        gridAutoColumns: 'minmax(220px, 1fr)',
+        gap: 12,
+        overflowX: 'auto',
+        paddingBottom: 4,
+      }}
+    >
       {columns
         .filter((c) => c.id !== 'none' || rows.some((r) => columnOf(r) === 'none'))
         .map((column) => {
@@ -394,9 +576,26 @@ function BoardLayout({ rows, schema, field, people, space, onOpen }: { rows: Row
                 setOver(null);
                 move(e.dataTransfer.getData('text/plain'), column.value);
               }}
-              style={{ background: over === column.id ? '#f0f0f0' : palette.surface.sunken, border: `1px solid ${palette.surface.line}`, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 120 }}
+              style={{
+                background: over === column.id ? '#f0f0f0' : palette.surface.sunken,
+                border: `1px solid ${palette.surface.line}`,
+                borderRadius: 12,
+                padding: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                minHeight: 120,
+              }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 500, padding: '2px 4px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  padding: '2px 4px',
+                }}
+              >
                 <span>{column.label}</span>
                 <span style={{ color: palette.ink.faint }}>{cards.length}</span>
               </div>
@@ -407,9 +606,21 @@ function BoardLayout({ rows, schema, field, people, space, onOpen }: { rows: Row
                   onDragStart={(e) => e.dataTransfer.setData('text/plain', record.key)}
                   onClick={() => onOpen(record)}
                   aria-label={recordLabel(record, schema)}
-                  style={{ background: palette.surface.card, border: `1px solid ${palette.surface.line}`, borderRadius: 8, padding: 12, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8, boxShadow: '0 1px 2px rgba(0,0,0,.04)' }}
+                  style={{
+                    background: palette.surface.card,
+                    border: `1px solid ${palette.surface.line}`,
+                    borderRadius: 8,
+                    padding: 12,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                    boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+                  }}
                 >
-                  <span style={{ fontSize: 14, fontWeight: 500, color: palette.ink.strong }}>{recordLabel(record, schema)}</span>
+                  <span style={{ fontSize: 14, fontWeight: 500, color: palette.ink.strong }}>
+                    {recordLabel(record, schema)}
+                  </span>
                   <Meta record={record} fields={meta} linked={linked} />
                   <Signals record={record} people={people} />
                 </div>
@@ -424,13 +635,22 @@ function BoardLayout({ rows, schema, field, people, space, onOpen }: { rows: Row
 // ─── Row pieces ────────────────────────────────────────────────────
 
 /** A row's short fields and tags, as small chips */
-function Meta({ record, fields, linked }: { record: QueryRecord; fields: ReadonlyArray<Field>; linked: LinkedByRel }) {
+function Meta({
+  record,
+  fields,
+  linked,
+}: {
+  record: QueryRecord;
+  fields: ReadonlyArray<Field>;
+  linked: LinkedByRel;
+}) {
   const body = record.body as Record<string, unknown>;
   const tags = Array.isArray(record.included?.tags) ? (record.included.tags as NodeRecord[]) : [];
   const parts: ReactNode[] = [];
   for (const f of fields) {
     const value = body[f.name];
-    if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) continue;
+    if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0))
+      continue;
     const shown = labelOf(f, value, linked) ?? (Array.isArray(value) ? value.join(', ') : String(value));
     parts.push(
       <span key={f.name} style={{ fontSize: 12, color: palette.ink.muted }}>
@@ -454,10 +674,22 @@ function Signals({ record, people }: { record: QueryRecord; people: People }) {
   const reactions = reactionSummary(record.included?.reactions);
   const comments = typeof record.included?.comments === 'number' ? record.included.comments : 0;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: palette.ink.muted, flexShrink: 0 }}>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        fontSize: 12,
+        color: palette.ink.muted,
+        flexShrink: 0,
+      }}
+    >
       {reactions && <span>{reactions}</span>}
       {comments > 0 && <span aria-label={`${comments} comments`}>💬 {comments}</span>}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={nameOf(record.createdBy ?? record.root, people)}>
+      <span
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        title={nameOf(record.createdBy ?? record.root, people)}
+      >
         <Avatar did={record.createdBy ?? record.root ?? record.author} size={18} />
         {ago(record.createdAt)}
       </span>
@@ -465,8 +697,43 @@ function Signals({ record, people }: { record: QueryRecord; people: People }) {
   );
 }
 
-const th = { textAlign: 'left' as const, padding: '10px 14px', borderBottom: `1px solid ${palette.surface.line}`, color: palette.ink.muted, fontWeight: 500, fontSize: 12, background: palette.surface.sunken };
-const td = { padding: '10px 14px', borderBottom: `1px solid ${palette.surface.line}`, color: palette.ink.body };
-const segmented = { display: 'inline-flex', padding: 2, gap: 2, border: `1px solid ${palette.surface.line}`, borderRadius: 8, background: palette.surface.sunken };
-const segment = { height: 28, padding: '0 10px', borderWidth: 1, borderStyle: 'solid', borderColor: 'transparent', borderRadius: 6, background: 'none', color: palette.ink.muted, fontSize: 13, fontWeight: 500 };
-const segmentOn = { background: palette.surface.card, color: palette.ink.strong, borderColor: palette.surface.line, boxShadow: '0 1px 2px rgba(0,0,0,.06)' };
+const th = {
+  textAlign: 'left' as const,
+  padding: '10px 14px',
+  borderBottom: `1px solid ${palette.surface.line}`,
+  color: palette.ink.muted,
+  fontWeight: 500,
+  fontSize: 12,
+  background: palette.surface.sunken,
+};
+const td = {
+  padding: '10px 14px',
+  borderBottom: `1px solid ${palette.surface.line}`,
+  color: palette.ink.body,
+};
+const segmented = {
+  display: 'inline-flex',
+  padding: 2,
+  gap: 2,
+  border: `1px solid ${palette.surface.line}`,
+  borderRadius: 8,
+  background: palette.surface.sunken,
+};
+const segment = {
+  height: 28,
+  padding: '0 10px',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'transparent',
+  borderRadius: 6,
+  background: 'none',
+  color: palette.ink.muted,
+  fontSize: 13,
+  fontWeight: 500,
+};
+const segmentOn = {
+  background: palette.surface.card,
+  color: palette.ink.strong,
+  borderColor: palette.surface.line,
+  boxShadow: '0 1px 2px rgba(0,0,0,.06)',
+};

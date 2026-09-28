@@ -1,6 +1,21 @@
 import type { ComponentType } from 'react';
-import type { DefineCollection, NodeCollection, NodeRecord, P2PNode, SpaceSummary } from '@weaveprotocol/core';
-import { call, column, message, poll, reaction, task, vote, positionBetween } from '@weaveprotocol/core/schemas';
+import type {
+  DefineCollection,
+  NodeCollection,
+  NodeRecord,
+  P2PNode,
+  SpaceSummary,
+} from '@weaveprotocol/core';
+import {
+  call,
+  column,
+  message,
+  poll,
+  reaction,
+  task,
+  vote,
+  positionBetween,
+} from '@weaveprotocol/core/schemas';
 import { CallHistory } from './CallHistory';
 import { Chat } from './Chat';
 import { Kanban } from './Kanban';
@@ -73,11 +88,15 @@ export const APPS: ReadonlyArray<WeaveApp> = [
 ];
 
 /** Which of an app's schemas a space already has, and which it lacks */
-export function readiness(app: WeaveApp, collections: ReadonlyArray<NodeCollection>): { ready: boolean; missing: ReadonlyArray<DefineCollection> } {
+export function readiness(
+  app: WeaveApp,
+  collections: ReadonlyArray<NodeCollection>,
+): { ready: boolean; missing: ReadonlyArray<DefineCollection> } {
   const defined = new Set(collections.filter((c) => c.version !== null).map((c) => c.name));
   const missing = app.needs.filter((s) => !defined.has(s.name));
   return { ready: missing.length === 0, missing };
 }
 
 /** Whether the space has defined a collection */
-export const has = (collections: ReadonlyArray<NodeCollection>, name: string) => collections.some((c) => c.name === name && c.version !== null);
+export const has = (collections: ReadonlyArray<NodeCollection>, name: string) =>
+  collections.some((c) => c.name === name && c.version !== null);

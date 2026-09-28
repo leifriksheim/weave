@@ -12,7 +12,13 @@ import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
-import { contactKeyPair, contactPublicKey, deriveContactKeyBytes, openSealed, sealFor } from '../src/identity/contact-key.js';
+import {
+  contactKeyPair,
+  contactPublicKey,
+  deriveContactKeyBytes,
+  openSealed,
+  sealFor,
+} from '../src/identity/contact-key.js';
 import { joined } from './helpers/joined.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
@@ -97,7 +103,10 @@ describe('the contact key', () => {
   test('its public half is on the account’s profile in every space it writes in', async () => {
     const { leif, anna, club } = await bookClub();
     const profiles = await anna.node.spaces.profiles(club);
-    assert.equal(profiles.find((profile) => profile.did === leif.node.did)?.contactKey, contactPublicKey(await deriveContactKeyBytes(leif.seed)));
+    assert.equal(
+      profiles.find((profile) => profile.did === leif.node.did)?.contactKey,
+      contactPublicKey(await deriveContactKeyBytes(leif.seed)),
+    );
   });
 
   test('a node without it keeps the key another device published', async () => {
@@ -116,12 +125,19 @@ describe('the contact key', () => {
       network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
     });
     open.push(bare);
-    await until(async () => (await bare.spaces.list()).some((space) => space.id === id), 5000, 'the other device to join');
+    await until(
+      async () => (await bare.spaces.list()).some((space) => space.id === id),
+      5000,
+      'the other device to join',
+    );
     await bare.spaces.hold(id);
     await until(async () => (await bare.spaces.profiles(id)).length === 1, 5000, 'the profile to reach it');
     await bare.account.setName('Leif R');
     await until(async () => (await bare.spaces.profiles(id))[0]?.name === 'Leif R', 5000, 'the rename');
-    assert.equal((await bare.spaces.profiles(id))[0]?.contactKey, contactPublicKey(await deriveContactKeyBytes(leif.seed)));
+    assert.equal(
+      (await bare.spaces.profiles(id))[0]?.contactKey,
+      contactPublicKey(await deriveContactKeyBytes(leif.seed)),
+    );
   });
 });
 
@@ -134,21 +150,37 @@ describe('the contact list', () => {
     const space = await leif.node.contacts.space();
     assert.ok(space);
     assert.equal(await phone.contacts.space(), space);
-    assert.equal((await leif.node.spaces.list()).some((listed) => listed.id === space), false);
+    assert.equal(
+      (await leif.node.spaces.list()).some((listed) => listed.id === space),
+      false,
+    );
     await assert.rejects(leif.node.spaces.leave(space!), /cannot be left/);
 
     await leif.node.contacts.put({ did: 'did:key:zAnna', name: 'Anna', note: 'from book club' });
     await leif.node.spaces.hold(space!);
     await phone.spaces.hold(space!);
-    await until(async () => (await phone.contacts.list()).length === 1, 5000, 'the contact to reach the phone');
+    await until(
+      async () => (await phone.contacts.list()).length === 1,
+      5000,
+      'the contact to reach the phone',
+    );
     assert.deepEqual(
-      (await phone.contacts.list()).map(({ did, name, note, blocked, space }) => ({ did, name, note, blocked, space })),
+      (await phone.contacts.list()).map(({ did, name, note, blocked, space }) => ({
+        did,
+        name,
+        note,
+        blocked,
+        space,
+      })),
       [{ did: 'did:key:zAnna', name: 'Anna', note: 'from book club', blocked: false, space: null }],
     );
 
     // One per person: putting them again changes the one record.
     await phone.contacts.put({ did: 'did:key:zAnna', name: 'Anna K' });
-    assert.deepEqual((await phone.contacts.list()).map((contact) => contact.name), ['Anna K']);
+    assert.deepEqual(
+      (await phone.contacts.list()).map((contact) => contact.name),
+      ['Anna K'],
+    );
   });
 
   test('a node with no account key and no contacts space was not given them', async () => {
@@ -163,7 +195,10 @@ describe('the contact list', () => {
     open.push(node);
     assert.equal(await node.contacts.space(), null);
     assert.deepEqual(await node.contacts.list(), []);
-    await assert.rejects(node.contacts.put({ did: 'did:key:zAnna', name: 'Anna' }), /not given your contacts/);
+    await assert.rejects(
+      node.contacts.put({ did: 'did:key:zAnna', name: 'Anna' }),
+      /not given your contacts/,
+    );
   });
 });
 
@@ -174,7 +209,11 @@ describe('asking to be added', () => {
     const asked = await leif.node.contacts.ask(club, anna.node.did, { note: 'it’s Leif from book club' });
     assert.deepEqual((await leif.node.contacts.get(anna.node.did))?.space, asked.space);
 
-    await until(async () => (await anna.node.contacts.requests(club)).length === 1, 5000, 'Anna to see the request');
+    await until(
+      async () => (await anna.node.contacts.requests(club)).length === 1,
+      5000,
+      'Anna to see the request',
+    );
     const [request] = await anna.node.contacts.requests(club);
     assert.equal(request!.from, leif.node.did);
     assert.equal(request!.name, 'Leif');
@@ -193,9 +232,16 @@ describe('asking to be added', () => {
     // The space holds the two of them, and a record written there reaches the other.
     await leif.node.spaces.hold(asked.space);
     await anna.node.spaces.hold(asked.space);
-    await anna.node.collections.define(asked.space, { name: 'app.chat.message', schema: { type: 'object', properties: { text: { type: 'string' } } } });
+    await anna.node.collections.define(asked.space, {
+      name: 'app.chat.message',
+      schema: { type: 'object', properties: { text: { type: 'string' } } },
+    });
     await anna.node.records.put(asked.space, 'app.chat.message', { text: 'hi' });
-    await until(async () => (await leif.node.records.list(asked.space)).length === 1, 5000, 'the message to reach Leif');
+    await until(
+      async () => (await leif.node.records.list(asked.space)).length === 1,
+      5000,
+      'the message to reach Leif',
+    );
     assert.deepEqual(await leif.node.contacts.others(anna.node.did), []);
     assert.deepEqual(await anna.node.contacts.others(leif.node.did), []);
   });
@@ -203,7 +249,11 @@ describe('asking to be added', () => {
   test('another member of the space cannot open a request meant for someone else', async () => {
     const { leif, anna, carol, club } = await bookClub();
     await leif.node.contacts.ask(club, anna.node.did);
-    await until(async () => (await carol.node.records.list(club, { collection: 'std.contact-request' })).length === 1, 5000, 'the request to reach Carol');
+    await until(
+      async () => (await carol.node.records.list(club, { collection: 'std.contact-request' })).length === 1,
+      5000,
+      'the request to reach Carol',
+    );
     assert.deepEqual(await carol.node.contacts.requests(club), []);
   });
 
@@ -217,8 +267,16 @@ describe('asking to be added', () => {
     const contacts = (await annasPhone.contacts.space())!;
     await annasPhone.spaces.hold(contacts);
     await anna.node.spaces.hold(contacts);
-    await until(async () => (await annasPhone.contacts.get(leif.node.did))?.space === asked.space, 5000, 'the contact to reach Anna’s phone');
-    await until(async () => (await annasPhone.spaces.list()).some((space) => space.id === asked.space), 5000, 'the phone to join the space for two');
+    await until(
+      async () => (await annasPhone.contacts.get(leif.node.did))?.space === asked.space,
+      5000,
+      'the contact to reach Anna’s phone',
+    );
+    await until(
+      async () => (await annasPhone.spaces.list()).some((space) => space.id === asked.space),
+      5000,
+      'the phone to join the space for two',
+    );
   });
 
   test('someone not asked turning up in the space for two is reported', async () => {
@@ -233,7 +291,11 @@ describe('asking to be added', () => {
     await bob.node.spaces.join(await leif.node.spaces.invite(asked.space, { role: 'editor' }));
     await joined(bob.node, asked.space);
     for (const who of [leif, anna, bob]) await who.node.spaces.hold(asked.space);
-    await until(async () => (await anna.node.contacts.others(leif.node.did)).includes(bob.node.did), 5000, 'Anna to see Bob');
+    await until(
+      async () => (await anna.node.contacts.others(leif.node.did)).includes(bob.node.did),
+      5000,
+      'Anna to see Bob',
+    );
   });
 
   test('removing a contact leaves their space; other contacts’ spaces keep working', async () => {

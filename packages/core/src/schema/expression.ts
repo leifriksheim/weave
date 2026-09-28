@@ -35,7 +35,7 @@ export interface CreateExpressionParams<T> {
 /**
  * Deterministically serializes an object into a JSON string with sorted keys.
  * Recursively processes nested objects.
- * 
+ *
  * @param obj The object to canonicalize
  * @returns Deterministic JSON string representation
  */
@@ -43,19 +43,21 @@ export function canonicalize(obj: unknown): string {
   if (obj === null || typeof obj !== 'object') {
     return JSON.stringify(obj) ?? 'null';
   }
-  
+
   if (Array.isArray(obj)) {
-    return `[${obj.map(item => canonicalize(item)).join(',')}]`;
+    return `[${obj.map((item) => canonicalize(item)).join(',')}]`;
   }
-  
+
   const keys = Object.keys(obj).sort();
-  const pairs = keys.map(key => {
-    const value = (obj as Record<string, unknown>)[key];
-    // Remove undefined values to match standard JSON.stringify behavior
-    if (value === undefined) return undefined;
-    return `${JSON.stringify(key)}:${canonicalize(value)}`;
-  }).filter((pair): pair is string => pair !== undefined);
-  
+  const pairs = keys
+    .map((key) => {
+      const value = (obj as Record<string, unknown>)[key];
+      // Remove undefined values to match standard JSON.stringify behavior
+      if (value === undefined) return undefined;
+      return `${JSON.stringify(key)}:${canonicalize(value)}`;
+    })
+    .filter((pair): pair is string => pair !== undefined);
+
   return `{${pairs.join(',')}}`;
 }
 

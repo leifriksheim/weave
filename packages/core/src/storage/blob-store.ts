@@ -17,5 +17,8 @@ export interface BlobStore {
    * Keys that appeared or went away under `prefix` since `cursor`, where the
    * service can say so cheaply. Without it the mirror lists.
    */
-  changes?(prefix: string, cursor: string | null): Promise<{ added: string[]; removed: string[]; cursor: string }>;
+  changes?(
+    prefix: string,
+    cursor: string | null,
+  ): Promise<{ added: string[]; removed: string[]; cursor: string }>;
 }

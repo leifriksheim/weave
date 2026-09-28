@@ -68,7 +68,11 @@ type OutputOf<S> = S extends { readonly '~standard': { readonly types?: infer Ty
  * The body type of a collection reference: declared with {@link Typed}, or
  * the output of its definition's validator. `unknown` for a bare name.
  */
-export type BodyOf<C> = C extends { readonly '~body'?: infer T } ? (unknown extends T ? FromSchema<C> : T) : FromSchema<C>;
+export type BodyOf<C> = C extends { readonly '~body'?: infer T }
+  ? unknown extends T
+    ? FromSchema<C>
+    : T
+  : FromSchema<C>;
 type FromSchema<C> = C extends { readonly schema: infer S } ? OutputOf<S> : unknown;
 
 /**
@@ -153,7 +157,8 @@ export type ResultOf<Q extends Query> = QueryResult<
 >;
 
 /** The name a collection reference stands for */
-export const nameOf = (ref: CollectionRef): string => (typeof ref === 'object' && ref !== null && typeof ref.name === 'string' ? ref.name : (ref as string));
+export const nameOf = (ref: CollectionRef): string =>
+  typeof ref === 'object' && ref !== null && typeof ref.name === 'string' ? ref.name : (ref as string);
 
 /**
  * The query as plain data: every collection reference replaced by its name.
@@ -161,18 +166,27 @@ export const nameOf = (ref: CollectionRef): string => (typeof ref === 'object' &
  * Anything malformed is passed through untouched, for the checker to explain.
  */
 export function plainQuery(query: Query): Query {
-  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === 'object' && v !== null && !Array.isArray(v);
   const includes = (map: unknown): unknown =>
     isObject(map)
       ? Object.fromEntries(
           Object.entries(map).map(([name, inc]) => [
             name,
             isObject(inc)
-              ? { ...inc, ...(inc.from !== undefined ? { from: nameOf(inc.from as CollectionRef) } : {}), ...(inc.include !== undefined ? { include: includes(inc.include) } : {}) }
+              ? {
+                  ...inc,
+                  ...(inc.from !== undefined ? { from: nameOf(inc.from as CollectionRef) } : {}),
+                  ...(inc.include !== undefined ? { include: includes(inc.include) } : {}),
+                }
               : inc,
           ]),
         )
       : map;
   if (!isObject(query)) return query;
-  return { ...query, collection: nameOf(query.collection), ...(query.include !== undefined ? { include: includes(query.include) as Query['include'] } : {}) };
+  return {
+    ...query,
+    collection: nameOf(query.collection),
+    ...(query.include !== undefined ? { include: includes(query.include) as Query['include'] } : {}),
+  };
 }

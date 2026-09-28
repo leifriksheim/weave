@@ -7,7 +7,7 @@ node), the handshake that proves who is at the other end of a connection, the
 mesh that shares connections between spaces, peers introducing peers, live
 messages, and ICE/TURN.
 
-What travels *inside* an authenticated connection — the sync protocol — is
+What travels _inside_ an authenticated connection — the sync protocol — is
 in [05 — Sync and storage](05-sync-and-storage.md). Keys, DIDs and notes
 (UCAN delegations) are in [01 — Identity](01-identity.md). Read keys, space
 keys, roles and the access log are in [03 — Spaces](03-spaces.md). The relay
@@ -56,28 +56,28 @@ which the peer handshake (§6) catches.
 - The optional query parameter `?room=<name>` opens a **one-room socket**
   (§1.5). Without it the socket is a **multi-room socket**.
 - `GET /health` answers `200` with `{"ok":true}` (`content-type:
-  application/json`). It MUST NOT reveal how many rooms or peers exist.
+application/json`). It MUST NOT reveal how many rooms or peers exist.
 - Any other plain HTTP request answers `426` with a text body.
 - All relay messages are **text frames** carrying one JSON object each.
   Binary frames are counted against the rate budget (§1.6) and otherwise
   ignored. Text that is not a JSON object with a string `type` is ignored.
-- Per-message compression is off (*implementation detail*: `perMessageDeflate:
-  false`).
+- Per-message compression is off (_implementation detail_: `perMessageDeflate:
+false`).
 
 Before a socket is opened, the relay MAY refuse the upgrade with a plain HTTP
 response and `Connection: close`:
 
-| Status | Reason phrase | When |
-|---|---|---|
-| `503` | `Room full` | a one-room socket's `?room=` cannot be entered (§1.6) |
-| `503` | `Relay full` | the relay holds `MAX_CONNECTIONS` sockets |
-| `429` | `Too many connections` | the client address holds `MAX_CONNECTIONS_PER_IP` sockets |
+| Status | Reason phrase          | When                                                      |
+| ------ | ---------------------- | --------------------------------------------------------- |
+| `503`  | `Room full`            | a one-room socket's `?room=` cannot be entered (§1.6)     |
+| `503`  | `Relay full`           | the relay holds `MAX_CONNECTIONS` sockets                 |
+| `429`  | `Too many connections` | the client address holds `MAX_CONNECTIONS_PER_IP` sockets |
 
-The client address is the TCP peer address. *Implementation detail:* only
+The client address is the TCP peer address. _Implementation detail:_ only
 when the environment variable `FLY_APP_NAME` is set is the `Fly-Client-IP`
 header believed instead; anywhere else a header is whatever the client says.
 
-*Source: `packages/relay/relay.mjs` (`upgrade`, `clientIp`), `packages/relay/signaling-server.mjs`, `packages/cli/src/serve.ts` (`serve`). Tests: `packages/cli/tests/cli.test.ts` ("answers /health…", "is a relay too…"), `packages/core/tests/network-manager.test.ts` ("the mesh, through real relays").*
+_Source: `packages/relay/relay.mjs` (`upgrade`, `clientIp`), `packages/relay/signaling-server.mjs`, `packages/cli/src/serve.ts` (`serve`). Tests: `packages/cli/tests/cli.test.ts` ("answers /health…", "is a relay too…"), `packages/core/tests/network-manager.test.ts` ("the mesh, through real relays")._
 
 ### 1.2 One name per socket
 
@@ -92,7 +92,7 @@ fixes the socket's DID for the life of the socket.
 - Everything the relay forwards carries `from` = the socket's DID, whatever
   the sender wrote. A peer cannot speak for someone else.
 - **The first socket to hold a DID in a room keeps it.** A `join` naming a
-  room in which *another* socket already holds the same DID makes the relay
+  room in which _another_ socket already holds the same DID makes the relay
   close the joining socket with WebSocket close code **`4009`** (reason
   `DID already in room`). The whole socket is closed, not just that join.
 
@@ -100,7 +100,7 @@ fixes the socket's DID for the life of the socket.
 > offers meant for it. A peer that reconnects after a silent drop is refused
 > until the heartbeat (§1.6) reaps its old socket; its client retries.
 
-*Source: `packages/relay/relay.mjs` (`handleMessage`, `isDid`, `CLOSE_DID_TAKEN`). Tests: none pin the 4009 close directly — see Open questions.*
+_Source: `packages/relay/relay.mjs` (`handleMessage`, `isDid`, `CLOSE_DID_TAKEN`). Tests: none pin the 4009 close directly — see Open questions._
 
 ### 1.3 Rooms
 
@@ -129,7 +129,7 @@ derived elsewhere: device pairing (`pairingRoomId`, [01 — Identity](01-identit
 and the agent link ([06 — Nodes, sessions and apps](06-nodes-and-sessions.md)).
 The relay treats them all alike.
 
-*Source: `packages/core/src/node/space-runtime.ts` (`relayRoom`), `packages/core/src/utils/hash.ts` (`base32Encode`). Tests: `packages/core/tests/space-relays.test.ts`, `packages/core/tests/network-manager.test.ts`.*
+_Source: `packages/core/src/node/space-runtime.ts` (`relayRoom`), `packages/core/src/utils/hash.ts` (`base32Encode`). Tests: `packages/core/tests/space-relays.test.ts`, `packages/core/tests/network-manager.test.ts`._
 
 ### 1.4 Messages
 
@@ -138,12 +138,12 @@ and are not forwarded (forwarded messages are rebuilt from known fields).
 
 #### Client → relay
 
-| `type` | Fields | Effect |
-|---|---|---|
-| `join` | `from`: DID, `room`: string | Enter `room` (§1.2 for `from`). On success, every *other* socket in the room receives a relay `join`. The joiner receives no acknowledgement and no list of who is present. On the socket's first successful join, the relay also sends an `ice` offer if it has TURN (§1.7). |
-| `leave` | `room`: string | Leave `room`, if in it. Every other socket in the room receives a relay `leave`. |
-| `offer`, `answer`, `candidate` | `to`: DID, `payload`: any JSON | Delivered to the socket holding `to` in the first room it shares with the sender (in the sender's join order), as the relay form below. Dropped if the sender has not joined, or shares no room with `to`, or `to` is the sender itself. |
-| `ice` | — | Ask for TURN servers (§1.7). Ignored before the socket's first join, and by a relay without TURN. |
+| `type`                         | Fields                         | Effect                                                                                                                                                                                                                                                                        |
+| ------------------------------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `join`                         | `from`: DID, `room`: string    | Enter `room` (§1.2 for `from`). On success, every _other_ socket in the room receives a relay `join`. The joiner receives no acknowledgement and no list of who is present. On the socket's first successful join, the relay also sends an `ice` offer if it has TURN (§1.7). |
+| `leave`                        | `room`: string                 | Leave `room`, if in it. Every other socket in the room receives a relay `leave`.                                                                                                                                                                                              |
+| `offer`, `answer`, `candidate` | `to`: DID, `payload`: any JSON | Delivered to the socket holding `to` in the first room it shares with the sender (in the sender's join order), as the relay form below. Dropped if the sender has not joined, or shares no room with `to`, or `to` is the sender itself.                                      |
+| `ice`                          | —                              | Ask for TURN servers (§1.7). Ignored before the socket's first join, and by a relay without TURN.                                                                                                                                                                             |
 
 The reference client adds `from` (its DID) to every message it sends,
 including `leave`, `ice` and the signals; the relay reads `from` only on
@@ -155,12 +155,12 @@ dropped silently (except the `4009` close of §1.2 and the flood cut-off of
 
 #### Relay → client
 
-| `type` | Fields | Meaning |
-|---|---|---|
-| `join` | `from`: DID, `room`: string | `from` entered `room`. |
-| `leave` | `from`: DID, `room`: string | `from` left `room` — by `leave`, or because its socket closed or was reaped. |
+| `type`                         | Fields                                                      | Meaning                                                                        |
+| ------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `join`                         | `from`: DID, `room`: string                                 | `from` entered `room`.                                                         |
+| `leave`                        | `from`: DID, `room`: string                                 | `from` left `room` — by `leave`, or because its socket closed or was reaped.   |
 | `offer`, `answer`, `candidate` | `from`: DID (the sender's, as joined), `to`: DID, `payload` | A signal from `from`. The relay does not say which room it was routed through. |
-| `ice` | `payload`: `{ servers: RTCIceServer[], expiresAt: number }` | TURN servers and when their passwords stop working (ms since the epoch). |
+| `ice`                          | `payload`: `{ servers: RTCIceServer[], expiresAt: number }` | TURN servers and when their passwords stop working (ms since the epoch).       |
 
 Only peers already in a room hear about a newcomer; the newcomer hears of
 nobody. So exactly one side of each pair learns of the other through the
@@ -185,7 +185,7 @@ Examples (DIDs shortened for readability; real ones are full `did:key`s):
 ← {"type":"ice","payload":{"servers":[{"urls":["turn:turn.example.com:3478"],"username":"1790000000:3q2-7wX0aBcD","credential":"n3Jk…="}],"expiresAt":1790000000000}}
 ```
 
-*Source: `packages/relay/relay.mjs` (`handleMessage`, `announce`, `offerTurn`), `packages/core/src/network/signaling.ts`. Tests: `packages/core/tests/network-manager.test.ts` ("the mesh, through real relays"), `packages/core/tests/relay-turn.test.ts`, `packages/core/tests/introductions.test.ts` ("several relays at once").*
+_Source: `packages/relay/relay.mjs` (`handleMessage`, `announce`, `offerTurn`), `packages/core/src/network/signaling.ts`. Tests: `packages/core/tests/network-manager.test.ts` ("the mesh, through real relays"), `packages/core/tests/relay-turn.test.ts`, `packages/core/tests/introductions.test.ts` ("several relays at once")._
 
 ### 1.5 One-room sockets
 
@@ -198,7 +198,7 @@ relay `join` / `leave` notices always carry `room`.
 A relay SHOULD keep serving one-room sockets; app versions from before the
 mesh use them. New clients MUST use multi-room sockets.
 
-*Source: `packages/relay/relay.mjs` (`upgrade`, `handleMessage`). Tests: `packages/core/tests/network-manager.test.ts` ("the relay still serves the older one-room sockets…").*
+_Source: `packages/relay/relay.mjs` (`upgrade`, `handleMessage`). Tests: `packages/core/tests/network-manager.test.ts` ("the relay still serves the older one-room sockets…")._
 
 ### 1.6 Limits
 
@@ -206,25 +206,25 @@ A relay is open to anyone and MUST bound what one client can cost it. The
 values below are the reference relay's; a compatible relay MAY choose others,
 and clients MUST tolerate being refused or cut off at any of them.
 
-| Limit | Value | On exceeding |
-|---|---|---|
-| Message size (`MAX_MESSAGE_BYTES`) | 64 KiB | the WebSocket library closes the socket (1009) |
-| Open sockets, whole relay | 5 000 | upgrade refused `503 Relay full` |
-| Open sockets per client address | 32 | upgrade refused `429 Too many connections` |
-| Rooms, whole relay | 10 000 | `join` of a new room ignored |
-| Rooms per socket | 256 | `join` ignored |
-| Peers per room | 64 | `join` ignored (`503 Room full` for a one-room socket's upgrade) |
-| Room name length | 1–128 chars | `join` ignored |
-| DID length | ≤ 256 chars | `join` ignored |
-| Message rate per socket | token bucket: 50/s, burst 100 | socket terminated with no close frame |
-| Heartbeat | ping every 15 s | a socket that did not pong since the last ping is terminated; its rooms are left (with `leave` notices) and its DID freed |
-| Send buffer per recipient | 1 MiB | the *recipient* is terminated rather than buffered for |
-| Addresses holding a TURN password | 20 000 | new addresses get no `ice` until old passwords expire |
+| Limit                              | Value                         | On exceeding                                                                                                              |
+| ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Message size (`MAX_MESSAGE_BYTES`) | 64 KiB                        | the WebSocket library closes the socket (1009)                                                                            |
+| Open sockets, whole relay          | 5 000                         | upgrade refused `503 Relay full`                                                                                          |
+| Open sockets per client address    | 32                            | upgrade refused `429 Too many connections`                                                                                |
+| Rooms, whole relay                 | 10 000                        | `join` of a new room ignored                                                                                              |
+| Rooms per socket                   | 256                           | `join` ignored                                                                                                            |
+| Peers per room                     | 64                            | `join` ignored (`503 Room full` for a one-room socket's upgrade)                                                          |
+| Room name length                   | 1–128 chars                   | `join` ignored                                                                                                            |
+| DID length                         | ≤ 256 chars                   | `join` ignored                                                                                                            |
+| Message rate per socket            | token bucket: 50/s, burst 100 | socket terminated with no close frame                                                                                     |
+| Heartbeat                          | ping every 15 s               | a socket that did not pong since the last ping is terminated; its rooms are left (with `leave` notices) and its DID freed |
+| Send buffer per recipient          | 1 MiB                         | the _recipient_ is terminated rather than buffered for                                                                    |
+| Addresses holding a TURN password  | 20 000                        | new addresses get no `ice` until old passwords expire                                                                     |
 
 Every message counts against the rate budget, including binary and malformed
 ones.
 
-*Source: `packages/relay/relay.mjs` (constants at the top, `withinBudget`, `send`, heartbeat). Tests: not pinned by tests — see Open questions.*
+_Source: `packages/relay/relay.mjs` (constants at the top, `withinBudget`, `send`, heartbeat). Tests: not pinned by tests — see Open questions._
 
 ### 1.7 TURN passwords
 
@@ -255,24 +255,24 @@ IPv4-mapped IPv6 (`::ffff:a.b.c.d`) counts as the IPv4 address.
 
 A relay without TURN never answers `ice`.
 
-*Source: `packages/relay/relay.mjs` (`turnFromEnv`, `offerTurn`, `networkOf`). Tests: `packages/core/tests/relay-turn.test.ts`.*
+_Source: `packages/relay/relay.mjs` (`turnFromEnv`, `offerTurn`, `networkOf`). Tests: `packages/core/tests/relay-turn.test.ts`._
 
 ### 1.8 Running a relay
 
-*Implementation detail.* `packages/relay/signaling-server.mjs` wraps `createRelay`
+_Implementation detail._ `packages/relay/signaling-server.mjs` wraps `createRelay`
 in an HTTP server; every always-on node (`weave serve` / `weave run`, and the
 host) runs the same relay on its own port. Configuration is by environment:
 
-| Variable | Meaning | Default |
-|---|---|---|
-| `PORT` (or first CLI argument) | listening port of `signaling-server.mjs` | `8787` (`8080` in the Docker image) |
-| `TURN_SECRET` | shared secret with coturn; TURN is off without it | — |
-| `TURN_URLS` | comma-separated TURN URLs handed out | — (TURN off if empty) |
-| `TURN_TTL_SECONDS` | password lifetime | `14400` (4 h) |
-| `FLY_APP_NAME` | when set, believe `Fly-Client-IP` | — |
-| `TURN_PUBLIC_IP` | coturn's external IP (`packages/relay/start.sh` only) | — |
+| Variable                       | Meaning                                               | Default                             |
+| ------------------------------ | ----------------------------------------------------- | ----------------------------------- |
+| `PORT` (or first CLI argument) | listening port of `signaling-server.mjs`              | `8787` (`8080` in the Docker image) |
+| `TURN_SECRET`                  | shared secret with coturn; TURN is off without it     | —                                   |
+| `TURN_URLS`                    | comma-separated TURN URLs handed out                  | — (TURN off if empty)               |
+| `TURN_TTL_SECONDS`             | password lifetime                                     | `14400` (4 h)                       |
+| `FLY_APP_NAME`                 | when set, believe `Fly-Client-IP`                     | —                                   |
+| `TURN_PUBLIC_IP`               | coturn's external IP (`packages/relay/start.sh` only) | —                                   |
 
-*Source: `packages/relay/relay.mjs`, `packages/relay/relay.d.mts`, `packages/relay/signaling-server.mjs`, `packages/relay/start.sh`, `packages/relay/fly.toml`, `packages/cli/src/serve.ts`. Tests: `packages/core/tests/relay-turn.test.ts`, `packages/cli/tests/cli.test.ts`.*
+_Source: `packages/relay/relay.mjs`, `packages/relay/relay.d.mts`, `packages/relay/signaling-server.mjs`, `packages/relay/start.sh`, `packages/relay/fly.toml`, `packages/cli/src/serve.ts`. Tests: `packages/core/tests/relay-turn.test.ts`, `packages/cli/tests/cli.test.ts`._
 
 ---
 
@@ -293,11 +293,11 @@ per pairing or agent link) on it.
   kept, and string `username` and `credential`; `expiresAt` a finite number.
   An offer with no usable server is dropped.
 
-*Implementation detail:* after an unexpected close the reference client
+_Implementation detail:_ after an unexpected close the reference client
 redials with backoff 1, 2, 4, 8, 16 s and gives up after 5 attempts in a
 row; a successful open resets the count.
 
-*Source: `packages/core/src/network/signaling.ts`. Tests: `packages/core/tests/introductions.test.ts` ("several relays at once").*
+_Source: `packages/core/src/network/signaling.ts`. Tests: `packages/core/tests/introductions.test.ts` ("several relays at once")._
 
 ---
 
@@ -322,7 +322,7 @@ client de-duplicates:
   in that room — both sides would open a second connection.
 - **Routes.** A client remembers which relays a peer has been seen on (by a
   `join` or a signal from it). Signals to that peer are sent on every
-  *connected* relay it was seen on; to a peer not seen on any, on every
+  _connected_ relay it was seen on; to a peer not seen on any, on every
   connected relay.
 - **TURN.** `ice` offers are kept per relay; the client's TURN servers are
   the union of all relays' servers, expiring at the earliest `expiresAt`.
@@ -340,7 +340,7 @@ a receiver recognises one (§7.3).
 > Other implementations SHOULD NOT copy this.
 > Tracked in [#18](https://github.com/leifriksheim/weave/issues/18).
 
-*Source: `packages/core/src/network/multi-signaling.ts`. Tests: `packages/core/tests/introductions.test.ts` ("several relays at once"), `packages/core/tests/network-manager.test.ts` ("a relay connects the first pair…").*
+_Source: `packages/core/src/network/multi-signaling.ts`. Tests: `packages/core/tests/introductions.test.ts` ("several relays at once"), `packages/core/tests/network-manager.test.ts` ("a relay connects the first pair…")._
 
 ---
 
@@ -373,7 +373,7 @@ opened only for spaces' own relays is closed once no room needs it.
 A node that holds `manage` in a space that names no relays names its own
 configured relays (valid ones, at most 8) by itself.
 
-*Source: `packages/core/src/space/roles.ts` (`RELAYS_COLLECTION`, `MAX_RELAYS`, `checkRelays`), `packages/core/src/space/space-access.ts` (`SPACE_RELAYS_RECORD`), `packages/core/src/node/space-runtime.ts` (`useRelays`, `nameRelays`, `setRelays`), `packages/core/src/network/multi-signaling.ts` (`join`, `release`), `packages/core/src/network/mesh.ts` (`useRelays`). Tests: `packages/core/tests/space-relays.test.ts`, `packages/core/tests/network-manager.test.ts` ("a room that names its own relay…").*
+_Source: `packages/core/src/space/roles.ts` (`RELAYS_COLLECTION`, `MAX_RELAYS`, `checkRelays`), `packages/core/src/space/space-access.ts` (`SPACE_RELAYS_RECORD`), `packages/core/src/node/space-runtime.ts` (`useRelays`, `nameRelays`, `setRelays`), `packages/core/src/network/multi-signaling.ts` (`join`, `release`), `packages/core/src/network/mesh.ts` (`useRelays`). Tests: `packages/core/tests/space-relays.test.ts`, `packages/core/tests/network-manager.test.ts` ("a room that names its own relay…")._
 
 ---
 
@@ -392,7 +392,7 @@ Transports do not fragment, compress or re-order messages. Not yet
 specified: a maximum message size on peer connections other than the limits
 of §9.
 
-*Source: `packages/core/src/network/transport.ts`. Tests: `packages/core/tests/network-manager.test.ts`.*
+_Source: `packages/core/src/network/transport.ts`. Tests: `packages/core/tests/network-manager.test.ts`._
 
 ### 5.1 WebRTC data channels
 
@@ -414,7 +414,7 @@ of §9.
 - The ICE servers are asked for each new connection (§10), since TURN
   passwords change.
 
-*Source: `packages/core/src/network/rtc-transport.ts`. Tests: none directly; the mesh tests replace WebRTC with the fake signalled transport in `packages/core/tests/helpers/fake-transport.ts`.*
+_Source: `packages/core/src/network/rtc-transport.ts`. Tests: none directly; the mesh tests replace WebRTC with the fake signalled transport in `packages/core/tests/helpers/fake-transport.ts`._
 
 ### 5.2 WebSocket to an always-on node (client side)
 
@@ -448,7 +448,7 @@ The proof fields and what is signed are in §6.1. The client:
 - MUST process frames one at a time, so no data frame overtakes the welcome;
 - ignores text frames after the welcome.
 
-*Implementation detail:* the client redials without limit after an
+_Implementation detail:_ the client redials without limit after an
 unexpected close, with backoff `base/2 + random·base/2` where
 `base = min(1 s · 2ⁿ, 30 s)`; a deliberate close is never redialled.
 
@@ -460,7 +460,7 @@ unexpected close, with backoff `base/2 + random·base/2` where
 > Open question: the form of the pin in the URL (a query parameter or the
 > fragment). Tracked in [#32](https://github.com/leifriksheim/weave/issues/32).
 
-*Source: `packages/core/src/network/ws-transport.ts`, `packages/core/src/node/space-runtime.ts` (network setup), `packages/core/src/network/network-manager.ts`. Tests: `packages/core/tests/ws-transport.test.ts`, `packages/cli/tests/host.test.ts`, `packages/cli/tests/cli.test.ts`.*
+_Source: `packages/core/src/network/ws-transport.ts`, `packages/core/src/node/space-runtime.ts` (network setup), `packages/core/src/network/network-manager.ts`. Tests: `packages/core/tests/ws-transport.test.ts`, `packages/cli/tests/host.test.ts`, `packages/cli/tests/cli.test.ts`._
 
 ### 5.3 The `/peer` endpoint (node side)
 
@@ -472,31 +472,31 @@ An always-on node serves `/peer` on the same port as its relay.
    refuses a stranger.
 2. It waits for one text frame. Close codes:
 
-| Code | Reason | When |
-|---|---|---|
-| `4000` | `missing ?space=` | no `space` query parameter |
-| `4008` | `no hello` | no frame within 10 s (*implementation detail*: configurable) |
-| `4002` | `expected a hello frame` | binary, not JSON, `type` ≠ `hello`, `did` not matching `^did:key:z[1-9A-HJ-NP-Za-km-z]{1,250}$`, or `nonce` not a string |
-| `4003` | `not a reader of this space` | the node does not serve the space, or the proof fails (§6.1) |
-| `1011` | `could not open space` / `internal error` | the node failed |
-| `4009` | `replaced by a newer connection` | the same DID connected again in this space; the older socket is closed |
-| `1001` | `node shutting down` | — |
+| Code   | Reason                                    | When                                                                                                                     |
+| ------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `4000` | `missing ?space=`                         | no `space` query parameter                                                                                               |
+| `4008` | `no hello`                                | no frame within 10 s (_implementation detail_: configurable)                                                             |
+| `4002` | `expected a hello frame`                  | binary, not JSON, `type` ≠ `hello`, `did` not matching `^did:key:z[1-9A-HJ-NP-Za-km-z]{1,250}$`, or `nonce` not a string |
+| `4003` | `not a reader of this space`              | the node does not serve the space, or the proof fails (§6.1)                                                             |
+| `1011` | `could not open space` / `internal error` | the node failed                                                                                                          |
+| `4009` | `replaced by a newer connection`          | the same DID connected again in this space; the older socket is closed                                                   |
+| `1001` | `node shutting down`                      | —                                                                                                                        |
 
 3. On success it sends the `welcome` and treats the socket as the peer named
    by the hello's `did`. Only binary frames are data; text frames are
-   ignored. *Implementation detail:* `maxPayload` is 16 MiB on `/peer`.
+   ignored. _Implementation detail:_ `maxPayload` is 16 MiB on `/peer`.
 
-*Source: `packages/cli/src/serve.ts` (`onPeer`, `parseHello`, `createSpacePeers`), `packages/core/src/node/node.ts` (`authenticator`), `packages/core/src/node/host.ts`. Tests: `packages/cli/tests/host.test.ts`, `packages/cli/tests/cli.test.ts` ("two devices that are never online together converge through it"), `packages/core/tests/key-change.test.ts`.*
+_Source: `packages/cli/src/serve.ts` (`onPeer`, `parseHello`, `createSpacePeers`), `packages/core/src/node/node.ts` (`authenticator`), `packages/core/src/node/host.ts`. Tests: `packages/cli/tests/host.test.ts`, `packages/cli/tests/cli.test.ts` ("two devices that are never online together converge through it"), `packages/core/tests/key-change.test.ts`._
 
 ### 5.4 In-process links
 
-*Implementation detail.* `createLocalHub()` links every transport made from
+_Implementation detail._ `createLocalHub()` links every transport made from
 it that has connected, delivering on a later task with the bytes copied. It
 performs no handshake. It is exported, but nothing in `packages/core/src/` or `packages/cli/src/`
 uses it at present (its header still describes a carrier use that mirrors
 now serve).
 
-*Source: `packages/core/src/network/local-transport.ts`. Tests: none.*
+_Source: `packages/core/src/network/local-transport.ts`. Tests: none._
 
 ---
 
@@ -534,7 +534,7 @@ W  = "weave-peer/v3|server|" + spaceId + "|" + nodeDid + "|" + N꜀
 > different node; `W` proves the welcome comes from the node that issued the
 > challenge. Which node to trust at all is the client's choice of URL.
 
-*Source: `packages/core/src/network/peer-auth.ts` (`createClientAuth`, `createServerAuth`). Tests: `packages/core/tests/ws-transport.test.ts` ("a public space", "a private space", "a node that does not welcome properly is refused"), `packages/core/tests/key-change.test.ts` ("the current key lets you in; an old one only with a note…").*
+_Source: `packages/core/src/network/peer-auth.ts` (`createClientAuth`, `createServerAuth`). Tests: `packages/core/tests/ws-transport.test.ts` ("a public space", "a private space", "a node that does not welcome properly is refused"), `packages/core/tests/key-change.test.ts` ("the current key lets you in; an old one only with a note…")._
 
 ### 6.2 Between peers (mesh, `weave-mesh/v1`)
 
@@ -575,7 +575,7 @@ proof = {"sig":"tSsGyRGc85v0Q6QwVpHwssS0PeNyR3wqX_bK3y8w0AGeOEew4Iyu2wZ-FlBzl67t
 > each side, so a proof relayed through them does not check out. A relay that
 > swaps in its own offer is caught.
 
-*Source: `packages/core/src/network/peer-auth.ts` (`createMeshAuth`), `packages/core/src/network/mesh.ts` (`onHandshake`). Tests: `packages/core/tests/network-manager.test.ts` ("every peer proves who it is, in every room"), `packages/core/tests/carrier.test.ts`.*
+_Source: `packages/core/src/network/peer-auth.ts` (`createMeshAuth`), `packages/core/src/network/mesh.ts` (`onHandshake`). Tests: `packages/core/tests/network-manager.test.ts` ("every peer proves who it is, in every room"), `packages/core/tests/carrier.test.ts`._
 
 ### 6.3 Proving you may read a private space
 
@@ -664,7 +664,7 @@ when her node redials with K0 and her note, step 4 refuses her.
 > are behind, a node that missed a key change could never reconnect, since
 > the peers that could tell it about the change refuse it.
 
-*Source: `packages/core/src/network/peer-auth.ts` (`proveRead`, `checkRead`, `MAX_EARLIER_READ_KEYS`), `packages/core/src/node/space-runtime.ts` (`readAccess`, `letGoOfOutsiders`), `packages/core/src/network/mesh.ts` (`drop`), `packages/core/src/network/network-manager.ts` (`drop`), `packages/core/src/privacy/space-encryption.ts` (`sealWith`, `openWith`), `packages/core/src/space/space-access.ts` (`membershipContext`). Tests: `packages/core/tests/key-change.test.ts`, `packages/core/tests/ws-transport.test.ts` ("a private space"), `packages/core/tests/network-manager.test.ts` ("in a private space, a peer without its key never becomes a peer"; "after the space key changed"; "letting a peer go in one room…"), `packages/cli/tests/cli.test.ts` ("lets go of someone removed from a private space…").*
+_Source: `packages/core/src/network/peer-auth.ts` (`proveRead`, `checkRead`, `MAX_EARLIER_READ_KEYS`), `packages/core/src/node/space-runtime.ts` (`readAccess`, `letGoOfOutsiders`), `packages/core/src/network/mesh.ts` (`drop`), `packages/core/src/network/network-manager.ts` (`drop`), `packages/core/src/privacy/space-encryption.ts` (`sealWith`, `openWith`), `packages/core/src/space/space-access.ts` (`membershipContext`). Tests: `packages/core/tests/key-change.test.ts`, `packages/core/tests/ws-transport.test.ts` ("a private space"), `packages/core/tests/network-manager.test.ts` ("in a private space, a peer without its key never becomes a peer"; "after the space key changed"; "letting a peer go in one room…"), `packages/cli/tests/cli.test.ts` ("lets go of someone removed from a private space…")._
 
 ### 6.4 The account behind a session
 
@@ -680,7 +680,7 @@ note is an agent's note is recorded alongside.
 > Rationale: a note copied off someone's record names their key, not the
 > copier's, so it is useless to anyone else.
 
-*Source: `packages/core/src/node/space-runtime.ts` (`accountOf`, `WHO_MESSAGE`). Tests: `packages/core/tests/live.test.ts` ("a peer showing someone else's note is known as nobody").*
+_Source: `packages/core/src/node/space-runtime.ts` (`accountOf`, `WHO_MESSAGE`). Tests: `packages/core/tests/live.test.ts` ("a peer showing someone else's note is known as nobody")._
 
 ---
 
@@ -709,18 +709,18 @@ Every message on a mesh connection is a JSON object:
 - Reserved types (never delivered to the application): `__auth-hello`,
   `__auth-proof`, `__peers`, `__signal`, `__leave`.
 
-| `type` | `room` | `payload` | Accepted from |
-|---|---|---|---|
-| `__auth-hello` | yes | `{ "nonce": string }` | anyone connected |
-| `__auth-proof` | yes | proof (§6.2) | anyone connected |
-| `__peers` | yes | array of DIDs | a peer admitted in that room |
-| `__leave` | yes | — | a peer admitted in that room |
-| `__signal` | no | relayed signal (§8) | a peer admitted in any room |
-| anything else | yes | application | a peer admitted in that room |
+| `type`         | `room` | `payload`             | Accepted from                |
+| -------------- | ------ | --------------------- | ---------------------------- |
+| `__auth-hello` | yes    | `{ "nonce": string }` | anyone connected             |
+| `__auth-proof` | yes    | proof (§6.2)          | anyone connected             |
+| `__peers`      | yes    | array of DIDs         | a peer admitted in that room |
+| `__leave`      | yes    | —                     | a peer admitted in that room |
+| `__signal`     | no     | relayed signal (§8)   | a peer admitted in any room  |
+| anything else  | yes    | application           | a peer admitted in that room |
 
 Any other frame from a peer is dropped.
 
-*Source: `packages/core/src/network/mesh.ts`, `packages/core/src/network/introductions.ts`. Tests: `packages/core/tests/network-manager.test.ts`, `packages/core/tests/introductions.test.ts` ("mesh housekeeping").*
+_Source: `packages/core/src/network/mesh.ts`, `packages/core/src/network/introductions.ts`. Tests: `packages/core/tests/network-manager.test.ts`, `packages/core/tests/introductions.test.ts` ("mesh housekeeping")._
 
 ### 7.2 Admission to a room
 
@@ -749,7 +749,7 @@ Letting one peer go (§6.3) is the same for that peer alone: `__leave` to it,
 drop it from the room, and close the connection if no room uses it. The
 connection stays for the other rooms the two share.
 
-*Source: `packages/core/src/network/mesh.ts` (`greet`, `onHandshake`, `admit`, `closeIfIdle`, `drop`). Tests: `packages/core/tests/network-manager.test.ts` ("two spaces shared by two devices use one connection", "a peer is a peer only in the rooms it shares…", "letting a peer go in one room…", "failing to prove it in one room costs nothing in another").*
+_Source: `packages/core/src/network/mesh.ts` (`greet`, `onHandshake`, `admit`, `closeIfIdle`, `drop`). Tests: `packages/core/tests/network-manager.test.ts` ("two spaces shared by two devices use one connection", "a peer is a peer only in the rooms it shares…", "letting a peer go in one room…", "failing to prove it in one room costs nothing in another")._
 
 ### 7.3 Who connects
 
@@ -769,20 +769,20 @@ connection stays for the other rooms the two share.
 Not yet specified: suppression of a duplicate offer that arrives through a
 second shared relay. See the known defect in §3.
 
-*Source: `packages/core/src/network/mesh.ts` (`meet`, `offerTo`, `onSignal`). Tests: `packages/core/tests/network-manager.test.ts`.*
+_Source: `packages/core/src/network/mesh.ts` (`meet`, `offerTo`, `onSignal`). Tests: `packages/core/tests/network-manager.test.ts`._
 
 ### 7.4 Limits
 
-| Limit | Value |
-|---|---|
-| Peers per room | bounded by the relay (64 in the reference relay); the mesh sets none of its own |
-| Handshake timeout (`authTimeoutMs`) | 10 s |
-| Idle connection timeout | 10 s after opening |
-| Peers named per `__peers` | 64 (`MAX_INTRODUCED`); the rest are ignored |
-| Relayed-signal hops | 3 (`MAX_HOPS`) |
-| Remembered relayed-signal ids | 512 |
+| Limit                               | Value                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------- |
+| Peers per room                      | bounded by the relay (64 in the reference relay); the mesh sets none of its own |
+| Handshake timeout (`authTimeoutMs`) | 10 s                                                                            |
+| Idle connection timeout             | 10 s after opening                                                              |
+| Peers named per `__peers`           | 64 (`MAX_INTRODUCED`); the rest are ignored                                     |
+| Relayed-signal hops                 | 3 (`MAX_HOPS`)                                                                  |
+| Remembered relayed-signal ids       | 512                                                                             |
 
-*Source: `packages/core/src/network/mesh.ts`, `packages/core/src/network/introductions.ts`. Tests: `packages/core/tests/introductions.test.ts`.*
+_Source: `packages/core/src/network/mesh.ts`, `packages/core/src/network/introductions.ts`. Tests: `packages/core/tests/introductions.test.ts`._
 
 > **Planned:** limits on how much one peer can cost another
 > ([#33](https://github.com/leifriksheim/weave/issues/33)).
@@ -836,7 +836,7 @@ offer.
 ```
 
 - `id` is 8 random bytes as 16 lowercase hex characters, fresh per signal.
-- The sender floods it to every connected peer admitted in *any* room.
+- The sender floods it to every connected peer admitted in _any_ room.
 - A receiver drops it if `id` is not a string of at most 64 characters or was
   seen before (it remembers the last 512), if `origin` or `target` is not a
   DID, or if `kind` is not one of the three.
@@ -845,7 +845,7 @@ offer.
 - Otherwise, if `hops > 0`, it forwards to every admitted peer except the one
   it came from, with `hops = min(hops, 3) − 1`.
 
-*Source: `packages/core/src/network/introductions.ts`, `packages/core/src/network/mesh.ts` (`handlePeerList`, `floodSignal`, `onRelayedSignal`). Tests: `packages/core/tests/introductions.test.ts`, `packages/core/tests/network-manager.test.ts` ("a relay connects the first pair, and a peer introduces the rest").*
+_Source: `packages/core/src/network/introductions.ts`, `packages/core/src/network/mesh.ts` (`handlePeerList`, `floodSignal`, `onRelayedSignal`). Tests: `packages/core/tests/introductions.test.ts`, `packages/core/tests/network-manager.test.ts` ("a relay connects the first pair, and a peer introduces the rest")._
 
 ---
 
@@ -861,11 +861,11 @@ On every transport, a space's peers exchange messages of the form
 added), on a node socket or local link as the whole binary frame. The
 receiver MUST attribute a message to the connection's peer, not to `from`.
 
-| `type` | Payload | Specified in |
-|---|---|---|
-| `sync` | a sync message | [05 — Sync and storage](05-sync-and-storage.md) |
-| `who` | `{ "note": string }` | §6.4, §9.1 |
-| `live` | any JSON | §9.2 |
+| `type` | Payload              | Specified in                                    |
+| ------ | -------------------- | ----------------------------------------------- |
+| `sync` | a sync message       | [05 — Sync and storage](05-sync-and-storage.md) |
+| `who`  | `{ "note": string }` | §6.4, §9.1                                      |
+| `live` | any JSON             | §9.2                                            |
 
 Pairing and agent-link rooms carry their own types (`packages/core/src/session/pairing.ts`,
 `packages/core/src/session/agent-link.ts`); see [01 — Identity](01-identity.md) and
@@ -896,7 +896,7 @@ misses it. In a private space it reaches only peers that proved the read key.
   whose **account DID**, as learned from their `who`, equals `to` (every
   device of that account). A peer whose `who` has not been checked yet is
   matched by session DID only.
-- *Implementation detail:* the node's agent API refuses `send`.
+- _Implementation detail:_ the node's agent API refuses `send`.
 
 **Receiving** — a receiver:
 
@@ -905,16 +905,20 @@ misses it. In a private space it reaches only peers that proved the read key.
 - MUST drop a message whose `JSON.stringify(payload)` is longer than 65 536
   characters;
 - delivers `{ type: "message", space, from: <account DID or null>, peer:
-  <session DID>, agent: <boolean>, message: <payload> }`, where `from` and
+<session DID>, agent: <boolean>, message: <payload> }`, where `from` and
   `agent` come from the peer's `who` (§6.4).
 
 Example:
 
 ```json
-{"type":"live","from":"did:key:zDnaeV1SzGREx4fjGtUofWfZfnH42TV5EboaJ6deJLxvmo6jd","payload":{"type":"typing"}}
+{
+  "type": "live",
+  "from": "did:key:zDnaeV1SzGREx4fjGtUofWfZfnH42TV5EboaJ6deJLxvmo6jd",
+  "payload": { "type": "typing" }
+}
 ```
 
-*Source: `packages/core/src/node/space-runtime.ts` (`send`, `onLive`, `withinAllowance`, `LIVE_MESSAGE`, `MAX_LIVE_BYTES`, `LIVE_BURST`, `LIVE_PER_SECOND`), `packages/core/src/node/types.ts` (`LiveMessage`, `NodeSpaces.send`), `packages/core/src/node/node.ts`. Tests: `packages/core/tests/live.test.ts`.*
+_Source: `packages/core/src/node/space-runtime.ts` (`send`, `onLive`, `withinAllowance`, `LIVE_MESSAGE`, `MAX_LIVE_BYTES`, `LIVE_BURST`, `LIVE_PER_SECOND`), `packages/core/src/node/types.ts` (`LiveMessage`, `NodeSpaces.send`), `packages/core/src/node/node.ts`. Tests: `packages/core/tests/live.test.ts`._
 
 ---
 
@@ -933,7 +937,7 @@ Example:
   without TURN never answer), then returns what it has. A node with no relays
   returns the configured servers.
 
-*Source: `packages/core/src/network/rtc-transport.ts` (`DEFAULT_ICE_SERVERS`), `packages/core/src/network/mesh.ts` (`iceServers`, `ICE_REFRESH_MS`, `ICE_WAIT_MS`), `packages/core/src/node/node.ts` (`iceServers`), `packages/core/src/calls/calls.ts`. Tests: `packages/core/tests/relay-turn.test.ts` (the relay side only; the client-side refresh is untested).*
+_Source: `packages/core/src/network/rtc-transport.ts` (`DEFAULT_ICE_SERVERS`), `packages/core/src/network/mesh.ts` (`iceServers`, `ICE_REFRESH_MS`, `ICE_WAIT_MS`), `packages/core/src/node/node.ts` (`iceServers`), `packages/core/src/calls/calls.ts`. Tests: `packages/core/tests/relay-turn.test.ts` (the relay side only; the client-side refresh is untested)._
 
 ---
 
@@ -942,7 +946,7 @@ Example:
 A compatible **relay** MUST: accept multi-room sockets on any path; fix one
 DID per socket on first `join`; refuse a second socket claiming a DID in a
 room (close `4009`); announce `join`/`leave` with `from` and `room` to the
-*other* members only; forward `offer`/`answer`/`candidate` only between
+_other_ members only; forward `offer`/`answer`/`candidate` only between
 sockets sharing a room, rewriting `from` to the sender's DID; announce `leave`
 for every room of a socket that closes or dies; and bound sizes, rates and
 counts (§1.6). It SHOULD serve one-room sockets and `/health`, and MAY hand

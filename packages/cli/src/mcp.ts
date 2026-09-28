@@ -51,12 +51,15 @@ export interface McpOptions {
   readonly agent?: boolean;
 }
 
-const offered = (options: McpOptions) => NODE_ACTIONS.filter((action) => !options.agent || !PERSON_ONLY.has(action.name));
+const offered = (options: McpOptions) =>
+  NODE_ACTIONS.filter((action) => !options.agent || !PERSON_ONLY.has(action.name));
 
 export function mcpTools(options: McpOptions = {}) {
   return offered(options).map((action) => ({
     name: action.name,
-    description: action.sensitive ? `${action.description} Confirm with the user before sharing the result.` : action.description,
+    description: action.sensitive
+      ? `${action.description} Confirm with the user before sharing the result.`
+      : action.description,
     inputSchema: action.input,
     annotations: {
       readOnlyHint: action.readOnly,
@@ -80,7 +83,8 @@ export async function handleMcpMessage(
 ): Promise<JsonRpcResponse | null> {
   const isNotification = message.id === undefined;
   const id = message.id ?? null;
-  const reply = (result: unknown): JsonRpcResponse | null => (isNotification ? null : { jsonrpc: '2.0', id, result });
+  const reply = (result: unknown): JsonRpcResponse | null =>
+    isNotification ? null : { jsonrpc: '2.0', id, result };
   const fail = (code: number, text: string): JsonRpcResponse | null =>
     isNotification ? null : { jsonrpc: '2.0', id, error: { code, message: text } };
 
@@ -88,7 +92,9 @@ export async function handleMcpMessage(
     case 'initialize': {
       const requested = message.params?.protocolVersion;
       const protocolVersion =
-        typeof requested === 'string' && SUPPORTED_VERSIONS.includes(requested) ? requested : SUPPORTED_VERSIONS[0];
+        typeof requested === 'string' && SUPPORTED_VERSIONS.includes(requested)
+          ? requested
+          : SUPPORTED_VERSIONS[0];
       return reply({
         protocolVersion,
         capabilities: { tools: { listChanged: false } },
@@ -112,12 +118,14 @@ export async function handleMcpMessage(
     case 'tools/call': {
       const name = message.params?.name;
       if (typeof name !== 'string') return fail(-32602, 'tools/call needs a tool name');
-      if (!offered(options).some((action) => action.name === name)) return fail(-32602, `Unknown tool: ${name}`);
+      if (!offered(options).some((action) => action.name === name))
+        return fail(-32602, `Unknown tool: ${name}`);
       try {
         const result = await runAction(node, name, message.params?.arguments ?? {});
-        const structured = result !== null && typeof result === 'object' && !Array.isArray(result)
-          ? (result as Record<string, unknown>)
-          : { result };
+        const structured =
+          result !== null && typeof result === 'object' && !Array.isArray(result)
+            ? (result as Record<string, unknown>)
+            : { result };
         const fromPeers = NODE_ACTIONS.find((action) => action.name === name)?.peerContent === true;
         return reply({
           content: [
@@ -141,7 +149,11 @@ export async function handleMcpMessage(
 }
 
 /** Serves MCP over stdin/stdout until stdin closes. */
-export async function runMcpStdio(node: P2PNode, serverInfo: { name: string; version: string }, options: McpOptions = {}): Promise<void> {
+export async function runMcpStdio(
+  node: P2PNode,
+  serverInfo: { name: string; version: string },
+  options: McpOptions = {},
+): Promise<void> {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
   const write = (response: JsonRpcResponse) => process.stdout.write(`${JSON.stringify(response)}\n`);
 

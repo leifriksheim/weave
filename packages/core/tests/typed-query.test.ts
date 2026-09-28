@@ -25,7 +25,11 @@ afterEach(async () => {
 async function person() {
   const manager = createIdentityManager();
   const me = await manager.fromSeed(generateSeed());
-  const node = await createNode({ signer: createLocalRootSigner(me, manager.getProvider()), stores: memoryStores(), watchIntervalMs: 0 });
+  const node = await createNode({
+    signer: createLocalRootSigner(me, manager.getProvider()),
+    stores: memoryStores(),
+    watchIntervalMs: 0,
+  });
   open.push(node);
   return node;
 }
@@ -81,7 +85,10 @@ describe('typed queries', () => {
     const asked = await me.records.put(space, stdPoll, { question: 'Lunch?', options: ['Pizza', 'Tacos'] });
     await me.records.put(space, stdVote, { choice: 0 }, { links: [{ rel: 'about', to: asked.key }] });
 
-    const typed = await me.records.query(space, { collection: stdPoll, include: { votes: { rel: 'about', from: stdVote } } });
+    const typed = await me.records.query(space, {
+      collection: stdPoll,
+      include: { votes: { rel: 'about', from: stdVote } },
+    });
     const options: ReadonlyArray<string> = typed.records[0]!.body.options;
     const choice: number = typed.records[0]!.included.votes[0]!.body.choice;
     assert.deepEqual([options, choice], [['Pizza', 'Tacos'], 0]);

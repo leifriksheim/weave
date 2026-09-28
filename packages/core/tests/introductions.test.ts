@@ -157,7 +157,10 @@ describe('several relays at once', () => {
     const client = makeClient(['ws://a.example', 'ws://b.example']);
     await client.connect();
 
-    assert.deepEqual(sockets.map((socket) => socket.url), ['ws://a.example', 'ws://b.example']);
+    assert.deepEqual(
+      sockets.map((socket) => socket.url),
+      ['ws://a.example', 'ws://b.example'],
+    );
     assert.equal(client.isConnected(), true);
   });
 
@@ -232,7 +235,11 @@ describe('several relays at once', () => {
     client.join('r1');
     await client.connect();
     client.join('r2');
-    const joins = (socket: FakeSocket) => socket.sent.map((m) => JSON.parse(m)).filter((m) => m.type === 'join').map((m) => m.room);
+    const joins = (socket: FakeSocket) =>
+      socket.sent
+        .map((m) => JSON.parse(m))
+        .filter((m) => m.type === 'join')
+        .map((m) => m.room);
     for (const socket of sockets) assert.deepEqual(joins(socket), ['r1', 'r2']);
 
     client.leave('r1');

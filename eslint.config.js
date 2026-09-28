@@ -8,14 +8,7 @@ import globals from 'globals';
 export default tseslint.config(
   // Build output and generated files.
   {
-    ignores: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/*.d.ts',
-      '**/*.d.mts',
-      '.weave-dev/**',
-      '.claude/**',
-    ],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/*.d.ts', '**/*.d.mts', '.weave-dev/**', '.claude/**'],
   },
 
   js.configs.recommended,

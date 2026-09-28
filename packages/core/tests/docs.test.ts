@@ -40,7 +40,8 @@ describe('Package docs', () => {
           .split(',')
           .map((name) => name.trim())
           .filter((name) => name && !name.startsWith('type '));
-        for (const name of values) assert.ok(name in exported, `${guide} imports ${name} from ${specifier}, which doesn't export it`);
+        for (const name of values)
+          assert.ok(name in exported, `${guide} imports ${name} from ${specifier}, which doesn't export it`);
       }
     });
 

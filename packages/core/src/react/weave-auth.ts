@@ -30,7 +30,8 @@ export function WeaveAuth({ auth: given, onSession, className, style }: WeaveAut
   useEffect(() => {
     const element = ref.current;
     if (!element || !onSession) return;
-    const listener = (event: CustomEvent<{ session: WeaveSession | null }>) => onSession(event.detail.session);
+    const listener = (event: CustomEvent<{ session: WeaveSession | null }>) =>
+      onSession(event.detail.session);
     element.addEventListener('weave-session', listener);
     return () => element.removeEventListener('weave-session', listener);
   }, [onSession]);

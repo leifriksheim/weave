@@ -145,9 +145,18 @@ export interface Sum {
 
 export const EMPTY_SUM: Sum = { sum: 0n, count: 0 };
 
-export const addToSum = (s: Sum, id: Uint8Array): Sum => ({ sum: (s.sum + idToNumber(id)) % MOD, count: s.count + 1 });
-export const removeFromSum = (s: Sum, id: Uint8Array): Sum => ({ sum: (s.sum - idToNumber(id) + MOD) % MOD, count: s.count - 1 });
-export const combineSums = (a: Sum, b: Sum): Sum => ({ sum: (a.sum + b.sum) % MOD, count: a.count + b.count });
+export const addToSum = (s: Sum, id: Uint8Array): Sum => ({
+  sum: (s.sum + idToNumber(id)) % MOD,
+  count: s.count + 1,
+});
+export const removeFromSum = (s: Sum, id: Uint8Array): Sum => ({
+  sum: (s.sum - idToNumber(id) + MOD) % MOD,
+  count: s.count - 1,
+});
+export const combineSums = (a: Sum, b: Sum): Sum => ({
+  sum: (a.sum + b.sum) % MOD,
+  count: a.count + b.count,
+});
 
 /** Hashes a sum the one way both sides do: 32 little-endian bytes, then the count as a varint */
 export async function fingerprintOf(s: Sum): Promise<Uint8Array> {
@@ -183,7 +192,8 @@ export class ItemSet {
     }
     this.items = unique;
     this.prefix = [0n];
-    for (const item of unique) this.prefix.push((this.prefix[this.prefix.length - 1]! + idToNumber(item.id)) % MOD);
+    for (const item of unique)
+      this.prefix.push((this.prefix[this.prefix.length - 1]! + idToNumber(item.id)) % MOD);
   }
 
   get size() {
@@ -229,7 +239,10 @@ export interface Round {
  * @param frameSizeLimit Largest message to produce, in bytes; 0 for no limit.
  *   What doesn't fit is left for the next round.
  */
-export function createReconciler(set: ItemSet, options: { readonly initiator: boolean; readonly frameSizeLimit?: number }) {
+export function createReconciler(
+  set: ItemSet,
+  options: { readonly initiator: boolean; readonly frameSizeLimit?: number },
+) {
   const { initiator } = options;
   const frameSizeLimit = options.frameSizeLimit ?? 0;
   if (frameSizeLimit !== 0 && frameSizeLimit < 4096) throw new Error('frameSizeLimit too small');
@@ -260,7 +273,8 @@ export function createReconciler(set: ItemSet, options: { readonly initiator: bo
     return timestamp;
   };
 
-  const writeBound = (out: Writer, bound: Bound) => out.push(encodeTimestamp(bound.timestamp), encodeVarInt(bound.id.length), bound.id);
+  const writeBound = (out: Writer, bound: Bound) =>
+    out.push(encodeTimestamp(bound.timestamp), encodeVarInt(bound.id.length), bound.id);
 
   const readBound = (reader: Reader): Bound => {
     const timestamp = decodeTimestamp(reader);

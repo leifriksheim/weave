@@ -32,7 +32,12 @@ export const contact = typed<Contact>()({
       space: { type: 'string', maxLength: 256, description: 'The id of your space for two' },
       note: { type: 'string', maxLength: 2000 },
       blocked: { type: 'boolean', description: 'Their contact requests are hidden, in every space' },
-      door: { type: 'string', maxLength: 64, description: 'The door they knocked on, while your answer is still to be written in your space for two' },
+      door: {
+        type: 'string',
+        maxLength: 64,
+        description:
+          'The door they knocked on, while your answer is still to be written in your space for two',
+      },
     },
     required: ['did', 'name'],
   },
@@ -56,7 +61,11 @@ export const contactRequest = typed<ContactRequestRecord>()({
     type: 'object',
     properties: {
       to: { type: 'string', maxLength: 256, description: 'The account it is for' },
-      sealed: { type: 'string', maxLength: 16000, description: 'The invite and a note, sealed with their contact key' },
+      sealed: {
+        type: 'string',
+        maxLength: 16000,
+        description: 'The invite and a note, sealed with their contact key',
+      },
     },
     required: ['to', 'sealed'],
   },
@@ -66,7 +75,6 @@ export interface ContactRequestRecord {
   readonly to: string;
   readonly sealed: string;
 }
-
 
 /**
  * A door of yours: a way in for people you share no space with (`node.doors`).
@@ -81,10 +89,25 @@ export const door = typed<Door>()({
   schema: {
     type: 'object',
     properties: {
-      id: { type: 'string', minLength: 16, maxLength: 64, description: 'Random; the door key is derived from it' },
+      id: {
+        type: 'string',
+        minLength: 16,
+        maxLength: 64,
+        description: 'Random; the door key is derived from it',
+      },
       label: { type: 'string', maxLength: 64, description: 'What you call this door — only you see it' },
-      name: { type: 'string', maxLength: 64, description: 'The name its code gives, shown to whoever knocks' },
-      relays: { type: 'array', items: { type: 'string', maxLength: 200 }, minItems: 1, maxItems: 3, description: 'Whose mailboxes hold its knocks' },
+      name: {
+        type: 'string',
+        maxLength: 64,
+        description: 'The name its code gives, shown to whoever knocks',
+      },
+      relays: {
+        type: 'array',
+        items: { type: 'string', maxLength: 200 },
+        minItems: 1,
+        maxItems: 3,
+        description: 'Whose mailboxes hold its knocks',
+      },
     },
     required: ['id', 'relays'],
   },
@@ -112,7 +135,11 @@ export const knock = typed<Knock>()({
       space: { type: 'string', maxLength: 256, description: 'The space for two it invites them to' },
       name: { type: 'string', maxLength: 64, description: 'The name their door code gave' },
       door: { type: 'string', maxLength: 64, description: 'The door key knocked on' },
-      sign: { type: 'string', maxLength: 64, description: "The door's signing key, which their answer must be signed with" },
+      sign: {
+        type: 'string',
+        maxLength: 64,
+        description: "The door's signing key, which their answer must be signed with",
+      },
       invite: { type: 'string', maxLength: 8000, description: 'The invite sent, to close once they answer' },
     },
     required: ['space', 'name', 'door', 'sign', 'invite'],
@@ -135,11 +162,15 @@ export interface Knock {
 export const knockAnswer = typed<KnockAnswer>()({
   name: 'std.knock-answer',
   title: 'Knock answer',
-  description: "Proof that the account which joined is the one behind the door knocked on.",
+  description: 'Proof that the account which joined is the one behind the door knocked on.',
   schema: {
     type: 'object',
     properties: {
-      sig: { type: 'string', maxLength: 200, description: 'The door signing key over "weave/knock-answer/v1|<space>|<account>"' },
+      sig: {
+        type: 'string',
+        maxLength: 200,
+        description: 'The door signing key over "weave/knock-answer/v1|<space>|<account>"',
+      },
     },
     required: ['sig'],
   },

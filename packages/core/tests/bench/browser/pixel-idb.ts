@@ -47,7 +47,9 @@ async function measure(what: string, run: () => Promise<unknown>, per = N) {
   const t = performance.now();
   await run();
   const ms = performance.now() - t;
-  log(`${what}: ${ms.toFixed(0)}ms (${(ms / per).toFixed(2)}ms each), ${calls} store calls ${JSON.stringify(byName)}, waiting ${JSON.stringify(Object.fromEntries(Object.entries(inStore).map(([k, v]) => [k, Math.round(v)])))}ms`);
+  log(
+    `${what}: ${ms.toFixed(0)}ms (${(ms / per).toFixed(2)}ms each), ${calls} store calls ${JSON.stringify(byName)}, waiting ${JSON.stringify(Object.fromEntries(Object.entries(inStore).map(([k, v]) => [k, Math.round(v)])))}ms`,
+  );
 }
 
 const open = (signer: RootSigner): Promise<P2PNode> => createNode({ signer, stores, watchIntervalMs: 0 });
@@ -59,7 +61,11 @@ async function main() {
   const { id: space } = await node.spaces.create({ name: 'Canvas', ...team, visibility: 'private' });
   await node.collections.define(space, {
     name: 'app.pixels.cell',
-    schema: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' }, color: { type: 'string' } }, required: ['x', 'y', 'color'] },
+    schema: {
+      type: 'object',
+      properties: { x: { type: 'integer' }, y: { type: 'integer' }, color: { type: 'string' } },
+      required: ['x', 'y', 'color'],
+    },
     rules: { create: 'member', edit: 'member', delete: 'member', fixed: ['x', 'y'] },
   } as never);
   const key = (i: number) => `px.${i % 32}.${Math.floor(i / 32)}`;
@@ -67,7 +73,8 @@ async function main() {
   const list = () => node.records.list(space, { collection: 'app.pixels.cell' });
 
   await measure('put, one at a time', async () => {
-    for (let i = 0; i < N; i++) await node.records.put(space, 'app.pixels.cell', body(i, '#ff004d'), { key: key(i) });
+    for (let i = 0; i < N; i++)
+      await node.records.put(space, 'app.pixels.cell', body(i, '#ff004d'), { key: key(i) });
   });
   await measure('list', list, 1);
   await measure('list again', list, 1);
@@ -78,14 +85,19 @@ async function main() {
 
   await measure('delete, 16 at a time', async () => {
     for (let i = 0; i < N; i += 16) {
-      await Promise.all(Array.from({ length: Math.min(16, N - i) }, (_, j) => node.records.delete(space, key(i + j))));
+      await Promise.all(
+        Array.from({ length: Math.min(16, N - i) }, (_, j) => node.records.delete(space, key(i + j))),
+      );
     }
   });
-  for (let i = 0; i < N; i++) await node.records.put(space, 'app.pixels.cell', body(i, '#29adff'), { key: key(i) });
+  for (let i = 0; i < N; i++)
+    await node.records.put(space, 'app.pixels.cell', body(i, '#29adff'), { key: key(i) });
   await measure('list of a full canvas, warm', list, 1);
   await measure('delete, 16 at a time, a list after each 16', async () => {
     for (let i = 0; i < N; i += 16) {
-      await Promise.all(Array.from({ length: Math.min(16, N - i) }, (_, j) => node.records.delete(space, key(i + j))));
+      await Promise.all(
+        Array.from({ length: Math.min(16, N - i) }, (_, j) => node.records.delete(space, key(i + j))),
+      );
       await list();
     }
   });

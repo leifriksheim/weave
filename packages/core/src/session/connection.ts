@@ -91,7 +91,9 @@ export interface WeaveConnection {
 
 export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConnection {
   const storage =
-    config.storage !== undefined ? config.storage : ((globalThis as { localStorage?: KeyValueStore }).localStorage ?? null);
+    config.storage !== undefined
+      ? config.storage
+      : ((globalThis as { localStorage?: KeyValueStore }).localStorage ?? null);
   const grants = grantStore(storage);
   const HOME = 'weave.home';
   const rememberedHome = (() => {
@@ -144,7 +146,8 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
 
     // The home disconnected this app: nothing it writes counts any more, so stop.
     unwatch = node.subscribe((event) => {
-      if (event.type === 'revoked' && state.node === node) void end('Your account home disconnected this app.');
+      if (event.type === 'revoked' && state.node === node)
+        void end('Your account home disconnected this app.');
     });
 
     // Writes stop working when the note runs out; say so rather than fail quietly.
@@ -210,7 +213,11 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
 
     propose(notify) {
       if (!state.grant) return Promise.reject(new Error('Connect to your account home first.'));
-      return proposeToHome({ home: state.grant.home, notify, ...(config.request.name ? { name: config.request.name } : {}) });
+      return proposeToHome({
+        home: state.grant.home,
+        notify,
+        ...(config.request.name ? { name: config.request.name } : {}),
+      });
     },
   };
 

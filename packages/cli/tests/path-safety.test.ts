@@ -162,17 +162,22 @@ describe('weave run --create off a terminal', () => {
   test('keeps the recovery code out of the log', async () => {
     const home = await tempDir();
     const main = fileURLToPath(new URL('../src/main.ts', import.meta.url));
-    const child = spawn(process.execPath, ['--conditions=@weaveprotocol/source', '--import', 'tsx', main, 'run', '--create', '--port', '0'], {
-      env: { ...process.env, WEAVE_HOME: home, WEAVE_PASSPHRASE: 'pw' },
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      ['--conditions=@weaveprotocol/source', '--import', 'tsx', main, 'run', '--create', '--port', '0'],
+      {
+        env: { ...process.env, WEAVE_HOME: home, WEAVE_PASSPHRASE: 'pw' },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      },
+    );
     let log = '';
     child.stderr.on('data', (chunk: Buffer) => (log += chunk.toString()));
 
     try {
       const deadline = Date.now() + 15000;
       while (!/not printed/.test(log)) {
-        if (Date.now() > deadline || child.exitCode !== null) assert.fail(`never said where the code went:\n${log}`);
+        if (Date.now() > deadline || child.exitCode !== null)
+          assert.fail(`never said where the code went:\n${log}`);
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     } finally {

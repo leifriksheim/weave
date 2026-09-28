@@ -53,10 +53,7 @@ describe('the handover', () => {
   });
 
   test('someone else in the room learns nothing', async () => {
-    const sealed = await sealPairingPayload(
-      utf8Encode('the lists'),
-      await derivePairingKey(generateSeed()),
-    );
+    const sealed = await sealPairingPayload(utf8Encode('the lists'), await derivePairingKey(generateSeed()));
 
     const strangersKey = await derivePairingKey(generateSeed());
     await assert.rejects(

@@ -78,30 +78,47 @@ async function space(options: { reader?: boolean } = {}) {
   if (options.reader) {
     carol = await person(hub);
     await carol.node.spaces.join(await alice.node.spaces.invite(id, { write: false }));
-    await until(async () => (await carol!.node.spaces.list()).some((s) => s.id === id && !s.joining), 4000, 'Carol to join');
+    await until(
+      async () => (await carol!.node.spaces.list()).some((s) => s.id === id && !s.joining),
+      4000,
+      'Carol to join',
+    );
   }
   const everyone = [alice, bob, ...(carol ? [carol] : [])];
   // Their screens have the space open.
   for (const who of everyone) await hold(who.node, id);
   for (const who of everyone) {
-    await until(async () => Object.keys((await who.node.spaces.status(id)).accounts).length === everyone.length - 1, 4000, 'everyone to connect');
+    await until(
+      async () => Object.keys((await who.node.spaces.status(id)).accounts).length === everyone.length - 1,
+      4000,
+      'everyone to connect',
+    );
   }
   return { hub, alice, bob, carol: carol!, space: id };
 }
 
 const peopleIn = (calls: Calls) => calls.getState().current?.people ?? [];
-const connected = (calls: Calls) => peopleIn(calls).filter((p) => p.connection === 'connected' && p.stream !== null);
+const connected = (calls: Calls) =>
+  peopleIn(calls).filter((p) => p.connection === 'connected' && p.stream !== null);
 
 describe('calls', () => {
   test('a call started in a space shows to the others there, and joining it connects both ways', async () => {
     const { alice, bob, space: id } = await space();
     await alice.calls.start(id);
-    await until(() => bob.calls.getState().around.some((c) => c.space === id && c.people.includes(alice.node.did)), 4000, 'Bob to see the call');
+    await until(
+      () => bob.calls.getState().around.some((c) => c.space === id && c.people.includes(alice.node.did)),
+      4000,
+      'Bob to see the call',
+    );
     const going = bob.calls.getState().around[0]!;
 
     await bob.calls.start(id);
     assert.equal(bob.calls.getState().current?.id, going.id, 'Bob joined the call going on, not a new one');
-    await until(() => connected(alice.calls).length === 1 && connected(bob.calls).length === 1, 4000, 'both to connect');
+    await until(
+      () => connected(alice.calls).length === 1 && connected(bob.calls).length === 1,
+      4000,
+      'both to connect',
+    );
     assert.equal(peopleIn(alice.calls)[0]!.account, bob.node.did);
     assert.equal(peopleIn(bob.calls)[0]!.account, alice.node.did);
     assert.equal(bob.calls.getState().around.length, 0, 'the call you are in is not "around"');
@@ -119,7 +136,11 @@ describe('calls', () => {
     await bob.calls.answer(ring.id);
     assert.equal(bob.calls.getState().ringing.length, 0);
     await until(() => alice.calls.getState().current?.outgoing === null, 4000, 'Alice to hear the answer');
-    await until(() => connected(alice.calls).length === 1 && connected(bob.calls).length === 1, 4000, 'both to connect');
+    await until(
+      () => connected(alice.calls).length === 1 && connected(bob.calls).length === 1,
+      4000,
+      'both to connect',
+    );
   });
 
   test('a declined ring ends a call nobody else is in', async () => {
@@ -127,7 +148,11 @@ describe('calls', () => {
     await alice.calls.ring(id, bob.node.did);
     await until(() => bob.calls.getState().ringing.length === 1, 4000, 'the ring');
     await bob.calls.decline(bob.calls.getState().ringing[0]!.id);
-    await until(() => alice.calls.getState().current?.outgoing?.state === 'declined', 4000, 'Alice to hear it');
+    await until(
+      () => alice.calls.getState().current?.outgoing?.state === 'declined',
+      4000,
+      'Alice to hear it',
+    );
     await until(() => alice.calls.getState().current === null, 5000, 'the call to end');
   });
 
@@ -136,8 +161,14 @@ describe('calls', () => {
     await alice.calls.ring(id, bob.node.did);
     await until(() => bob.calls.getState().ringing.length === 1, 4000, 'the ring');
     await until(() => bob.calls.getState().ringing.length === 0, 4000, 'the ringing to stop');
-    await until(async () => (await bob.node.records.list(id, { collection: 'std.call' })).length === 1, 4000, 'the missed call to reach Bob');
-    const missed = (await bob.node.records.list<{ status: string; to: string }>(id, { collection: 'std.call' }))[0]!;
+    await until(
+      async () => (await bob.node.records.list(id, { collection: 'std.call' })).length === 1,
+      4000,
+      'the missed call to reach Bob',
+    );
+    const missed = (
+      await bob.node.records.list<{ status: string; to: string }>(id, { collection: 'std.call' })
+    )[0]!;
     assert.equal(missed.body?.status, 'missed');
     assert.equal(missed.body?.to, bob.node.did);
     assert.equal(missed.root, alice.node.did);
@@ -152,10 +183,20 @@ describe('calls', () => {
 
     await bob.calls.leave();
     await until(() => peopleIn(alice.calls).length === 0, 4000, 'Alice to see Bob go');
-    assert.equal((await alice.node.records.list(id, { collection: 'std.call' })).length, 0, 'Bob left someone behind, so wrote nothing');
+    assert.equal(
+      (await alice.node.records.list(id, { collection: 'std.call' })).length,
+      0,
+      'Bob left someone behind, so wrote nothing',
+    );
     await alice.calls.leave();
-    await until(async () => (await bob.node.records.list(id, { collection: 'std.call' })).length === 1, 4000, 'the record');
-    const ended = (await bob.node.records.list<{ status: string; people: string[] }>(id, { collection: 'std.call' }))[0]!;
+    await until(
+      async () => (await bob.node.records.list(id, { collection: 'std.call' })).length === 1,
+      4000,
+      'the record',
+    );
+    const ended = (
+      await bob.node.records.list<{ status: string; people: string[] }>(id, { collection: 'std.call' })
+    )[0]!;
     assert.equal(ended.body?.status, 'ended');
     assert.deepEqual([...ended.body!.people].sort(), [alice.node.did, bob.node.did].sort());
   });
@@ -173,7 +214,11 @@ describe('calls', () => {
     await settle(600);
     assert.equal(connected(alice.calls).length, 1, 'still hearing Bob after he would have gone quiet');
     assert.equal(connected(bob.calls).length, 1);
-    assert.equal((await alice.node.spaces.status(id)).peers.length, 1, 'the space is still open for the call');
+    assert.equal(
+      (await alice.node.spaces.status(id)).peers.length,
+      1,
+      'the space is still open for the call',
+    );
   });
 
   test('a view-only reader is not let into the call', async () => {
@@ -189,7 +234,8 @@ describe('calls', () => {
 
   test('one account can only ring you a few times a minute', async () => {
     const { alice, bob, space: id } = await space();
-    for (let i = 0; i < 6; i++) await alice.node.spaces.send(id, { type: 'call.ring', call: `ring-${i}` }, bob.node.did);
+    for (let i = 0; i < 6; i++)
+      await alice.node.spaces.send(id, { type: 'call.ring', call: `ring-${i}` }, bob.node.did);
     await settle(200);
     assert.equal(bob.calls.getState().ringing.length, 3);
   });
@@ -203,7 +249,11 @@ describe('calls', () => {
 
     alice.calls.setMuted(true);
     await alice.calls.setCamera(true);
-    await until(() => peopleIn(bob.calls)[0]?.muted === true && peopleIn(bob.calls)[0]?.camera === true, 4000, 'Bob to see it');
+    await until(
+      () => peopleIn(bob.calls)[0]?.muted === true && peopleIn(bob.calls)[0]?.camera === true,
+      4000,
+      'Bob to see it',
+    );
     assert.equal(alice.calls.getState().current?.camera, true);
     await alice.calls.shareScreen();
     assert.equal(alice.calls.getState().current?.sharing, true);

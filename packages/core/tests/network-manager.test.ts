@@ -56,7 +56,10 @@ describe('choosing a transport', () => {
 
   test('a transport that dials on its own needs no relay', () => {
     const hub = createFakeHub();
-    const manager = createNetworkManager({ did: 'did:key:zA', createTransport: () => hub.transport('did:key:zA') });
+    const manager = createNetworkManager({
+      did: 'did:key:zA',
+      createTransport: () => hub.transport('did:key:zA'),
+    });
     assert.equal(manager.isConnected(), false);
   });
 });
@@ -71,7 +74,11 @@ describe('over an unsignalled transport', () => {
 
     await a.connect();
     await b.connect();
-    await until(() => seenA.connected.includes('did:key:zB') && seenB.connected.includes('did:key:zA'), 1000, 'both sides connected');
+    await until(
+      () => seenA.connected.includes('did:key:zB') && seenB.connected.includes('did:key:zA'),
+      1000,
+      'both sides connected',
+    );
 
     a.send('did:key:zB', { type: 'hello', from: 'did:key:zA', payload: { n: 1 } });
     await until(() => seenB.messages.length === 1, 1000, 'message');
@@ -164,7 +171,10 @@ describe('sync through a transport', () => {
     const pair = await provider.generateKeyPair();
     const author = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
     for (const text of ['one', 'two', 'three']) {
-      const signed = await signer.sign(createExpression({ author, collection: 'app.test.note', body: { text } }), pair.privateKey);
+      const signed = await signer.sign(
+        createExpression({ author, collection: 'app.test.note', body: { text } }),
+        pair.privateKey,
+      );
       await a.storage.addExpression(signed);
     }
 
@@ -173,7 +183,7 @@ describe('sync through a transport', () => {
 
     await until(() => hub.delivered() > 0, 1000, 'first frame');
     const rootA = await a.storage.fingerprint();
-    let rootB = "";
+    let rootB = '';
     const deadline = Date.now() + 3000;
     while (rootB !== rootA && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -217,7 +227,12 @@ describe('the mesh, through real relays', () => {
 
   const hub = createFakeHub({ latencyMs: 1 });
   /** A mesh whose connections are counted as they open */
-  const mesh = (did: string, relays: string[], namespace: string, options: { authTimeoutMs?: number } = {}) => {
+  const mesh = (
+    did: string,
+    relays: string[],
+    namespace: string,
+    options: { authTimeoutMs?: number } = {},
+  ) => {
     const opened: string[] = [];
     const created = createMesh({
       did,
@@ -250,7 +265,11 @@ describe('the mesh, through real relays', () => {
 
     // And the introduced link carries data like any other.
     a.send('did:key:zC', { type: 'hello', from: 'did:key:zA', payload: 'via the mesh' });
-    await until(() => seenC.messages.some((m) => m.payload === 'via the mesh'), 2000, 'message over introduced link');
+    await until(
+      () => seenC.messages.some((m) => m.payload === 'via the mesh'),
+      2000,
+      'message over introduced link',
+    );
 
     for (const room of [a, b, c]) room.disconnect();
   });
@@ -265,7 +284,7 @@ describe('the mesh, through real relays', () => {
     const seenA = collect(a);
     await a.connect();
     await c.connect();
-    await until(() => seenA.connected.includes('did:key:zC'), 5000, 'A to meet C on the room\'s relay');
+    await until(() => seenA.connected.includes('did:key:zC'), 5000, "A to meet C on the room's relay");
 
     // A room that names no relay of its own stays on A's relays alone: C is not met there.
     const plainA = meshA.join('plain');
@@ -279,11 +298,18 @@ describe('the mesh, through real relays', () => {
   });
 
   test('two spaces shared by two devices use one connection', async () => {
-    const [meshA, meshB] = [mesh('did:key:zA', [relay], 'shared-link'), mesh('did:key:zB', [relay], 'shared-link')];
+    const [meshA, meshB] = [
+      mesh('did:key:zA', [relay], 'shared-link'),
+      mesh('did:key:zB', [relay], 'shared-link'),
+    ];
     const [a1, a2, b1, b2] = [meshA.join('one'), meshA.join('two'), meshB.join('one'), meshB.join('two')];
     const seen = { a1: collect(a1), a2: collect(a2), b1: collect(b1), b2: collect(b2) };
     for (const room of [a1, a2, b1, b2]) await room.connect();
-    await until(() => Object.values(seen).every((room) => room.connected.length === 1), 5000, 'both rooms to meet, on both sides');
+    await until(
+      () => Object.values(seen).every((room) => room.connected.length === 1),
+      5000,
+      'both rooms to meet, on both sides',
+    );
 
     assert.deepEqual(meshA.opened, ['did:key:zB']);
     assert.deepEqual(meshB.opened, ['did:key:zA']);
@@ -297,10 +323,21 @@ describe('the mesh, through real relays', () => {
 
   test('a peer is a peer only in the rooms it shares, and leaving one keeps the others', async () => {
     const [meshA, meshB] = [mesh('did:key:zA', [relay], 'leaving'), mesh('did:key:zB', [relay], 'leaving')];
-    const [a1, a2, a3, b1, b2] = [meshA.join('l1'), meshA.join('l2'), meshA.join('l3'), meshB.join('l1'), meshB.join('l2')];
+    const [a1, a2, a3, b1, b2] = [
+      meshA.join('l1'),
+      meshA.join('l2'),
+      meshA.join('l3'),
+      meshB.join('l1'),
+      meshB.join('l2'),
+    ];
     const seen = { a1: collect(a1), a2: collect(a2), a3: collect(a3), b1: collect(b1) };
     for (const room of [a1, a2, a3, b1, b2]) await room.connect();
-    await until(() => seen.a1.connected.length === 1 && seen.a2.connected.length === 1 && seen.b1.connected.length === 1, 5000, 'the shared rooms to meet');
+    await until(
+      () =>
+        seen.a1.connected.length === 1 && seen.a2.connected.length === 1 && seen.b1.connected.length === 1,
+      5000,
+      'the shared rooms to meet',
+    );
     assert.deepEqual(a3.getPeers(), []);
 
     b2.disconnect();
@@ -312,14 +349,25 @@ describe('the mesh, through real relays', () => {
   });
 
   test('letting a peer go in one room keeps it in the others, over the same connection', async () => {
-    const [meshA, meshB] = [mesh('did:key:zA', [relay], 'letting-go'), mesh('did:key:zB', [relay], 'letting-go')];
+    const [meshA, meshB] = [
+      mesh('did:key:zA', [relay], 'letting-go'),
+      mesh('did:key:zB', [relay], 'letting-go'),
+    ];
     const [a1, a2, b1, b2] = [meshA.join('g1'), meshA.join('g2'), meshB.join('g1'), meshB.join('g2')];
     const seen = { a1: collect(a1), a2: collect(a2), b1: collect(b1), b2: collect(b2) };
     for (const room of [a1, a2, b1, b2]) await room.connect();
-    await until(() => Object.values(seen).every((room) => room.connected.length === 1), 5000, 'both rooms to meet, on both sides');
+    await until(
+      () => Object.values(seen).every((room) => room.connected.length === 1),
+      5000,
+      'both rooms to meet, on both sides',
+    );
 
     a2.drop('did:key:zB');
-    await until(() => seen.b2.disconnected.includes('did:key:zA'), 2000, 'B to be told it was let go in room two');
+    await until(
+      () => seen.b2.disconnected.includes('did:key:zA'),
+      2000,
+      'B to be told it was let go in room two',
+    );
     assert.deepEqual(a2.getPeers(), []);
     b1.send('did:key:zA', { type: 'note', from: 'did:key:zB', payload: 'still here' });
     await until(() => seen.a1.messages.some((m) => m.payload === 'still here'), 2000, 'room one to carry on');
@@ -339,10 +387,20 @@ describe('the mesh, through real relays', () => {
     const first = await open('did:key:zPast1');
     await new Promise((resolve) => setTimeout(resolve, 50));
     const second = await open('did:key:zPast2');
-    await until(() => first.heard.some((m) => m.type === 'join' && m.from === 'did:key:zPast2'), 2000, 'the join notice');
+    await until(
+      () => first.heard.some((m) => m.type === 'join' && m.from === 'did:key:zPast2'),
+      2000,
+      'the join notice',
+    );
 
-    second.socket.send(JSON.stringify({ type: 'offer', from: 'did:key:zPast2', to: 'did:key:zPast1', payload: { sdp: 'x' } }));
-    await until(() => first.heard.some((m) => m.type === 'offer' && m.from === 'did:key:zPast2'), 2000, 'the offer');
+    second.socket.send(
+      JSON.stringify({ type: 'offer', from: 'did:key:zPast2', to: 'did:key:zPast1', payload: { sdp: 'x' } }),
+    );
+    await until(
+      () => first.heard.some((m) => m.type === 'offer' && m.from === 'did:key:zPast2'),
+      2000,
+      'the offer',
+    );
     first.socket.close();
     second.socket.close();
   });
@@ -351,12 +409,23 @@ describe('the mesh, through real relays', () => {
     const provider = createP256Provider();
     const identity = async () => {
       const pair = await provider.generateKeyPair();
-      return { did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC), key: pair.privateKey };
+      return {
+        did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC),
+        key: pair.privateKey,
+      };
     };
     type Read = Parameters<typeof createMeshAuth>[2];
     /** A peer in `room`, which signs its proofs with `signWith` — its own key, unless it is lying */
-    const peer = (room: string, who: { did: string; key: CryptoKey }, read: Read = null, signWith = who.key) =>
-      mesh(who.did, [relay], room, { authTimeoutMs: 1000 }).join(room, createMeshAuth(room, { did: who.did, key: signWith }, read, provider));
+    const peer = (
+      room: string,
+      who: { did: string; key: CryptoKey },
+      read: Read = null,
+      signWith = who.key,
+    ) =>
+      mesh(who.did, [relay], room, { authTimeoutMs: 1000 }).join(
+        room,
+        createMeshAuth(room, { did: who.did, key: signWith }, read, provider),
+      );
 
     test('two peers who can prove their names meet and talk', async () => {
       const [alice, bob] = [await identity(), await identity()];
@@ -372,7 +441,7 @@ describe('the mesh, through real relays', () => {
       b.disconnect();
     });
 
-    test('a peer using someone else\'s name never becomes a peer', async () => {
+    test("a peer using someone else's name never becomes a peer", async () => {
       const [alice, victim, impostor] = [await identity(), await identity(), await identity()];
       const a = peer('impostor', alice);
       const liar = peer('impostor', victim, null, impostor.key);
@@ -389,7 +458,10 @@ describe('the mesh, through real relays', () => {
       const key = await generateSpaceKey();
       const readKey = await deriveReadKey(key, provider);
       const read: Read = { key: readKey, publicDid: readKey.did };
-      const stranger: Read = { key: await deriveReadKey(await generateSpaceKey(), provider), publicDid: readKey.did };
+      const stranger: Read = {
+        key: await deriveReadKey(await generateSpaceKey(), provider),
+        publicDid: readKey.did,
+      };
       const [alice, bob, eve] = [await identity(), await identity(), await identity()];
       const a = peer('private', alice, read);
       const b = peer('private', bob, read);
@@ -421,12 +493,21 @@ describe('the mesh, through real relays', () => {
         const access = (who: { did: string }, held: number[], current: number): ReadAccess => ({
           key: async () => reads[held.at(-1)!]!,
           current: () => reads[current]!.did,
-          earlier: async () => held.slice(0, -1).reverse().map((i) => reads[i]!),
+          earlier: async () =>
+            held
+              .slice(0, -1)
+              .reverse()
+              .map((i) => reads[i]!),
           membership: async () => sealWith(keys[held.at(-1)!]!, note(who.did), context),
           // A peer proving an older key gets in when its note opens with that key and names someone still a member.
           admits: async (peerDid, readKey, membership) => {
             const i = reads.findIndex((read) => read.did === readKey);
-            return i >= 0 && held.includes(i) && members.has(peerDid) && (await openWith(keys[i]!, membership, context)) === note(peerDid);
+            return (
+              i >= 0 &&
+              held.includes(i) &&
+              members.has(peerDid) &&
+              (await openWith(keys[i]!, membership, context)) === note(peerDid)
+            );
           },
         });
         return { access, members, reads };
@@ -441,7 +522,11 @@ describe('the mesh, through real relays', () => {
         const [seenA, seenB] = [collect(a), collect(b)];
         await b.connect();
         await a.connect();
-        await until(() => seenA.connected.includes(bob.did) && seenB.connected.includes(alice.did), 5000, 'Alice and Bob to meet');
+        await until(
+          () => seenA.connected.includes(bob.did) && seenB.connected.includes(alice.did),
+          5000,
+          'Alice and Bob to meet',
+        );
         a.disconnect();
         b.disconnect();
       });
@@ -451,7 +536,10 @@ describe('the mesh, through real relays', () => {
         const [alice, bob, dave] = [await identity(), await identity(), await identity()];
         members.add(alice.did).add(bob.did).add(dave.did);
         const told = new Map<string, string>();
-        const a = peer('told', alice, { ...access(alice, [0, 1, 2], 2), admitted: (did, readKey) => told.set(did, readKey) });
+        const a = peer('told', alice, {
+          ...access(alice, [0, 1, 2], 2),
+          admitted: (did, readKey) => told.set(did, readKey),
+        });
         const b = peer('told', bob, access(bob, [0], 0));
         const d = peer('told', dave, access(dave, [0, 1, 2], 2));
         const seenA = collect(a);
@@ -482,18 +570,36 @@ describe('the mesh, through real relays', () => {
       const key = await generateSpaceKey();
       const readKey = await deriveReadKey(key, provider);
       const [alice, bob] = [await identity(), await identity()];
-      const [meshA, meshB] = [mesh(alice.did, [relay], 'mixed', { authTimeoutMs: 1000 }), mesh(bob.did, [relay], 'mixed', { authTimeoutMs: 1000 })];
+      const [meshA, meshB] = [
+        mesh(alice.did, [relay], 'mixed', { authTimeoutMs: 1000 }),
+        mesh(bob.did, [relay], 'mixed', { authTimeoutMs: 1000 }),
+      ];
       const open = meshA.join('open', createMeshAuth('open', alice, null, provider));
-      const secret = meshA.join('secret', createMeshAuth('secret', alice, { key: readKey, publicDid: readKey.did }, provider));
+      const secret = meshA.join(
+        'secret',
+        createMeshAuth('secret', alice, { key: readKey, publicDid: readKey.did }, provider),
+      );
       const bobOpen = meshB.join('open', createMeshAuth('open', bob, null, provider));
-      const bobSecret = meshB.join('secret', createMeshAuth('secret', bob, { key: await deriveReadKey(await generateSpaceKey(), provider), publicDid: readKey.did }, provider));
+      const bobSecret = meshB.join(
+        'secret',
+        createMeshAuth(
+          'secret',
+          bob,
+          { key: await deriveReadKey(await generateSpaceKey(), provider), publicDid: readKey.did },
+          provider,
+        ),
+      );
       const seen = { open: collect(open), secret: collect(secret) };
       for (const room of [open, secret, bobOpen, bobSecret]) await room.connect();
       await until(() => seen.open.connected.includes(bob.did), 5000, 'the open room to meet');
       await new Promise((resolve) => setTimeout(resolve, 1200));
       assert.deepEqual(seen.secret.connected, []);
       bobOpen.send(alice.did, { type: 'note', from: bob.did, payload: 'still talking' });
-      await until(() => seen.open.messages.some((m) => m.payload === 'still talking'), 2000, 'the open room to carry on');
+      await until(
+        () => seen.open.messages.some((m) => m.payload === 'still talking'),
+        2000,
+        'the open room to carry on',
+      );
       for (const room of [open, secret, bobOpen, bobSecret]) room.disconnect();
     });
   });

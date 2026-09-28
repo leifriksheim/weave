@@ -32,7 +32,15 @@
  * knocked, not what they said. See `spec/07-doors.md`.
  */
 import type { CryptoProvider } from '../types.js';
-import { contactKeyPair, contactPublicKey, isContactPublicKey, openSealed, sealFor, signWithScalar, verifyWithPoint } from '../identity/contact-key.js';
+import {
+  contactKeyPair,
+  contactPublicKey,
+  isContactPublicKey,
+  openSealed,
+  sealFor,
+  signWithScalar,
+  verifyWithPoint,
+} from '../identity/contact-key.js';
 import { didToPublicKey } from '../identity/did.js';
 import { resolveDelegationRoot, UCAN_CLOCK_SKEW_SECONDS } from '../identity/ucan.js';
 import { isAgentNote } from '../identity/agent-note.js';
@@ -115,7 +123,15 @@ export function encodeDoorCode(code: Omit<DoorCode, 'v'>): string {
   const problem = checkDoorCode({ v: 1, ...code });
   if (problem) throw new Error(problem);
   return base64UrlEncode(
-    utf8Encode(canonicalize({ v: 1, key: code.key, sign: code.sign, relays: [...code.relays], ...(code.name ? { name: code.name } : {}) })),
+    utf8Encode(
+      canonicalize({
+        v: 1,
+        key: code.key,
+        sign: code.sign,
+        relays: [...code.relays],
+        ...(code.name ? { name: code.name } : {}),
+      }),
+    ),
   );
 }
 
@@ -136,7 +152,13 @@ export function parseDoorCode(text: string): DoorCode {
   const problem = checkDoorCode(parsed);
   if (problem) throw new Error(`That door code doesn't work: ${problem}`);
   const code = parsed as DoorCode;
-  return Object.freeze({ v: 1, key: code.key, sign: code.sign, relays: Object.freeze([...code.relays]), ...(code.name ? { name: code.name } : {}) });
+  return Object.freeze({
+    v: 1,
+    key: code.key,
+    sign: code.sign,
+    relays: Object.freeze([...code.relays]),
+    ...(code.name ? { name: code.name } : {}),
+  });
 }
 
 /** Why a value is not a door code, or null */
@@ -144,13 +166,15 @@ export function checkDoorCode(value: unknown): string | null {
   const code = value as Partial<DoorCode> | null;
   if (!code || typeof code !== 'object' || code.v !== 1) return 'it is not a version 1 door';
   if (!isContactPublicKey(code.key)) return 'its key is not a P-256 public key';
-  if (!isContactPublicKey(code.sign) || code.sign === code.key) return 'its signing key is not a P-256 public key of its own';
+  if (!isContactPublicKey(code.sign) || code.sign === code.key)
+    return 'its signing key is not a P-256 public key of its own';
   if (!Array.isArray(code.relays) || code.relays.length === 0 || code.relays.length > MAX_DOOR_RELAYS) {
     return `it names 1–${MAX_DOOR_RELAYS} relays`;
   }
   const relays = checkRelays(code.relays);
   if (relays) return relays;
-  if (code.name !== undefined && (typeof code.name !== 'string' || Array.from(code.name).length > MAX_NAME)) return `its name is text of at most ${MAX_NAME} characters`;
+  if (code.name !== undefined && (typeof code.name !== 'string' || Array.from(code.name).length > MAX_NAME))
+    return `its name is text of at most ${MAX_NAME} characters`;
   return null;
 }
 
@@ -170,7 +194,12 @@ export const purgeMessage = (topic: string, nonce: string, ids: ReadonlyArray<st
   utf8Encode(`weave/door-purge/v1|${topic}|${nonce}|${ids ? [...ids].sort().join(',') : '*'}`);
 
 /** Signs a relay's purge challenge with the door's signing key */
-export function signPurge(signKey: Uint8Array, topic: string, nonce: string, ids: ReadonlyArray<string> | null): Promise<string> {
+export function signPurge(
+  signKey: Uint8Array,
+  topic: string,
+  nonce: string,
+  ids: ReadonlyArray<string> | null,
+): Promise<string> {
   return signWithScalar(signKey, purgeMessage(topic, nonce, ids));
 }
 
@@ -180,13 +209,19 @@ export function signPurge(signKey: Uint8Array, topic: string, nonce: string, ids
  * whoever joined first — someone the invite was passed on to — would be taken
  * for the person behind the door.
  */
-const answerMessage = (pairSpace: string, did: string) => utf8Encode(`weave/knock-answer/v1|${pairSpace}|${did}`);
+const answerMessage = (pairSpace: string, did: string) =>
+  utf8Encode(`weave/knock-answer/v1|${pairSpace}|${did}`);
 
 export function signAnswer(signKey: Uint8Array, pairSpace: string, did: string): Promise<string> {
   return signWithScalar(signKey, answerMessage(pairSpace, did));
 }
 
-export function checkAnswer(sign: string, pairSpace: string, did: string, signature: string): Promise<boolean> {
+export function checkAnswer(
+  sign: string,
+  pairSpace: string,
+  did: string,
+  signature: string,
+): Promise<boolean> {
   return verifyWithPoint(sign, answerMessage(pairSpace, did), signature);
 }
 
@@ -232,7 +267,12 @@ export async function sealKnock(
  * @param receivedAt When the relay took it, ms, as `fetch` says
  * @returns The knock, or null when it is anything less
  */
-export async function openKnock(doorKey: Uint8Array, blob: string, receivedAt: number, provider: CryptoProvider): Promise<OpenedKnock | null> {
+export async function openKnock(
+  doorKey: Uint8Array,
+  blob: string,
+  receivedAt: number,
+  provider: CryptoProvider,
+): Promise<OpenedKnock | null> {
   const door = contactPublicKey(doorKey);
   const opened = (await openSealed((await contactKeyPair(doorKey)).privateKey, blob, knockContext(door))) as {
     body?: KnockBody;
@@ -241,17 +281,20 @@ export async function openKnock(doorKey: Uint8Array, blob: string, receivedAt: n
   const body = opened?.body;
   if (!body || typeof opened.sig !== 'string') return null;
   if (body.v !== 1 || body.door !== door) return null;
-  if (typeof body.from !== 'string' || typeof body.session !== 'string' || typeof body.name !== 'string') return null;
+  if (typeof body.from !== 'string' || typeof body.session !== 'string' || typeof body.name !== 'string')
+    return null;
   if (Array.from(body.name).length > MAX_NAME) return null;
   if (typeof body.invite !== 'string' || body.invite.length > MAX_INVITE) return null;
   if (typeof body.proof !== 'string' || body.proof.length > MAX_PROOF) return null;
-  if (body.note !== undefined && (typeof body.note !== 'string' || Array.from(body.note).length > MAX_NOTE)) return null;
+  if (body.note !== undefined && (typeof body.note !== 'string' || Array.from(body.note).length > MAX_NOTE))
+    return null;
   if (!Number.isSafeInteger(body.at) || !Number.isFinite(receivedAt)) return null;
   const now = Math.floor(Date.now() / 1000);
   if (body.at > now + UCAN_CLOCK_SKEW_SECONDS || body.at < now - KNOCK_TTL_SECONDS) return null;
   // Signed when it was dropped, not dated back to when a note was still good.
   const dropped = Math.floor(receivedAt / 1000);
-  if (body.at > dropped + UCAN_CLOCK_SKEW_SECONDS || body.at < dropped - KNOCK_DROP_WINDOW_SECONDS) return null;
+  if (body.at > dropped + UCAN_CLOCK_SKEW_SECONDS || body.at < dropped - KNOCK_DROP_WINDOW_SECONDS)
+    return null;
 
   // Signed by the session key it names…
   let signed = false;
@@ -264,11 +307,19 @@ export async function openKnock(doorKey: Uint8Array, blob: string, receivedAt: n
   if (!signed) return null;
   // …which the account it claims had delegated to when it signed. Agents never knock.
   if (isAgentNote(body.proof)) return null;
-  const chain = await resolveDelegationRoot(body.proof, () => null, provider, { at: body.at }).catch(() => null);
+  const chain = await resolveDelegationRoot(body.proof, () => null, provider, { at: body.at }).catch(
+    () => null,
+  );
   if (!chain?.valid || chain.audience !== body.session || chain.rootDid !== body.from) return null;
   // Knocking makes a space and hands out its invite: only a note for the whole
   // account, to write, may. An app given one space, or only to read, may not.
-  if (!chain.capabilities.some((capability) => capability.with === '*' && (capability.can === 'expression/*' || capability.can === '*'))) return null;
+  if (
+    !chain.capabilities.some(
+      (capability) =>
+        capability.with === '*' && (capability.can === 'expression/*' || capability.can === '*'),
+    )
+  )
+    return null;
 
   // A private space the knocker made, with its key: anything else isn't a space for two from them.
   let invited;
@@ -277,7 +328,8 @@ export async function openKnock(doorKey: Uint8Array, blob: string, receivedAt: n
   } catch {
     return null;
   }
-  if (invited.space.creator !== body.from || invited.space.visibility !== 'private' || !invited.key) return null;
+  if (invited.space.creator !== body.from || invited.space.visibility !== 'private' || !invited.key)
+    return null;
   if ((await checkSpace(invited.space)) !== null) return null;
 
   return Object.freeze({
