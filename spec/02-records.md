@@ -3,8 +3,9 @@
 A **record** is a signed, versioned JSON document in a **collection** of a
 **space**. This part says exactly what one looks like, how it is encoded,
 hashed and signed, which of its versions counts, how records point at each
-other, how a space describes its collections and their rules, and what a
-peer checks before it keeps one.
+other, how a space describes its collections and their rules (including
+conditions a version must meet, with evidence it cites), and what a peer
+checks before it keeps one.
 
 Out of scope here, and specified elsewhere:
 
@@ -365,6 +366,10 @@ their own view of the definition. A writer MUST set `retain: true` when:
   which every peer must be able to read, however late it joins. A peer MUST
   refuse a `seq 0` version without `retain` when the rules in force as of its
   `seen` have `onePer` or `fixed`.
+- the version is not a delete and the rules in force have `check` (§7.6),
+  which reads the version before and cites versions by id. A peer MUST refuse
+  a version that is not a delete without `retain` when the rules in force as
+  of its `seen` have `check`.
 
 _Implementation detail:_ the reference writer also sets `retain` on
 `sys.profile`, `sys.box`, `sys.memberkey` and `sys.carrier`.
@@ -378,7 +383,7 @@ of the next one, and each verifies on its own.
 > Stubs rather than nothing, so that every later version can be checked
 > against the one before it (§4.7) by a peer that never saw the bodies.
 
-_Source: `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepSuperseded`), `packages/core/src/schema/expression.ts` (`isStub`, `stubOf`), `packages/core/src/node/space-runtime.ts` (`admit`, `write`, `judgeStanding`, `currentOf`), `packages/core/src/storage/mirror.ts` (`compactNow`). Tests: `packages/core/tests/versions.test.ts` ("an older version arriving after a later one is kept only as a stub", "a stub on top takes its body…", "a retained version is never cut down to a stub", "1,000 edits keep one body…", "a newcomer after a delete…"), `packages/core/tests/rules.test.ts` ("a first version its rules are checked against must be kept whole…"), `packages/core/tests/mirror.test.ts` ("compaction…")._
+_Source: `packages/core/src/storage/storage-provider.ts` (`addExpression`, `demote`, `keepSuperseded`), `packages/core/src/schema/expression.ts` (`isStub`, `stubOf`), `packages/core/src/node/space-runtime.ts` (`admit`, `write`, `judgeStanding`, `currentOf`), `packages/core/src/storage/mirror.ts` (`compactNow`). Tests: `packages/core/tests/versions.test.ts` ("an older version arriving after a later one is kept only as a stub", "a stub on top takes its body…", "a retained version is never cut down to a stub", "1,000 edits keep one body…", "a newcomer after a delete…"), `packages/core/tests/rules.test.ts` ("a first version its rules are checked against must be kept whole…"), `packages/core/tests/checks.test.ts` ("a version under a check must be kept whole…"), `packages/core/tests/mirror.test.ts` ("compaction…")._
 
 ### 4.6 Shape of a version, alone
 
@@ -924,8 +929,8 @@ Depends on: nothing built yet on the peer side; the app-side check is in the pac
 ## 7. Rules
 
 A definition's `rules` say who may create, edit and delete its records, what
-must be unique, and which fields are fixed. Every peer enforces them on every
-version it receives.
+must be unique, which fields are fixed, and what conditions a version must
+meet. Every peer enforces them on every version it receives.
 
 ```json
 "rules": {
@@ -1073,15 +1078,240 @@ stub once superseded, and nothing is compared against it, by any peer.
 ### 7.5 Checking a definition's rules
 
 `rules` MUST be an object with no members other than `create`, `edit`,
-`delete`, `onePer`, `fixed`, each valid as above (`onePer` and `fixed`:
-non-empty lists of non-empty strings). A definition with anything else is
-invalid (§6.1).
+`delete`, `onePer`, `fixed` and `check`, each valid as above (`onePer` and
+`fixed`: non-empty lists of non-empty strings; `check`: §7.6). A definition
+with anything else is invalid (§6.1).
 
 > Rationale: a rule names either a fact any peer can check from the record
 > (`creator`) or a permission a person decided (`can:…`). "Did a person have to
 > decide it?" is the test for which one to use.
 
 _Source: `packages/core/src/records/rules.ts` (`checkRules`, `allows`, `onePerKey`, `changedFixedField`, `permissionName`, `PERMISSION_PATTERN`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`, `mayNow`, `put`). Tests: `packages/core/tests/rules.test.ts` (all), `packages/core/tests/schemas.test.ts` ("a poll: one vote per person…")._
+
+### 7.6 `check`: conditions and evidence
+
+The other rules say who may write and what stays put. `check` says what a
+version must _be_: conditions over its body, the version before it, and
+other versions it **cites** as evidence. "A proposal passes with yes votes
+from ten members", "a move must be legal from the board before", "a transfer
+spends no more than the balances it cites" are checks.
+
+Peers only check; they never search. A condition cannot look for records,
+because no peer holds them all (§7.3). The writer does the work: it finds the
+votes, adds up the balances, picks the move, and cites the versions that
+prove it by id. Every peer confirms it from exactly what was cited.
+
+```json
+"rules": {
+  "onePer": ["link:about"],
+  "check": [
+    {
+      "that": { ">=": [{ "size": { "distinct": { "map": [
+        { "filter": [
+          { "versions": { "var": "body.votes" } },
+          { "and": [
+            { "==": [{ "var": "it.collection" }, "std.vote"] },
+            { "==": [{ "link": ["about", { "var": "it" }] }, { "link": ["about"] }] },
+            { "==": [{ "var": "it.body.choice" }, 0] }
+          ] }
+        ] },
+        { "var": "it.author" }
+      ] } } }, 10] },
+      "else": "A proposal passes with yes votes from at least ten members"
+    }
+  ]
+}
+```
+
+#### Format
+
+`check` is a list of 1 to **16** checks. A check is an object with exactly two
+members:
+
+- `that`: a **condition** (below);
+- `else`: a string of 1 to 200 characters, not only white space: why a version
+  that fails the check is refused.
+
+A condition is JSON:
+
+- `null`, a boolean, a number or a string is that value. A string is always
+  text, never a path.
+- A list is the list of the values of its elements.
+- An object with exactly one member is an **operation**: the member's name is
+  the operator, and its value the arguments. A list value is the list of
+  arguments; any other value is the one argument. So a single argument that is
+  itself a list is written inside a list: `{ "size": [[1, 2]] }`.
+- Any other object is malformed.
+
+A **path** is 1 to 8 segments joined by `.`, each a name
+`^[A-Za-z_][A-Za-z0-9_]{0,63}$` or a list position `^(0|[1-9][0-9]{0,8})$`.
+Reading a path goes one segment at a time: a name reads an object's own
+member, a position reads a list's element. Anything else (a missing member, a
+position past the end, a name on a list, any segment on text, a number, a
+boolean or `null`) gives `null`.
+
+#### What a check reads
+
+`{ "var": "<path>" }` reads a path whose first segment is one of these:
+
+| Name         | Value                                                                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `body`       | The version's body (opened, in a private space)                                                                                                  |
+| `links`      | Its links, as `[{ "rel", "to" }]` (§5)                                                                                                           |
+| `key`        | Its `key`                                                                                                                                        |
+| `seq`        | Its `seq`                                                                                                                                        |
+| `collection` | Its `collection`                                                                                                                                 |
+| `author`     | Its writer's **root** DID (the account, not the session key)                                                                                     |
+| `creator`    | The root DID of the record's first version (§4.6); on a create, the same as `author`                                                             |
+| `createdAt`  | Its `createdAt`: what the writer's clock said, which nothing checks                                                                              |
+| `prev`       | The version its `prev` names, as a _cited version_ (below), or `null` on a `seq 0`                                                               |
+| `it`         | Only inside the second argument of `map`, `filter`, `all`, `some`, `count` and `sum`: the element being judged. An inner one hides an outer one. |
+
+A **cited version** is an object:
+
+```json
+{
+  "id": "b…",
+  "key": "…",
+  "collection": "std.vote",
+  "seq": 0,
+  "author": "did:key:…",
+  "createdAt": "…",
+  "deleted": false,
+  "body": { "choice": 0 },
+  "links": [{ "rel": "about", "to": "…" }]
+}
+```
+
+`author` is the version's root DID. `body` and `links` are its content, as
+for the version judged; `body` is `null` on a delete. For `prev` only: when
+the version before does **not** carry `retain`, its `body` is `null` and its
+`links` are its envelope's `links` (none, in a private space), whether or not
+a peer happens to hold its body. What `retain` says is signed, so every peer
+reads the same thing.
+
+#### Operators
+
+Below, _fails_ means the check fails at once (see Outcomes). Numbers are IEEE
+754 doubles, as JSON is read; every arithmetic result MUST be finite, or the
+check fails. Text compares by UTF-16 code units. An operator that expects a
+boolean fails on anything else: there is no truthiness.
+
+| Operator             | Arguments          | Value                                                                                                                                                                            |
+| -------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `var`                | path               | The path read from a name above. The path is a literal string.                                                                                                                   |
+| `get`                | value, path        | The path read from a value. The path is a literal string.                                                                                                                        |
+| `and`, `or`          | 1–64 booleans      | Left to right, stopping at the first `false` (`and`) or `true` (`or`)                                                                                                            |
+| `not`                | boolean            | Its negation                                                                                                                                                                     |
+| `if`                 | boolean, a, b      | `a` if true, else `b`; only the one chosen is evaluated                                                                                                                          |
+| `==`, `!=`           | a, b               | Whether the canonical JSON (§1) of `a` and `b` is (not) the same: member order doesn't matter, and `1` and `"1"` differ                                                          |
+| `<`, `<=`, `>`, `>=` | a, b               | Two numbers or two strings; fails on anything else                                                                                                                               |
+| `in`                 | a, list            | Whether some element `==` `a`                                                                                                                                                    |
+| `+`, `*`             | 1–64 numbers       | Sum, product                                                                                                                                                                     |
+| `-`                  | a, or a and b      | `−a`, or `a − b`                                                                                                                                                                 |
+| `/`, `%`             | a, b               | `a / b`, and the remainder with the sign of `a` (C's `fmod`). Fails when `b` is 0.                                                                                               |
+| `min`, `max`         | 1–64 numbers       | The least, the greatest                                                                                                                                                          |
+| `size`               | list               | Its length                                                                                                                                                                       |
+| `map`                | list, condition    | The condition's value for each element, as `it`                                                                                                                                  |
+| `filter`             | list, condition    | The elements for which the condition is `true`                                                                                                                                   |
+| `all`, `some`        | list, condition    | In order, stopping at the first `false` (`all`) or `true` (`some`). `all` of `[]` is `true`; `some` of `[]` is `false`.                                                          |
+| `count`              | list [, condition] | Its length; with a condition, how many elements it is `true` for                                                                                                                 |
+| `sum`                | list [, condition] | The sum of the elements, or of the condition's value for each, added in order                                                                                                    |
+| `distinct`           | list               | The list without the elements `==` an earlier one                                                                                                                                |
+| `hash`               | a                  | The content id (§2) of the canonical JSON of `a`; of a body, its `bodyHash`                                                                                                      |
+| `link`               | rel [, a]          | The `to` of the first link with that `rel` in this version's links, or in `a`'s `links`; `null` when there is none. `rel` is a literal link role (§5.1).                         |
+| `versions`           | list of ids        | The cited version for each id, in order (below)                                                                                                                                  |
+| `can`                | permission [, did] | Whether the account (default: `author`) holds `<collection>/<permission>` as of this version's `seen` ([03](03-spaces.md)). A literal permission the definition declares (§7.1). |
+| `member`             | did                | Whether the account holds any role as of this version's `seen`                                                                                                                   |
+
+Arguments are evaluated left to right, except where the table says an
+operator stops or chooses. `can` and `member` fail on a value that is not a
+string starting `did:`. An operator that takes a list fails on anything else.
+
+#### Citing a version
+
+`versions` looks each id up in this space, in order, and the first that does
+not resolve decides:
+
+1. Not held: the version **waits** (§9.5).
+2. Held, not a delete, and without `retain`: the check fails. Only a version
+   kept whole reads the same on every peer, however late it joins.
+3. Its collection differs from its record's first version (§4.6): the check
+   fails.
+4. It does not stand (§9.4): the check fails; or waits, if judging it waits.
+5. Sealed with a key the peer does not hold: the peer cannot judge (below).
+
+A version's id covers its content, so a version cannot cite itself and
+citations never form a cycle.
+
+#### Outcomes
+
+A peer judges a version's checks in order, and the first that is not `true`
+decides. A check whose condition's value is anything but `true`, or that
+fails, refuses the version, with its `else` as the reason. A version that
+cites one not held waits (§9.5), and is judged again when more arrives.
+
+Limits, counted across all of one version's checks:
+
+- **Steps.** Every literal, list and operation evaluated counts one, and so
+  does every element that `map`, `filter`, `all`, `some`, `count`, `sum`,
+  `distinct` or `versions` goes through. Past **10,000** the check fails.
+- **Citations.** At most **256** distinct versions; citing one more fails the
+  check. Citing the same id again does not count again.
+
+A peer that cannot read the version's body, the version before it (when that
+carries `retain`), or a version it cites, because it is sealed with a key the
+peer does not hold, cannot judge: it accepts the version on the other checks,
+as with `onePer` (§7.3).
+
+#### Keeping what checks read
+
+When the rules in force as of a version's `seen` have `check`, its writer MUST
+set `retain` on every version that is not a delete, and a peer MUST refuse
+such a version without it (§4.5). So the version before is always whole, and
+any version of the collection can be cited.
+
+#### Checking a definition
+
+A definition's `check` is invalid (§6.1) unless it is a list of 1 to 16
+checks as above, and:
+
+- every operation names an operator in the table, with a number of arguments
+  it takes;
+- `var` and `get` take a literal path, and `var`'s first segment is a name
+  above (`it` only where it is bound);
+- `link` takes a literal link role, and `can` a literal permission the
+  definition declares in `permissions`;
+- every number is finite;
+- no condition nests more than **32** deep, and a collection's checks have at
+  most **2,000** parts (literals, lists and operations) in all.
+
+> Rationale: a check is a verifier, not a program that runs the space. It
+> always ends, and reads only what is fixed once written: its own version,
+> the one before if kept whole, versions named by id and kept whole, and the
+> roles as of its `seen`. No clock and no search, so every peer, whenever it
+> judges, reaches the same verdict. Each step is bounded, but a record's
+> versions are not, and versions can cite versions: that is where the
+> power is. What a check cannot see is completeness ("nobody objected") and
+> time ("before Friday"). Both become citable once someone signs them: a
+> record that closes a vote and lists what it counts, or a witness's record
+> that it saw something by a time.
+
+> **Planned: asking for what a version cites.** Issue:
+> [#79](https://github.com/leifriksheim/weave/issues/79). A version waiting for its
+> first version or the one before names them, and sync asks for them at once
+> ([05](05-sync-and-storage.md)). A version waiting for a version it cites
+> does not yet: a peer that holds the whole space gets it in the next round
+> anyway, but a peer holding only some collections ([05](05-sync-and-storage.md), What a node holds)
+> may never fetch a cited version from a collection it doesn't use, and the
+> citing version then waits there for good. The plan: a verdict that waits
+> names the ids it waits for, and sync asks for those whatever their
+> collection.
+
+What checks build, and patterns for them, are in the
+[collections guide](../packages/core/docs/collections.md#checks).
+
+_Source: `packages/core/src/records/checks.ts` (`checkChecks`, `runChecks`, `MAX_CHECKS`, `MAX_CHECK_STEPS`, `MAX_CITED`, `MAX_CHECK_DEPTH`, `MAX_CHECK_NODES`, `CHECK_NAMES`), `packages/core/src/records/rules.ts` (`checkRules`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `checkStanding`, `checkedVersion`, `cited`, `write`). Tests: `packages/core/tests/checks.test.ts` (all)._
 
 ---
 
@@ -1214,17 +1444,17 @@ Given a valid signature and root, whether the version _stands_ in this space:
    2. The access state as of `seen` is known ([03](03-spaces.md)).
    3. The root holds a role as of `seen`, and the rule for the action allows it (§7.2), and the access history's own judgement of the writer passes (revoked notes, removals — [03](03-spaces.md)).
    4. If a definition is in force and the version is not a delete: tags check (§8.4).
-   5. If rules are in force and the version is not a delete: `retain` on a `seq 0` under `onePer` or `fixed` (§4.5), `onePer` (§7.3) on `seq 0`, `fixed` (§7.4) on `seq > 0`.
+   5. If rules are in force and the version is not a delete: `retain` on a `seq 0` under `onePer` or `fixed`, and on every version under `check` (§4.5); `onePer` (§7.3) on `seq 0`; `fixed` (§7.4) on `seq > 0`; then `check` (§7.6), which may make the version wait for versions it cites.
 
 ### 9.5 What a peer does with a refused version
 
 A check can end three ways:
 
-| Outcome     | When                                                                                                                 | What the peer does                                                                                                                                                                                    |
-| ----------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **stands**  | every check passes                                                                                                   | Stores it; the ordering rule (§4.3) decides whether it becomes current.                                                                                                                               |
-| **later**   | it depends on something not held: its first version, the version its `prev` names, or access changes named in `seen` | Holds it aside (at most 1,000, oldest dropped) and re-judges waiting versions whenever something new is stored. Nothing is reported.                                                                  |
-| **refused** | any other failure                                                                                                    | Does not store it, does not pass it on, and reports it (a `rejected` event with the peer and reason). Remembers the refusal as (peer, id) — at most 10,000 — only so it does not ask that peer again. |
+| Outcome     | When                                                                                                                                                   | What the peer does                                                                                                                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **stands**  | every check passes                                                                                                                                     | Stores it; the ordering rule (§4.3) decides whether it becomes current.                                                                                                                               |
+| **later**   | it depends on something not held: its first version, the version its `prev` names, access changes named in `seen`, or a version its checks cite (§7.6) | Holds it aside (at most 1,000, oldest dropped) and re-judges waiting versions whenever something new is stored. Nothing is reported.                                                                  |
+| **refused** | any other failure                                                                                                                                      | Does not store it, does not pass it on, and reports it (a `rejected` event with the peer and reason). Remembers the refusal as (peer, id) — at most 10,000 — only so it does not ask that peer again. |
 
 A peer MUST NOT remember a refusal by id alone, and MUST NOT cache a failing
 verdict: a copy with a mangled signature shares the genuine version's id
@@ -1251,7 +1481,7 @@ hold, and refusing would leave peers disagreeing forever. Readers flag such a
 record instead (the node reports `conforms: false` with the issues). A writer
 checks them before signing and SHOULD NOT write what does not conform.
 
-_Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`), `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `chainStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/attacks.test.ts`._
+_Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`), `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `chainStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/checks.test.ts` ("between peers"), `packages/core/tests/attacks.test.ts`._
 
 ---
 
@@ -1266,6 +1496,9 @@ _Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`),
 | Topic fields per collection                 | ≤ 8, ≤ 4 path segments                                                               |
 | Tags per version                            | ≤ 64                                                                                 |
 | Permission name                             | `^[a-z][a-zA-Z0-9]{0,39}$`                                                           |
+| Checks per collection                       | ≤ 16; ≤ 2,000 parts in all, ≤ 32 deep                                                |
+| Steps judging one version's checks          | ≤ 10,000                                                                             |
+| Versions one version's checks cite          | ≤ 256 distinct                                                                       |
 | Definition `screen`                         | ≤ 48 KiB UTF-8                                                                       |
 | Definition `network`                        | ≤ 8 origins                                                                          |
 | Future-dated `createdAt` (delegated writes) | ≤ 300 s ahead                                                                        |

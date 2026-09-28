@@ -78,13 +78,14 @@ A link role is lower camel case. Queries follow links with `include`
 
 ## Rules
 
-| Rule     | Means                                                  | Default        |
-| -------- | ------------------------------------------------------ | -------------- |
-| `create` | Who may create a record                                | `member`       |
-| `edit`   | Who may write later versions                           | `member`       |
-| `delete` | Who may delete                                         | same as `edit` |
-| `onePer` | At most one record per combination of these            | none           |
-| `fixed`  | Fields that keep the value the record was created with | none           |
+| Rule     | Means                                                     | Default        |
+| -------- | --------------------------------------------------------- | -------------- |
+| `create` | Who may create a record                                   | `member`       |
+| `edit`   | Who may write later versions                              | `member`       |
+| `delete` | Who may delete                                            | same as `edit` |
+| `onePer` | At most one record per combination of these               | none           |
+| `fixed`  | Fields that keep the value the record was created with    | none           |
+| `check`  | Conditions every new version must meet ([below](#checks)) | none           |
 
 Who is one of these, or a list meaning any of them:
 
@@ -102,6 +103,118 @@ the first vote's next version, not a new record.
 ```typescript
 rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about'] }  // one vote per person per poll
 ```
+
+## Checks
+
+The rules above say who may write. `check` says what a version must be:
+conditions every device checks, over the body, the version before it, and
+other versions it **cites** as evidence. With them a space can hold things
+that normally need a server or a smart contract: a proposal that passes only
+with enough votes, a game whose moves must be legal, points that can't be
+spent twice, a reward that unlocks when its condition is met.
+
+```typescript
+export const passed = collection({
+  name: 'app.proposal.passed',
+  schema: z.object({ votes: z.array(z.string()) }),
+  links: { about: { to: ['app.proposal'], cardinality: 'one' } },
+  rules: {
+    onePer: ['link:about'], // one "passed" per proposal
+    check: [
+      {
+        // At least three members' yes votes on this proposal, among those cited
+        that: {
+          '>=': [
+            {
+              size: {
+                distinct: {
+                  map: [
+                    {
+                      filter: [
+                        { versions: { var: 'body.votes' } },
+                        {
+                          and: [
+                            { '==': [{ var: 'it.collection' }, 'app.proposal.vote'] },
+                            { '==': [{ link: ['about', { var: 'it' }] }, { link: ['about'] }] },
+                            { '==': [{ var: 'it.body.choice' }, 'yes'] },
+                          ],
+                        },
+                      ],
+                    },
+                    { var: 'it.author' },
+                  ],
+                },
+              },
+            },
+            3,
+          ],
+        },
+        else: 'A proposal passes with yes votes from at least three members',
+      },
+    ],
+  },
+});
+
+// The app finds the votes and cites them by version id
+const votes = await node.records.linked(space.id, proposal.key, { collection: 'app.proposal.vote' });
+await node.records.put(
+  space.id,
+  passed,
+  { votes: votes.map((v) => v.version) },
+  { links: [{ rel: 'about', to: proposal.key }] },
+);
+```
+
+A check never searches, because no device holds everything. The writer does
+the work (finds the votes, adds up the balances, picks the move) and cites
+what proves it. Every device then checks that exactly what was cited proves
+it. A version that fails is refused everywhere, with the check's `else` as
+the reason, and your own node refuses it before signing. A version citing
+one that hasn't arrived yet waits until it does.
+
+A condition is JSON: literals, lists, and `{ "<operator>": [arguments] }`.
+It reads `body`, `links`, `key`, `seq`, `author` (the account),
+`creator`, `createdAt`, `prev` (the version before, or `null`) and, inside
+list operators, `it`. The operators are `==` `!=` `<` `<=` `>` `>=` `in`,
+`and` `or` `not` `if`, `+` `-` `*` `/` `%` `min` `max`, `size` `map`
+`filter` `all` `some` `count` `sum` `distinct`, `get` `link` `hash`, and
+three that ask the space: `versions` (read cited versions by id), `can`
+(does someone hold a permission) and `member`. There are no loops except over
+lists already in hand, a check always ends, and a value is never "truthy": a
+condition is `true` or the version is refused. The exact rules are in the
+spec, `spec/02-records.md` §7.6.
+
+**What can be cited.** Only versions kept whole, so every device reads the
+same thing however late it joins: any version in a collection with
+`history: 'all'` or with checks of its own, and a first version under
+`onePer` or `fixed`. Give a collection you mean to cite `history: 'all'`,
+or an edited vote's latest version can't be cited. A cited version proves
+what was signed, not that it is still current, so make evidence final where
+it matters: `fixed: ['choice']` on a vote.
+
+The standard library has two ready-made: `std.decision`, a proposal decided
+by a quorum of ballots, and `std.goal-reached`, a goal reached by pledges
+([standard-library.md](standard-library.md)).
+
+**Patterns.**
+
+- **Quorums and multisig.** "Three admins approved": cite the approvals, and
+  check `distinct` authors with `{ can: ['approve', { var: 'it.author' }] }`.
+- **State machines.** Check each version against `prev`: a task moves from
+  `open` to `done` only, a counter goes up by one, a chess move is legal from
+  the board before. Each step is small, and there is no limit on steps.
+- **Ledgers.** A transfer cites the balance records it spends, and checks
+  that they are the sender's and add up. Two spends of one balance are two
+  versions of it, which everyone sees.
+- **Commit, then reveal.** A player first writes `hash` of a secret, then
+  reveals it: `{ '==': [{ hash: { var: 'body.secret' } }, <the commitment>] }`.
+  Shared dice, lotteries and sealed bids need nothing else.
+- **Closing a set.** A check can prove that something exists, not that nothing
+  else does. For "a majority" or "nobody objected", someone with a permission
+  signs a record that closes the vote and lists what counts, and the result
+  cites that.
+- **Time.** There is no clock. "Before Friday" is a record from someone
+  trusted to say it (a host, a witness) that the result cites.
 
 ## Roles
 
@@ -130,7 +243,8 @@ await node.spaces.setMember(space.id, did, 'host');
   (`node.records.history`). The default, `latest`, keeps the current one
   whole and forgets what earlier ones said, and what a deleted record said.
   With `onePer` or `fixed` in the rules, a record's first version is kept
-  whole too: those rules are checked against it.
+  whole too: those rules are checked against it. With `check`, every version
+  is.
 - `topics: ['channel']` lets a node that can't read the space still match
   records by that field's value, for notifications. At most 8.
 - `screen`: a small UI for the collection's records. See
@@ -146,13 +260,13 @@ import { reaction, comment, poll, vote, useSchemas } from '@weaveprotocol/core/s
 await useSchemas(node, space.id, [poll, vote, reaction, comment]); // defines only what the space is missing
 ```
 
-About seventy definitions, by area (`standardGroups`): annotations that attach
+About eighty definitions, by area (`standardGroups`): annotations that attach
 to any record (`reaction`, `comment`, `rating`, `bookmark`, `claim`…), people
 (`profile`, `follow`…), messaging and publishing (`message`, `post`,
 `article`, `doc` and `docBlock`, `note`…), lists (`list`, `listItem`), files
 and media, time and planning (`event`, `rsvp`, `task`, `booking`…), places,
 home and life (`recipe`, `meal`…), money (`expense`, `settlement`…) and
-community (`poll`, `vote`, `proposal`…). The full list is in
+community (`poll`, `vote`, `proposal`, `decision`, `goal`…). The full list is in
 [standard-library.md](standard-library.md).
 
 They are ordinary collections. Using the same one is how two apps agree: a

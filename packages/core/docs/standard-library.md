@@ -197,14 +197,44 @@ and remove.
 
 **Community and governance**
 
-| Name               | Body                                                                                                                                                   | Links                                     | Rules                                                                                              |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `std.poll`         | **`question`** string 1–500; **`options`** string 1–200[]; `closed` boolean                                                                            | —                                         | edit: `creator`; delete: `creator`, `can:moderate`; `fixed: [options]`; permissions `moderate`     |
-| `std.vote`         | **`choice`** integer ≥ 0; `choices` integer ≥ 0[] (≤ 100)                                                                                              | `about` → `std.poll`, `std.proposal`, one | edit, delete: `creator`; `onePer: [@author, link:about]`                                           |
-| `std.proposal`     | **`title`** string 1–300; `body` string ≤ 20000; **`options`** string 1–200[] (1–20); `closesAt` when; `status` `open`/`passed`/`rejected`/`withdrawn` | —                                         | edit: `creator`; delete: `creator`, `can:moderate`; `fixed: [options]`; permissions `moderate`     |
-| `std.announcement` | **`title`** string 1–300; `text` string ≤ 20000                                                                                                        | —                                         | create: `can:announce`; edit: `creator`; delete: `creator`, `can:announce`; permissions `announce` |
-| `std.badge`        | **`name`** string 1–100; `description` string ≤ 1000; `image` blob                                                                                     | —                                         | create: `can:award`; edit: `can:award`; permissions `award`                                        |
-| `std.award`        | **`did`** DID; `note` string ≤ 1000                                                                                                                    | `about` → `std.badge`, one                | create: `can:award`; edit: `can:award`; `onePer: [link:about, did]`; permissions `award`           |
+| Name               | Body                                                                                                                                                                             | Links                                     | Rules                                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `std.poll`         | **`question`** string 1–500; **`options`** string 1–200[]; `closed` boolean                                                                                                      | —                                         | edit: `creator`; delete: `creator`, `can:moderate`; `fixed: [options]`; permissions `moderate`      |
+| `std.vote`         | **`choice`** integer ≥ 0; `choices` integer ≥ 0[] (≤ 100)                                                                                                                        | `about` → `std.poll`, `std.proposal`, one | edit, delete: `creator`; `onePer: [@author, link:about]`                                            |
+| `std.proposal`     | **`title`** string 1–300; `body` string ≤ 20000; **`options`** string 1–200[] (1–20); `closesAt` when; `status` `open`/`passed`/`rejected`/`withdrawn`; `quorum` integer 1–10000 | —                                         | edit: `creator`; delete: `creator`, `can:moderate`; `fixed: [options]`; permissions `moderate`      |
+| `std.ballot`       | **`choice`** integer ≥ 0                                                                                                                                                         | `about` → `std.proposal`, one             | edit, delete: `creator`; `onePer: [@author, link:about]`; `fixed: [choice]`                         |
+| `std.decision`     | **`outcome`** integer ≥ 0; **`proposal`** string 1–128 (a version id); **`ballots`** string 1–128[] (≤ 256)                                                                      | `about` → `std.proposal`, one             | edit, delete: `creator`; `onePer: [link:about]`; `check` (below)                                    |
+| `std.goal`         | **`title`** string 1–300; `body` string ≤ 20000; **`target`** integer 1–10⁹; **`unit`** string 1–50; `closesAt` when                                                             | —                                         | edit: `creator`; delete: `creator`, `can:moderate`; `fixed: [target, unit]`; permissions `moderate` |
+| `std.pledge`       | **`amount`** integer 1–10⁹; `note` string ≤ 1000                                                                                                                                 | `about` → `std.goal`, one                 | edit, delete: `creator`; `onePer: [@author, link:about]`; `fixed: [amount]`                         |
+| `std.goal-reached` | **`goal`** string 1–128 (a version id); **`pledges`** string 1–128[] (≤ 256)                                                                                                     | `about` → `std.goal`, one                 | edit, delete: `creator`; `onePer: [link:about]`; `check` (below)                                    |
+| `std.announcement` | **`title`** string 1–300; `text` string ≤ 20000                                                                                                                                  | —                                         | create: `can:announce`; edit: `creator`; delete: `creator`, `can:announce`; permissions `announce`  |
+| `std.badge`        | **`name`** string 1–100; `description` string ≤ 1000; `image` blob                                                                                                               | —                                         | create: `can:award`; edit: `can:award`; permissions `award`                                         |
+| `std.award`        | **`did`** DID; `note` string ≤ 1000                                                                                                                                              | `about` → `std.badge`, one                | create: `can:award`; edit: `can:award`; `onePer: [link:about, did]`; permissions `award`            |
+
+**Proven outcomes.** A `std.decision` and a `std.goal-reached` are not
+declared by anyone: each cites the records that prove it, by version id, and
+every device checks the proof ([spec 02 §7.6](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)). Anyone in the space may write one, once, when the
+proof is there:
+
+- `std.decision` cites the proposal's first version (`proposal`) and ballots
+  (`ballots`). Its checks: the proposal is the one it is `about`, as first
+  put; `outcome` is one of its options; and the ballots cited that are about
+  that proposal and chose `outcome` come from at least `quorum` different
+  people. A proposal without a `quorum` can't be decided this way.
+- `std.goal-reached` cites the goal's first version (`goal`) and pledges
+  (`pledges`). Its checks: the goal is the one it is `about`, as first set;
+  each person's pledge counts once; and the pledges add up to `target`.
+
+A cited version proves what was signed, so what they count is final: a
+ballot's `choice` and a pledge's `amount` are `fixed`, and their first
+versions are kept whole (`onePer`), so they can be cited. That is why
+`std.ballot` exists beside `std.vote`: a vote can be changed, a ballot can't.
+
+```json
+{ "outcome": 0, "proposal": "bay24o4l…", "ballots": ["bq7x…", "b3kd…", "bm2a…"] }
+```
+
+_Source: `packages/core/src/schemas/library/community.ts` (`ballot`, `decision`, `goal`, `pledge`, `goalReached`), `apps/example/src/components/apps/Decisions.tsx`. Tests: `packages/core/tests/checks.test.ts` ("std.decision and std.goal-reached")._
 
 **Settings**
 
@@ -228,12 +258,13 @@ and a carrier can match it unread ([spec 02 §8](https://github.com/leifriksheim
 _Source: `packages/core/src/schemas/library/publishing.ts` (`message`), `apps/example/src/components/apps/Chat.tsx`. Tests: `packages/core/tests/topics.test.ts` ("mentions and replies are tagged, so “mentions me” and “replies to me” match only those")._
 
 **Changes to earlier definitions.** `std.attachment`, `std.task`,
-`std.message` and `std.vote` existed before the library grew. Each gained
+`std.message`, `std.vote` and `std.proposal` existed before the library grew. Each gained
 only optional fields and link roles: `std.attachment` a `blob`; `std.task`
 `due`, `status`, `assignees`, `priority` and the `parent` and `project` links;
 `std.message` a `channel`, the `root` link, `mentions`, `replyingTo`, and its
 first topics ([spec 02 §8](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)); `std.vote` `choices` (every
-choice, most preferred first, with `choice` the first of them). A space that
+choice, most preferred first, with `choice` the first of them); `std.proposal`
+`quorum`, for `std.decision`. A space that
 holds an earlier definition keeps it until someone adds an app that needs the
 new one, which shows as a change. One of them is not additive in the sense of
 [spec 02 §6.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md): `std.vote`'s `about` may now also point at a `std.proposal`, so an app

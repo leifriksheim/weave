@@ -69,7 +69,20 @@ import {
   order,
   orderUpdate,
 } from './library/money.js';
-import { poll, vote, proposal, announcement, badge, award, setting } from './library/community.js';
+import {
+  poll,
+  vote,
+  proposal,
+  ballot,
+  decision,
+  goal,
+  pledge,
+  goalReached,
+  announcement,
+  badge,
+  award,
+  setting,
+} from './library/community.js';
 
 type Definitions = ReadonlyArray<DefineCollection>;
 
@@ -128,7 +141,19 @@ export const standardGroups: Readonly<Record<string, Definitions>> = Object.free
   'Places and travel': [place, visit, trip, location],
   'Home and life': [recipe, meal, journalEntry, measurement, workout, work, progress],
   'Money and trade': [expense, settlement, moneyAccount, transaction, listing, order, orderUpdate],
-  'Community and governance': [poll, vote, proposal, announcement, badge, award],
+  'Community and governance': [
+    poll,
+    vote,
+    proposal,
+    ballot,
+    decision,
+    goal,
+    pledge,
+    goalReached,
+    announcement,
+    badge,
+    award,
+  ],
   Settings: [setting],
 });
 

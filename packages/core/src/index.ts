@@ -418,10 +418,12 @@ export type {
 } from './query/types.js';
 export { plainQuery } from './query/types.js';
 
-// Rules: who may create, edit and delete a collection's records, what must be unique
+// Rules: who may create, edit and delete a collection's records, what must be unique,
+// and the conditions a version must meet, with the versions it cites
 export { checkRules, onePerKey } from './records/rules.js';
 export { describeCollection } from './records/describe.js';
 export type { CollectionRules, Who } from './records/rules.js';
+export type { Check, Condition } from './records/checks.js';
 
 // Hosting: a subscription key, signed requests to a host, and a client for one
 export {

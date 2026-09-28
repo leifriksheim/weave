@@ -202,7 +202,7 @@ const PARTS: ReadonlyArray<Part> = [
       },
       {
         title: 'Four checks, every time',
-        body: 'Shape, signature, permission slip, then the space’s rules. Your own writes, a peer’s and a folder’s all go through the same checks.',
+        body: 'Shape, signature, permission slip, then the space’s rules, including checks that cite other records as proof. Your own writes, a peer’s and a folder’s all go through the same checks.',
       },
       {
         title: 'Kept, not refused',

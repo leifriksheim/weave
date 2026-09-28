@@ -71,7 +71,7 @@ const REVIEW = (
 
 const ADDED = (
   <div className="tiles">
-    {['Chat', 'Polls', 'Kanban', 'Calls'].map((name) => (
+    {['Chat', 'Polls', 'Decisions', 'Kanban', 'Calls'].map((name) => (
       <div key={name} className="tile">
         {name}
       </div>
@@ -104,6 +104,33 @@ const USE = (
         </span>
       </div>
     ))}
+  </div>
+);
+
+/** A proposal decided by its ballots, drawn after the Decisions app (`apps/example/src/components/apps/Decisions.tsx`) */
+const DECIDED = (
+  <div className="proposal">
+    <div className="proposal-head">
+      <b>Paint the clubhouse green?</b>
+      <span className="tag">Decided</span>
+    </div>
+    <div className="by">Sam · 5 votes for one answer decide it</div>
+    <div className="tally">
+      {[
+        { option: 'Yes', votes: 5, won: true },
+        { option: 'No', votes: 2, won: false },
+      ].map((row) => (
+        <div key={row.option} className={row.won ? 'tally-row won' : 'tally-row'}>
+          <span className="tally-bar" style={{ width: `${(row.votes / 5) * 100}%` }} />
+          <span className="tally-option">
+            {row.option}
+            {row.won ? ' ✓' : ''}
+          </span>
+          <span className="tally-count">{row.votes} of 5</span>
+        </div>
+      ))}
+    </div>
+    <div className="sealed">Checked by every member’s phone and laptop. Nobody counted by hand.</div>
   </div>
 );
 
@@ -257,6 +284,30 @@ export function Home() {
         <div className="wrap">
           <div className="split">
             <div>
+              <div className="kicker-inline">Decide together</div>
+              <h3>When enough of you agree, it’s decided. Nobody has to count.</h3>
+              <p>
+                Put a question to your group and say how many votes it takes. Once enough members agree, it’s
+                settled, and every member’s device checks the votes for itself. There’s no admin doing the
+                counting, and no way to fake the result.
+              </p>
+              <ul>
+                <li>Votes that decide: five yeses, and it’s a go</li>
+                <li>Group fundraisers that count as done when the pledges reach the goal</li>
+                <li>Roles and rewards that are given once the conditions are met</li>
+              </ul>
+            </div>
+            <div className="mock-card" aria-hidden>
+              <div className="mock">{DECIDED}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="band">
+        <div className="wrap">
+          <div className="split">
+            <div>
               <div className="kicker-inline">Safe to say yes to</div>
               <h3>A tool can only touch its own part of your space.</h3>
               <p>
@@ -299,8 +350,8 @@ export function Home() {
         title="Tools too small for any company, and just right for you."
         intro={
           <p>
-            Chat, polls, a kanban board and calls come built in. Everything else is one conversation with an
-            assistant away.
+            Chat, polls, decisions, a kanban board and calls come built in. Everything else is one
+            conversation with an assistant away.
           </p>
         }
       >

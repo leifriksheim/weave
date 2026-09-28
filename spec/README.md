@@ -11,15 +11,15 @@ the code disagree, that is a bug in one of them: open an issue, and say which.
 
 ## Parts
 
-| Part                                                      | Covers                                                                                                                                                                |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [01 — Identity](01-identity.md)                           | Seeds and recovery codes, key derivation, DIDs, the account vault, root and session signers, UCAN delegations, agent notes, device keys, contact keys, pairing        |
-| [02 — Records](02-records.md)                             | Expressions, canonical encoding and hashing, signatures, versions and which one wins, links, collection definitions, rules, topics, the validation pipeline           |
-| [03 — Spaces](03-spaces.md)                               | Spaces, roles and the access log, invites, encryption and key distribution, the account registry, profiles, contacts                                                  |
-| [04 — Network](04-network.md)                             | Relays and the signaling protocol, several relays at once, peer authentication, WebRTC and WebSocket transports, the mesh, introductions, live messages, ICE and TURN |
-| [05 — Sync and storage](05-sync-and-storage.md)           | Negentropy set reconciliation and its messages, what is stored and how, storage adapters, data folders, segments, mirrors, blobs                                      |
-| [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) | The session note and following the account, the account home and app grants, agents, carriers and hosts, calls                                                        |
-| [07 — Doors](07-doors.md)                                 | Names and doors: how someone you share no space with can ask to become your contact, and the relay mailbox that holds their knock                                     |
+| Part                                                      | Covers                                                                                                                                                                 |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [01 — Identity](01-identity.md)                           | Seeds and recovery codes, key derivation, DIDs, the account vault, root and session signers, UCAN delegations, agent notes, device keys, contact keys, pairing         |
+| [02 — Records](02-records.md)                             | Expressions, canonical encoding and hashing, signatures, versions and which one wins, links, collection definitions, rules and checks, topics, the validation pipeline |
+| [03 — Spaces](03-spaces.md)                               | Spaces, roles and the access log, invites, encryption and key distribution, the account registry, profiles, contacts                                                   |
+| [04 — Network](04-network.md)                             | Relays and the signaling protocol, several relays at once, peer authentication, WebRTC and WebSocket transports, the mesh, introductions, live messages, ICE and TURN  |
+| [05 — Sync and storage](05-sync-and-storage.md)           | Negentropy set reconciliation and its messages, what is stored and how, storage adapters, data folders, segments, mirrors, blobs                                       |
+| [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) | The session note and following the account, the account home and app grants, agents, carriers and hosts, calls                                                         |
+| [07 — Doors](07-doors.md)                                 | Names and doors: how someone you share no space with can ask to become your contact, and the relay mailbox that holds their knock                                      |
 
 ## What is not in it
 
@@ -105,6 +105,7 @@ they are described; the smaller ones share
 | `pattern` and `format` in definitions                                             | [02 §6](02-records.md)                                                                                                                   |
 | Compatible definitions; content-addressed definitions; definition tiers           | [02 §6.5](02-records.md), [#11](https://github.com/leifriksheim/weave/issues/11), [#12](https://github.com/leifriksheim/weave/issues/12) |
 | Private `onePer` keys; uniqueness that cannot be a key                            | [02 §7.3](02-records.md)                                                                                                                 |
+| Asking for what a version cites                                                   | [02 §7.6](02-records.md), [#79](https://github.com/leifriksheim/weave/issues/79)                                                         |
 | Leaving writes the self-removal (fixes a known defect)                            | [03 §6.2](03-spaces.md), [#15](https://github.com/leifriksheim/weave/issues/15)                                                          |
 | Contact requests that can be taken back; leaving a space for two updates the list | [03 §16.5](03-spaces.md), [#40](https://github.com/leifriksheim/weave/issues/40)                                                         |
 | Keep lists past the cap; deleted access records can't leave access standing       | [03 §6.3, §7.2](03-spaces.md)                                                                                                            |

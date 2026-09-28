@@ -32,7 +32,7 @@ export interface Describable {
 }
 
 /** Every rule there is. A new one in `CollectionRules` must be added here, with its sentence. */
-const KNOWN_RULES = ['create', 'edit', 'delete', 'onePer', 'fixed'] as const;
+const KNOWN_RULES = ['create', 'edit', 'delete', 'onePer', 'fixed', 'check'] as const;
 
 /** `closePolls` → `close polls`, `app.carpool.trip` → `trip` */
 const words = (name: string) =>
@@ -142,6 +142,9 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
     const fields = rules.fixed.map((field) => `“${fieldLabel(definition.schema, field)}”`);
     sentences.push(`Once ${a} is added, its ${joinAnd(fields)} can't be changed.`);
   }
+
+  // Checks: their own words, which are what a refusal says
+  for (const check of rules.check ?? []) sentences.push(`Every change is checked: “${check.else.trim()}”`);
 
   // What it points at
   for (const [rel, link] of Object.entries(definition.links ?? {})) {
