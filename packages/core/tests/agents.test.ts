@@ -1097,6 +1097,9 @@ describe('screens', () => {
       /connect-src https:\/\/api\.open-meteo\.com(;|$)/,
     );
     assert.match(screenPolicy(['*']), /connect-src 'none'/);
+    // Hosts allow forms in the frame (spec 06 §5.5) only because every policy sends them nowhere.
+    assert.match(screenPolicy([]), /form-action 'none'/);
+    assert.match(screenPolicy(['https://api.open-meteo.com']), /form-action 'none'/);
     assert.ok(
       screenDocument(screen, ['https://api.open-meteo.com']).startsWith(
         '<meta http-equiv="Content-Security-Policy"',

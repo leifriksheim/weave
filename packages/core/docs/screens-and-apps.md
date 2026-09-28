@@ -50,10 +50,11 @@ await addApp(node, space.id, proposal.key);
 A definition may carry `screen`: one HTML document, scripts and styles inline,
 at most 48 KB. Apps that show the space can run it instead of plain lists.
 
-It runs sealed: no network, no storage, no popups, no forms that submit, no
-libraries or fonts from URLs. It reaches records only through `window.weave`,
-as the person looking, so every rule still holds and a screen can do nothing
-its viewer couldn't.
+It runs sealed: no network, no storage, no popups, no `alert`, `confirm` or
+`prompt`, no libraries or fonts from URLs. Forms work, but go nowhere: handle
+`submit`, call `preventDefault()` and save with `weave.put`. It reaches
+records only through `window.weave`, as the person looking, so every rule
+still holds and a screen can do nothing its viewer couldn't.
 
 ```html
 <ul id="list"></ul>
@@ -108,8 +109,9 @@ Each record is `{ key, collection, body, links, createdBy, createdAt, updatedAt,
 
 ## Hosting screens in your app
 
-To show screens, run them in an `<iframe sandbox="allow-scripts">` whose page
-removes network access (a strict Content-Security-Policy), and hand it a
+To show screens, run them in an `<iframe sandbox="allow-scripts allow-forms">`
+whose page removes network access and form targets (a strict
+Content-Security-Policy with `form-action 'none'`), and hand it a
 message port to a bridge:
 
 ```typescript
