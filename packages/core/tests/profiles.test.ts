@@ -16,6 +16,7 @@ import { generateSeed } from '../src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { createSigner } from '../src/schema/signer.js';
+import { nextVersion } from '../src/records/version.js';
 import { createExpression } from '../src/schema/expression.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { PROFILE_COLLECTION } from '../src/space/account-registry.js';
@@ -107,13 +108,12 @@ describe('profiles', () => {
       'Alice’s own profile',
     );
 
-    // Mallory signs a version under Alice's profile key, far ahead in sequence
-    // and naming Alice's real first version, and slips it into her own copy of
-    // the space before it syncs.
+    // Mallory signs the next version of Alice's profile, and slips it into her
+    // own copy of the space before it syncs.
     const aliceKey = await profileKey(alice.node.did);
-    const aliceFirst = (
-      await createStorageProvider(await alice.stores(`spaces/${space}`)).history(aliceKey)
-    ).find((v) => v.seq === 0)!;
+    const aliceCurrent = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(
+      aliceKey,
+    );
     const provider = mallory.manager.getProvider();
     const pair = await provider.generateKeyPair();
     const keyDid = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
@@ -129,7 +129,7 @@ describe('profiles', () => {
         space,
         body: { name: 'Evil Alice' },
         proof: ucan.encoded,
-        version: { key: aliceKey, seq: 99, prev: aliceFirst.id, genesis: aliceFirst.id },
+        version: nextVersion(aliceCurrent!),
         retain: true,
         seen: await seenBy(mallory.node, space),
       }),
@@ -150,7 +150,8 @@ describe('profiles', () => {
     // The forgery did arrive — it is even the "current" version by sequence…
     await until(
       async () =>
-        (await (await stored(alice.stores, space)).getCurrent(await profileKey(alice.node.did)))?.seq === 99,
+        (await (await stored(alice.stores, space)).getCurrent(await profileKey(alice.node.did)))?.id ===
+        forged.id,
       4000,
       'the forgery to reach Alice',
     );

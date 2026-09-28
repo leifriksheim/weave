@@ -300,7 +300,7 @@ describe('sync by reconciliation', () => {
     assert.equal(await mine.fingerprint(), await other.fingerprint());
   });
 
-  test('a superseded version leaves the set; its replacement joins it', async () => {
+  test('a superseded version stays in the set as a stub; its replacement joins it', async () => {
     const storage = createStorageProvider(createMemoryAdapter());
     const first = await version('app.note');
     const second: Expression = await version('app.note', {
@@ -311,7 +311,6 @@ describe('sync by reconciliation', () => {
     });
     await storage.addExpression(first);
     await storage.addExpression(second);
-    // The first version stays as proof of who created the record.
     assert.deepEqual((await storage.versionIds()).sort(), [first.id, second.id].sort());
     const third: Expression = await version('app.note', {
       key: first.key,
@@ -320,8 +319,12 @@ describe('sync by reconciliation', () => {
       genesis: first.id,
     });
     await storage.addExpression(third);
-    assert.deepEqual((await storage.versionIds()).sort(), [first.id, third.id].sort());
-    assert.equal((await storage.items('app.note')).size, 2);
+    assert.deepEqual((await storage.versionIds()).sort(), [first.id, second.id, third.id].sort());
+    assert.equal((await storage.items('app.note')).size, 3);
+    // What they said is gone; that they were is not.
+    assert.equal('body' in (await storage.getExpression(second.id))!, false);
+    assert.equal('body' in (await storage.getExpression(first.id))!, false);
+    assert.deepEqual((await storage.getExpression(third.id))?.body, third.body);
   });
 
   test('joining, a deleted record never shows as it once was', async () => {

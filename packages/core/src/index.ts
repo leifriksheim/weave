@@ -19,6 +19,7 @@ export type {
   StandardSchemaIssue,
   Expression,
   UnsignedExpression,
+  Envelope,
   Link,
   Space,
   SpaceRole,

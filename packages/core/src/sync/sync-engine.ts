@@ -214,7 +214,7 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
   const refused = new Set<string>();
   const refusal = (peerId: string, id: string) => `${peerId}\n${id}`;
 
-  /** What one message brought in: the versions stored, and the first versions to ask for */
+  /** What one message brought in: the versions stored, and the versions they wait for, to ask for */
   interface Intake {
     readonly placed: Expression[];
     readonly firsts: Map<string, string>;
@@ -222,8 +222,8 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
 
   /**
    * Commits an expression from a peer, but only if the gatekeeper allows it.
-   * A version waiting for its first version names it, so that is asked for
-   * at once rather than on the next round.
+   * A version waiting for its first version, or for the version before it,
+   * names them, so they are asked for at once rather than on the next round.
    * @returns Whether the expression was accepted
    */
   const admit = async (peerId: string, expression: Expression, intake: Intake): Promise<boolean> => {
@@ -233,9 +233,10 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
         if (verdict.later) {
           waiting.set(expression.id, { peerId, expression });
           if (waiting.size > MAX_WAITING) waiting.delete(waiting.keys().next().value!);
-          const first = expression.seq > 0 ? expression.genesis : undefined;
-          if (typeof first === 'string' && !(await storage.getExpression(first)))
-            intake.firsts.set(first, expression.collection);
+          for (const needed of expression.seq > 0 ? [expression.genesis, expression.prev] : []) {
+            if (typeof needed === 'string' && !(await storage.getExpression(needed)))
+              intake.firsts.set(needed, expression.collection);
+          }
         } else {
           refused.add(refusal(peerId, expression.id));
           if (refused.size > MAX_REFUSED) refused.delete(refused.values().next().value!);

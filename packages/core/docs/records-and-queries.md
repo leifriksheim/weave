@@ -125,6 +125,7 @@ const unsubscribe = node.subscribe((event) => {
 
 ## History
 
-`node.records.history(space, key)` gives the versions this node keeps, newest
-first: the current one and the first one, or every one in a collection defined
-with `history: 'all'`.
+`node.records.history(space, key)` gives the versions this node keeps whole,
+newest first: the current one, or every one in a collection defined with
+`history: 'all'`. What an earlier version said is otherwise forgotten once
+it is superseded; only a stub of it is kept, to check the next one.

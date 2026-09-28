@@ -159,7 +159,7 @@ describe('a mirror', () => {
     assert.deepEqual(await texts(reader.storage), ['fine']);
   });
 
-  test('compaction: fewer segments, only what is still kept, and a fresh device still gets every record', async () => {
+  test('compaction: fewer segments, superseded versions only as stubs, and a fresh device still gets every record', async () => {
     const shared = counted(createMemoryBlobStore());
     const who = await author();
     const writer = await device(shared.store);
@@ -181,7 +181,12 @@ describe('a mirror', () => {
     const after = await shared.store.list(`${SPACE}/`);
     assert.equal(after.length, 1);
     const kept = unpackSegment((await shared.store.get(after[0]!))!);
-    assert.ok(kept.length < 12, 'superseded versions the store dropped are not carried forward');
+    assert.equal(kept.length, 12, 'every version, so each edit can still be checked');
+    assert.equal(
+      kept.filter((version) => 'body' in version).length,
+      2,
+      'the bodies of superseded versions are not carried forward',
+    );
 
     const fresh = await device(shared.store);
     await fresh.mirror.pull();

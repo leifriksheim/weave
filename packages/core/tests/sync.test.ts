@@ -145,7 +145,7 @@ describe('sync engine', () => {
 
     assert.equal(await b.storage.getExpression(forged.id), null);
     assert.equal(rejected.length, 1);
-    assert.match(rejected[0] ?? '', /id does not match|signature/i);
+    assert.match(rejected[0] ?? '', /not the one it signed/i);
   });
 
   test('drops an expression whose author holds no capability', async () => {

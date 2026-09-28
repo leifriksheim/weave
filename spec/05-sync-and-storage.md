@@ -37,9 +37,10 @@ in [04 — Network](04-network.md). This part only moves and keeps versions.
 
 - Sync works **per space** and, inside a space, **per collection**. Each
   collection's set of kept versions is reconciled on its own.
-- The set compared is the set of **version ids** a store keeps: current
-  versions, first versions, and retained ones (§10). There is no tree and no
-  other sync state on disk.
+- The set compared is the set of **version ids** a store keeps: every version
+  it took in, current and retained ones whole, the rest as stubs (§10). There
+  is no tree and no other sync state on disk. A stub and the whole version
+  share an id, so sync never tells them apart; a peer sends what it keeps.
 - Two peers first exchange a `hello` with one 16-byte fingerprint per
   collection. Equal fingerprints mean the same versions: nothing more is said
   about that collection.
@@ -243,12 +244,16 @@ A sync message is a JSON object. It travels as the `payload` of the network
 envelope `{ "type": "sync", "from": <sender session DID>, "payload": … }`
 ([04 — Network](04-network.md)); this part does not encode it again.
 
-Every message carries `"v": 4` (`SYNC_PROTOCOL_VERSION`). A peer MUST drop a
+Every message carries `"v": 5` (`SYNC_PROTOCOL_VERSION`). A peer MUST drop a
 message that is not an object, whose `v` is not the version it speaks, or
 whose `type` is not a string. It MUST NOT answer it.
 
 > Rationale: two versions that cannot reconcile should fail loudly, not leave
 > a quiet partial sync.
+>
+> Version 5 came with the envelope of [02 §3.2](02-records.md): a version
+> signs its body's hash, not its body, so a version 4 peer would refuse every
+> version a version 5 peer sends.
 
 Ids below are version ids (strings, §2). Byte strings are `base64url`.
 
@@ -267,7 +272,7 @@ Example (fingerprint values illustrative):
 
 ```json
 {
-  "v": 4,
+  "v": 5,
   "type": "hello",
   "holds": "all",
   "sums": {
@@ -565,11 +570,11 @@ arrival; see 02.
 
 The gatekeeper gives one of three answers:
 
-| Answer  | Meaning                                                                                                             | What happens                                                                                                                                                                                                                                                                                                  |
-| ------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| valid   | passes                                                                                                              | stored (§10)                                                                                                                                                                                                                                                                                                  |
-| later   | depends on something not here yet: the record's first version, the definition or access change it was written under | held in memory (at most 1,000; the oldest give way) and tried again whenever another version is stored; asked for again on the next round if still waiting. If it names a first version (`genesis`) this node does not hold, that version is asked of the same peer at once, at the front of the queue (§6.3) |
-| invalid | refused                                                                                                             | dropped; remembered as refused **from that peer** (at most 10,000 entries) and not asked of that peer again                                                                                                                                                                                                   |
+| Answer  | Meaning                                                                                                                                           | What happens                                                                                                                                                                                                                                                                                                                                 |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| valid   | passes                                                                                                                                            | stored (§10)                                                                                                                                                                                                                                                                                                                                 |
+| later   | depends on something not here yet: the record's first version, the version its `prev` names, the definition or access change it was written under | held in memory (at most 1,000; the oldest give way) and tried again whenever another version is stored; asked for again on the next round if still waiting. If it names a first version (`genesis`) or a previous version (`prev`) this node does not hold, that version is asked of the same peer at once, at the front of the queue (§6.3) |
+| invalid | refused                                                                                                                                           | dropped; remembered as refused **from that peer** (at most 10,000 entries) and not asked of that peer again                                                                                                                                                                                                                                  |
 
 > Rationale: a refusal is keyed on peer and id, not id alone. A version id
 > does not cover the signature, so a stranger's mangled copy shares the real
@@ -585,8 +590,8 @@ A batch of versions (one `versions` or `push-update`) is taken in this order:
 4. Run each through the gatekeeper and store what passes.
 5. If any were taken in, send the sender `stored` with their ids, then retry
    the waiting versions until no more go in.
-6. Ask the sender for the first versions still missing that waiting versions
-   name (above).
+6. Ask the sender for the first and previous versions still missing that
+   waiting versions name (above).
 
 _Implementation detail:_ the node tells the page that records changed once
 per message taken in, not once per version, with every version it placed.
@@ -690,8 +695,8 @@ do not change which version wins. What changes here:
 - **Complete.** A collection is complete when, for every log, taking the
   highest head seen from **any** peer, each entry `0..n` is held, or proven
   superseded by a later version of the same record that is held. Superseded
-  entries are kept as **stubs** (the envelope without the body), so logs stay
-  checkable while bodies are dropped (§10 changes to keep them).
+  entries are the **stubs** a store already keeps (§10), so logs stay
+  checkable while bodies are forgotten.
 - **What it guarantees.** One keeper can still hide a writer's newest entries
   if no other peer has seen them. Withholding then needs every peer the reader
   syncs with to collude. It is not a guarantee.
@@ -746,8 +751,11 @@ saying which is which. Every entry value below is the UTF-8 of a version id.
 | ---------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `r/<record key>`             | every record                                    | its current version (possibly a delete)                                                                          |
 | `g/<record key>`             | a record that has been edited                   | its first version (`seq` 0)                                                                                      |
-| `h/<record key>/<seq>/<id>`  | a superseded version its writer marked `retain` | that version; `seq` is decimal, zero-padded to 15 digits                                                         |
-| `i/<collection>/<time>/<id>` | every version kept (current, first, retained)   | that version; `<collection>` is `encodeURIComponent(collection)`, `<time>` is the item timestamp (§2) in decimal |
+| `h/<record key>/<seq>/<id>`  | a superseded version its writer marked `retain` | that version, whole; `seq` is decimal, zero-padded to 15 digits                                                  |
+| `i/<collection>/<time>/<id>` | every version kept, whole or a stub             | that version; `<collection>` is `encodeURIComponent(collection)`, `<time>` is the item timestamp (§2) in decimal |
+
+A version is stored **whole** if it is current or retained, and otherwise as
+a **stub**, without its body ([02 §4.5](02-records.md)).
 
 Record keys contain no `/` ([02](02-records.md)). The `i/` entries are the
 only sync state: the item set of a collection is exactly the parseable `i/`
@@ -760,7 +768,8 @@ ignored.
 Taking in version `V` of record `k` is idempotent, and the same set of
 versions gives the same entries in any arrival order:
 
-1. If `r/k` already names `V`, stop.
+1. If `r/k` already names `V`: if the store holds `V` as a stub and this
+   copy is whole, keep this copy. Stop.
 2. Let `C` be the version `r/k` names, if any. If `C` exists and `V` does not
    supersede `C` (the ordering rule, [02 — Records](02-records.md)), **demote**
    `V` against `C`, and stop.
@@ -769,25 +778,25 @@ versions gives the same entries in any arrival order:
 
 **Demote** a version `D` against the current `W`:
 
+- If `D.retain`: keep `D` whole (if `D` came as a stub and the store holds
+  the whole of it, keep that), and set its `h/` entry.
+- Otherwise keep `D`'s stub.
 - If `D.seq == 0` and `W.seq > 0` (a first version): let `G` be what `g/k`
-  names. If `G == D`, stop. If there is no `G`, or `D.id < G` (string
-  comparison), keep `D`, set `g/k = D`, and treat the displaced `G` (if any)
-  by _keep or drop_. Stop.
-- Otherwise _keep or drop_ `D`.
+  names. If there is no `G`, or `D.id < G` (string comparison), set
+  `g/k = D`.
 
-**Keep or drop** `D`: if `D.retain`, keep it and set its `h/` entry;
-otherwise drop it.
+**Keep** writes the version (whole or its stub), unless the store holds it
+already in the same form, and its `i/` entry. Keeping a stub over a whole
+version replaces it: the body is deleted. **Drop** removes a version's `i/`
+entry and deletes it; only removing (below) drops. The writes of one
+placement land together or not at all: with an adapter that has `commit`
+(§11), versions, entries and deletes in one atomic write; without, versions
+first, then the entries in one batch, then the deletes, so no entry ever
+names a version that is not there.
 
-**Keep** writes the version's body, unless the store holds it already (a
-current version being demoted), and its `i/` entry. **Drop** removes its
-`i/` entry and deletes its body. The writes of one placement land together
-or not at all: with an adapter that has `commit` (§11), bodies, entries and
-deletes in one atomic write; without, bodies first, then the entries in one
-batch, then the deletes, so no entry ever names a version that is not
-there.
-
-> Rationale: the first version is kept as proof of who created the record —
-> the lowest id wins if several devices each created the same chosen key.
+> Rationale: the first version decides who created the record — the lowest id
+> wins if several devices each created the same chosen key. It is kept as a
+> stub like any other version, unless retained.
 
 **Removing** a version (used when a folder file vanished, §14.5, or a
 collection is dropped, §9) unsets `r/k` and `g/k` if they name it, unsets its
@@ -819,7 +828,7 @@ fingerprint of the sum of every collection's sum, as hex.
 
 _Source: `packages/core/src/storage/storage-provider.ts` (`change`, `land`, `MAX_BODIES`), `packages/core/src/records/version.ts`. Tests:
 `packages/core/tests/versions.test.ts` ("a store of versions"), `packages/core/tests/reconcile.test.ts`
-("a superseded version leaves the set", "a store written by someone else is
+("a superseded version stays in the set as a stub", "a store written by someone else is
 read again once told", "changes that come in while one lands land together;
 one that fails leaves nothing")._
 
@@ -1183,8 +1192,10 @@ The blob store is untrusted: it can hide versions (the mesh fills the gap)
 but not forge them.
 
 **Compaction.** A writer may rewrite its own segments: read them all, keep
-only versions its store still keeps, write those into new segments, **then**
-delete the old ones. A reader in between sees duplicates, which are harmless.
+only versions its store still keeps, write its store's copy of each into new
+segments (a stub where the store holds one, so a superseded body is not
+carried forward), **then** delete the old ones. A reader in between sees
+duplicates, which are harmless.
 
 **Deleting a space** from a blob store deletes every key under
 `<space id>/`.
