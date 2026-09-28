@@ -9,7 +9,7 @@ import * as z from 'zod';
 
 import { createNode } from '../src/node/node.js';
 import { remoteNode, remoteSigner, serveNode, serveSigner } from '../src/node/remote.js';
-import { remoteTransport, serveTransport } from '../src/network/remote-transport.js';
+import { createTransportSwitch, remoteTransport, serveTransport } from '../src/network/remote-transport.js';
 import type { CandidateSink, PeerTransportEvents, SignalledTransport } from '../src/network/transport.js';
 import { createEmitter } from '../src/utils/events.js';
 import type { NodeEvent, P2PNode } from '../src/node/types.js';
@@ -353,5 +353,41 @@ describe("the page's WebRTC, from a worker", () => {
       'close did:key:zOther',
       'close all',
     ]);
+  });
+});
+
+describe('WebRTC for a node the tabs share', () => {
+  test("one tab's connections at a time; when it leaves, its peers are gone and the next tab takes over", async () => {
+    const first = recordingTransport();
+    const second = recordingTransport();
+    const connections = createTransportSwitch();
+    connections.add(
+      'first',
+      first.create(() => []),
+    );
+    connections.add(
+      'second',
+      second.create(() => []),
+    );
+    const { transport } = connections;
+
+    const connected: string[] = [];
+    const disconnected: string[] = [];
+    transport.on('connected', (peer) => connected.push(peer));
+    transport.on('disconnected', (peer) => disconnected.push(peer));
+
+    await transport.createOffer('did:key:zPeer', () => {});
+    assert.deepEqual(first.calls, ['offer did:key:zPeer'], 'the tab open longest makes the connection');
+    first.emit('connected', 'did:key:zPeer');
+    second.emit('connected', 'did:key:zStray');
+    assert.deepEqual(connected, ['did:key:zPeer'], 'only the tab in use speaks for the mesh');
+
+    connections.remove('first');
+    assert.deepEqual(disconnected, ['did:key:zPeer']);
+    await transport.createOffer('did:key:zPeer', () => {});
+    assert.deepEqual(second.calls, ['offer did:key:zPeer']);
+
+    connections.remove('second');
+    await assert.rejects(() => transport.createOffer('did:key:zPeer', () => {}), /No page is open/);
   });
 });

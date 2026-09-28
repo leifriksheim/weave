@@ -221,3 +221,95 @@ export function remoteTransport(
     off,
   });
 }
+
+/** One transport for the mesh, made through whichever page is there to make it */
+export interface TransportSwitch {
+  /** What the mesh uses */
+  readonly transport: SignalledTransport;
+  /** Adds a page's connections; the first one added is used until it leaves */
+  add(id: string, transport: SignalledTransport): void;
+  /**
+   * A page left. When its connections were the ones in use, every peer on
+   * them is reported gone, so the mesh connects again through the next page.
+   */
+  remove(id: string): void;
+}
+
+/**
+ * The mesh of a node that several pages share (one tab's WebRTC at a time):
+ * `transport` forwards to the page that has been there longest, and moves
+ * on when it leaves.
+ */
+export function createTransportSwitch(): TransportSwitch {
+  const { on, off, emit } = createEmitter<PeerTransportEvents>();
+  const pages = new Map<string, { readonly transport: SignalledTransport; readonly stop: () => void }>();
+  /** Peers connected through the page in use */
+  const connected = new Set<string>();
+  const current = (): SignalledTransport | null => pages.values().next().value?.transport ?? null;
+  const using = (): SignalledTransport => {
+    const transport = current();
+    if (!transport) throw new Error('No page is open to make connections through');
+    return transport;
+  };
+
+  const transport: SignalledTransport = Object.freeze({
+    createOffer: async (peer: string, onCandidate: CandidateSink) => using().createOffer(peer, onCandidate),
+    handleOffer: async (peer: string, offer: RTCSessionDescriptionInit, onCandidate: CandidateSink) =>
+      using().handleOffer(peer, offer, onCandidate),
+    handleAnswer: async (peer: string, answer: RTCSessionDescriptionInit) =>
+      using().handleAnswer(peer, answer),
+    addIceCandidate: async (peer: string, candidate: RTCIceCandidateInit) =>
+      using().addIceCandidate(peer, candidate),
+    send: (peer: string, data: Uint8Array) => using().send(peer, data),
+    close: (peer: string) => current()?.close(peer),
+    closeAll: () => current()?.closeAll(),
+    binding: (peer: string) => current()?.binding?.(peer) ?? null,
+    on,
+    off,
+  });
+
+  return Object.freeze({
+    transport,
+    add(id: string, added: SignalledTransport) {
+      // Only the page in use speaks for the mesh; the others wait their turn.
+      const events: PeerTransportEvents = {
+        data: (peer, data) => {
+          if (current() === added) emit('data', peer, data);
+        },
+        connected: (peer) => {
+          if (current() !== added) return;
+          connected.add(peer);
+          emit('connected', peer);
+        },
+        disconnected: (peer) => {
+          if (current() !== added) return;
+          connected.delete(peer);
+          emit('disconnected', peer);
+        },
+        error: (peer, error) => {
+          if (current() === added) emit('error', peer, error);
+        },
+      };
+      for (const name of ['data', 'connected', 'disconnected', 'error'] as const)
+        added.on(name, events[name]);
+      pages.set(id, {
+        transport: added,
+        stop: () => {
+          for (const name of ['data', 'connected', 'disconnected', 'error'] as const)
+            added.off(name, events[name]);
+        },
+      });
+    },
+    remove(id: string) {
+      const page = pages.get(id);
+      if (!page) return;
+      const wasCurrent = current() === page.transport;
+      page.stop();
+      pages.delete(id);
+      if (!wasCurrent) return;
+      const gone = [...connected];
+      connected.clear();
+      for (const peer of gone) emit('disconnected', peer);
+    },
+  });
+}

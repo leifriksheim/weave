@@ -11,5 +11,12 @@ export const auth = createWeaveAuth({
   appName: 'Weave',
   network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
   // Checking, decrypting and syncing happen there, so the page never stutters; the seed stays here.
-  worker: () => new Worker(new URL('./weave-worker.ts', import.meta.url), { type: 'module' }),
+  // One worker for every tab, where there are shared workers (not Chrome on Android).
+  worker: () =>
+    typeof SharedWorker === 'function'
+      ? new SharedWorker(new URL('./weave-worker.ts', import.meta.url), {
+          type: 'module',
+          name: 'weave-node',
+        }).port
+      : new Worker(new URL('./weave-worker.ts', import.meta.url), { type: 'module' }),
 });
