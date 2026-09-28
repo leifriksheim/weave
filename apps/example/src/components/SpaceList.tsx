@@ -9,8 +9,8 @@ import { NameField, useMyName } from './NameField';
 import { styles, palette } from '../styles';
 
 /** How a space is described once it exists: who can read it, and what you are in it. */
-export function spaceBadges(space: Pick<SpaceSummary, 'visibility' | 'role' | 'joining'>): string {
-  return `${space.visibility === 'private' ? 'encrypted' : 'public'} · ${space.joining ? 'joining…' : (space.role ?? 'following')}`;
+function spaceBadges(space: Pick<SpaceSummary, 'visibility' | 'role' | 'joining'>): string {
+  return `${space.visibility === 'private' ? 'Private' : 'Public'} · ${space.joining ? 'joining…' : (space.role ?? 'following')}`;
 }
 
 /** A space keeps its colour everywhere it appears. */
@@ -53,7 +53,7 @@ export function SpaceMark({ space, size = 40 }: { space: Pick<SpaceSummary, 'id'
  *
  * Who can write is not asked here: every space is one kind of thing, and it
  * becomes shared by inviting someone. That is decided later, per person, in
- * People & roles.
+ * People.
  */
 function describe(visibility: SpaceVisibility): string {
   return visibility === 'private'
@@ -205,7 +205,7 @@ export function SpaceDialog({
     if (!trimmed) return;
     void me.save();
     // An Owner and an Editor to start, so inviting someone later needs no setup
-    // first. Roles can be renamed, added or removed in People & roles.
+    // first. Roles can be renamed, added or removed in People.
     onCreate({ name: trimmed, visibility, ...rolePresets.team });
     onClose();
   };

@@ -41,6 +41,7 @@ export function AccountMenu() {
         onClick={() => setOpen((was) => !was)}
         aria-expanded={open}
         aria-label="Account"
+        className="account-button"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -56,7 +57,7 @@ export function AccountMenu() {
         }}
       >
         <Avatar did={account.did} size={28} />
-        <span>{account.name}</span>
+        <span className="account-name">{account.name}</span>
       </button>
 
       {open && (

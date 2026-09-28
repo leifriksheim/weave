@@ -81,6 +81,23 @@ export function injectBaseStyles(): void {
     .space-side { display: flex; flex-direction: column; gap: 28px; }
     .collection-nav { display: flex; flex-direction: column; gap: 2px; }
 
+    /* A space's apps, like a phone's home screen: cards on a wide screen,
+       icons on a narrow one. */
+    .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+    .app-list { display: flex; flex-direction: column; gap: 8px; }
+
+    /* Views that sit side by side under one heading, like Under the hood's. */
+    .segmented { display: flex; gap: 2px; align-self: flex-start; max-width: 100%; padding: 3px; border-radius: 10px; background: ${surface.sunken}; border: 1px solid ${surface.line}; }
+    .segmented > button {
+      display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px;
+      border: none; border-radius: 7px; background: none; color: ${ink.muted}; font-size: 13px; font-weight: 500;
+    }
+    .segmented > button[aria-selected="true"] { background: ${surface.card}; color: ${ink.strong}; box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 0 0 1px ${surface.line}; }
+
+    /* A space's sections along the bottom, and the button that makes an
+       app: phones only. */
+    .tabbar, .fab { display: none; }
+
     .graph-canvas { height: 600px; }
     .collection-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .collection-search { width: 180px; }
@@ -150,24 +167,73 @@ export function injectBaseStyles(): void {
       }
       .page[data-rail] {
         padding-left: max(16px, env(safe-area-inset-left));
-        padding-bottom: calc(${RAIL_WIDTH + 48}px + env(safe-area-inset-bottom));
+        padding-bottom: calc(${RAIL_WIDTH + 100}px + env(safe-area-inset-bottom));
       }
 
-      .rail {
-        top: auto;
+      /* A phone switches spaces from the list of them, one tap away in the
+         tab bar, so the space's own sections get the bottom edge. */
+      .rail, .space-tabs, .hide-on-phone { display: none !important; }
+
+      .tabbar {
+        position: fixed;
+        z-index: 10;
+        left: 0;
         right: 0;
-        width: auto;
-        flex-direction: row;
-        gap: 4px;
-        padding: 8px max(8px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-        border-right: none;
+        bottom: 0;
+        display: flex;
+        padding: 6px max(4px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+        background: rgba(255, 255, 255, .92);
+        -webkit-backdrop-filter: saturate(180%) blur(12px);
+        backdrop-filter: saturate(180%) blur(12px);
         border-top: 1px solid ${surface.line};
       }
-      .rail-list { flex-direction: row; flex: 1 1 auto; width: auto; overflow-x: auto; overflow-y: hidden; padding: 4px; scrollbar-width: none; }
-      .rail-list::-webkit-scrollbar { display: none; }
-      .rail-divider { width: 1px; height: 28px; margin: 0 4px; }
-      .rail-slot { width: auto; padding: 0 2px; }
-      .rail [data-rail-pill] { display: none; }
+      .tabbar > button {
+        flex: 1 1 0;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        padding: 6px 2px;
+        border: none;
+        background: none;
+        color: ${ink.faint};
+        font-size: 11px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .tabbar > button[aria-current] { color: ${ink.strong}; }
+
+      .fab {
+        position: fixed;
+        z-index: 9;
+        right: max(16px, env(safe-area-inset-right));
+        bottom: calc(${RAIL_WIDTH + 12}px + env(safe-area-inset-bottom));
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 48px;
+        padding: 0 18px;
+        border: none;
+        border-radius: ${radius.pill}px;
+        background: ${ink.strong};
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+        box-shadow: 0 8px 24px -6px rgba(0, 0, 0, .35);
+      }
+
+      /* Three icons to a row, named underneath, the way a phone lays out apps. */
+      .app-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 8px; }
+      .app-card { flex-direction: column !important; align-items: center !important; gap: 8px !important; padding: 4px 0 !important; border: none !important; background: none !important; text-align: center !important; box-shadow: none !important; }
+      .app-card > span:first-child { width: 60px !important; height: 60px !important; border-radius: 16px !important; }
+      .app-card > span:first-child svg { width: 28px; height: 28px; }
+      .app-card strong { font-size: 13px !important; font-weight: 500 !important; }
+      .app-card-text { display: none; }
+
+      /* The avatar and the phone say enough on their own. */
+      .account-name, .call-label { display: none; }
+      .account-button { padding: 0 3px !important; }
 
       .space-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
       .call-panel { left: 12px; right: 12px; width: auto; bottom: calc(${RAIL_WIDTH + 12}px + env(safe-area-inset-bottom)); }

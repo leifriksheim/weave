@@ -439,7 +439,7 @@ export function CallButton({ space }: { space: SpaceSummary }) {
       }
     >
       <Icon name="phone" size={12} />
-      {going ? `Join call · ${going.people.length}` : 'Start a call'}
+      {going ? `Join call · ${going.people.length}` : <span className="call-label">Start a call</span>}
     </button>
   );
 }
