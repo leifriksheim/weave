@@ -66,6 +66,7 @@ export function CreateApp({
   const prompt = `In my Weave space "${space.name}", make an app: ${what}. Use the standard collections where they fit, and propose it to the space, saying what is worth being notified about.`;
   const agent = known ?? 'your agent';
   const adds = mayDefine ? 'you add it' : 'someone who runs the space adds it';
+  const byHand = mayDefine ? onBuildByHand : undefined;
 
   const copy = () => {
     setBefore(new Set(apps.map((one) => one.key)));
@@ -188,54 +189,57 @@ export function CreateApp({
         ))}
       </div>
 
-      <button
-        onClick={copy}
-        disabled={!what}
-        data-variant="primary"
-        style={{
-          ...styles.button,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-        }}
-      >
-        <Icon name="sparkle" size={14} /> Copy prompt for {agent}
-      </button>
-
-      <div style={footer}>
-        <span>
-          {known ? (
-            <>
-              <span style={{ color: palette.accent.good }}>✓</span> {known} connected
-            </>
-          ) : (
-            'No agent connected from this browser'
-          )}
-          {' · '}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button
+          onClick={copy}
+          disabled={!what}
+          data-variant="primary"
+          style={{ ...styles.button, ...action }}
+        >
+          <Icon name="sparkle" size={14} /> Copy prompt for {agent}
+        </button>
+        {!known && (
           <button
             type="button"
             onClick={() => setConnecting(true)}
-            data-variant="ghost"
-            style={{ ...styles.linkButton, fontSize: 13, padding: 0 }}
+            data-variant="quiet"
+            style={{ ...variants.quiet, ...action }}
           >
-            {known ? 'Change' : 'Connect one'}
-          </button>
-        </span>
-        {onBuildByHand && mayDefine && (
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onBuildByHand();
-            }}
-            data-variant="ghost"
-            style={{ ...styles.linkButton, fontSize: 13, padding: 0 }}
-          >
-            Build one by hand
+            <Icon name="terminal" size={14} /> Connect an agent
           </button>
         )}
       </div>
+
+      {(known || byHand) && (
+        <div style={footer}>
+          {known && (
+            <span>
+              <span style={{ color: palette.accent.good }}>✓</span> {known} connected ·{' '}
+              <button
+                type="button"
+                onClick={() => setConnecting(true)}
+                data-variant="ghost"
+                style={{ ...styles.linkButton, fontSize: 13, padding: 0 }}
+              >
+                Change
+              </button>
+            </span>
+          )}
+          {byHand && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                byHand();
+              }}
+              data-variant="ghost"
+              style={{ ...styles.linkButton, fontSize: 13, padding: 0 }}
+            >
+              Build one by hand
+            </button>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }
@@ -251,6 +255,16 @@ const chip = {
   background: palette.surface.card,
   color: palette.ink.body,
   fontSize: 12.5,
+} as const;
+
+const action = {
+  flex: '1 1 auto',
+  width: 'auto',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  padding: '0 14px',
 } as const;
 
 const footer = {
