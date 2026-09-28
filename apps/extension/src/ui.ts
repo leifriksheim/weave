@@ -41,7 +41,7 @@ export function mark(): HTMLElement {
 }
 
 /**
- * The account's avatar, drawn exactly as the home draws it (`apps/home/src/components/Avatar.tsx`),
+ * The account's avatar, drawn exactly as the home draws it (`apps/shared/src/Avatar.tsx`),
  * so the account here and the account there are recognisably the same one — or
  * recognisably not.
  */

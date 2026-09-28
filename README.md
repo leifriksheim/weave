@@ -1517,6 +1517,7 @@ One npm workspace, installed once at the root (`npm install`):
 | `apps/home`      | —                                 | The account home                                                            |
 | `apps/example`   | —                                 | The website and the example app                                             |
 | `apps/extension` | —                                 | The Chrome extension                                                        |
+| `apps/shared`    | `@weave/app-shared` (private)     | Styles, relay settings and components the home and the website share        |
 | `spec`           | —                                 | The protocol specification                                                  |
 
 Everything imports the protocol by name, `@weaveprotocol/core`, and only
