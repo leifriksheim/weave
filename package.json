@@ -23,7 +23,7 @@
     "format:check": "prettier --check .",
     "fallow": "fallow dead-code",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run fallow",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
