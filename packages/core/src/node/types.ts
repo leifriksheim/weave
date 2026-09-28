@@ -730,6 +730,12 @@ export interface NodeAccount {
    * whole-account app can no longer add spaces or rename it. Needs an account key.
    */
   revoke(token: string): Promise<void>;
+  /**
+   * Waits until another device has stored what this node wrote to the account
+   * — a subscription, a rename — so a page about to close doesn't take it
+   * along. True once one has, false when `timeoutMs` runs out first.
+   */
+  delivered(timeoutMs: number): Promise<boolean>;
 }
 
 /** Someone in the account's contact list */

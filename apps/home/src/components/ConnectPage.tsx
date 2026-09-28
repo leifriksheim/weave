@@ -473,7 +473,9 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
         error={error}
         busy={busy}
         blocked={kept.size === 0}
-        allowLabel={busy ? 'Adding…' : kept.size === 1 ? 'Notify me' : `Notify me about ${kept.size}`}
+        allowLabel={
+          busy ? 'Saving to your account…' : kept.size === 1 ? 'Notify me' : `Notify me about ${kept.size}`
+        }
         onAllow={() => void allow()}
         denyLabel="Not now"
         onDeny={() => incoming.deny('You chose not to.')}
