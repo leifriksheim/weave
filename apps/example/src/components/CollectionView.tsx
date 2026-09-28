@@ -1,6 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { useNode, useLive, useProfiles, useCan } from '@weaveprotocol/core/react';
-import type { NodeCollection, NodeRecord, QueryRecord, SpaceSummary } from '@weaveprotocol/core';
+import type {
+  Filter,
+  NodeCollection,
+  NodeRecord,
+  Query,
+  QueryRecord,
+  SpaceSummary,
+} from '@weaveprotocol/core';
 import { reaction, comment, tag } from '@weaveprotocol/core/schemas';
 import {
   byRel,
@@ -31,6 +38,15 @@ import { chip, tagLabel } from './std/Tags';
 import { styles, palette } from '../styles';
 import { Person } from './Person';
 import { useDraft } from './useDraft';
+import { QueryBuilder, PAGE_SIZES } from './QueryBuilder';
+import {
+  filterFields,
+  sortFields,
+  whereOf,
+  NEWEST_FIRST,
+  type Condition,
+  type Sort,
+} from '../derive/filters';
 
 const LAYOUTS = ['list', 'table', 'board'] as const;
 type Layout = (typeof LAYOUTS)[number];
@@ -57,6 +73,12 @@ function remember(key: string, value: string): void {
 interface Row {
   readonly record: QueryRecord;
   readonly linked: LinkedByRel;
+}
+
+interface Page {
+  readonly rows: Row[];
+  /** Where the page after this one starts; null on the last */
+  readonly next: string | null;
 }
 
 /**
@@ -88,7 +110,23 @@ export function CollectionView({
     const saved = remembered(layoutKey(space.id, name));
     return isLayout(saved) ? saved : 'list';
   });
-  const [search, setSearch] = useState('');
+  const [search, setSearchText] = useState('');
+  const [conditions, setConditionList] = useState<ReadonlyArray<Condition>>([]);
+  const [sort, setSortOrder] = useState<Sort>(NEWEST_FIRST);
+  const [pageSize, setPageSizeTo] = useState<number>(PAGE_SIZES[1]);
+  // Where each page seen so far starts: the first at the beginning, each next one from the page before.
+  const [cursors, setCursors] = useState<ReadonlyArray<string | null>>([null]);
+  // A different question starts again from its first page.
+  const restarting =
+    <T,>(set: (value: T) => void) =>
+    (value: T) => {
+      set(value);
+      setCursors([null]);
+    };
+  const setSearch = restarting(setSearchText);
+  const setConditions = restarting(setConditionList);
+  const setSort = restarting(setSortOrder);
+  const setPageSize = restarting(setPageSizeTo);
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
   const people = peopleFrom(useProfiles(space.id));
   const mayCreate = useCan(space.id, 'create', name);
@@ -104,20 +142,35 @@ export function CollectionView({
 
   // Choices that live in a linked record (a vote's poll) need that record to show their label.
   const needsLinked = [...columnsOf(schema), ...metaFields(schema)].some((f) => choicesFrom(f.schema));
-  const rows = useLive(
+  const fields = filterFields(schema);
+  const sortable = sortFields(schema);
+  const picked = whereOf(conditions, fields);
+  const parts: Filter[] = [
+    ...(search.trim() && title ? [{ [title]: { $contains: search.trim() } }] : []),
+    ...(picked ? [picked] : []),
+  ];
+  const where: Filter | undefined = parts.length > 1 ? { $and: parts } : parts[0];
+  const cursor = cursors[cursors.length - 1] ?? null;
+  const query: Query = {
+    collection: name,
+    ...(where ? { where } : {}),
+    sort: { [sort.field]: sort.direction },
+    limit: pageSize,
+  };
+  const queryText = JSON.stringify(query);
+  const page = useLive(
     space.id,
-    async (): Promise<Row[]> => {
-      const { records } = await node.records.query(space.id, {
-        collection: name,
-        ...(search.trim() && title ? { where: { [title]: { $contains: search.trim() } } } : {}),
-        sort: { '@createdAt': 'desc' },
+    async (): Promise<Page> => {
+      const { records, cursor: next } = await node.records.query(space.id, {
+        ...query,
+        ...(cursor ? { cursor } : {}),
         include: {
           reactions: { rel: 'about', from: reaction.name },
           comments: { rel: 'about', from: comment.name, count: true },
           tags: { rel: 'about', from: tag.name },
         },
       });
-      return Promise.all(
+      const rows = await Promise.all(
         records.map(async (record) => ({
           record,
           linked: needsLinked
@@ -128,9 +181,13 @@ export function CollectionView({
             : {},
         })),
       );
+      return { rows, next };
     },
-    [name, search, needsLinked, title],
+    [queryText, cursor, needsLinked],
   );
+  const rows = page?.rows;
+  const filtered = where !== undefined;
+  const from = (cursors.length - 1) * pageSize;
 
   const add = async (body: unknown) => {
     await node.records.put(space.id, name, body);
@@ -255,8 +312,23 @@ export function CollectionView({
           <QuickAdd label={label} schema={schema} onAdd={add} onMore={(prefill) => setAdding(prefill)} />
         ))}
 
+      {(collection?.records ?? 0) > 0 && (
+        <QueryBuilder
+          fields={fields}
+          sortable={sortable}
+          conditions={conditions}
+          onConditions={setConditions}
+          sort={sort}
+          onSort={setSort}
+          pageSize={pageSize}
+          onPageSize={setPageSize}
+          people={people}
+          query={query}
+        />
+      )}
+
       {rows && visible.length === 0 && (
-        <p style={styles.emptyState}>{search ? 'Nothing matches.' : `No ${label.toLowerCase()} yet.`}</p>
+        <p style={styles.emptyState}>{filtered ? 'Nothing matches.' : `No ${label.toLowerCase()} yet.`}</p>
       )}
 
       {visible.length > 0 && layout === 'list' && (
@@ -280,6 +352,36 @@ export function CollectionView({
           space={space}
           onOpen={onOpen}
         />
+      )}
+
+      {page && (cursors.length > 1 || page.next) && (
+        <nav
+          aria-label="Pages"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+        >
+          <span style={{ fontSize: 13, color: palette.ink.muted }}>
+            {visible.length ? `${from + 1}–${from + visible.length}` : 'None'}
+            {!filtered && collection ? ` of ${collection.records}` : ''}
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => setCursors(cursors.slice(0, -1))}
+              disabled={cursors.length <= 1}
+              data-variant="quiet"
+              style={styles.smallButton}
+            >
+              ← Previous
+            </button>
+            <button
+              onClick={() => page.next && setCursors([...cursors, page.next])}
+              disabled={!page.next}
+              data-variant="quiet"
+              style={styles.smallButton}
+            >
+              Next →
+            </button>
+          </div>
+        </nav>
       )}
     </section>
   );
