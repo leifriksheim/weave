@@ -72,6 +72,20 @@ function useAsk() {
   const [asking, setAsking] = useState(false);
   const [kept, setKept] = useState<ReadonlySet<string>>(() => new Set());
 
+  // Allowed or blocked in the browser's own site settings: follow it there too.
+  useEffect(() => {
+    let status: PermissionStatus | null = null;
+    const follow = () => supported() && setPermission(Notification.permission);
+    void globalThis.navigator?.permissions
+      ?.query({ name: 'notifications' })
+      .then((found) => {
+        status = found;
+        found.addEventListener('change', follow);
+      })
+      .catch(() => {});
+    return () => status?.removeEventListener('change', follow);
+  }, []);
+
   const ask = useCallback(
     (proposals: ReadonlyArray<NotifyProposal>) => {
       setError(null);
@@ -201,7 +215,7 @@ export function useAppNotifications() {
 export function useNotifyFor(spaceId: string, offers: ReadonlyArray<AppNotify>) {
   const { did } = useAccount();
   const mine = useSubscriptions();
-  const { error, asking, kept, ask, manage } = useAsk();
+  const { permission, error, asking, kept, ask, allow, manage } = useAsk();
   const covers = (offer: AppNotify) =>
     kept.has(proposalKey({ ...offer, spaces: [spaceId] })) ||
     mine.some(
@@ -225,9 +239,11 @@ export function useNotifyFor(spaceId: string, offers: ReadonlyArray<AppNotify>) 
       everything: everything.length > 0 && everything.every(covers),
       forMe: forMe.length > 0 && forMe.every(covers),
     },
+    permission,
     error,
     asking,
     turnOn,
+    allow,
     manage,
   };
 }

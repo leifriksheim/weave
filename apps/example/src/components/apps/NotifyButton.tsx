@@ -13,7 +13,10 @@ import type { AppEntry } from './entries';
  * off, or pausing it, happens in the account home, which the menu opens.
  */
 export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntry }) {
-  const { everything, forMe, on, error, asking, turnOn, manage } = useNotifyFor(space.id, app.notify);
+  const { everything, forMe, on, permission, error, asking, turnOn, allow, manage } = useNotifyFor(
+    space.id,
+    app.notify,
+  );
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   useDismiss(
@@ -24,6 +27,9 @@ export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntr
   if (everything.length === 0 && forMe.length === 0) return null;
 
   const any = on.everything || on.forMe;
+  // Asked in a step of its own: a browser prompt opened with the home's window easily goes unseen behind it.
+  const blocked = permission === 'denied';
+  const unasked = permission === 'default';
   const labels = (list: typeof everything) => list.map((n) => n.label).join(', ');
   const choose = (list: typeof everything) => {
     setOpen(false);
@@ -38,28 +44,64 @@ export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntr
         data-variant="quiet"
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label={asking ? 'Asking your account home' : any ? 'Notifications on' : 'Notify me'}
+        aria-label={
+          asking
+            ? 'Asking your account home'
+            : blocked
+              ? 'Notifications blocked'
+              : any
+                ? 'Notifications on'
+                : 'Notify me'
+        }
         title={error ?? (asking ? 'Answer in the account home window' : undefined)}
         style={{
           ...styles.smallButton,
           display: 'inline-flex',
           alignItems: 'center',
           gap: 6,
-          color: error ? palette.accent.danger : any ? palette.ink.strong : palette.ink.body,
+          color: error || blocked ? palette.accent.danger : any ? palette.ink.strong : palette.ink.body,
         }}
       >
         <Icon name={any ? 'bellOn' : 'bell'} size={14} />
         <span className="bar-label">
-          {asking ? 'Asking…' : on.everything ? 'Everything' : on.forMe ? 'For me' : 'Notify me'}
+          {asking
+            ? 'Asking…'
+            : blocked
+              ? 'Blocked'
+              : on.everything
+                ? 'Everything'
+                : on.forMe
+                  ? 'For me'
+                  : 'Notify me'}
         </span>
       </button>
 
       {open && (
         <div role="menu" className="popover" style={menu}>
-          <p style={{ padding: '10px 12px 6px', fontSize: 12, color: palette.ink.faint }}>
-            Notify me in {space.name} about
-          </p>
-          {everything.length > 0 && (
+          {blocked && (
+            <p style={{ padding: '10px 12px', fontSize: 13, lineHeight: 1.5, color: palette.ink.body }}>
+              Notifications are blocked for this site. To allow them, click the icon left of the address, set
+              Notifications to Allow, then come back here.
+            </p>
+          )}
+          {unasked && (
+            <>
+              <p
+                style={{ padding: '10px 12px 6px', fontSize: 12, lineHeight: 1.45, color: palette.ink.faint }}
+              >
+                First, let this browser show notifications from {globalThis.location.host}.
+              </p>
+              <button role="menuitem" data-menu-item onClick={allow} style={row}>
+                Allow notifications in this browser
+              </button>
+            </>
+          )}
+          {!blocked && !unasked && (
+            <p style={{ padding: '10px 12px 6px', fontSize: 12, color: palette.ink.faint }}>
+              Notify me in {space.name} about
+            </p>
+          )}
+          {!blocked && !unasked && everything.length > 0 && (
             <Choice
               on={on.everything}
               title="Everything new"
@@ -67,7 +109,7 @@ export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntr
               onClick={() => (on.everything ? setOpen(false) : choose(everything))}
             />
           )}
-          {forMe.length > 0 && (
+          {!blocked && !unasked && forMe.length > 0 && (
             <Choice
               on={on.forMe && !on.everything}
               title="Only what's for me"
