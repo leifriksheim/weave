@@ -11,24 +11,30 @@
  * notice, and they can't read. So every device holding the account key copies
  * each subscription into each carry space with the value replaced by that
  * space's topic tag (`records/topics.ts`): a carrier learns "tag X, in Club",
- * never what X stands for. It matches arriving records by space, collection,
- * author and tag, all on the outside of a record, and says so; the extension
- * shows a notification. The label is the person's own words, shown as is.
+ * never what X stands for. It can match arriving records by space,
+ * collection, author and tag, all on the outside of a record, and say so
+ * (`CarrierEvent` 'notify') — what a host needs to wake an app that is closed.
+ * No carrier shows notifications itself. The label is the person's own words,
+ * shown as is.
  *
  * The same split as a query in a space held in part (spec/05-sync-and-storage.md, What a node holds): the part a
  * blind node can check runs there, the rest where the keys are.
  *
- * An app knows its own collections and topics better than the person does,
- * so it may propose subscriptions (`NotifyProposal`): when it connects, or
- * later, as a node already connected (`proposeToHome`). The carrier does the
- * same from the collections it sees go by. The person says yes to each on the
- * home's approval screen, and the home writes them into the registry naming
- * the app — the app never writes there itself.
+ * Only an app proposes subscriptions (`NotifyProposal`), when the person asks
+ * it to — "Notify me" — as a node already connected (`proposeToHome`); never
+ * while connecting, and never a carrier or the home on its own. The person
+ * says yes to each on the home's approval screen, and the home writes them
+ * into the registry naming the app — the app never writes there itself. In
+ * the home they can pause or remove them, not add any.
+ *
+ * The app that asked shows the notifications: an app given the whole account
+ * reads the registry and matches what it sees arrive (`matchesRecord`,
+ * `node/watch-notifications.ts`), with the body in hand.
  */
 import type { Expression } from '../types.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
 import { parseUCAN } from '../identity/ucan.js';
-import { checkTopics, topicKey, topicTag } from '../records/topics.js';
+import { checkTopics, topicKey, topicTag, topicValues } from '../records/topics.js';
 import { isObject } from '../utils/guards.js';
 
 /** Subscriptions as the person made them, in the account registry: key `notify:<id>` */
@@ -341,5 +347,40 @@ export function matchesSubscription(
     const wanted = sub.tags[spaceId];
     if (!wanted?.length || !version.tags?.some((tag) => wanted.includes(tag))) return false;
   }
+  return true;
+}
+
+/** What an app sees of a record, enough to match a subscription: its outside and, where it can open it, its body */
+export interface ReadableRecord {
+  readonly key: string;
+  readonly space: string;
+  readonly collection: string;
+  readonly createdAt: string;
+  /** Who created it: the account, not the key that signed */
+  readonly createdBy: string | null;
+  readonly body: unknown;
+  readonly verified: boolean;
+  readonly deleted?: true;
+}
+
+/**
+ * Whether a record an app just saw is one a subscription asks about. The
+ * app can read, so a topic is matched on the body's value, not a tag — the
+ * same answer `matchesSubscription` gives a carrier from the outside.
+ */
+export function matchesRecord(
+  when: NotifyWhen,
+  record: ReadableRecord,
+  account: string,
+  now = Date.now(),
+): boolean {
+  if (when.paused || !record.verified || record.deleted || record.collection !== when.collection)
+    return false;
+  if (when.spaces !== 'all' && !when.spaces.includes(record.space)) return false;
+  const written = Date.parse(record.createdAt);
+  if (!Number.isFinite(written) || written < Date.parse(when.since) || now - written > NOTIFY_WITHIN_MS)
+    return false;
+  if ((when.others ?? true) && record.createdBy === account) return false;
+  if (when.topic && !topicValues(record.body, when.topic.field).includes(when.topic.value)) return false;
   return true;
 }

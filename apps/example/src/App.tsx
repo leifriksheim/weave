@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
 import { CallsProvider, useAccount, useConnection, useNode, useSpaces } from '@weaveprotocol/core/react';
 import { AccountMenu } from './components/AccountMenu';
+import { useShowNotifications } from './notifications';
 import { ConnectScreen } from './components/ConnectScreen';
 import { ContactsView } from './components/ContactsView';
 import { RelayDown, RelayNotice } from './components/RelayNotice';
@@ -51,6 +52,7 @@ function Workspace() {
     if (space) setOpen(space);
   };
   const joinLink = (link: string) => mine.join(inviteFrom(link));
+  useShowNotifications(openById);
 
   /**
    * Leaving a space, after saying what it costs. A space for two goes through

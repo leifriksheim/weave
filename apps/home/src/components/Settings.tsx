@@ -176,7 +176,7 @@ export function Settings() {
 
       <Hosting node={session.node} />
 
-      <Notifications node={session.node} carriers={carriers} />
+      <Notifications node={session.node} />
 
       <Section
         title="Signing in"

@@ -1,83 +1,13 @@
 /**
- * The toolbar popup: how things are, at a glance, and what it notifies about.
+ * The toolbar popup: how things are, at a glance.
  * Anything that opens the account home happens in a tab instead — this popup
  * closes as soon as another window takes focus.
  */
-import {
-  ask,
-  loadMuted,
-  notificationsPage,
-  setMuted,
-  type CarrierStatus,
-  type StatusChanged,
-} from './shared';
+import { ask, type CarrierStatus, type StatusChanged } from './shared';
 import { accountLine, h, mark, spaceList, summary } from './ui';
 
 const app = document.getElementById('app')!;
 let status: CarrierStatus | null = null;
-/** Subscriptions muted in this browser */
-let muted: Set<string> = new Set();
-
-const openTab = (url: string) => void chrome.tabs.create({ url }).then(() => window.close());
-
-/**
- * "Notify me when…": what the account asked for, as this extension holds it.
- * Muting is for this browser only. Adding happens in a tab of this extension,
- * which asks the home; pausing and removing in the home, which holds the keys
- * this extension doesn't.
- */
-function notifications(current: CarrierStatus): HTMLElement | null {
-  if (!current.account) return null;
-  const toggle = (id: string) => {
-    if (muted.has(id)) muted.delete(id);
-    else muted.add(id);
-    void setMuted(muted).then(render);
-  };
-  const page = notificationsPage(current.account.home);
-  return h(
-    'section',
-    {},
-    h('h2', {}, 'Notify me when…'),
-    current.subscriptions.length === 0
-      ? h('p', { class: 'hint' }, 'Nothing yet. Choose what to hear about.')
-      : h(
-          'ul',
-          { class: 'spaces' },
-          ...current.subscriptions.map((sub) =>
-            h(
-              'li',
-              {},
-              h(
-                'span',
-                { class: 'name' },
-                h('span', { class: `dot ${sub.paused || muted.has(sub.id) ? '' : 'good'}` }),
-                `${sub.label}${sub.spaces.length ? ` · ${sub.spaces.join(', ')}` : ''}`,
-              ),
-              sub.paused
-                ? h('span', { class: 'meta' }, 'paused')
-                : h(
-                    'button',
-                    { class: 'quiet small', onClick: () => toggle(sub.id) },
-                    muted.has(sub.id) ? 'Unmute' : 'Mute here',
-                  ),
-            ),
-          ),
-        ),
-    h(
-      'div',
-      { class: 'actions' },
-      h(
-        'button',
-        { class: 'quiet small', onClick: () => openTab(chrome.runtime.getURL('notify.html')) },
-        'Add',
-      ),
-      current.subscriptions.length
-        ? h('button', { class: 'quiet small', onClick: () => openTab(page) }, 'Pause or remove')
-        : null,
-    ),
-  );
-}
-
 /**
  * Anything that asks Chrome for the pod happens in the welcome tab. Asked from
  * this popup, Chrome grants the folder silently but only until the popup
@@ -108,7 +38,6 @@ function render(): void {
     mark(),
     status.account ? h('section', {}, accountLine(status.account)) : null,
     h('section', {}, h('p', { class: 'hint' }, summary(status)), spaceList(status)),
-    notifications(status),
     pod.state === 'none'
       ? null
       : h(
@@ -159,10 +88,6 @@ chrome.runtime.onMessage.addListener((message: StatusChanged) => {
 });
 
 render();
-void loadMuted().then((found) => {
-  muted = found;
-  render();
-});
 void ask({ to: 'offscreen', type: 'status' }).then((answer) => {
   status = answer;
   render();

@@ -725,24 +725,17 @@ _Source: `packages/core/src/session/connect.ts` (`connectToHome`, `askHome`, `re
 | `chooseSpaces` | boolean, optional               | Whether to offer the person's existing spaces. Default true. UI only.                                                                                   |
 | `agent`        | boolean, optional               | The audience is an agent's key (§5).                                                                                                                    |
 | `days`         | integer 1–365, optional         | How long the note should last. The home decides; default 7.                                                                                             |
-| `notify`       | `NotifyProposal[]`, optional    | At most 8 subscriptions to offer the person (§6.4).                                                                                                     |
-
-`NotifyProposal` is `{ label, collection, topic?, others?, spaces?, open? }`,
-where `topic` is `{ field, value }` or `{ field, me: true }` (`me` stands for
-the account's DID, which the app does not know yet). It looks at the spaces the
-app may reach (§4.5 step 7, §4.12), or with `spaces` only those of them; it
-cannot widen them.
 
 A home MUST refuse a request (as in §4.3 step 4) unless: `v` is `1`; `audience`
 starts with `did:key:`; `access` is one of the three; `scope`, `name`,
 `contacts`, `create`, `days` are absent or valid as above; when
 `agent: true`, `access` is not `carry`, `create` is absent and `contacts` is
-not true; and `notify` is absent, or has at most 8 entries, `access` is not
-`carry`, `agent` is not true, and each entry would be a valid `NotifyWhen`
-([03](03-spaces.md) §15) with `app.origin` the request's origin, `spaces` its
-`spaces` when given (else `"all"`) and, when it has `open`, `open`'s origin is
-the request's origin. A click on a notification
-leads only back to the app that proposed it.
+not true.
+
+Connecting offers no subscriptions: a person signing in has asked to be told
+about nothing yet. An app asks later, when they do (§4.12). A home MUST NOT
+add a subscription while connecting; a `notify` field an older app still
+sends is ignored.
 
 Example:
 
@@ -756,14 +749,7 @@ Example:
     "access": "write",
     "scope": "spaces",
     "create": [{ "name": "Todos", "visibility": "private" }],
-    "days": 30,
-    "notify": [
-      {
-        "label": "A todo assigned to me",
-        "collection": "app.todo.item",
-        "topic": { "field": "assignee", "me": true }
-      }
-    ]
+    "days": 30
   }
 }
 ```
@@ -795,17 +781,7 @@ When the person approves, the home (`auth.grant({ origin, request, spaceIds, day
    `fct: [{ "weave": "agent" }]` when `agent: true`.
 
 6. Remembers the connection (§4.10).
-7. Unless `agent: true`, adds each `notify` proposal the person kept (by
-   default all) to the account's subscriptions ([03](03-spaces.md) §15):
-   `spaces` is `"all"` under `scope: account`, else the granted spaces without
-   the contacts space (none: nothing is added); a proposal's own `spaces` MUST
-   all be among those, or the home refuses the grant before making or signing
-   anything, and is then used instead; `me` becomes the account's
-   DID; `others` defaults to true; `open` defaults to `<origin>/`; `since` is
-   now; `app` is `{ origin, name? }` with `name` the request's, cut to 80. A
-   proposal equal to a subscription the same origin already has (same
-   collection, spaces, topic and `others`) is not added again.
-8. Answers with the grant.
+7. Answers with the grant.
 
 `Grant` (the home sends it without `home`; the app adds `home` = the connect
 page it opened):
@@ -825,7 +801,6 @@ page it opened):
 | `relays`        | string[], optional                   | Relays the home uses; the app joins them too, so the two always share one.                                                                                                 |
 | `expiresAt`     | number                               | Unix seconds.                                                                                                                                                              |
 | `agent`         | `true`, optional                     | The note is an agent's.                                                                                                                                                    |
-| `notify`        | `{ id, label }[]`, optional          | The subscriptions step 7 added or found, so the app can say they are on.                                                                                                   |
 | `home`          | string                               | Added by the app.                                                                                                                                                          |
 
 Example (token shortened):
@@ -866,12 +841,7 @@ whose note's payload is
 > the space's key. Invites are view-only because what lets the app write is the
 > note, under the account's own role — never a secret of the space's.
 
-> Rationale: the home writes the subscriptions, not the app. The registry is
-> sealed with the account key, which an app with `scope: spaces` does not
-> hold, and a subscription is the person's intent: the app knows good
-> collections and labels, the person says yes.
-
-_Source: `packages/core/src/session/auth.ts` (`grant`, `subscriptionsFrom`), `packages/core/src/session/connect.ts` (`ConnectRequest`, `Grant`, `grantCapabilities`, `isRequest`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions")._
+_Source: `packages/core/src/session/auth.ts` (`grant`), `packages/core/src/session/connect.ts` (`ConnectRequest`, `Grant`, `grantCapabilities`, `isRequest`). Tests: `packages/core/tests/connect.test.ts` ("connecting an app to an account home", "connecting asks for no subscriptions")._
 
 ### 4.6 What the app checks
 
@@ -948,8 +918,8 @@ app's connections (by default the app and every agent connected through it;
 - `scope: account`: in every space the account can write in, the contacts
   space, and the account registry.
 
-Disconnecting an app or a carrier (not only an app's agents) also removes
-every subscription whose `app.origin` is its origin (§4.12, §6.4).
+Disconnecting an app (not only its agents) also removes every subscription
+whose `app.origin` is its origin (§4.12, §6.4).
 
 Revoking writes a `sys.revoke` record naming the note ([03](03-spaces.md)).
 From then on nothing written under the note counts, except versions the revoker
@@ -965,10 +935,12 @@ _Source: `packages/core/src/session/auth.ts` (`disconnect`, `connections`), `pac
 app's twin of §3: statuses `starting`, `disconnected`, `connecting`, `ready`,
 `expired`. It keeps the grant in `localStorage` under `weave.grant` and the
 person's chosen home under `weave.home` (`home` in the config is only a
-default). `propose(notify)` sends a proposal to the grant's home (§4.12). A
-client convenience, not protocol.
+default). `propose(notify)` sends a proposal to the grant's home (§4.12).
+`watchNotifications(node, { origin?, onNotify })` hands the app each record
+that arrives matching one of its subscriptions (§4.12). Client conveniences,
+not protocol.
 
-_Source: `packages/core/src/session/connection.ts`. Tests: none._
+_Source: `packages/core/src/session/connection.ts`, `packages/core/src/node/watch-notifications.ts`. Tests: `packages/core/tests/connect.test.ts` ("an app showing its own notifications")._
 
 > **Planned: a wallet as the account home.** The same job — hold the root and
 > hand an app's key a note — done by a credential wallet through the Digital
@@ -977,12 +949,13 @@ _Source: `packages/core/src/session/connection.ts`. Tests: none._
 > delegates to) and how the request and grant of §4.4–4.5 would map onto a
 > credential request.
 
-### 4.12 Proposing subscriptions later
+### 4.12 Proposing subscriptions
 
-An app or carrier already connected may offer subscriptions at any time, not
-only when it connects: an app from a "notify me about this" button, the
-browser extension from the kinds of record it sees go by (§6.4). It uses the
-exchange of §4.3 (`proposeToHome`) with a `ProposeRequest` in place of the
+Only an app offers subscriptions, and only when the person asks it to, from
+something like a "Notify me" button: never while connecting (§4.4), never a
+carrier or an agent, and never the home on its own. The home lets the person
+pause and remove what they kept, not add to it. The app uses the exchange of
+§4.3 (`proposeToHome`) with a `ProposeRequest` in place of the
 `ConnectRequest`:
 
 | Field    | Type                   | Meaning                                                      |
@@ -990,35 +963,46 @@ exchange of §4.3 (`proposeToHome`) with a `ProposeRequest` in place of the
 | `v`      | `1`                    |                                                              |
 | `kind`   | `"propose"`            | Tells it apart from a `ConnectRequest`, which has no `kind`. |
 | `name`   | string, ≤ 80, optional | What it calls itself. Shown, never trusted.                  |
-| `notify` | `NotifyProposal[]`     | 1 to 8 subscriptions to offer the person (§4.4).             |
+| `notify` | `NotifyProposal[]`     | 1 to 8 subscriptions to offer the person.                    |
+
+`NotifyProposal` is `{ label, collection, topic?, others?, spaces?, open? }`,
+where `topic` is `{ field, value }` or `{ field, me: true }` (`me` stands for
+the account's DID, which an app given only some spaces does not know). It looks
+at the spaces the app may reach (step 2 below), or with `spaces` only those of
+them; it cannot widen them.
 
 A home MUST refuse a request with a `kind` as malformed (§4.3 step 4) unless
 `v` is `1`, `kind` is `propose`, `name` is absent or valid, and `notify` has 1
-to 8 entries, each valid as in §4.4 for the request's origin.
+to 8 entries, each of which would be a valid `NotifyWhen` ([03](03-spaces.md)
+§15) with `app.origin` the request's origin and `spaces` its `spaces` when
+given (else `"all"`), and whose `open`, when given, is on the request's
+origin: a click on a notification leads only back to the app that proposed it.
 
 When the person approves (`auth.propose({ origin, request, notify? })`, where
 `notify` is the indices they kept, default all), the home:
 
 1. Finds the connection it keeps for the request's origin (§4.10), other than
-   an agent's. With none it MUST refuse: an origin it gave nothing has no
-   spaces for a subscription to look at.
-2. Works out what the proposer may reach: every space (`"all"`) for a carrier
-   or under `scope: account`, else the spaces granted without the contacts
-   space (none: it refuses).
+   an agent's or a carrier's. With none it MUST refuse.
+2. Works out what the app may reach: every space (`"all"`) under
+   `scope: account`, else the spaces granted without the contacts space
+   (none: it refuses).
 3. Checks every kept proposal before writing any. It MUST refuse the whole
-   proposal when one names in `spaces` a space outside that reach, or when the
-   proposer is a carrier and one has a `topic` with a `value` (`me` is
-   allowed).
-4. Adds each kept proposal as §4.5 step 7 does, with `app.name` the
-   connection's name, else the request's.
+   proposal when one names in `spaces` a space outside that reach.
+4. Adds each kept proposal to the account's subscriptions ([03](03-spaces.md)
+   §15): `spaces` is the proposal's own, else the reach; `me` becomes the
+   account's DID; `others` defaults to true; `open` defaults to `<origin>/`;
+   `since` is now; `app` is `{ origin, name? }` with `name` the connection's,
+   else the request's, cut to 80. A proposal equal to a subscription the same
+   origin already has (same collection, spaces, topic and `others`) is not
+   added again.
 5. Answers `weave:grant` with `Proposed`:
    `{ v: 1, kind: "proposed", notify: { id, label }[] }`, the subscriptions
    added or found; empty when the person kept none.
 
-Nothing else changes: the proposer gets no access it did not have, no note,
-and learns only which of its suggestions were kept.
+Nothing else changes: the app gets no access it did not have, no note, and
+learns only which of its suggestions were kept.
 
-Example, from the extension:
+Example:
 
 ```json
 {
@@ -1026,7 +1010,7 @@ Example, from the extension:
   "request": {
     "v": 1,
     "kind": "propose",
-    "name": "Weave for Chrome",
+    "name": "Chat",
     "notify": [
       {
         "label": "New message in Club",
@@ -1052,14 +1036,23 @@ answered with
 }
 ```
 
-> Rationale: a carrier cannot read, and the tag each subscription carries for
-> it (§6.4) is what lets it match records unread. Were it to choose a topic
-> value, the tag it got back would tell it which records hold that value —
-> reading by guessing. `me` is the account's own DID, and the person approves
-> it by name: the carrier learns what they asked to be told, as it would had
-> they made the subscription in the home.
+The app shows the notifications itself. An app with `scope: account` holds
+the account key, so it reads the subscriptions naming its origin from the
+registry, and matches each record that arrives against them with the body in
+hand (`matchesRecord`): not paused, the collection, one of the spaces, created
+at or after `since` and within the last 24 hours, by another account when
+`others`, and holding the topic value when there is one. What it held before
+it started is never news. How it shows a match is the app's to decide.
 
-_Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`), `packages/core/src/space/notify.ts` (`proposalSpaces`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("proposing subscriptions later", "the home receiving a request")._
+> Rationale: the home writes the subscriptions, not the app. A subscription is
+> the person's intent: the app knows good collections and labels, the person
+> says yes, and says no later in one place for every app.
+
+> Rationale: a carrier cannot read what it would notify about, and a label it
+> chose from the kinds of record it sees go by would be a guess at the
+> person's words. An app they are looking at knows what its records mean.
+
+_Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`, `matchesRecord`), `packages/core/src/node/watch-notifications.ts` (`watchNotifications`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions", "an app showing its own notifications", "the home receiving a request")._
 
 ---
 
@@ -1391,26 +1384,22 @@ carrier MUST check that `kind` is `carry`, that the invite is to the named
 space, that the space is private, created by `did`, and that the invite carries
 its key; and that `pod.dataPath` has no empty or `..` segments. A carry
 connection has no expiry (`expiresAt: 0` in the home's record) and no note to
-revoke; disconnecting it removes the carrier (§6.2) and the subscriptions it
-proposed (§4.12).
+revoke; disconnecting it removes the carrier (§6.2).
 
 _Source: `packages/core/src/session/connect.ts` (`connectCarrier`, `checkCarryGrant`, `CarryGrant`), `packages/core/src/session/auth.ts` (`grantCarry`). Tests: `packages/core/tests/connect.test.ts` ("connecting a carrier to an account home")._
 
-### 6.4 Notifications through carriers
+### 6.4 Subscriptions, and carriers
 
 "Let me know when…" subscriptions (`node.notifications`, needs the account
 key) are kept in the account registry as `sys.notify` records, key
 `notify:<base32 of 10 random bytes>`, body `NotifyWhen`:
 `{ label (≤ 120), collection (not sys.*), spaces ("all" or 1–256 ids), topic?: { field, value }, others? (default true), open? (https URL), paused?, since (ISO date), app?: { origin, name? } }`.
 
-The person adds them in the account home, or an app proposes them, when it
-connects or later, and the home adds the ones the person keeps, naming the app
-(§4.4, §4.5, §4.12). The carrier proposes them too: it knows the kinds of
-record in each space it carries by the `collection` on their outside, and a
-title and topic fields only where a definition is readable, in a public space
-(`collections(spaceId)` on the carrier node). The home lists them by who
-proposed them; pausing or removing works the same for all. Disconnecting an app
-or carrier removes its subscriptions (§4.10).
+An app proposes them when the person asks it to, and the home adds the ones
+the person keeps, naming the app (§4.12). The home lists them by app; the
+person pauses or removes them there. Disconnecting an app removes its
+subscriptions (§4.10). The app shows what they match itself, while it runs
+(§4.12). A subscription without `app` was made by an earlier home and is kept.
 
 Each device copies every subscription into every carry space as
 `sys.subscription` (same key), with the topic value replaced by the tag it has
@@ -1418,18 +1407,21 @@ in each space ([02](02-records.md)):
 `{ v: 1, label, collection, spaces, tags?: { <spaceId>: [<tag>] }, others, open?, paused, since }`.
 A private space whose key the device lacks gets no tag.
 
-A carrier notifies for a record that arrives when all hold: not paused; same
-collection; `seq` 0 and not deleted; the space is in `spaces`; `createdAt` is
-not before `since` and within the last 24 hours; with `others`, the record's
-root is not the account; with `tags`, the record carries one of that space's
-tags. What it reports is only the subscription, the space and the record's key,
-collection and `createdAt`.
+A carrier node reports a record that arrives (`notify` on `CarrierNode`) when
+all hold: not paused; same collection; `seq` 0 and not deleted; the space is in
+`spaces`; `createdAt` is not before `since` and within the last 24 hours; with
+`others`, the record's root is not the account; with `tags`, the record
+carries one of that space's tags. What it reports is only the subscription, the
+space and the record's key, collection and `createdAt`. No carrier shows these
+today, the browser extension included: the copies are there for waking an app
+that is closed (below).
 
-_Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts` (`arrived`, `collections`), `apps/extension/src/notify.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
+_Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts` (`arrived`). Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
 
-> **Planned: Web Push, to a closed browser or a phone.** Today a match is
-> reported only to the carrier's own process (the extension shows it itself),
-> so nothing reaches a device whose browser is closed. The plan:
+> **Planned: Web Push, to a closed app or a phone.** Today only an app that
+> is running shows a match (§4.12), so nothing reaches a device where it is
+> closed, and an app with `scope: spaces`, which cannot read the registry,
+> shows nothing. The plan:
 >
 > - A device registers its Web Push subscription as a **receiver** (the plan
 >   below): `push: { endpoint, p256dh, auth }` (the browser's
@@ -1444,7 +1436,8 @@ _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (
 >   so when several carriers send the same record the push service replaces
 >   undelivered copies. The notification's `tag` is the record key, so
 >   duplicates that get through replace each other.
-> - The device's service worker opens the space key from its own storage,
+> - The app's service worker (installed as a PWA on a phone: Android, and
+>   iOS 16.4 or later from the home screen) opens the space key from its own storage,
 >   decrypts, checks the rest of the filter, and shows the notification.
 >   Browsers require every push to show one (`userVisibleOnly`), so a device
 >   cannot quietly drop most of a stream: a subscription whose carrier-side
@@ -1464,20 +1457,19 @@ _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (
 > [#30](https://github.com/leifriksheim/weave/issues/30). Subscriptions are
 > the account's and apps propose them (above); which device shows a match is
 > not modeled yet. Every device copies every subscription into every carry
-> space, and whichever carrier sees a record shows it. The plan:
+> space, and every copy of the app that is open shows what it matches. The
+> plan:
 >
 > - Each device registers as a **receiver** in its own record, apart from
->   subscriptions: the extension first (it already shows notifications),
->   then any browser through Web Push. Subscription records hold no device or
->   endpoint data.
+>   subscriptions: a browser through Web Push, for the app that proposed the
+>   subscription. Subscription records hold no device or endpoint data.
 > - By default every receiver gets every subscription; a device can opt out
->   on its own. The extension's mute is already per browser.
+>   on its own.
 > - A removed device's receiver record goes with it.
 >
 > _Open:_ which device copies subscriptions into carry spaces; where receiver
 > records live and which carrier sends to which endpoint (with the VAPID
-> question above); whether "not on this device" syncs; how an app already
-> connected proposes more without connecting again.
+> question above); whether "not on this device" syncs.
 
 ### 6.5 Hosts
 

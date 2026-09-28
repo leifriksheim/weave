@@ -527,13 +527,15 @@ Each record then carries, on its outside, a keyed hash of each of those values
 topic. `node.collections.tag(space, collection, field, value)` gives the tag to
 match; anyone who can read a record checks its tags and refuses a mismatch.
 
-**"Notify me when…"** (`node.notifications`, and the home's section of that
-name): new records in a collection, in every space or some, perhaps only with
-a topic value ("mentions me"), perhaps only other people's. The account
-registry keeps each one sealed; every carrier gets it with the value replaced
-by each space's tag, so the Weave extension notices matching records as they
-arrive and shows a notification — the space, your label, the time — without
-being able to read them, or what you asked for.
+**"Notify me when…"**: new records in a collection, in every space or some,
+perhaps only with a topic value ("mentions me"), perhaps only other people's.
+Connecting asks for none. When the person wants them, the app offers some
+(`connection.propose`), the home adds the ones they keep to the account
+registry, sealed, and lists them by app for pausing and removing. The app
+shows them itself: `watchNotifications(node, { onNotify })` hands it each
+record that arrives matching one. Every carrier also gets them with the value
+replaced by each space's tag, so it can match records without reading them —
+what waking a closed app will need.
 
 A space that names no keeper is held whole, as before: then the app may be one
 of its copies. How much to hold is each node's choice (`NodeConfig.cache`;
