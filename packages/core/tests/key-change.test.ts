@@ -27,6 +27,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
+import { until } from './helpers/until.js';
 
 const provider = createP256Provider();
 
@@ -141,14 +142,6 @@ async function person(hub: FakeHub) {
   return { node, me, manager, accountKey: await deriveVaultKeyBytes(seed) };
 }
 type Person = Awaited<ReturnType<typeof person>>;
-
-async function until(predicate: () => Promise<boolean>, ms = 6000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
 
 /** Whether a node reads a note with this text */
 const readsOn = async (node: P2PNode, space: string, text: string) =>

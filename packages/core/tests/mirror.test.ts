@@ -21,6 +21,7 @@ import { createMirror, deleteMirrored, type Taken } from '../src/storage/mirror.
 import { packSegment, unpackSegment } from '../src/storage/segment.js';
 import type { Expression } from '../src/types.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
+import { patience } from './helpers/until.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -182,7 +183,7 @@ describe('a mirror', () => {
     await laptop.storage.addExpression(await note(who, 'soon'));
     laptop.mirror.changed();
     laptop.mirror.changed();
-    const deadline = Date.now() + 2000;
+    const deadline = Date.now() + patience(2000);
     while ((await shared.store.list(`${SPACE}/`)).length === 0 && Date.now() < deadline)
       await new Promise((r) => setTimeout(r, 5));
     assert.equal(

@@ -45,6 +45,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
 import { portOf } from './helpers/net.js';
 import { isRecord } from '../src/utils/guards.js';
+import { patience } from './helpers/until.js';
 
 // ─── Relays, for the mailbox ────────────────────────────────────────
 
@@ -101,7 +102,7 @@ async function until<T>(
   what: string,
   ms = 5000,
 ): Promise<T> {
-  const deadline = Date.now() + ms;
+  const deadline = Date.now() + patience(ms);
   for (;;) {
     const value = await get();
     if (ok(value)) return value;

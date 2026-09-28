@@ -26,6 +26,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { hold } from './helpers/hold.js';
 import { stored } from './helpers/stored.js';
+import { until } from './helpers/until.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -46,14 +47,6 @@ async function person(hub: FakeHub, name?: string, stores = memoryStores()) {
   open.push(node);
   if (name) await node.account.setName(name);
   return { node, me, manager, stores };
-}
-
-async function until(predicate: () => Promise<boolean>, ms = 4000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 const nameIn = async (node: P2PNode, space: string, did: string) =>

@@ -28,6 +28,7 @@ import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { contactPublicKey, deriveContactKeyBytes } from '../src/identity/contact-key.js';
 import { profileKey } from '../src/node/space-runtime.js';
 import { contactRequest } from '../src/schemas/contacts.js';
+import { until } from './helpers/until.js';
 
 const open: P2PNode[] = [];
 afterEach(async () => {
@@ -48,14 +49,6 @@ async function person(hub: FakeHub) {
   return { node, me, manager, stores };
 }
 type Person = Awaited<ReturnType<typeof person>>;
-
-async function until(predicate: () => Promise<boolean>, ms = 4000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
 
 const settle = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
 

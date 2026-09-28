@@ -24,6 +24,7 @@ import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
 import { team } from '../src/space/presets.js';
+import { until } from './helpers/until.js';
 
 describe('topic tags, worked out', () => {
   test('a definition names at most eight fields, each a field name, none twice', () => {
@@ -102,14 +103,6 @@ async function person(hub: FakeHub) {
   });
   open.push(node);
   return { node, me, manager, stores };
-}
-
-async function until(predicate: () => Promise<boolean>, ms = 4000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 const chat = { name: 'app.chat', schema: { type: 'object' }, topics: ['channel', 'mentions'] };

@@ -23,6 +23,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
+import { until } from './helpers/until.js';
 
 const expense = {
   type: 'object',
@@ -137,14 +138,6 @@ describe('a space that describes itself', () => {
     });
     open.push(node);
     return node;
-  }
-
-  async function until(predicate: () => Promise<boolean>, ms = 3000, what = 'condition') {
-    const deadline = Date.now() + ms;
-    while (!(await predicate())) {
-      if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
   }
 
   test('a definition is listed with its schema, and records written against it are checked', async () => {

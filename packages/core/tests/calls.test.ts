@@ -20,6 +20,7 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { fakeConnection, fakeDisplayMedia, fakeStream, fakeUserMedia } from './helpers/fake-rtc.js';
 import { team } from '../src/space/presets.js';
 import { hold, letGo } from './helpers/hold.js';
+import { until } from './helpers/until.js';
 
 const nodes: P2PNode[] = [];
 const allCalls: Calls[] = [];
@@ -53,14 +54,6 @@ async function person(hub: FakeHub, seed = generateSeed()) {
   const calls = createCalls(node, OPTIONS);
   allCalls.push(calls);
   return { node, calls, seed };
-}
-
-async function until(predicate: () => boolean | Promise<boolean>, ms = 4000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

@@ -55,6 +55,7 @@ import { memberKey } from '../src/space/space-access.js';
 import { nextVersion } from '../src/records/version.js';
 import { hold, letGo } from './helpers/hold.js';
 import { isRecord } from '../src/utils/guards.js';
+import { until } from './helpers/until.js';
 
 const open: Array<{ close(): Promise<unknown> }> = [];
 afterEach(async () => {
@@ -75,14 +76,6 @@ async function person(hub: FakeHub) {
   return { node, me, manager, stores };
 }
 type Person = Awaited<ReturnType<typeof person>>;
-
-async function until(predicate: () => Promise<boolean>, ms = 4000, what = 'condition') {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
 
 const settle = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
 

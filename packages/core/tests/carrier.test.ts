@@ -28,6 +28,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createMemoryDirectory } from './helpers/memory-directory.js';
+import { until } from './helpers/until.js';
 
 const provider = createP256Provider();
 const open: Array<{ close(): Promise<void> }> = [];
@@ -89,14 +90,6 @@ async function carrier(
   });
   open.push(node);
   return node;
-}
-
-async function until(check: () => Promise<boolean>, ms = 5000, what = 'condition'): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!(await check())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 const carries = (node: CarrierNode, spaceId: string) => async () =>

@@ -33,14 +33,7 @@ import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { deriveContactKeyBytes } from '../src/identity/contact-key.js';
-
-async function until(check: () => Promise<boolean>, ms: number, what: string): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!(await check())) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
+import { until } from './helpers/until.js';
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
