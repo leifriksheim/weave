@@ -2,7 +2,7 @@
   "name": "@weaveprotocol/core",
   "version": "0.2.5",
   "type": "module",
-  "description": "Self-sovereign P2P protocol for the browser — identity, schemas, storage, networking, and gossip sync",
+  "description": "Self-sovereign P2P protocol for the browser \u2014 identity, schemas, storage, networking, and gossip sync",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/leifriksheim/weave.git",
@@ -94,7 +94,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tests",
     "test": "node --experimental-vm-modules --import tsx --test tests/*.test.ts",
     "prepack": "cp ../../README.md README.md",
     "postpack": "rm -f README.md",

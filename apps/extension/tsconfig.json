@@ -1,27 +1,9 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ES2022",
-    "moduleResolution": "bundler",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": [
-      "chrome"
-    ],
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "skipLibCheck": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "customConditions": [
-      "@weaveprotocol/source"
-    ]
+    "types": ["chrome"],
+    "customConditions": ["@weaveprotocol/source"],
+    "noEmit": true
   },
-  "include": [
-    "src",
-    "build.mjs"
-  ]
+  "include": ["src", "build.mjs"]
 }
