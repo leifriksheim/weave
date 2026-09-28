@@ -98,9 +98,21 @@ fixes the socket's DID for the life of the socket.
 
 > Rationale: taking over a DID would let anyone who learns it receive the
 > offers meant for it. A peer that reconnects after a silent drop is refused
-> until the heartbeat (§1.6) reaps its old socket; its client retries.
+> until the heartbeat (§1.6) reaps its old socket; its client retries (§2).
+> Letting two sockets share a DID is no answer either: signals are routed by
+> `to`, so the relay could not tell which one is meant.
 
-_Source: `packages/relay/relay.mjs` (`handleMessage`, `isDid`, `CLOSE_DID_TAKEN`). Tests: none pin the 4009 close directly — see Open questions._
+> **Known defect:** two nodes that sign with the same key have the same DID,
+> and only the first gets into a room; the other is refused until it stops.
+> That happens with every tab of one app, which signs with the app's key
+> ([06](06-nodes-and-sessions.md) §4.1), and every `weave mcp` process of one
+> agent (06 §5.4). The refused node now says so (§2, and `refused` in
+> `spaces.status`), but it still cannot sync. A fresh session key per node
+> run, delegated from the durable key, would fix it; that needs peers to
+> accept a two-link chain ([01](01-identity.md) §7.5). Tracked in
+> [#55](https://github.com/leifriksheim/weave/issues/55).
+
+_Source: `packages/relay/relay.mjs` (`handleMessage`, `isDid`, `CLOSE_DID_TAKEN`). Tests: `packages/core/tests/relay-refusal.test.ts` ("one DID per room")._
 
 ### 1.3 Rooms
 
@@ -293,11 +305,30 @@ per pairing or agent link) on it.
   kept, and string `username` and `credential`; `expiresAt` a finite number.
   An offer with no usable server is dropped.
 
-_Implementation detail:_ after an unexpected close the reference client
-redials with backoff 1, 2, 4, 8, 16 s and gives up after 5 attempts in a
-row; a successful open resets the count.
+- While it is in any room, a client SHOULD keep redialling a relay whose
+  socket closed, however many attempts fail. A client that stops is still
+  signed in and still looks online, but no peer can find it until it
+  restarts, and it has no way to tell.
+- A socket closed with `4009` (§1.2) means the relay already has this DID
+  in the room: its previous socket, which the relay drops within two
+  heartbeats, or another node signing with the same key. The client MUST NOT
+  count that socket as connected, and SHOULD say it was refused rather than
+  unreachable. It SHOULD keep redialling, but no sooner than 10 s after the
+  close: sooner is refused again, and a node holding the DID lets go only
+  when it stops.
 
-_Source: `packages/core/src/network/signaling.ts`. Tests: `packages/core/tests/introductions.test.ts` ("several relays at once")._
+_Implementation detail:_ the reference client waits 1, 2, 4, 8, 16 s and
+then 30 s between attempts, each ±20% so peers that dropped together do not
+return together, and never stops until `disconnect`. After a `4009` it
+emits `refused` and waits 10 s, doubling with each refusal in a row up to
+60 s. It tries at once when the browser reports `online` or the page becomes
+visible again, since both follow a network change or a sleep, and when asked
+(`reconnect`). A successful open resets the count. Each relay's state
+(`connecting`, `open`, `waiting` with the time of the next attempt and why the
+last one failed, `stopped`) is readable as `RelayStatus`, and through a node
+as `network.status()`.
+
+_Source: `packages/core/src/network/signaling.ts` (`createSignalingClient`), `packages/core/src/network/multi-signaling.ts` (`relays`). Tests: `packages/core/tests/signaling.test.ts` ("signaling reconnects"), `packages/core/tests/relay-refusal.test.ts` ("one DID per room"), `packages/core/tests/introductions.test.ts` ("several relays at once")._
 
 ---
 
@@ -765,11 +796,18 @@ _Source: `packages/core/src/network/mesh.ts` (`greet`, `onHandshake`, `admit`, `
   Otherwise an `offer` is answered (replacing any unproven connection with
   that peer) and the `answer` and candidates go back the way the offer came
   (relay, or mesh); an `answer` or `candidate` is applied.
+- **A connection that never opens** is given up: an offer nobody answers
+  leaves a connection that neither opens nor fails, and a peer already tried
+  is not offered to again, so without a deadline the two stay apart until one
+  restarts. A connection started by offering or answering that has not opened
+  within the attempt timeout (§7.4) is closed and forgotten. The side that
+  offered through a relay offers again while a relay still has the peer in a
+  room; the answering side waits to be offered to.
 
 Not yet specified: suppression of a duplicate offer that arrives through a
 second shared relay. See the known defect in §3.
 
-_Source: `packages/core/src/network/mesh.ts` (`meet`, `offerTo`, `onSignal`). Tests: `packages/core/tests/network-manager.test.ts`._
+_Source: `packages/core/src/network/mesh.ts` (`meet`, `offerTo`, `onSignal`, `watch`, `meetAgain`). Tests: `packages/core/tests/network-manager.test.ts`, `packages/core/tests/signaling.test.ts` ("the mesh offers again")._
 
 ### 7.4 Limits
 
@@ -778,6 +816,7 @@ _Source: `packages/core/src/network/mesh.ts` (`meet`, `offerTo`, `onSignal`). Te
 | Peers per room                      | bounded by the relay (64 in the reference relay); the mesh sets none of its own |
 | Handshake timeout (`authTimeoutMs`) | 10 s                                                                            |
 | Idle connection timeout             | 10 s after opening                                                              |
+| Connection attempt timeout          | 20 s, doubling with each failed attempt at the same peer up to 5 min            |
 | Peers named per `__peers`           | 64 (`MAX_INTRODUCED`); the rest are ignored                                     |
 | Relayed-signal hops                 | 3 (`MAX_HOPS`)                                                                  |
 | Remembered relayed-signal ids       | 512                                                                             |
@@ -969,8 +1008,5 @@ of §6.1 on a node socket; attribute every message to the connection, not to
   is planned (§7.4).
 - **"64 KB"** for live messages is measured in UTF-16 code units of the JSON
   string, not bytes.
-- **Untested relay behaviour.** The `4009` DID-taken close, the rate limit,
-  the per-address and per-room caps and the heartbeat have no tests.
-- **Signaling client gives up** after 5 failed reconnects in a row
-  (`packages/core/src/network/signaling.ts:138`), while the WebSocket transport retries
-  forever. Not yet specified what a client should do.
+- **Untested relay behaviour.** The rate limit, the per-address and per-room
+  caps and the heartbeat have no tests.

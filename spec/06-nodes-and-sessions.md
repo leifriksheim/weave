@@ -350,17 +350,17 @@ A received live message is emitted as a `message` event:
 
 `spaces.status(id)` returns `SpaceStatus`:
 
-| Field         | Meaning                                                                                                                                           |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `connection`  | `offline` (no network), `connecting`, `connected` (as soon as any one transport connects), `error`.                                               |
-| `peers`       | Session DIDs connected in the space.                                                                                                              |
-| `own`         | Of `peers`, the account's own other devices and apps: those also connected in the account registry, minus carriers. Empty without an account key. |
-| `carriers`    | Of `peers`, the account's carriers, by the keys `sys.carrier` records name.                                                                       |
-| `accounts`    | Session DID → account, for each peer that showed a valid note.                                                                                    |
-| `fingerprint` | A fingerprint of every version held; equal on two nodes means identical data ([05](05-sync-and-storage.md)).                                      |
-| `rejected`    | How many versions peers sent failed validation.                                                                                                   |
-| `holds`       | `"all"`, or the sorted list of collections held (§1.8).                                                                                           |
-| `pending`     | This node's writes still waiting for keepers (§1.8).                                                                                              |
+| Field         | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connection`  | `offline` (no network), `connecting`, `connected` (while any one transport is connected: a relay socket open, or a peer), `error` (the first connect failed and nothing has connected since), `refused` (nothing connected, and every relay refused this node's DID with `4009` because another node with the same key holds it, [04](04-network.md) §1.2). A space whose relays all drop and whose peers leave is `connecting` again, not `connected`. |
+| `peers`       | Session DIDs connected in the space.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `own`         | Of `peers`, the account's own other devices and apps: those also connected in the account registry, minus carriers. Empty without an account key.                                                                                                                                                                                                                                                                                                       |
+| `carriers`    | Of `peers`, the account's carriers, by the keys `sys.carrier` records name.                                                                                                                                                                                                                                                                                                                                                                             |
+| `accounts`    | Session DID → account, for each peer that showed a valid note.                                                                                                                                                                                                                                                                                                                                                                                          |
+| `fingerprint` | A fingerprint of every version held; equal on two nodes means identical data ([05](05-sync-and-storage.md)).                                                                                                                                                                                                                                                                                                                                            |
+| `rejected`    | How many versions peers sent failed validation.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `holds`       | `"all"`, or the sorted list of collections held (§1.8).                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `pending`     | This node's writes still waiting for keepers (§1.8).                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 > Rationale: a peer's key does not say whose it is, but only the account's own
 > devices and apps can read its registry, so a peer there is one of ours.
@@ -391,6 +391,11 @@ exposes them:
 - `node.carriers`, `node.hosting`, `node.notifications` — §6.
 - `node.iceServers()` — the configured ICE servers plus TURN servers a relay
   offers ([04](04-network.md)); what calls use (§7).
+- `node.network` — `status()`: each relay's state (open, or waiting to redial,
+  when and why), the connections open and those still being made, and whether
+  a relay offered TURN; `reconnect()` redials a waiting relay now
+  ([04](04-network.md) §2, §7.3). A `network` event follows every change.
+  Local only: nothing here goes over the wire.
 - `node.asAgent({ keys, note })` — §5.2.
 
 _Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/profiles.test.ts`._
@@ -653,6 +658,11 @@ The reference `appKey(name = 'default')` keeps it in the IndexedDB database
 `weave-app-key`, object store `keys`, under `name`. `forgetAppKey` deletes it;
 the next connection makes a new one. The key's DID is the grant's audience, and
 the app's node signs with this key (`sessionKey`), not a fresh one.
+
+> **Known defect:** so every tab or window of one app is the same DID on the
+> relays, and only the first gets into a space's room; the others report
+> `refused` (§1.10) until it closes. See [04](04-network.md) §1.2 and
+> [#55](https://github.com/leifriksheim/weave/issues/55).
 
 ### 4.2 The home's address
 
@@ -1178,6 +1188,13 @@ account key when present, relays = the grant's ∪ `$WEAVE_RELAYS` (default
 `wss://p2p-web-relay.fly.dev`), WebRTC via `node-datachannel`; joins any granted
 spaces it lacks; wraps the node with `asAgent`; holds every space; and serves
 MCP over stdio with the person-only tools removed (§2).
+
+> **Known defect:** every `weave mcp` with the same `--home` signs with the one
+> agent key, so only the first gets into a space's room; the others report
+> `refused` in `spaces_status` and log it to stderr, keep their writes, and
+> sync once the first stops. They also share `data/` on disk, each with its own
+> copy in memory. See [04](04-network.md) §1.2 and
+> [#55](https://github.com/leifriksheim/weave/issues/55).
 
 _Source: `packages/cli/src/agent.ts`, `packages/cli/src/mcp.ts`. Tests: `packages/core/tests/agents.test.ts` ("an agent running a node of its own"), `packages/cli/tests/cli.test.ts` ("MCP")._
 

@@ -54,4 +54,5 @@ export {
   useSpaceStatus,
   useCan,
 } from './use-space.js';
+export { useNetwork } from './use-network.js';
 export { CallsProvider, useCalls } from './use-calls.js';

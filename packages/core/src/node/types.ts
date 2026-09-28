@@ -22,6 +22,7 @@ import type { LinkDeclaration } from '../records/links.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import type { Capability, UCANToken } from '../identity/ucan.js';
 import type { PeerTransport } from '../network/transport.js';
+import type { MeshStatus } from '../network/mesh.js';
 import type { ServerAuth } from '../network/peer-auth.js';
 import type { StoreFactory } from './stores.js';
 import type { JsonSchema, SchemaIssue } from '../schema/collection-def.js';
@@ -328,7 +329,13 @@ export interface ListOptions {
   readonly includeDeleted?: boolean;
 }
 
-export type ConnectionState = 'offline' | 'connecting' | 'connected' | 'error';
+/**
+ * How a space reaches its peers. `refused`: every relay turned this node's
+ * session DID away because another node with the same key holds it there —
+ * another tab of the same app, or another process of the same agent — and no
+ * other way in is connected. It gets in once that one stops.
+ */
+export type ConnectionState = 'offline' | 'connecting' | 'connected' | 'error' | 'refused';
 
 export interface SpaceStatus {
   readonly space: string;
@@ -379,7 +386,17 @@ export type NodeEvent =
   /** A live message from a peer in a space (`spaces.send`) */
   | ({ readonly type: 'message'; readonly space: string } & LiveMessage)
   /** The note this node writes under was revoked in a space — an app disconnected from its account home, say */
-  | { readonly type: 'revoked'; readonly space: string };
+  | { readonly type: 'revoked'; readonly space: string }
+  /** A relay or a connection changed (`network.status()`) */
+  | { readonly type: 'network' };
+
+/** The node's own connections, across every space: its relays, and the peers it reaches or is reaching */
+export interface NodeNetwork {
+  /** Where each relay and connection stands. No relays when none are configured. */
+  status(): MeshStatus;
+  /** Tries every relay that is waiting to reconnect, now, rather than at its next turn */
+  reconnect(): void;
+}
 
 /** Who someone is in a space: the name they gave there, by their identity */
 export interface SpaceProfile {
@@ -917,6 +934,8 @@ export interface P2PNode {
    * passwords (fetched fresh when the ones held are about to run out).
    */
   iceServers(): Promise<ReadonlyArray<RTCIceServer>>;
+  /** Relays and connections, for showing why a peer is or is not there */
+  readonly network: NodeNetwork;
   /** Passes a narrower delegation from the session key on to another key */
   delegate(params: DelegateParams): Promise<Delegated>;
   /**

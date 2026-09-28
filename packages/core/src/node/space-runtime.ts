@@ -136,6 +136,7 @@ import { base32Encode, cidFromBytes, cidOfDigest, hashedKey, sha256 } from '../u
 import { sameTags, tagsFor, topicKey, topicTag } from '../records/topics.js';
 import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../utils/encoding.js';
 import { isRecord, unref } from '../utils/guards.js';
+import { CLOSE_DID_TAKEN } from '../network/signaling.js';
 import type {
   CacheConfig,
   ConnectionState,
@@ -1718,9 +1719,31 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   // ─── Peers ─────────────────────────────────────────────────────────
 
+  /** How the first connect went; after that, what the networks say now (`liveConnection`) */
   let connection: ConnectionState = 'offline';
   let rejected = 0;
   const networks: NetworkManager[] = [];
+  const reachable = () => networks.some((network) => network.isConnected());
+  /**
+   * Connected while some network is: a relay reachable, or a peer. Once up, a
+   * space whose relays are all gone and whose peers have left is trying again,
+   * not connected; one whose first try failed is connected once a retry works.
+   */
+  const liveConnection = (): ConnectionState => {
+    if (connection === 'offline') return connection;
+    if (reachable()) return 'connected';
+    const relays = deps.mesh?.status().relays ?? [];
+    if (relays.length > 0 && relays.every((relay) => relay.closeCode === CLOSE_DID_TAKEN)) return 'refused';
+    return connection === 'connected' ? 'connecting' : connection;
+  };
+  let shown: ConnectionState | null = null;
+  // Relays come and go without a peer doing so; say so when that changes how this space connects.
+  const stopWatchingMesh = deps.mesh?.subscribe(() => {
+    const now = liveConnection();
+    if (now === shown) return;
+    shown = now;
+    emit({ type: 'status', space: space.id });
+  });
   /** Which network a peer was met on, so replies go back the same way */
   const routes = new Map<string, NetworkManager>();
 
@@ -2717,7 +2740,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     async status() {
       return {
         space: space.id,
-        connection,
+        connection: liveConnection(),
         peers: connectedPeers(),
         accounts: Object.fromEntries(
           [...knownAccounts].flatMap(([peer, known]) =>
@@ -2744,6 +2767,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
     async close(): Promise<void> {
       closed = true;
+      stopWatchingMesh?.();
       if (dropTimer) clearInterval(dropTimer);
       await tidying;
       await flushCache();

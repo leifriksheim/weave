@@ -32,6 +32,7 @@ export type {
   NodeRecords,
   NodeRecord,
   NodeEvent,
+  NodeNetwork,
   SpaceSummary,
   SpaceStatus,
   SpaceProfile,

@@ -281,6 +281,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     }
   };
 
+  const stopWatchingNetwork = mesh?.subscribe(() => emit({ type: 'network' }));
+
   // ─── Spaces ────────────────────────────────────────────────────────
 
   const registryStore = await config.stores('registry', { seal: true });
@@ -2293,6 +2295,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       }),
       delegation: () => note,
       iceServers: () => node.iceServers(),
+      network: node.network,
       delegate: person('pass its access on'),
       asAgent: person('start another agent'),
       subscribe: (listener: (event: NodeEvent) => void) =>
@@ -2322,6 +2325,11 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
     iceServers: async () => (mesh ? mesh.iceServers() : (config.network?.iceServers ?? DEFAULT_ICE_SERVERS)),
 
+    network: Object.freeze({
+      status: () => mesh?.status() ?? { relays: [], links: [], connecting: [], turn: false },
+      reconnect: () => mesh?.reconnect(),
+    }),
+
     async delegate(params: DelegateParams) {
       const token = await delegateCapabilities(
         {
@@ -2346,6 +2354,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async close() {
       if (closed) return;
       closed = true;
+      stopWatchingNetwork?.();
       if (renewTimer) clearTimeout(renewTimer);
       const open = [...runtimes.keys()];
       await Promise.all(open.map((spaceId) => closeRuntime(spaceId)));
