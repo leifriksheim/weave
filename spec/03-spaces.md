@@ -1190,7 +1190,7 @@ after) or a browser extension's (`chrome-extension://`, `moz-extension://` or
 
 `app` names the app that proposed the subscription, by the origin the browser
 reported; the account home writes it on its behalf when the person says yes
-([06](06-nodes-and-sessions.md) §4.12), and that app shows what it matches. A
+([06](06-nodes-and-sessions.md) §2.11), and that app shows what it matches. A
 home adds no subscription of its own; one without `app` was made by an earlier
 home, or proposed by an earlier extension (so an extension's origin stays
 valid), and nothing shows it now. `app` is not copied to the carried form.
@@ -1214,14 +1214,14 @@ is 0 and not deleted; the space is in `spaces` (or `"all"`); its `createdAt`
 is at or after `since` and within 24 hours of now; if `others`, its root is
 not the account; and if `tags` is present, the version's `tags` include one of
 `tags[spaceId]`. No carrier shows a notification yet; the carried form is
-what a carrier needs to wake an app that is closed ([06](06-nodes-and-sessions.md) §6.4).
+what a carrier needs to wake an app that is closed ([06](06-nodes-and-sessions.md) §4.4).
 
 _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
 
 > **Planned: devices deliver subscriptions.** Issue:
 > [#30](https://github.com/leifriksheim/weave/issues/30). Delivery moves to
 > per-device receiver records, apart from subscriptions. Specified in
-> [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) §6.4.
+> [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) §4.4.
 
 ---
 

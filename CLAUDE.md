@@ -2,19 +2,20 @@
 
 Weave is a protocol first and a library second. `spec/` says what goes over
 the wire, what is stored, what is signed and what every peer must check;
-`packages/core/src/` is the reference implementation. Read the part of the
-spec a change touches before changing the code.
+`packages/core/src/` is the reference implementation, and `packages/core/docs/`
+describes the library built on it. Read the part of the spec, or the page of
+the docs, a change touches before changing the code.
 
 ## Layout
 
-| Folder                                        |                                                                               |
-| --------------------------------------------- | ----------------------------------------------------------------------------- |
-| `spec/`                                       | The protocol specification, `README.md` plus parts 01–07. Normative.          |
-| `packages/core`                               | `@weaveprotocol/core`: the protocol library and its tests (`tests/*.test.ts`) |
-| `packages/cli`                                | `@weaveprotocol/cli`: `weave`, the always-on node, hosting, agents, MCP       |
-| `packages/relay`                              | The signaling relay and its mailbox                                           |
-| `apps/home`, `apps/example`, `apps/extension` | The account home, the website and example app, the Chrome extension           |
-| `apps/shared`                                 | What the home and the website share: styles, relay settings, components       |
+| Folder                                        |                                                                                               |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `spec/`                                       | The protocol specification, `README.md` plus parts 01–07. Normative.                          |
+| `packages/core`                               | `@weaveprotocol/core`: the protocol library, its tests (`tests/*.test.ts`) and docs (`docs/`) |
+| `packages/cli`                                | `@weaveprotocol/cli`: `weave`, the always-on node, hosting, agents, MCP                       |
+| `packages/relay`                              | The signaling relay and its mailbox                                                           |
+| `apps/home`, `apps/example`, `apps/extension` | The account home, the website and example app, the Chrome extension                           |
+| `apps/shared`                                 | What the home and the website share: styles, relay settings, components                       |
 
 Everything imports the protocol as `@weaveprotocol/core`, only through what it
 exports. Inside the workspace the `@weaveprotocol/source` condition resolves it
@@ -51,9 +52,21 @@ and rule names).
 
 ## The spec and the code change together
 
-- A change to anything a peer produces, accepts, stores, signs or checks
-  changes the spec in the same PR. Where the spec and the code disagree, one
-  of them is a bug: fix it, or open an issue that says which.
+The spec is strict. It holds only what two implementations must agree on to
+work together: bytes on the wire, what is stored and signed, what a peer
+checks or refuses, and exchanges between two parties (an app and its account
+home, a carrier, a relay). What a record body means, how the library is
+called and how an app shows something are not protocol, however useful: the
+standard collections (`std.*`), the query format, node actions, `std.app` and
+screens are described in `packages/core/docs/` instead.
+
+- A change to anything in the spec's scope changes the spec in the same PR.
+  Where the spec and the code disagree, one of them is a bug: fix it, or open
+  an issue that says which.
+- A change to a standard collection, the query format, the node's interface
+  or an app convention changes its page in `packages/core/docs/` instead, in
+  the same PR, with a _Source:_ line and tests in the same way. Those pages
+  say "must" in plain words, not RFC 2119 capitals.
 - Follow the conventions in `spec/README.md`: RFC 2119 words only where they
   are meant, exact formats with an example, and a _Source:_ line naming the
   files and tests for each section.

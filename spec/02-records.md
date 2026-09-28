@@ -3,15 +3,18 @@
 A **record** is a signed, versioned JSON document in a **collection** of a
 **space**. This part says exactly what one looks like, how it is encoded,
 hashed and signed, which of its versions counts, how records point at each
-other, how a space describes its collections and their rules, how records are
-queried, and what a peer checks before it keeps one.
+other, how a space describes its collections and their rules, and what a
+peer checks before it keeps one.
 
 Out of scope here, and specified elsewhere:
 
 - Keys, DIDs and the UCAN delegations carried in `proof`: [01 — Identity](01-identity.md).
 - Roles, the access history that `seen` refers to, encrypted bodies and space keys: [03 — Spaces](03-spaces.md).
 - How versions travel and how they are stored: [05 — Sync and storage](05-sync-and-storage.md).
-- The node API that reads and writes records: [06 — Nodes, sessions and apps](06-nodes-and-sessions.md).
+- Not protocol, and described in the package docs instead: querying records
+  ([query format](../packages/core/docs/query-format.md)), the optional standard collections
+  ([standard library](../packages/core/docs/standard-library.md)), and apps kept in a space,
+  their review and their screens ([apps as records](../packages/core/docs/apps-as-records.md)).
 
 **Terms.** An _expression_ is one signed version of a record — the unit that is
 hashed, signed, stored and synced. A _record_ is every expression that shares
@@ -451,7 +454,7 @@ and sync sends it (§4.5, [05 §1](05-sync-and-storage.md)). So a message
 deleted before its recipient came online still reaches them, a member who
 joins after the delete receives it too, and editing a record to take
 something out (a pasted password) leaves the original in `seq 0`. Nothing
-shows it, because queries skip deleted records (§11), but every store holds
+shows it, because apps skip deleted records, but every store holds
 it and every sync passes it on.
 
 **What it can promise.** Nothing can take content back from a peer that
@@ -598,20 +601,20 @@ space's access history ([03 — Spaces](03-spaces.md)): it carries `retain: true
 and `seen`, and which definition is in force is decided by replaying that
 history. In a private space its body is encrypted like any other record's.
 
-| Field         | Type                  | Req. | Meaning                                                                                                                                                                                                                                                                        |
-| ------------- | --------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `name`        | string                | yes  | Lower case, at least one dot (local to the space, §6.4): `^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$`. MUST NOT start with `sys.`. The record's key MUST be `collection:` + this.                                                                                                   |
-| `title`       | string                | no   | Display name                                                                                                                                                                                                                                                                   |
-| `description` | string                | no   | The author's words                                                                                                                                                                                                                                                             |
-| `schema`      | object                | yes  | JSON Schema for a record's `body`, in the subset of §6.2                                                                                                                                                                                                                       |
-| `version`     | integer ≥ 1           | yes  | Shape version (§6.3)                                                                                                                                                                                                                                                           |
-| `history`     | `"latest"` \| `"all"` | no   | Default `"latest"`. `"all"`: writers mark every version `retain` (§4.5).                                                                                                                                                                                                       |
-| `links`       | object                | no   | Link declarations (§5.2)                                                                                                                                                                                                                                                       |
-| `permissions` | string[]              | no   | Permissions its rules may name, each `^[a-z][a-zA-Z0-9]{0,39}$` (§7.1)                                                                                                                                                                                                         |
-| `rules`       | object                | no   | §7                                                                                                                                                                                                                                                                             |
-| `topics`      | string[]              | no   | §8                                                                                                                                                                                                                                                                             |
-| `screen`      | string                | no   | One HTML document, at most 48 KiB of UTF-8, non-blank. What runs it: [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) §5.5.                                                                                                                                           |
-| `network`     | string[]              | no   | The exact origins its `screen` may reach: at most 8, distinct, each `^(https\|wss)://` + a lower-case host with at least one dot + an optional `:port`, no path (`https://api.open-meteo.com`). Only with a `screen`. How it is enforced: [06](06-nodes-and-sessions.md) §5.5. |
+| Field         | Type                  | Req. | Meaning                                                                                                                                                                                                                                                                                                                                 |
+| ------------- | --------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | string                | yes  | Lower case, at least one dot (local to the space, §6.4): `^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$`. MUST NOT start with `sys.`. The record's key MUST be `collection:` + this.                                                                                                                                                            |
+| `title`       | string                | no   | Display name                                                                                                                                                                                                                                                                                                                            |
+| `description` | string                | no   | The author's words                                                                                                                                                                                                                                                                                                                      |
+| `schema`      | object                | yes  | JSON Schema for a record's `body`, in the subset of §6.2                                                                                                                                                                                                                                                                                |
+| `version`     | integer ≥ 1           | yes  | Shape version (§6.3)                                                                                                                                                                                                                                                                                                                    |
+| `history`     | `"latest"` \| `"all"` | no   | Default `"latest"`. `"all"`: writers mark every version `retain` (§4.5).                                                                                                                                                                                                                                                                |
+| `links`       | object                | no   | Link declarations (§5.2)                                                                                                                                                                                                                                                                                                                |
+| `permissions` | string[]              | no   | Permissions its rules may name, each `^[a-z][a-zA-Z0-9]{0,39}$` (§7.1)                                                                                                                                                                                                                                                                  |
+| `rules`       | object                | no   | §7                                                                                                                                                                                                                                                                                                                                      |
+| `topics`      | string[]              | no   | §8                                                                                                                                                                                                                                                                                                                                      |
+| `screen`      | string                | no   | One HTML document, at most 48 KiB of UTF-8, non-blank. Peers only check its size; how an app runs it: [screens](../packages/core/docs/apps-as-records.md#screens).                                                                                                                                                                      |
+| `network`     | string[]              | no   | The exact origins its `screen` may reach: at most 8, distinct, each `^(https\|wss)://` + a lower-case host with at least one dot + an optional `:port`, no path (`https://api.open-meteo.com`). Only with a `screen`. Peers only check the format; how an app enforces it: [screens](../packages/core/docs/apps-as-records.md#screens). |
 
 A definition body that fails any check in this section is **invalid**. A peer
 MUST treat an invalid definition as no definition at all: its collection then
@@ -741,19 +744,18 @@ while its collection still has records.
   `sys.subscription` — in [06 — Nodes, sessions and apps](06-nodes-and-sessions.md)
   (`sys.relays` and `sys.keepers` also in [05](05-sync-and-storage.md)).
 - **`std.*`** is a naming convention for the optional standard library
-  (Appendix A), **not reserved**: any member allowed to define collections may
-  define a `std.*` name with any shape. Apps agree by using the same
-  definitions, not by any privilege. The reference node's agent actions keep
-  `std.*` names to the library's definitions (Appendix A.1). (Planned to
-  change: §6.5.)
+  ([standard library](../packages/core/docs/standard-library.md)), **not reserved**: any
+  member allowed to define collections may define a `std.*` name with any
+  shape. Apps agree by using the same definitions, not by any privilege.
+  (Planned to change: §6.5.)
 - Any other name is the space's to use. Records in a collection nobody has
   defined are still stored and synced; they simply have no schema or rules.
 
 Names are **local to a space**. Nothing registers or owns a name across
 spaces, so a name never says what shape a collection has; its definition in
-that space does. Two apps sharing a space settle a clash over a name in the
-app review ([06](06-nodes-and-sessions.md), `std.app`), which a person reads
-before anything is defined.
+that space does. Two apps sharing a space settle a clash over a name before
+anything is defined, when a person reads what each would define (the
+reference: [the app review](../packages/core/docs/apps-as-records.md#the-app-review)).
 
 _Source: `packages/core/src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `validateJsonSchema`, `toJsonSchema`, `asStandardSchema`, `MAX_SCREEN_BYTES`, `checkScreenNetwork`, `MAX_SCREEN_ORIGINS`), `packages/core/src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`, `define`, `undefine`), `packages/core/src/space/roles.ts` (`definition` events). Tests: `packages/core/tests/space-catalog.test.ts` (all), `packages/core/tests/schemas.test.ts` ("schemas from a validator you already use"), `packages/core/tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write")._
 
@@ -812,26 +814,15 @@ Anything the checker cannot decide is a break.
 
 #### What uses it
 
-1. **Apps open by compatibility**, not by name. A collection that exists but
-   is not compatible is shown with its breaks instead of opened.
-2. **Harmless updates apply themselves.** When the library's definition is
-   newer and `compare(held, library)` finds no break in either direction and
-   the rules are no looser, a writer allowed to change the definition (§6.3)
-   writes it at the next version without asking. (Adding `shares` to an older `std.message` is this
-   case.)
-3. **Anything else asks a person.** The app review
-   ([06](06-nodes-and-sessions.md), `std.app`) shows the breaks ("lets anyone
-   edit messages; now only their author"), not only "changes who may do what".
-4. **`std.*` means the standard thing.** A writer MUST NOT define a `std.*`
-   name that is not compatible with the standard library's. Peers do not
-   refuse one on arrival (refusing depends on what each peer knows, and leaves
-   peers disagreeing, as in §9.6); instead an app treats an incompatible
-   `std.message` as not a message (point 1). Built so far: `apps_propose`
-   refuses a `std.*` definition that is not exactly the library's
-   (Appendix A.1).
+Until #12 makes it a peer's check (below), `compare` is an app's: to open a
+collection only when it is compatible, to apply a harmless update of a
+standard definition, and to show a person the breaks in an app review. How
+the reference library uses it is in [apps as records](../packages/core/docs/apps-as-records.md#compatible-definitions).
 
-Typed handles in the library (`node.use(space, Poll)`) would run the same
-check.
+A writer SHOULD NOT define a `std.*` name that is not compatible with the
+standard library's. Peers do not refuse one on arrival (refusing depends on
+what each peer knows, and leaves peers disagreeing, as in §9.6); an app
+treats an incompatible `std.message` as not a message.
 
 #### Where #11 and #12 go further
 
@@ -903,32 +894,7 @@ ignored, unless that side requires it or closes the schema
 - **Translating instead of refusing** (lenses between versions, as in
   Cambria), so an app can read a definition it is not compatible with. Later.
 
-Depends on: the app review of `std.app` (built). Everything else here is new.
-
-### 6.6 Planned: meaning-level hints
-
-A definition says what a record may hold and who may change it, not what it
-means to a screen. Screens derived from definitions (the app review, apps
-without a screen of their own; [06](06-nodes-and-sessions.md)) have to guess
-which field is the title or that votes are shown as counts. The plan adds
-optional hints to a definition:
-
-- which field is the record's **title**;
-- a field's **role** (a date, a person, an amount);
-- **tallies**: "show as a count" of records linking here, the way
-  `x-choicesFrom` already makes vote-style counts possible;
-- values **worked out on read**: "voting closes Friday", "who hasn't
-  answered". Each reader computes them from the records and its own clock, so
-  nothing has to run anywhere.
-
-Like `x-choicesFrom`, hints are display only and never checked when
-validating, and `compare` (§6.5) ignores them. They would go in a new
-top-level definition member rather than as schema keywords: unknown
-top-level members are ignored by today's peers, while an unknown schema
-keyword makes the definition invalid (§6.2). Added when a real agent-made app
-shows the derived screen falling short. _Open:_ the format.
-
----
+Depends on: nothing built yet on the peer side; the app-side check is in the package docs.
 
 ## 7. Rules
 
@@ -1256,225 +1222,7 @@ _Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`),
 
 ---
 
-## 10. Describing a collection
-
-A definition's `title` and `description` are its author's words and may say
-anything. What a collection actually allows is worked out from its rules, as
-fixed sentences, so a person deciding whether to add a collection reads what
-every peer will enforce.
-
-`describe(definition)` returns, in this order:
-
-1. Who may add: "Anyone in the space can add a vote." / "Only … can add …".
-2. Who may change and remove — one sentence when `edit` and effective `delete`
-   are the same set, else one each: "Only whoever added a vote can change or
-   remove it."
-3. `onePer`: "One vote per person per poll — adding another changes the
-   first." (with `@author`); otherwise "… — anyone adding another replaces the
-   first." when `edit` includes `member`, else "… — whoever adds it first holds
-   it."
-4. `fixed`: "Once a poll is added, its “options” can't be changed."
-5. One per declared link: "Each vote points at one thing: a poll (“about”)." or
-   "A comment can point at anything in the space (“about”)."
-6. `permissions`: "Roles in the space can be given permission to “moderate”."
-7. `history: "all"`: "Every earlier version of a … is kept."
-
-Nouns come from `title`, else the last segment of `name`; field labels from
-the schema's `title`s, else the field name in words. A rule the describer does
-not know MUST make it fail rather than stay silent.
-
-This is presentation, not wire format; the exact wording is an
-_implementation detail_, but the rule that every rule produces a sentence is
-not.
-
-_Source: `packages/core/src/records/describe.ts`. Tests: `packages/core/tests/agents.test.ts` ("what a collection allows, in words")._
-
----
-
-## 11. Queries
-
-A query is plain JSON data: it can be written by hand, sent over a wire, or
-produced by an agent. It runs against the records one node holds of one space.
-
-> **Planned: queries leave the protocol.** Peers never exchange queries, so
-> nothing in this section needs to be reproduced exactly by another
-> implementation, and a better query language later should not be a protocol
-> change. The plan marks this section non-normative, or moves it to the
-> library's documentation, and writes down the interface another query
-> language plugs into, which reports the collections it read so caches (05
-> §9.2) can keep them. Query syntax saved _inside_ a space is protocol again:
-> a screen's `weave.list(collection, { where })` takes its own small filter
-> (field equality and `link:<rel>`, `packages/core/src/schemas/screens.ts`),
-> which is not yet specified. Either that filter is specified on its own, or
-> screens take this format and it stays normative. Tracked in
-> [#28](https://github.com/leifriksheim/weave/issues/28).
-
-### 11.1 Grammar
-
-```
-Query      = { "collection": CollName,
-               ?"where":   Filter,
-               ?"include": IncludeMap,
-               ?"sort":    { *(Field: "asc" | "desc") },
-               ?"limit":   Int≥0,
-               ?"cursor":  string }
-
-Filter     = { *( Field: Condition
-                | "$and": [ *Filter ]
-                | "$or":  [ *Filter ]
-                | "$not": Filter ) }
-
-Condition  = Operators          ; a non-empty object whose every member name starts with "$"
-           | Value              ; anything else: deep equality
-
-Operators  = { 1*( "$eq": Value | "$ne": Value
-                 | "$gt": Value | "$gte": Value | "$lt": Value | "$lte": Value
-                 | "$in": [ *Value ] | "$nin": [ *Value ]
-                 | "$exists": boolean
-                 | "$contains": Value ) }
-
-Field      = MetaField | BodyPath
-MetaField  = "@key" | "@author" | "@root" | "@createdBy" | "@createdAt"
-           | "@updatedAt" | "@seq" | "@collection"
-BodyPath   = segment *( "." segment )     ; not starting with "@" or "$"
-
-IncludeMap = { *( Name: Include ) }
-Include    = { "rel": string,
-               ?"from":      CollName,
-               ?"direction": "in" | "out",      ; default "in"
-               ?"where":     Filter,
-               ?"include":   IncludeMap,        ; nesting depth ≤ 3
-               ?"limit":     Int≥0,
-               ?"count":     boolean }
-```
-
-A query is refused, with a reason, before it runs if: it is not an object;
-`collection` is missing or empty; a filter is not an object, or `$and`/`$or`
-is not a list; a member name starts with `$` and is not `$and`, `$or` or
-`$not`; a `@` field is not a MetaField; an operator object names an unknown
-operator; an include lacks `rel`, has a non-string `from`, a bad `direction`,
-or a non-integer or negative `limit`; includes nest more than 3 deep; a `sort`
-direction is not `asc`/`desc` or names an unknown `@` field; `limit` is not a
-non-negative integer; `cursor` is not a string.
-
-_Implementation detail:_ the TypeScript API also accepts a definition object
-as `collection` or `from`; it is replaced by its `name` before the query runs.
-
-### 11.2 Candidates
-
-A query considers the **current, non-deleted** version of every record in
-`collection` that stands (§9.5) and whose body this node can read. Records it
-cannot open are left out — here and in every include — so a result's `body` is
-never `null`.
-
-> **Planned: leaving out records that do not conform.** Records whose body or
-> links do not fit the definition are kept and flagged (§9.6), but queries,
-> includes and counts use them like any other, so a tally can count a record
-> the definition says is malformed. The plan: queries and includes leave out
-> records with `conforms: false` unless the query asks for them (a new
-> optional member, e.g. `"nonconforming": true`). Rules are already enforced
-> on arrival (§9.4), so this is about shape, not about who wrote it.
-
-### 11.3 Field values
-
-| Field         | Value                                                                                                                                                                                   |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@key`        | the record key                                                                                                                                                                          |
-| `@author`     | the DID that signed this version                                                                                                                                                        |
-| `@root`       | the account it acted for                                                                                                                                                                |
-| `@createdBy`  | the root of the record's first version (or null)                                                                                                                                        |
-| `@createdAt`  | `createdAt` of the record's first version (the creator's clock)                                                                                                                         |
-| `@updatedAt`  | `createdAt` of this version                                                                                                                                                             |
-| `@seq`        | `seq`                                                                                                                                                                                   |
-| `@collection` | `collection`                                                                                                                                                                            |
-| body path     | Walk the body: at each segment, the current value must be a non-null object or array, and the segment is a member name (or array index, as a string); otherwise the value is _missing_. |
-
-### 11.4 Operators
-
-`value` is the field's value (possibly missing); `x` the operand. _Equal_
-means deep equality: same JSON type; objects with the same member names
-(order ignored) and equal values; arrays with equal elements in order.
-
-| Operator                  | Holds when                                                                                                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| bare value `x`            | `value` equals `x`                                                                                                                                           |
-| `$eq`                     | `value` equals `x`                                                                                                                                           |
-| `$ne`                     | `value` does not equal `x` — **true for a missing field**                                                                                                    |
-| `$gt` `$gte` `$lt` `$lte` | both are numbers, or both strings (compared by UTF-16 code units), and the comparison holds. Any other pairing, including missing, is false.                 |
-| `$in`                     | `x` is a list containing an element equal to `value`                                                                                                         |
-| `$nin`                    | `x` is a list containing no element equal to `value` (false if `x` is not a list)                                                                            |
-| `$exists`                 | `(value is not missing) == x`. `null` exists.                                                                                                                |
-| `$contains`               | `value` and `x` are strings and `lower(x)` is a substring of `lower(value)`; or `value` is a list with an element equal to `x`. Otherwise false. Not search. |
-
-> **Planned: full-text search.** `$contains` scans every candidate, which is
-> honest at browser scale but is not search. Ranking and prefix matching need
-> an inverted index kept beside the records, and a query operator or member
-> for it. Not designed. _Open:_ whether the index is a node's local business
-> (specified here only as query syntax and result order) or something peers
-> share; and, for private spaces, that the index holds plaintext and must be
-> kept like the bodies it came from ([05](05-sync-and-storage.md)).
-
-Several operators on one field must all hold; several fields in one filter
-must all hold. `$and`: all subfilters hold; `$or`: at least one; `$not`: the
-subfilter does not hold.
-
-### 11.5 Sort, limit and cursor
-
-- `sort` is applied field by field in the **order the members appear** in the
-  `sort` object (JSON member order is significant here). Default:
-  `{ "@createdAt": "asc" }`.
-- Values compare: missing or `null` first; two numbers numerically; two
-  booleans `false < true`; anything else by their string forms. `desc`
-  reverses a field's order (so missing sorts last).
-- Ties always break on `@key`, ascending — a total order that is the same on
-  every node holding the same records.
-- `limit` takes at most that many records after the cursor; absent means all.
-  There is no maximum.
-- The result's `cursor` is the key of the last record returned when more
-  records follow it, else `null`. Passing it back resumes after the record with
-  that key in the re-sorted candidates.
-- If no candidate has the cursor's key any more, the query is meant to resume
-  from where that record would have been. _Not yet specified:_ how "where it
-  would have been" is found once the record is gone.
-
-> **Known defect:** when the cursor's key is gone, the reference starts again
-> from the first record (`packages/core/src/query/engine.ts`), so a caller paging through
-> sees records twice. A fix will resume after the cursor's position.
-> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
-
-### 11.6 Include
-
-For each record returned, each named include finds related records:
-
-- `direction: "in"` (default): current, readable, non-deleted records that
-  have a link `{ rel, to: <this record's key> }`, optionally only those in
-  `from`; ordered by `@createdAt`, then `@key`.
-- `direction: "out"`: this record's own links with that `rel`, in link order,
-  each resolved to the target's current, readable, non-deleted version,
-  optionally only those in `from`. A target not held finds nothing.
-
-Then `where` filters them. With `count: true` the include's value is the
-number found (after `where`, ignoring `limit`). Otherwise it is the first
-`limit` of them (all when absent), each expanded by its own nested `include`.
-Every returned record has an `included` object, empty when there were no
-includes.
-
-### 11.7 Result
-
-```json
-{ "records": [ … ], "cursor": "mfrggzdfmztwq2lknnwg23tpoa", "complete": true }
-```
-
-`complete` is false only on a node that holds part of a space while a
-collection the query needs is still arriving
-([05 — Sync and storage](05-sync-and-storage.md)). The shape of each record
-object is the node's record view ([06 — Nodes, sessions and apps](06-nodes-and-sessions.md)).
-
-_Source: `packages/core/src/query/types.ts`, `packages/core/src/query/filter.ts` (`checkQuery`, `matches`, `fieldValue`, `MAX_INCLUDE_DEPTH`), `packages/core/src/query/engine.ts` (`runQuery`, `sortRecords`, `expand`). Tests: `packages/core/tests/query.test.ts` (all), `packages/core/tests/typed-query.test.ts`._
-
----
-
-## 12. Limits
+## 10. Limits
 
 | Limit                                       | Value                                                                                |
 | ------------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -1487,323 +1235,6 @@ _Source: `packages/core/src/query/types.ts`, `packages/core/src/query/filter.ts`
 | Permission name                             | `^[a-z][a-zA-Z0-9]{0,39}$`                                                           |
 | Definition `screen`                         | ≤ 48 KiB UTF-8                                                                       |
 | Definition `network`                        | ≤ 8 origins                                                                          |
-| Include nesting                             | ≤ 3                                                                                  |
 | Future-dated `createdAt` (delegated writes) | ≤ 300 s ahead                                                                        |
 | Size of a body or an expression             | _Not yet specified_ — no limit is enforced                                           |
 | Collection name on a record                 | _Not yet specified_ — only definitions constrain names; a record may name any string |
-
----
-
-## Appendix A. The standard schemas
-
-An optional library of ordinary definitions (`@weaveprotocol/core/schemas`),
-broad enough that most apps need no definitions of their own. The protocol
-knows none of them; a space learns one when someone defines it there. All are
-`version` 1 when first defined. They are drawn from atproto lexicons, Nostr
-NIPs, JSContact (RFC 9553), JSCalendar (RFC 8984) and schema.org; issue
-[#36](https://github.com/leifriksheim/weave/issues/36) has the sources.
-
-### A.1 What a `std.*` name means
-
-A collection name belongs to the space that defines it. There is no registry,
-and two spaces may give one name different shapes. What lets two apps read
-each other's records is the definition, not the name, and the library exists
-so that apps reach for the same definitions.
-
-`std.*` names are the library's by convention (§6.4); peers do not refuse a
-`std.*` definition of another shape. The reference node's agent actions keep
-to the convention:
-
-- `collections_standard` lists the library, and gives any of its definitions
-  in full ([06](06-nodes-and-sessions.md), actions).
-- `apps_propose` takes a standard collection by name (`"std.event"` in
-  `needs`) and stores the library's definition for it.
-- `apps_propose` refuses a `std.*` name the library does not have, and a
-  `std.*` definition whose `schema`, `links`, `rules`, `permissions` or
-  `history` differ from the library's. Its `title`, `description`, `screen`
-  and `network` may be the app's own.
-
-Names of an app's own collections should say what they are for
-(`carpool.ride`) rather than share a generic prefix (`app.ride`) that another
-app may want for something else. Making apps open collections by what they
-hold rather than by name is §6.5.
-
-_Source: `packages/core/src/schemas/apps.ts` (`standardNeeds`), `packages/core/src/schemas/standard.ts` (`standardDefinition`, `standardGroups`), `packages/core/src/node/actions.ts` (`collections_standard`, `apps_propose`). Tests: `packages/core/tests/agents.test.ts` ("a standard collection by name is exactly the library’s; a look-alike std.\* is refused", "collections_standard lists the library by area, and gives definitions in full")._
-
-### A.2 Conventions
-
-- What several people edit is several records, not an array in one body,
-  because a record resolves as a whole (§4.3): a list and its items, a
-  document and its blocks, an order and the seller's updates to it.
-- "One per person" or "one per slot" is `onePer` (§7.3), over links and
-  scalar fields only (see the known defect there).
-- Bodies carry no `createdAt`; the record has one. They carry only the times
-  of the thing itself (`start`, `due`, `takenAt`).
-- Link roles share one vocabulary: `about` (what an annotation is on),
-  `replyTo` and `root` (threads), `parent` (trees), `in` (member of a list,
-  album, calendar, document, account), `shares` (quotes).
-- What only one person should see — blocks, mutes, reminders, settings — goes
-  in that person's own space, not in one others read.
-
-**Fragments.** The dialect has no `$ref` (§6.2), so shared shapes are spelled
-out in each definition, built by the library's `fragments` so they are
-identical everywhere:
-
-| Fragment   | Shape                                                                                                                                  |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `when`     | string 10–64: RFC 3339 date-time (`2026-03-01T18:30:00+01:00`), or `YYYY-MM-DD` for a whole day                                        |
-| `day`      | string of 10: `YYYY-MM-DD`                                                                                                             |
-| `timeZone` | string 1–64: an IANA zone, `Europe/Oslo`                                                                                               |
-| DID        | string 1–256: an account DID (built by `person`)                                                                                       |
-| `money`    | `{ amount, currency }`, both required: `amount` a decimal string 1–32 (`"12.50"`), never a number; `currency` ISO 4217, 3 characters   |
-| `address`  | `{ street, locality, region, postcode, country }`, each optional; `country` ISO 3166-1 alpha-2                                         |
-| `place`    | `{ name, address, lat, lon }` (built by `placeRef`), each optional; `lat` −90–90, `lon` −180–180, WGS 84                               |
-| `blob`     | `{ hash, size, mime, name? }`: `hash` the lower-case hex SHA-256 of the bytes as stored (64 characters), `size` bytes, `mime` required |
-| `image`    | `{ blob, alt? }`: `alt` ≤ 2000, what it shows                                                                                          |
-| `position` | string 1–200 that sorts where a record goes (Positions, below)                                                                         |
-
-Until the dialect has `format` (§6.2), `when` and `day` are checked only for
-length. How a `blob`'s bytes are stored and fetched is planned (A.4); the
-reference to them is not.
-
-### A.3 The definitions
-
-In the tables, a **bold** field is required; `string 1–200` gives its
-`minLength`–`maxLength`, `[]` a list with its `maxItems`, and `a`/`b` an
-`enum`. Links read `role` → where it may point, cardinality. Rules not given
-are §7.1's defaults, so "defaults" means anyone in the space may add, change
-and remove.
-
-**Annotations**
-
-| Name             | Body                                                                                            | Links                                              | Rules                                                                                                       |
-| ---------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `std.reaction`   | **`emoji`** string 1–16                                                                         | `about` → `*`, one                                 | edit, delete: `creator`; `onePer: [@author, link:about, emoji]`                                             |
-| `std.comment`    | **`text`** string 1–10000                                                                       | `about` → `*`, one; `replyTo` → `std.comment`, one | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.tag`        | **`label`** string 1–100                                                                        | `about` → `*`, many                                | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.attachment` | **`name`** string ≥ 1; **`mime`** string ≥ 1; `size` integer ≥ 0; `url` string; `blob` blob     | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.reference`  | `note` string                                                                                   | `about` → `*`, one; `to` → `*`, one                | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.bookmark`   | `title` string ≤ 500; `url` string 1–2048; `note` string ≤ 2000                                 | `about` → `*`, one                                 | edit, delete: `creator`                                                                                     |
-| `std.rating`     | **`score`** integer 1–5; `review` string ≤ 10000                                                | `about` → `*`, one                                 | edit, delete: `creator`; `onePer: [@author, link:about]`                                                    |
-| `std.highlight`  | **`quote`** string 1–10000; `prefix` string ≤ 500; `suffix` string ≤ 500; `note` string ≤ 10000 | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.pin`        | `note` string ≤ 500                                                                             | `about` → `*`, one                                 | create: `can:moderate`; edit: `can:moderate`; `onePer: [link:about]`; permissions `moderate`                |
-| `std.report`     | **`reason`** `spam`/`abuse`/`sexual`/`misleading`/`illegal`/`other`; `note` string ≤ 2000       | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; `onePer: [@author, link:about]`; permissions `moderate` |
-| `std.label`      | **`value`** string 1–64                                                                         | `about` → `*`, one                                 | create: `can:moderate`; edit: `can:moderate`; `onePer: [link:about, value]`; permissions `moderate`         |
-| `std.claim`      | `note` string ≤ 500                                                                             | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; `onePer: [link:about]`; permissions `moderate`          |
-
-**People**
-
-| Name          | Body                                                                                                                                                                                                                                                                                                                                                                                                                                   | Links | Rules                                             |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------- |
-| `std.profile` | `name` string ≤ 100; `bio` string ≤ 2000; `avatar` blob; `banner` blob; `pronouns` string ≤ 50; `links` { `title` string ≤ 100, **`url`** string 1–2048 }[] (≤ 16)                                                                                                                                                                                                                                                                     | —     | edit, delete: `creator`; `onePer: [@author]`      |
-| `std.card`    | `name` { `full` string ≤ 200, `given` string ≤ 100, `family` string ≤ 100 }; `emails` { **`address`** string 1–320, `label` string ≤ 50 }[] (≤ 16); `phones` { **`number`** string 1–64, `label` string ≤ 50 }[] (≤ 16); `addresses` { **`address`** address, `label` string ≤ 50 }[] (≤ 16); `organization` string ≤ 200; `jobTitle` string ≤ 200; `birthday` day; `photo` blob; `urls` string 1–2048[] (≤ 16); `note` string ≤ 10000 | —     | defaults                                          |
-| `std.follow`  | **`did`** DID; `space` string ≤ 256                                                                                                                                                                                                                                                                                                                                                                                                    | —     | edit, delete: `creator`; `onePer: [@author, did]` |
-| `std.block`   | **`did`** DID; `until` when                                                                                                                                                                                                                                                                                                                                                                                                            | —     | edit, delete: `creator`; `onePer: [@author, did]` |
-| `std.mute`    | **`did`** DID; `until` when                                                                                                                                                                                                                                                                                                                                                                                                            | —     | edit, delete: `creator`; `onePer: [@author, did]` |
-| `std.status`  | `text` string ≤ 280; `emoji` string ≤ 16; `until` when                                                                                                                                                                                                                                                                                                                                                                                 | —     | edit, delete: `creator`; `onePer: [@author]`      |
-
-**Messaging and publishing**
-
-| Name              | Body                                                                                                                                                                                                                          | Links                                                                            | Rules                                                                      |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `std.message`     | **`text`** string 1–10000; `channel` string ≤ 100                                                                                                                                                                             | `replyTo` → `std.message`, one; `root` → `std.message`, one; `shares` → `*`, one | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
-| `std.channel`     | **`name`** string 1–100; `topic` string ≤ 500; `position` string 1–200                                                                                                                                                        | —                                                                                | create: `can:moderate`; edit: `can:moderate`; permissions `moderate`       |
-| `std.post`        | `text` string ≤ 10000; `images` image[] (≤ 8); `langs` string 2–35[] (≤ 3)                                                                                                                                                    | `replyTo` → `std.post`, one; `root` → `std.post`, one; `shares` → `*`, one       | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
-| `std.repost`      | —                                                                                                                                                                                                                             | `about` → `*`, one                                                               | edit, delete: `creator`; `onePer: [@author, link:about]`                   |
-| `std.article`     | **`title`** string 1–300; `summary` string ≤ 1000; `content` string ≤ 200000; `cover` blob; `slug` string 1–200; `publishedAt` when; `draft` boolean                                                                          | `in` → `std.publication`, one                                                    | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
-| `std.publication` | **`title`** string 1–200; `description` string ≤ 2000; `icon` blob                                                                                                                                                            | —                                                                                | defaults                                                                   |
-| `std.doc`         | **`title`** string 1–500                                                                                                                                                                                                      | —                                                                                | defaults                                                                   |
-| `std.doc-block`   | **`type`** `paragraph`/`heading1`/`heading2`/`heading3`/`bullet`/`numbered`/`todo`/`quote`/`code`/`image`/`divider`; `text` string ≤ 20000; `checked` boolean; `language` string ≤ 32; `image` image; `position` string 1–200 | `in` → `std.doc`, one; `parent` → `std.doc-block`, one                           | defaults                                                                   |
-| `std.wiki-page`   | **`slug`** string 1–200; **`title`** string 1–300; `content` string ≤ 200000                                                                                                                                                  | —                                                                                | `onePer: [slug]`; history `all`                                            |
-| `std.note`        | `title` string ≤ 500; `content` string ≤ 200000; `pinned` boolean; `color` string ≤ 32                                                                                                                                        | —                                                                                | defaults                                                                   |
-| `std.call`        | **`status`** `missed`/`ended`; `to` string ≤ 256; **`startedAt`** string ≤ 64; `endedAt` string ≤ 64; `people` string ≤ 256[] (≤ 64)                                                                                          | —                                                                                | edit, delete: `creator`                                                    |
-
-**Lists**
-
-| Name            | Body                                                                                                                    | Links                                      | Rules    |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | -------- |
-| `std.list`      | **`title`** string 1–200; `description` string ≤ 2000; `icon` string ≤ 16; `kind` string ≤ 32                           | —                                          | defaults |
-| `std.list-item` | `text` string ≤ 1000; `url` string 1–2048; `did` DID; `checked` boolean; `quantity` number ≥ 0; `position` string 1–200 | `in` → `std.list`, one; `about` → `*`, one | defaults |
-
-**Files and media**
-
-| Name         | Body                                                                                                                                                                | Links                        | Rules                   |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------- |
-| `std.folder` | **`name`** string 1–255                                                                                                                                             | `parent` → `std.folder`, one | defaults                |
-| `std.file`   | **`name`** string 1–255; **`blob`** blob                                                                                                                            | `parent` → `std.folder`, one | defaults                |
-| `std.photo`  | **`blob`** blob; `alt` string ≤ 2000; `width` integer ≥ 1; `height` integer ≥ 1; `takenAt` when; `place` place                                                      | `in` → `std.album`, many     | defaults                |
-| `std.album`  | **`title`** string 1–200; `description` string ≤ 2000                                                                                                               | `cover` → `std.photo`, one   | defaults                |
-| `std.video`  | **`blob`** blob; `thumbnail` blob; `duration` number ≥ 0; `captions` blob; `alt` string ≤ 2000; `title` string ≤ 300                                                | `in` → `*`, many             | defaults                |
-| `std.track`  | **`title`** string 1–300; `artists` string 1–200[] (≤ 20); `album` string ≤ 300; `duration` number ≥ 0; `isrc` string ≤ 12; `mbid` string ≤ 36; `blob` blob         | `in` → `std.list`, many      | defaults                |
-| `std.play`   | **`title`** string 1–300; `artists` string 1–200[] (≤ 20); `album` string ≤ 300; `duration` number ≥ 0; `isrc` string ≤ 12; `mbid` string ≤ 36; **`playedAt`** when | —                            | edit, delete: `creator` |
-
-**Time and planning**
-
-| Name             | Body                                                                                                                                                                                                                              | Links                                                                                    | Rules                                                                                              |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `std.calendar`   | **`name`** string 1–200; `color` string ≤ 32                                                                                                                                                                                      | —                                                                                        | defaults                                                                                           |
-| `std.event`      | **`title`** string 1–500; `description` string ≤ 10000; **`start`** when; `end` when; `tz` string 1–64; `allDay` boolean; `place` place; `url` string 1–2048; `rrule` string 1–1000; `status` `confirmed`/`tentative`/`cancelled` | `in` → `std.calendar`, one                                                               | defaults                                                                                           |
-| `std.rsvp`       | **`status`** `going`/`maybe`/`no`; `guests` integer 0–100; `note` string ≤ 500                                                                                                                                                    | `about` → `std.event`, one                                                               | edit, delete: `creator`; `onePer: [@author, link:about]`                                           |
-| `std.slot`       | **`start`** when; **`end`** when; `tz` string 1–64; `note` string ≤ 1000                                                                                                                                                          | `in` → `std.calendar`, one                                                               | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                         |
-| `std.booking`    | `note` string ≤ 1000                                                                                                                                                                                                              | `about` → `std.slot`, one                                                                | edit: `creator`; delete: `creator`, `can:moderate`; `onePer: [link:about]`; permissions `moderate` |
-| `std.column`     | **`name`** string 1–200; `position` string 1–200                                                                                                                                                                                  | —                                                                                        | defaults                                                                                           |
-| `std.task`       | **`title`** string 1–500; `notes` string ≤ 10000; `position` string 1–200; `due` when; `status` `todo`/`doing`/`done`/`cancelled`; `assignees` DID[] (≤ 20); `priority` integer 0–4                                               | `column` → `std.column`, one; `parent` → `std.task`, one; `project` → `std.project`, one | defaults                                                                                           |
-| `std.project`    | **`name`** string 1–200; `description` string ≤ 10000; `status` `planned`/`active`/`paused`/`done`/`cancelled`; `due` when                                                                                                        | —                                                                                        | defaults                                                                                           |
-| `std.time-entry` | **`start`** when; `end` when; `note` string ≤ 1000                                                                                                                                                                                | `about` → `*`, one                                                                       | edit, delete: `creator`                                                                            |
-| `std.reminder`   | **`at`** when; `note` string ≤ 1000; `done` boolean                                                                                                                                                                               | `about` → `*`, one                                                                       | edit, delete: `creator`                                                                            |
-| `std.habit`      | **`name`** string 1–200; `schedule` string ≤ 1000; `target` number ≥ 0; `unit` string ≤ 32; `position` string 1–200                                                                                                               | —                                                                                        | edit, delete: `creator`                                                                            |
-| `std.checkin`    | **`date`** day; `value` number; `note` string ≤ 1000                                                                                                                                                                              | `about` → `std.habit`, one                                                               | edit, delete: `creator`; `onePer: [@author, link:about, date]`                                     |
-
-**Places and travel**
-
-| Name           | Body                                                                                                                                 | Links                      | Rules                                        |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------- | -------------------------------------------- |
-| `std.place`    | **`name`** string 1–200; `address` address; `lat` number -90–90; `lon` number -180–180; `category` string ≤ 100; `url` string 1–2048 | —                          | defaults                                     |
-| `std.visit`    | **`at`** when; `note` string ≤ 2000                                                                                                  | `about` → `std.place`, one | edit, delete: `creator`                      |
-| `std.trip`     | **`title`** string 1–200; `start` day; `end` day; `note` string ≤ 10000                                                              | —                          | defaults                                     |
-| `std.location` | **`lat`** number -90–90; **`lon`** number -180–180; `accuracy` number ≥ 0; **`at`** when                                             | —                          | edit, delete: `creator`; `onePer: [@author]` |
-
-**Home and life**
-
-| Name                | Body                                                                                                                                                                                                                                                                                                        | Links                       | Rules                                                    |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | -------------------------------------------------------- |
-| `std.recipe`        | **`title`** string 1–300; `description` string ≤ 2000; `ingredients` { **`text`** string 1–500, `quantity` number ≥ 0, `unit` string ≤ 32 }[] (≤ 200); `steps` string 1–5000[] (≤ 200); `servings` integer ≥ 1; `prepMinutes` integer ≥ 0; `cookMinutes` integer ≥ 0; `image` image; `source` string 1–2048 | —                           | defaults                                                 |
-| `std.meal`          | **`date`** day; **`meal`** `breakfast`/`lunch`/`dinner`/`snack`; `note` string ≤ 1000                                                                                                                                                                                                                       | `about` → `std.recipe`, one | `onePer: [date, meal]`                                   |
-| `std.journal-entry` | **`date`** day; `content` string ≤ 200000; `mood` string ≤ 32                                                                                                                                                                                                                                               | —                           | edit, delete: `creator`; `onePer: [@author, date]`       |
-| `std.measurement`   | **`kind`** string 1–64; **`value`** number; **`unit`** string 1–32; **`at`** when; `note` string ≤ 1000                                                                                                                                                                                                     | —                           | edit, delete: `creator`                                  |
-| `std.workout`       | **`type`** string 1–64; **`start`** when; `duration` number ≥ 0; `distance` number ≥ 0; `route` blob; `note` string ≤ 2000                                                                                                                                                                                  | —                           | edit, delete: `creator`                                  |
-| `std.work`          | **`kind`** `book`/`film`/`show`/`album`/`game`/`podcast`/`other`; **`title`** string 1–500; `creators` string 1–200[] (≤ 20); `year` integer 0–9999; `ids` { `isbn` string ≤ 17, `imdb` string ≤ 16, `mbid` string ≤ 36, `wikidata` string ≤ 16 }; `cover` blob                                             | —                           | defaults                                                 |
-| `std.progress`      | **`status`** `want`/`doing`/`done`/`dropped`; `percent` number 0–100; `finishedAt` when; `note` string ≤ 2000                                                                                                                                                                                               | `about` → `std.work`, one   | edit, delete: `creator`; `onePer: [@author, link:about]` |
-
-**Money and trade**
-
-| Name                | Body                                                                                                                                                       | Links                           | Rules                                                                      |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| `std.expense`       | **`title`** string 1–200; **`amount`** money; **`paidBy`** DID; `split` { **`did`** DID, `share` string 1–32 }[] (≤ 100); `date` day; `note` string ≤ 2000 | —                               | history `all`                                                              |
-| `std.settlement`    | **`from`** DID; **`to`** DID; **`amount`** money; `date` day; `note` string ≤ 1000                                                                         | —                               | edit, delete: `creator`; `fixed: [from, to, amount]`                       |
-| `std.money-account` | **`name`** string 1–200; **`currency`** string 3–3; `kind` string ≤ 32                                                                                     | —                               | defaults                                                                   |
-| `std.transaction`   | **`amount`** money; **`date`** day; `payee` string ≤ 200; `category` string ≤ 100; `note` string ≤ 1000; `cleared` boolean                                 | `in` → `std.money-account`, one | defaults                                                                   |
-| `std.listing`       | **`title`** string 1–300; `description` string ≤ 10000; `price` money; `images` image[] (≤ 12); `status` `available`/`reserved`/`sold`; `place` place      | —                               | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
-| `std.order`         | **`items`** { **`title`** string 1–300, **`quantity`** integer ≥ 1, `price` money }[] (1–100); `total` money; `note` string ≤ 2000                         | `about` → `std.listing`, many   | edit, delete: `creator`                                                    |
-| `std.order-update`  | **`status`** `accepted`/`paid`/`shipped`/`delivered`/`cancelled`/`refunded`; `note` string ≤ 2000                                                          | `about` → `std.order`, one      | edit, delete: `creator`                                                    |
-
-**Community and governance**
-
-| Name               | Body                                                                                                                                                   | Links                                     | Rules                                                                                              |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `std.poll`         | **`question`** string 1–500; **`options`** string 1–200[]; `closed` boolean                                                                            | —                                         | edit: `creator`; delete: `creator`, `can:moderate`; `fixed: [options]`; permissions `moderate`     |
-| `std.vote`         | **`choice`** integer ≥ 0; `choices` integer ≥ 0[] (≤ 100)                                                                                              | `about` → `std.poll`, `std.proposal`, one | edit, delete: `creator`; `onePer: [@author, link:about]`                                           |
-| `std.proposal`     | **`title`** string 1–300; `body` string ≤ 20000; **`options`** string 1–200[] (1–20); `closesAt` when; `status` `open`/`passed`/`rejected`/`withdrawn` | —                                         | edit: `creator`; delete: `creator`, `can:moderate`; `fixed: [options]`; permissions `moderate`     |
-| `std.announcement` | **`title`** string 1–300; `text` string ≤ 20000                                                                                                        | —                                         | create: `can:announce`; edit: `creator`; delete: `creator`, `can:announce`; permissions `announce` |
-| `std.badge`        | **`name`** string 1–100; `description` string ≤ 1000; `image` blob                                                                                     | —                                         | create: `can:award`; edit: `can:award`; permissions `award`                                        |
-| `std.award`        | **`did`** DID; `note` string ≤ 1000                                                                                                                    | `about` → `std.badge`, one                | create: `can:award`; edit: `can:award`; `onePer: [link:about, did]`; permissions `award`           |
-
-**Settings**
-
-| Name          | Body                                                        | Links | Rules                                                  |
-| ------------- | ----------------------------------------------------------- | ----- | ------------------------------------------------------ |
-| `std.setting` | **`app`** string 1–200; **`key`** string 1–200; `value` any | —     | edit, delete: `creator`; `onePer: [@author, app, key]` |
-
-**Changes to earlier definitions.** `std.attachment`, `std.task`,
-`std.message` and `std.vote` existed before the library grew. Each gained
-only optional fields and link roles: `std.attachment` a `blob`; `std.task`
-`due`, `status`, `assignees`, `priority` and the `parent` and `project` links;
-`std.message` a `channel` and the `root` link; `std.vote` `choices` (every
-choice, most preferred first, with `choice` the first of them). A space that
-holds an earlier definition keeps it until someone adds an app that needs the
-new one, which shows as a change. One of them is not additive in the sense of
-§6.5: `std.vote`'s `about` may now also point at a `std.proposal`, so an app
-that reads votes may meet one on something that is not a poll.
-
-**Also exported** from the same module (specified with their features):
-
-| Name                  | Body                                                                                                                            | Rules                                                                     | Where                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `std.contact`         | `did` ≤ 256 and `name` ≤ 200, required; `space` ≤ 256; `note` ≤ 2000; `blocked` boolean                                         | `onePer: [did]`                                                           | [03 — Spaces](03-spaces.md)                               |
-| `std.contact-request` | `to` ≤ 256 and `sealed` ≤ 16000, required                                                                                       | edit, delete: `creator`                                                   | [03 — Spaces](03-spaces.md)                               |
-| `std.app`             | `title` 1–100 and `needs` (1–10 objects), required; `description` ≤ 1000; `from` ≤ 300; `updates` 1–100; `notify` (1–8 objects) | edit: `creator`; delete: `creator`, `can:moderate`; permission `moderate` | [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) |
-
-**App updates.** An app is changed by proposing a new `std.app` whose
-`updates` is the key of the app, in the same space, that it is a new version
-of. It is a body member rather than a link so that spaces which already hold
-a `std.app` definition without it accept it unchanged.
-
-```json
-{ "title": "Carpool", "needs": [ … ], "updates": "5vcfnlfrf7qnql2jhyl7erfqva" }
-```
-
-An app is **superseded** when an app that names it in `updates` is added
-(every collection it needs is in the space as it says), or is itself
-superseded. A superseded app would only undo its update:
-
-- A peer MUST NOT add a superseded app. `addApp` refuses one.
-- An app SHOULD NOT offer a superseded app to be added or opened; it is
-  history, which its proposer or a moderator may delete.
-- `updates` SHOULD name an app that is in the space; `proposeApp` and the
-  `apps_propose` action refuse one that is not. One that names nothing
-  supersedes nothing.
-
-Until its update is added, the app it names is still the one in use.
-Without `updates`, two apps that need the same collections differently each
-show as a change that undoes the other. So a review names the apps in use
-that need a collection it would change (`reviewApp`, `usedBy`), and
-`apps_propose` warns an agent whose proposal changes one without `updates`.
-
-> **Planned (open question):** with §6.5, an update's review would list
-> `compare`'s breaks.
-
-_Source: `packages/core/src/schemas/apps.ts` (`supersededApps`, `reviewApp`, `proposeApp`, `addApp`), `packages/core/src/node/actions.ts` (`apps_propose`, `apps_list`), `apps/example/src/components/apps/AppsView.tsx`, `apps/example/src/components/apps/MadeApps.tsx`. Tests: `packages/core/tests/agents.test.ts` ("an update replaces the app it names: once added, the old version is not offered again", "a change to a collection another app uses names that app, and warns the agent")._
-
-**What an app notifies about.** An app MAY say what in it is worth hearing
-about, in `notify`: 1 to 8 entries of `{ label, collection, topic?, others? }`,
-each an `AppNotify`. They have the meaning of a `NotifyProposal`
-([06](06-nodes-and-sessions.md) §4.12) without `spaces` and `open`, which
-belong to whichever app shows it, and `collection` MUST be one of the app's
-`needs`. An app that shows it offers them to the person as a proposal of its
-own, for the space it is in, when the person asks; nothing is turned on for
-anyone by adding the app. Like `updates`, it is a body member so that spaces
-which already hold a `std.app` definition without it accept it unchanged.
-
-- `checkApp` refuses an entry that is malformed, that names `spaces` or
-  `open`, or whose `collection` is not a need, so `proposeApp`, `apps_propose`
-  and `addApp` refuse such an app.
-- `copyApp` carries `notify` along.
-
-```json
-{
-  "title": "Carpool",
-  "needs": [ … ],
-  "notify": [
-    { "label": "New trip", "collection": "carpool.trip" },
-    { "label": "A seat on my trip", "collection": "carpool.seat", "topic": { "field": "driver", "me": true } }
-  ]
-}
-```
-
-_Source: `packages/core/src/schemas/apps.ts` (`checkApp`, `copyApp`), `packages/core/src/space/notify.ts` (`AppNotify`, `checkAppNotify`), `packages/core/src/node/actions.ts` (`apps_propose`), `apps/example/src/notifications.ts`. Tests: `packages/core/tests/agents.test.ts` ("an app says what is worth hearing about, only in its own collections")._
-
-**Positions.** `position` is a string that sorts (by plain string comparison)
-where a record goes in a hand-made order. Digits are `0–9a–z`; a position
-never ends in `0`, so there is always room between two. Equal positions sort by
-key. A record without one goes at the end. `positionBetween(before, after)` in
-the library makes one; any string that sorts correctly is valid.
-
-_Source: `packages/core/src/schemas/fragments.ts`, `packages/core/src/schemas/library/` (one file per area), `packages/core/src/schemas/standard.ts` (`standardGroups`), `packages/core/src/schemas/index.ts` (`positionBetween`, `useSchemas`), `packages/core/src/schemas/contacts.ts`, `packages/core/src/schemas/apps.ts`. Tests: `packages/core/tests/schemas.test.ts` ("the standard library", "standard nouns"), `packages/core/tests/contacts.test.ts`, `packages/core/tests/agents.test.ts`._
-
-### A.4 Planned: what the library still waits on
-
-> **Planned.** Not normative. Issue:
-> [#36](https://github.com/leifriksheim/weave/issues/36).
->
-> - **File bytes** ([05 — Sync and storage](05-sync-and-storage.md) §16.6,
->   [#37](https://github.com/leifriksheim/weave/issues/37)). The `blob`
->   fragment names bytes by hash, but a space cannot yet store or send them,
->   so `std.file`, `std.photo`, `std.video` and the images elsewhere point at
->   bytes a reader may not be able to fetch.
-> - **References to other spaces** (§5.3,
->   [#38](https://github.com/leifriksheim/weave/issues/38)). `std.follow`'s
->   `space` is a plain space id, and a repost or a list item can point only
->   within its own space.
-> - **`format`** (§6.2), to check `when`, `day` and `url`.
-> - **Channels as topics** (§8): `std.message`'s `channel` is an ordinary
->   field, not yet a topic a keeper can match.

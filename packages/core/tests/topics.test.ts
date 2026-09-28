@@ -25,6 +25,11 @@ import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
 import { team } from '../src/space/presets.js';
 import { until } from './helpers/until.js';
+import { matchesRecord } from '../src/space/notify.js';
+import { message } from '../src/schemas/library/publishing.js';
+import { standardNeeds } from '../src/schemas/apps.js';
+import { toJsonSchema } from '../src/schema/collection-def.js';
+import { isRecord } from '../src/utils/guards.js';
 
 describe('topic tags, worked out', () => {
   test('a definition names at most eight fields, each a field name, none twice', () => {
@@ -209,5 +214,43 @@ describe('topic tags on records', () => {
       (await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(note.key))?.tags,
       undefined,
     );
+  });
+});
+
+describe('a standard message’s topics', () => {
+  test('mentions and replies are tagged, so “mentions me” and “replies to me” match only those', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const alice = await person(hub);
+    const { id: space } = await alice.node.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await alice.node.collections.define(space, message);
+    const bob = 'did:key:zDnaeBob';
+    const since = new Date(Date.now() - 1000).toISOString();
+
+    const mention = await alice.node.records.put(space, message.name, { text: 'hi @Bob', mentions: [bob] });
+    const reply = await alice.node.records.put(space, message.name, { text: 'yes', replyingTo: bob });
+    const plain = await alice.node.records.put(space, message.name, { text: 'hello all' });
+
+    const stored = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(mention.key);
+    assert.deepEqual(stored?.tags, [await alice.node.collections.tag(space, message.name, 'mentions', bob)]);
+
+    const when = (field: string) => ({
+      label: field,
+      collection: message.name,
+      spaces: 'all' as const,
+      topic: { field, value: bob },
+      since,
+    });
+    const matches = (field: string) =>
+      [mention, reply, plain].filter((record) => matchesRecord(when(field), record, bob)).map((r) => r.key);
+    assert.deepEqual(matches('mentions'), [mention.key]);
+    assert.deepEqual(matches('replyingTo'), [reply.key]);
+  });
+
+  test('an app that needs std.message gets its topics, and one without them is not the standard message', () => {
+    const needs = standardNeeds(['std.message']);
+    assert.ok(Array.isArray(needs) && isRecord(needs[0]));
+    assert.deepEqual(needs[0].topics, ['channel', 'mentions', 'replyingTo']);
+    const { topics: _topics, ...without } = { ...message, schema: toJsonSchema(message.schema) };
+    assert.throws(() => standardNeeds([without]), /different shape/);
   });
 });

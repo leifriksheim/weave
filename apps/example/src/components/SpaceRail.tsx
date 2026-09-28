@@ -155,10 +155,10 @@ const pill = {
 
 /** What is new in a space, on its corner, the way unread counts sit on a server icon */
 function RailCount({ space }: { space: SpaceSummary }) {
-  const n = useSpaceUnread(space);
+  const unread = useSpaceUnread(space);
   return (
     <span className="rail-count">
-      <Count n={n} />
+      <Count unread={unread} />
     </span>
   );
 }

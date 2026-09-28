@@ -370,6 +370,14 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
             'above). onePer makes at most one record per author + linked record (+ body field): writing again changes it. fixed fields ' +
             'keep their first value.',
         },
+        topics: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional: up to 8 fields whose values can be matched without reading the record, like ["driver"] or ["mentions"]. ' +
+            'Name the field that holds a person when people should be able to be told about records naming them ' +
+            '(a notify entry with "topic": { "field": "driver", "me": true }).',
+        },
         screen: {
           type: 'string',
           description: 'Optional: its own screen, one HTML document — read apps_screen_guide first',
@@ -403,6 +411,9 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
           ? { permissions: input.permissions.filter((p): p is string => typeof p === 'string') }
           : {}),
         ...(typeof input.rules === 'object' && input.rules !== null ? { rules: input.rules } : {}),
+        ...(Array.isArray(input.topics)
+          ? { topics: input.topics.filter((t): t is string => typeof t === 'string') }
+          : {}),
         ...(typeof input.screen === 'string' ? { screen: input.screen } : {}),
         ...(Array.isArray(input.network)
           ? { network: input.network.filter((o): o is string => typeof o === 'string') }
@@ -470,7 +481,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       'Give it a title, a line on what it is for, and the collections it needs. Use standard ones wherever they fit: read ' +
       'collections_standard and pass each by name ("std.event"); it is then exactly the standard shape, so other apps read ' +
       'its records. Give each collection of your own exactly as collections_define takes it (name, title, description, schema, ' +
-      'links, permissions, rules — no version), named after what it is for ("carpool.ride"); std.* names are only the ' +
+      'links, permissions, rules, topics — no version), named after what it is for ("carpool.ride"); std.* names are only the ' +
       "library's. A standard need given as a definition may add a screen, and nothing else of its own. Nothing is defined yet: everyone in the " +
       'space sees the proposal, with what it allows worked out from its rules, and a person who may define collections adds it. ' +
       'Read collections_list first and reuse what the space already has rather than inventing a twin. ' +

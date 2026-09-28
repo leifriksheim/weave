@@ -8,6 +8,7 @@ import type { AppEntry, useSpaceApps } from './entries';
 import { AppIcon, Count } from './AppIcon';
 import { Proposals } from './MadeApps';
 import { Icon } from '../Icon';
+import { unreadOf, type Unread } from '../../seen';
 import { styles, palette } from '../../styles';
 
 /**
@@ -32,7 +33,7 @@ export function AppsView({
   space: SpaceSummary;
   collections: ReadonlyArray<NodeCollection>;
   apps: ReturnType<typeof useSpaceApps>;
-  unread: ReadonlyMap<string, number>;
+  unread: ReadonlyMap<string, Unread>;
   mayDefine: boolean;
   onOpenApp: (id: string) => void;
   onCreate: () => void;
@@ -82,7 +83,7 @@ export function AppsView({
             <AppCard
               key={app.id}
               app={app}
-              count={unread.get(app.id) ?? 0}
+              unread={unreadOf(unread, app.id)}
               onClick={() => onOpenApp(app.id)}
             />
           ))}
@@ -178,19 +179,19 @@ export function AppsView({
 }
 
 /** An app on the home screen: its icon, its name, a line on what it's for, and what's new in it */
-function AppCard({ app, count, onClick }: { app: AppEntry; count: number; onClick: () => void }) {
+function AppCard({ app, unread, onClick }: { app: AppEntry; unread: Unread; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       data-tile
       className="app-card"
-      data-unread={count > 0 || undefined}
+      data-unread={unread.count > 0 || undefined}
       style={card}
     >
       <span style={{ position: 'relative', display: 'inline-flex' }}>
         <AppIcon icon={app.icon} hue={app.hue} size={44} className="app-card-icon" />
         <span className="app-card-count">
-          <Count n={count} />
+          <Count unread={unread} />
         </span>
       </span>
       <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>

@@ -35,6 +35,8 @@ import {
   standardSchemas,
   vote,
   poll,
+  message,
+  useSchemas as addSchemas,
   type App,
   type AppDefinition,
 } from '../src/schemas/index.js';
@@ -542,6 +544,38 @@ describe('apps an agent proposes', () => {
     assert.match(checkApp({ title: 'x', needs: [carpool.needs[0], carpool.needs[0]] })!, /twice/);
     assert.match(checkApp({ title: 'x', needs: [] })!, /1–10/);
     assert.equal(checkApp(carpool), null);
+  });
+
+  test("an app made against an earlier standard definition is met by the library's current one, not offered as a change back", async () => {
+    const { alice, space } = await setup();
+    // std.message as it was before mentions and replies, the way an older proposal holds it.
+    const earlier: AppDefinition = {
+      name: message.name,
+      title: 'Message',
+      schema: {
+        type: 'object',
+        properties: { text: { type: 'string', minLength: 1, maxLength: 10000 } },
+        required: ['text'],
+      },
+      rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
+      permissions: ['moderate'],
+    };
+    const oldChat: App = { title: 'Old chat', needs: [earlier] };
+
+    await alice.node.collections.define(space, earlier);
+    assert.equal(reviewApp(oldChat, await alice.node.collections.list(space)).added, true);
+    await addSchemas(alice.node, space, [message]); // the library skips a collection the space has
+    await alice.node.collections.define(space, message); // moving it to the current one is a choice
+
+    const now = await alice.node.collections.list(space);
+    assert.equal(reviewApp(oldChat, now).added, true);
+    // Its own screen is still its own: a need that brings one is a change.
+    const withScreen: App = { title: 'Chat with a screen', needs: [{ ...earlier, screen: '<p>hi</p>' }] };
+    const screened = reviewApp(withScreen, now).needs[0];
+    assert.equal(screened?.status, 'change');
+    assert.ok(screened?.changes.includes('gives it a screen'));
+    // And a collection of an app's own is compared as it is.
+    assert.equal(reviewApp({ ...carpool, needs: [carpool.needs[0]!] }, now).needs[0]?.status, 'new');
   });
 
   test('an app says what is worth hearing about, only in its own collections', async () => {

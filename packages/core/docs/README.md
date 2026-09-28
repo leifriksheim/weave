@@ -34,6 +34,20 @@ specified in `spec/` in the repository: https://github.com/leifriksheim/weave/tr
 | [screens-and-apps.md](screens-and-apps.md)       | Ship a small app inside a space, with no deploy                   |
 | [agents.md](agents.md)                           | Let an agent read and write as the person, from a terminal or MCP |
 
+## Reference
+
+What the library does, in full. None of it is protocol: another
+implementation may do it differently and still work with this one.
+
+| Page                                       | Covers                                                                                         |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| [node.md](node.md)                         | `createNode`: configuration, stores, holding spaces, events, the app-side client, doors, React |
+| [sign-in.md](sign-in.md)                   | `createWeaveAuth`: places, stages, ways in, staying signed in, pods                            |
+| [actions.md](actions.md)                   | The node's actions, and the CLI, MCP and WebMCP tools made of them                             |
+| [query-format.md](query-format.md)         | The JSON query format: filters, operators, sort and cursor, include                            |
+| [standard-library.md](standard-library.md) | Every `std.*` collection, and the conventions they follow                                      |
+| [apps-as-records.md](apps-as-records.md)   | `std.app`: the review, updates, notifications, compatibility, and how screens run              |
+
 ## Rules of thumb
 
 - Import only from the package's entry points: `@weaveprotocol/core`, and

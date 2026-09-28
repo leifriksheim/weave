@@ -38,6 +38,8 @@ export interface AppDefinition {
   readonly links?: Readonly<Record<string, LinkDeclaration>>;
   readonly permissions?: ReadonlyArray<string>;
   readonly rules?: CollectionRules;
+  /** Fields whose values keepers can match without reading: `mentions`, `channel` */
+  readonly topics?: ReadonlyArray<string>;
   /** Its own screen: one HTML document, run sealed (see `schemas/screens.ts`) */
   readonly screen?: string;
   /** Exact origins that screen may connect to; none keeps it sealed */
@@ -167,6 +169,7 @@ export function standardNeeds(needs: unknown): unknown {
       ...(standard.links !== undefined ? { links: standard.links } : {}),
       ...(standard.permissions !== undefined ? { permissions: standard.permissions } : {}),
       ...(standard.rules !== undefined ? { rules: standard.rules } : {}),
+      ...(standard.topics !== undefined ? { topics: standard.topics } : {}),
     };
     if (typeof need === 'string') return library;
     if (!isObject(need)) return need;
@@ -178,9 +181,12 @@ export function standardNeeds(needs: unknown): unknown {
         ? need.permissions.filter((p): p is string => typeof p === 'string')
         : undefined,
       rules: need.rules,
+      topics: Array.isArray(need.topics)
+        ? need.topics.filter((t): t is string => typeof t === 'string')
+        : undefined,
     });
     const ours = essence(library);
-    const same = (['schema', 'history', 'links', 'permissions', 'rules'] as const).every(
+    const same = (['schema', 'history', 'links', 'permissions', 'rules', 'topics'] as const).every(
       (part) => theirs[part] === ours[part],
     );
     if (!same) {
@@ -238,6 +244,7 @@ function essence(definition: {
   links?: unknown;
   permissions?: ReadonlyArray<string> | undefined;
   rules?: unknown;
+  topics?: ReadonlyArray<string> | undefined;
   screen?: string | undefined;
   network?: ReadonlyArray<string> | undefined;
 }) {
@@ -249,6 +256,7 @@ function essence(definition: {
     links: canonicalize(definition.links ?? {}),
     permissions: canonicalize([...(definition.permissions ?? [])].sort()),
     rules: canonicalize(definition.rules ?? {}),
+    topics: canonicalize([...(definition.topics ?? [])].sort()),
     screen: definition.screen ?? '',
     network: canonicalize([...(definition.network ?? [])].sort()),
   };
@@ -271,6 +279,7 @@ function differences(held: NodeCollection, wanted: AppDefinition): string[] {
   if (!added.length && !removed.length && a.schema !== b.schema) out.push('changes the shape of its fields');
   if (a.rules !== b.rules || a.permissions !== b.permissions) out.push('changes who may do what');
   if (a.links !== b.links) out.push('changes what it points at');
+  if (a.topics !== b.topics) out.push('changes what can be matched without reading it');
   if (a.history !== b.history)
     out.push(b.history === 'all' ? 'starts keeping every version' : 'stops keeping old versions');
   if (a.screen !== b.screen)
@@ -311,7 +320,7 @@ export function reviewApp(
     const summary = describeCollection(definition);
     const held = byName.get(definition.name);
     if (!held) return { definition, status: 'new', summary, changes: [], usedBy: [] };
-    const changes = differences(held, definition);
+    const changes = metByLibrary(held, definition) ? [] : differences(held, definition);
     const usedBy = changes.length
       ? inUse
           .filter((other) => other.needs.some((need) => need.name === definition.name))
@@ -320,6 +329,27 @@ export function reviewApp(
     return { definition, status: changes.length ? 'change' : 'same', summary, changes, usedBy };
   });
   return { needs, added: needs.every((need) => need.status === 'same'), problem: null };
+}
+
+/**
+ * Whether a standard need is met by what the space holds because the space
+ * holds the library's current definition of it. The library only adds to
+ * its definitions, so an app made against an earlier one still works with
+ * it, and offering the earlier one back would only take the additions away.
+ * The app's own screen still has to be the one the space has.
+ */
+function metByLibrary(held: NodeCollection, wanted: AppDefinition): boolean {
+  if (!wanted.name.startsWith('std.')) return false;
+  const standard = standardDefinition(wanted.name);
+  if (!standard) return false;
+  const library = essence({ ...standard, schema: toJsonSchema(standard.schema) });
+  const space = essence(held);
+  const app = essence(wanted);
+  return (
+    (['schema', 'history', 'links', 'permissions', 'rules', 'topics'] as const).every(
+      (part) => space[part] === library[part],
+    ) && (['screen', 'network'] as const).every((part) => space[part] === app[part])
+  );
 }
 
 /** The apps added and not replaced since, leaving out the ones named in `except` */

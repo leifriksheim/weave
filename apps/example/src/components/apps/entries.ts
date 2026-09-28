@@ -4,6 +4,7 @@ import { hash } from '@weave/app-shared/hash';
 import { APPS, readiness, type WeaveApp } from './index';
 import { isAdded, useMadeApps } from './MadeApps';
 import type { IconName } from '../Icon';
+import { isObject } from '../../derive/schema-ui';
 
 /**
  * An app a space can open, whichever kind: written as code here, or made for
@@ -30,6 +31,23 @@ export function madeNotify(body: App): ReadonlyArray<AppNotify> {
   if (body.notify) return body.notify;
   const first = body.needs[0];
   return first ? [{ label: `New in ${body.title}`, collection: first.name }] : [];
+}
+
+/** An entry about records that name the person — "Mentions me", "A seat on my trip" */
+export const isForMe = (notify: AppNotify): boolean => !!notify.topic && 'me' in notify.topic;
+
+/** Whether a record is one of an app's "…me" entries is about: its topic field holds the person */
+export function namesMe(
+  notify: ReadonlyArray<AppNotify>,
+  collection: string,
+  body: unknown,
+  did: string,
+): boolean {
+  return notify.some((entry) => {
+    if (!isForMe(entry) || entry.collection !== collection || !entry.topic) return false;
+    const value = isObject(body) ? body[entry.topic.field] : undefined;
+    return Array.isArray(value) ? value.includes(did) : value === did;
+  });
 }
 
 const builtInEntry = (app: WeaveApp): AppEntry => ({

@@ -149,8 +149,8 @@ to any record (`reaction`, `comment`, `rating`, `bookmark`, `claim`…), people
 `article`, `doc` and `docBlock`, `note`…), lists (`list`, `listItem`), files
 and media, time and planning (`event`, `rsvp`, `task`, `booking`…), places,
 home and life (`recipe`, `meal`…), money (`expense`, `settlement`…) and
-community (`poll`, `vote`, `proposal`…). The full list is Appendix A of
-[spec/02-records.md](../../../spec/02-records.md).
+community (`poll`, `vote`, `proposal`…). The full list is in
+[standard-library.md](standard-library.md).
 
 They are ordinary collections. Using the same one is how two apps agree: a
 poll asked in one can be voted on in another. For shapes of your own, the
