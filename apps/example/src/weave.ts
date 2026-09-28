@@ -29,6 +29,8 @@ export const connection = createWeaveConnection({
     ],
   },
   network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
+  // Checking, decrypting and syncing happen there, so the page never stutters.
+  worker: () => new Worker(new URL('./weave-worker.ts', import.meta.url), { type: 'module' }),
 });
 
 /** The node acting for the account, for code outside React (the WebMCP tools). Null before connecting. */
