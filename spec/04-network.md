@@ -682,7 +682,7 @@ when her node redials with K0 and her note, step 4 refuses her.
 > Rationale: a removed member holds the key she was let in on, so a key
 > change alone stops her reading new records, but not the connection: she
 > would still be pushed new versions (sealed, but with their collections,
-> keys and authors in the clear, [03](03-spaces.md) §8.7), live messages,
+> keys and authors in the clear, [03](03-spaces.md) §8.6), live messages,
 > which are not sealed, and whatever the history says next. Until the key
 > changes she may still read, as she holds the current key; a public space
 > asks no read proof, so letting someone go there would keep nobody out.

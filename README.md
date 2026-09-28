@@ -544,20 +544,20 @@ keepers confirm is protocol. `spaces.status(id)` shows `holds` and `pending`.
 
 ### Identity (`@weaveprotocol/core/identity`)
 
-| Export                                                               | Description                                                                         |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `generateSeed()` / `seedToRecoveryCode()` / `recoveryCodeToSeed()`   | The account seed and its written form                                               |
-| `createIdentityManager()`                                            | `fromSeed`, `fromRecoveryCode`, `fromPassword`; passkey-PRF derivation as an option |
-| `createLocalRootSigner()`                                            | A `RootSigner` for a seed unlocked in this page                                     |
-| `createFolderAccountStore()` / `createBrowserAccountStore()`         | Where accounts live: a data folder, or this browser                                 |
-| `wrapSeedWithDeviceKey()` / `wrapSeedWithPassphrase()`               | Local ways to unlock a stored seed                                                  |
-| `deriveVaultKey()`                                                   | Key for sealing an account's space registry at rest                                 |
-| `pairingRoomId()` / `encodePairingTicket()` / `sealPairingPayload()` | Bringing a phone into an account                                                    |
-| `issueUCAN()` / `verifyUCAN()`                                       | Capability tokens (UCAN 0.10, `ES256` JWTs)                                         |
-| `delegateCapabilities()`                                             | Attenuated delegation from a parent token                                           |
-| `validateDelegationChain()`                                          | Verify a full root → … → leaf proof chain                                           |
-| `createP256Provider()`                                               | ECDSA P-256 crypto provider (swappable)                                             |
-| `publicKeyToDid()` / `didToPublicKey()`                              | `did:key` encoding                                                                  |
+| Export                                                               | Description                                         |
+| -------------------------------------------------------------------- | --------------------------------------------------- |
+| `generateSeed()` / `seedToRecoveryCode()` / `recoveryCodeToSeed()`   | The account seed and its written form               |
+| `createIdentityManager()`                                            | `fromSeed`, `fromRecoveryCode`                      |
+| `createLocalRootSigner()`                                            | A `RootSigner` for a seed unlocked in this page     |
+| `createFolderAccountStore()` / `createBrowserAccountStore()`         | Where accounts live: a data folder, or this browser |
+| `wrapSeedWithDeviceKey()` / `wrapSeedWithPassphrase()`               | Local ways to unlock a stored seed                  |
+| `deriveVaultKey()`                                                   | Key for sealing an account's space registry at rest |
+| `pairingRoomId()` / `encodePairingTicket()` / `sealPairingPayload()` | Bringing a phone into an account                    |
+| `issueUCAN()` / `verifyUCAN()`                                       | Capability tokens (UCAN 0.10, `ES256` JWTs)         |
+| `delegateCapabilities()`                                             | Attenuated delegation from a parent token           |
+| `validateDelegationChain()`                                          | Verify a full root → … → leaf proof chain           |
+| `createP256Provider()`                                               | ECDSA P-256 crypto provider (swappable)             |
+| `publicKeyToDid()` / `didToPublicKey()`                              | `did:key` encoding                                  |
 
 #### The account is a seed
 
@@ -604,10 +604,7 @@ passkeys without PRF, or report it inconsistently. An identity _derived_ from a
 passkey would lock those users out, and it would still be a different identity
 on every domain, since a passkey is bound to one.
 
-So the passkey only decides whether this origin may use its device key. PRF
-derivation is still available (`identity.register()` / `authenticate()`, with
-`inspectPasskeyPrf()` to diagnose what a provider actually does), but nothing in
-the example depends on it.
+So the passkey only decides whether this origin may use its device key.
 
 #### UCAN delegation
 
@@ -1057,11 +1054,9 @@ const validation = createValidationEngine({
 
 End-to-end encryption for private Spaces.
 
-| Export                 | Description                    |
-| ---------------------- | ------------------------------ |
-| `createPrivacyGuard()` | Transparent E2EE orchestrator  |
-| `generateSpaceKey()`   | AES-GCM-256 space keys         |
-| `wrapSpaceKey()`       | ECDH + AES-KW key distribution |
+| Export               | Description            |
+| -------------------- | ---------------------- |
+| `generateSpaceKey()` | AES-GCM-256 space keys |
 
 ## Storage Adapters
 

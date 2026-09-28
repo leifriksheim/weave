@@ -581,7 +581,7 @@ _Source: `packages/core/src/records/links.ts` (`checkLinks`, `LINK_REL_PATTERN`,
 > links stay same-space and checkable against the definitions (§5.2). A
 > reader resolves it only if it can read that space. _Open:_ the exact form;
 > whether it may pin a version; whether a private space's id in a public
-> record says too much ([03 — Spaces](03-spaces.md) §8.7).
+> record says too much ([03 — Spaces](03-spaces.md) §8.6).
 
 ---
 

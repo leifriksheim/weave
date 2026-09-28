@@ -158,13 +158,11 @@ d   = ScalarFrom(okm)
 `ikm` MUST be at least 16 uniformly random bytes. This is what
 `CryptoProvider.deriveKeyPairFromSeed` does. It is used for:
 
-| Key                                    | `ikm`                                             |
-| -------------------------------------- | ------------------------------------------------- |
-| **Root key** (the account identity)    | the 16-byte seed                                  |
-| Space invite key ([03](03-spaces.md))  | `HKDF(inviteSecret, "weave/space-invite/v1", 32)` |
-| Space read key ([03](03-spaces.md))    | `HKDF(rawSpaceKey, "weave/space-read/v1", 32)`    |
-| PRF-derived identity (optional, §12.3) | the 32-byte WebAuthn PRF output                   |
-| Password-derived identity (§12.4)      | PBKDF2 output, 32 bytes                           |
+| Key                                   | `ikm`                                             |
+| ------------------------------------- | ------------------------------------------------- |
+| **Root key** (the account identity)   | the 16-byte seed                                  |
+| Space invite key ([03](03-spaces.md)) | `HKDF(inviteSecret, "weave/space-invite/v1", 32)` |
+| Space read key ([03](03-spaces.md))   | `HKDF(rawSpaceKey, "weave/space-read/v1", 32)`    |
 
 The contact key and member keys (§9) use `ScalarFrom` directly, with their own
 labels, without the identity label.
@@ -252,30 +250,29 @@ Every label under which bytes are derived anywhere in `packages/core/src/`. No t
 _purposes_ share a label, but see the notes below the table. Parts other than
 this one own the use; this table is the registry.
 
-| Label (UTF-8)                           | Mechanism                                 | Input                                                                                | Output                     | Used for                                                     | Defined in                                                      | Part   |
-| --------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------- | ------ |
-| `weave/p256-identity-key/v1`            | HKDF, L=48 → `ScalarFrom`                 | seed; or any `ikm` in §3.2's table                                                   | P-256 scalar               | Root key; second stage of invite and read keys               | `identity/crypto-p256.ts:11`                                    | 01     |
-| `weave/p256-contact-key/v1`             | HKDF, L=48 → `ScalarFrom`                 | seed                                                                                 | P-256 scalar (ECDH)        | Contact key                                                  | `identity/contact-key.ts:28`                                    | 01     |
-| `weave/p256-member-key/v1\|<spaceId>`   | HKDF, L=48 → `ScalarFrom`                 | vault key bytes                                                                      | P-256 scalar (ECDH)        | Member key for one space                                     | `identity/contact-key.ts:30`                                    | 01, 03 |
-| `weave/p256-door-key/v1\|<doorId>`      | HKDF, L=48 → `ScalarFrom`                 | contact key's 32-byte private scalar                                                 | P-256 scalar (ECDH)        | Door key (knocks are sealed to it)                           | `identity/contact-key.ts:31`                                    | 01, 07 |
-| `weave/p256-door-sign-key/v1\|<doorId>` | HKDF, L=48 → `ScalarFrom`                 | contact key's 32-byte private scalar                                                 | P-256 scalar (ECDSA)       | Door signing key (proves ownership of a door)                | `identity/contact-key.ts`                                       | 01, 07 |
-| `weave/door-topic/v1\|<signKey>`        | SHA-256, base64url                        | —                                                                                    | mailbox topic              | A door's mailbox topic on a relay: a hash of its signing key | `doors/doors.ts` (`doorTopic`)                                  | 07     |
-| `weave/contact-seal/v1`                 | HKDF, L=32                                | ECDH shared x (32) ‖ ephemeral uncompressed point (65)                               | AES-256-GCM key            | One sealed message to a contact or member key                | `identity/contact-key.ts:29`                                    | 01     |
-| `weave-vault-key-v1`                    | HKDF, L=32                                | seed                                                                                 | AES-256-GCM key / 32 bytes | Vault key: at-rest encryption; the "account key"             | `identity/account-vault.ts:55`                                  | 01, 05 |
-| `weave-pairing-room-v1`                 | CID of prefix ‖ seed (no separator)       | seed                                                                                 | room id                    | Pairing room                                                 | `identity/pairing.ts:31`                                        | 01     |
-| `weave-pairing-key-v1`                  | HKDF, L=32                                | seed                                                                                 | AES-256-GCM key            | Pairing handover                                             | `identity/pairing.ts:32`                                        | 01     |
-| `weave-protocol-key-v1`                 | WebAuthn PRF `eval.first` salt            | —                                                                                    | 32-byte PRF output         | Optional PRF-derived identity (§12.3)                        | `identity/webauthn.ts:56`, `identity/passkey-diagnostics.ts:48` | 01     |
-| `default-weave-salt`                    | PBKDF2 salt (default)                     | password                                                                             | 32 bytes                   | Password-derived identity (§12.4)                            | `identity/identity-manager.ts:136`                              | 01     |
-| `weave/space-invite/v1`                 | HKDF, L=32 → `P256KeyFrom`                | 32-byte invite secret                                                                | P-256 key                  | Invite key                                                   | `space/space-access.ts:34`                                      | 03     |
-| `weave/space-read/v1`                   | HKDF, L=32 → `P256KeyFrom`                | raw 32-byte space key                                                                | P-256 key                  | Read key of a private space                                  | `space/space-access.ts:33`                                      | 03     |
-| `weave/account-registry/nonce/v1`       | HKDF, L=32, first 12 bytes, base64url     | vault key bytes                                                                      | space nonce                | Account registry space                                       | `space/account-registry.ts:82,106`                              | 03     |
-| `weave/account-registry/key/v1`         | HKDF, L=32                                | vault key bytes                                                                      | AES-256-GCM space key      | Account registry space                                       | `space/account-registry.ts:82,107`                              | 03     |
-| `weave/contacts/nonce/v1`               | as above                                  | vault key bytes                                                                      | space nonce                | Contacts space                                               | `space/account-registry.ts:95,106`                              | 03     |
-| `weave/contacts/key/v1`                 | as above                                  | vault key bytes                                                                      | AES-256-GCM space key      | Contacts space                                               | `space/account-registry.ts:95,107`                              | 03     |
-| `weave/topic-tags/v1`                   | HKDF → HMAC-SHA256 key                    | raw space key (private) or the bytes of `weave/public-topics/v1\|<spaceId>` (public) | HMAC key                   | Topic tags                                                   | `records/topics.ts:67,74`                                       | 02     |
-| `weave-room/v1\|<spaceId>`              | SHA-256, first 20 bytes, base32 lowercase | —                                                                                    | relay room name            | A space's room on a relay                                    | `node/space-runtime.ts:221`                                     | 04     |
-| `weave-agent-link-room-v1`              | URI-encoded CID of prefix ‖ secret        | 16-byte connect-code secret                                                          | room id                    | Agent link room                                              | `session/agent-link.ts:43`                                      | 06     |
-| `weave-agent-link-key-v1`               | HKDF, L=32                                | 16-byte connect-code secret                                                          | AES-256-GCM key            | Agent link messages                                          | `session/agent-link.ts:44`                                      | 06     |
+| Label (UTF-8)                           | Mechanism                                 | Input                                                                                | Output                     | Used for                                                      | Defined in                         | Part   |
+| --------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------- | ------------------------------------------------------------- | ---------------------------------- | ------ |
+| `weave/p256-identity-key/v1`            | HKDF, L=48 → `ScalarFrom`                 | seed; or any `ikm` in §3.2's table                                                   | P-256 scalar               | Root key; second stage of invite and read keys                | `identity/crypto-p256.ts:11`       | 01     |
+| `weave/p256-contact-key/v1`             | HKDF, L=48 → `ScalarFrom`                 | seed                                                                                 | P-256 scalar (ECDH)        | Contact key                                                   | `identity/contact-key.ts:28`       | 01     |
+| `weave/p256-member-key/v1\|<spaceId>`   | HKDF, L=48 → `ScalarFrom`                 | vault key bytes                                                                      | P-256 scalar (ECDH)        | Member key for one space                                      | `identity/contact-key.ts:30`       | 01, 03 |
+| `weave/p256-door-key/v1\|<doorId>`      | HKDF, L=48 → `ScalarFrom`                 | contact key's 32-byte private scalar                                                 | P-256 scalar (ECDH)        | Door key (knocks are sealed to it)                            | `identity/contact-key.ts:31`       | 01, 07 |
+| `weave/p256-door-sign-key/v1\|<doorId>` | HKDF, L=48 → `ScalarFrom`                 | contact key's 32-byte private scalar                                                 | P-256 scalar (ECDSA)       | Door signing key (proves ownership of a door)                 | `identity/contact-key.ts`          | 01, 07 |
+| `weave/door-topic/v1\|<signKey>`        | SHA-256, base64url                        | —                                                                                    | mailbox topic              | A door's mailbox topic on a relay: a hash of its signing key  | `doors/doors.ts` (`doorTopic`)     | 07     |
+| `weave/contact-seal/v1`                 | HKDF, L=32                                | ECDH shared x (32) ‖ ephemeral uncompressed point (65)                               | AES-256-GCM key            | One sealed message to a contact or member key                 | `identity/contact-key.ts:29`       | 01     |
+| `weave-vault-key-v1`                    | HKDF, L=32                                | seed                                                                                 | AES-256-GCM key / 32 bytes | Vault key: at-rest encryption; the "account key"              | `identity/account-vault.ts:55`     | 01, 05 |
+| `weave-pairing-room-v1`                 | CID of prefix ‖ seed (no separator)       | seed                                                                                 | room id                    | Pairing room                                                  | `identity/pairing.ts:31`           | 01     |
+| `weave-pairing-key-v1`                  | HKDF, L=32                                | seed                                                                                 | AES-256-GCM key            | Pairing handover                                              | `identity/pairing.ts:32`           | 01     |
+| `weave-protocol-key-v1`                 | WebAuthn PRF `eval.first` salt            | —                                                                                    | 32-byte PRF output         | Requested at every passkey ceremony (§12.2); nothing reads it | `identity/webauthn.ts:43`          | 01     |
+| `weave/space-invite/v1`                 | HKDF, L=32 → `P256KeyFrom`                | 32-byte invite secret                                                                | P-256 key                  | Invite key                                                    | `space/space-access.ts:34`         | 03     |
+| `weave/space-read/v1`                   | HKDF, L=32 → `P256KeyFrom`                | raw 32-byte space key                                                                | P-256 key                  | Read key of a private space                                   | `space/space-access.ts:33`         | 03     |
+| `weave/account-registry/nonce/v1`       | HKDF, L=32, first 12 bytes, base64url     | vault key bytes                                                                      | space nonce                | Account registry space                                        | `space/account-registry.ts:82,106` | 03     |
+| `weave/account-registry/key/v1`         | HKDF, L=32                                | vault key bytes                                                                      | AES-256-GCM space key      | Account registry space                                        | `space/account-registry.ts:82,107` | 03     |
+| `weave/contacts/nonce/v1`               | as above                                  | vault key bytes                                                                      | space nonce                | Contacts space                                                | `space/account-registry.ts:95,106` | 03     |
+| `weave/contacts/key/v1`                 | as above                                  | vault key bytes                                                                      | AES-256-GCM space key      | Contacts space                                                | `space/account-registry.ts:95,107` | 03     |
+| `weave/topic-tags/v1`                   | HKDF → HMAC-SHA256 key                    | raw space key (private) or the bytes of `weave/public-topics/v1\|<spaceId>` (public) | HMAC key                   | Topic tags                                                    | `records/topics.ts:67,74`          | 02     |
+| `weave-room/v1\|<spaceId>`              | SHA-256, first 20 bytes, base32 lowercase | —                                                                                    | relay room name            | A space's room on a relay                                     | `node/space-runtime.ts:221`        | 04     |
+| `weave-agent-link-room-v1`              | URI-encoded CID of prefix ‖ secret        | 16-byte connect-code secret                                                          | room id                    | Agent link room                                               | `session/agent-link.ts:43`         | 06     |
+| `weave-agent-link-key-v1`               | HKDF, L=32                                | 16-byte connect-code secret                                                          | AES-256-GCM key            | Agent link messages                                           | `session/agent-link.ts:44`         | 06     |
 
 Strings that separate _signed messages_ or _AEAD contexts_ rather than derive
 keys, listed so new labels do not collide with them:
@@ -997,34 +994,8 @@ Renaming an account asks the provider to relabel the passkey through the
 WebAuthn Signal API (`PublicKeyCredential.signalCurrentUserDetails` with the
 `userHandle`); best effort.
 
-### 12.3 PRF-derived identities (optional)
-
-`IdentityManager.register` / `authenticate` derive a root key from a passkey:
-`P256KeyFrom(prfOutput)`, where `prfOutput` is the 32-byte `prf.results.first`
-for salt `weave-protocol-key-v1` (from the creation ceremony if the
-authenticator returns it, otherwise from an immediate assertion). If no PRF
-output comes back, this fails with `PRF_UNSUPPORTED`.
-
-Such an identity is **not** seed-based: it has no recovery code and differs
-per relying party. It is not used by the sign-in flow, and is not part of the
-interoperable account model. `inspectPasskeyPrf` reports what a provider does
-with PRF, for diagnosis (_implementation detail_).
-
-### 12.4 Password-derived identities (testing)
-
-`IdentityManager.fromPassword(password, salt?)`:
-`P256KeyFrom(PBKDF2-HMAC-SHA256(UTF-8(password), salt, 100 000, 256 bits))`,
-default salt UTF-8 `default-weave-salt`. No normalization. This exists for
-tests and examples; clients SHOULD NOT use it for real accounts (a low-entropy
-root key with a fixed salt).
-
-> **Planned: removal.** Only tests call `fromPassword` and the password
-> helper in `packages/core/src/identity/keys.ts` (100 000 PBKDF2 rounds, fixed salt). Both
-> will be removed from the public API, with this section and the
-> `default-weave-salt` row in §5.
-
-_Source:_ `packages/core/src/identity/webauthn.ts`, `packages/core/src/identity/identity-manager.ts`, `packages/core/src/identity/keys.ts`, `packages/core/src/identity/passkey-diagnostics.ts`, `packages/core/src/session/auth.ts` (`passkeyGate`).
-_Tests:_ `packages/core/tests/identity.test.ts` ("identity manager"). WebAuthn itself is not exercised by tests.
+_Source:_ `packages/core/src/identity/webauthn.ts`, `packages/core/src/session/auth.ts` (`passkeyGate`).
+_Tests:_ WebAuthn itself is not exercised by tests.
 
 ---
 

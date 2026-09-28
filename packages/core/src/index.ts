@@ -42,13 +42,7 @@ export {
   hasPlatformAuthenticator,
 } from './identity/webauthn.js';
 export type { PasskeyOptions, PasskeyRegistration, PasskeyAuth, AuthOptions } from './identity/webauthn.js';
-export { inspectPasskeyPrf } from './identity/passkey-diagnostics.js';
-export type {
-  PasskeyDiagnostics,
-  DiagnosticsOptions,
-  CeremonyReport,
-} from './identity/passkey-diagnostics.js';
-export { deriveKeyPair, deriveKeyFromPassword } from './identity/keys.js';
+export { deriveKeyPair } from './identity/keys.js';
 export type { DerivedKeyPair } from './identity/keys.js';
 export {
   generateRecoveryCode,
@@ -98,12 +92,7 @@ export {
 } from './identity/contact-key.js';
 export type { ContactKeyPair } from './identity/contact-key.js';
 export type { AccountVault, SeedWrap, DeviceWrap, PassphraseWrap } from './identity/account-vault.js';
-export type {
-  IdentityManager,
-  Identity,
-  IdentityConfig,
-  CeremonyPreferences,
-} from './identity/identity-manager.js';
+export type { IdentityManager, Identity } from './identity/identity-manager.js';
 export { createDeviceKey, getDeviceKey, deleteDeviceKey } from './identity/device-key.js';
 export type { DeviceKey } from './identity/device-key.js';
 export { createLocalRootSigner } from './identity/root-signer.js';
@@ -310,8 +299,6 @@ export type { ValidationEngine, ValidationEngineConfig } from './validation/vali
 // Phase 7: Encryption & Privacy
 export { generateSpaceKey, encryptExpression, decryptExpression } from './privacy/space-encryption.js';
 export type { SpaceKey, EncryptedExpression, EncryptedExpressionBody } from './privacy/space-encryption.js';
-export { wrapSpaceKey, unwrapSpaceKey, distributeSpaceKey } from './privacy/key-distribution.js';
-export { createPrivacyGuard } from './privacy/privacy-guard.js';
 
 // Utilities
 export {
