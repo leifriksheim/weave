@@ -1,6 +1,6 @@
 import { base64UrlEncode, base64UrlDecode } from '../utils/encoding.js';
 import { protocolError } from '../utils/errors.js';
-import { bufferSource, bytesFrom, isPublicKeyCredential } from '../utils/guards.js';
+import { bufferSource, isPublicKeyCredential } from '../utils/guards.js';
 
 export interface PasskeyOptions {
   readonly rpId: string;
@@ -9,9 +9,7 @@ export interface PasskeyOptions {
   readonly userId?: Uint8Array;
   /**
    * WebAuthn L3 hints steering which authenticator the browser offers first.
-   * `client-device` favours the platform passkey (Touch ID, Windows Hello) —
-   * useful when an installed credential manager handles passkeys by default but
-   * does not support PRF.
+   * `client-device` favours the platform passkey (Touch ID, Windows Hello).
    */
   readonly hints?: ReadonlyArray<'client-device' | 'security-key' | 'hybrid'>;
   /** Restrict to platform or roaming authenticators */
@@ -27,18 +25,6 @@ export interface PasskeyRegistration {
    */
   readonly userHandle: string;
   readonly publicKey: Uint8Array;
-  /**
-   * What the client reported about PRF at creation time: true, false, or
-   * undefined when it said nothing at all.
-   *
-   * This is a weak signal. Several credential providers — Bitwarden among them —
-   * omit or deny it here and still evaluate PRF perfectly well during an
-   * assertion, so it must never be treated as a final answer. The only reliable
-   * test is asking for the secret and seeing whether one comes back.
-   */
-  readonly prfDeclared: boolean | undefined;
-  /** PRF output, when the authenticator already evaluates it during creation */
-  readonly prfOutput: Uint8Array | null;
 }
 
 export interface AuthOptions {
@@ -49,10 +35,11 @@ export interface AuthOptions {
 
 export interface PasskeyAuth {
   readonly credentialId: string;
-  readonly prfOutput: Uint8Array | null;
   readonly authenticatorData: Uint8Array;
 }
 
+// Asked for, though nothing reads it yet: PRF can only be requested when a
+// passkey is made, so asking keeps these passkeys able to carry a secret later.
 const PRF_SALT = new TextEncoder().encode('weave-protocol-key-v1');
 
 /**
@@ -73,7 +60,7 @@ export async function hasPlatformAuthenticator(): Promise<boolean> {
 }
 
 /**
- * Registers a new passkey with PRF extension.
+ * Registers a new passkey.
  * @param {PasskeyOptions} options Registration options.
  * @returns {Promise<PasskeyRegistration>} Registration result.
  */
@@ -125,21 +112,12 @@ export async function registerPasskey(options: PasskeyOptions): Promise<PasskeyR
   const response: AuthenticatorResponse & Partial<Pick<AuthenticatorAttestationResponse, 'getPublicKey'>> =
     credential.response;
 
-  const prf = credential.getClientExtensionResults().prf;
-  const prfDeclared = prf?.results?.first ? true : prf?.enabled;
-
-  // Newer authenticators return the PRF output from the creation ceremony itself,
-  // which saves the user a second prompt.
-  const prfOutputBuffer = prf?.results?.first;
-
   const rawId = new Uint8Array(credential.rawId);
 
   return Object.freeze({
     credentialId: base64UrlEncode(rawId),
     userHandle: base64UrlEncode(userId),
     publicKey: new Uint8Array(response.getPublicKey?.() || new ArrayBuffer(0)),
-    prfDeclared,
-    prfOutput: prfOutputBuffer ? new Uint8Array(bytesFrom(prfOutputBuffer)) : null,
   });
 }
 
@@ -185,7 +163,7 @@ export async function renamePasskey(params: {
 }
 
 /**
- * Authenticates using an existing passkey with PRF extension.
+ * Authenticates using an existing passkey.
  * @param {string} [credentialId] The credential to use. Omit to let the user pick
  *   any discoverable passkey for this origin.
  * @param {AuthOptions} [options] Authentication options.
@@ -233,12 +211,8 @@ export async function authenticatePasskey(
   const response: AuthenticatorResponse & Partial<Pick<AuthenticatorAssertionResponse, 'authenticatorData'>> =
     credential.response;
 
-  const prfOutputBuffer = credential.getClientExtensionResults().prf?.results?.first;
-  const prfOutput = prfOutputBuffer ? new Uint8Array(bytesFrom(prfOutputBuffer)) : null;
-
   return Object.freeze({
     credentialId: base64UrlEncode(new Uint8Array(credential.rawId)),
-    prfOutput,
     authenticatorData: new Uint8Array(response.authenticatorData ?? new ArrayBuffer(0)),
   });
 }

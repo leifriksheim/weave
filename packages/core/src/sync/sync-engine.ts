@@ -78,8 +78,8 @@ export interface SyncEngineConfig {
   readonly self?: string;
   readonly heartbeatInterval?: number;
   /**
-   * Gatekeeper for expressions arriving from peers — typically a
-   * `ValidationEngine`. Anything it rejects is dropped instead of committed,
+   * Gatekeeper for expressions arriving from peers — typically
+   * `createVersionCheck`. Anything it rejects is dropped instead of committed,
    * and surfaces as a `rejected` event.
    *
    * Leaving it out accepts whatever peers send, which is only ever appropriate

@@ -5,8 +5,6 @@
  */
 
 export type ProtocolErrorCode =
-  /** The authenticator produced no PRF secret, so no key can be derived from it */
-  | 'PRF_UNSUPPORTED'
   /** The user dismissed or cancelled a passkey ceremony */
   | 'PASSKEY_CANCELLED'
   /** WebAuthn is not available in this environment at all */

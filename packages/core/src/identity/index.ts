@@ -5,5 +5,4 @@ export * from './did.js';
 export * from './identity-manager.js';
 export * from './ucan.js';
 export * from './agent-note.js';
-export * from './passkey-diagnostics.js';
 export * from './recovery-code.js';

@@ -227,7 +227,7 @@ Member order on the wire is irrelevant. The id is reproducible from the
 canonical text above; the signature is not (ECDSA uses a fresh nonce), but any
 valid signature verifies.
 
-_Source: `packages/core/src/types.ts` (`Expression`, `UnsignedExpression`, `Link`), `packages/core/src/schema/expression.ts` (`createExpression`, `signedPart`, `getExpressionId`, `serializeExpression`), `packages/core/src/schema/signer.ts`, `packages/core/src/validation/crypto-gate.ts`. Tests: `packages/core/tests/validation.test.ts` ("crypto gate"), `packages/core/tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `packages/core/tests/links.test.ts` ("links are signed"), `packages/core/tests/attacks.test.ts` ("a stranger sending a mangled copy first…")._
+_Source: `packages/core/src/types.ts` (`Expression`, `UnsignedExpression`, `Link`), `packages/core/src/schema/expression.ts` (`createExpression`, `signedPart`, `getExpressionId`), `packages/core/src/schema/signer.ts`, `packages/core/src/validation/crypto-gate.ts`. Tests: `packages/core/tests/validation.test.ts` ("crypto gate"), `packages/core/tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `packages/core/tests/links.test.ts` ("links are signed"), `packages/core/tests/attacks.test.ts` ("a stranger sending a mangled copy first…")._
 
 ---
 
@@ -581,7 +581,7 @@ _Source: `packages/core/src/records/links.ts` (`checkLinks`, `LINK_REL_PATTERN`,
 > links stay same-space and checkable against the definitions (§5.2). A
 > reader resolves it only if it can read that space. _Open:_ the exact form;
 > whether it may pin a version; whether a private space's id in a public
-> record says too much ([03 — Spaces](03-spaces.md) §8.7).
+> record says too much ([03 — Spaces](03-spaces.md) §8.6).
 
 ---
 
@@ -1170,18 +1170,10 @@ A version arriving from anywhere — a peer, a folder, a mirror — or written
 locally, passes the same checks. The order below is the reference order; a
 version refused by any step is refused.
 
-### 9.1 Shape (the structural gate)
+### 9.1 Shape
 
-The version-alone checks of §4.6. A body that is an encryption envelope
-(`ciphertext`, `iv`, `keyId` all strings) is not inspected further.
-
-Body shape against the collection's schema is **not** checked here on arrival
-(§9.6).
-
-_Implementation detail:_ the structural gate can also validate bodies against
-registered Standard Schemas and refuse unknown collections; the node
-configures it with no schemas and `allowUnknownCollections`, so on arrival it
-performs only the shape check.
+The version-alone checks of §4.6. The body is not inspected: body shape against
+the collection's schema is **not** checked on arrival (§9.6).
 
 ### 9.2 Signature (the crypto gate)
 
@@ -1225,13 +1217,6 @@ Given a valid signature and root, whether the version _stands_ in this space:
    4. If a definition is in force and the version is not a delete: tags check (§8.4).
    5. If rules are in force and the version is not a delete: `onePer` (§7.3) on `seq 0`, `fixed` (§7.4) on `seq > 0`.
 
-_Implementation detail:_ the validation engine also has a pluggable
-WebAssembly "stateful gate", run after the capability gate: a module
-exporting `memory`, `validate(ptr, len) → i32` and optionally
-`alloc(size) → ptr`, given the expression as `JSON.stringify` UTF-8 bytes;
-`0` passes. The node registers no modules, so it always passes. It is not part
-of the protocol.
-
 ### 9.5 What a peer does with a refused version
 
 A check can end three ways:
@@ -1267,7 +1252,7 @@ hold, and refusing would leave peers disagreeing forever. Readers flag such a
 record instead (the node reports `conforms: false` with the issues). A writer
 checks them before signing and SHOULD NOT write what does not conform.
 
-_Source: `packages/core/src/validation/validation-engine.ts`, `packages/core/src/validation/structural-gate.ts`, `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/validation/stateful-gate.ts`, `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/attacks.test.ts`._
+_Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`), `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/attacks.test.ts`._
 
 ---
 

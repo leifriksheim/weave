@@ -856,16 +856,9 @@ sealed = base64url( iv(12) ‖ AES-256-GCM(key, iv, UTF-8(JSON.stringify(value))
 Opening fails (returns nothing) for the wrong key, the wrong context, or a
 changed value. Inputs longer than 1 000 000 characters are not tried.
 
-### 8.6 Legacy helpers
-
-`packages/core/src/privacy/key-distribution.ts` (`wrapSpaceKey` — ECDH + AES-KW, algorithm
-`"ECDH-AES-KW"`) and `packages/core/src/privacy/privacy-guard.ts` are exported but used by
-nothing in the node. They are **not** part of the protocol; key distribution is
-§9.
-
 _Source: `packages/core/src/privacy/space-encryption.ts`, `packages/core/src/node/space-runtime.ts` (`IN_THE_CLEAR`, `write`, `openBody`), `packages/core/src/space/space-access.ts` (`deriveReadKey`, `deriveReadSeed`). Tests: `packages/core/tests/space.test.ts` ("private space expressions"), `packages/core/tests/space-access.test.ts` ("a view-only invite to a private space reads everything and writes nothing"; the read-key vector)._
 
-### 8.7 Planned: what a private space still shows
+### 8.6 Planned: what a private space still shows
 
 Encrypting bodies leaves the envelope readable to anyone holding the
 ciphertext: a relay-side peer, a carrier, a host, a mirror's storage
@@ -1059,7 +1052,7 @@ agent sessions; a non-member publishes nothing.
 >
 > Open questions: the field names; the avatar's size limit and format; and
 > whether nicknames for people who are not contacts get a collection of their
-> own. `profile:` keys may also change (§8.7).
+> own. `profile:` keys may also change (§8.6).
 
 _Source: `packages/core/src/node/space-runtime.ts` (`profileKey`, `loadProfiles`, `publishProfile`), `packages/core/src/node/node.ts` (`publishProfile`). Tests: `packages/core/tests/profiles.test.ts`, `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored")._
 

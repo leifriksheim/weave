@@ -23,12 +23,11 @@
 import { contactKeyPair, isContactPublicKey, openSealed, sealFor } from '../identity/contact-key.js';
 import type { Expression, CryptoProvider, StorageAdapter } from '../types.js';
 import type { Signer } from '../schema/signer.js';
-import { createSchemaEngine, type SchemaEngine } from '../schema/schema-engine.js';
+import type { SchemaEngine } from '../schema/schema-engine.js';
 import type { SpaceRecord } from '../space/space-manager.js';
 import type { Capability } from '../identity/ucan.js';
 import { parseUCAN, resolveDelegationRoot } from '../identity/ucan.js';
 import { isAgentNote } from '../identity/agent-note.js';
-import { didToPublicKey } from '../identity/did.js';
 import { createExpression } from '../schema/expression.js';
 import { createStorageProvider, type StorageProvider } from '../storage/storage-provider.js';
 import { newRecordKey, nextVersion } from '../records/version.js';
@@ -47,11 +46,7 @@ import { reconcileFolder } from '../storage/folder-reconcile.js';
 import type { BlobStore } from '../storage/blob-store.js';
 import { createMirror, type Mirror } from '../storage/mirror.js';
 import type { FolderAdapter } from '../storage/folder-adapter.js';
-import { createCryptoGate } from '../validation/crypto-gate.js';
-import { createStructuralGate } from '../validation/structural-gate.js';
-import { createStatefulGate } from '../validation/stateful-gate.js';
-import { createCapabilityGate } from '../validation/capability-gate.js';
-import { createValidationEngine } from '../validation/validation-engine.js';
+import { createVersionCheck } from '../validation/check-version.js';
 import {
   encryptExpression,
   decryptExpression,
@@ -498,23 +493,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   let partial = cache !== null;
   const holds = (): Holds => (partial ? new Set(Object.keys(cacheState.used)) : 'all');
 
-  const resolvePublicKey = async (did: string) =>
-    provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
-
-  const validation = createValidationEngine({
-    cryptoGate: createCryptoGate(provider),
-    // Shape is not a reason to refuse a record on arrival. Whether it fits can
-    // depend on which definition, or which app's schema, a node happens to have;
-    // refusing would leave nodes that disagree forever. Shape is checked when a
-    // record is written here, and reported as `conforms` when it is read.
-    structuralGate: createStructuralGate(createSchemaEngine(), { allowUnknownCollections: true }),
-    statefulGate: createStatefulGate(),
-    // The note behind a key must cover this space. Whether its account may
-    // write here is the access history's question, asked below.
-    capabilityGate: createCapabilityGate({ provider, requiredCapability: () => writeCapability(space.id) }),
-    resolvePublicKey,
-    getExpression: (id) => storage.getExpression(id),
-  });
+  // Body shape is checked when a record is written here, and reported as
+  // `conforms` when it is read. The note behind a key must cover this space;
+  // whether its account may write here is the access history's question, asked below.
+  const checkVersion = createVersionCheck({ provider, requiredCapability: () => writeCapability(space.id) });
 
   // A signature never changes, so a verdict on one holds forever. Keyed on the
   // id *and* the signature: the id does not cover it, so a copy with a broken
@@ -529,11 +511,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const cached = verdicts.get(verdictKey(expression));
     if (cached) return cached;
 
-    const result = await validation.validate(expression);
+    const result = await checkVersion(expression);
     let verdict: Verdict;
-    if (!result.valid) {
-      const failed = result.gates.find((gate) => !gate.passed);
-      verdict = { verified: false, root: null, ...(failed?.reason ? { reason: failed.reason } : {}) };
+    if (!result.passed) {
+      verdict = { verified: false, root: null, ...(result.reason ? { reason: result.reason } : {}) };
     } else {
       const at = Math.floor(Date.parse(expression.createdAt) / 1000);
       const chain = expression.proof

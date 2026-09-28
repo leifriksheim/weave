@@ -122,7 +122,7 @@ VITE_SIGNALING_URL=wss://your-relay.example npm run dev
 | UCAN delegation        | Every record is signed by this app's key, under that note; peers check the chain back to the account                   |
 | Spaces                 | Four kinds of space, each with its own database, sync and gossip room                                                  |
 | E2EE                   | Private spaces encrypt bodies before signing; a record says _encrypted_ when it had to be opened                       |
-| Validation engine      | Signature, schema and capability gates run on everything, including what peers send                                    |
+| Validation             | Shape, signature and capability checks run on everything, including what peers send                                    |
 | Authorization          | A personal space rejects writes not rooted in its owner — the _rejected_ counter shows what was dropped                |
 | Derived UI             | Forms, tables, "+ Add …" buttons and tallies worked out from each space's own definitions                              |
 | Profiles               | Everyone in a space shown by the name they gave, which only they can change                                            |

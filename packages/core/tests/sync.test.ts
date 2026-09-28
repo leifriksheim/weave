@@ -1,44 +1,27 @@
 /**
  * Sync tests — two peers reconciling by Negentropy, with the
- * validation engine acting as gatekeeper on everything that arrives.
+ * version check acting as gatekeeper on everything that arrives.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
-import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../src/identity/did.js';
+import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { issueUCAN, type Capability } from '../src/identity/ucan.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
-import { createSchemaEngine } from '../src/schema/schema-engine.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
-import { createCryptoGate } from '../src/validation/crypto-gate.js';
-import { createStructuralGate } from '../src/validation/structural-gate.js';
-import { createStatefulGate } from '../src/validation/stateful-gate.js';
-import { createCapabilityGate } from '../src/validation/capability-gate.js';
-import { createValidationEngine } from '../src/validation/validation-engine.js';
+import { createVersionCheck } from '../src/validation/check-version.js';
 import { createSyncEngine } from '../src/sync/sync-engine.js';
 import type { SyncMessage } from '../src/sync/sync-messages.js';
-import type { Expression, StandardSchemaV1 } from '../src/types.js';
-import { isRecord } from '../src/utils/guards.js';
+import type { Expression } from '../src/types.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
 
 const COLLECTION = 'app.test.note';
 const WRITE: Capability = { with: `space:${COLLECTION}`, can: 'expression/write' };
-
-const noteSchema: StandardSchemaV1 = {
-  '~standard': {
-    version: 1,
-    vendor: 'test',
-    validate: (value: unknown) =>
-      isRecord(value) && typeof value.text === 'string'
-        ? { value }
-        : { issues: [{ message: 'text must be a string' }] },
-  },
-};
 
 async function makeKey() {
   const pair = await provider.generateKeyPair();
@@ -50,27 +33,14 @@ async function makeKey() {
 function createPeer(send: (peerId: string, message: SyncMessage) => void) {
   const storage = createStorageProvider(createMemoryAdapter());
 
-  const schemaEngine = createSchemaEngine();
-  schemaEngine.registerCollection({ name: COLLECTION, schema: noteSchema });
-
-  const engine = createValidationEngine({
-    cryptoGate: createCryptoGate(provider),
-    structuralGate: createStructuralGate(schemaEngine),
-    statefulGate: createStatefulGate(),
-    capabilityGate: createCapabilityGate({ provider, requiredCapability: () => WRITE }),
-    resolvePublicKey: async (did) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes),
-    getExpression: (id) => storage.getExpression(id),
-  });
+  const check = createVersionCheck({ provider, requiredCapability: () => WRITE });
 
   const sync = createSyncEngine({
     storageProvider: storage,
     sendToPeer: send,
     validate: async (expression) => {
-      const result = await engine.validate(expression);
-      return {
-        valid: result.valid,
-        reason: result.gates.find((gate) => !gate.passed)?.reason,
-      };
+      const result = await check(expression);
+      return { valid: result.passed, reason: result.reason };
     },
   });
 
@@ -214,7 +184,7 @@ describe('sync engine', () => {
     assert.match(rejected[0] ?? '', /different key/i);
   });
 
-  test('drops an expression that violates the collection schema', async () => {
+  test('drops a malformed version, however well signed', async () => {
     const { a, b, settle } = createPair();
     const root = await makeKey();
     const session = await makeKey();
@@ -223,10 +193,10 @@ describe('sync engine', () => {
     const unsigned = createExpression({
       author: session.did,
       collection: COLLECTION,
-      body: { text: 12345 },
+      body: { text: 'fine' },
       proof: ucan.encoded,
     });
-    const note = await signer.sign(unsigned, session.privateKey);
+    const note = await signer.sign({ ...unsigned, key: 'Has Spaces' }, session.privateKey);
 
     const rejected: string[] = [];
     b.sync.on('rejected', (_peer: string, _expression: Expression, reason: string) => {
@@ -238,6 +208,6 @@ describe('sync engine', () => {
     await settle();
 
     assert.equal(await b.storage.getExpression(note.id), null);
-    assert.match(rejected[0] ?? '', /text must be a string/);
+    assert.match(rejected[0] ?? '', /key is missing or malformed/);
   });
 });

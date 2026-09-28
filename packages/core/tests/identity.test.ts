@@ -122,11 +122,11 @@ describe('did:key', () => {
 });
 
 describe('identity manager', () => {
-  test('the same password yields the same DID', async () => {
+  test('the same seed yields the same DID', async () => {
     const manager = createIdentityManager();
-    const a = await manager.fromPassword('correct horse battery staple');
-    const b = await manager.fromPassword('correct horse battery staple');
-    const other = await manager.fromPassword('a different password');
+    const a = await manager.fromSeed(new Uint8Array(16).fill(1));
+    const b = await manager.fromSeed(new Uint8Array(16).fill(1));
+    const other = await manager.fromSeed(new Uint8Array(16).fill(2));
 
     assert.equal(a.did, b.did);
     assert.notEqual(a.did, other.did);
@@ -134,7 +134,7 @@ describe('identity manager', () => {
 
   test('expressions signed by an identity verify against its DID', async () => {
     const manager = createIdentityManager();
-    const identity = await manager.fromPassword('correct horse battery staple');
+    const identity = await manager.fromSeed(new Uint8Array(16).fill(1));
     const signer = createSigner(provider);
 
     const unsigned = createExpression({

@@ -682,7 +682,7 @@ when her node redials with K0 and her note, step 4 refuses her.
 > Rationale: a removed member holds the key she was let in on, so a key
 > change alone stops her reading new records, but not the connection: she
 > would still be pushed new versions (sealed, but with their collections,
-> keys and authors in the clear, [03](03-spaces.md) §8.7), live messages,
+> keys and authors in the clear, [03](03-spaces.md) §8.6), live messages,
 > which are not sealed, and whatever the history says next. Until the key
 > changes she may still read, as she holds the current key; a public space
 > asks no read proof, so letting someone go there would keep nobody out.
@@ -695,7 +695,7 @@ when her node redials with K0 and her note, step 4 refuses her.
 > are behind, a node that missed a key change could never reconnect, since
 > the peers that could tell it about the change refuse it.
 
-_Source: `packages/core/src/network/peer-auth.ts` (`proveRead`, `checkRead`, `MAX_EARLIER_READ_KEYS`), `packages/core/src/node/space-runtime.ts` (`readAccess`, `letGoOfOutsiders`), `packages/core/src/network/mesh.ts` (`drop`), `packages/core/src/network/network-manager.ts` (`drop`), `packages/core/src/privacy/space-encryption.ts` (`sealWith`, `openWith`), `packages/core/src/space/space-access.ts` (`membershipContext`). Tests: `packages/core/tests/key-change.test.ts`, `packages/core/tests/ws-transport.test.ts` ("a private space"), `packages/core/tests/network-manager.test.ts` ("in a private space, a peer without its key never becomes a peer"; "after the space key changed"; "letting a peer go in one room…"), `packages/cli/tests/cli.test.ts` ("lets go of someone removed from a private space…")._
+_Source: `packages/core/src/network/peer-auth.ts` (`proveRead`, `checkRead`, `MAX_EARLIER_READ_KEYS`), `packages/core/src/node/space-runtime.ts` (`readAccess`, `letGoOfOutsiders`), `packages/core/src/network/mesh.ts` (`drop`), `packages/core/src/network/network-manager.ts` (`drop`), `packages/core/src/privacy/space-encryption.ts` (`sealWith`, `openWith`), `packages/core/src/space/space-access.ts` (`membershipContext`). Tests: `packages/core/tests/key-change.test.ts`, `packages/core/tests/ws-transport.test.ts` ("a private space"), `packages/core/tests/network-manager.test.ts` ("in a private space, a peer without its key never becomes a peer"; "after the space key changed"; "letting a peer go in one room…"), `packages/cli/tests/cli.test.ts` ("lets go of someone removed from a private space…"), `packages/cli/tests/serve.test.ts` ("a node behind on the space key admits a reader…")._
 
 ### 6.4 The account behind a session
 

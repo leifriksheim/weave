@@ -14,9 +14,8 @@
  * (`sys.profile`). The private half stays with the account home, and goes to
  * apps the person lets handle contacts.
  *
- * Sealing works like wrapping a space key (`privacy/key-distribution.ts`): a
- * fresh key pair for each message, a secret shared with the recipient's
- * public key, and AES-GCM. The `context` is bound in as additional data, so a
+ * Sealing uses a fresh key pair for each message, a secret shared with the
+ * recipient's public key, and AES-GCM. The `context` is bound in as additional data, so a
  * sealed message moved anywhere its context no longer matches doesn't open.
  */
 import { p256 } from '@noble/curves/nist.js';
