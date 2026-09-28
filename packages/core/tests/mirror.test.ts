@@ -33,15 +33,27 @@ function counted(inner: BlobStore, delayMs = 2) {
   const wait = () => new Promise((resolve) => setTimeout(resolve, delayMs));
   const writes = new Map<string, number>();
   const store: BlobStore = {
-    get: async (key) => (calls.get++, await wait(), inner.get(key)),
+    get: async (key) => {
+      calls.get++;
+      await wait();
+      return inner.get(key);
+    },
     put: async (key, bytes) => {
       calls.put++;
       writes.set(key, (writes.get(key) ?? 0) + 1);
       await wait();
       return inner.put(key, bytes);
     },
-    delete: async (key) => (calls.delete++, await wait(), inner.delete(key)),
-    list: async (prefix) => (calls.list++, await wait(), inner.list(prefix)),
+    delete: async (key) => {
+      calls.delete++;
+      await wait();
+      return inner.delete(key);
+    },
+    list: async (prefix) => {
+      calls.list++;
+      await wait();
+      return inner.list(prefix);
+    },
   };
   return { store, calls, writes };
 }

@@ -532,7 +532,10 @@ describe('node.doors', () => {
     await leif.spaces.hold(space);
     await anna.spaces.hold(space);
     await until(
-      async () => (await anna.doors.knocks(), leif.doors.sent()),
+      async () => {
+        await anna.doors.knocks();
+        return leif.doors.sent();
+      },
       (sent) => sent.length === 0,
       'Anna to answer and Leif to see it',
     );
@@ -570,7 +573,10 @@ describe('node.doors', () => {
     await anna.doors.accept(knock!.id);
     await anna.spaces.hold(space);
     await until(
-      async () => (await anna.doors.knocks(), leif.doors.sent()),
+      async () => {
+        await anna.doors.knocks();
+        return leif.doors.sent();
+      },
       (sent) => sent.length === 0,
       'the answer',
     );

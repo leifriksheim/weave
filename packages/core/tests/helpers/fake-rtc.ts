@@ -11,7 +11,10 @@ class FakeTrack {
   readonly id = id('track');
   enabled = true;
   stopped = false;
-  constructor(readonly kind: 'audio' | 'video') {}
+  readonly kind: 'audio' | 'video';
+  constructor(kind: 'audio' | 'video') {
+    this.kind = kind;
+  }
   stop() {
     this.stopped = true;
   }
@@ -46,7 +49,10 @@ class FakeConnection {
   partner: FakeConnection | null = null;
   candidatesAdded = 0;
 
-  constructor(readonly config: RTCConfiguration) {}
+  readonly config: RTCConfiguration;
+  constructor(config: RTCConfiguration) {
+    this.config = config;
+  }
 
   addTransceiver(trackOrKind: FakeTrack | 'audio' | 'video', init?: RTCRtpTransceiverInit) {
     const kind = typeof trackOrKind === 'string' ? trackOrKind : trackOrKind.kind;

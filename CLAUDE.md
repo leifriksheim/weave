@@ -25,8 +25,8 @@ to `packages/core/src`, so nothing needs building first.
 ```bash
 npm install          # once, at the root
 npm test             # every workspace
-npm run typecheck    # every workspace, and core's tests
-npm run lint         # ESLint, type-aware
+npm run typecheck    # every workspace, and core's tests (TypeScript 7)
+npm run lint         # oxlint, type-aware (.oxlintrc.json)
 npm run format       # Prettier
 npm run fallow       # unused files, exports and dependencies, import cycles
 npm run check        # all of the above but tests, as CI runs it
@@ -37,15 +37,17 @@ node --experimental-vm-modules --import tsx --test tests/sync.test.ts
 
 Releasing is `npm run release`; see the README before running it.
 
-A pre-commit hook runs ESLint and Prettier on staged files.
+A pre-commit hook runs oxlint and Prettier on staged files.
 
 ## Types
 
 Every workspace extends `tsconfig.base.json` (strict, `noUncheckedIndexedAccess`,
-no unused locals). ESLint bans `any`, type assertions (`as Foo`; `as const` is
-fine) and enums. Narrow `unknown` with a type guard, or use `satisfies`. Where a
-cast truly can't be avoided, disable the rule for that line with a reason:
-`// eslint-disable-next-line <rule> -- <why>`.
+no unused locals, `erasableSyntaxOnly`, so no enums, namespaces or parameter
+properties). oxlint bans `any` and type assertions (`as Foo`; `as const` is
+fine). Narrow `unknown` with a type guard, or use `satisfies`. Where a cast
+truly can't be avoided, disable the rule for that line with a reason:
+`// eslint-disable-next-line <rule> -- <why>` (oxlint reads ESLint's comments
+and rule names).
 
 ## The spec and the code change together
 

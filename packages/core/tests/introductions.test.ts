@@ -121,7 +121,9 @@ class FakeWebSocket implements FakeSocket {
   onclose: (() => void) | null = null;
   sent: string[] = [];
 
-  constructor(public url: string) {
+  url: string;
+  constructor(url: string) {
+    this.url = url;
     sockets.push(this);
     queueMicrotask(() => {
       this.readyState = 1;

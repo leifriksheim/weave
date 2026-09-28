@@ -124,11 +124,10 @@ const CLOCK_SKEW_SECONDS = 60;
 const SPENT_PREFIX = 'host/wallet/spent/';
 
 class Refusal extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
+  readonly status: number;
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
   }
 }
 

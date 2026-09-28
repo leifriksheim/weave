@@ -17,8 +17,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "release": "node scripts/release.mjs",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "oxlint --type-aware",
+    "lint:fix": "oxlint --type-aware --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "fallow": "fallow dead-code",
@@ -26,20 +26,15 @@
     "prepare": "husky || true"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.5",
     "bumpp": "^12.3.0",
-    "eslint": "^9.39.5",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.1.1",
     "fallow": "^3.30.0",
-    "globals": "^17.12.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
+    "oxlint": "^1.86.0",
+    "oxlint-tsgolint": "^7.0.2003",
     "prettier": "^3.9.9",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "typescript-eslint": "^8.70.1"
+    "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=22"

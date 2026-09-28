@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # The checks run side by side, each on its own runner; the slowest one sets the time.
+  # The tests and the static checks run side by side, each on its own runner.
   check:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -22,12 +22,9 @@ jobs:
         include:
           - name: test
             run: npm test
-          - name: lint
-            run: npm run lint
-          - name: typecheck
-            run: npm run typecheck
-          - name: format and fallow
-            run: npm run format:check && npm run fallow
+          # Format, lint, typecheck and fallow: seconds each, so one runner.
+          - name: check
+            run: npm run check
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
