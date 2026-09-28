@@ -149,10 +149,14 @@ export function SpaceList({
 
 /** What arrived in a space since you last looked, after the rest of its line */
 function NewIn({ space }: { space: SpaceSummary }) {
-  const n = useSpaceUnread(space);
-  if (n === 0) return null;
+  const { count, forMe } = useSpaceUnread(space);
+  if (count === 0) return null;
+  const upTo99 = (n: number) => (n > 99 ? '99+' : n);
   return (
-    <strong style={{ color: palette.accent.danger, fontWeight: 600 }}> · {n > 99 ? '99+' : n} new</strong>
+    <strong style={{ color: forMe > 0 ? palette.accent.danger : palette.ink.strong, fontWeight: 600 }}>
+      {' '}
+      · {upTo99(count)} new{forMe > 0 ? `, ${upTo99(forMe)} for you` : ''}
+    </strong>
   );
 }
 

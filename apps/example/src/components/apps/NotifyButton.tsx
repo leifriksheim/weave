@@ -1,35 +1,157 @@
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
+import { useDismiss } from '@weave/app-shared/useDismiss';
 import { useNotifyFor } from '../../notifications';
 import { Icon } from '../Icon';
 import { styles, palette } from '../../styles';
 import type { AppEntry } from './entries';
 
 /**
- * The bell on an open app: notifications for what it says is worth hearing
- * about, in this space. Once they are on, it opens the account home, where
- * they are paused or removed.
+ * The bell on an open app. It offers what the app says is worth hearing
+ * about, in this space, at two levels when the app has both: everything new,
+ * or only what names you ("Mentions me", "Replies to me"). Turning either
+ * off, or pausing it, happens in the account home, which the menu opens.
  */
 export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntry }) {
-  const { on, error, turnOn, manage } = useNotifyFor(space.id, app.notify);
-  if (app.notify.length === 0) return null;
-  const what = app.notify.map((n) => n.label).join(', ');
+  const { everything, forMe, on, error, turnOn, manage } = useNotifyFor(space.id, app.notify);
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useDismiss(
+    open,
+    root,
+    useCallback(() => setOpen(false), []),
+  );
+  if (everything.length === 0 && forMe.length === 0) return null;
+
+  const any = on.everything || on.forMe;
+  const labels = (list: typeof everything) => list.map((n) => n.label).join(', ');
+  const choose = (list: typeof everything) => {
+    setOpen(false);
+    turnOn(list);
+  };
+
   return (
-    <button
-      onClick={on ? manage : turnOn}
-      data-variant="quiet"
-      title={error ?? (on ? `Notifying you: ${what}. Click to change.` : `Notify me: ${what}`)}
-      aria-label={on ? 'Notifications on' : 'Notify me'}
-      aria-pressed={on}
-      style={{
-        ...styles.smallButton,
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        color: error ? palette.accent.danger : on ? palette.ink.strong : palette.ink.body,
-      }}
-    >
-      <Icon name={on ? 'bellOn' : 'bell'} size={14} />
-      <span className="bar-label">{on ? 'Notifying' : 'Notify me'}</span>
+    <div ref={root} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen((was) => !was)}
+        data-variant="quiet"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={any ? 'Notifications on' : 'Notify me'}
+        title={error ?? undefined}
+        style={{
+          ...styles.smallButton,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          color: error ? palette.accent.danger : any ? palette.ink.strong : palette.ink.body,
+        }}
+      >
+        <Icon name={any ? 'bellOn' : 'bell'} size={14} />
+        <span className="bar-label">{on.everything ? 'Everything' : on.forMe ? 'For me' : 'Notify me'}</span>
+      </button>
+
+      {open && (
+        <div role="menu" className="popover" style={menu}>
+          <p style={{ padding: '10px 12px 6px', fontSize: 12, color: palette.ink.faint }}>
+            Notify me in {space.name} about
+          </p>
+          {everything.length > 0 && (
+            <Choice
+              on={on.everything}
+              title="Everything new"
+              hint={labels(everything)}
+              onClick={() => choose(everything)}
+            />
+          )}
+          {forMe.length > 0 && (
+            <Choice
+              on={on.forMe && !on.everything}
+              title="Only what's for me"
+              hint={labels(forMe)}
+              onClick={() => choose(forMe)}
+            />
+          )}
+          {on.everything && forMe.length > 0 && (
+            <p style={{ padding: '4px 12px', fontSize: 12, lineHeight: 1.45, color: palette.ink.muted }}>
+              To hear only what's for you, turn off “{labels(everything)}” in your account.
+            </p>
+          )}
+          <div style={{ height: 1, background: palette.surface.line, margin: '6px 0' }} />
+          <button
+            role="menuitem"
+            data-menu-item
+            onClick={() => {
+              setOpen(false);
+              manage();
+            }}
+            style={{ ...row, color: palette.ink.muted }}
+          >
+            Pause or turn off, in your account
+          </button>
+          {error && (
+            <p style={{ padding: '4px 12px 8px', fontSize: 12, color: palette.accent.danger }}>{error}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Choice({
+  on,
+  title,
+  hint,
+  onClick,
+}: {
+  on: boolean;
+  title: string;
+  hint: string;
+  onClick: () => void;
+}): ReactNode {
+  return (
+    <button role="menuitemradio" aria-checked={on} data-menu-item onClick={onClick} style={row}>
+      <span
+        aria-hidden
+        style={{
+          width: 16,
+          flexShrink: 0,
+          color: palette.accent.good,
+          fontWeight: 700,
+          visibility: on ? 'visible' : 'hidden',
+        }}
+      >
+        ✓
+      </span>
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+        <span style={{ color: palette.ink.strong, fontWeight: 500 }}>{title}</span>
+        <span style={{ fontSize: 12, color: palette.ink.muted }}>{hint}</span>
+      </span>
     </button>
   );
 }
+
+const menu = {
+  position: 'absolute',
+  right: 0,
+  top: 40,
+  zIndex: 20,
+  width: 280,
+  padding: '0 0 6px',
+  border: `1px solid ${palette.surface.line}`,
+  borderRadius: 12,
+  background: palette.surface.card,
+  boxShadow: '0 4px 12px rgba(0, 0, 0, .06), 0 16px 32px -12px rgba(0, 0, 0, .12)',
+} as const;
+
+const row = {
+  width: '100%',
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  padding: '8px 12px',
+  border: 'none',
+  background: 'none',
+  fontSize: 14,
+  textAlign: 'left',
+} as const;

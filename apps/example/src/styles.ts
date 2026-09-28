@@ -84,6 +84,8 @@ export function injectBaseStyles(): void {
       min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
       background: ${accent.danger}; color: #fff; font-size: 11px; font-weight: 600; line-height: 1;
     }
+    /* Only new, nothing for you: there, but not calling. */
+    .count[data-quiet] { background: ${ink.muted}; }
     .rail-count, .app-card-count, .tab-count { position: absolute; pointer-events: none; }
     .rail-count { top: -2px; right: 8px; }
     .rail-count .count { box-shadow: 0 0 0 2px ${surface.sunken}; }

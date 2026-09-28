@@ -1606,7 +1606,7 @@ and remove.
 
 | Name              | Body                                                                                                                                                                                                                          | Links                                                                            | Rules                                                                      |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `std.message`     | **`text`** string 1–10000; `channel` string ≤ 100                                                                                                                                                                             | `replyTo` → `std.message`, one; `root` → `std.message`, one; `shares` → `*`, one | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
+| `std.message`     | **`text`** string 1–10000; `channel` string ≤ 100; `mentions` DID[] (≤ 64); `replyingTo` DID; topics `channel`, `mentions`, `replyingTo`                                                                                      | `replyTo` → `std.message`, one; `root` → `std.message`, one; `shares` → `*`, one | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
 | `std.channel`     | **`name`** string 1–100; `topic` string ≤ 500; `position` string 1–200                                                                                                                                                        | —                                                                                | create: `can:moderate`; edit: `can:moderate`; permissions `moderate`       |
 | `std.post`        | `text` string ≤ 10000; `images` image[] (≤ 8); `langs` string 2–35[] (≤ 3)                                                                                                                                                    | `replyTo` → `std.post`, one; `root` → `std.post`, one; `shares` → `*`, one       | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
 | `std.repost`      | —                                                                                                                                                                                                                             | `about` → `*`, one                                                               | edit, delete: `creator`; `onePer: [@author, link:about]`                   |
@@ -1704,16 +1704,43 @@ and remove.
 | ------------- | ----------------------------------------------------------- | ----- | ------------------------------------------------------ |
 | `std.setting` | **`app`** string 1–200; **`key`** string 1–200; `value` any | —     | edit, delete: `creator`; `onePer: [@author, app, key]` |
 
+**Mentions and replies.** A `std.message` names the accounts it calls on
+in `mentions` and, when it replies to someone's message, their account in
+`replyingTo`. A chat SHOULD fill them from what the person picked (an
+`@name` they chose, the message they replied to), never from matching text.
+They are topics with `channel`, so a subscription can ask for only messages
+that mention the account, or reply to it, or are in one channel
+([06](06-nodes-and-sessions.md) §4.12, `topic: { field: "mentions", me: true }`),
+and a carrier can match it unread (§8).
+
+```json
+{ "text": "@Sam are you coming?", "mentions": ["did:key:zDnae…Sam"], "replyingTo": "did:key:zDnae…Sam" }
+```
+
+_Source: `packages/core/src/schemas/library/publishing.ts` (`message`), `apps/example/src/components/apps/Chat.tsx`. Tests: `packages/core/tests/topics.test.ts` ("mentions and replies are tagged, so “mentions me” and “replies to me” match only those")._
+
 **Changes to earlier definitions.** `std.attachment`, `std.task`,
 `std.message` and `std.vote` existed before the library grew. Each gained
 only optional fields and link roles: `std.attachment` a `blob`; `std.task`
 `due`, `status`, `assignees`, `priority` and the `parent` and `project` links;
-`std.message` a `channel` and the `root` link; `std.vote` `choices` (every
+`std.message` a `channel`, the `root` link, `mentions`, `replyingTo`, and its
+first topics (§8); `std.vote` `choices` (every
 choice, most preferred first, with `choice` the first of them). A space that
 holds an earlier definition keeps it until someone adds an app that needs the
 new one, which shows as a change. One of them is not additive in the sense of
 §6.5: `std.vote`'s `about` may now also point at a `std.proposal`, so an app
 that reads votes may meet one on something that is not a poll.
+
+The other way round, a space that holds the library's current definition
+meets an app made against an earlier one: in an app review
+([06](06-nodes-and-sessions.md), `std.app`), a `std.*` need is **the same**
+as what the space holds when the space's schema, history, links, permissions,
+rules and topics are the library's, and its screen and network are the
+need's. An app review MUST NOT offer an earlier standard definition as a
+change to a space that holds the current one, since adding it would only take
+the additions away.
+
+_Source: `packages/core/src/schemas/apps.ts` (`reviewApp`, `metByLibrary`). Tests: `packages/core/tests/agents.test.ts` ("an app made against an earlier standard definition is met by the library's current one, not offered as a change back")._
 
 **Also exported** from the same module (specified with their features):
 
@@ -1805,5 +1832,3 @@ _Source: `packages/core/src/schemas/fragments.ts`, `packages/core/src/schemas/li
 >   `space` is a plain space id, and a repost or a list item can point only
 >   within its own space.
 > - **`format`** (§6.2), to check `when`, `day` and `url`.
-> - **Channels as topics** (§8): `std.message`'s `channel` is an ordinary
->   field, not yet a topic a keeper can match.

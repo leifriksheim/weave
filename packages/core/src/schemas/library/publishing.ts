@@ -12,6 +12,8 @@ import {
   markdown,
   one,
   own,
+  people,
+  person,
   position,
   text,
   typed,
@@ -26,6 +28,10 @@ import {
  * order is by when it was written. It can share one record — a poll to vote
  * on, a task — which a chat that knows the record's kind shows in place. The
  * text should still make sense alone ("Poll: Where to?"), for chats that don't.
+ *
+ * `mentions` names who it calls on ("@Sam"), and `replyingTo` whose message
+ * it answers. With `channel` they are its topics, so "mentions me", "replies
+ * to me" and "in #design" can be asked of a keeper that can't read it.
  */
 export const message = typed<Message>()({
   name: 'std.message',
@@ -36,9 +42,12 @@ export const message = typed<Message>()({
     properties: {
       text: { type: 'string', minLength: 1, maxLength: 10000 },
       channel: text(100, 'The key of the std.channel it is in, when the space has several'),
+      mentions: people(64, 'Who it mentions, so they can be told'),
+      replyingTo: person('Whose message it replies to, so they can be told'),
     },
     required: ['text'],
   },
+  topics: ['channel', 'mentions', 'replyingTo'],
   links: {
     replyTo: { to: ['std.message'], cardinality: 'one', description: 'The message this replies to' },
     root: one(['std.message'], 'The first message of the thread it is in'),
@@ -50,6 +59,10 @@ export const message = typed<Message>()({
 export interface Message {
   readonly text: string;
   readonly channel?: string;
+  /** Accounts it mentions */
+  readonly mentions?: ReadonlyArray<string>;
+  /** The account whose message it replies to */
+  readonly replyingTo?: string;
 }
 
 /**

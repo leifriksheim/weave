@@ -30,7 +30,7 @@ import { RelayDown } from './RelayNotice';
 import { CallButton } from './calls/Calls';
 import { peopleFrom } from '../derive/people';
 import { PersonScopeProvider } from './Person';
-import { markSeen, seenAt, useSeen, useUnread } from '../seen';
+import { markSeen, seenAt, totalOf, unreadOf, useSeen, useUnread, type Unread } from '../seen';
 
 /**
  * How it works, under the hood: the records apps write, how they point at
@@ -114,7 +114,7 @@ export function SpaceView({
 
   // An open app is looked at, as long as the page is: what arrives while it is counts as seen.
   const openId = open?.id;
-  const newInOpen = openId ? (unread.get(openId) ?? 0) : 0;
+  const newInOpen = openId ? unreadOf(unread, openId).count : 0;
   useEffect(() => {
     if (!openId) return;
     const look = () => {
@@ -172,7 +172,7 @@ export function SpaceView({
                 key={app.id}
                 icon={<AppIcon icon={app.icon} hue={app.hue} size={20} />}
                 label={app.title}
-                count={unread.get(app.id) ?? 0}
+                unread={unreadOf(unread, app.id)}
                 on={open?.id === app.id}
                 onClick={() => openApp(app.id)}
               />
@@ -353,7 +353,7 @@ export function SpaceView({
             <span style={{ position: 'relative', display: 'inline-flex' }}>
               <Icon name="apps" size={20} />
               <span className="tab-count">
-                <Count n={[...unread.values()].reduce((a, b) => a + b, 0)} />
+                <Count unread={totalOf(unread)} />
               </span>
             </span>
             Apps
@@ -466,14 +466,14 @@ function SideHeading({ children }: { children: ReactNode }) {
 function SideItem({
   icon,
   label,
-  count = 0,
+  unread,
   on,
   quiet,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
-  count?: number;
+  unread?: Unread;
   on?: boolean;
   quiet?: boolean;
   onClick: () => void;
@@ -485,15 +485,16 @@ function SideItem({
       data-nav
       className="side-item"
       style={{
-        color: on || count > 0 ? palette.ink.strong : quiet ? palette.ink.muted : palette.ink.body,
-        fontWeight: on || count > 0 ? 600 : 400,
+        color:
+          on || (unread?.count ?? 0) > 0 ? palette.ink.strong : quiet ? palette.ink.muted : palette.ink.body,
+        fontWeight: on || (unread?.count ?? 0) > 0 ? 600 : 400,
       }}
     >
       <span style={{ width: 20, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
         {icon}
       </span>
       <span style={{ ...ellipsis, flex: 1, minWidth: 0 }}>{label}</span>
-      <Count n={count} />
+      {unread && <Count unread={unread} />}
     </button>
   );
 }

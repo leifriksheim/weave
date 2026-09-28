@@ -11,7 +11,7 @@
 import { useSyncExternalStore } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
 import { useAccount, useCollections, useLive } from '@weaveprotocol/core/react';
-import { useSpaceApps, type AppEntry } from './components/apps/entries';
+import { namesMe, useSpaceApps, type AppEntry } from './components/apps/entries';
 
 interface Seen {
   /** When this browser started keeping track */
@@ -96,12 +96,21 @@ export function useSeen(): Seen {
   return useSyncExternalStore(subscribe, () => read(did));
 }
 
-/** How many new records each app in a space has, by app id */
-export function useUnread(spaceId: string, apps: ReadonlyArray<AppEntry>): ReadonlyMap<string, number> {
+/** What is new in an app: everything, and how much of it names you — a mention, a reply */
+export interface Unread {
+  readonly count: number;
+  readonly forMe: number;
+}
+
+const NONE: Unread = { count: 0, forMe: 0 };
+
+/** What is new in each app in a space, by app id */
+export function useUnread(spaceId: string, apps: ReadonlyArray<AppEntry>): ReadonlyMap<string, Unread> {
   const { did } = useAccount();
   const seen = useSeen();
   const watch = apps.map((app) => ({
     id: app.id,
+    notify: app.notify,
     collections: [...new Set(app.notify.map((n) => n.collection))],
     after: Date.parse(seenAt(seen, spaceId, app.id)),
   }));
@@ -109,18 +118,21 @@ export function useUnread(spaceId: string, apps: ReadonlyArray<AppEntry>): Reado
   const counts = useLive(
     spaceId,
     async (node) => {
-      const out = new Map<string, number>();
+      const out = new Map<string, Unread>();
       for (const app of watch) {
         let count = 0;
+        let forMe = 0;
         for (const collection of app.collections) {
           const records = await node.records
             .list(spaceId, { collection, newestFirst: true, limit: 100 })
             .catch(() => []);
-          count += records.filter(
-            (record) => record.createdBy !== did && Date.parse(record.createdAt) > app.after,
-          ).length;
+          for (const record of records) {
+            if (record.createdBy === did || Date.parse(record.createdAt) <= app.after) continue;
+            count++;
+            if (namesMe(app.notify, collection, record.body, did)) forMe++;
+          }
         }
-        out.set(app.id, count);
+        out.set(app.id, { count, forMe });
       }
       return out;
     },
@@ -129,13 +141,25 @@ export function useUnread(spaceId: string, apps: ReadonlyArray<AppEntry>): Reado
   return counts ?? EMPTY;
 }
 
-const EMPTY: ReadonlyMap<string, number> = new Map();
+const EMPTY: ReadonlyMap<string, Unread> = new Map();
+
+/** What is new in one app, or nothing */
+export const unreadOf = (unread: ReadonlyMap<string, Unread>, id: string): Unread => unread.get(id) ?? NONE;
+
+/** Everything new across some apps */
+export function totalOf(unread: ReadonlyMap<string, Unread>): Unread {
+  let count = 0;
+  let forMe = 0;
+  for (const one of unread.values()) {
+    count += one.count;
+    forMe += one.forMe;
+  }
+  return { count, forMe };
+}
 
 /** Everything new in a space, across its apps: for the list of spaces and the rail */
-export function useSpaceUnread(space: SpaceSummary): number {
+export function useSpaceUnread(space: SpaceSummary): Unread {
   const collections = useCollections(space.id);
   const { ready } = useSpaceApps(space, collections);
-  let total = 0;
-  for (const count of useUnread(space.id, ready).values()) total += count;
-  return total;
+  return totalOf(useUnread(space.id, ready));
 }
