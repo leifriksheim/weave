@@ -19,7 +19,8 @@
 import type { DefineCollection, NodeCollection, NodeRecord, P2PNode } from '../node/types.js';
 import type { Typed } from '../query/types.js';
 import type { JsonSchema } from '../schema/collection-def.js';
-import { checkStoredCollection, isStoredCollection } from '../schema/collection-def.js';
+import { checkStoredCollection, isStoredCollection, toJsonSchema } from '../schema/collection-def.js';
+import { standardDefinition } from './standard.js';
 import { isObject } from '../utils/guards.js';
 import { canonicalize } from '../schema/expression.js';
 import type { LinkDeclaration } from '../records/links.js';
@@ -118,6 +119,65 @@ export function checkApp(value: unknown): string | null {
   return null;
 }
 
+/**
+ * An app's needs as an agent gives them: each a definition, or the name of a
+ * standard one (`"std.poll"`) to use exactly as the library has it. A `std.*`
+ * name means the standard thing, so a definition that names one must be the
+ * library's — only its `screen`, `network`, `title` and `description` may be
+ * the app's own. Throws saying which need is wrong and what to do instead.
+ */
+export function standardNeeds(needs: unknown): unknown {
+  if (!Array.isArray(needs)) return needs;
+  const given: unknown[] = needs;
+  return given.map((need, index) => {
+    const at = `needs[${index}]`;
+    const name = typeof need === 'string' ? need : isObject(need) ? need.name : undefined;
+    if (typeof name !== 'string' || !name.startsWith('std.')) return need;
+    const standard = standardDefinition(name);
+    if (!standard) {
+      throw new Error(
+        `${at}: ${name} is not in the standard library, and std.* names are only its. ` +
+          'Name a collection of your own after your app, like "carpool.ride".',
+      );
+    }
+    const library: AppDefinition = {
+      name: standard.name,
+      schema: toJsonSchema(standard.schema),
+      ...(standard.title !== undefined ? { title: standard.title } : {}),
+      ...(standard.description !== undefined ? { description: standard.description } : {}),
+      ...(standard.history !== undefined ? { history: standard.history } : {}),
+      ...(standard.links !== undefined ? { links: standard.links } : {}),
+      ...(standard.permissions !== undefined ? { permissions: standard.permissions } : {}),
+      ...(standard.rules !== undefined ? { rules: standard.rules } : {}),
+    };
+    if (typeof need === 'string') return library;
+    if (!isObject(need)) return need;
+    const theirs = essence({
+      schema: need.schema,
+      history: typeof need.history === 'string' ? need.history : undefined,
+      links: need.links,
+      permissions: Array.isArray(need.permissions)
+        ? need.permissions.filter((p): p is string => typeof p === 'string')
+        : undefined,
+      rules: need.rules,
+    });
+    const ours = essence(library);
+    const same = (['schema', 'history', 'links', 'permissions', 'rules'] as const).every(
+      (part) => theirs[part] === ours[part],
+    );
+    if (!same) {
+      throw new Error(
+        `${at}: ${name} is the standard ${standard.title ?? name}, and this is a different shape. ` +
+          `Pass "${name}" to use it as it is, or name your own after your app.`,
+      );
+    }
+    return { ...need, ...library, ...pick(need, ['title', 'description', 'screen', 'network']) };
+  });
+}
+
+const pick = (from: Readonly<Record<string, unknown>>, keys: ReadonlyArray<string>) =>
+  Object.fromEntries(keys.filter((key) => from[key] !== undefined).map((key) => [key, from[key]]));
+
 /** What adding one collection would do in a space */
 export interface AppNeedReview {
   readonly definition: AppDefinition;
@@ -127,6 +187,20 @@ export interface AppNeedReview {
   readonly summary: ReadonlyArray<string>;
   /** For a change: what would be different, in words */
   readonly changes: ReadonlyArray<string>;
+  /**
+   * For a change: the titles of the apps in use that need this collection as
+   * the space has it now, which the change could break. Empty when the review
+   * was not given the space's apps.
+   */
+  readonly usedBy: ReadonlyArray<string>;
+}
+
+/** The space's apps, so a review can say which of them a change would touch */
+export interface ReviewContext {
+  /** Every app record in the space */
+  readonly apps: ReadonlyArray<NodeRecord<App>>;
+  /** The key of the app under review, when it is already a record, so it doesn't count itself */
+  readonly key?: string;
 }
 
 export interface AppReview {
@@ -206,18 +280,45 @@ export function appScreen(
  * What adding an app would do in a space: which of its collections are new,
  * already there, or would change one that is — each with what it allows.
  */
-export function reviewApp(body: App, collections: ReadonlyArray<NodeCollection>): AppReview {
+export function reviewApp(
+  body: App,
+  collections: ReadonlyArray<NodeCollection>,
+  context?: ReviewContext,
+): AppReview {
   const problem = checkApp(body);
   if (problem) return { needs: [], added: false, problem };
   const byName = new Map(collections.filter((c) => c.version !== null).map((c) => [c.name, c]));
+  const inUse = context ? appsInUse(context.apps, collections, [context.key, body.updates]) : [];
   const needs = body.needs.map((definition): AppNeedReview => {
     const summary = describeCollection(definition);
     const held = byName.get(definition.name);
-    if (!held) return { definition, status: 'new', summary, changes: [] };
+    if (!held) return { definition, status: 'new', summary, changes: [], usedBy: [] };
     const changes = differences(held, definition);
-    return { definition, status: changes.length ? 'change' : 'same', summary, changes };
+    const usedBy = changes.length
+      ? inUse
+          .filter((other) => other.needs.some((need) => need.name === definition.name))
+          .map((other) => other.title)
+      : [];
+    return { definition, status: changes.length ? 'change' : 'same', summary, changes, usedBy };
   });
   return { needs, added: needs.every((need) => need.status === 'same'), problem: null };
+}
+
+/** The apps added and not replaced since, leaving out the ones named in `except` */
+function appsInUse(
+  records: ReadonlyArray<NodeRecord<App>>,
+  collections: ReadonlyArray<NodeCollection>,
+  except: ReadonlyArray<string | undefined>,
+): ReadonlyArray<App> {
+  const superseded = supersededApps(records, collections);
+  return records.flatMap((record) =>
+    record.body &&
+    !except.includes(record.key) &&
+    !superseded.has(record.key) &&
+    reviewApp(record.body, collections).added
+      ? [record.body]
+      : [],
+  );
 }
 
 /**

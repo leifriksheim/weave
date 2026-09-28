@@ -17,9 +17,18 @@ import {
   poll,
   vote,
   standardNouns,
+  standardSchemas,
+  standardDefinition,
   positionBetween,
   useSchemas,
+  meal,
+  settlement,
+  habit,
+  checkin,
+  proposal,
 } from '../src/schemas/index.js';
+import { checkStoredCollection, toJsonSchema } from '../src/schema/collection-def.js';
+import { describeCollection } from '../src/records/describe.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import * as z from 'zod';
@@ -125,6 +134,101 @@ describe('standard nouns', () => {
     await assert.rejects(
       me.records.update(space, where.key, { question: 'Where?', options: ['Rome', 'Lisbon'] }),
     );
+  });
+});
+
+describe('the standard library', () => {
+  const names = new Set(standardSchemas.map((d) => d.name));
+
+  test('every definition is one a space can store, and says what it allows', () => {
+    assert.equal(names.size, standardSchemas.length, 'no name is listed twice');
+    for (const definition of standardSchemas) {
+      assert.match(definition.name, /^std\./);
+      assert.equal(checkStoredCollection({ ...definition, version: 1 }), null, definition.name);
+      assert.ok(describeCollection(definition).length > 0, definition.name);
+      assert.equal(standardDefinition(definition.name), definition);
+    }
+    assert.equal(standardDefinition('std.nothing'), undefined);
+  });
+
+  test('links point into the library, and rules name only declared links and fields', () => {
+    for (const definition of standardSchemas) {
+      const links = definition.links ?? {};
+      for (const [rel, declared] of Object.entries(links)) {
+        if (declared.to === '*') continue;
+        for (const to of declared.to) assert.ok(names.has(to), `${definition.name} ${rel} → ${to}`);
+      }
+      const schema = toJsonSchema(definition.schema);
+      const fields = isRecord(schema.properties) ? Object.keys(schema.properties) : [];
+      for (const part of [...(definition.rules?.onePer ?? []), ...(definition.rules?.fixed ?? [])]) {
+        if (part === '@author') continue;
+        if (part.startsWith('link:')) assert.ok(part.slice(5) in links, `${definition.name}: ${part}`);
+        else assert.ok(fields.includes(part), `${definition.name}: ${part}`);
+      }
+    }
+  });
+
+  test('one per slot: a meal plan has one dinner a day, and anyone may change it', async () => {
+    const me = await person();
+    const { id: space } = await me.spaces.create({ name: 'Home', ...team, visibility: 'private' });
+    await useSchemas(me, space, [meal]);
+    const first = await me.records.put(space, meal.name, {
+      date: '2026-10-01',
+      meal: 'dinner',
+      note: 'Soup',
+    });
+    const again = await me.records.put(space, meal.name, {
+      date: '2026-10-01',
+      meal: 'dinner',
+      note: 'Pasta',
+    });
+    const lunch = await me.records.put(space, meal.name, { date: '2026-10-01', meal: 'lunch' });
+    assert.equal(again.key, first.key);
+    assert.notEqual(lunch.key, first.key);
+  });
+
+  test('a habit: one check-in per day; a settlement keeps who paid whom how much', async () => {
+    const me = await person();
+    const { id: space } = await me.spaces.create({ name: 'Me', ...team, visibility: 'private' });
+    await useSchemas(me, space, [habit, checkin, settlement]);
+    const run = await me.records.put(space, habit.name, { name: 'Run' });
+    const on = [{ rel: 'about', to: run.key }];
+    const monday = await me.records.put(space, checkin.name, { date: '2026-10-05' }, { links: on });
+    const mondayAgain = await me.records.put(
+      space,
+      checkin.name,
+      { date: '2026-10-05', value: 5 },
+      { links: on },
+    );
+    assert.equal(mondayAgain.key, monday.key);
+    await assert.rejects(
+      me.records.put(space, checkin.name, { date: '2026-10-06' }),
+      'a check-in needs its habit',
+    );
+
+    const paid = { from: 'did:key:a', to: 'did:key:b', amount: { amount: '12.50', currency: 'EUR' } };
+    const back = await me.records.put(space, settlement.name, paid);
+    await me.records.update(space, back.key, { ...paid, note: 'Dinner' });
+    await assert.rejects(
+      me.records.update(space, back.key, { ...paid, amount: { amount: '99.00', currency: 'EUR' } }),
+    );
+  });
+
+  test('a vote on a proposal can rank its options', async () => {
+    const me = await person();
+    const { id: space } = await me.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await useSchemas(me, space, [proposal, vote]);
+    const where = await me.records.put(space, proposal.name, {
+      title: 'Where next?',
+      options: ['A', 'B', 'C'],
+    });
+    const ranked = await me.records.put(
+      space,
+      vote.name,
+      { choice: 2, choices: [2, 0, 1] },
+      { links: [{ rel: 'about', to: where.key }] },
+    );
+    assert.ok(ranked.verified);
   });
 });
 
