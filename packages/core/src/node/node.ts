@@ -2132,8 +2132,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       throw new Error(`An agent can't ${what}. Ask the person to do it.`);
     };
 
-    const agentSpaces: NodeSpaces = Object.freeze({
-      ...spaces,
+    // Every method named, none passed through: a new one must be decided here, not inherited.
+    const agentSpaces = Object.freeze({
+      preview: (invite: string) => spaces.preview(invite),
+      changeKey: person("change a space's key"),
+      setRelays: person("change a space's relays"),
+      setKeepers: person('change who keeps a copy'),
       list: async () => (await spaces.list()).filter((space) => allowed(space.id)),
       get: async (spaceId: string) => (allowed(spaceId) ? spaces.get(spaceId) : null),
       create: person('make spaces'),
@@ -2164,7 +2168,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       // It would arrive as the person: a live message carries no note of its own to say "via agent".
       send: person('send live messages'),
       authenticator: async () => null,
-    });
+    }) satisfies NodeSpaces;
 
     const agentRecords: NodeRecords = Object.freeze({
       list: async <T>(spaceId: string, options?: ListOptions) => {

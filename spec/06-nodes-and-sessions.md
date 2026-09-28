@@ -1101,7 +1101,8 @@ and was issued by `node.did`. The agent:
 - reaches only spaces its note names (`space:<id>`), or every space for `*`;
   events for other spaces are filtered out;
 - refuses, locally, everything that needs a person: making, inviting, joining
-  or leaving spaces; changing members, roles, invites or revocations; defining
+  or leaving spaces; changing members, roles, invites or revocations; changing
+  a space's key, relays or keepers; defining
   or deleting collections; live messages (`send` — a live message carries no
   note to say "via agent"); renaming or revoking at the account level; adding or
   removing carriers; notifications; hosting; changing, blocking, asking or
