@@ -1,18 +1,24 @@
 # 06 — Nodes, sessions and apps
 
-This part covers the **node**, the object every front end (a browser tab, the
-`weave` command line, the daemon, an agent) is a thin layer over. It also
-covers the ways a person or program comes to run one: **signing in** with the
-seed, **connecting an app** to an account home without the seed, **connecting
-an agent**, and **carriers and hosts** that keep spaces online without reading
-them. It ends with **calls**, which are built only from live messages.
+This part covers what a **node** must do to act for an account: the session
+note it writes under, and following the account's list of spaces. Then the
+exchanges that let a program act without the seed: **connecting an app** to
+an account home, **connecting an agent**, and **carriers and hosts** that keep
+spaces online without reading them. It ends with **calls**, which are built
+only from live messages.
+
+The node's programming interface is not protocol, and another implementation
+may shape its own however it likes. The reference one is described in the
+package docs: [the node](../packages/core/docs/node.md) (creating one, stores,
+holding spaces, events, the app-side client), [sign-in](../packages/core/docs/sign-in.md),
+and [actions](../packages/core/docs/actions.md) (the CLI, MCP and WebMCP tools).
 
 Material specified elsewhere is linked, not repeated:
 
 | Topic                                                                                                                                                                                                                                                      | Where                                           |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | Seeds, recovery codes, DIDs, the account vault and its wraps, UCANs, `AGENT_FACT`, device keys, contact and member keys, phone pairing                                                                                                                     | [01 — Identity](01-identity.md)                 |
-| Records, versions, `seq`, rules, topics and tags, queries                                                                                                                                                                                                  | [02 — Records](02-records.md)                   |
+| Records, versions, `seq`, rules, topics and tags                                                                                                                                                                                                           | [02 — Records](02-records.md)                   |
 | Spaces, roles, the access log (`sys.role`, `sys.member`, `sys.invite`, `sys.revoke`, `sys.collection`, `sys.key`, `sys.relays`, `sys.keepers`), invites, encryption, the account registry (`sys.joined`, `sys.profile`, `sys.carrier`), profiles, contacts | [03 — Spaces](03-spaces.md)                     |
 | Relays, rooms, peer authentication, the network message envelope, the `who` note exchange, live messages and their limits, TURN                                                                                                                            | [04 — Network](04-network.md)                   |
 | Negentropy, stores, storage adapters, data folders, mirrors, what a node that holds part of a space says it holds                                                                                                                                          | [05 — Sync and storage](05-sync-and-storage.md) |
@@ -27,7 +33,8 @@ Terms used here:
 - **Session key** — the P-256 key a node signs records with and proves on the
   wire. Its DID is the node's `sessionDid`.
 - **Account home** — a page that holds an account's seed and grants notes to
-  apps. It is an ordinary sign-in page (§3) plus the home side of §4.
+  apps. It is a sign-in page (the reference one: [sign-in](../packages/core/docs/sign-in.md)) plus
+  the home side of §2.
 - **Carrier** — a node that keeps spaces online without being able to read or
   write them. A **host** is a carrier for many accounts, which they pay for.
 
@@ -41,7 +48,7 @@ A node acts for exactly one account (`node.did`) and signs with exactly one
 session key (`node.sessionDid`) for its lifetime. It holds a set of spaces,
 each with its own store and its own peers, and exposes them as plain data: every
 value a node method returns is JSON-serialisable, so the same calls can be
-exposed over a command line, MCP and WebMCP (§2).
+exposed over a command line, MCP and WebMCP ([actions](../packages/core/docs/actions.md)).
 
 A node MAY hold the **account key** (the vault key bytes, [01](01-identity.md)).
 With it the node follows the account registry — the account's list of spaces,
@@ -55,53 +62,7 @@ public half on the account's profile in every space it writes in.
 
 _Source: `packages/core/src/node/node.ts`, `packages/core/src/node/types.ts`. Tests: `packages/core/tests/node.test.ts`._
 
-### 1.2 Configuration
-
-`createNode(config)` takes (`NodeConfig`):
-
-| Field               | Type                        | Meaning                                                                                                                                                                                                            |
-| ------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `signer`            | `RootSigner`                | Who the node acts for. Asked only for session notes (§1.4).                                                                                                                                                        |
-| `accountKey`        | bytes, optional             | The account's vault key bytes. Enables the account registry and the contacts space (§1.5).                                                                                                                         |
-| `contactKey`        | bytes, optional             | The contact key's secret. Opens contact requests; published on profiles.                                                                                                                                           |
-| `contactsSpace`     | string, optional            | The contacts space's id, for a node given it without the account key (an app granted `contacts`, §4.5).                                                                                                            |
-| `stores`            | `StoreFactory`              | Where the registry and each space's store live (§1.6).                                                                                                                                                             |
-| `provider`          | `CryptoProvider`, optional  | Default: P-256 over WebCrypto.                                                                                                                                                                                     |
-| `collections`       | `CollectionDef[]`, optional | Schemas the node knows, used when a space does not describe a collection itself. Writes are checked against them; reads are flagged `conforms`. Nothing is refused on arrival for its shape ([02](02-records.md)). |
-| `network`           | optional                    | `relays` (WebRTC signaling, browsers), `nodes` (always-on nodes to dial, `ws(s)://host/peer`), `iceServers`, `transports` (extra transports per space). Omitted: offline.                                          |
-| `sessionTtlSeconds` | number, optional            | Lifetime of each session note. Default `3600`.                                                                                                                                                                     |
-| `sessionKey`        | `CryptoKeyPair`, optional   | Sign with this key instead of a fresh one. Used when the signer's note names a specific key (an app's key, an agent's key, §4, §5).                                                                                |
-| `watchIntervalMs`   | number, optional            | How often to look for writes another process made to a folder store. `0` disables. Default `2000`. _Implementation detail._                                                                                        |
-| `cache`             | `CacheConfig`, optional     | Hold only the collections used, in spaces that name a keeper (§1.8).                                                                                                                                               |
-| `mailbox`           | `MailboxClient`, optional   | How doors reach relays' mailboxes ([07](07-doors.md)). Default: a WebSocket to each relay.                                                                                                                         |
-
-_Source: `packages/core/src/node/types.ts` (`NodeConfig`, `NodeNetworkConfig`, `CacheConfig`). Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/caches.test.ts`._
-
-### 1.3 Lifecycle
-
-Starting a node does the following, in order:
-
-1. Uses `config.sessionKey`, or generates a fresh P-256 key pair. Its DID
-   (`did:key`, P-256 multicodec) is `sessionDid`.
-2. Asks `config.signer.delegate` for a session note (§1.4) and waits for it.
-   If the signer refuses, `createNode` fails.
-3. Schedules renewal of the note (§1.4).
-4. Opens the `registry` store, sealed (§1.6).
-5. With an account key: derives the account registry space and the contacts
-   space ([03](03-spaces.md)). The contacts space is added to the node's own
-   registry like a joined space (so it can be granted to an app like any other
-   space), and both are _hidden_ from `spaces.list` (§1.5).
-6. With an account key: opens the account registry space and reconciles
-   (§1.5) before `createNode` returns.
-
-`close()` stops renewal, closes every open space (flushing what each keeps,
-stopping sync and disconnecting its transports), closes the registry store,
-and drops all event listeners. After `close()`, any call that needs a space
-fails with `Node is closed`. Closing twice does nothing.
-
-_Source: `packages/core/src/node/node.ts` (`createNode`, `close`). Tests: `packages/core/tests/node.test.ts`._
-
-### 1.4 The session note, and renewing it
+### 1.2 The session note, and renewing it
 
 The root key never signs records. The node asks its signer for one note that
 lets the session key write everywhere the account can:
@@ -128,11 +89,11 @@ Renewal timing:
   expiry limits when a note may be _used to write_, not how long its records
   count ([01](01-identity.md), [02](02-records.md)).
 
-A signer need not be able to sign. `grantSigner(grant)` (§4.7) answers every
+A signer need not be able to sign. `grantSigner(grant)` (§2.7) answers every
 `delegate` call with the one note an account home granted, unchanged, and
 refuses once `grant.expiresAt` has passed. A node started from a grant
 therefore never gets a fresh note: its "renewal" returns the same note, and when
-it runs out the app must connect again (§4.9).
+it runs out the app must connect again (§2.9).
 
 > Rationale: one root signature an hour, never one per write. The root — a seed
 > in a page, an account home, anything — can stay out of reach of the code that
@@ -147,7 +108,7 @@ returns `{ token, proofs: [<session note>] }`.
 
 _Source: `packages/core/src/node/node.ts` (`delegate`, `scheduleRenewal`, `SESSION_CAPABILITY`), `packages/core/src/session/connect.ts` (`grantSigner`). Tests: `packages/core/tests/node.test.ts` ("the delegation is renewed before it expires", "records outlive the session that wrote them")._
 
-### 1.5 The spaces a node keeps
+### 1.3 The spaces a node keeps
 
 The node's **registry** store lists every space it holds, with its key(s), its
 invite secret while one is waiting to be used, its role as last seen, the
@@ -162,10 +123,10 @@ Three kinds of space are the account's own machinery and are **hidden** from
 | -------------------- | ------------------------------------------ | -------------------------------------------------------------- |
 | The account registry | the account key                            | Never in the node's registry; opened directly. Cannot be left. |
 | The contacts space   | the account key, or `config.contactsSpace` | Held in the registry, hidden. Cannot be left.                  |
-| Carry spaces         | one per carrier the account uses (§6)      | Held in the registry, hidden.                                  |
+| Carry spaces         | one per carrier the account uses (§4)      | Held in the registry, hidden.                                  |
 
 In these three kinds of space, a record signed under an agent's note never
-counts (§5.1), and they are always held whole (§1.8).
+counts (§3.1), and they are always held whole ([05](05-sync-and-storage.md) §5).
 
 **Following the account.** With an account key, the node makes its spaces
 match the account's list — the `sys.joined` records in the account registry,
@@ -182,10 +143,10 @@ registry. It:
 4. writes a `sys.joined` record for any space held here that the account
    registry has never heard of (joined before the registry existed, or on a
    node without the account key);
-5. brings every carrier's passes and subscriptions up to date (§6.2);
-6. names the account's carriers as keepers of the open spaces it manages (§6.2);
+5. brings every carrier's passes and subscriptions up to date (§4.2);
+6. names the account's carriers as keepers of the open spaces it manages (§4.2);
 7. asks every host the account uses how it stands, handing it the spaces if it
-   has been paid since (§6.5) — without waiting for the answer.
+   has been paid since (§4.5) — without waiting for the answer.
 
 Only `sys.joined` records that verify and whose root is the account itself
 count. Creating or joining a space writes its `sys.joined` record; leaving
@@ -194,7 +155,7 @@ carrying the key in use now, so a new device joins with it.
 
 A node writing under an agent's note never writes the account registry: no
 `sys.joined`, no passes, no name, no hosting receipts (every peer would ignore
-them; §5.1).
+them; §3.1).
 
 **Profiles.** When a space opens, when the node's role in it becomes non-null,
 and when the account's name changes on any device, the node publishes the
@@ -218,425 +179,7 @@ the space; to do that, `setMember(id, self, null)` first.
 
 _Source: `packages/core/src/node/node.ts` (`reconcileOnce`, `remember`, `forget`, `finishJoining`, `publishProfile`, `spaces`). Tests: `packages/core/tests/node.test.ts` ("the account registry"), `packages/core/tests/profiles.test.ts`, `packages/core/tests/space-access.test.ts`._
 
-### 1.6 Stores
-
-A node asks for stores by path through its `StoreFactory`:
-
-| Path               | Holds                                                | Sealed                                  |
-| ------------------ | ---------------------------------------------------- | --------------------------------------- |
-| `registry`         | the node's list of spaces and their keys             | yes: the node asks for `{ seal: true }` |
-| `spaces/<spaceId>` | one space's records and what the node keeps about it | no                                      |
-
-What a path means is the factory's choice:
-
-- `indexedDBStores(prefix)` — one IndexedDB database per path, named
-  `<prefix>:<path with / replaced by :>`. Never sealed: the browser profile
-  already guards it.
-- `folderStores(directory, { basePath?, vaultKey? })` — a directory tree under
-  `basePath`; the `registry` is sealed under `vaultKey` when one is given.
-
-Sign-in (§3) uses `storesFor(account)`: IndexedDB with prefix
-`weave:<dataPath with : for />` in the browser, or `folderStores(pod,
-{ basePath: account.dataPath, vaultKey })` in a pod, where `dataPath` is
-`accounts/<id>/stores`. A connected app uses `indexedDBStores('weave-app:<account DID>')`
-by default. These names are _implementation details_; a pod's layout is in
-[05](05-sync-and-storage.md).
-
-`copyAccountData({ from, to, did, accountKey? })` copies every space an
-account holds, with its key and records, from one set of stores to another —
-the account registry too, when `accountKey` is given. It is a union: every
-version goes through the same ordering rule as sync, so copying into a store
-that holds some of it already is safe, and copying twice changes nothing.
-
-Copied versions are meant to pass the same checks as versions arriving by
-sync ([02 — Records](02-records.md), validation) before they are stored.
-
-> **Known defect:** `copyAccountData` stores each version with
-> `addExpression` directly, without running it through the validation
-> pipeline (`packages/core/src/node/copy.ts`). A pod or data folder that another origin
-> wrote to can bring versions this node would have refused from a peer. A fix
-> will validate on copy, as sync does.
-> Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
-
-_Source: `packages/core/src/node/stores.ts`, `packages/core/src/node/copy.ts`, `packages/core/src/session/places.ts` (`storesFor`). Tests: `packages/core/tests/account.test.ts`, `packages/core/tests/folder-adapter.test.ts`._
-
-### 1.7 Opening and holding spaces
-
-A space is opened (its store read, its peers joined, sync started) the first
-time anything asks for it — a read, a write, a status — and stays open until
-it is released or the node closes. Opening a space also: publishes the
-account's profile in it (§1.5), checks whether the session note was revoked
-there (§1.9, `revoked`), and names the account's carriers as keepers if the
-account manages it (§6.2).
-
-`spaces.hold(id)` keeps a space open until released. It returns a function
-that lets go of that one hold:
-
-- Holds are counted per space. When the count reaches zero, the space closes.
-- Releasing twice does nothing.
-- A hold made before the space was closed for another reason (leaving it) is
-  tied to that stretch of being held: releasing it later does nothing to a hold
-  made after rejoining.
-- Reading or writing needs no hold.
-
-> Rationale: anything that needs a space live holds it — a screen showing it, a
-> call in it — so a screen going away never cuts off a call in the same space.
-
-_Source: `packages/core/src/node/node.ts` (`runtime`, `hold`, `closeRuntime`). Tests: `packages/core/tests/live.test.ts` ("holding a space")._
-
-### 1.8 Holding part of a space
-
-With `config.cache`, and once a space names at least one keeper
-([03](03-spaces.md), `sys.keepers`), the node holds only the collections it
-uses, besides the space's own `sys.*` collections. Everything about this is the
-node's own choice; how it tells peers what it holds is in
-[05](05-sync-and-storage.md). As implemented:
-
-- Collections listed in `cache.collections` are held from the start and never
-  dropped.
-- A query marks the collections it reads (its own and every `include … from`)
-  as used; sync then fetches them. A query's result has `complete: false`
-  until the node has once been level with a node holding the whole space for
-  every collection it reads.
-- Until the node has once caught up fully with a node holding the whole space,
-  it cannot know whether the space names keepers, so it holds only what it uses.
-- The node's own writes are _pending_ until `min(keepers named, max(copies ?? 2,
-cache.copies ?? 0))` of the space's named keepers have them. A collection
-  holding a pending write is never dropped.
-- A collection unused for `cache.unusedAfterDays` (default 30) days is dropped
-  when the space opens and every 6 hours while it stays open.
-- A space that names no keeper is held whole.
-
-The account registry, the contacts space and carry spaces are always held
-whole. Apps connected to an account home use `cache: {}` by default (§4.8).
-
-_Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"). Tests: `packages/core/tests/caches.test.ts`._
-
-### 1.9 Events
-
-`node.subscribe(listener)` delivers `NodeEvent`s and returns an unsubscribe
-function. A listener that throws does not stop the others.
-
-| `type`     | Fields                                      | When                                                                                                                                                                                |
-| ---------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `records`  | `space`                                     | Records were added, changed or deleted in a space, locally or by sync.                                                                                                              |
-| `status`   | `space`                                     | Connection state or peers changed. A status change in the account registry is re-emitted for every open space (which peers are the account's own is read off the registry's peers). |
-| `spaces`   | —                                           | The node's list of spaces changed: created, joined, left, a role or waiting invite changed.                                                                                         |
-| `account`  | —                                           | The account's profile may have changed (records changed in the account registry, or `setName`).                                                                                     |
-| `rejected` | `space`, `peer`, `reason`                   | A peer sent a version that failed validation.                                                                                                                                       |
-| `message`  | `space`, `from`, `peer`, `agent`, `message` | A live message arrived (§1.10).                                                                                                                                                     |
-| `revoked`  | `space`                                     | The note this node writes under was revoked in that space. Emitted at most once per space per node.                                                                                 |
-
-_Source: `packages/core/src/node/types.ts` (`NodeEvent`), `packages/core/src/node/node.ts` (`fromRuntime`, `checkRevoked`). Tests: `packages/core/tests/node.test.ts` ("events announce local writes"), `packages/core/tests/connect.test.ts` ("disconnecting revokes the note")._
-
-### 1.10 Live messages and status
-
-`spaces.send(id, message, to?)` sends a JSON value to the peers connected in
-the space right now, kept nowhere and signed as nothing. `to` is either an
-account DID (every connected device that showed a note from that account) or a
-session DID (one device). The encoded message MUST be at most 64 KiB; larger
-is refused locally. The wire format, the per-peer allowance (a burst of 60,
-then 20 per second) and how the sender's account is established are in
-[04](04-network.md).
-
-A received live message is emitted as a `message` event:
-
-| Field     | Meaning                                                                                                                                                                                    |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `from`    | The account behind the sending device, proven by the note it showed, made out to the key the connection proved. `null` for a peer that showed no note (a carrier, a node serving sockets). |
-| `peer`    | The sending device's session DID — also where a reply to that device goes.                                                                                                                 |
-| `agent`   | `true` when the sender's note is an agent's (§5.1).                                                                                                                                        |
-| `message` | The value sent.                                                                                                                                                                            |
-
-`spaces.status(id)` returns `SpaceStatus`:
-
-| Field         | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `connection`  | `offline` (no network), `connecting`, `connected` (while any one transport is connected: a relay socket open, or a peer), `error` (the first connect failed and nothing has connected since), `refused` (nothing connected, and every relay refused this node's DID with `4009` because another node with the same key holds it, [04](04-network.md) §1.2). A space whose relays all drop and whose peers leave is `connecting` again, not `connected`. |
-| `peers`       | Session DIDs connected in the space.                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `own`         | Of `peers`, the account's own other devices and apps: those also connected in the account registry, minus carriers. Empty without an account key.                                                                                                                                                                                                                                                                                                       |
-| `carriers`    | Of `peers`, the account's carriers, by the keys `sys.carrier` records name.                                                                                                                                                                                                                                                                                                                                                                             |
-| `accounts`    | Session DID → account, for each peer that showed a valid note.                                                                                                                                                                                                                                                                                                                                                                                          |
-| `fingerprint` | A fingerprint of every version held; equal on two nodes means identical data ([05](05-sync-and-storage.md)).                                                                                                                                                                                                                                                                                                                                            |
-| `rejected`    | How many versions peers sent failed validation.                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `holds`       | `"all"`, or the sorted list of collections held (§1.8).                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `pending`     | This node's writes still waiting for keepers (§1.8).                                                                                                                                                                                                                                                                                                                                                                                                    |
-
-> Rationale: a peer's key does not say whose it is, but only the account's own
-> devices and apps can read its registry, so a peer there is one of ours.
-
-_Source: `packages/core/src/node/node.ts` (`spaces.send`, `spaces.status`), `packages/core/src/node/space-runtime.ts` ("Live messages", `status`, `send`). Tests: `packages/core/tests/live.test.ts`._
-
-### 1.11 The rest of the node's surface
-
-The node's other parts are specified where their data lives; the node only
-exposes them:
-
-- `node.spaces` — create, invite, preview, join, leave, access, `setMember`,
-  `putRole`, `removeRole`, `closeInvite`, `changeKey`, `setRelays`,
-  `setKeepers`, `revoke`, `profiles`, `authenticator` ([03](03-spaces.md),
-  [04](04-network.md)). Default invite role: the lowest role ranked below the
-  inviter's own; with none below, a view-only invite.
-- `node.records`, `node.collections` — [02](02-records.md). `records.watch`
-  re-runs a query after every `records` event for its space, one run at a time,
-  with at most one more queued.
-- `node.account` — `profile()`, `setName(name)` (writes `sys.profile`, key
-  `profile`, in the account registry, then republishes the profile in every
-  open space), `revoke(token)` (in the account registry). All need the account
-  key.
-- `node.contacts` — [03](03-spaces.md). `ask` and `accept` make or join a space
-  for two, so they need a session note with `with: "*"` (whole-account access).
-- `node.doors` — [07](07-doors.md). Needs the contact key; knocking and
-  accepting also need whole-account access.
-- `node.carriers`, `node.hosting`, `node.notifications` — §6.
-- `node.iceServers()` — the configured ICE servers plus TURN servers a relay
-  offers ([04](04-network.md)); what calls use (§7).
-- `node.network` — `status()`: each relay's state (open, or waiting to redial,
-  when and why), the connections open and those still being made, and whether
-  a relay offered TURN; `reconnect()` redials a waiting relay now
-  ([04](04-network.md) §2, §7.3). A `network` event follows every change.
-  Local only: nothing here goes over the wire.
-- `node.asAgent({ keys, note })` — §5.2.
-
-_Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/profiles.test.ts`._
-
----
-
-## 2. Node actions
-
-`NODE_ACTIONS` describes the node's operations once, as data. Each action has:
-
-| Field              | Meaning                                                                                                                      |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `name`             | Matches `[a-z_]+`, so it is a valid tool name everywhere.                                                                    |
-| `description`      | One or more sentences for a person or model.                                                                                 |
-| `input`            | A JSON Schema object (`type: "object"`, `properties`, `required`).                                                           |
-| `readOnly`         | Reads only. An agent may run it without asking.                                                                              |
-| `sensitive`        | The result grants access (an invite carries a key). A front end SHOULD confirm with a person before handing it on.           |
-| `destructive`      | Removes or overwrites something, or brings in someone else's space. A front end SHOULD ask a person before an agent runs it. |
-| `peerContent`      | The result includes what other people wrote. A front end SHOULD tell a model to treat it as data, not instructions.          |
-| `run(node, input)` | Runs it. Inputs and outputs are plain JSON; nothing returned is a key, handle or function.                                   |
-
-`runAction(node, name, input)` checks the input with `checkActionInput` first.
-It refuses: a non-object input; a missing required field; **any field not in
-`properties`**; a value outside an `enum`; a value whose JSON type differs from
-`type` (`integer` must be a whole number). Array item schemas are not checked.
-
-The actions (R = readOnly, S = sensitive, D = destructive, P = peerContent):
-
-| Name                    | Flags | Input (required in **bold**)                                                                                                                                | Does                                                                                                                                                                                                                                                                                                                                                  |
-| ----------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `node_info`             | R     | —                                                                                                                                                           | `{ did, sessionDid }`                                                                                                                                                                                                                                                                                                                                 |
-| `spaces_list`           | R     | —                                                                                                                                                           | `spaces.list()`                                                                                                                                                                                                                                                                                                                                       |
-| `spaces_create`         |       | **`name`**, **`visibility`** (`private`\|`public`), `roles` (`solo`\|`team`\|`community`; default `solo`)                                                   | Creates a space with that role preset.                                                                                                                                                                                                                                                                                                                |
-| `spaces_invite`         | S     | **`space`**, `role`, `viewOnly` (bool)                                                                                                                      | `{ invite }`. `viewOnly: true` wins over `role`.                                                                                                                                                                                                                                                                                                      |
-| `spaces_preview_invite` | R     | **`invite`**                                                                                                                                                | `spaces.preview()`                                                                                                                                                                                                                                                                                                                                    |
-| `spaces_join`           | D     | **`invite`**                                                                                                                                                | `spaces.join()`                                                                                                                                                                                                                                                                                                                                       |
-| `spaces_leave`          | D     | **`space`**                                                                                                                                                 | `{ left: <id> }`                                                                                                                                                                                                                                                                                                                                      |
-| `spaces_access`         | R     | **`space`**                                                                                                                                                 | `spaces.access()`                                                                                                                                                                                                                                                                                                                                     |
-| `spaces_set_member`     | D     | **`space`**, **`did`**, **`role`** (`""` removes)                                                                                                           | Then returns `spaces.access()`.                                                                                                                                                                                                                                                                                                                       |
-| `spaces_close_invite`   | D     | **`space`**, **`key`**                                                                                                                                      | Then returns `spaces.access()`.                                                                                                                                                                                                                                                                                                                       |
-| `spaces_status`         | R     | **`space`**                                                                                                                                                 | `spaces.status()`                                                                                                                                                                                                                                                                                                                                     |
-| `spaces_profiles`       | R P   | **`space`**                                                                                                                                                 | `spaces.profiles()`                                                                                                                                                                                                                                                                                                                                   |
-| `collections_list`      | R P   | **`space`**                                                                                                                                                 | `collections.list()`                                                                                                                                                                                                                                                                                                                                  |
-| `collections_standard`  | R     | `names`                                                                                                                                                     | Without `names`: the standard library by area, each `{ name, title, description }`. With them: each definition in full, plus `summary`. Refuses a name not in the library ([02](02-records.md) Appendix A.1).                                                                                                                                         |
-| `collections_define`    | D     | **`space`**, **`name`**, **`schema`**, `title`, `description`, `version`, `history` (`latest`\|`all`), `links`, `permissions`, `rules`, `screen`, `network` | The definition, plus `summary`: what its rules allow, in words.                                                                                                                                                                                                                                                                                       |
-| `apps_list`             | R P   | **`space`**                                                                                                                                                 | Proposed apps: `key`, `title`, `description`, `proposedBy`, `viaAgent?`, `screen?`, `updates?`, `added`, `superseded`, `problem`, `needs[]` (each `name`, `status`, `summary`, `changes`, and `usedBy`: the apps in use a change would touch).                                                                                                        |
-| `apps_screen_guide`     | R     | —                                                                                                                                                           | The screen-writing guide text.                                                                                                                                                                                                                                                                                                                        |
-| `apps_propose`          |       | **`space`**, **`title`**, **`needs`** (definitions, or standard names like `"std.event"`), `description`, `updates` (key of the app it replaces)            | Writes an app proposal record, a standard name stored as the library's definition; returns `{ key, proposed, added: false, next, needs, warnings? }`, warning when it would change a collection another app uses. Refuses an `updates` that names no app in the space, and a `std.*` need that is not the library's ([02](02-records.md) Appendix A). |
-| `collections_delete`    | D     | **`space`**, **`name`**                                                                                                                                     | `collections.delete()`                                                                                                                                                                                                                                                                                                                                |
-| `records_list`          | R P   | **`space`**, `collection`, `limit`, `newestFirst`                                                                                                           | `records.list()`                                                                                                                                                                                                                                                                                                                                      |
-| `records_query`         | R P   | **`space`**, **`collection`**, `where`, `include`, `sort`, `limit`, `cursor`                                                                                | `records.query()` ([02](02-records.md))                                                                                                                                                                                                                                                                                                               |
-| `records_get`           | R P   | **`space`**, **`key`**                                                                                                                                      | `records.get()`                                                                                                                                                                                                                                                                                                                                       |
-| `records_history`       | R P   | **`space`**, **`key`**                                                                                                                                      | `records.history()`                                                                                                                                                                                                                                                                                                                                   |
-| `records_put`           |       | **`space`**, **`collection`**, **`body`**, `key`, `links`                                                                                                   | `records.put()`                                                                                                                                                                                                                                                                                                                                       |
-| `records_linked`        | R P   | **`space`**, **`key`**, `rel`, `collection`                                                                                                                 | `records.linked()`                                                                                                                                                                                                                                                                                                                                    |
-| `records_can`           | R     | **`space`**, **`action`** (`create`\|`edit`\|`delete`), **`target`**                                                                                        | `records.can()` → boolean                                                                                                                                                                                                                                                                                                                             |
-| `records_update`        | D     | **`space`**, **`key`**, **`body`**, `links`                                                                                                                 | `records.update()`                                                                                                                                                                                                                                                                                                                                    |
-| `records_delete`        | D     | **`space`**, **`key`**                                                                                                                                      | `{ deleted: <key> }`                                                                                                                                                                                                                                                                                                                                  |
-
-The app-proposal record format (`apps_propose`, `apps_list`) belongs with
-records and is _Not yet specified_ in this part.
-
-**Front ends.** Each exposes the same list under the same names:
-
-- **CLI** (`weave <action>`): flags from `input`. _Implementation detail._
-- **MCP** (`weave mcp`, stdio, newline-delimited JSON-RPC 2.0): `initialize`
-  (protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`;
-  capability `tools`), `ping`, `tools/list`, `tools/call`. Each action becomes a
-  tool with `inputSchema = input` and annotations `readOnlyHint = readOnly`,
-  `destructiveHint = destructive`, `idempotentHint = readOnly`,
-  `openWorldHint = peerContent || !readOnly`; a `sensitive` action's
-  description gains "Confirm with the user before sharing the result." A
-  `peerContent` result is preceded by a text block telling the model to treat
-  it as data. A failed action is a result with `isError: true`, not a
-  JSON-RPC error. Serving an agent's node, the tools that need a person are not
-  offered: `spaces_create`, `spaces_invite`, `spaces_join`, `spaces_leave`,
-  `spaces_set_member`, `spaces_close_invite`, `collections_define`,
-  `collections_delete`.
-- **WebMCP** (the example app): every action except `collections_define` and
-  `collections_delete`, registered on `document.modelContext` at page load.
-  _Implementation detail of the example._
-
-_Source: `packages/core/src/node/actions.ts`, `packages/cli/src/mcp.ts`, `apps/example/src/webmcp.ts`. Tests: `packages/core/tests/node.test.ts` ("actions"), `packages/cli/tests/cli.test.ts` ("MCP")._
-
----
-
-## 3. Signing in
-
-`createWeaveAuth(config)` is the whole sign-in flow of a page that holds the
-seed — an account home, or an app that signs people in itself — as a state to
-read and actions to call. It is a client convenience: nothing in it goes over
-the wire except what the node it starts does. It is specified here because an
-account home's behaviour (§4) depends on it.
-
-### 3.1 Places
-
-A **place** is where accounts and their data are kept (`Place`):
-
-| `kind`             | Accounts are kept                     | Data is kept                                                 |
-| ------------------ | ------------------------------------- | ------------------------------------------------------------ |
-| `browser`          | the browser account store (IndexedDB) | IndexedDB, per account (§1.6)                                |
-| `folder` (a _pod_) | the folder's account store            | the folder, per account, registry sealed under the vault key |
-
-A pod is a directory picked through the File System Access API. The last one
-picked is remembered and re-opened without a prompt when permission is still
-granted. A place holds any number of accounts; `listAccounts` returns them most
-recently used first. Account files and vault formats are in [01](01-identity.md).
-
-_Source: `packages/core/src/session/places.ts`. Tests: `packages/core/tests/account-store.test.ts`._
-
-### 3.2 Stages
-
-`AuthState.stage` is one of:
-
-| Stage      | Meaning                                                                                                                                                    |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `starting` | Looking for accounts and a kept sign-in.                                                                                                                   |
-| `welcome`  | The place holds no accounts: create one, or "I already have one".                                                                                          |
-| `existing` | Ways to an account this place does not list: open a pod, add this device from another, or the recovery code. Where data lives is asked here, not up front. |
-| `signIn`   | Choose an account and unlock it.                                                                                                                           |
-| `restore`  | Type the recovery code.                                                                                                                                    |
-| `create`   | Name a new account.                                                                                                                                        |
-| `recovery` | Signed in; `freshCode` is the recovery code to keep safe.                                                                                                  |
-| `unlock`   | Signed in; choose a passkey or a password. Required.                                                                                                       |
-| `pod`      | Signed in; a new account is offered a pod. Optional.                                                                                                       |
-| `pair`     | Opened from a phone-pairing link ([01](01-identity.md)).                                                                                                   |
-| `ready`    | Signed in; `session` is set.                                                                                                                               |
-
-Transitions:
-
-| From                            | Action                                                                       | To                                                                                                              |
-| ------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `starting`                      | `start()`, a kept sign-in for an account in the place (§3.4)                 | `ready`                                                                                                         |
-| `starting`                      | `start()`, a pairing ticket in the URL                                       | `pair`                                                                                                          |
-| `starting`                      | `start()`, otherwise                                                         | `signIn` if the place has accounts, else `welcome`                                                              |
-| `starting`                      | `start()` fails                                                              | `welcome` (with `error`)                                                                                        |
-| any                             | `showWelcome()` / `showExisting()` / `showRestore()` / `showSignIn()`        | `welcome` / `existing` / `restore` / `signIn`                                                                   |
-| `existing`, `signIn`            | `choosePod()` / `useBrowser()` while signed out                              | `signIn` or `welcome`                                                                                           |
-| `ready`                         | `choosePod()` while signed in                                                | `ready`, with `podChoice` set; `confirmPod('combine' \| 'switch')` restarts the session in the pod              |
-| `pod`                           | `choosePod()`                                                                | `ready`: the new account moves into the pod without asking, and its browser copy is removed                     |
-| `pod`                           | `finishSetup()`                                                              | `ready`                                                                                                         |
-| `welcome`, `existing`, `signIn` | `startCreating()`                                                            | `create`                                                                                                        |
-| `signIn`                        | `signInWithPassword` / `signInWithPasskey` succeeds                          | `ready`                                                                                                         |
-| `signIn`, `restore`             | `signInWithCode` (or a recovery code given to `signInWithPassword`) succeeds | `ready` if the account has a usable passkey or a password here; else `recovery` with `setup: 'restored'`        |
-| `create`                        | `createAccount(name)`                                                        | `recovery`, with `session`, `freshCode` and `setup: 'new'` set                                                  |
-| `recovery`                      | `codeSaved()`                                                                | `unlock`                                                                                                        |
-| `unlock`                        | `addPasskey()` / `setPassword(p)` succeeds                                   | `pod` for a new account in a browser that can open folders, else `ready`                                        |
-| `pair`                          | `acceptPairing()`                                                            | `unlock` with `setup: 'paired'` if the account has no way in here, else `ready`; then collects from the desktop |
-| `pair`                          | `dismissPairing()`                                                           | `ready` if signed in, else `signIn` / `welcome`                                                                 |
-| `ready`                         | `signOut()`                                                                  | `starting`, then `signIn` / `welcome`                                                                           |
-
-A failed action sets `error` (`{ message, hint?, code? }`) and leaves the stage
-as it was. A dismissed passkey or folder prompt sets no error.
-
-_Source: `packages/core/src/session/auth.ts`. Tests: `packages/core/tests/auth.test.ts`._
-
-### 3.3 Ways in
-
-- **The recovery code** is the seed written out, 26 characters
-  ([01](01-identity.md)). It works on any site without anything stored there,
-  and is for restoring, not for every day. If an account is selected and the
-  code opens a different one, sign-in fails with a reason. If the code's
-  account is new to this place, it is filed there with an empty vault (no
-  wraps) under the selected account's name or `My account`.
-- **A password** unwraps the seed from the vault's `passphrase` wrap. It
-  works wherever that vault is: this browser, or a pod on any origin. Setting
-  one replaces the last (but not the CLI's passphrase, which also opens it here). At least
-  `MIN_PASSWORD_LENGTH` (10) characters, since a copied pod can be attacked
-  offline. `signInWithPassword` also accepts a recovery code, which password
-  managers may hold as this site's login from before passwords existed.
-- **A passkey** is a gate, not a key: the WebAuthn ceremony proves presence,
-  and the seed is unwrapped with a non-extractable device key kept in this
-  site's storage, named by the vault's `device` wrap for this `rpId`. Only a
-  wrap whose device key is present in this browser is offered.
-
-A new account's seed is random. Creating one writes its vault with no wraps,
-asks the browser to persist its storage (when kept in the browser), starts its
-session, writes its name to `sys.profile` in the account registry, and shows
-the recovery code (`freshCode`). Setting up a passkey or a password is
-required before `ready`: an account with no everyday way in would be opened
-with its recovery code every time, which is the habit this avoids. A page that
-waits for `ready` does not see the session during `recovery`, `unlock` or
-`pod`.
-
-_Source: `packages/core/src/session/auth.ts`, `packages/core/src/session/credentials.ts`. Tests: `packages/core/tests/auth.test.ts`, `packages/core/tests/account-vault.test.ts`._
-
-### 3.4 The session a sign-in starts
-
-A sign-in starts a node with the local root signer from the seed, the account
-key (`deriveVaultKeyBytes(seed)`), the contact key (`deriveContactKeyBytes(seed)`),
-the place's stores for that account (§1.6) and the configured network. The
-session (`WeaveSession`) is `{ account, did, sessionDid, node }`. The seed stays
-inside the auth object; `accountPassword()` returns it as a recovery code.
-
-The account's name follows the account: on every `account` event the node's
-`account.profile()` is read, and a different name is adopted locally (the vault
-label and passkey labels). The name is written to the registry only at creation
-and on `rename`, never on a plain start.
-
-### 3.5 Staying signed in
-
-After an unlock, the seed MAY be kept on the device so a reload does not ask
-again. It is wrapped with a fresh non-extractable device key and stored with an
-expiry that is pushed forward each time it is used. Choices: `never`, `1d`,
-`7d` (default), `30d`. A kept sign-in resumes only for the same kind of place
-it was made in (`browser` or `folder`). Signing out, choosing `never`, or
-finding it expired deletes the device key.
-
-_Implementation detail:_ kept in `localStorage` as `<prefix>.stay-signed-in`
-(the choice) and `<prefix>.remembered-session`:
-
-```json
-{
-  "accountId": "k3j2h4g5f6d7",
-  "place": "browser",
-  "wrap": { "kind": "device", "...": "…" },
-  "expiresAt": 1791027701000
-}
-```
-
-Other keys the flow keeps: `<prefix>.last-account`, `<prefix>.storage-choice`,
-and at an account home `<prefix>.connections:<accountId>` (§4.10). `prefix`
-defaults to `weave`.
-
-_Source: `packages/core/src/session/stay-signed-in.ts`, `packages/core/src/session/auth.ts`. Tests: none._
-
-### 3.6 Moving into a pod
-
-Picking a pod while signed in sets `podChoice` with what the pod holds
-(`inspectPod`: this account's copy, other accounts, whether it is the pod in use).
-`confirmPod('switch')` uses the pod's own copy and brings nothing.
-`confirmPod('combine')` writes the account and a union of both vaults' wraps
-into the pod, copies every space into it (`copyAccountData`, §1.6), and
-restarts the session there. `forgetBrowserCopy()` then deletes the browser's
-copy. Other accounts in the pod are never touched.
-
-_Source: `packages/core/src/session/auth.ts` (`confirmPod`), `packages/core/src/session/places.ts`. Tests: `packages/core/tests/account.test.ts`._
-
----
-
-## 4. The account home protocol
+## 2. The account home protocol
 
 An **app** acts for an account without ever holding its seed. It gets a note
 from the account to a key of its own, signed at the person's **account home**.
@@ -651,7 +194,7 @@ from the account to a key of its own, signed at the person's **account home**.
     │    or { type: 'weave:denied', reason }      │  window closes 100 ms later
 ```
 
-### 4.1 The app's key
+### 2.1 The app's key
 
 An app MUST make its own P-256 key and keep the private half non-extractable.
 The reference `appKey(name = 'default')` keeps it in the IndexedDB database
@@ -661,10 +204,10 @@ the app's node signs with this key (`sessionKey`), not a fresh one.
 
 > **Known defect:** so every tab or window of one app is the same DID on the
 > relays, and only the first gets into a space's room; the others report
-> `refused` (§1.10) until it closes. See [04](04-network.md) §1.2 and
+> `refused` in its status until it closes. See [04](04-network.md) §1.2 and
 > [#55](https://github.com/leifriksheim/weave/issues/55).
 
-### 4.2 The home's address
+### 2.2 The home's address
 
 `homeAddress(input)` turns what a person typed into the home's connect page:
 
@@ -676,7 +219,7 @@ the app's node signs with this key (`sessionKey`), not a fresh one.
 
 Example: `weave.example.com` → `https://weave.example.com/connect`.
 
-### 4.3 The exchange
+### 2.3 The exchange
 
 The app:
 
@@ -686,8 +229,8 @@ The app:
    popup it opened or whose `origin` is not the home's origin.
 3. On `{ type: "weave:hello" }`, posts `{ type: "weave:request", request }` to
    the popup with `targetOrigin` = the home's origin.
-4. On `{ type: "weave:grant", grant }`, checks the grant (§4.6) and resolves
-   (for a proposal, §4.12, `grant` is the `Proposed` answer instead). On
+4. On `{ type: "weave:grant", grant }`, checks the grant (§2.6) and resolves
+   (for a proposal, §2.11, `grant` is the `Proposed` answer instead). On
    `{ type: "weave:denied", reason? }`, fails with `reason`.
 5. Fails if the popup is closed first (polled every 500 ms) or after a timeout
    (default 10 minutes).
@@ -701,7 +244,7 @@ The home (`receiveConnectRequest(timeoutMs = 10 000)`):
    `weave:request`. The **origin of that event**, as the browser reports it, is
    the app's identity; the home MUST NOT trust any name the request gives
    instead, and MUST show the origin to the person.
-4. If the request is malformed (§4.4), answers `weave:denied` with a reason
+4. If the request is malformed (§2.4), answers `weave:denied` with a reason
    saying it did not understand, to that origin, and closes.
 5. Otherwise waits for the person, then posts exactly one of `weave:grant` or
    `weave:denied` to that origin only, and closes itself 100 ms later.
@@ -709,7 +252,7 @@ The home (`receiveConnectRequest(timeoutMs = 10 000)`):
 
 _Source: `packages/core/src/session/connect.ts` (`connectToHome`, `askHome`, `receiveConnectRequest`, `homeAddress`). Tests: `packages/core/tests/connect.test.ts` ("the home receiving a request", "an account home typed by a person")._
 
-### 4.4 The request
+### 2.4 The request
 
 `ConnectRequest`:
 
@@ -718,22 +261,22 @@ _Source: `packages/core/src/session/connect.ts` (`connectToHome`, `askHome`, `re
 | `v`            | `1`                             |                                                                                                                                                         |
 | `audience`     | string                          | The app's key, `did:key:…`. The note is made out to it.                                                                                                 |
 | `name`         | string, ≤ 80, optional          | What the app calls itself. Shown, never trusted.                                                                                                        |
-| `access`       | `read` \| `write` \| `carry`    | `write` to change the spaces given, `read` only to look, `carry` for a carrier (§6.3).                                                                  |
+| `access`       | `read` \| `write` \| `carry`    | `write` to change the spaces given, `read` only to look, `carry` for a carrier (§4.3).                                                                  |
 | `scope`        | `spaces` \| `account`, optional | `spaces` (default): the spaces the person picks and any made for the app. `account`: every space, the account's list, making and joining spaces.        |
 | `create`       | `NewSpace[]`, optional          | Spaces the home should make for the app: at most 8, each with a non-empty `name` ≤ 80, `visibility`, and valid starting `roles`/`creatorRole` if given. |
 | `contacts`     | boolean, optional               | The contacts space and the contact key.                                                                                                                 |
 | `chooseSpaces` | boolean, optional               | Whether to offer the person's existing spaces. Default true. UI only.                                                                                   |
-| `agent`        | boolean, optional               | The audience is an agent's key (§5).                                                                                                                    |
+| `agent`        | boolean, optional               | The audience is an agent's key (§3).                                                                                                                    |
 | `days`         | integer 1–365, optional         | How long the note should last. The home decides; default 7.                                                                                             |
 
-A home MUST refuse a request (as in §4.3 step 4) unless: `v` is `1`; `audience`
+A home MUST refuse a request (as in §2.3 step 4) unless: `v` is `1`; `audience`
 starts with `did:key:`; `access` is one of the three; `scope`, `name`,
 `contacts`, `create`, `days` are absent or valid as above; when
 `agent: true`, `access` is not `carry`, `create` is absent and `contacts` is
 not true.
 
 Connecting offers no subscriptions: a person signing in has asked to be told
-about nothing yet. An app asks later, when they do (§4.12). A home MUST NOT
+about nothing yet. An app asks later, when they do (§2.11). A home MUST NOT
 add a subscription while connecting; a `notify` field an older app still
 sends is ignored.
 
@@ -754,7 +297,7 @@ Example:
 }
 ```
 
-### 4.5 The grant
+### 2.5 The grant
 
 When the person approves, the home (`auth.grant({ origin, request, spaceIds, days? })`):
 
@@ -780,7 +323,7 @@ When the person approves, the home (`auth.grant({ origin, request, spaceIds, day
    where `can` is `expression/*` for `write`, `expression/read` for `read`; and
    `fct: [{ "weave": "agent" }]` when `agent: true`.
 
-6. Remembers the connection (§4.10).
+6. Remembers the connection (§2.10).
 7. Answers with the grant.
 
 `Grant` (the home sends it without `home`; the app adds `home` = the connect
@@ -843,14 +386,14 @@ whose note's payload is
 
 _Source: `packages/core/src/session/auth.ts` (`grant`), `packages/core/src/session/connect.ts` (`ConnectRequest`, `Grant`, `grantCapabilities`, `isRequest`). Tests: `packages/core/tests/connect.test.ts` ("connecting an app to an account home", "connecting asks for no subscriptions")._
 
-### 4.6 What the app checks
+### 2.6 What the app checks
 
 Before using a grant the app MUST check that the note verifies
 ([01](01-identity.md)), that its `aud` is the app's own key, and that its `iss`
 is `grant.did`. An app that asked for `agent: true` MUST refuse a note without
 the agent fact.
 
-### 4.7 Starting a connected node
+### 2.7 Starting a connected node
 
 `startConnectedNode({ grant, key?, network?, stores?, cache? })` starts a node
 with:
@@ -860,17 +403,17 @@ with:
   `expiresAt` has passed;
 - `sessionKey` = the app's key;
 - stores `indexedDBStores('weave-app:<grant.did>')` unless given;
-- `cache: {}` unless `cache: false` (§1.8);
+- `cache: {}` unless `cache: false` ([holding part of a space](../packages/core/docs/node.md#holding-part-of-a-space));
 - `accountKey`, `contactKey`, `contactsSpace` from the grant when present;
 - relays = the app's relays ∪ `grant.relays`.
 
 It then joins each granted space it does not hold yet, passing its `memberKey`.
 Without an account key it sees only the spaces it was given; with one it
-follows the whole account (§1.5).
+follows the whole account (§1.3).
 
 _Source: `packages/core/src/session/connect.ts` (`startConnectedNode`, `grantSigner`, `grantStore`). Tests: `packages/core/tests/connect.test.ts`._
 
-### 4.8 Scope
+### 2.8 Scope
 
 |                       | `scope: spaces`                                                    | `scope: account`                        |
 | --------------------- | ------------------------------------------------------------------ | --------------------------------------- |
@@ -893,15 +436,15 @@ its password or passkeys, or keep access past `expiresAt`.
 > policy on `.collection` rather than new resource syntax ([01 §7.1](01-identity.md),
 > [#19](https://github.com/leifriksheim/weave/issues/19)).
 
-### 4.9 Expiry and renewal
+### 2.9 Expiry and renewal
 
 A note is never renewed in place. When `expiresAt` passes, the app's writes stop
 counting everywhere. To continue, the app connects again, which produces a new
 note (and, at the home, replaces the old connection record). The reference
-client (`createWeaveConnection`, §4.11) switches to `expired` at `expiresAt`
+client (`createWeaveConnection`, [node](../packages/core/docs/node.md#the-app-side-client)) switches to `expired` at `expiresAt`
 and does not load an expired grant from storage.
 
-### 4.10 Connections and revocation
+### 2.10 Connections and revocation
 
 _Implementation detail:_ the home remembers each connection per account in its
 local storage (`Connection`: `origin`, `name`, `audience`, `access`, `scope`,
@@ -919,43 +462,23 @@ app's connections (by default the app and every agent connected through it;
   space, and the account registry.
 
 Disconnecting an app (not only its agents) also removes every subscription
-whose `app.origin` is its origin (§4.12, §6.4).
+whose `app.origin` is its origin (§2.11, §4.4).
 
 Revoking writes a `sys.revoke` record naming the note ([03](03-spaces.md)).
 From then on nothing written under the note counts, except versions the revoker
 had already seen. What the app could already read, it keeps. A node that sees
-its own note revoked in a space emits `revoked` (§1.9); the reference client
+its own note revoked in a space emits `revoked` ([events](../packages/core/docs/node.md#events)); the reference client
 then forgets the grant and the app key.
 
 _Source: `packages/core/src/session/auth.ts` (`disconnect`, `connections`), `packages/core/src/node/node.ts` (`checkRevoked`). Tests: `packages/core/tests/connect.test.ts` ("disconnecting …")._
 
-### 4.11 The app-side client
-
-`createWeaveConnection({ home, request, network?, storage?, stores? })` is the
-app's twin of §3: statuses `starting`, `disconnected`, `connecting`, `ready`,
-`expired`. It keeps the grant in `localStorage` under `weave.grant` and the
-person's chosen home under `weave.home` (`home` in the config is only a
-default). `propose(notify)` sends a proposal to the grant's home (§4.12).
-`watchNotifications(node, { origin?, onNotify })` hands the app each record
-that arrives matching one of its subscriptions (§4.12). Client conveniences,
-not protocol.
-
-_Source: `packages/core/src/session/connection.ts`, `packages/core/src/node/watch-notifications.ts`. Tests: `packages/core/tests/connect.test.ts` ("an app showing its own notifications")._
-
-> **Planned: a wallet as the account home.** The same job — hold the root and
-> hand an app's key a note — done by a credential wallet through the Digital
-> Credentials API instead of a popup page. Nothing is designed beyond that: open
-> are what the wallet would hold (the seed, or a key the account's note
-> delegates to) and how the request and grant of §4.4–4.5 would map onto a
-> credential request.
-
-### 4.12 Proposing subscriptions
+### 2.11 Proposing subscriptions
 
 Only an app offers subscriptions, and only when the person asks it to, from
-something like a "Notify me" button: never while connecting (§4.4), never a
+something like a "Notify me" button: never while connecting (§2.4), never a
 carrier or an agent, and never the home on its own. The home lets the person
 pause and remove what they kept, not add to it. The app uses the exchange of
-§4.3 (`proposeToHome`) with a `ProposeRequest` in place of the
+§2.3 (`proposeToHome`) with a `ProposeRequest` in place of the
 `ConnectRequest`:
 
 | Field    | Type                   | Meaning                                                      |
@@ -971,7 +494,7 @@ the account's DID, which an app given only some spaces does not know). It looks
 at the spaces the app may reach (step 2 below), or with `spaces` only those of
 them; it cannot widen them.
 
-A home MUST refuse a request with a `kind` as malformed (§4.3 step 4) unless
+A home MUST refuse a request with a `kind` as malformed (§2.3 step 4) unless
 `v` is `1`, `kind` is `propose`, `name` is absent or valid, and `notify` has 1
 to 8 entries, each of which would be a valid `NotifyWhen` ([03](03-spaces.md)
 §15) with `app.origin` the request's origin and `spaces` its `spaces` when
@@ -981,7 +504,7 @@ origin: a click on a notification leads only back to the app that proposed it.
 When the person approves (`auth.propose({ origin, request, notify? })`, where
 `notify` is the indices they kept, default all), the home:
 
-1. Finds the connection it keeps for the request's origin (§4.10), other than
+1. Finds the connection it keeps for the request's origin (§2.10), other than
    an agent's or a carrier's. With none it MUST refuse.
 2. Works out what the app may reach: every space (`"all"`) under
    `scope: account`, else the spaces granted without the contacts space
@@ -1054,11 +577,18 @@ it started is never news. How it shows a match is the app's to decide.
 
 _Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`, `matchesRecord`), `packages/core/src/node/watch-notifications.ts` (`watchNotifications`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions", "an app showing its own notifications", "the home receiving a request")._
 
+> **Planned: a wallet as the account home.** The same job — hold the root and
+> hand an app's key a note — done by a credential wallet through the Digital
+> Credentials API instead of a popup page. Nothing is designed beyond that: open
+> are what the wallet would hold (the seed, or a key the account's note
+> delegates to) and how the request and grant of §2.4–2.5 would map onto a
+> credential request.
+
 ---
 
-## 5. Agents
+## 3. Agents
 
-### 5.1 Agent notes, and what peers refuse from them
+### 3.1 Agent notes, and what peers refuse from them
 
 An agent is not an identity. It writes for a person under a note from their
 account, like an app; the note carries the fact `{ "weave": "agent" }`
@@ -1077,42 +607,19 @@ Recipients additionally ignore:
 
 - a contact request (`std.contact-request`) written `viaAgent`: it is never
   opened ([03](03-spaces.md));
-- call messages from an agent (§7).
+- call messages from an agent (§5).
 
 A node writing under an agent's note never names relays, seals member keys or
 rotates a space key; in a private space it only learns keys.
 
-_Source: `packages/core/src/identity/agent-note.ts`, `packages/core/src/node/space-runtime.ts` (`buildEvent`, `judgeStanding`, `write`, `upkeep`). Tests: `packages/core/tests/agents.test.ts` ("a definition an agent signs by hand is ignored by every peer", "taking someone out of the space, signed by an agent, is ignored too", "it never writes the account itself")._
-
-### 5.2 A node acting as an agent
-
-`node.asAgent({ keys, note })` returns the same node acting as an agent. It
-throws unless the note verifies, carries the agent fact, is made out to `keys`,
-and was issued by `node.did`. The agent:
-
-- signs with its own key, under its note, so what it writes shows "via agent";
-- reaches only spaces its note names (`space:<id>`), or every space for `*`;
-  events for other spaces are filtered out;
-- refuses, locally, everything that needs a person: making, inviting, joining
-  or leaving spaces; changing members, roles, invites or revocations; changing
-  a space's key, relays or keepers; defining
-  or deleting collections; live messages (`send` — a live message carries no
-  note to say "via agent"); renaming or revoking at the account level; adding or
-  removing carriers; notifications; hosting; changing, blocking, asking or
-  accepting contacts; everything about doors (its list of doors is empty);
-  `delegate`; `asAgent`;
-- sees the contact list only if the contacts space is within its note.
-
-Closing the agent leaves the underlying node running.
-
 An agent granted `scope: account` gets a `*` note and the account key in its
-grant (§4.5), so the contact list is within its note to read. A home MUST NOT
+grant (§2.5), so the contact list is within its note to read. A home MUST NOT
 give an agent the contact key: with it, an agent could open contact requests
 and knocks on the account's doors ([07](07-doors.md)).
 
-_Source: `packages/core/src/node/node.ts` (`asAgent`). Tests: `packages/core/tests/agents.test.ts` ("an agent acting for a person")._
+_Source: `packages/core/src/identity/agent-note.ts`, `packages/core/src/node/space-runtime.ts` (`buildEvent`, `judgeStanding`, `write`, `upkeep`). Tests: `packages/core/tests/agents.test.ts` ("a definition an agent signs by hand is ignored by every peer", "taking someone out of the space, signed by an agent, is ignored too", "it never writes the account itself")._
 
-### 5.3 Connecting an agent with a code
+### 3.2 Connecting an agent with a code
 
 An app offers a one-time code; a terminal on the person's computer pastes it
 (`weave connect wv_…`), and the two trade the agent's key for an agent's note
@@ -1153,7 +660,7 @@ key is ignored.
 3. The app takes the **first** valid `ask` only (a `did` starting `did:key:`),
    answers `heard`, and shows the person the agent's name. Later asks are
    ignored; the code is good for one agent.
-4. The person allows it, which opens the account home (§4) with
+4. The person allows it, which opens the account home (§2) with
    `audience` = the agent's DID and `agent: true` (the reference app asks
    `access: write`, `scope: account`, `chooseSpaces: false`, and the person's
    chosen `days`). The app checks the note is for the agent's key and sends
@@ -1172,98 +679,14 @@ Timeouts on the terminal: 60 s to hear `heard`, then 10 minutes for the answer.
 
 _Source: `packages/core/src/session/agent-link.ts`, `apps/example/src/components/ConnectAgent.tsx`. Tests: `packages/core/tests/agents.test.ts` ("connecting an agent with a code")._
 
-### 5.4 The agent on a computer
-
-_Implementation detail of the CLI._ `weave connect` makes a P-256 key once and
-keeps it as JWK in `<home>/agent/key.json` (mode 0600), the grant in
-`grant.json`, and the spaces in `data/`. `weave mcp` then starts a node of its
-own: signer `grantSigner(grant)`, session key = the agent key, the grant's
-account key when present, relays = the grant's ∪ `$WEAVE_RELAYS` (default
-`wss://p2p-web-relay.fly.dev`), WebRTC via `node-datachannel`; joins any granted
-spaces it lacks; wraps the node with `asAgent`; holds every space; and serves
-MCP over stdio with the person-only tools removed (§2).
-
-> **Known defect:** every `weave mcp` with the same `--home` signs with the one
-> agent key, so only the first gets into a space's room; the others report
-> `refused` in `spaces_status` and log it to stderr, keep their writes, and
-> sync once the first stops. They also share `data/` on disk, each with its own
-> copy in memory. See [04](04-network.md) §1.2 and
-> [#55](https://github.com/leifriksheim/weave/issues/55).
-
-_Source: `packages/cli/src/agent.ts`, `packages/cli/src/mcp.ts`. Tests: `packages/core/tests/agents.test.ts` ("an agent running a node of its own"), `packages/cli/tests/cli.test.ts` ("MCP")._
-
-### 5.5 App screens
-
-A collection definition may carry a `screen`, one HTML document, and a
-`network`, the exact origins that screen may reach ([02](02-records.md)
-§6.1). Agents propose them in `std.app` records; only a person who may define
-collections adds them. An app that shows a screen:
-
-- MUST run it in a frame with an opaque origin that may run scripts and
-  submit forms and nothing else (the reference:
-  `sandbox="allow-scripts allow-forms"`), and hand it the records only
-  through a message port it answers as the person looking, under the
-  collection's rules;
-- MUST put this policy in front of everything the screen says, so it is in
-  force before any script runs:
-
-  ```
-  default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';
-  img-src data: blob: <each https origin>; connect-src <each origin, or 'none'>;
-  font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'
-  ```
-
-  Any other policy on the frame may only allow more, never less, since a page
-  under two policies gets what both allow. With no `network`, or before the
-  person agrees, the lists are empty and the screen is sealed:
-  `connect-src 'none'` and images from `data:` and `blob:` only;
-
-- MUST ask the person looking before giving a screen its `network`, naming
-  each origin, and run it sealed if they decline. The screen runs as them, so
-  what it can send is what they can see. The answer holds for that exact list;
-  a definition that names a new origin asks again. How an app remembers the
-  answer is its own.
-
-The app review names each origin, from the definition itself (`describeCollection`:
-"Its screen can connect to api.open-meteo.com, and send there anything the
-person looking can see in it. Each person is asked first."), and a proposal
-that adds an origin to a collection the space has is a change someone must
-approve ("lets its screen reach https://api.open-meteo.com").
-
-Example: a carpool ride's screen shows the weather at departure.
-
-```json
-{ "name": "app.carpool.ride", "screen": "<!doctype html>…", "network": ["https://api.open-meteo.com"], … }
-```
-
-A person who allows it gets `connect-src https://api.open-meteo.com` and
-`img-src data: blob: https://api.open-meteo.com`; one who declines gets the
-sealed policy, and the screen must still work, without the weather.
-
-> Rationale for forms: without `allow-forms` a browser drops a form's
-> submission before its `submit` event fires, so a screen's handler never
-> runs and the form silently does nothing. `form-action 'none'` already
-> sends every submission nowhere, so allowing forms lets a screen use them
-> and lets nothing out. Popups, modals (`alert`, `confirm`, `prompt`, which
-> a screen could dress up as the app asking for a password) and top-level
-> navigation stay off.
-
-> Rationale: whoever adds an app decides to trust its author, but the screen
-> reads, as each viewer, records only that viewer can open. So the network is
-> each viewer's to give. Exact origins keep what leaves visible: a screen
-> given `https://api.open-meteo.com` can't also reach a server its author
-> controls.
-
-_Source: `packages/core/src/schema/collection-def.ts` (`checkScreenNetwork`, `MAX_SCREEN_ORIGINS`), `packages/core/src/schemas/screens.ts` (`screenPolicy`, `screenDocument`, `SCREEN_GUIDE`), `packages/core/src/schemas/apps.ts` (`differences`, `appScreen`), `packages/core/src/records/describe.ts` (`describeCollection`), `apps/example/src/components/apps/ScreenFrame.tsx`, `apps/example/public/screen.html`. Tests: `packages/core/tests/agents.test.ts` ("a screen reaches only the exact origins its definition names, and the review says so"; "a definition carries its screen to every peer; one too large is refused")._
-
-### 5.6 Planned
+### 3.3 Planned
 
 > **Planned.** Not normative.
 >
 > - **Renewing an agent's note.** Today, when the note runs out, the agent
->   says to connect again (§5.3). It could instead ask an open tab of the
+>   says to connect again (§3.2). It could instead ask an open tab of the
 >   person's for a new note, while one is open. Open: how the agent reaches the
->   tab (an agent sends no live messages, §5.2), and whether the person must
+>   tab (an agent sends no live messages: one carries no note to say "via agent"), and whether the person must
 >   approve each renewal.
 > - **Naming the agent.** Records show only "via agent". The note could carry
 >   which agent it is (say "Claude in Chrome") as a second fact. That is the
@@ -1275,9 +698,9 @@ _Source: `packages/core/src/schema/collection-def.ts` (`checkScreenNetwork`, `MA
 
 ---
 
-## 6. Carriers and hosts
+## 4. Carriers and hosts
 
-### 6.1 What a carrier holds, and sees
+### 4.1 What a carrier holds, and sees
 
 A carrier keeps an account's spaces online and backed up without being able to
 read them. It holds:
@@ -1304,7 +727,7 @@ key and decrypts nothing ([03](03-spaces.md)).
 
 _Source: `packages/core/src/space/pass.ts`, `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("passes", "a carrier")._
 
-### 6.2 Carry spaces and passes
+### 4.2 Carry spaces and passes
 
 Using a carrier (`node.carriers.add({ did, name })`, needs the account key):
 
@@ -1318,7 +741,7 @@ Using a carrier (`node.carriers.add({ did, name })`, needs the account key):
    carrier joins with the invite.
 
 Every device holding the account key keeps each live carrier's carry space in
-step with the account, on every reconciliation (§1.5): one `sys.pass` record per
+step with the account, on every reconciliation (§1.3): one `sys.pass` record per
 space, and one `sys.subscription` per notification subscription.
 
 **Pass records.** Collection `sys.pass`, key
@@ -1357,13 +780,13 @@ Removing a carrier does not change any key by itself.
 the account key that may `manage` a space names the account's live carriers as
 its keepers (`{ did, name }`, at most 16, [03](03-spaces.md)) and stops naming
 carriers the account removed. Other keepers stay. So apps holding part of a
-space (§1.8) can rely on the carriers.
+space ([05](05-sync-and-storage.md) §5) can rely on the carriers.
 
 _Source: `packages/core/src/node/node.ts` (`carriers`, `syncPasses`, `nameKeepers`), `packages/core/src/space/pass.ts`, `packages/core/src/space/account-registry.ts`. Tests: `packages/core/tests/carrier.test.ts`._
 
-### 6.3 Connecting a carrier through the account home
+### 4.3 Connecting a carrier through the account home
 
-A carrier (a browser extension) asks the home with `access: "carry"` (§4.4),
+A carrier (a browser extension) asks the home with `access: "carry"` (§2.4),
 from a page that stays open until the answer comes. The home calls
 `auth.grantCarry`, which replaces any earlier carrier from the same origin,
 calls `carriers.add({ did: audience, name })`, and answers with a `CarryGrant`:
@@ -1385,11 +808,11 @@ carrier MUST check that `kind` is `carry`, that the invite is to the named
 space, that the space is private, created by `did`, and that the invite carries
 its key; and that `pod.dataPath` has no empty or `..` segments. A carry
 connection has no expiry (`expiresAt: 0` in the home's record) and no note to
-revoke; disconnecting it removes the carrier (§6.2).
+revoke; disconnecting it removes the carrier (§4.2).
 
 _Source: `packages/core/src/session/connect.ts` (`connectCarrier`, `checkCarryGrant`, `CarryGrant`), `packages/core/src/session/auth.ts` (`grantCarry`). Tests: `packages/core/tests/connect.test.ts` ("connecting a carrier to an account home")._
 
-### 6.4 Subscriptions, and carriers
+### 4.4 Subscriptions, and carriers
 
 "Let me know when…" subscriptions (`node.notifications`, needs the account
 key) are kept in the account registry as `sys.notify` records, key
@@ -1397,10 +820,10 @@ key) are kept in the account registry as `sys.notify` records, key
 `{ label (≤ 120), collection (not sys.*), spaces ("all" or 1–256 ids), topic?: { field, value }, others? (default true), open? (https URL), paused?, since (ISO date), app?: { origin, name? } }`.
 
 An app proposes them when the person asks it to, and the home adds the ones
-the person keeps, naming the app (§4.12). The home lists them by app; the
+the person keeps, naming the app (§2.11). The home lists them by app; the
 person pauses or removes them there. Disconnecting an app removes its
-subscriptions (§4.10). The app shows what they match itself, while it runs
-(§4.12). A subscription without `app` was made by an earlier home and is kept.
+subscriptions (§2.10). The app shows what they match itself, while it runs
+(§2.11). A subscription without `app` was made by an earlier home and is kept.
 
 Each device copies every subscription into every carry space as
 `sys.subscription` (same key), with the topic value replaced by the tag it has
@@ -1420,7 +843,7 @@ that is closed (below).
 _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts` (`arrived`). Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
 
 > **Planned: Web Push, to a closed app or a phone.** Today only an app that
-> is running shows a match (§4.12), so nothing reaches a device where it is
+> is running shows a match (§2.11), so nothing reaches a device where it is
 > closed, and an app with `scope: spaces`, which cannot read the registry,
 > shows nothing. The plan:
 >
@@ -1472,7 +895,7 @@ _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (
 > records live and which carrier sends to which endpoint (with the VAPID
 > question above); whether "not on this device" syncs.
 
-### 6.5 Hosts
+### 4.5 Hosts
 
 A **host** is a carrier for many accounts, run as a service. Each account that
 uses it has a **subscription**: a key pair the account made, a date it is paid
@@ -1593,7 +1016,7 @@ https://host.example/pay#s=did%3Akey%3AzDnaet57TmtMH7vQJT8HzNLSZV5sc5JGJub2ZzpX3
 **What a device does.** `hosting.list()` asks each host the account uses for its
 status. When the status says it is not carrying and it is paid (`active`,
 `grace`, or a free host not `lapsed`), the device hands over the carry space
-with `PUT …/carry`, making the carrier (§6.2) for the host's DID first if the
+with `PUT …/carry`, making the carrier (§4.2) for the host's DID first if the
 account has none (named after the host's address). It asks at most once a
 minute per host, and a second look waits for a handover already in flight. It
 writes the returned receipt into the `sys.hosting` record when the state,
@@ -1607,7 +1030,7 @@ a lapsed subscription is dropped by a periodic sweep (reference: hourly), and
 its carry space with it unless another subscription carries it. Paying again
 in time carries again what the grace period kept. A host MAY carry only a
 configured list of accounts, and then MUST refuse any other before keeping
-anything. It runs the carrier of §6.1–6.2 for every carry space.
+anything. It runs the carrier of §4.1–6.2 for every carry space.
 
 How a device reaches a host's sockets is outside this protocol: the reference
 host takes peers at `wss://<host>/peer` ([04](04-network.md)), which a device
@@ -1617,7 +1040,7 @@ Planned, below).
 
 _Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`), `packages/cli/src/host.ts`, `packages/cli/src/pay-page.ts`. Tests: `packages/cli/tests/host.test.ts`._
 
-### 6.6 Planned: hosts
+### 4.6 Planned: hosts
 
 > **Planned.** Not normative.
 >
@@ -1626,7 +1049,7 @@ _Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts
 > nodes, on every device of the account. A new device that has only the
 > recovery code then tries a host by default (one its home was built with), so
 > it finds the account registry there — the registry has a pass like every
-> space (§6.2) — and from it every space. Open: the description field's name,
+> space (§4.2) — and from it every space. Open: the description field's name,
 > and whether a device should try a default host before it knows the account
 > uses one.
 >
@@ -1654,7 +1077,7 @@ _Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts
 > `paidUntil` and once when the grace period starts, each once per date; a
 > payment moves the date and cancels reminders not yet sent. Email, opted into
 > on the pay page with double opt-in, is the host's own business. The other
-> route is Web Push through the carry space (§6.4, Planned): the home writes a
+> route is Web Push through the carry space (§4.4, Planned): the home writes a
 > `sys.subscription` with no filter and `purpose: "hosting"` when the person
 > allows it, and the host pushes `{ kind: "hosting", host, paidUntil }`,
 > signed like a status. No new call between home and host. Depends on Web Push.
@@ -1666,15 +1089,15 @@ _Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts
 
 ---
 
-## 7. Calls
+## 5. Calls
 
 Calls add nothing to the protocol below them. A call is live messages
-(`spaces.send`, §1.10) in the space it belongs to, plus one WebRTC connection of
+(`spaces.send`, [04](04-network.md) §9.2) in the space it belongs to, plus one WebRTC connection of
 its own between each pair of devices in it (a full mesh). The setup travels
 over the space's peer connection, whose handshake proved who is at the other
 end; a relay only introduces devices and never sees a call.
 
-### 7.1 Messages
+### 5.1 Messages
 
 Every call message is a JSON object with a `type` and a `call` id (a string of
 1–64 characters; the reference makes 12 random bytes in lowercase hex). A
@@ -1699,7 +1122,7 @@ Examples:
 { "type": "call.signal", "call": "3f9a1c0b7e2d4a6f8b1c2d3e", "description": { "type": "offer", "sdp": "v=0\r\n…" } }
 ```
 
-### 7.2 Who takes part
+### 5.2 Who takes part
 
 Only **members** — accounts holding a role in the space ([03](03-spaces.md)) —
 take part. A receiver MUST ignore `call.here`, `call.ring` and `call.signal`
@@ -1715,23 +1138,23 @@ rang.
 > [03](03-spaces.md)). Today a ring is checked only for membership and rate.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
-### 7.3 Presence
+### 5.3 Presence
 
 A device is in at most one call per space at a time: a `call.here` for another
 call moves it. A device not heard from for 15 s (`gone`) is dropped, and the
 connection to it closed. On hearing a new device's first `call.here` in the call
 it is in, a device sends its own `call.here` straight to that device.
 
-### 7.4 Joining, and which call
+### 5.4 Joining, and which call
 
 `start(space)` joins the call already going on in the space — the one with the
 lowest id, if several — or starts one with a new id. Joining holds the space
-(§1.7) for as long as the call lasts, so moving between screens never interrupts
+([holding a space](../packages/core/docs/node.md#opening-and-holding-spaces)) for as long as the call lasts, so moving between screens never interrupts
 it. When a device alone in its call (no connections yet) hears a `call.here`
 for a call with a lower id in the same space, it moves into that call: two calls
 started at once merge into the lower id.
 
-### 7.5 Connections
+### 5.5 Connections
 
 - Between two devices, the one with the **lower session DID** (by string
   comparison) makes the offer. A device MUST ignore an offer from a device whose
@@ -1751,7 +1174,7 @@ started at once merge into the lower id.
   fails, only never connects.
 - ICE servers come from `node.iceServers()`.
 
-### 7.6 Ringing
+### 5.6 Ringing
 
 1. The caller starts (or joins) the call, sends `call.ring` to the callee's
    account and shows `outgoing: ringing`.
@@ -1762,11 +1185,11 @@ started at once merge into the lower id.
 4. The caller on `call.answered` clears `outgoing`; on `call.declined` shows
    `declined` and, if nobody else is in the call 2.5 s later, leaves.
 5. After 45 s unanswered, the caller sends `call.cancel`, writes a missed-call
-   record (§7.8), shows `missed`, and leaves 2.5 s later if alone.
+   record ([`std.call`](../packages/core/docs/standard-library.md#stdcall)), shows `missed`, and leaves 2.5 s later if alone.
 
 Group calls do not ring: a call going on shows to everyone with the space open.
 
-### 7.7 Leaving
+### 5.7 Leaving
 
 Leaving closes every connection, stops the local tracks, sends `call.leave` to
 the space, and — if still ringing someone — sends `call.cancel` and writes a
@@ -1774,43 +1197,13 @@ missed-call record. If nobody else is left in the call and anyone else was ever
 in it, the leaver writes an ended-call record. The space's hold is released 1 s
 later, so the goodbye gets out first.
 
-### 7.8 The `std.call` record
-
-Calls themselves are kept nowhere. Their history is a `std.call` record in the
-space, written only if the space defines `std.call`:
-
-| Field       | Type                            | Meaning                                      |
-| ----------- | ------------------------------- | -------------------------------------------- |
-| `status`    | `"missed"` \| `"ended"`         | required                                     |
-| `to`        | string ≤ 256                    | For a missed call: who was rung.             |
-| `startedAt` | string ≤ 64 (ISO date)          | required                                     |
-| `endedAt`   | string ≤ 64 (ISO date)          | For an ended call.                           |
-| `people`    | string[] ≤ 64 items, each ≤ 256 | For an ended call: every account seen in it. |
-
-Rules: `edit: creator`, `delete: creator` ([02](02-records.md)).
-
-```json
-{
-  "status": "ended",
-  "startedAt": "2026-09-26T10:00:00.000Z",
-  "endedAt": "2026-09-26T10:14:02.311Z",
-  "people": ["did:key:zDnaeSm3…", "did:key:zDnaeXL64…"]
-}
-```
-
-_Implementation detail:_ the call a device is in is kept in `sessionStorage`
-under `weave-call` as `{ space, call }`, so after a reload the page can offer to
-rejoin while the call is still going on.
-
-_Source: `packages/core/src/calls/calls.ts`, `packages/core/src/schemas/index.ts` (`call`). Tests: `packages/core/tests/calls.test.ts`._
-
-### 7.9 Planned
+### 5.8 Planned
 
 > **Planned.** Not normative.
 >
 > - **Ringing with the app closed.** A ring reaches only devices with the
 >   space open. Reaching a closed browser or a phone needs Web Push from a
->   carrier (§6.4, Planned); the extension, always running while the browser
+>   carrier (§4.4, Planned); the extension, always running while the browser
 >   is, could ring too. Not designed: a live message is not a record, so a
 >   carrier has nothing to match a ring against today.
 > - **Big calls.** Past about 6 video streams a full mesh runs out of upload
@@ -1818,29 +1211,8 @@ _Source: `packages/core/src/calls/calls.ts`, `packages/core/src/schemas/index.ts
 >   encryption on top (SFrame), so it forwards media it cannot watch. A host
 >   could run one. Not designed.
 > - **Listening without talking.** View-only readers are kept out of calls
->   (§7.2). A space where readers may listen could come as a role permission,
+>   (§5.2). A space where readers may listen could come as a role permission,
 >   e.g. `call: "listen" | "talk"` ([03](03-spaces.md)). Open.
 > - **Calls across apps.** A call lives in the app that started it; another
 >   app on another origin does not see it. Moving a call between apps would
 >   need the account home to hold it. No plan yet.
-
----
-
-## 8. Client conveniences
-
-These are not protocol; another client may draw sign-in and calls however it
-likes.
-
-- **`<weave-auth>`** draws the flow of §3 into its own light DOM (so password
-  managers find its forms). Attributes: `app-name`, `relays` and `nodes`
-  (comma-separated). It fires `weave-session` (`detail: { session }`, `null` when
-  signed out), bubbling and composed. A page can hand it its own flow with
-  `element.auth = createWeaveAuth(…)`.
-- **React** (`@weaveprotocol/core/react`): `WeaveProvider`, `useWeave`,
-  `useAuth`, `useSession`, `useConnection`, `useAccount`, `useNode`,
-  `useWeaveAuth`, `<WeaveAuth>`, `useQuery`, `useLive`, `useSpaces`,
-  `useHoldSpace` (holds a space while mounted, releasing it a few seconds late),
-  `useRecord`, `useLinked`, `useCollections`, `useProfiles`, `useAccess`,
-  `useSpaceStatus`, `useCan`, `CallsProvider`, `useCalls`.
-
-_Source: `packages/core/src/elements/weave-auth.ts`, `packages/core/src/react/`. Tests: none._

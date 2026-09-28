@@ -105,7 +105,7 @@ fixes the socket's DID for the life of the socket.
 > **Known defect:** two nodes that sign with the same key have the same DID,
 > and only the first gets into a room; the other is refused until it stops.
 > That happens with every tab of one app, which signs with the app's key
-> ([06](06-nodes-and-sessions.md) §4.1), and every `weave mcp` process of one
+> ([06](06-nodes-and-sessions.md) §2.1), and every `weave mcp` process of one
 > agent (06 §5.4). The refused node now says so (§2, and `refused` in
 > `spaces.status`), but it still cannot sync. A fresh session key per node
 > run, delegated from the durable key, would fix it; that needs peers to

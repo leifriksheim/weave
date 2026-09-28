@@ -206,7 +206,7 @@ push out real knocks; a full relay still takes a knock or two on every door,
 from the reserve. An owner whose door is flooded clears it (purge), which
 keeps its code working.
 
-> **Known defect:** both budgets are weaker than this section and §9 promise.
+> **Known defect:** both budgets are weaker than this section and §8 promise.
 > One IPv6 /64 counts as one address, so a home /56 (256 of them) can fill the
 > mailbox within an hour. And a topic holding no blobs may use the reserve, so
 > knocks on random new topics can spend it, after which a full relay takes no
@@ -369,23 +369,7 @@ an agent the contact key.
 
 _Source: `packages/core/src/node/node.ts` (Doors), `packages/core/src/node/types.ts` (`NodeDoors`), `packages/core/src/schemas/contacts.ts`, `packages/core/src/session/auth.ts` (`grant`). Tests: `packages/core/tests/doors.test.ts` ("node.doors"), `packages/core/tests/agents.test.ts`._
 
-## 8. API
-
-`node.doors` ([06 — Nodes, sessions and apps](06-nodes-and-sessions.md)):
-
-| Call                               | Does                                                                                                                                                                                                                                   |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list()`                           | Your open doors: `{ id, label?, name?, key, sign, relays, code, createdAt }`                                                                                                                                                           |
-| `open({ relays?, name?, label? })` | Opens a door. Relays default to this node's relays (up to 3); name to the account's name                                                                                                                                               |
-| `close(id)`                        | Deletes the `std.door`                                                                                                                                                                                                                 |
-| `clear(id)`                        | Purges every knock at the door, from every relay it names                                                                                                                                                                              |
-| `knock(code, { note? })`           | §7, returns `{ space }`                                                                                                                                                                                                                |
-| `knocks()`                         | Fetches every open door's topic from every relay it names, opens and checks (§6; opened results are cached by id), settles sent knocks and writes owed answers; returns `{ id, door, from, name, note?, pairSpace, at }`, newest first |
-| `sent()`                           | Your unanswered knocks: `{ space, name, at }`                                                                                                                                                                                          |
-| `accept(id)`                       | §7, returns the new `ContactView`                                                                                                                                                                                                      |
-| `dismiss(id)`                      | Purges one knock                                                                                                                                                                                                                       |
-
-## 9. Security considerations
+## 8. Security considerations
 
 - **What a relay learns.** Topics, blob sizes and times, and the addresses of
   the sockets that drop, fetch and purge, so it can see that some address
@@ -421,7 +405,7 @@ _Source: `packages/core/src/node/node.ts` (Doors), `packages/core/src/node/types
 - **Losing a relay.** A door names up to three relays, and knocks go to all of
   them. A relay can drop knocks but can't read, forge or alter them.
 
-## 10. Planned: names
+## 9. Planned: names
 
 > **Planned.** Not normative. A handle that leads to a door, so a person can
 > paste `@anna.bsky.social`, sent to them anywhere, where a code works today.
@@ -474,7 +458,7 @@ public, which is opt-in. A second provider should follow: plain DNS,
 `_weave.<domain>` TXT holding a door code, for people with a domain and no
 ATProto account.
 
-## 11. Not yet specified
+## 10. Not yet specified
 
 - **Topics that change over time** (§4).
 - **Retrying a knock** that reached no relay, or whose relays lost it
@@ -482,4 +466,4 @@ ATProto account.
   and dropped at once.
 - **Live knocks.** The mailbox supports `watch`; `node.doors` only fetches.
 - **Proof of work** on `drop`, if public relays see abuse.
-- **Revocation** checks on a knocker's note (§9).
+- **Revocation** checks on a knocker's note (§8).
