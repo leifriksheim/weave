@@ -1418,7 +1418,8 @@ that is closed (below).
 
 _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts` (`arrived`). Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
 
-> **Planned: Web Push, to a closed app or a phone.** Today only an app that
+> **Planned: Web Push, to a closed app or a phone.** Issue:
+> [#60](https://github.com/leifriksheim/weave/issues/60). Today only an app that
 > is running shows a match (§4.12), so nothing reaches a device where it is
 > closed, and an app with `scope: spaces`, which cannot read the registry,
 > shows nothing. The plan:
