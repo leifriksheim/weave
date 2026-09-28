@@ -70,6 +70,13 @@ and rule names).
 - Tests are the executable half of the spec. A rule a peer must check gets a
   test that shows a peer refusing the thing that breaks it.
 
+## Issues and pull requests
+
+Track bugs, planned work and open questions as GitHub issues (`gh issue`).
+Before starting, look for an issue that covers the work. A PR links every
+related issue in its description: `Fixes #N` when it closes one, `Refs #N`
+when it only touches it.
+
 ## Style
 
 Plain functions and frozen data, no class hierarchies. Isomorphic: browsers,
