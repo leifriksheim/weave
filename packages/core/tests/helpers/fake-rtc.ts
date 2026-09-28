@@ -7,7 +7,6 @@
 let nextId = 0;
 const id = (prefix: string) => `${prefix}-${++nextId}`;
 
-// fallow-ignore-file unused-class-member -- FakeTrack stands in for MediaStreamTrack, whose members the code under test reaches through the DOM type
 class FakeTrack {
   readonly id = id('track');
   enabled = true;

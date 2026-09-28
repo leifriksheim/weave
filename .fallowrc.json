@@ -6,5 +6,11 @@
     "bump.config.ts"
   ],
   "usedClassMembers": ["connectedCallback", "disconnectedCallback", "attributeChangedCallback"],
-  "ignoreUnresolvedImports": ["./notify.js", "./offscreen.js", "./popup.js", "./welcome.js"]
+  "ignoreUnresolvedImports": [
+    "./notify.js",
+    "./offscreen.js",
+    "./popup.js",
+    "./welcome.js",
+    "../pay/dist/walletconnect.js"
+  ]
 }
