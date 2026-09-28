@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useNode } from '@weaveprotocol/core/react';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { comment } from '@weaveprotocol/core/schemas';
+import { bodyOf } from '../../derive/schema-ui';
 import { ago } from '../../derive/time';
-import { Avatar } from '../Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { styles, palette } from '../../styles';
 import { Person } from '../Person';
 
@@ -46,7 +47,7 @@ export function Comments({
                 wordBreak: 'break-word',
               }}
             >
-              {(c.body as { text?: string } | null)?.text}
+              {textIn(c)}
             </p>
           </div>
         </div>
@@ -86,4 +87,10 @@ export function Comments({
       )}
     </section>
   );
+}
+
+/** What a comment says */
+function textIn(record: NodeRecord): string | null {
+  const text = bodyOf(record).text;
+  return typeof text === 'string' ? text : null;
 }

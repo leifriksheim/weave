@@ -584,8 +584,8 @@ export function Walkthrough() {
   const tabsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const tabs = tabsRef.current;
-    const tab = tabs?.children[index] as HTMLElement | undefined;
-    if (!tabs || !tab) return;
+    const tab = tabs?.children[index];
+    if (!tabs || !(tab instanceof HTMLElement)) return;
     tabs.scrollTo({ left: tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2, behavior: 'smooth' });
   }, [index]);
 

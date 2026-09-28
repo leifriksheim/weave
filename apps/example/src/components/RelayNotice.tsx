@@ -1,4 +1,4 @@
-import { relayOnlyLocal, relayProblem } from '../relay';
+import { relayOnlyLocal, relayProblem } from '@weave/app-shared/relay';
 import { styles } from '../styles';
 
 /**

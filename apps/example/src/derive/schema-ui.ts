@@ -25,6 +25,22 @@ const LONG_TEXT = 500;
 /** Fields that usually name a record, in the order to try them */
 const TITLE_NAMES = ['title', 'name', 'text', 'question', 'label', 'subject', 'emoji'];
 
+/** A JSON object: a record body, a schema, or one of their parts */
+export function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** A record's fields; none when there is no record or its body cannot be opened */
+export function bodyOf(record: { readonly body: unknown } | null | undefined): Record<string, unknown> {
+  const body = record?.body;
+  return isObject(body) ? body : {};
+}
+
+/** A value as text: JSON for an object or a list, which have no text of their own */
+export function textOf(value: unknown): string {
+  return typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value);
+}
+
 export function kindOf(schema: JsonSchema): FieldKind {
   if (Array.isArray(schema.enum) || Array.isArray(schema.oneOf) || choicesFrom(schema)) return 'choice';
   switch (schema.type) {
@@ -37,7 +53,7 @@ export function kindOf(schema: JsonSchema): FieldKind {
     case 'boolean':
       return 'boolean';
     case 'array': {
-      const items = (schema.items ?? {}) as JsonSchema;
+      const items = isObject(schema.items) ? schema.items : {};
       return items.type === 'string' || items.type === 'number' || items.type === 'integer' ? 'list' : 'json';
     }
     case 'object':
@@ -58,15 +74,18 @@ export function humanize(name: string): string {
 
 /** The fields of an object schema, in the order the schema lists them */
 export function fieldsOf(schema: JsonSchema | null): ReadonlyArray<Field> {
-  const properties = (schema?.properties ?? {}) as Record<string, JsonSchema>;
-  const required = new Set((schema?.required ?? []) as string[]);
-  return Object.entries(properties).map(([name, field]) => ({
-    name,
-    schema: field,
-    kind: kindOf(field),
-    required: required.has(name),
-    label: typeof field.title === 'string' ? field.title : humanize(name),
-  }));
+  const properties = isObject(schema?.properties) ? schema.properties : {};
+  const required = new Set(Array.isArray(schema?.required) ? schema.required : []);
+  return Object.entries(properties).map(([name, value]) => {
+    const field = isObject(value) ? value : {};
+    return {
+      name,
+      schema: field,
+      kind: kindOf(field),
+      required: required.has(name),
+      label: typeof field.title === 'string' ? field.title : humanize(name),
+    };
+  });
 }
 
 /** The field that names a record: a conventional name, else the first required text, else the first text */
@@ -84,7 +103,7 @@ export function titleField(schema: JsonSchema | null): string | null {
 /** A record in a few words */
 export function recordLabel(record: NodeRecord, schema: JsonSchema | null): string {
   if (record.body === null) return '(cannot open)';
-  const body = record.body as Record<string, unknown>;
+  const body = bodyOf(record);
   const field = titleField(schema) ?? TITLE_NAMES.find((name) => typeof body[name] === 'string');
   const value = field ? body[field] : undefined;
   if (typeof value === 'string' && value.trim()) return value.length > 80 ? `${value.slice(0, 80)}…` : value;
@@ -154,8 +173,8 @@ export type LinkedByRel = Readonly<Record<string, NodeRecord | null | undefined>
 
 /** Where a field's choices come from, when they live in a linked record */
 export function choicesFrom(schema: JsonSchema): { rel: string; field: string } | null {
-  const from = schema['x-choicesFrom'] as { rel?: unknown; field?: unknown } | undefined;
-  return from && typeof from.rel === 'string' && typeof from.field === 'string'
+  const from = schema['x-choicesFrom'];
+  return isObject(from) && typeof from.rel === 'string' && typeof from.field === 'string'
     ? { rel: from.rel, field: from.field }
     : null;
 }
@@ -168,19 +187,20 @@ export function choicesFrom(schema: JsonSchema): { rel: string; field: string } 
 export function choicesOf(field: Field, linked: LinkedByRel = {}): ReadonlyArray<Choice> | null {
   const { schema } = field;
   if (Array.isArray(schema.oneOf)) {
-    return (schema.oneOf as Array<{ const: unknown; title?: string }>).map((c) => ({
-      value: c.const,
-      label: c.title ?? String(c.const),
-    }));
+    return schema.oneOf.map((option: unknown) => {
+      const c = isObject(option) ? option : {};
+      return { value: c.const, label: typeof c.title === 'string' ? c.title : String(c.const) };
+    });
   }
-  if (Array.isArray(schema.enum)) return schema.enum.map((value) => ({ value, label: String(value) }));
+  if (Array.isArray(schema.enum))
+    return schema.enum.map((value: unknown) => ({ value, label: String(value) }));
   const from = choicesFrom(schema);
   if (!from) return null;
-  const list = (linked[from.rel]?.body as Record<string, unknown> | null | undefined)?.[from.field];
+  const list = bodyOf(linked[from.rel])[from.field];
   if (!Array.isArray(list)) return null;
   // A number is a position in the list; anything else is the option itself.
   const byPosition = schema.type === 'integer' || schema.type === 'number';
-  return list.map((item, index) => ({ value: byPosition ? index : item, label: String(item) }));
+  return list.map((item: unknown, index) => ({ value: byPosition ? index : item, label: String(item) }));
 }
 
 /** What a person should see for a value: its label, when it is one of the field's choices */
@@ -218,8 +238,7 @@ export function tally(
   if (!choices) return null;
   const counts = choices.map((c) => ({
     label: c.label,
-    count: pointing.filter((r) => (r.body as Record<string, unknown> | null)?.[field.name] === c.value)
-      .length,
+    count: pointing.filter((r) => bodyOf(r)[field.name] === c.value).length,
   }));
   return { field, counts };
 }

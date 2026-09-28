@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAccount, useNode } from '@weaveprotocol/core/react';
 import { createScreenBridge, screenDocument, type ScreenBridge } from '@weaveprotocol/core/schemas';
+import { isObject } from '../../derive/schema-ui';
 import { styles, palette } from '../../styles';
 
 /**
@@ -37,15 +38,22 @@ export function ScreenFrame({
   const node = useNode();
   const account = useAccount();
   const frame = useRef<HTMLIFrameElement>(null);
-  const [stopped, setStopped] = useState(false);
   // A new screen, or a new app, starts a new frame.
   const [generation, setGeneration] = useState(0);
   const origins = [...network].sort().join(' ');
+  // Compared by value, so a new array with the same names changes nothing.
+  const names = collections.join('|');
+  const allowed = network.join(' ');
   const consentKey = `weave.screen-network:${node.did}:${spaceId}:${collection}`;
   const [answer, setAnswer] = useState<'yes' | 'no' | null>(() =>
     origins ? readConsent(consentKey, origins) : 'no',
   );
-  useEffect(() => setAnswer(origins ? readConsent(consentKey, origins) : 'no'), [consentKey, origins]);
+  // Another list of origins asks again, unless this device kept an answer for it.
+  const [askedFor, setAskedFor] = useState(`${consentKey}\n${origins}`);
+  if (askedFor !== `${consentKey}\n${origins}`) {
+    setAskedFor(`${consentKey}\n${origins}`);
+    setAnswer(origins ? readConsent(consentKey, origins) : 'no');
+  }
   const answerWith = (value: 'yes' | 'no') => {
     try {
       globalThis.localStorage?.setItem(consentKey, JSON.stringify({ origins, answer: value }));
@@ -55,20 +63,24 @@ export function ScreenFrame({
     setAnswer(value);
   };
 
+  // The run of the frame that navigated away, if this one did; any change runs it afresh.
+  const run = [spaceId, screen, names, account.name, generation, answer, allowed].join('\n');
+  const [stoppedRun, setStoppedRun] = useState<string | null>(null);
+  const stopped = stoppedRun === run;
+
   useEffect(() => {
     if (answer === null) return;
-    setStopped(false);
+    const list = names.split('|');
     let bridge: ScreenBridge | null = null;
     let handedOver = false;
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
-      if (!target || event.source !== target || (event.data as { weave?: unknown } | null)?.weave !== 'ready')
-        return;
+      if (!target || event.source !== target || !isObject(event.data) || event.data.weave !== 'ready') return;
       if (handedOver) {
         // Only the page we loaded says ready, and only once. Anything after that navigated the frame.
         bridge?.close();
         bridge = null;
-        setStopped(true);
+        setStoppedRun(run);
         return;
       }
       handedOver = true;
@@ -76,15 +88,15 @@ export function ScreenFrame({
       bridge = createScreenBridge({
         node,
         spaceId,
-        collections,
+        collections: list,
         port: channel.port1,
       });
       target.postMessage(
         {
           weave: 'load',
-          document: screenDocument(screen, answer === 'yes' ? network : []),
+          document: screenDocument(screen, answer === 'yes' && allowed ? allowed.split(' ') : []),
           me: { did: node.did, name: account.name },
-          collections: [...collections],
+          collections: list,
         },
         // The frame's origin is opaque, so it can't be named. The port is what carries anything that matters.
         '*',
@@ -96,7 +108,7 @@ export function ScreenFrame({
       globalThis.removeEventListener('message', onMessage);
       bridge?.close();
     };
-  }, [node, spaceId, screen, collections.join('|'), account.name, generation, answer, origins]);
+  }, [node, spaceId, screen, names, account.name, generation, answer, allowed, run]);
 
   if (answer === null) {
     return (
@@ -202,11 +214,10 @@ export function ScreenFrame({
 /** What this person said to a screen's list of origins, when it was this same list */
 function readConsent(key: string, origins: string): 'yes' | 'no' | null {
   try {
-    const kept = JSON.parse(globalThis.localStorage?.getItem(key) ?? 'null') as {
-      origins?: unknown;
-      answer?: unknown;
-    } | null;
-    return kept?.origins === origins && (kept.answer === 'yes' || kept.answer === 'no') ? kept.answer : null;
+    const kept: unknown = JSON.parse(globalThis.localStorage?.getItem(key) ?? 'null');
+    return isObject(kept) && kept.origins === origins && (kept.answer === 'yes' || kept.answer === 'no')
+      ? kept.answer
+      : null;
   } catch {
     return null;
   }

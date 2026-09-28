@@ -1,6 +1,14 @@
 import { useState, type FormEvent } from 'react';
 import type { JsonSchema } from '@weaveprotocol/core';
-import { choicesOf, emptyValue, fieldsOf, type Field, type LinkedByRel } from '../derive/schema-ui';
+import {
+  choicesOf,
+  emptyValue,
+  fieldsOf,
+  isObject,
+  textOf,
+  type Field,
+  type LinkedByRel,
+} from '../derive/schema-ui';
 import { styles } from '../styles';
 
 /**
@@ -25,9 +33,8 @@ export function SchemaForm({
   onCancel?: () => void;
 }) {
   const fields = fieldsOf(schema);
-  const [value, setValue] = useState<Record<string, unknown>>(
-    () =>
-      (initial as Record<string, unknown>) ?? Object.fromEntries(fields.map((f) => [f.name, emptyValue(f)])),
+  const [value, setValue] = useState<Record<string, unknown>>(() =>
+    isObject(initial) ? initial : Object.fromEntries(fields.map((f) => [f.name, emptyValue(f)])),
   );
   const [json, setJson] = useState(() => JSON.stringify(initial ?? {}, null, 2));
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +61,7 @@ export function SchemaForm({
   };
 
   return (
-    <form onSubmit={submit} style={{ ...styles.form, gap: 12 }}>
+    <form onSubmit={(e) => void submit(e)} style={{ ...styles.form, gap: 12 }}>
       {fields.length === 0 ? (
         <label style={labelStyle}>
           <span>Body (JSON) — this collection has no schema</span>
@@ -205,8 +212,8 @@ export function FieldInput({
             <FieldInput
               key={sub.name}
               field={sub}
-              value={(value as Record<string, unknown> | undefined)?.[sub.name]}
-              onChange={(v) => onChange({ ...((value as object) ?? {}), [sub.name]: v })}
+              value={isObject(value) ? value[sub.name] : undefined}
+              onChange={(v) => onChange({ ...(isObject(value) ? value : {}), [sub.name]: v })}
             />
           ))}
         </fieldset>
@@ -240,7 +247,7 @@ function ListInput({
   value: unknown[];
   onChange: (value: unknown) => void;
 }) {
-  const numeric = ((field.schema.items ?? {}) as JsonSchema).type !== 'string';
+  const numeric = (isObject(field.schema.items) ? field.schema.items.type : undefined) !== 'string';
   const parse = (raw: string) => (numeric ? Number(raw) : raw);
   return (
     <div style={labelStyle}>
@@ -250,7 +257,7 @@ function ListInput({
           <input
             aria-label={`${field.label} ${index + 1}`}
             type={numeric ? 'number' : 'text'}
-            value={String(item ?? '')}
+            value={textOf(item ?? '')}
             onChange={(e) => onChange(value.map((old, i) => (i === index ? parse(e.target.value) : old)))}
             style={{ ...styles.input, flex: 1 }}
           />

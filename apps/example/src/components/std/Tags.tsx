@@ -2,10 +2,14 @@ import { useState } from 'react';
 import { useCan, useNode } from '@weaveprotocol/core/react';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { tag } from '@weaveprotocol/core/schemas';
+import { bodyOf } from '../../derive/schema-ui';
 import { palette } from '../../styles';
 
 /** A tag's label, if the record is one */
-export const tagLabel = (r: NodeRecord) => (r.body as { label?: string } | null)?.label ?? '';
+export function tagLabel(r: NodeRecord): string {
+  const label = bodyOf(r).label;
+  return typeof label === 'string' ? label : '';
+}
 
 /**
  * `std.tag` on a record: each tag is a small record of its own, pointing at

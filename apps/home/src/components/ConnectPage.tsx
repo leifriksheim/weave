@@ -8,8 +8,8 @@ import {
   type ProposeRequest,
 } from '@weaveprotocol/core/session';
 import { WeaveAuth, useAuth, useSession, useWeave } from '@weaveprotocol/core/react';
-import { Wordmark } from './Wordmark';
-import { Avatar } from './Avatar';
+import { Wordmark } from '@weave/app-shared/Wordmark';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { styles, palette } from '../styles';
 
 /**
@@ -187,25 +187,15 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
             <strong style={{ color: palette.ink.strong }}>{session.account.name}</strong>. It asked through{' '}
             {host}.
           </p>
-          <div
-            style={{ ...styles.errorBox, marginTop: 0, marginBottom: 12, background: palette.surface.sunken }}
-          >
-            <p style={{ ...styles.todoText }}>What it can do</p>
-            <p style={styles.errorHint}>
-              Read {whole ? 'every space, including ones you make later' : 'the spaces you pick'}, write in
-              them as you, and propose new apps there. Everything it writes shows as yours, “via agent”, to
-              everyone in the space. It keeps working when no app is open.
-            </p>
-          </div>
-          <div
-            style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}
-          >
-            <p style={{ ...styles.todoText }}>What always needs you</p>
-            <p style={styles.errorHint}>
-              Adding an app or a collection, changing roles, inviting or removing people, joining or leaving
-              spaces. Every device ignores an agent that tries. It can't sign in as you.
-            </p>
-          </div>
+          <Note title="What it can do" below={12}>
+            Read {whole ? 'every space, including ones you make later' : 'the spaces you pick'}, write in them
+            as you, and propose new apps there. Everything it writes shows as yours, “via agent”, to everyone
+            in the space. It keeps working when no app is open.
+          </Note>
+          <Note title="What always needs you">
+            Adding an app or a collection, changing roles, inviting or removing people, joining or leaving
+            spaces. Every device ignores an agent that tries. It can't sign in as you.
+          </Note>
         </>
       ) : (
         <>
@@ -219,28 +209,18 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
       )}
 
       {whole && !agent && (
-        <div
-          style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}
-        >
-          <p style={{ ...styles.todoText }}>Your whole account</p>
-          <p style={styles.errorHint}>
-            Every space, including private ones, the list of them, your contacts, and contact requests sent to
-            you. It can make and join spaces for you. It cannot sign in anywhere as you, change your password
-            or passkeys, or keep access past the date below unless you allow it again.
-          </p>
-        </div>
+        <Note title="Your whole account">
+          Every space, including private ones, the list of them, your contacts, and contact requests sent to
+          you. It can make and join spaces for you. It cannot sign in anywhere as you, change your password or
+          passkeys, or keep access past the date below unless you allow it again.
+        </Note>
       )}
 
       {contacts && (
-        <div
-          style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}
-        >
-          <p style={{ ...styles.todoText }}>Your contacts</p>
-          <p style={styles.errorHint}>
-            Who is on your contact list, and contact requests sent to you in the spaces it gets. It can change
-            the list. Asking someone, or saying yes to a request, also needs your whole account.
-          </p>
-        </div>
+        <Note title="Your contacts">
+          Who is on your contact list, and contact requests sent to you in the spaces it gets. It can change
+          the list. Asking someone, or saying yes to a request, also needs your whole account.
+        </Note>
       )}
 
       {choosing && (
@@ -293,14 +273,7 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
                 <input
                   type="checkbox"
                   checked={notify.has(index)}
-                  onChange={() =>
-                    setNotify((was) => {
-                      const next = new Set(was);
-                      if (next.has(index)) next.delete(index);
-                      else next.add(index);
-                      return next;
-                    })
-                  }
+                  onChange={() => setNotify((was) => toggled(was, index))}
                   style={{ ...styles.checkbox, marginTop: 0 }}
                 />
                 <span style={{ flex: 1 }}>{proposal.label}</span>
@@ -323,35 +296,14 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
           ' It can read the private spaces it gets from now on — that cannot be taken back yet.'}
       </p>
 
-      {error && (
-        <div style={{ ...styles.errorBox, marginBottom: 16 }}>
-          <p style={styles.error}>{error}</p>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button
-          onClick={() => void allow()}
-          disabled={busy || nothing}
-          data-variant="primary"
-          style={styles.button}
-        >
-          {busy ? 'Giving access…' : 'Allow'}
-        </button>
-        <button
-          onClick={() => incoming.deny()}
-          disabled={busy}
-          data-variant="quiet"
-          style={{
-            ...styles.button,
-            background: palette.surface.card,
-            color: palette.ink.body,
-            borderColor: palette.surface.lineStrong,
-          }}
-        >
-          Don't allow
-        </button>
-      </div>
+      <Answer
+        error={error}
+        busy={busy}
+        blocked={nothing}
+        allowLabel={busy ? 'Giving access…' : 'Allow'}
+        onAllow={() => void allow()}
+        onDeny={() => incoming.deny()}
+      />
 
       <p style={{ ...styles.errorHint, marginTop: 20 }}>
         {agent ? 'The agent' : 'The app'} gets a note signed by your account, for its own key. It never sees
@@ -425,51 +377,28 @@ function ApproveCarrier({ incoming, request }: { incoming: IncomingRequest; requ
         </div>
       )}
 
-      <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 12, background: palette.surface.sunken }}>
-        <p style={{ ...styles.todoText }}>What it can do</p>
-        <p style={styles.errorHint}>
-          Hold your spaces as they travel, with private ones still locked, and pass them on to your other
-          devices and the people you share with.
-          {pod ? ` Keep your pod, “${pod}”, up to date — it asks you to pick the folder next.` : ''}
-        </p>
-      </div>
-      <div style={{ ...styles.errorBox, marginTop: 0, marginBottom: 20, background: palette.surface.sunken }}>
-        <p style={{ ...styles.todoText }}>What it can't do</p>
-        <p style={styles.errorHint}>
-          Read your private spaces, change anything in them, or sign in as you. It never gets your password or
-          a space's key.
-        </p>
-      </div>
+      <Note title="What it can do" below={12}>
+        Hold your spaces as they travel, with private ones still locked, and pass them on to your other
+        devices and the people you share with.
+        {pod ? ` Keep your pod, “${pod}”, up to date — it asks you to pick the folder next.` : ''}
+      </Note>
+      <Note title="What it can't do">
+        Read your private spaces, change anything in them, or sign in as you. It never gets your password or a
+        space's key.
+      </Note>
 
       <p style={{ ...styles.errorHint, marginBottom: 20 }}>
         Like a relay, it can see who wrote something and when, but not what it says. You can disconnect it any
         time in your account.
       </p>
 
-      {error && (
-        <div style={{ ...styles.errorBox, marginBottom: 16 }}>
-          <p style={styles.error}>{error}</p>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button onClick={() => void allow()} disabled={busy} data-variant="primary" style={styles.button}>
-          {busy ? 'Connecting…' : 'Allow'}
-        </button>
-        <button
-          onClick={() => incoming.deny()}
-          disabled={busy}
-          data-variant="quiet"
-          style={{
-            ...styles.button,
-            background: palette.surface.card,
-            color: palette.ink.body,
-            borderColor: palette.surface.lineStrong,
-          }}
-        >
-          Don't allow
-        </button>
-      </div>
+      <Answer
+        error={error}
+        busy={busy}
+        allowLabel={busy ? 'Connecting…' : 'Allow'}
+        onAllow={() => void allow()}
+        onDeny={() => incoming.deny()}
+      />
     </Frame>
   );
 }
@@ -549,14 +478,7 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
               <input
                 type="checkbox"
                 checked={kept.has(index)}
-                onChange={() =>
-                  setKept((was) => {
-                    const next = new Set(was);
-                    if (next.has(index)) next.delete(index);
-                    else next.add(index);
-                    return next;
-                  })
-                }
+                onChange={() => setKept((was) => toggled(was, index))}
                 style={{ ...styles.checkbox, marginTop: 0 }}
               />
               <span style={{ flex: 1 }}>{proposal.label}</span>
@@ -570,23 +492,71 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
         </p>
       </section>
 
+      <Answer
+        error={error}
+        busy={busy}
+        blocked={kept.size === 0}
+        allowLabel={busy ? 'Adding…' : kept.size === 1 ? 'Notify me' : `Notify me about ${kept.size}`}
+        onAllow={() => void allow()}
+        denyLabel="Not now"
+        onDeny={() => incoming.deny('You chose not to.')}
+      />
+    </Frame>
+  );
+}
+
+/** The set with `index` taken out if it was in, put in if it wasn't */
+function toggled(set: ReadonlySet<number>, index: number): Set<number> {
+  const next = new Set(set);
+  if (next.has(index)) next.delete(index);
+  else next.add(index);
+  return next;
+}
+
+/** A boxed explanation: what something may do, or may not */
+function Note({ title, below = 20, children }: { title: string; below?: number; children: ReactNode }) {
+  return (
+    <div
+      style={{ ...styles.errorBox, marginTop: 0, marginBottom: below, background: palette.surface.sunken }}
+    >
+      <p style={{ ...styles.todoText }}>{title}</p>
+      <p style={styles.errorHint}>{children}</p>
+    </div>
+  );
+}
+
+/** What went wrong, if anything, then the two answers to a request */
+function Answer({
+  error,
+  busy,
+  blocked = false,
+  allowLabel,
+  onAllow,
+  denyLabel = "Don't allow",
+  onDeny,
+}: {
+  error: string | null;
+  busy: boolean;
+  /** Nothing to allow yet */
+  blocked?: boolean;
+  allowLabel: string;
+  onAllow: () => void;
+  denyLabel?: string;
+  onDeny: () => void;
+}) {
+  return (
+    <>
       {error && (
         <div style={{ ...styles.errorBox, marginBottom: 16 }}>
           <p style={styles.error}>{error}</p>
         </div>
       )}
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button
-          onClick={() => void allow()}
-          disabled={busy || kept.size === 0}
-          data-variant="primary"
-          style={styles.button}
-        >
-          {busy ? 'Adding…' : kept.size === 1 ? 'Notify me' : `Notify me about ${kept.size}`}
+        <button onClick={onAllow} disabled={busy || blocked} data-variant="primary" style={styles.button}>
+          {allowLabel}
         </button>
         <button
-          onClick={() => incoming.deny('You chose not to.')}
+          onClick={onDeny}
           disabled={busy}
           data-variant="quiet"
           style={{
@@ -596,10 +566,10 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
             borderColor: palette.surface.lineStrong,
           }}
         >
-          Not now
+          {denyLabel}
         </button>
       </div>
-    </Frame>
+    </>
   );
 }
 

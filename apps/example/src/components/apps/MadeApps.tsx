@@ -484,7 +484,8 @@ function CopyTo({ space, record }: { space: SpaceSummary; record: NodeRecord<App
   );
 }
 
-const tile = {
+/** An app as a tile in a grid of them; the built-in apps are drawn the same way */
+export const tile = {
   display: 'flex',
   flexDirection: 'column' as const,
   gap: 8,
@@ -495,5 +496,5 @@ const tile = {
   font: 'inherit',
   color: 'inherit',
 };
-const tileTitle = { fontSize: 14, fontWeight: 600, color: palette.ink.strong };
-const tileText = { fontSize: 13, lineHeight: 1.5, color: palette.ink.muted };
+export const tileTitle = { fontSize: 14, fontWeight: 600, color: palette.ink.strong };
+export const tileText = { fontSize: 13, lineHeight: 1.5, color: palette.ink.muted };

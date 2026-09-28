@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { EXTERNAL, GITHUB, Page, SPEC } from './Site';
+import { Band, EXTERNAL, GITHUB, Page, Points, SPEC } from './Site';
 
 /**
  * How it works, for people who want the design before the code: one section
@@ -385,26 +385,12 @@ const LIMITS: ReadonlyArray<Point> = [
 
 function Section({ part }: { part: Part }) {
   return (
-    <section className="band">
-      <div className="wrap">
-        <div className="section-head">
-          <div className="kicker">{part.kicker}</div>
-          <h2>{part.title}</h2>
-          <p>{part.lead}</p>
-        </div>
-        <div className="points">
-          {part.points.map((point) => (
-            <div key={point.title}>
-              <h3>{point.title}</h3>
-              <p>{point.body}</p>
-            </div>
-          ))}
-        </div>
-        <a href={specPart(part.file)} {...EXTERNAL} className="spec-link">
-          Read {part.kicker} →
-        </a>
-      </div>
-    </section>
+    <Band kicker={part.kicker} title={part.title} intro={<p>{part.lead}</p>}>
+      <Points points={part.points} />
+      <a href={specPart(part.file)} {...EXTERNAL} className="spec-link">
+        Read {part.kicker} →
+      </a>
+    </Band>
   );
 }
 
@@ -433,75 +419,62 @@ export function Protocol() {
         </div>
       </section>
 
-      <section className="band">
-        <div className="wrap">
-          <div className="section-head">
-            <div className="kicker">The shape of it</div>
-            <h2>Keys sign. Spaces hold. Devices check.</h2>
-            <p>
-              Your master key almost never signs data. Records live in spaces, every device in a space checks
-              every record, and relays only make introductions. Nothing in the picture is in charge of the
-              rest.
-            </p>
-          </div>
-          <div className="moments">
-            <Panel label="Keys sign" title="Every change carries a signature" mock={KEYS}>
-              Your root key signs a short pass for a session key, and the session key signs your changes.
-              Anyone can check them without asking a server.
-            </Panel>
-            <Panel label="Spaces hold" title="The rules live with the data" mock={SPACE}>
-              A space holds its roles, what each kind of record allows, and the records. Private ones are
-              encrypted before they leave your device.
-            </Panel>
-            <Panel label="Devices check" title="Every device is the referee" mock={CHECKS}>
-              Each change is checked when it arrives. Anything that breaks the rules is refused everywhere,
-              the same way.
-            </Panel>
-            <Panel label="Relays introduce" title="Devices talk directly" mock={PEERS}>
-              Relays help devices find each other, then step aside. A host keeps things online without being
-              able to read them.
-            </Panel>
-          </div>
+      <Band
+        kicker="The shape of it"
+        title="Keys sign. Spaces hold. Devices check."
+        intro={
+          <p>
+            Your master key almost never signs data. Records live in spaces, every device in a space checks
+            every record, and relays only make introductions. Nothing in the picture is in charge of the rest.
+          </p>
+        }
+      >
+        <div className="moments">
+          <Panel label="Keys sign" title="Every change carries a signature" mock={KEYS}>
+            Your root key signs a short pass for a session key, and the session key signs your changes. Anyone
+            can check them without asking a server.
+          </Panel>
+          <Panel label="Spaces hold" title="The rules live with the data" mock={SPACE}>
+            A space holds its roles, what each kind of record allows, and the records. Private ones are
+            encrypted before they leave your device.
+          </Panel>
+          <Panel label="Devices check" title="Every device is the referee" mock={CHECKS}>
+            Each change is checked when it arrives. Anything that breaks the rules is refused everywhere, the
+            same way.
+          </Panel>
+          <Panel label="Relays introduce" title="Devices talk directly" mock={PEERS}>
+            Relays help devices find each other, then step aside. A host keeps things online without being
+            able to read them.
+          </Panel>
         </div>
-      </section>
+      </Band>
 
       {PARTS.map((part) => (
         <Section key={part.file} part={part} />
       ))}
 
-      <section className="band">
-        <div className="wrap">
-          <div className="section-head">
-            <div className="kicker">Tradeoffs</div>
-            <h2>What Weave doesn’t do.</h2>
-            <p>No server means some things are harder, and some aren’t finished. Here they are.</p>
-          </div>
-          <div className="points">
-            {LIMITS.map((point) => (
-              <div key={point.title}>
-                <h3>{point.title}</h3>
-                <p>{point.body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <Band
+        kicker="Tradeoffs"
+        title="What Weave doesn’t do."
+        intro={<p>No server means some things are harder, and some aren’t finished. Here they are.</p>}
+      >
+        <Points points={LIMITS} />
+      </Band>
 
-      <section className="band">
-        <div className="wrap">
-          <div className="section-head">
-            <div className="kicker">Next</div>
-            <h2>Designed, and on the way.</h2>
-            <p>
-              Permission chains that travel with a record, edit histories anyone can check, sealing with HPKE,
-              signed writer logs, handles like @you.bsky.social that lead to a door, and more.
-            </p>
-          </div>
-          <a href={specPart('README.md#planned-work')} {...EXTERNAL} className="spec-link">
-            See everything planned →
-          </a>
-        </div>
-      </section>
+      <Band
+        kicker="Next"
+        title="Designed, and on the way."
+        intro={
+          <p>
+            Permission chains that travel with a record, edit histories anyone can check, sealing with HPKE,
+            signed writer logs, handles like @you.bsky.social that lead to a door, and more.
+          </p>
+        }
+      >
+        <a href={specPart('README.md#planned-work')} {...EXTERNAL} className="spec-link">
+          See everything planned →
+        </a>
+      </Band>
 
       <section className="cta">
         <div className="wrap">

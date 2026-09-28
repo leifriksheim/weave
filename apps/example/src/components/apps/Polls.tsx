@@ -4,7 +4,7 @@ import type { IncludedOf, QueryRecord } from '@weaveprotocol/core';
 import { poll, vote, type Poll } from '@weaveprotocol/core/schemas';
 import { nameOf, peopleFrom, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
-import { Avatar } from '../Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
 import { Person } from '../Person';
@@ -94,7 +94,7 @@ export function PollView({
         void node.records.put(space.id, vote.name, { choice }, { links: [{ rel: 'about', to: record.key }] })
       }
       onUnvote={(key) => void node.records.delete(space.id, key)}
-      onClose={(closed) => void node.records.update(space.id, record.key, { ...record.body!, closed })}
+      onClose={(closed) => void node.records.update(space.id, record.key, { ...record.body, closed })}
       onDelete={() => void node.records.delete(space.id, record.key)}
     />
   );
@@ -121,7 +121,7 @@ function PollCard({
   onClose: (closed: boolean) => void;
   onDelete: () => void;
 }) {
-  const { question, options, closed } = record.body!;
+  const { question, options, closed } = record.body;
   // Only votes for an option that exists count — a vote from a buggy app for option 7 of 2 is ignored.
   const votes = record.included.votes.filter((v) => v.body.choice < options.length);
   const mine = votes.find((v) => v.root === me);
@@ -170,13 +170,13 @@ function PollCard({
 
       <div role="group" aria-label="Options" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {options.map((option, i) => {
-          const these = votes.filter((v) => v.body!.choice === i);
+          const these = votes.filter((v) => v.body.choice === i);
           const share = votes.length ? these.length / votes.length : 0;
           const chosen = mine?.body?.choice === i;
           return (
             <button
               key={i}
-              onClick={() => (chosen ? onUnvote(mine!.key) : onVote(i))}
+              onClick={() => (chosen ? onUnvote(mine.key) : onVote(i))}
               disabled={!open}
               aria-pressed={chosen}
               title={these.length ? these.map((v) => nameOf(v.root, people)).join(', ') : undefined}

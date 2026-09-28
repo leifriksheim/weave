@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNode, useLive, useProfiles, useCan } from '@weaveprotocol/core/react';
 import type { NodeCollection, NodeRecord, QueryRecord, SpaceSummary } from '@weaveprotocol/core';
 import { reaction, comment, tag } from '@weaveprotocol/core/schemas';
 import {
   byRel,
+  bodyOf,
   checkField,
   choicesFrom,
   choicesOf,
@@ -13,6 +14,7 @@ import {
   metaFields,
   quickAddBody,
   recordLabel,
+  textOf,
   titleField,
   labelOf,
   type Field,
@@ -23,13 +25,16 @@ import { ago } from '../derive/time';
 import { SchemaForm } from './SchemaForm';
 import { DefinitionEditor, useMayRedefine } from './DefinitionEditor';
 import { Value } from './Value';
-import { Avatar } from './Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { reactionSummary } from './std/Reactions';
 import { chip, tagLabel } from './std/Tags';
 import { styles, palette } from '../styles';
 import { Person } from './Person';
+import { useDraft } from './useDraft';
 
-type Layout = 'list' | 'table' | 'board';
+const LAYOUTS = ['list', 'table', 'board'] as const;
+type Layout = (typeof LAYOUTS)[number];
+const isLayout = (value: unknown): value is Layout => LAYOUTS.some((layout) => layout === value);
 
 /** Each collection remembers how you last looked at it — on this device only */
 const layoutKey = (space: string, name: string) => `weave.layout:${space}:${name}`;
@@ -79,9 +84,10 @@ export function CollectionView({
   const groups = groupFields(schema);
   const [groupName, setGroupName] = useState(() => remembered(groupKey(space.id, name)));
   const group = groups.find((f) => f.name === groupName) ?? groups[0] ?? null;
-  const [layout, setLayout] = useState<Layout>(
-    () => (remembered(layoutKey(space.id, name)) as Layout | null) ?? 'list',
-  );
+  const [layout, setLayout] = useState<Layout>(() => {
+    const saved = remembered(layoutKey(space.id, name));
+    return isLayout(saved) ? saved : 'list';
+  });
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
   const people = peopleFrom(useProfiles(space.id));
@@ -90,7 +96,6 @@ export function CollectionView({
   const redefine = useMayRedefine(space, collection);
   // Records that can be about anything — comments, reactions, tags — are added on the record they're about.
   const onOthers = Object.values(collection?.links ?? {}).some((l) => l.to === '*');
-  const shownLayout = layout;
 
   const choose = (next: Layout) => {
     setLayout(next);
@@ -174,7 +179,7 @@ export function CollectionView({
               style={{ ...styles.input, width: undefined, height: 32, fontSize: 13 }}
             />
           )}
-          {shownLayout === 'board' && groups.length > 1 && group && (
+          {layout === 'board' && groups.length > 1 && group && (
             <label
               style={{
                 display: 'inline-flex',
@@ -213,13 +218,13 @@ export function CollectionView({
             </button>
           )}
           <div role="tablist" aria-label="Layout" style={segmented}>
-            {(['list', 'table', 'board'] as Layout[]).map((l) => (
+            {LAYOUTS.map((l) => (
               <button
                 key={l}
                 role="tab"
-                aria-selected={shownLayout === l}
+                aria-selected={layout === l}
                 onClick={() => choose(l)}
-                style={shownLayout === l ? { ...segment, ...segmentOn } : segment}
+                style={layout === l ? { ...segment, ...segmentOn } : segment}
               >
                 {l[0]!.toUpperCase() + l.slice(1)}
               </button>
@@ -254,19 +259,19 @@ export function CollectionView({
         <p style={styles.emptyState}>{search ? 'Nothing matches.' : `No ${label.toLowerCase()} yet.`}</p>
       )}
 
-      {visible.length > 0 && shownLayout === 'list' && (
+      {visible.length > 0 && layout === 'list' && (
         <ListLayout rows={visible} schema={schema} people={people} space={space} onOpen={onOpen} />
       )}
-      {visible.length > 0 && shownLayout === 'table' && (
+      {visible.length > 0 && layout === 'table' && (
         <TableLayout rows={visible} schema={schema} onOpen={onOpen} />
       )}
-      {shownLayout === 'board' && !group && (
+      {layout === 'board' && !group && (
         <p style={styles.emptyState}>
           A board makes a column for each option of a choice field — like a status of To do, Doing and Done.{' '}
           {label} has no field like that yet{redefine.may ? ' — add one with Edit definition' : ''}.
         </p>
       )}
-      {visible.length > 0 && shownLayout === 'board' && group && (
+      {visible.length > 0 && layout === 'board' && group && (
         <BoardLayout
           rows={visible}
           schema={schema}
@@ -366,7 +371,7 @@ function ListLayout({
       style={{ border: `1px solid ${palette.surface.line}`, borderRadius: 12, overflow: 'hidden' }}
     >
       {rows.map(({ record, linked }, i) => {
-        const body = record.body as Record<string, unknown>;
+        const body = bodyOf(record);
         const done = check ? body[check.name] === true : false;
         return (
           <div
@@ -429,8 +434,7 @@ function Check({
   label: string;
   onChange: (checked: boolean) => Promise<unknown>;
 }) {
-  const [shown, setShown] = useState(checked);
-  useEffect(() => setShown(checked), [checked]);
+  const [shown, setShown] = useDraft(checked);
   return (
     <input
       type="checkbox"
@@ -483,12 +487,7 @@ function TableLayout({
               {columns.length ? (
                 columns.map((c) => (
                   <td key={c.name} style={td}>
-                    <Value
-                      field={c}
-                      value={(record.body as Record<string, unknown>)[c.name]}
-                      linked={linked}
-                      compact
-                    />
+                    <Value field={c} value={bodyOf(record)[c.name]} linked={linked} compact />
                   </td>
                 ))
               ) : (
@@ -533,13 +532,13 @@ function BoardLayout({
   ];
   const meta = metaFields(schema).filter((f) => f.name !== field.name);
   const columnOf = (r: Row) => {
-    const i = choices.findIndex((c) => c.value === (r.record.body as Record<string, unknown>)[field.name]);
+    const i = choices.findIndex((c) => c.value === bodyOf(r.record)[field.name]);
     return i < 0 ? 'none' : String(i);
   };
   const move = (key: string, value: unknown) => {
     const row = rows.find((r) => r.record.key === key);
     if (!row) return;
-    const body = { ...(row.record.body as Record<string, unknown>) };
+    const body = { ...bodyOf(row.record) };
     if (value === undefined) delete body[field.name];
     else body[field.name] = value;
     // Refused by the record's rules — it stays where it was.
@@ -644,14 +643,15 @@ function Meta({
   fields: ReadonlyArray<Field>;
   linked: LinkedByRel;
 }) {
-  const body = record.body as Record<string, unknown>;
-  const tags = Array.isArray(record.included?.tags) ? (record.included.tags as NodeRecord[]) : [];
+  const body = bodyOf(record);
+  const included = record.included?.tags;
+  const tags = typeof included === 'object' ? included : [];
   const parts: ReactNode[] = [];
   for (const f of fields) {
     const value = body[f.name];
     if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0))
       continue;
-    const shown = labelOf(f, value, linked) ?? (Array.isArray(value) ? value.join(', ') : String(value));
+    const shown = labelOf(f, value, linked) ?? (Array.isArray(value) ? value.join(', ') : textOf(value));
     parts.push(
       <span key={f.name} style={{ fontSize: 12, color: palette.ink.muted }}>
         <span style={{ color: palette.ink.faint }}>{f.label}</span> {shown}

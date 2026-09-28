@@ -14,7 +14,7 @@ import {
   type PermissionOption,
 } from '../derive/abilities';
 import { nameOf, peopleFrom, type People } from '../derive/people';
-import { Avatar } from './Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { RingButton } from './calls/Calls';
 import { createInviteLink } from '../spaces';
 import { styles, palette, variants } from '../styles';

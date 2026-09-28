@@ -2,7 +2,7 @@ import { useAccount, useLive, useNode, useProfiles } from '@weaveprotocol/core/r
 import { call as callSchema, type Call } from '@weaveprotocol/core/schemas';
 import { nameOf, peopleFrom, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
-import { Avatar } from '../Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { CallButton } from '../calls/Calls';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';

@@ -4,7 +4,7 @@ import type { SpaceSummary } from '@weaveprotocol/core';
 import type { CallAround, CallPeer, CurrentCall, IncomingCall } from '@weaveprotocol/core/calls';
 import { useAccount, useCalls, useProfiles } from '@weaveprotocol/core/react';
 import { nameOf, peopleFrom } from '../../derive/people';
-import { Avatar } from '../Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { Icon, type ICONS } from '../Icon';
 import { styles, palette } from '../../styles';
 
@@ -533,7 +533,7 @@ const linkish: CSSProperties = {
 };
 
 function useElapsed(since: number): string {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -551,13 +551,7 @@ function useElapsed(since: number): string {
  * are copied in, so the tiles look the same there.
  */
 function usePictureInPicture(): { supported: boolean; window: Window | null; toggle: () => void } {
-  const api = (
-    globalThis as {
-      documentPictureInPicture?: {
-        requestWindow(options: { width: number; height: number }): Promise<Window>;
-      };
-    }
-  ).documentPictureInPicture;
+  const api = globalThis.documentPictureInPicture;
   const [pip, setPip] = useState<Window | null>(null);
   useEffect(() => () => pip?.close(), [pip]);
   const toggle = () => {

@@ -4,8 +4,8 @@ import { useNode } from '@weaveprotocol/core/react';
 import { styles, palette } from '../styles';
 import { nameOf, type People } from '../derive/people';
 import { takeBack, useContacts, useStanding } from '../contacts';
-import { Avatar } from './Avatar';
-import { Modal } from './Modal';
+import { Avatar } from '@weave/app-shared/Avatar';
+import { Modal } from '@weave/app-shared/Modal';
 
 /** What a name in a space needs to open its card: the space, who is in it, and where a space for two opens */
 interface PersonScope {

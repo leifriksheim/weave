@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNode } from '@weaveprotocol/core/react';
 import type { NodeCollection, SpaceSummary } from '@weaveprotocol/core';
-import { standardAnnotations, useSchemas } from '@weaveprotocol/core/schemas';
+// `useSchemas` defines collections in a space; it is not a React hook, whatever its name says.
+import { standardAnnotations, useSchemas as addSchemas } from '@weaveprotocol/core/schemas';
 import { styles, palette } from '../styles';
 
 const WHAT_IT_ADDS: Record<string, string> = {
@@ -67,7 +68,7 @@ export function Library({
               <button
                 onClick={() => {
                   setBusy(schema.name);
-                  void useSchemas(node, space.id, [schema])
+                  void addSchemas(node, space.id, [schema])
                     .then(() => onAdded?.(schema.name))
                     .finally(() => setBusy(null));
                 }}

@@ -2,17 +2,17 @@ import { useState, type FormEvent } from 'react';
 import { roleHolds } from '@weaveprotocol/core';
 import type { DefineCollection, JsonSchema, NodeCollection, SpaceSummary } from '@weaveprotocol/core';
 import { useAccess, useAccount, useNode, useProfiles } from '@weaveprotocol/core/react';
-import { collectionLabel, humanize } from '../derive/schema-ui';
+import { collectionLabel, humanize, isObject } from '../derive/schema-ui';
 import {
-  FIELD_TYPES,
   SUGGESTED_LINKS,
   fieldSchema,
   fieldTypeOf,
-  optionsOf,
+  namedFields,
   relFrom,
   type FieldTypeName,
 } from '../derive/field-types';
 import { nameOf, peopleFrom } from '../derive/people';
+import { FieldRow } from './FieldRow';
 import { styles, palette } from '../styles';
 
 type LinkDeclaration = NonNullable<DefineCollection['links']>[string];
@@ -75,20 +75,23 @@ export function DefinitionEditor({
 }) {
   const node = useNode();
   const schema = collection.schema ?? { type: 'object' };
-  const properties = (schema.properties ?? {}) as Record<string, JsonSchema>;
-  const required = new Set((schema.required ?? []) as string[]);
+  const properties = isObject(schema.properties) ? schema.properties : {};
+  const required = new Set(Array.isArray(schema.required) ? schema.required : []);
 
   const [title, setTitle] = useState(collectionLabel(collection));
   const [description, setDescription] = useState(collection.description ?? '');
   const [fields, setFields] = useState<FieldDraft[]>(() =>
-    Object.entries(properties).map(([name, s]) => ({
-      was: name,
-      name,
-      type: fieldTypeOf(s),
-      options: Array.isArray(s.enum) ? s.enum.join(', ') : '',
-      required: required.has(name),
-      original: s,
-    })),
+    Object.entries(properties).map(([name, value]) => {
+      const s = isObject(value) ? value : {};
+      return {
+        was: name,
+        name,
+        type: fieldTypeOf(s),
+        options: Array.isArray(s.enum) ? s.enum.join(', ') : '',
+        required: required.has(name),
+        original: s,
+      };
+    }),
   );
   const [links, setLinks] = useState<LinkDraft[]>(() =>
     Object.entries(collection.links).map(([rel, d]) => ({
@@ -112,9 +115,8 @@ export function DefinitionEditor({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    const named = fields.filter((f) => f.name.trim());
-    const empty = named.find((f) => f.type === 'choice' && optionsOf(f.options).length === 0);
-    if (empty) return setError(`Give "${empty.name}" some options to choose from, separated by commas`);
+    const { named, problem } = namedFields(fields);
+    if (problem) return setError(problem);
     const rels = links.map((l) => relFrom(l.label));
     if (rels.some((r) => !r)) return setError('Every kind of link needs a name');
     if (new Set(rels).size !== rels.length) return setError('Two kinds of link have the same name');
@@ -127,7 +129,8 @@ export function DefinitionEditor({
           const same =
             f.original &&
             f.type === fieldTypeOf(f.original) &&
-            (f.type !== 'choice' || f.options === (f.original.enum as unknown[] | undefined)?.join(', '));
+            (f.type !== 'choice' ||
+              f.options === (Array.isArray(f.original.enum) ? f.original.enum.join(', ') : undefined));
           return [f.name.trim(), same || f.type === null ? f.original! : fieldSchema(f.type, f.options)];
         }),
       ),
@@ -185,7 +188,7 @@ export function DefinitionEditor({
 
   return (
     <form
-      onSubmit={submit}
+      onSubmit={(e) => void submit(e)}
       aria-label={`Edit what ${collectionLabel(collection)} is`}
       style={{ display: 'flex', flexDirection: 'column', gap: 24 }}
     >
@@ -218,55 +221,13 @@ export function DefinitionEditor({
       <section style={section}>
         <h3 style={styles.sectionTitle}>Fields</h3>
         {fields.map((field, i) => (
-          <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-            <input
-              aria-label={`Field ${i + 1} name`}
-              value={field.name}
-              onChange={(e) => setField(i, { name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })}
-              placeholder="field name"
-              style={{ ...styles.input, flex: 1 }}
-            />
-            {field.type === null ? (
-              <span style={{ fontSize: 13, color: palette.ink.faint, padding: '0 8px' }}>kept as it is</span>
-            ) : (
-              <select
-                aria-label={`Field ${i + 1} type`}
-                value={field.type}
-                onChange={(e) => setField(i, { type: e.target.value as FieldTypeName })}
-                style={styles.input}
-              >
-                {Object.keys(FIELD_TYPES).map((t) => (
-                  <option key={t}>{t}</option>
-                ))}
-              </select>
-            )}
-            <label style={{ fontSize: 12, display: 'flex', gap: 4 }}>
-              <input
-                type="checkbox"
-                checked={field.required}
-                onChange={(e) => setField(i, { required: e.target.checked })}
-              />
-              required
-            </label>
-            <button
-              type="button"
-              onClick={() => setFields(fields.filter((_, j) => j !== i))}
-              data-variant="ghost"
-              style={styles.linkButton}
-              aria-label={`Remove field ${i + 1}`}
-            >
-              ✕
-            </button>
-            {field.type === 'choice' && (
-              <input
-                aria-label={`Field ${i + 1} options`}
-                value={field.options}
-                onChange={(e) => setField(i, { options: e.target.value })}
-                placeholder="Options, separated by commas: To do, Doing, Done"
-                style={{ ...styles.input, flexBasis: '100%' }}
-              />
-            )}
-          </div>
+          <FieldRow
+            key={i}
+            field={field}
+            index={i}
+            onChange={(patch) => setField(i, patch)}
+            onRemove={() => setFields(fields.filter((_, j) => j !== i))}
+          />
         ))}
         <button
           type="button"

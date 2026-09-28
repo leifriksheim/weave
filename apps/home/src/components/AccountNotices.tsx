@@ -1,5 +1,5 @@
 import { useWeave } from '@weaveprotocol/core/react';
-import { relayOnlyLocal, relayProblem } from '../relay';
+import { relayOnlyLocal, relayProblem } from '@weave/app-shared/relay';
 import { PodChoice } from './PodChoice';
 import { styles } from '../styles';
 

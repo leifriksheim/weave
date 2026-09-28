@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { CarrierSummary, SpaceStatus } from '@weaveprotocol/core';
 import { useAccount, useNode } from '@weaveprotocol/core/react';
 import { nameOf, type People } from '../derive/people';
-import { Avatar } from './Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { styles } from '../styles';
 
 const count = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`);

@@ -6,6 +6,7 @@ import type {
   P2PNode,
   SpaceSummary,
 } from '@weaveprotocol/core/node';
+import { message } from '../message';
 import { styles, palette } from '../styles';
 
 /**
@@ -47,7 +48,7 @@ export function Notifications({
   // What the chosen spaces hold: every defined collection, once, with its topic fields.
   useEffect(() => {
     const looked = where === 'all' ? spaces.map((space) => space.id) : [where];
-    void Promise.all(looked.map((id) => node.collections.list(id).catch(() => [] as NodeCollection[]))).then(
+    void Promise.all(looked.map((id) => node.collections.list(id).catch((): NodeCollection[] => []))).then(
       (lists) => {
         const byName = new Map<string, NodeCollection>();
         for (const found of lists.flat())
@@ -61,14 +62,14 @@ export function Notifications({
 
   const chosen = collections.find((c) => c.name === collection) ?? null;
   const spaceName = (id: string) => spaces.find((space) => space.id === id)?.name ?? 'a space';
-  const suggested = useMemo(() => {
-    if (!chosen) return '';
+  let suggested = '';
+  if (chosen) {
     const what =
       field && value
         ? `${value === node.did ? 'Mentions me' : `${field} is ${value}`}`
         : `New ${chosen.title ?? chosen.name}`;
-    return `${what}${where === 'all' ? '' : ` in ${spaceName(where)}`}`;
-  }, [chosen, field, value, where, spaces]);
+    suggested = `${what}${where === 'all' ? '' : ` in ${spaceName(where)}`}`;
+  }
 
   const act = async (what: string, work: () => Promise<void>) => {
     setBusy(what);
@@ -113,7 +114,7 @@ export function Notifications({
   }, [subscriptions]);
 
   return (
-    <section id="notifications" style={section}>
+    <section id="notifications" style={styles.settingsSection}>
       <div>
         <h2 style={{ ...styles.sectionTitle, fontSize: 16, marginBottom: 4 }}>Notify me when…</h2>
         <p style={{ color: palette.ink.muted, fontSize: 14, lineHeight: 1.5 }}>
@@ -135,7 +136,7 @@ export function Notifications({
             {app ? `From ${app.name ?? new URL(app.origin).host}` : 'Added here'}
           </p>
           {subs.map((sub) => (
-            <div key={sub.id} style={row}>
+            <div key={sub.id} style={styles.settingsRow}>
               <span style={{ opacity: sub.paused ? 0.55 : 1 }}>
                 {sub.label} · {sub.spaces === 'all' ? 'every space' : sub.spaces.map(spaceName).join(', ')}
                 {sub.paused ? ' · paused' : ''}
@@ -259,25 +260,3 @@ export function Notifications({
     </section>
   );
 }
-
-const message = (reason: unknown) => (reason instanceof Error ? reason.message : String(reason));
-
-const section = {
-  border: `1px solid ${palette.surface.line}`,
-  borderRadius: 12,
-  padding: 20,
-  marginBottom: 16,
-  display: 'flex',
-  flexDirection: 'column' as const,
-  gap: 12,
-};
-const row = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 12,
-  padding: '10px 12px',
-  background: palette.surface.sunken,
-  borderRadius: 8,
-  fontSize: 14,
-};

@@ -7,6 +7,7 @@ import {
   choicesFrom,
   choicesOf,
   collectionLabel,
+  bodyOf,
   fieldsOf,
   metaFields,
   recordLabel,
@@ -119,13 +120,13 @@ const noun = (c: NodeCollection) => collectionLabel(c).toLowerCase();
 /** What a record says in its title field, when it says anything — "Can take a bike", not a made-up label */
 function said(record: NodeRecord, collection: NodeCollection): string | null {
   const title = titleField(collection.schema);
-  const value = title ? (record.body as Record<string, unknown> | null)?.[title] : undefined;
+  const value = title ? bodyOf(record)[title] : undefined;
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 /** The short fields beside a title */
 function Meta({ collection, record }: { collection: NodeCollection; record: NodeRecord }) {
-  const body = (record.body ?? {}) as Record<string, unknown>;
+  const body = bodyOf(record);
   const fields = metaFields(collection.schema).filter(
     (f) => body[f.name] !== undefined && body[f.name] !== '',
   );
@@ -188,20 +189,18 @@ function Children({
   const picker: Field | undefined = fields.find((f) => choicesFrom(f.schema)?.rel === rel);
   const choices = picker ? choicesOf(picker, { [rel]: parent }) : null;
   if (picker && choices) {
-    const chosen = (mine?.body as Record<string, unknown> | null)?.[picker.name];
+    const chosen = bodyOf(mine)[picker.name];
     const pick = (value: unknown) =>
       run(() =>
         mine && !onePerMe
-          ? node.records.update(space.id, mine.key, { ...(mine.body as object), [picker.name]: value })
+          ? node.records.update(space.id, mine.key, { ...bodyOf(mine), [picker.name]: value })
           : node.records.put(space.id, child.name, { [picker.name]: value }, { links }),
       );
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {choices.map((choice) => {
-            const count = records.filter(
-              (r) => (r.body as Record<string, unknown> | null)?.[picker.name] === choice.value,
-            ).length;
+            const count = records.filter((r) => bodyOf(r)[picker.name] === choice.value).length;
             const on = chosen === choice.value;
             return (
               <button

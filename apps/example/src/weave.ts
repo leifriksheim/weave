@@ -8,7 +8,7 @@
  * hooks in `@weaveprotocol/core/react`.
  */
 import { createWeaveConnection } from '@weaveprotocol/core/session';
-import { CONFIGURED_NODES, relayUrls } from './relay';
+import { CONFIGURED_NODES, relayUrls } from '@weave/app-shared/relay';
 
 /** The account home's connect page — ours by default; anyone can run their own */
 const HOME = import.meta.env.VITE_WEAVE_HOME ?? 'https://weave-home.netlify.app/connect';

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useAccount, useConnection } from '@weaveprotocol/core/react';
-import { Avatar } from './Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
+import { useDismiss } from '@weave/app-shared/useDismiss';
 import { ConnectAgent } from './ConnectAgent';
 import { palette } from '../styles';
 
@@ -19,22 +20,11 @@ export function AccountMenu() {
   const [connecting, setConnecting] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
-  // A menu that stays open after you have clicked past it feels stuck.
-  useEffect(() => {
-    if (!open) return;
-    const dismiss = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    globalThis.document.addEventListener('mousedown', dismiss);
-    globalThis.document.addEventListener('keydown', onKey);
-    return () => {
-      globalThis.document.removeEventListener('mousedown', dismiss);
-      globalThis.document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  useDismiss(
+    open,
+    root,
+    useCallback(() => setOpen(false), []),
+  );
 
   const openHome = () => {
     setOpen(false);

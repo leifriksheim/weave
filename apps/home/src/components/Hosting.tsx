@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { HostingView, P2PNode } from '@weaveprotocol/core/node';
+import { message } from '../message';
 import { styles, palette } from '../styles';
 
 /** The host this home offers by default; any other can be typed in */
@@ -77,7 +78,7 @@ export function Hosting({ node }: { node: P2PNode }) {
     });
 
   return (
-    <section style={section}>
+    <section style={styles.settingsSection}>
       <div>
         <h2 style={{ ...styles.sectionTitle, fontSize: 16, marginBottom: 4 }}>Keep my spaces online</h2>
         <p style={{ color: palette.ink.muted, fontSize: 14, lineHeight: 1.5 }}>
@@ -110,7 +111,7 @@ export function Hosting({ node }: { node: P2PNode }) {
 
       {hosts?.map((host) => (
         <div key={host.url} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={row}>
+          <div style={styles.settingsRow}>
             <span>
               {host.name} · {describe(host)}
             </span>
@@ -183,25 +184,3 @@ function describe(host: HostingView): string {
       return host.pays ? `not paid for yet${offline}` : `this host isn't taking new accounts${offline}`;
   }
 }
-
-const message = (reason: unknown) => (reason instanceof Error ? reason.message : String(reason));
-
-const section = {
-  border: `1px solid ${palette.surface.line}`,
-  borderRadius: 12,
-  padding: 20,
-  marginBottom: 16,
-  display: 'flex',
-  flexDirection: 'column' as const,
-  gap: 12,
-};
-const row = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 12,
-  padding: '10px 12px',
-  background: palette.surface.sunken,
-  borderRadius: 8,
-  fontSize: 14,
-};

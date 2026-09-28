@@ -4,11 +4,11 @@ import type { ResultOf } from '@weaveprotocol/core';
 import { message, poll, reaction, vote } from '@weaveprotocol/core/schemas';
 import { peopleFrom, writerOf } from '../../derive/people';
 import { ago } from '../../derive/time';
-import { Avatar } from '../Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { Reactions } from '../std/Reactions';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
-import { Ask, PollView, withVotes, type PollWithVotes } from './Polls';
+import { Ask, PollView, withVotes } from './Polls';
 
 /** Messages from one person this close together share one name line */
 const RUN_MS = 5 * 60 * 1000;
@@ -276,7 +276,7 @@ function Line({
           {sharesPoll ? (
             // The poll says it better than the message's fallback text.
             <div style={{ flex: 1, minWidth: 0, maxWidth: 480, margin: '4px 0' }}>
-              <PollView space={space} record={shared as PollWithVotes} onOpen={onOpen} />
+              <PollView space={space} record={shared} onOpen={onOpen} />
             </div>
           ) : (
             <div style={{ flex: 1, minWidth: 0 }}>

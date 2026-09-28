@@ -24,6 +24,7 @@
  * installs it.
  */
 import { initializeWebMCPPolyfill } from '@mcp-b/webmcp-polyfill';
+import type { InputSchema } from '@mcp-b/webmcp-types';
 import { NODE_ACTIONS, checkActionInput } from '@weaveprotocol/core';
 import { getNode } from './weave';
 
@@ -56,11 +57,13 @@ export function exposeToAgents(): void {
   initializeWebMCPPolyfill();
 
   for (const action of NODE_ACTIONS.filter((candidate) => !PROPOSE_INSTEAD.has(candidate.name))) {
+    // Typed as a plain schema, so the arguments come in as a record rather than inferred from it.
+    const inputSchema: InputSchema = { ...action.input };
     void document.modelContext
       .registerTool({
         name: action.name,
         description: action.description,
-        inputSchema: action.input as never,
+        inputSchema,
         annotations: { readOnlyHint: action.readOnly },
         async execute(input: Record<string, unknown>) {
           // Whoever is connected right now — the tools outlive any one connection.

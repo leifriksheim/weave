@@ -12,8 +12,8 @@ import { useAccount, useNode } from '@weaveprotocol/core/react';
 import { clearDoorFromUrl, doorLink, readDoorFromUrl, takeBack, useContacts, useStanding } from '../contacts';
 import { nameOf, peopleFrom } from '../derive/people';
 import { ago } from '../derive/time';
-import { Avatar } from './Avatar';
-import { Modal } from './Modal';
+import { Avatar } from '@weave/app-shared/Avatar';
+import { Modal } from '@weave/app-shared/Modal';
 import { styles, palette } from '../styles';
 
 /** How often to look in the doors' mailboxes: knocks wait on relays, which tell nobody */
@@ -67,7 +67,7 @@ export function ContactsView({
   useEffect(() => {
     let stopped = false;
     void Promise.all(
-      shared.map((space) => node.contacts.requests(space.id).catch(() => [] as ContactRequest[])),
+      shared.map((space) => node.contacts.requests(space.id).catch((): ContactRequest[] => [])),
     ).then((found) => !stopped && setRequests(found.flat()));
     return () => {
       stopped = true;

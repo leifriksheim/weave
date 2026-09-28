@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNode, useAccount } from '@weaveprotocol/core/react';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { reaction } from '@weaveprotocol/core/schemas';
+import { bodyOf } from '../../derive/schema-ui';
 import { palette } from '../../styles';
 
 const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];
@@ -24,8 +25,8 @@ export function Reactions({
   const [picking, setPicking] = useState(false);
   const byEmoji = new Map<string, NodeRecord[]>();
   for (const r of reactions) {
-    const emoji = (r.body as { emoji?: string } | null)?.emoji;
-    if (emoji) byEmoji.set(emoji, [...(byEmoji.get(emoji) ?? []), r]);
+    const emoji = bodyOf(r).emoji;
+    if (typeof emoji === 'string' && emoji) byEmoji.set(emoji, [...(byEmoji.get(emoji) ?? []), r]);
   }
 
   const toggle = (emoji: string) => {
@@ -126,11 +127,11 @@ const pill = {
 
 /** 👍 3 · ❤️ 1 — a record's reactions in a few characters, for a list row */
 export function reactionSummary(reactions: ReadonlyArray<NodeRecord> | number | undefined): string {
-  if (!Array.isArray(reactions) || reactions.length === 0) return '';
+  if (typeof reactions !== 'object' || reactions.length === 0) return '';
   const counts = new Map<string, number>();
   for (const r of reactions) {
-    const emoji = (r.body as { emoji?: string } | null)?.emoji;
-    if (emoji) counts.set(emoji, (counts.get(emoji) ?? 0) + 1);
+    const emoji = bodyOf(r).emoji;
+    if (typeof emoji === 'string' && emoji) counts.set(emoji, (counts.get(emoji) ?? 0) + 1);
   }
   return [...counts]
     .slice(0, 3)

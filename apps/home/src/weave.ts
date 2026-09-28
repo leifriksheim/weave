@@ -5,7 +5,7 @@
  * access (`/connect`), and link to it for account settings (`/`).
  */
 import { createWeaveAuth } from '@weaveprotocol/core/session';
-import { CONFIGURED_NODES, relayUrls } from './relay';
+import { CONFIGURED_NODES, relayUrls } from '@weave/app-shared/relay';
 
 export const auth = createWeaveAuth({
   appName: 'Weave',

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useConnection } from '@weaveprotocol/core/react';
-import { Wordmark } from './Wordmark';
+import { Wordmark } from '@weave/app-shared/Wordmark';
 import { styles, palette } from '../styles';
 
 /**

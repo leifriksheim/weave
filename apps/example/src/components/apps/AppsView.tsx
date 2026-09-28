@@ -2,9 +2,19 @@ import { useState } from 'react';
 import { DEFINE, roleHolds } from '@weaveprotocol/core';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { useAccess, useNode } from '@weaveprotocol/core/react';
-import { supersededApps, useSchemas } from '@weaveprotocol/core/schemas';
+// `useSchemas` defines collections in a space; it is not a React hook, whatever its name says.
+import { supersededApps, useSchemas as addSchemas } from '@weaveprotocol/core/schemas';
 import { APPS, readiness, has, type WeaveApp } from './index';
-import { isAdded, MadeAppScreen, MadeAppTiles, Proposals, useMadeApps } from './MadeApps';
+import {
+  isAdded,
+  MadeAppScreen,
+  MadeAppTiles,
+  Proposals,
+  tile,
+  tileText,
+  tileTitle,
+  useMadeApps,
+} from './MadeApps';
 import { styles, palette } from '../../styles';
 
 /**
@@ -77,7 +87,7 @@ export function AppsView({
     setBusy(app.id);
     setError(null);
     try {
-      await useSchemas(node, space.id, app.needs);
+      await addSchemas(node, space.id, app.needs);
       await app.setup?.(node, space.id);
       setOpenId(app.id);
     } catch (e) {
@@ -214,16 +224,3 @@ function SchemaList({ app, collections }: { app: WeaveApp; collections: Readonly
 }
 
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 };
-const tile = {
-  display: 'flex',
-  flexDirection: 'column' as const,
-  gap: 8,
-  padding: 14,
-  border: `1px solid ${palette.surface.line}`,
-  borderRadius: 10,
-  background: palette.surface.card,
-  font: 'inherit',
-  color: 'inherit',
-};
-const tileTitle = { fontSize: 14, fontWeight: 600, color: palette.ink.strong };
-const tileText = { fontSize: 13, lineHeight: 1.5, color: palette.ink.muted };

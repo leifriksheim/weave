@@ -2,8 +2,9 @@ import { useState, type FormEvent } from 'react';
 import type { SpaceSummary, SpaceVisibility } from '@weaveprotocol/core';
 import type { NewSpace } from '@weaveprotocol/core';
 import { rolePresets } from '@weaveprotocol/core';
-import { Modal, Choice } from './Modal';
-import { Info } from './Info';
+import { Modal, Choice } from '@weave/app-shared/Modal';
+import { Info } from '@weave/app-shared/Info';
+import { hash } from '@weave/app-shared/hash';
 import { NameField, useMyName } from './NameField';
 import { styles, palette } from '../styles';
 
@@ -12,15 +13,8 @@ export function spaceBadges(space: Pick<SpaceSummary, 'visibility' | 'role' | 'j
   return `${space.visibility === 'private' ? 'encrypted' : 'public'} · ${space.joining ? 'joining…' : (space.role ?? 'following')}`;
 }
 
-/** A small deterministic hash, so a space keeps its colour everywhere it appears. */
-function hue(text: string): number {
-  let value = 2166136261;
-  for (let i = 0; i < text.length; i++) {
-    value ^= text.charCodeAt(i);
-    value = Math.imul(value, 16777619);
-  }
-  return (value >>> 0) % 360;
-}
+/** A space keeps its colour everywhere it appears. */
+const hue = (text: string) => hash(text) % 360;
 
 /**
  * A space's icon: its first letter on a tint worked out from its id.

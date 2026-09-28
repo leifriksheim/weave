@@ -77,7 +77,7 @@ function examplesFor(collections: ReadonlyArray<NodeCollection>, me: string): Ex
     }
     const choice = fields.find((f) => Array.isArray(f.schema.enum) && f.schema.enum.length > 1);
     if (choice) {
-      const options = (choice.schema.enum as unknown[]).slice(0, 2);
+      const options: unknown[] = Array.isArray(choice.schema.enum) ? choice.schema.enum.slice(0, 2) : [];
       out.push({
         label: `${collectionLabel(c)} by ${choice.label.toLowerCase()}`,
         query: { collection: c.name, where: { [choice.name]: { $in: options } } },
@@ -175,13 +175,12 @@ export function QueryPlayground({
   const [parsed, setParsed] = useState<Parsed>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
+  // Which query, in which space, has answered at least once; until it has, it is still running.
+  const [ranFor, setRanFor] = useState<string | null>(null);
   const [raw, setRaw] = useState(false);
 
   // Start from the first example, once there is one — and never overwrite what you typed.
-  useEffect(() => {
-    if (text === null && examples[0]) setText(pretty(examples[0].query));
-  }, [text, examples]);
+  if (text === null && examples[0]) setText(pretty(examples[0].query));
 
   // Parse a moment after typing stops.
   useEffect(() => {
@@ -193,6 +192,7 @@ export function QueryPlayground({
           problem: 'The editor is empty. Pick an example above, or write a query.',
         });
       try {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the node checks the query itself (checkQuery) and says what is wrong, shown as the query's error
         const query = JSON.parse(text) as Query;
         setParsed({ ok: true, query, text: JSON.stringify(query) });
       } catch (error) {
@@ -204,20 +204,21 @@ export function QueryPlayground({
 
   // Run it, and again whenever the space's records change.
   const runKey = parsed?.ok ? parsed.text : null;
+  const running = runKey !== null && ranFor !== `${space.id}\n${runKey}`;
   useEffect(() => {
     if (!parsed?.ok) return;
-    setRunning(true);
+    const key = `${space.id}\n${parsed.text}`;
     return node.records.watch(
       space.id,
       parsed.query,
       (next) => {
         setResult(next);
         setQueryError(null);
-        setRunning(false);
+        setRanFor(key);
       },
       (error) => {
         setQueryError(error.message.replace(/^Invalid query: /, ''));
-        setRunning(false);
+        setRanFor(key);
       },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -416,7 +417,7 @@ const syntax = {
   '--sh-comment': palette.ink.faint,
   '--sh-break': palette.ink.body,
   '--sh-space': palette.ink.body,
-} as CSSProperties;
+};
 
 const codeText: CSSProperties = {
   fontFamily: palette.mono,

@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,10 +11,10 @@ import {
 } from 'react';
 import { useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
-import { collectionLabel, fieldsOf, humanize, recordLabel, titleField } from '../derive/schema-ui';
+import { bodyOf, collectionLabel, fieldsOf, humanize, recordLabel, titleField } from '../derive/schema-ui';
 import { nameOf, peopleFrom, type People } from '../derive/people';
 import { ago } from '../derive/time';
-import { Avatar } from './Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { Value } from './Value';
 import { styles, palette } from '../styles';
 import { Person } from './Person';
@@ -180,7 +181,9 @@ export function GraphView({
   const [hovered, setHovered] = useState<string | null>(null);
   const [view, setViewState] = useState<View>({ x: 0, y: 0, k: 1 });
   const [size, setSize] = useState({ w: 0, h: HEIGHT });
-  const [, setFrame] = useState(0);
+  // Where each dot is drawn: the simulation moves its places in refs, and each frame copies them here.
+  const [drawn, setDrawn] = useState<ReadonlyMap<string, { x: number; y: number }>>(() => new Map());
+  const [dragging, setDragging] = useState<Gesture['kind'] | null>(null);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -287,8 +290,69 @@ export function GraphView({
 
   const dotById = useMemo(() => new Map(graph.dots.map((d) => [d.id, d])), [graph]);
   const shape = `${graph.dots.map((d) => d.id).join(',')}|${graph.lines.map((l) => l.id).join(',')}`;
-  const graphRef = useRef(graph);
-  graphRef.current = graph;
+
+  // The layout loop and its fit run from frames started by earlier renders, so they read the pick from here.
+  const selectedRef = useRef(selected);
+  useLayoutEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
+  /** The width left for the map once the details panel takes its share */
+  const room = () => {
+    const w = svgRef.current?.getBoundingClientRect().width ?? 0;
+    return selectedRef.current ? Math.max(w - PANEL - 24, w / 2) : w;
+  };
+
+  /** Glides the view so a dot sits in the middle of what is visible */
+  const flyTo = (id: string) => {
+    const p = places.current.get(id);
+    const box = svgRef.current?.getBoundingClientRect();
+    if (!p || !box) return;
+    const from = { ...viewRef.current };
+    const k = Math.max(from.k, 1);
+    const to = { k, x: room() / 2 - p.x * k, y: box.height / 2 - p.y * k };
+    const start = performance.now();
+    if (flight.current !== null) cancelAnimationFrame(flight.current);
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 350);
+      const e = 1 - Math.pow(1 - t, 3);
+      setView({
+        x: from.x + (to.x - from.x) * e,
+        y: from.y + (to.y - from.y) * e,
+        k: from.k + (to.k - from.k) * e,
+      });
+      flight.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    flight.current = requestAnimationFrame(step);
+  };
+
+  /** Zooms so everything on screen fits */
+  const fit = (animate = true) => {
+    const box = svgRef.current?.getBoundingClientRect();
+    const ps = sim.current.places;
+    if (!box || ps.length === 0) return;
+    const xs = ps.map((p) => p.x);
+    const ys = ps.map((p) => p.y);
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const w = room();
+    const k = clamp(Math.min(w / (x1 - x0 + 80), box.height / (y1 - y0 + 80)), 0.15, 1.6);
+    const to = { k, x: w / 2 - ((x0 + x1) / 2) * k, y: box.height / 2 - ((y0 + y1) / 2) * k };
+    if (!animate) return setView(to);
+    const from = { ...viewRef.current };
+    const start = performance.now();
+    if (flight.current !== null) cancelAnimationFrame(flight.current);
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 350);
+      const e = 1 - Math.pow(1 - t, 3);
+      setView({
+        x: from.x + (to.x - from.x) * e,
+        y: from.y + (to.y - from.y) * e,
+        k: from.k + (to.k - from.k) * e,
+      });
+      flight.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    flight.current = requestAnimationFrame(step);
+  };
 
   /** Runs the layout until it settles, one or two steps a frame */
   const run = () => {
@@ -300,7 +364,7 @@ export function GraphView({
         h.alpha += (h.target - h.alpha) * 0.0228;
         tick(ps, springs, h.alpha);
       }
-      setFrame((f) => f + 1);
+      setDrawn(new Map([...places.current].map(([id, p]) => [id, { x: p.x, y: p.y }])));
       if (!fitted.current && h.alpha < 0.08 && ps.length > 0) {
         fitted.current = true;
         fit(false);
@@ -313,7 +377,7 @@ export function GraphView({
 
   // When the dots or lines change: place new dots near something they touch, and let it all settle again.
   useEffect(() => {
-    const { dots, lines } = graphRef.current;
+    const { dots, lines } = graph;
     const map = places.current;
     const known = dots.filter((d) => map.has(d.id)).length;
     const neighbours = new Map<string, string[]>();
@@ -407,65 +471,6 @@ export function GraphView({
     return () => svg.removeEventListener('wheel', onWheel);
   }, [hasGraph]);
 
-  /** The width left for the map once the details panel takes its share */
-  const room = () => {
-    const w = svgRef.current?.getBoundingClientRect().width ?? 0;
-    return selectedRef.current ? Math.max(w - PANEL - 24, w / 2) : w;
-  };
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
-
-  /** Glides the view so a dot sits in the middle of what is visible */
-  const flyTo = (id: string) => {
-    const p = places.current.get(id);
-    const box = svgRef.current?.getBoundingClientRect();
-    if (!p || !box) return;
-    const from = { ...viewRef.current };
-    const k = Math.max(from.k, 1);
-    const to = { k, x: room() / 2 - p.x * k, y: box.height / 2 - p.y * k };
-    const start = performance.now();
-    if (flight.current !== null) cancelAnimationFrame(flight.current);
-    const step = (now: number) => {
-      const t = Math.min(1, (now - start) / 350);
-      const e = 1 - Math.pow(1 - t, 3);
-      setView({
-        x: from.x + (to.x - from.x) * e,
-        y: from.y + (to.y - from.y) * e,
-        k: from.k + (to.k - from.k) * e,
-      });
-      flight.current = t < 1 ? requestAnimationFrame(step) : null;
-    };
-    flight.current = requestAnimationFrame(step);
-  };
-
-  /** Zooms so everything on screen fits */
-  const fit = (animate = true) => {
-    const box = svgRef.current?.getBoundingClientRect();
-    const ps = sim.current.places;
-    if (!box || ps.length === 0) return;
-    const xs = ps.map((p) => p.x);
-    const ys = ps.map((p) => p.y);
-    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const w = room();
-    const k = clamp(Math.min(w / (x1 - x0 + 80), box.height / (y1 - y0 + 80)), 0.15, 1.6);
-    const to = { k, x: w / 2 - ((x0 + x1) / 2) * k, y: box.height / 2 - ((y0 + y1) / 2) * k };
-    if (!animate) return setView(to);
-    const from = { ...viewRef.current };
-    const start = performance.now();
-    if (flight.current !== null) cancelAnimationFrame(flight.current);
-    const step = (now: number) => {
-      const t = Math.min(1, (now - start) / 350);
-      const e = 1 - Math.pow(1 - t, 3);
-      setView({
-        x: from.x + (to.x - from.x) * e,
-        y: from.y + (to.y - from.y) * e,
-        k: from.k + (to.k - from.k) * e,
-      });
-      flight.current = t < 1 ? requestAnimationFrame(step) : null;
-    };
-    flight.current = requestAnimationFrame(step);
-  };
-
   /** Picks a dot from the panel: brings its kind back if it was switched off, then goes to it */
   const walkTo = (id: string) => {
     const record = byKey.get(id);
@@ -494,6 +499,7 @@ export function GraphView({
     svgRef.current?.setPointerCapture(event.pointerId);
     if (flight.current !== null) cancelAnimationFrame(flight.current);
     gesture.current = { kind: 'pan', sx: at.x, sy: at.y, view: { ...viewRef.current }, moved: false };
+    setDragging('pan');
   };
   const onDotDown = (event: ReactPointerEvent, id: string) => {
     if (event.button !== 0) return;
@@ -501,6 +507,7 @@ export function GraphView({
     const at = local(event);
     svgRef.current?.setPointerCapture(event.pointerId);
     gesture.current = { kind: 'dot', id, sx: at.x, sy: at.y, moved: false };
+    setDragging('dot');
   };
   const onMove = (event: ReactPointerEvent<SVGSVGElement>) => {
     const g = gesture.current;
@@ -526,6 +533,7 @@ export function GraphView({
   const onUp = () => {
     const g = gesture.current;
     gesture.current = null;
+    setDragging(null);
     if (!g) return;
     if (g.kind === 'pan') {
       if (!g.moved) setSelected(null);
@@ -600,7 +608,7 @@ export function GraphView({
   const allLabels = k >= 1.3 || graph.dots.length <= 40;
   const pick = selected ? (dotById.get(selected) ?? null) : null;
   const hover = hovered ? (dotById.get(hovered) ?? null) : null;
-  const hoverAt = hover ? places.current.get(hover.id) : undefined;
+  const hoverAt = hover ? drawn.get(hover.id) : undefined;
 
   return (
     <section aria-label="Explore" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
@@ -670,7 +678,7 @@ export function GraphView({
           style={{
             display: 'block',
             touchAction: 'none',
-            cursor: gesture.current?.kind === 'pan' ? 'grabbing' : 'grab',
+            cursor: dragging === 'pan' ? 'grabbing' : 'grab',
             userSelect: 'none',
           }}
         >
@@ -695,8 +703,8 @@ export function GraphView({
           </defs>
           <g transform={`translate(${view.x},${view.y}) scale(${k})`}>
             {graph.lines.map((l) => {
-              const a = places.current.get(l.from);
-              const b = places.current.get(l.to);
+              const a = drawn.get(l.from);
+              const b = drawn.get(l.to);
               const da = dotById.get(l.from);
               const db = dotById.get(l.to);
               if (!a || !b || !da || !db) return null;
@@ -741,7 +749,7 @@ export function GraphView({
               );
             })}
             {graph.dots.map((dot) => {
-              const p = places.current.get(dot.id);
+              const p = drawn.get(dot.id);
               if (!p) return null;
               const isPicked = dot.id === selected;
               const dim = !!lit && !lit.has(dot.id);
@@ -808,7 +816,7 @@ export function GraphView({
           </g>
         </svg>
 
-        {hover && hoverAt && hover.record && !gesture.current && (
+        {hover && hoverAt && hover.record && !dragging && (
           <div
             style={{
               ...tooltip,
@@ -990,7 +998,7 @@ function Details({
 
   const record = dot.record!;
   const schema = schemaOf(record.collection);
-  const body = (record.body ?? {}) as Record<string, unknown>;
+  const body = bodyOf(record);
   const title = titleField(schema);
   const known = fieldsOf(schema);
   const fields = (

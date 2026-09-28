@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { styles } from '../styles';
+import { styles } from './styles';
 
 /**
  * A dialog over the page.
@@ -22,10 +22,9 @@ export function Modal({
   children: ReactNode;
 }) {
   const card = useRef<HTMLDivElement>(null);
-  const returnTo = useRef<Element | null>(null);
 
   useEffect(() => {
-    returnTo.current = globalThis.document.activeElement;
+    const returnTo = globalThis.document.activeElement;
 
     // The first field, or the dialog itself when it has none.
     const focusable = card.current?.querySelectorAll<HTMLElement>(
@@ -58,20 +57,61 @@ export function Modal({
     globalThis.document.addEventListener('keydown', onKey);
     return () => {
       globalThis.document.removeEventListener('keydown', onKey);
-      (returnTo.current as HTMLElement | null)?.focus?.();
+      if (returnTo instanceof HTMLElement || returnTo instanceof SVGElement) returnTo.focus();
     };
   }, [onClose]);
 
   return (
     <div
+      className="modal-backdrop"
       style={styles.backdrop}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div ref={card} role="dialog" aria-modal aria-label={title} tabIndex={-1} style={styles.modal}>
+      <div
+        ref={card}
+        role="dialog"
+        aria-modal
+        aria-label={title}
+        tabIndex={-1}
+        className="modal"
+        style={styles.modal}
+      >
         <h2 style={styles.modalTitle}>{title}</h2>
         {children}
+      </div>
+    </div>
+  );
+}
+
+/** One question with two answers, which is every choice a list has. */
+export function Choice<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div>
+      <p style={styles.fieldLabel}>{label}</p>
+      <div style={styles.segmented} role="group" aria-label={label}>
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            aria-pressed={option.value === value}
+            style={option.value === value ? styles.segmentActive : styles.segment}
+          >
+            {option.label}
+          </button>
+        ))}
       </div>
     </div>
   );

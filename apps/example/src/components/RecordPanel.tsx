@@ -4,6 +4,7 @@ import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/co
 import { reaction, comment, tag } from '@weaveprotocol/core/schemas';
 import {
   attachable,
+  bodyOf,
   byRel,
   choicesFrom,
   collectionLabel,
@@ -12,6 +13,7 @@ import {
   labelOf,
   recordLabel,
   tally,
+  textOf,
   titleField,
   type Field,
   type LinkedByRel,
@@ -20,13 +22,14 @@ import { peopleFrom, writerOf } from '../derive/people';
 import { ago } from '../derive/time';
 import { SchemaForm, FieldInput } from './SchemaForm';
 import { Value } from './Value';
-import { Avatar } from './Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { Reactions } from './std/Reactions';
 import { Tags } from './std/Tags';
 import { Comments } from './std/Comments';
 import { LinkPicker } from './LinkPicker';
 import { styles, palette } from '../styles';
 import { Person } from './Person';
+import { useDraft } from './useDraft';
 
 /**
  * The standard schemas this app gives a place of their own on every record —
@@ -64,10 +67,13 @@ export function RecordPanel({
     globalThis.addEventListener('keydown', onKey);
     return () => globalThis.removeEventListener('keydown', onKey);
   }, [onClose]);
-  useEffect(() => {
+  // Another record opened: what was being added to or linked from the last one goes.
+  const [shownKey, setShownKey] = useState(recordKey);
+  if (recordKey !== shownKey) {
+    setShownKey(recordKey);
     setAdding(null);
     setLinking(null);
-  }, [recordKey]);
+  }
 
   const people = peopleFrom(useProfiles(space.id));
   const data = useLive(
@@ -91,7 +97,7 @@ export function RecordPanel({
   const schemaOf = (name: string) => collections.find((c) => c.name === name)?.schema ?? null;
   const collection = record ? collections.find((c) => c.name === record.collection) : undefined;
   const schema = collection?.schema ?? null;
-  const body = (record?.body ?? {}) as Record<string, unknown>;
+  const body = bodyOf(record);
   const title = titleField(schema);
   const fields = fieldsOf(schema).filter((f) => f.name !== title);
   const extra = Object.keys(body).filter((k) => k !== title && !fieldsOf(schema).some((f) => f.name === k));
@@ -179,7 +185,7 @@ export function RecordPanel({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {title && editable ? (
                 <InlineText
-                  value={String(body[title] ?? '')}
+                  value={textOf(body[title] ?? '')}
                   onSave={(v) => save(title, v)}
                   ariaLabel="Title"
                   big
@@ -314,12 +320,12 @@ export function RecordPanel({
             {error && <p style={styles.error}>{error}</p>}
 
             {[...pointing].map(([group, records]) => {
-              const [name, rel] = group.split('|') as [string, string];
+              const [name = '', rel = ''] = group.split('|');
               const c = collections.find((x) => x.name === name);
               const counted = c ? tally(c, records, record) : null;
               const labelFor = (r: NodeRecord) =>
                 (counted
-                  ? labelOf(counted.field, (r.body as Record<string, unknown> | null)?.[counted.field.name], {
+                  ? labelOf(counted.field, bodyOf(r)[counted.field.name], {
                       [choicesFrom(counted.field.schema)!.rel]: record,
                     })
                   : null) ?? recordLabel(r, schemaOf(r.collection));
@@ -519,8 +525,7 @@ function FieldEditor({
   onSave: (value: unknown) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<unknown>(value);
-  useEffect(() => setDraft(value), [value]);
+  const [draft, setDraft] = useDraft<unknown>(value);
   // In place, the property row already says what the field is.
   const bare: Field = {
     ...field,
@@ -624,8 +629,7 @@ function InlineText({
   big?: boolean;
   multiline?: boolean;
 }) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  const [draft, setDraft] = useDraft(value);
   const commit = () => {
     if (draft.trim() !== value.trim()) void onSave(draft.trim());
   };
@@ -650,7 +654,7 @@ function InlineText({
     <input
       {...common}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Enter') e.currentTarget.blur();
         if (e.key === 'Escape') setDraft(value);
       }}
     />

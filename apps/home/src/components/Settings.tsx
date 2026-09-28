@@ -10,7 +10,7 @@ import {
   type StaySignedIn,
 } from '@weaveprotocol/core/session';
 import { useAuth, useSession } from '@weaveprotocol/core/react';
-import { Avatar } from './Avatar';
+import { Avatar } from '@weave/app-shared/Avatar';
 import { PairPhone } from './PairPhone';
 import { Hosting } from './Hosting';
 import { Notifications } from './Notifications';
@@ -25,8 +25,8 @@ import { styles, palette } from '../styles';
 export function Settings() {
   const { auth, state } = useAuth();
   const session = useSession();
-  const [stay, setStay] = useState<StaySignedIn>(auth.staySignedIn.choice);
-  const [until, setUntil] = useState<Date | null>(auth.staySignedIn.until);
+  const [stay, setStay] = useState<StaySignedIn>(() => auth.staySignedIn.choice());
+  const [until, setUntil] = useState<Date | null>(() => auth.staySignedIn.until());
   const hasPasskey = (state.entry?.shortcuts.length ?? 0) > 0;
   const hasPassword = state.entry?.hasPassword ?? false;
   // Without either, every visit here asks for the recovery code.

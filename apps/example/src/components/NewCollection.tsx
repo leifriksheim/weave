@@ -4,10 +4,8 @@ import type { JsonSchema, NodeCollection, SpaceSummary } from '@weaveprotocol/co
 import { collectionLabel } from '../derive/schema-ui';
 import { styles } from '../styles';
 import { ANNOTATIONS } from './RecordPanel';
-import { FIELD_TYPES, fieldSchema, optionsOf, type FieldTypeName } from '../derive/field-types';
-
-const TYPES = FIELD_TYPES;
-type TypeName = FieldTypeName;
+import { fieldSchema, namedFields, type FieldTypeName } from '../derive/field-types';
+import { FieldRow } from './FieldRow';
 
 /**
  * Defines a collection in the space: a name, some fields, and optionally
@@ -25,7 +23,7 @@ export function NewCollection({
   const existing = useCollections(space.id);
   const [title, setTitle] = useState('');
   const [fields, setFields] = useState<
-    Array<{ name: string; type: TypeName; required: boolean; options?: string }>
+    Array<{ name: string; type: FieldTypeName; required: boolean; options?: string }>
   >([{ name: 'title', type: 'text', required: true }]);
   const [pointsAt, setPointsAt] = useState('');
   const [ownOnly, setOwnOnly] = useState(true);
@@ -43,9 +41,8 @@ export function NewCollection({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    const named = fields.filter((f) => f.name.trim());
-    const empty = named.find((f) => f.type === 'choice' && optionsOf(f.options).length === 0);
-    if (empty) return setError(`Give "${empty.name}" some options to choose from, separated by commas`);
+    const { named, problem } = namedFields(fields);
+    if (problem) return setError(problem);
     const schema: JsonSchema = {
       type: 'object',
       properties: Object.fromEntries(named.map((f) => [f.name.trim(), fieldSchema(f.type, f.options)])),
@@ -74,7 +71,7 @@ export function NewCollection({
 
   return (
     <form
-      onSubmit={submit}
+      onSubmit={(e) => void submit(e)}
       style={{ ...styles.form, gap: 10, marginTop: 12 }}
       aria-label="Define a collection"
     >
@@ -89,63 +86,13 @@ export function NewCollection({
         Stored as <code>{name}</code>
       </span>
       {fields.map((field, i) => (
-        <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-          <input
-            aria-label={`Field ${i + 1} name`}
-            value={field.name}
-            onChange={(e) =>
-              setFields(
-                fields.map((f, j) =>
-                  j === i ? { ...f, name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') } : f,
-                ),
-              )
-            }
-            placeholder="field name"
-            style={{ ...styles.input, flex: 1 }}
-          />
-          <select
-            aria-label={`Field ${i + 1} type`}
-            value={field.type}
-            onChange={(e) =>
-              setFields(fields.map((f, j) => (j === i ? { ...f, type: e.target.value as TypeName } : f)))
-            }
-            style={styles.input}
-          >
-            {Object.keys(TYPES).map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </select>
-          <label style={{ fontSize: 12, display: 'flex', gap: 4 }}>
-            <input
-              type="checkbox"
-              checked={field.required}
-              onChange={(e) =>
-                setFields(fields.map((f, j) => (j === i ? { ...f, required: e.target.checked } : f)))
-              }
-            />
-            required
-          </label>
-          <button
-            type="button"
-            onClick={() => setFields(fields.filter((_, j) => j !== i))}
-            data-variant="ghost"
-            style={styles.linkButton}
-            aria-label={`Remove field ${i + 1}`}
-          >
-            ✕
-          </button>
-          {field.type === 'choice' && (
-            <input
-              aria-label={`Field ${i + 1} options`}
-              value={field.options ?? ''}
-              onChange={(e) =>
-                setFields(fields.map((f, j) => (j === i ? { ...f, options: e.target.value } : f)))
-              }
-              placeholder="Options, separated by commas: To do, Doing, Done"
-              style={{ ...styles.input, flexBasis: '100%' }}
-            />
-          )}
-        </div>
+        <FieldRow
+          key={i}
+          field={field}
+          index={i}
+          onChange={(patch) => setFields(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)))}
+          onRemove={() => setFields(fields.filter((_, j) => j !== i))}
+        />
       ))}
       <button
         type="button"

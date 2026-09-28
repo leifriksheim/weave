@@ -177,7 +177,7 @@ export function Kanban({ space, onOpen }: AppProps) {
             >
               {lane.record ? (
                 <button
-                  onClick={() => onOpen(lane.record!)}
+                  onClick={() => onOpen(lane.record)}
                   title="Open this column"
                   style={{
                     border: 'none',

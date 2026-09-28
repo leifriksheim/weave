@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { labelOf, type Field, type LinkedByRel } from '../derive/schema-ui';
+import { labelOf, textOf, type Field, type LinkedByRel } from '../derive/schema-ui';
 import { styles, palette } from '../styles';
 
 /** Text longer than this folds away behind "Show": a screen's HTML is a field too */
@@ -70,8 +70,8 @@ function Plain({
     return <span>{new Date(value).toLocaleString()}</span>;
   if (typeof value === 'string' && value.length > LONG)
     return compact ? <span>{value.slice(0, 80)}…</span> : <LongText text={value} />;
-  if (longText) return <span style={{ whiteSpace: 'pre-wrap' }}>{String(value)}</span>;
-  return <span>{String(value)}</span>;
+  if (longText) return <span style={{ whiteSpace: 'pre-wrap' }}>{textOf(value)}</span>;
+  return <span>{textOf(value)}</span>;
 }
 
 /** An object's fields, one per line, each value shown the same way — nested as deep as it goes */

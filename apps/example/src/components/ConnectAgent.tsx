@@ -6,8 +6,8 @@ import {
   type AgentLinkStage,
 } from '@weaveprotocol/core/session';
 import { useConnection } from '@weaveprotocol/core/react';
-import { Choice, Modal } from './Modal';
-import { relayUrls } from '../relay';
+import { Choice, Modal } from '@weave/app-shared/Modal';
+import { relayUrls } from '@weave/app-shared/relay';
 import { styles, palette, variants } from '../styles';
 
 /** What people run, before the code */
@@ -52,15 +52,13 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let stopped = false;
     let stop = () => {};
-    setStep({ kind: 'starting' });
-    setCode(null);
     void offerAgentLink({ relays: relayUrls() }, (stage) => {
       if (stopped) return;
       setStep(stage.kind === 'asking' ? { kind: 'asking', stage } : stage);
     }).then(
       (offer) => {
         if (stopped) return offer.stop();
-        stop = offer.stop;
+        stop = () => offer.stop();
         setCode(offer.code);
       },
       (e: unknown) =>
@@ -117,7 +115,15 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
       ) : step.kind === 'failed' ? (
         <>
           <p style={{ ...styles.errorHint, color: palette.accent.danger }}>{step.reason}</p>
-          <button onClick={() => setAttempt((n) => n + 1)} data-variant="primary" style={styles.button}>
+          <button
+            onClick={() => {
+              setStep({ kind: 'starting' });
+              setCode(null);
+              setAttempt((n) => n + 1);
+            }}
+            data-variant="primary"
+            style={styles.button}
+          >
             Make a new code
           </button>
         </>

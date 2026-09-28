@@ -22,9 +22,7 @@ const LOOPBACK = ['localhost', '127.0.0.1', '::1', '[::1]'];
  * adding more costs a websocket and removes a single point of failure. A
  * torrent client ships a tracker list for exactly this reason.
  */
-const CONFIGURED_RELAYS: ReadonlyArray<string> = (
-  import.meta.env.VITE_SIGNALING_URL ?? 'ws://localhost:8787'
-)
+const CONFIGURED_RELAYS: ReadonlyArray<string> = (import.meta.env.VITE_SIGNALING_URL ?? 'ws://localhost:8787')
   .split(',')
   .map((url: string) => url.trim())
   .filter(Boolean);
