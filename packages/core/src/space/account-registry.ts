@@ -17,10 +17,10 @@
 import type { CryptoProvider, Space } from '../types.js';
 import type { SpaceRecord } from './space-manager.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
-import { base64UrlEncode, utf8Encode } from '../utils/encoding.js';
+import { base64UrlEncode } from '../utils/encoding.js';
 import { sha256 } from '../utils/hash.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
-import { deriveReadKey, spaceGenesis, spaceIdOf } from './space-access.js';
+import { deriveReadKey, expandSecret, spaceGenesis, spaceIdOf } from './space-access.js';
 import { solo } from './presets.js';
 
 /**
@@ -69,22 +69,6 @@ export interface Carrier {
   readonly since: string;
 }
 
-async function expand(accountKey: Uint8Array, info: string): Promise<Uint8Array> {
-  const material = await globalThis.crypto.subtle.importKey(
-    'raw',
-    accountKey as BufferSource,
-    'HKDF',
-    false,
-    ['deriveBits'],
-  );
-  const bits = await globalThis.crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8Encode(info) as BufferSource },
-    material,
-    256,
-  );
-  return new Uint8Array(bits);
-}
-
 /**
  * The account's registry space, derived — the same on every device.
  * @param accountKey The account's vault key bytes (`deriveVaultKeyBytes(seed)`)
@@ -119,11 +103,11 @@ async function deriveAccountSpace(
   name: string,
   provider: CryptoProvider,
 ): Promise<SpaceRecord> {
-  const nonce = base64UrlEncode((await expand(accountKey, `${label}/nonce/v1`)).subarray(0, 12));
-  const keyBytes = await expand(accountKey, `${label}/key/v1`);
+  const nonce = base64UrlEncode((await expandSecret(accountKey, `${label}/nonce/v1`)).subarray(0, 12));
+  const keyBytes = await expandSecret(accountKey, `${label}/key/v1`);
   const cryptoKey = await globalThis.crypto.subtle.importKey(
     'raw',
-    keyBytes as BufferSource,
+    keyBytes,
     { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt'],

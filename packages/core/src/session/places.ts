@@ -97,9 +97,8 @@ export async function inspectPod(pod: Place, current: Place, did: string): Promi
     current.kind === 'folder' &&
     !!current.directory &&
     !!pod.directory &&
-    (await (pod.directory as { isSameEntry?: (other: unknown) => Promise<boolean> })
-      .isSameEntry?.(current.directory)
-      .catch(() => false)) === true;
+    canCompare(pod.directory) &&
+    (await pod.directory.isSameEntry(current.directory).catch(() => false)) === true;
   return {
     account: accounts.find((account) => account.did === did) ?? null,
     others: accounts.filter((account) => account.did !== did).length,
@@ -143,4 +142,9 @@ export async function deleteBrowserData(account: AccountSummary): Promise<void> 
           }),
       ),
   );
+}
+
+/** `FileSystemHandle.isSameEntry`, which not every handle a test or an older browser gives has */
+function canCompare(handle: object): handle is { isSameEntry(other: unknown): Promise<boolean> } {
+  return 'isSameEntry' in handle && typeof handle.isSameEntry === 'function';
 }

@@ -49,6 +49,7 @@
 import type { CryptoProvider } from '../types.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { didToPublicKey } from '../identity/did.js';
+import { isRecord } from '../utils/narrow.js';
 
 /** What a client sends to prove itself: its own signature, and in a private space the read key's */
 export interface HelloProof {
@@ -141,7 +142,7 @@ async function checkRead(
   access: ReadAccess,
   peerDid: string,
   label: Uint8Array,
-  proof: Partial<HelloProof>,
+  proof: Record<string, unknown>,
   provider: CryptoProvider,
 ) {
   const current = access.current();
@@ -155,8 +156,12 @@ async function checkRead(
     if (access.admits && (await access.admits(peerDid, claimed, proof.member))) return admit(claimed);
   }
   // The reader may be ahead of us: then it proves the key we call current among its older ones.
-  const earlier = Array.isArray(proof.earlier) ? proof.earlier.slice(0, MAX_EARLIER_READ_KEYS) : [];
-  const ours = earlier.find((item) => item?.readKey === current);
+  const earlier: unknown[] = Array.isArray(proof.earlier)
+    ? proof.earlier.slice(0, MAX_EARLIER_READ_KEYS)
+    : [];
+  const ours = earlier.find(
+    (item): item is Record<string, unknown> => isRecord(item) && item.readKey === current,
+  );
   return (
     ours !== undefined &&
     current.startsWith('did:key:') &&
@@ -249,7 +254,7 @@ export function createServerAuth(
     read === null ? null : typeof read === 'string' ? { key: async () => null, current: () => read } : read;
   return Object.freeze({
     async checkHello(clientDid: string, nodeDid: string, nodeNonce: string, proof: unknown) {
-      const given = (proof ?? {}) as Partial<HelloProof>;
+      const given: Record<string, unknown> = isRecord(proof) ? proof : {};
       const label = helloLabel(spaceId, clientDid, nodeDid, nodeNonce);
       if (!clientDid.startsWith('did:key:') || !(await verifyBy(provider, clientDid, given.sig, label)))
         return false;
@@ -340,7 +345,7 @@ export function createMeshAuth(
       return { sig, ...proof };
     },
     async check(peerDid: string, ourNonce: string, binding: ChannelBinding | null, proof: unknown) {
-      const given = (proof ?? {}) as Partial<HelloProof>;
+      const given: Record<string, unknown> = isRecord(proof) ? proof : {};
       // What they signed, seen from this end: their certificate is our remote one.
       const label = meshLabel(
         spaceId,

@@ -29,6 +29,7 @@ import {
 } from '../identity/pairing.js';
 import { seedToRecoveryCode, recoveryCodeToSeed } from '../identity/recovery-code.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
+import { isRecord } from '../utils/narrow.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { P2PNode } from '../node/types.js';
 
@@ -38,6 +39,10 @@ const PAIR_MESSAGE = 'pair';
 /** What the desktop hands over */
 interface Handover {
   readonly spaces: ReadonlyArray<string>;
+}
+
+function isHandover(value: unknown): value is Handover {
+  return isRecord(value) && Array.isArray(value.spaces) && value.spaces.every((s) => typeof s === 'string');
 }
 
 export type PairingStage =
@@ -146,7 +151,7 @@ export async function collectFromDesktop(
   node: P2PNode,
   ticket: PairingTicket,
   onStage: (stage: PairingStage) => void,
-  timeoutMs: number = 30_000,
+  timeoutMs = 30_000,
 ): Promise<number> {
   const seed = recoveryCodeToSeed(ticket.code);
   const key = await derivePairingKey(seed);
@@ -182,12 +187,15 @@ export async function collectFromDesktop(
     network.on('peer-connected', () => onStage({ kind: 'connected' }));
 
     network.on('message', (message: NetworkMessage) => {
-      if (message.type !== PAIR_MESSAGE || !Array.isArray(message.payload)) return;
+      const payload = message.payload;
+      if (message.type !== PAIR_MESSAGE || !Array.isArray(payload)) return;
 
       void (async () => {
         try {
-          const opened = await openPairingPayload(new Uint8Array(message.payload as number[]), key);
-          const { spaces } = JSON.parse(utf8Decode(opened)) as Handover;
+          const opened = await openPairingPayload(new Uint8Array(payload), key);
+          const handover: unknown = JSON.parse(utf8Decode(opened));
+          if (!isHandover(handover)) throw new Error('That handover could not be read.');
+          const { spaces } = handover;
           for (const invite of spaces) await node.spaces.join(invite);
           finish(spaces.length, { kind: 'received', spaces: spaces.length });
         } catch (error) {

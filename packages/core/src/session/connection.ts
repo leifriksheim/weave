@@ -90,10 +90,7 @@ export interface WeaveConnection {
 }
 
 export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConnection {
-  const storage =
-    config.storage !== undefined
-      ? config.storage
-      : ((globalThis as { localStorage?: KeyValueStore }).localStorage ?? null);
+  const storage = config.storage !== undefined ? config.storage : (globalThis.localStorage ?? null);
   const grants = grantStore(storage);
   const HOME = 'weave.home';
   const rememberedHome = (() => {

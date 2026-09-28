@@ -9,7 +9,7 @@
  */
 import type { NodeRecord } from '../node/types.js';
 import { checkQuery, fieldValue, matches } from './filter.js';
-import { plainQuery, type Include, type Query, type QueryRecord, type QueryResult } from './types.js';
+import { nameOf, plainQuery, type Query, type QueryRecord, type QueryResult } from './types.js';
 
 /** What the engine needs from a space: its current records, one by key, and what links where. */
 export interface QuerySource {
@@ -26,6 +26,7 @@ function compareValues(a: unknown, b: unknown): number {
   if (b === undefined || b === null) return 1;
   if (typeof a === 'number' && typeof b === 'number') return a - b;
   if (typeof a === 'boolean' && typeof b === 'boolean') return Number(a) - Number(b);
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- every node must order mixed values the same way, so the stringification stays as it was
   return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
 }
 
@@ -54,7 +55,7 @@ async function expand(
 ): Promise<QueryRecord> {
   if (!includes) return { ...record, included: {} };
   const included: Record<string, ReadonlyArray<QueryRecord> | number> = {};
-  for (const [name, include] of Object.entries(includes) as Array<[string, Include]>) {
+  for (const [name, include] of Object.entries(includes)) {
     let related: NodeRecord[];
     if (include.direction === 'out') {
       const targets = await Promise.all(
@@ -65,7 +66,7 @@ async function expand(
         (r): r is NodeRecord => readable(r) && (!include.from || r.collection === include.from),
       );
     } else {
-      const from = include.from as string | undefined; // names only, after plainQuery
+      const from = include.from === undefined ? undefined : nameOf(include.from);
       related = (
         await source.linked(record.key, { rel: include.rel, ...(from ? { collection: from } : {}) })
       ).filter(readable);
@@ -90,7 +91,7 @@ export async function runQuery<T = unknown>(source: QuerySource, given: Query): 
   const problem = checkQuery(query);
   if (problem) throw new Error(`Invalid query: ${problem}`);
 
-  const candidates = (await source.list(query.collection as string)).filter(readable);
+  const candidates = (await source.list(nameOf(query.collection))).filter(readable);
   const filtered = query.where ? candidates.filter((r) => matches(r, query.where!)) : candidates;
   const sorted = sortRecords(filtered, query.sort);
 
@@ -105,6 +106,7 @@ export async function runQuery<T = unknown>(source: QuerySource, given: Query): 
   const records = await Promise.all(page.map((r) => expand(source, r, query.include)));
   const more = start + page.length < sorted.length && page.length > 0;
   return {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- T is the caller's promise about bodies (see Typed); reading does not check it
     records: records as ReadonlyArray<QueryRecord<T>>,
     cursor: more ? page[page.length - 1]!.key : null,
     complete: true,

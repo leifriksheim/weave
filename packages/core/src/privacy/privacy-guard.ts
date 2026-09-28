@@ -2,6 +2,7 @@ import type { Expression, Space } from '../types.js';
 import {
   type SpaceKey,
   type EncryptedExpression,
+  type EncryptedExpressionBody,
   generateSpaceKey,
   encryptExpression,
   decryptExpression,
@@ -9,6 +10,7 @@ import {
 import { type WrappedKey, wrapSpaceKey, unwrapSpaceKey } from './key-distribution.js';
 import { base64UrlEncode } from '../utils/encoding.js';
 import { sha256 } from '../utils/hash.js';
+import { isRecord } from '../utils/narrow.js';
 
 /**
  * Orchestrator for transparent encryption and decryption of expressions within spaces.
@@ -23,6 +25,11 @@ export interface PrivacyGuard {
   getSpaceKey(spaceId: string): SpaceKey | undefined;
   wrapKeyForMember(spaceId: string, memberPublicKey: CryptoKey, memberDid: string): Promise<WrappedKey>;
   unwrapKeyFromMember(wrapped: WrappedKey, privateKey: CryptoKey): Promise<SpaceKey>;
+}
+
+/** An encrypted body, as far as telling it from a plain one goes; `decryptExpression` checks the rest */
+function hasCiphertext(body: unknown): body is EncryptedExpressionBody {
+  return isRecord(body) && 'ciphertext' in body;
 }
 
 interface SpaceEntry {
@@ -73,15 +80,16 @@ export function createPrivacyGuard(): PrivacyGuard {
       const entry = spaces.get(spaceId);
       if (!entry) throw new Error(`Space ${spaceId} not found`);
 
-      if (!this.isPrivateSpace(spaceId) || !('ciphertext' in (encrypted.body as any))) {
-        return encrypted as Expression;
+      const { body } = encrypted;
+      if (!this.isPrivateSpace(spaceId) || !hasCiphertext(body)) {
+        return encrypted;
       }
 
       if (!entry.spaceKey) {
         throw new Error(`Space key not available for space ${spaceId}`);
       }
 
-      return decryptExpression(encrypted as EncryptedExpression, entry.spaceKey);
+      return decryptExpression({ ...encrypted, body }, entry.spaceKey);
     },
 
     setSpaceKey(spaceId: string, key: SpaceKey): void {

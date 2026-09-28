@@ -40,6 +40,7 @@ import { checkStartingRoles } from '../space/space-access.js';
 import { parseSpaceInvite } from '../space/space-manager.js';
 import { checkProposal, MAX_PROPOSALS, type NotifyProposal } from '../space/notify.js';
 import type { KeyValueStore } from './stay-signed-in.js';
+import { isRecord } from '../utils/narrow.js';
 
 /** Messages between an app and the home it opened */
 const HELLO = 'weave:hello';
@@ -267,20 +268,20 @@ function openKeyDb(): Promise<IDBDatabase> {
     const request = globalThis.indexedDB.open(KEY_DB, 1);
     request.onupgradeneeded = () => request.result.createObjectStore('keys');
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('Could not open the app key store'));
   });
 }
 
-async function keyStore<T>(
+async function keyStore(
   mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest<T>,
-): Promise<T> {
+  run: (store: IDBObjectStore) => IDBRequest,
+): Promise<unknown> {
   const db = await openKeyDb();
   try {
-    return await new Promise<T>((resolve, reject) => {
+    return await new Promise<unknown>((resolve, reject) => {
       const request = run(db.transaction('keys', mode).objectStore('keys'));
       request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onerror = () => reject(request.error ?? new Error('The app key store refused a request'));
     });
   } finally {
     db.close();
@@ -294,13 +295,18 @@ async function keyStore<T>(
  */
 export async function appKey(name = 'default'): Promise<AppKey> {
   const provider = createP256Provider();
-  let keys = await keyStore<CryptoKeyPair | undefined>('readonly', (store) => store.get(name));
+  const stored = await keyStore('readonly', (store) => store.get(name));
+  let keys = isKeyPair(stored) ? stored : null;
   if (!keys) {
     const made = await provider.generateKeyPair();
     keys = { privateKey: made.privateKey, publicKey: made.publicKey };
     await keyStore('readwrite', (store) => store.put(keys, name));
   }
   return { keys, did: publicKeyToDid(await provider.exportPublicKey(keys.publicKey), P256_MULTICODEC) };
+}
+
+function isKeyPair(value: unknown): value is CryptoKeyPair {
+  return isRecord(value) && value.privateKey instanceof CryptoKey && value.publicKey instanceof CryptoKey;
 }
 
 /** Forgets this app's key. The next connection makes a new one. */
@@ -338,12 +344,12 @@ export async function connectToHome(options: ConnectOptions): Promise<Grant> {
   // Opened before anything is awaited, so it still counts as the click's.
   const popup = openHome(homeUrl);
   const audience = options.audience ?? (options.key ?? (await appKey(options.keyName))).did;
-  const grant = (await askHome(
+  const grant = await askHome<Grant>(
     popup,
     homeUrl.origin,
     { v: 1, audience, ...options.request },
     options.timeoutMs,
-  )) as Grant;
+  );
   await checkGrant(grant, audience);
   // An agent's note must say so, or its writes would pass as the person's own.
   if (options.request.agent && !isAgentNote(grant.token))
@@ -374,7 +380,7 @@ export async function connectCarrier(options: {
     access: 'carry',
     ...(options.name ? { name: options.name } : {}),
   };
-  const grant = (await askHome(popup, homeUrl.origin, request, options.timeoutMs)) as CarryGrant;
+  const grant = await askHome<CarryGrant>(popup, homeUrl.origin, request, options.timeoutMs);
   checkCarryGrant(grant);
   return { ...grant, home: homeUrl.href };
 }
@@ -404,7 +410,7 @@ export async function proposeToHome(options: {
     ...(options.name ? { name: options.name } : {}),
     notify: options.notify,
   };
-  const answer = (await askHome(popup, homeUrl.origin, request, options.timeoutMs)) as Proposed | null;
+  const answer = await askHome<Proposed | null>(popup, homeUrl.origin, request, options.timeoutMs);
   if (answer?.kind !== 'proposed' || !Array.isArray(answer.notify))
     throw new Error('Your account home did not answer the proposal.');
   return answer;
@@ -439,14 +445,14 @@ function openHome(homeUrl: URL): Window {
   return popup;
 }
 
-/** Sends the request once the home says hello, and waits for its answer. */
-function askHome(
+/** Sends the request once the home says hello, and waits for its answer, which the caller checks. */
+function askHome<T>(
   popup: Window,
   homeOrigin: string,
   request: ConnectRequest | ProposeRequest,
   timeoutMs = 10 * 60_000,
-): Promise<unknown> {
-  return new Promise<unknown>((resolve, reject) => {
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
     const done = (finish: () => void) => {
       globalThis.removeEventListener('message', onMessage);
       globalThis.clearInterval(watch);
@@ -456,10 +462,16 @@ function askHome(
     const onMessage = (event: MessageEvent) => {
       // Only the popup we opened, at the address we opened it on.
       if (event.source !== popup || event.origin !== homeOrigin) return;
-      const data = event.data as { type?: string; grant?: unknown; reason?: string } | null;
-      if (data?.type === HELLO) popup.postMessage({ type: REQUEST, request }, homeOrigin);
-      else if (data?.type === GRANT && data.grant) done(() => resolve(data.grant!));
-      else if (data?.type === DENIED) done(() => reject(new Error(data.reason ?? 'Access was not given.')));
+      const data: unknown = event.data;
+      if (!isRecord(data)) return;
+      if (data.type === HELLO) popup.postMessage({ type: REQUEST, request }, homeOrigin);
+      else if (data.type === GRANT && data.grant)
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checkGrant, checkCarryGrant and proposeToHome check it
+        done(() => resolve(data.grant as T));
+      else if (data.type === DENIED)
+        done(() =>
+          reject(new Error(typeof data.reason === 'string' ? data.reason : 'Access was not given.')),
+        );
     };
     const watch = globalThis.setInterval(() => {
       if (popup.closed) done(() => reject(new Error('The window was closed before access was given.')));
@@ -551,6 +563,7 @@ export function grantStore(
   return {
     load(): Grant | null {
       try {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only save writes this key
         const grant = JSON.parse(storage?.getItem(key) ?? 'null') as Grant | null;
         return grant && grant.expiresAt > Math.floor(Date.now() / 1000) ? grant : null;
       } catch {
@@ -584,14 +597,15 @@ export interface IncomingRequest {
  * @returns The request, or null when this page was not opened by an app
  */
 export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingRequest | null> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- lib.dom has it as any, and an opener on another origin is no instanceof Window here
   const opener = globalThis.opener as Window | null;
   if (!opener) return Promise.resolve(null);
 
   return new Promise((resolve) => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== opener) return;
-      const data = event.data as { type?: string; request?: ConnectRequest | ProposeRequest } | null;
-      if (data?.type !== REQUEST) return;
+      const data: unknown = event.data;
+      if (!isRecord(data) || data.type !== REQUEST) return;
       globalThis.removeEventListener('message', onMessage);
       globalThis.clearTimeout(timer);
 
@@ -636,8 +650,9 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
 }
 
 function isRequest(value: unknown, origin: string): value is ConnectRequest | ProposeRequest {
-  const proposal = value as Partial<ProposeRequest> | null;
-  if (proposal?.kind !== undefined) {
+  if (!isRecord(value)) return false;
+  const proposal = value;
+  if (proposal.kind !== undefined) {
     return (
       proposal.v === 1 &&
       proposal.kind === 'propose' &&
@@ -647,9 +662,8 @@ function isRequest(value: unknown, origin: string): value is ConnectRequest | Pr
       isProposals(proposal.notify, origin)
     );
   }
-  const request = value as ConnectRequest | null;
+  const request = value;
   return (
-    !!request &&
     request.v === 1 &&
     typeof request.audience === 'string' &&
     request.audience.startsWith('did:key:') &&
@@ -659,7 +673,10 @@ function isRequest(value: unknown, origin: string): value is ConnectRequest | Pr
     (request.contacts === undefined || typeof request.contacts === 'boolean') &&
     (request.create === undefined || isNewSpaces(request.create)) &&
     (request.days === undefined ||
-      (Number.isInteger(request.days) && request.days >= 1 && request.days <= MAX_GRANT_DAYS)) &&
+      (typeof request.days === 'number' &&
+        Number.isInteger(request.days) &&
+        request.days >= 1 &&
+        request.days <= MAX_GRANT_DAYS)) &&
     (request.notify === undefined || isProposals(request.notify, origin)) &&
     // An agent works in spaces that exist: none made for it, and no carrying.
     (request.agent === undefined ||

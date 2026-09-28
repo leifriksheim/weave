@@ -3,13 +3,15 @@
  * @module hash
  */
 
+import { toBufferSource } from './narrow.js';
+
 /**
  * Computes the SHA-256 hash of the given data.
  * @param {Uint8Array} data - The data to hash.
  * @returns {Promise<Uint8Array>} A promise that resolves to the hash bytes.
  */
 export async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const buffer = await globalThis.crypto.subtle.digest('SHA-256', data as BufferSource);
+  const buffer = await globalThis.crypto.subtle.digest('SHA-256', toBufferSource(data));
   return new Uint8Array(buffer);
 }
 

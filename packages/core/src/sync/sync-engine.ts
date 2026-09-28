@@ -99,9 +99,17 @@ export interface SyncEngineConfig {
  * - `received` (versions): every version one message brought, once all are in — what to redraw after
  * - `rejected` (peer, version, reason), `error` (error)
  */
-export type SyncEvent =
-  'synced' | 'level' | 'stored' | 'expression-received' | 'received' | 'rejected' | 'error';
-type EventHandler = (...args: any[]) => void;
+interface SyncEvents {
+  synced: (peer: string, full: boolean) => void;
+  level: (peer: string, collection: string, full: boolean) => void;
+  stored: (peer: string, ids: string[]) => void;
+  'expression-received': (version: Expression) => void;
+  received: (versions: Expression[]) => void;
+  /** A method, so listeners written before `reason` could be missing still type-check */
+  rejected(peer: string, version: Expression, reason: string | undefined): void;
+  error: (error: unknown) => void;
+}
+export type SyncEvent = keyof SyncEvents;
 
 export interface SyncEngine {
   start(): void;
@@ -113,8 +121,8 @@ export interface SyncEngine {
   onLocalChange(expression: Expression): void;
   addPeer(peerId: string): void;
   removePeer(peerId: string): void;
-  on(event: SyncEvent, callback: EventHandler): void;
-  off(event: SyncEvent, callback: EventHandler): void;
+  on<K extends SyncEvent>(event: K, callback: SyncEvents[K]): void;
+  off<K extends SyncEvent>(event: K, callback: SyncEvents[K]): void;
 }
 
 /** Records asked for, or sent, in one message. */
@@ -183,9 +191,9 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
   let intervalId: ReturnType<typeof setInterval> | null = null;
   let nextId = 1;
 
-  const { on, off, emit } = createEmitter<Record<SyncEvent, EventHandler>>();
+  const { on, off, emit } = createEmitter<SyncEvents>();
 
-  const stamp = (msg: SyncMessageBody) => ({ v: SYNC_PROTOCOL_VERSION, ...msg }) as SyncMessage;
+  const stamp = (msg: SyncMessageBody): SyncMessage => ({ v: SYNC_PROTOCOL_VERSION, ...msg });
   const send = (peerId: string, msg: SyncMessageBody) => sendToPeer(peerId, stamp(msg));
   const stateOf = (peerId: string): PeerState =>
     states.get(peerId) ??
@@ -485,7 +493,10 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       round = await session.reconciler.reconcile(base64UrlDecode(message));
     } catch (err) {
       await end();
-      emit('error', new Error(`Sync with ${peerId} abandoned: ${(err as Error).message}`));
+      emit(
+        'error',
+        new Error(`Sync with ${peerId} abandoned: ${err instanceof Error ? err.message : String(err)}`),
+      );
       return settleIfDone(peerId);
     }
 

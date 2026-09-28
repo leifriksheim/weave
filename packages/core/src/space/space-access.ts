@@ -26,6 +26,7 @@ import type { SpaceKey } from '../privacy/space-encryption.js';
 import { canonicalize } from '../schema/expression.js';
 import { cidFromBytes, sha256 } from '../utils/hash.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
+import { toBufferSource } from '../utils/narrow.js';
 import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../identity/did.js';
 import { checkRole } from './roles.js';
 
@@ -56,12 +57,13 @@ export function generateInviteSecret(): Uint8Array {
   return globalThis.crypto.getRandomValues(new Uint8Array(32));
 }
 
-async function expand(secret: Uint8Array, info: string): Promise<Uint8Array> {
-  const material = await globalThis.crypto.subtle.importKey('raw', secret as BufferSource, 'HKDF', false, [
+/** 32 bytes from a secret under a label: HKDF-SHA-256 with an empty salt. */
+export async function expandSecret(secret: Uint8Array, info: string): Promise<Uint8Array<ArrayBuffer>> {
+  const material = await globalThis.crypto.subtle.importKey('raw', toBufferSource(secret), 'HKDF', false, [
     'deriveBits',
   ]);
   const bits = await globalThis.crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8Encode(info) as BufferSource },
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8Encode(info) },
     material,
     256,
   );
@@ -74,7 +76,7 @@ async function expand(secret: Uint8Array, info: string): Promise<Uint8Array> {
  * happened to equal it — ever give the same key.
  */
 async function derivePair(secret: Uint8Array, info: string, provider: CryptoProvider): Promise<SpaceKeyPair> {
-  const pair = await provider.deriveKeyPairFromSeed(await expand(secret, info));
+  const pair = await provider.deriveKeyPairFromSeed(await expandSecret(secret, info));
   const did = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
   return Object.freeze({ did, privateKey: pair.privateKey });
 }
@@ -96,7 +98,7 @@ export async function deriveReadKey(spaceKey: SpaceKey, provider: CryptoProvider
  */
 export async function deriveReadSeed(spaceKey: SpaceKey): Promise<Uint8Array> {
   const raw = new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', spaceKey.key));
-  return expand(raw, READ_INFO);
+  return expandSecret(raw, READ_INFO);
 }
 
 /** The read key pair, from its seed */

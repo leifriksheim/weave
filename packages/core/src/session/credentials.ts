@@ -18,6 +18,10 @@ interface PasswordCredentialConstructor {
   new (data: { id: string; password: string; name?: string }): Credential;
 }
 
+function isPasswordCredentialConstructor(value: unknown): value is PasswordCredentialConstructor {
+  return typeof value === 'function';
+}
+
 /**
  * Offers a credential to the browser's password manager.
  *
@@ -31,8 +35,8 @@ interface PasswordCredentialConstructor {
  * @returns Whether the browser was asked at all
  */
 export async function offerToSave(id: string, password: string, name?: string): Promise<boolean> {
-  const Ctor = (globalThis as { PasswordCredential?: PasswordCredentialConstructor }).PasswordCredential;
-  if (!Ctor) return false;
+  const Ctor: unknown = Reflect.get(globalThis, 'PasswordCredential');
+  if (!isPasswordCredentialConstructor(Ctor)) return false;
 
   try {
     await globalThis.navigator.credentials.store(new Ctor({ id, password, ...(name ? { name } : {}) }));

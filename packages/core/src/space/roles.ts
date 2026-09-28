@@ -36,6 +36,7 @@
  */
 
 import type { SpaceRole } from '../types.js';
+import { isRecord } from '../utils/narrow.js';
 
 /** A role, as a space defines it */
 export type Role = SpaceRole;
@@ -87,8 +88,8 @@ const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 
 /** Why a role is malformed, or null */
 export function checkRole(role: unknown): string | null {
-  const r = role as Role | null;
-  if (!r || typeof r !== 'object') return 'A role must be an object';
+  if (!isRecord(role)) return 'A role must be an object';
+  const r = role;
   if (typeof r.name !== 'string' || !ROLE_NAME_PATTERN.test(r.name))
     return 'A role name is 1–40 characters of a–z, 0–9 and . _ -';
   if (r.title !== undefined && (typeof r.title !== 'string' || r.title.length > 80))
@@ -198,16 +199,24 @@ export const MAX_KEEPERS = 16;
 export function checkKeepers(keepers: unknown, copies: unknown = null): string | null {
   if (!Array.isArray(keepers) || keepers.length > MAX_KEEPERS)
     return `A space names at most ${MAX_KEEPERS} keepers`;
-  for (const keeper of keepers as Array<Partial<Keeper>>) {
-    if (typeof keeper?.did !== 'string' || !keeper.did.startsWith('did:key:') || keeper.did.length > 200)
+  const list: unknown[] = keepers;
+  const dids = new Set<string>();
+  for (const keeper of list) {
+    if (
+      !isRecord(keeper) ||
+      typeof keeper.did !== 'string' ||
+      !keeper.did.startsWith('did:key:') ||
+      keeper.did.length > 200
+    )
       return 'A keeper is named by its did:key';
     if (typeof keeper.name !== 'string' || keeper.name.length > 80)
       return 'A keeper has a name of at most 80 characters';
+    dids.add(keeper.did);
   }
-  if (new Set(keepers.map((k: Keeper) => k.did)).size !== keepers.length) return 'A keeper is named twice';
+  if (dids.size !== list.length) return 'A keeper is named twice';
   if (
     copies !== null &&
-    !(Number.isSafeInteger(copies) && (copies as number) >= 1 && (copies as number) <= MAX_KEEPERS)
+    !(typeof copies === 'number' && Number.isSafeInteger(copies) && copies >= 1 && copies <= MAX_KEEPERS)
   ) {
     return `Copies is a whole number from 1 to ${MAX_KEEPERS}`;
   }

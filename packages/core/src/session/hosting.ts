@@ -103,19 +103,34 @@ export async function verifyRequest(
   provider: CryptoProvider = createP256Provider(),
   now = Math.floor(Date.now() / 1000),
 ): Promise<string | null> {
-  const match =
-    /^Weave did=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/.exec(
-      header ?? '',
-    );
-  if (!match) return null;
-  const [, did, atText, sig] = match as unknown as [string, string, string, string];
+  return headerSigner(
+    header,
+    /^Weave did=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/,
+    (at) => Math.abs(now - at) <= REQUEST_WINDOW_SECONDS,
+    (_did, at) => requestText(method, path, at, body),
+    provider,
+  );
+}
+
+/**
+ * The key that signed a header of `pattern`'s form — its groups the key, the
+ * time and the signature — when the time is in `inWindow` and the signature
+ * is over `signed`. Null otherwise.
+ */
+async function headerSigner(
+  header: string | undefined,
+  pattern: RegExp,
+  inWindow: (at: number) => boolean,
+  signed: (did: string, at: number) => Uint8Array | Promise<Uint8Array>,
+  provider: CryptoProvider,
+): Promise<string | null> {
+  const [, did, atText, sig] = pattern.exec(header ?? '') ?? [];
+  if (did === undefined || atText === undefined || sig === undefined) return null;
   const at = Number(atText);
-  if (Math.abs(now - at) > REQUEST_WINDOW_SECONDS) return null;
+  if (!inWindow(at)) return null;
   try {
     const publicKey = await provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
-    return (await provider.verify(publicKey, base64UrlDecode(sig), await requestText(method, path, at, body)))
-      ? did
-      : null;
+    return (await provider.verify(publicKey, base64UrlDecode(sig), await signed(did, at))) ? did : null;
   } catch {
     return null;
   }
@@ -196,6 +211,7 @@ export async function readStatus(
     const publicKey = await provider.importPublicKey(didToPublicKey(host).publicKeyBytes);
     if (!(await provider.verify(publicKey, base64UrlDecode(signed.sig), statusText(signed.payload))))
       return null;
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the host signed it, and it names the host
     const status = JSON.parse(signed.payload) as HostStatus;
     return status.host === host ? status : null;
   } catch {
@@ -234,20 +250,13 @@ export async function verifyPayLink(
   provider: CryptoProvider = createP256Provider(),
   now = Math.floor(Date.now() / 1000),
 ): Promise<string | null> {
-  const match =
-    /^WeavePay s=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/.exec(
-      header ?? '',
-    );
-  if (!match) return null;
-  const [, did, atText, sig] = match as unknown as [string, string, string, string];
-  const at = Number(atText);
-  if (now - at > PAY_LINK_SECONDS || at - now > REQUEST_WINDOW_SECONDS) return null;
-  try {
-    const publicKey = await provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
-    return (await provider.verify(publicKey, base64UrlDecode(sig), payText(host, did, at))) ? did : null;
-  } catch {
-    return null;
-  }
+  return headerSigner(
+    header,
+    /^WeavePay s=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/,
+    (at) => now - at <= PAY_LINK_SECONDS && at - now <= REQUEST_WINDOW_SECONDS,
+    (did, at) => payText(host, did, at),
+    provider,
+  );
 }
 
 /** Why a host said no: its status code, and what it said */
@@ -261,6 +270,7 @@ export class HostError extends Error {
 }
 
 async function answerOf<T>(response: Response): Promise<T> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- callers check what they rely on: describeHost its fields, readStatus a status's signature
   const answer = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok)
     throw new HostError(response.status, answer.error ?? `The host answered ${response.status}`);

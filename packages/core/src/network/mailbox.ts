@@ -13,6 +13,8 @@
  *   client → { type: 'purge', topic, sign, ids?, sig } relay → { type: 'purged', topic, count } | { type: 'refused', topic, reason }
  */
 
+import { isRecord } from '../utils/narrow.js';
+
 /** One sealed knock, as a relay holds it */
 export interface MailItem {
   /** Increases with every drop on that relay */
@@ -89,8 +91,8 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
     return new Promise<T>((resolve, reject) => {
       let settled = false;
       const ws = new Socket(relay);
-      const finish = (error: Error | null, value?: T) => {
-        if (settled) return;
+      const settle = (): boolean => {
+        if (settled) return false;
         settled = true;
         clearTimeout(timer);
         try {
@@ -98,14 +100,16 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
         } catch {
           // already closing
         }
-        if (error) reject(error);
-        else resolve(value as T);
+        return true;
       };
-      const timer = setTimeout(() => finish(new Error(`${relay} did not answer`)), timeoutMs);
+      const fail = (error: Error) => {
+        if (settle()) reject(error);
+      };
+      const timer = setTimeout(() => fail(new Error(`${relay} did not answer`)), timeoutMs);
       const say = (message: unknown) => ws.send(JSON.stringify(message));
       ws.onopen = () => start(say);
-      ws.onerror = () => finish(new Error(`Could not reach ${relay}`));
-      ws.onclose = () => finish(new Error(`${relay} closed the connection`));
+      ws.onerror = () => fail(new Error(`Could not reach ${relay}`));
+      ws.onclose = () => fail(new Error(`${relay} closed the connection`));
       ws.onmessage = (event: MessageEvent) => {
         let answer: unknown;
         try {
@@ -113,12 +117,12 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
         } catch {
           return;
         }
-        if (!answer || typeof answer !== 'object') return;
-        hear(answer as Record<string, unknown>, say).then(
+        if (!isRecord(answer)) return;
+        hear(answer, say).then(
           (value) => {
-            if (value !== undefined) finish(null, value);
+            if (value !== undefined && settle()) resolve(value);
           },
-          (error: unknown) => finish(error instanceof Error ? error : new Error(String(error))),
+          (error: unknown) => fail(error instanceof Error ? error : new Error(String(error))),
         );
       };
     });
@@ -132,8 +136,7 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
         (answer) => {
           if (answer.topic !== topic) return undefined;
           if (answer.type === 'dropped' && typeof answer.id === 'string') return answer.id;
-          if (answer.type === 'refused')
-            throw new Error(`${relay} refused the knock: ${String(answer.reason ?? 'no reason given')}`);
+          if (answer.type === 'refused') throw new Error(`${relay} refused the knock: ${reasonOf(answer)}`);
           return undefined;
         },
       );
@@ -173,9 +176,7 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
           if (answer.topic !== topic) return undefined;
           if (answer.type === 'purged' && typeof answer.count === 'number') return answer.count;
           if (answer.type === 'refused')
-            throw new Error(
-              `${relay} refused to clear the door: ${String(answer.reason ?? 'no reason given')}`,
-            );
+            throw new Error(`${relay} refused to clear the door: ${reasonOf(answer)}`);
           return undefined;
         },
       );
@@ -184,13 +185,17 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
   return Object.freeze(client);
 }
 
+/** Why a relay refused; relays send a string */
+function reasonOf(answer: Record<string, unknown>): string {
+  return typeof answer.reason === 'string' ? answer.reason : 'no reason given';
+}
+
 function isMailItem(value: unknown): value is MailItem {
-  const item = value as MailItem | null;
   return (
-    !!item &&
-    Number.isSafeInteger(item.seq) &&
-    typeof item.id === 'string' &&
-    typeof item.at === 'number' &&
-    typeof item.blob === 'string'
+    isRecord(value) &&
+    Number.isSafeInteger(value.seq) &&
+    typeof value.id === 'string' &&
+    typeof value.at === 'number' &&
+    typeof value.blob === 'string'
   );
 }

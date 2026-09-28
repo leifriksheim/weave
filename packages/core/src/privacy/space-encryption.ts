@@ -1,6 +1,7 @@
 import type { Expression } from '../types.js';
 import { base64UrlEncode, base64UrlDecode, utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { sha256 } from '../utils/hash.js';
+import { toBufferSource } from '../utils/narrow.js';
 
 /**
  * Represents a key used to encrypt a Space.
@@ -66,7 +67,7 @@ export async function encryptExpression(
   const ciphertextBuffer = await globalThis.crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     spaceKey.key,
-    encodedBody as BufferSource,
+    encodedBody,
   );
 
   const ciphertext = base64UrlEncode(new Uint8Array(ciphertextBuffer));
@@ -101,12 +102,12 @@ export async function decryptExpression(
   const ciphertext = base64UrlDecode(encrypted.body.ciphertext);
 
   const decryptedBuffer = await globalThis.crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
+    { name: 'AES-GCM', iv },
     spaceKey.key,
-    ciphertext as BufferSource,
+    ciphertext,
   );
 
-  const body = JSON.parse(utf8Decode(new Uint8Array(decryptedBuffer)));
+  const body: unknown = JSON.parse(utf8Decode(new Uint8Array(decryptedBuffer)));
 
   return Object.freeze({
     ...encrypted,
@@ -125,7 +126,7 @@ export async function spaceKeyFromRaw(
 ): Promise<SpaceKey> {
   const key = await globalThis.crypto.subtle.importKey(
     'raw',
-    raw as BufferSource,
+    toBufferSource(raw),
     { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt'],
@@ -147,9 +148,9 @@ export async function spaceKeyBytes(key: SpaceKey): Promise<Uint8Array> {
 export async function sealWith(spaceKey: SpaceKey, value: unknown, context: string): Promise<string> {
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await globalThis.crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv, additionalData: utf8Encode(context) as BufferSource },
+    { name: 'AES-GCM', iv, additionalData: utf8Encode(context) },
     spaceKey.key,
-    utf8Encode(JSON.stringify(value)) as BufferSource,
+    utf8Encode(JSON.stringify(value)),
   );
   return base64UrlEncode(new Uint8Array([...iv, ...new Uint8Array(ciphertext)]));
 }
@@ -160,15 +161,11 @@ export async function openWith(spaceKey: SpaceKey, sealed: unknown, context: str
   try {
     const bytes = base64UrlDecode(sealed);
     const plain = await globalThis.crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: bytes.subarray(0, 12) as BufferSource,
-        additionalData: utf8Encode(context) as BufferSource,
-      },
+      { name: 'AES-GCM', iv: bytes.subarray(0, 12), additionalData: utf8Encode(context) },
       spaceKey.key,
-      bytes.subarray(12) as BufferSource,
+      bytes.subarray(12),
     );
-    return JSON.parse(utf8Decode(new Uint8Array(plain))) as unknown;
+    return JSON.parse(utf8Decode(new Uint8Array(plain)));
   } catch {
     return null;
   }

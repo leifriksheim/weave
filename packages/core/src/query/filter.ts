@@ -3,7 +3,8 @@
  * The filter operators, as pure functions over opened records.
  */
 import type { NodeRecord } from '../node/types.js';
-import type { Filter, Include, Query } from './types.js';
+import type { Filter } from './types.js';
+import { isPlainObject, isRecord } from '../utils/narrow.js';
 
 /** Nested `include` beyond this is refused rather than quietly slow. */
 export const MAX_INCLUDE_DEPTH = 3;
@@ -41,26 +42,19 @@ export function fieldValue(record: NodeRecord, path: string): unknown {
   }
   let value: unknown = record.body;
   for (const part of path.split('.')) {
-    if (value === null || typeof value !== 'object') return undefined;
-    value = (value as Record<string, unknown>)[part];
+    if (!isRecord(value)) return undefined;
+    value = value[part];
   }
   return value;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function equal(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (typeof a !== typeof b || a === null || b === null || typeof a !== 'object') return false;
+  if (!isRecord(a) || !isRecord(b)) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
-  const ak = Object.keys(a as object);
-  const bk = Object.keys(b as object);
-  return (
-    ak.length === bk.length &&
-    ak.every((k) => equal((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
-  );
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  return ak.length === bk.length && ak.every((k) => equal(a[k], b[k]));
 }
 
 /** Ordered comparison, only between two numbers or two strings. */
@@ -123,9 +117,9 @@ function conditionHolds(value: unknown, condition: unknown): boolean {
 /** Whether a record matches a filter. */
 export function matches(record: NodeRecord, filter: Filter): boolean {
   return Object.entries(filter).every(([field, condition]) => {
-    if (field === '$and') return (condition as Filter[]).every((f) => matches(record, f));
-    if (field === '$or') return (condition as Filter[]).some((f) => matches(record, f));
-    if (field === '$not') return !matches(record, condition as Filter);
+    if (field === '$and') return (filter.$and ?? []).every((f) => matches(record, f));
+    if (field === '$or') return (filter.$or ?? []).some((f) => matches(record, f));
+    if (field === '$not') return !matches(record, filter.$not ?? {});
     return conditionHolds(fieldValue(record, field), condition);
   });
 }
@@ -165,8 +159,7 @@ function checkFilter(filter: unknown, at: string): string | null {
 function checkIncludes(includes: unknown, at: string, depth: number): string | null {
   if (!isPlainObject(includes)) return `${at} must be an object of named includes`;
   if (depth > MAX_INCLUDE_DEPTH) return `${at}: includes nest at most ${MAX_INCLUDE_DEPTH} deep`;
-  for (const [name, spec] of Object.entries(includes)) {
-    const inc = spec as Partial<Include> | null;
+  for (const [name, inc] of Object.entries(includes)) {
     const here = `${at}.${name}`;
     if (!isPlainObject(inc)) return `${here} must be an object`;
     if (typeof inc.rel !== 'string') return `${here}.rel is required: the link role to follow, e.g. "about"`;
@@ -174,7 +167,10 @@ function checkIncludes(includes: unknown, at: string, depth: number): string | n
       return `${here}.from must be a collection name`;
     if (inc.direction !== undefined && inc.direction !== 'in' && inc.direction !== 'out')
       return `${here}.direction must be "in" or "out"`;
-    if (inc.limit !== undefined && (!Number.isInteger(inc.limit) || inc.limit < 0))
+    if (
+      inc.limit !== undefined &&
+      (typeof inc.limit !== 'number' || !Number.isInteger(inc.limit) || inc.limit < 0)
+    )
       return `${here}.limit must be a whole number`;
     if (inc.where !== undefined) {
       const problem = checkFilter(inc.where, `${here}.where`);
@@ -190,8 +186,8 @@ function checkIncludes(includes: unknown, at: string, depth: number): string | n
 
 /** Why a query cannot run, or null when it can. Queries are data; functions and unknown operators are refused. */
 export function checkQuery(query: unknown): string | null {
-  const q = query as Partial<Query> | null;
-  if (!isPlainObject(q)) return 'A query must be an object';
+  if (!isPlainObject(query)) return 'A query must be an object';
+  const q = query;
   if (typeof q.collection !== 'string' || !q.collection) return 'A query needs a "collection"';
   if (q.where !== undefined) {
     const problem = checkFilter(q.where, 'where');
@@ -208,7 +204,7 @@ export function checkQuery(query: unknown): string | null {
       if (field.startsWith('@') && !META[field]) return `sort: unknown record field "${field}"`;
     }
   }
-  if (q.limit !== undefined && (!Number.isInteger(q.limit) || q.limit < 0))
+  if (q.limit !== undefined && (typeof q.limit !== 'number' || !Number.isInteger(q.limit) || q.limit < 0))
     return 'limit must be a whole number';
   if (q.cursor !== undefined && typeof q.cursor !== 'string')
     return 'cursor must be the string a previous page returned';

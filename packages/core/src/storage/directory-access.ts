@@ -11,14 +11,20 @@
 
 import type { DirectoryHandleLike } from './folder-adapter.js';
 import { protocolError } from '../utils/errors.js';
+import { isRecord } from '../utils/narrow.js';
 
 /** Read or read-write, in the browser's vocabulary */
 export type FolderAccessMode = 'read' | 'readwrite';
 
 /** The permission methods the spec puts on a handle but `lib.dom` does not */
 interface PermissionAwareHandle {
-  queryPermission?(descriptor: { mode: FolderAccessMode }): Promise<PermissionState>;
-  requestPermission?(descriptor: { mode: FolderAccessMode }): Promise<PermissionState>;
+  queryPermission(descriptor: { mode: FolderAccessMode }): Promise<PermissionState>;
+  requestPermission(descriptor: { mode: FolderAccessMode }): Promise<PermissionState>;
+}
+
+/** The picker the spec puts on the window but `lib.dom` does not */
+interface DirectoryPicker {
+  showDirectoryPicker(options?: DirectoryPickerOptions): Promise<DirectoryHandleLike>;
 }
 
 interface DirectoryPickerOptions {
@@ -31,6 +37,22 @@ const HANDLE_DB = 'weave-folder';
 const HANDLE_STORE = 'handles';
 const HANDLE_KEY = 'data-folder';
 
+function hasPicker(scope: object): scope is DirectoryPicker {
+  return 'showDirectoryPicker' in scope && typeof scope.showDirectoryPicker === 'function';
+}
+
+function canQuery(handle: object): handle is Pick<PermissionAwareHandle, 'queryPermission'> {
+  return 'queryPermission' in handle && typeof handle.queryPermission === 'function';
+}
+
+function canRequest(handle: object): handle is Pick<PermissionAwareHandle, 'requestPermission'> {
+  return 'requestPermission' in handle && typeof handle.requestPermission === 'function';
+}
+
+function isDirectoryHandle(value: unknown): value is DirectoryHandleLike {
+  return isRecord(value) && typeof value.getDirectoryHandle === 'function';
+}
+
 /**
  * Whether this browser can hand out a directory at all.
  *
@@ -41,7 +63,7 @@ const HANDLE_KEY = 'data-folder';
  * @returns Whether {@link pickDataFolder} will work here
  */
 export function isFolderStorageAvailable(): boolean {
-  return typeof (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
+  return hasPicker(globalThis);
 }
 
 /**
@@ -53,13 +75,8 @@ export function isFolderStorageAvailable(): boolean {
  * @returns The chosen directory
  */
 export async function pickDataFolder(options?: { id?: string }): Promise<DirectoryHandleLike> {
-  const picker = (
-    globalThis as {
-      showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<DirectoryHandleLike>;
-    }
-  ).showDirectoryPicker;
-
-  if (!picker) {
+  const scope: object = globalThis;
+  if (!hasPicker(scope)) {
     throw protocolError(
       'FOLDER_UNAVAILABLE',
       'This browser cannot open a data folder.',
@@ -69,7 +86,11 @@ export async function pickDataFolder(options?: { id?: string }): Promise<Directo
     );
   }
 
-  return picker({ id: options?.id ?? 'weave-pod', mode: 'readwrite', startIn: 'documents' });
+  return scope.showDirectoryPicker({
+    id: options?.id ?? 'weave-pod',
+    mode: 'readwrite',
+    startIn: 'documents',
+  });
 }
 
 /**
@@ -82,9 +103,8 @@ export async function queryFolderPermission(
   handle: DirectoryHandleLike,
   mode: FolderAccessMode = 'readwrite',
 ): Promise<PermissionState> {
-  const query = (handle as PermissionAwareHandle).queryPermission;
-  if (!query) return 'granted'; // a handle from a runtime without the extension
-  return query.call(handle, { mode });
+  if (!canQuery(handle)) return 'granted'; // a handle from a runtime without the extension
+  return handle.queryPermission({ mode });
 }
 
 /**
@@ -107,9 +127,8 @@ export async function ensureFolderPermission(
   if ((await queryFolderPermission(handle, mode)) === 'granted') return true;
   if (!options?.request) return false;
 
-  const request = (handle as PermissionAwareHandle).requestPermission;
-  if (!request) return false;
-  return (await request.call(handle, { mode })) === 'granted';
+  if (!canRequest(handle)) return false;
+  return (await handle.requestPermission({ mode })) === 'granted';
 }
 
 /**
@@ -125,7 +144,7 @@ function openHandleDb(): Promise<IDBDatabase> {
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error(`Could not open ${HANDLE_DB}`));
   });
 }
 
@@ -144,7 +163,7 @@ export async function rememberDataFolder(handle: DirectoryHandleLike): Promise<v
       const tx = db.transaction(HANDLE_STORE, 'readwrite');
       tx.objectStore(HANDLE_STORE).put(handle, HANDLE_KEY);
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error ?? new Error('Could not remember the folder'));
     });
   } finally {
     db.close();
@@ -166,8 +185,11 @@ export async function recallDataFolder(): Promise<DirectoryHandleLike | null> {
       return await new Promise<DirectoryHandleLike | null>((resolve, reject) => {
         const tx = db.transaction(HANDLE_STORE, 'readonly');
         const request = tx.objectStore(HANDLE_STORE).get(HANDLE_KEY);
-        request.onsuccess = () => resolve((request.result as DirectoryHandleLike) ?? null);
-        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const value: unknown = request.result;
+          resolve(isDirectoryHandle(value) ? value : null);
+        };
+        request.onerror = () => reject(request.error ?? new Error('Could not read the remembered folder'));
       });
     } finally {
       db.close();
@@ -186,7 +208,7 @@ export async function forgetDataFolder(): Promise<void> {
         const tx = db.transaction(HANDLE_STORE, 'readwrite');
         tx.objectStore(HANDLE_STORE).delete(HANDLE_KEY);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
+        tx.onerror = () => reject(tx.error ?? new Error('Could not forget the folder'));
       });
     } finally {
       db.close();

@@ -31,6 +31,7 @@
 
 import type { StorageAdapter, BatchOp, Expression } from '../types.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
+import { isStoredExpression } from '../utils/narrow.js';
 
 // ─── The slice of the File System Access API this module relies on ─────
 //
@@ -223,7 +224,8 @@ export async function createFolderAdapter(root: DirectoryHandleLike, path: strin
     const bytes = await readFolderFile(expressionsDir, name);
     if (!bytes) return null;
     try {
-      return JSON.parse(utf8Decode(bytes)) as Expression;
+      const parsed: unknown = JSON.parse(utf8Decode(bytes));
+      return isStoredExpression(parsed) ? parsed : null;
     } catch {
       // A half-written file from a writer that died mid-flush. It will either be
       // rewritten or stay unreadable; either way it is not ours to repair.
@@ -289,7 +291,7 @@ export async function createFolderAdapter(root: DirectoryHandleLike, path: strin
       return (await readFolderFile(kvDir, encodeKey(key))) !== null;
     },
 
-    async list(prefix: string = ''): Promise<string[]> {
+    async list(prefix = ''): Promise<string[]> {
       const keys: string[] = [];
       for await (const name of kvDir.keys()) {
         const key = decodeKey(name);
@@ -302,7 +304,7 @@ export async function createFolderAdapter(root: DirectoryHandleLike, path: strin
       return keys;
     },
 
-    async queryExpressions(collection: string, limit: number = 50, cursor?: string): Promise<Expression[]> {
+    async queryExpressions(collection: string, limit = 50, cursor?: string): Promise<Expression[]> {
       // Ordered so a cursor means the same thing on every device, which a
       // directory listing on its own would not guarantee.
       const ordered = [...expressions.values()]

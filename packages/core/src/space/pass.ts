@@ -86,6 +86,7 @@ export async function makePass(record: SpaceRecord): Promise<SpacePass> {
  * @returns The space and its read key pair, or null when the pass does not check out
  */
 export async function openPass(value: unknown, provider: CryptoProvider): Promise<OpenedPass | null> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checkSpace checks the space, and read and readKey are checked where they are used
   const pass = value as Partial<SpacePass> | null;
   if (!pass || pass.v !== 1 || !pass.space) return null;
   if ((await checkSpace(pass.space)) !== null) return null;

@@ -1,5 +1,6 @@
 import { CryptoProvider, Expression } from '../types.js';
 import { utf8Encode, base64UrlDecode } from '../utils/encoding.js';
+import { messageOf } from '../utils/errors.js';
 import { canonicalize, getExpressionId, signedPart } from '../schema/expression.js';
 
 export interface GateResult {
@@ -40,7 +41,7 @@ export function createCryptoGate(provider: CryptoProvider): CryptoGate {
         const data = utf8Encode(canonicalize(unsignedPayload));
 
         const publicKey = await resolvePublicKey(expression.author);
-        const sigBytes = base64UrlDecode(signature!);
+        const sigBytes = base64UrlDecode(signature);
 
         const isValid = await provider.verify(publicKey, sigBytes, data);
         if (isValid) {
@@ -48,8 +49,8 @@ export function createCryptoGate(provider: CryptoProvider): CryptoGate {
         } else {
           return { passed: false, gate: 'crypto', reason: 'Signature verification failed' };
         }
-      } catch (err: any) {
-        return { passed: false, gate: 'crypto', reason: err.message || 'Unknown crypto error' };
+      } catch (err) {
+        return { passed: false, gate: 'crypto', reason: messageOf(err, 'Unknown crypto error') };
       }
     },
   };

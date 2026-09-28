@@ -4,6 +4,7 @@
 
 import type { CandidateSink, PeerTransportEvents, SignalledTransport } from './transport.js';
 import { createEmitter } from '../utils/events.js';
+import { toBufferSource } from '../utils/narrow.js';
 
 export interface RTCTransportConfig {
   /** Fixed, or asked for each new connection — TURN passwords a relay hands out change */
@@ -54,7 +55,7 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
       close(peerId);
     };
     channel.onerror = (ev) => {
-      const errEvent = ev as RTCErrorEvent;
+      const errEvent = ev;
       emit('error', peerId, errEvent.error || new Error('Data channel error'));
     };
     channel.onmessage = (event) => {
@@ -152,7 +153,8 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     if (!peerData || !peerData.channel || peerData.channel.readyState !== 'open') {
       throw new Error(`Data channel not open for peer ${peerId}`);
     }
-    peerData.channel.send(data.buffer as ArrayBuffer);
+    // The whole buffer, not just the view: callers pass bytes that fill theirs.
+    peerData.channel.send(toBufferSource(data).buffer);
   };
 
   const close = (peerId: string): void => {

@@ -75,7 +75,7 @@ export function nextVersion(current: Pick<Expression, 'id' | 'key' | 'seq' | 'ge
 export function checkVersionShape(expression: Partial<Expression>): string | null {
   const { key, seq, prev, genesis, deleted, retain, body, seen } = expression;
   if (typeof key !== 'string' || !RECORD_KEY_PATTERN.test(key)) return 'Record key is missing or malformed';
-  if (!Number.isSafeInteger(seq) || (seq as number) < 0)
+  if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0)
     return 'Version number must be a whole number from 0';
   if (seq === 0) {
     if (prev !== undefined || genesis !== undefined) return 'A first version cannot name a previous one';

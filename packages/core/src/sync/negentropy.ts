@@ -34,11 +34,8 @@ const BUCKETS = 16;
 /** A timestamp past every real one: the end of the last range */
 const INFINITY = Number.MAX_SAFE_INTEGER;
 
-const enum Mode {
-  Skip = 0,
-  Fingerprint = 1,
-  IdList = 2,
-}
+/** What follows a bound on the wire; the numbers are the protocol's */
+const Mode = { Skip: 0, Fingerprint: 1, IdList: 2 } as const;
 
 /** One thing in a set: when (for ordering only) and its 32-byte id */
 export interface Item {

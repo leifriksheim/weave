@@ -29,6 +29,7 @@ import type { Expression } from '../types.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
 import { parseUCAN } from '../identity/ucan.js';
 import { checkTopics, topicKey, topicTag } from '../records/topics.js';
+import { isRecord } from '../utils/narrow.js';
 
 /** Subscriptions as the person made them, in the account registry: key `notify:<id>` */
 export const NOTIFY_COLLECTION = 'sys.notify';
@@ -106,8 +107,8 @@ const COLLECTION = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
 
 /** Why a subscription can't be kept, or null */
 export function checkNotify(when: unknown): string | null {
-  const w = when as Partial<NotifyWhen> | null;
-  if (typeof w !== 'object' || w === null) return 'A subscription must be an object';
+  if (!isRecord(when)) return 'A subscription must be an object';
+  const w = when;
   if (typeof w.label !== 'string' || !w.label.trim() || w.label.length > 120)
     return 'label is what the notification says: some text, at most 120 characters';
   if (typeof w.collection !== 'string' || !COLLECTION.test(w.collection) || w.collection.startsWith('sys.'))
@@ -124,8 +125,8 @@ export function checkNotify(when: unknown): string | null {
     return 'spaces must be "all" or a list of space ids';
   }
   if (w.topic !== undefined) {
-    const t = w.topic as Partial<NonNullable<NotifyWhen['topic']>> | null;
-    if (typeof t !== 'object' || t === null || typeof t.field !== 'string' || checkTopics([t.field]) !== null)
+    const t = w.topic;
+    if (!isRecord(t) || typeof t.field !== 'string' || checkTopics([t.field]) !== null)
       return 'topic.field must be a field name';
     if (!['string', 'number', 'boolean'].includes(typeof t.value))
       return 'topic.value must be text, a number or yes/no';
@@ -134,7 +135,8 @@ export function checkNotify(when: unknown): string | null {
   if (w.paused !== undefined && typeof w.paused !== 'boolean') return 'paused must be true or false';
   if (w.open !== undefined) {
     try {
-      const url = new URL(w.open);
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- URL stringifies what it is given; String() keeps what passes unchanged
+      const url = new URL(String(w.open));
       if (
         url.protocol !== 'https:' &&
         !(url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname))
@@ -146,8 +148,8 @@ export function checkNotify(when: unknown): string | null {
   }
   if (typeof w.since !== 'string' || !Number.isFinite(Date.parse(w.since))) return 'since must be a date';
   if (w.app !== undefined) {
-    const a = w.app as Partial<NotifyApp> | null;
-    if (typeof a !== 'object' || a === null || typeof a.origin !== 'string' || !isOrigin(a.origin))
+    const a = w.app;
+    if (!isRecord(a) || typeof a.origin !== 'string' || !isOrigin(a.origin))
       return 'app.origin must be a web origin';
     if (a.name !== undefined && (typeof a.name !== 'string' || a.name.length > 80))
       return 'app.name must be text, at most 80 characters';
@@ -174,15 +176,10 @@ function isOrigin(value: string): boolean {
  * the browser reported it: a click may only lead back to the app that asked.
  */
 export function checkProposal(proposal: unknown, origin: string): string | null {
-  const p = proposal as Partial<NotifyProposal> | null;
-  if (typeof p !== 'object' || p === null) return 'A proposed subscription must be an object';
-  const topic = p.topic as { field?: unknown; value?: unknown; me?: unknown } | undefined;
-  if (
-    topic !== undefined &&
-    (typeof topic !== 'object' ||
-      topic === null ||
-      ('me' in topic && (topic.me !== true || 'value' in topic)))
-  ) {
+  if (!isRecord(proposal)) return 'A proposed subscription must be an object';
+  const p = proposal;
+  const topic = p.topic === undefined ? undefined : isRecord(p.topic) ? p.topic : null;
+  if (topic === null || (topic && 'me' in topic && (topic.me !== true || 'value' in topic))) {
     return 'topic is { field, value } or { field, me: true }';
   }
   const problem = checkNotify({
@@ -196,7 +193,8 @@ export function checkProposal(proposal: unknown, origin: string): string | null 
     app: { origin },
   });
   if (problem) return problem;
-  if (p.open !== undefined && new URL(p.open).origin !== origin)
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- checkNotify has passed it as a web address, the way URL reads it
+  if (p.open !== undefined && new URL(String(p.open)).origin !== origin)
     return 'open must be an address on the app’s own site';
   return null;
 }
@@ -269,10 +267,8 @@ export async function carriedFor(
   let tags: Record<string, string[]> | undefined;
   if (when.topic) {
     tags = {};
-    const looked =
-      when.spaces === 'all'
-        ? spaces
-        : spaces.filter((s) => (when.spaces as ReadonlyArray<string>).includes(s.id));
+    const only = when.spaces;
+    const looked = only === 'all' ? spaces : spaces.filter((s) => only.includes(s.id));
     for (const space of looked) {
       if (space.visibility === 'private' && !space.key) continue;
       const key = await topicKey(
@@ -296,16 +292,18 @@ export async function carriedFor(
 
 /** A carried subscription as read back from a carry space, or null when it isn't one */
 export function readCarried(body: unknown): CarriedSubscription | null {
-  const b = body as Partial<CarriedSubscription> | null;
-  if (typeof b !== 'object' || b === null || b.v !== 1) return null;
-  const problem = checkNotify({ ...b, others: b.others, topic: undefined });
-  if (problem) return null;
-  if (b.tags !== undefined) {
-    if (typeof b.tags !== 'object' || b.tags === null) return null;
-    for (const list of Object.values(b.tags))
-      if (!Array.isArray(list) || !list.every((t) => typeof t === 'string')) return null;
-  }
-  return b as CarriedSubscription;
+  return isCarried(body) ? body : null;
+}
+
+/** `checkNotify` checks the fields a carried subscription shares with the person's; the tags are checked here. */
+function isCarried(body: unknown): body is CarriedSubscription {
+  if (!isRecord(body) || body.v !== 1) return false;
+  if (checkNotify({ ...body, topic: undefined }) !== null) return false;
+  if (body.tags === undefined) return true;
+  return (
+    isRecord(body.tags) &&
+    Object.values(body.tags).every((list) => Array.isArray(list) && list.every((t) => typeof t === 'string'))
+  );
 }
 
 /** Who a version was written for: the account at the root of its note, else its own key */

@@ -22,6 +22,7 @@
  * what must be unique, so a second vote *is* the first one's next version.
  */
 import { sha256 } from '../utils/hash.js';
+import { isList, isPlainObject, readField } from '../utils/narrow.js';
 import type { Link } from '../types.js';
 
 /**
@@ -70,8 +71,8 @@ export function checkRules(
   permissions: ReadonlyArray<string> = [],
 ): string | null {
   if (rules === undefined) return null;
-  if (typeof rules !== 'object' || rules === null || Array.isArray(rules)) return `${at} must be an object`;
-  const r = rules as Record<string, unknown>;
+  if (!isPlainObject(rules)) return `${at} must be an object`;
+  const r = rules;
   for (const key of Object.keys(r)) {
     if (!['create', 'edit', 'delete', 'onePer', 'fixed'].includes(key))
       return `${at}.${key} is not a rule (use create, edit, delete, onePer, fixed)`;
@@ -116,7 +117,7 @@ export interface RuleContext {
 
 /** Whether a writer is among `who` */
 export function allows(who: Who | ReadonlyArray<Who> | undefined, context: RuleContext): boolean {
-  const list: ReadonlyArray<Who> = who === undefined ? ['member'] : Array.isArray(who) ? who : [who as Who];
+  const list: ReadonlyArray<Who> = who === undefined ? ['member'] : isList(who) ? who : [who];
   return list.some((w) =>
     w === 'member' ? context.member : w === 'creator' ? context.creator : context.can(w.slice(4)),
   );
@@ -124,7 +125,7 @@ export function allows(who: Who | ReadonlyArray<Who> | undefined, context: RuleC
 
 /** "Only whoever created it or those allowed to moderate" — for error messages */
 export function describeWho(who: Who | ReadonlyArray<Who> | undefined): string {
-  const list: ReadonlyArray<Who> = who === undefined ? ['member'] : Array.isArray(who) ? who : [who as Who];
+  const list: ReadonlyArray<Who> = who === undefined ? ['member'] : isList(who) ? who : [who];
   const words = list.map((w) =>
     w === 'member' ? 'members' : w === 'creator' ? 'whoever created it' : `those allowed to ${w.slice(4)}`,
   );
@@ -151,7 +152,7 @@ export async function onePerKey(
       if (!link) return null;
       parts.push(`${part}=${link.to}`);
     } else {
-      const value = (record.body as Record<string, unknown> | null)?.[part];
+      const value = readField(record.body, part);
       if (value === undefined) return null;
       parts.push(`${part}=${JSON.stringify(value)}`);
     }
@@ -167,8 +168,8 @@ export function changedFixedField(
   next: unknown,
 ): string | null {
   for (const field of fixed ?? []) {
-    const a = (first as Record<string, unknown> | null)?.[field];
-    const b = (next as Record<string, unknown> | null)?.[field];
+    const a = readField(first, field);
+    const b = readField(next, field);
     if (JSON.stringify(a) !== JSON.stringify(b)) return field;
   }
   return null;

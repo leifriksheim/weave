@@ -10,6 +10,7 @@
  * should fail loudly, not leave a quiet partial sync.
  */
 import type { Expression } from '../types.js';
+import { isRecord } from '../utils/narrow.js';
 
 export const SYNC_PROTOCOL_VERSION = 4;
 
@@ -67,13 +68,10 @@ export type SyncMessageBody = SyncMessage extends infer M ? (M extends V ? Omit<
  * @returns The message, or null when it is malformed or from another protocol version.
  */
 export function parseSyncMessage(value: unknown): SyncMessage | null {
-  const message = value as Partial<SyncMessage> | null;
-  if (
-    !message ||
-    typeof message !== 'object' ||
-    message.v !== SYNC_PROTOCOL_VERSION ||
-    typeof message.type !== 'string'
-  )
-    return null;
-  return message as SyncMessage;
+  return isSyncMessage(value) ? value : null;
+}
+
+/** Only the version and that there is a type: the engine checks each field as it reads it. */
+function isSyncMessage(value: unknown): value is SyncMessage {
+  return isRecord(value) && value.v === SYNC_PROTOCOL_VERSION && typeof value.type === 'string';
 }

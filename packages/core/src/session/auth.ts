@@ -392,6 +392,20 @@ export interface WeaveAuth {
 }
 
 /** Turns a thrown value into something worth showing, ignoring a dismissed prompt. */
+/** Files a new account at a place, with no wraps yet: the passkey or password comes after the recovery code. */
+async function fileAccount(place: Place, did: string, name: string): Promise<AccountSummary> {
+  const id = newAccountId();
+  const summary: AccountSummary = {
+    id,
+    name,
+    did,
+    createdAt: new Date().toISOString(),
+    dataPath: accountDataPath(id),
+  };
+  await place.store.write(summary, createVault({ did, label: name, wraps: [] }));
+  return summary;
+}
+
 function describe(error: unknown): AuthError | null {
   if (error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'AbortError')) {
     return null; // the person dismissed a passkey or folder prompt
@@ -461,9 +475,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   const appName = config.appName ?? 'Weave';
   const prefix = config.storageKey ?? 'weave';
   const storage: KeyValueStore | null =
-    config.storage !== undefined
-      ? config.storage
-      : ((globalThis as { localStorage?: KeyValueStore }).localStorage ?? null);
+    config.storage !== undefined ? config.storage : (globalThis.localStorage ?? null);
   const stay = createStaySignedIn(storage, rpId, prefix);
   const browserAccounts = config.browser?.accounts ?? createBrowserAccountStore;
   const browserStores = config.browser?.stores ?? ((account: AccountSummary) => storesFor(account));
@@ -735,16 +747,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
     // New to this place — a new device, or a new home. File it, so there is
     // somewhere to keep the passkey or password set up next.
-    const id = newAccountId();
-    const summary: AccountSummary = {
-      id,
-      name: expected?.name ?? 'My account',
-      did: identity.did,
-      createdAt: new Date().toISOString(),
-      dataPath: accountDataPath(id),
-    };
-    await place.store.write(summary, createVault({ did: identity.did, label: summary.name, wraps: [] }));
-    return begin(place, summary, unlocked);
+    return begin(place, await fileAccount(place, identity.did, expected?.name ?? 'My account'), unlocked);
   }
 
   /** The account the person picked, if any */
@@ -823,7 +826,17 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       if (state.stage === 'unlock' && hasEverydayWay(state.entry)) afterUnlock();
     });
 
-  /** Connected apps are remembered per account, on this device */
+  /** Connected apps are remembered per account, on this device; none when what is kept can't be read */
+  function readConnections(account: string): Connection[] {
+    try {
+      const connections: unknown = JSON.parse(get(`${prefix}.connections:${account}`) ?? '[]');
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only writeConnections writes this key
+      return Array.isArray(connections) ? (connections as Connection[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
   function writeConnections(connections: ReadonlyArray<Connection>): void {
     const account = state.session?.account.id;
     if (account) set(`${prefix}.connections:${account}`, JSON.stringify(connections));
@@ -925,11 +938,14 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
         // Before passwords, the recovery code was this site's login, and a
         // password manager still fills it here. It opens the account either way.
         const code = isValidRecoveryCode(password) ? password : null;
-        let failed: unknown = null;
+        let failed: Error | null = null;
         for (const wrap of place && entry ? wraps : []) {
-          const unlocked = await unwrapSeedWithPassphrase(wrap, password).catch(
-            (error: unknown) => ((failed = error), null),
-          );
+          let unlocked: Uint8Array | null = null;
+          try {
+            unlocked = await unwrapSeedWithPassphrase(wrap, password);
+          } catch (error) {
+            failed = error instanceof Error ? error : new Error(String(error));
+          }
           if (unlocked) return { session: await begin(place!, entry!.summary, unlocked), byCode: false };
         }
         if (failed && !code) throw failed;
@@ -999,17 +1015,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
         const unlocked = generateSeed();
         const identity = await createIdentityManager().fromSeed(unlocked);
-        const id = newAccountId();
-        const summary: AccountSummary = {
-          id,
-          name: name.trim(),
-          did: identity.did,
-          createdAt: new Date().toISOString(),
-          dataPath: accountDataPath(id),
-        };
-
-        // No wraps yet: the passkey or password comes after the recovery code.
-        await place.store.write(summary, createVault({ did: identity.did, label: summary.name, wraps: [] }));
+        const summary = await fileAccount(place, identity.did, name.trim());
         // Kept only in this browser, the account is only as safe as the
         // browser's willingness to keep it. Asking costs nothing.
         if (place.kind === 'browser') await globalThis.navigator?.storage?.persist?.().catch(() => false);
@@ -1419,25 +1425,14 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     connections() {
       const account = state.session?.account.id;
       if (!account) return [];
-      try {
-        return JSON.parse(get(`${prefix}.connections:${account}`) ?? '[]') as Connection[];
-      } catch {
-        return [];
-      }
+      return readConnections(account);
     },
 
     connectedElsewhere(origin) {
       const current = state.session?.account.id;
       return state.accounts
         .filter((account) => account.id !== current)
-        .filter((account) => {
-          try {
-            const known = JSON.parse(get(`${prefix}.connections:${account.id}`) ?? '[]') as Connection[];
-            return known.some((connection) => connection.origin === origin);
-          } catch {
-            return false;
-          }
-        })
+        .filter((account) => readConnections(account.id).some((connection) => connection.origin === origin))
         .map((account) => ({ id: account.id, name: account.name }));
     },
 

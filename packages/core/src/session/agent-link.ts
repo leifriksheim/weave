@@ -34,6 +34,7 @@ import { isAgentNote } from '../identity/agent-note.js';
 import { sealPairingPayload, openPairingPayload } from '../identity/pairing.js';
 import { base64UrlDecode, base64UrlEncode, concatBytes, utf8Decode, utf8Encode } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
+import { toBufferSource } from '../utils/narrow.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { Grant } from './connect.js';
 
@@ -90,7 +91,7 @@ async function linkRoom(secret: Uint8Array): Promise<string> {
 async function linkKey(secret: Uint8Array): Promise<CryptoKey> {
   const material = await globalThis.crypto.subtle.importKey(
     'raw',
-    secret as BufferSource,
+    toBufferSource(secret),
     { name: 'HKDF' },
     false,
     ['deriveKey'],
@@ -99,8 +100,8 @@ async function linkKey(secret: Uint8Array): Promise<CryptoKey> {
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: new Uint8Array(0) as BufferSource,
-      info: KEY_INFO as BufferSource,
+      salt: new Uint8Array(0),
+      info: KEY_INFO,
     },
     material,
     { name: 'AES-GCM', length: 256 },
@@ -117,9 +118,8 @@ async function seal(value: unknown, key: CryptoKey): Promise<number[]> {
 async function unseal<T>(message: NetworkMessage, key: CryptoKey): Promise<T | null> {
   if (!Array.isArray(message.payload)) return null;
   try {
-    return JSON.parse(
-      utf8Decode(await openPairingPayload(new Uint8Array(message.payload as number[]), key)),
-    ) as T;
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- each caller checks the fields it reads
+    return JSON.parse(utf8Decode(await openPairingPayload(new Uint8Array(message.payload), key))) as T;
   } catch {
     return null;
   }

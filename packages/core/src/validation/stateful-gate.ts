@@ -1,6 +1,8 @@
 import { Expression } from '../types.js';
 import { GateResult } from './crypto-gate.js';
 import { utf8Encode } from '../utils/encoding.js';
+import { messageOf } from '../utils/errors.js';
+import { toBufferSource } from '../utils/narrow.js';
 
 export interface StateContext {
   readonly getExpression: (id: string) => Promise<Expression | null>;
@@ -9,6 +11,11 @@ export interface StateContext {
 export interface StatefulGate {
   registerRule(collection: string, wasmBytes: Uint8Array): Promise<void>;
   validate(expression: Expression, context: StateContext): Promise<GateResult>;
+}
+
+/** A rule's exports are functions over i32s: pointers, lengths and result codes */
+function isWasmFunction(value: unknown): value is (...args: number[]) => number {
+  return typeof value === 'function';
 }
 
 /**
@@ -20,7 +27,7 @@ export function createStatefulGate(): StatefulGate {
 
   return {
     async registerRule(collection: string, wasmBytes: Uint8Array): Promise<void> {
-      const module = await WebAssembly.compile(wasmBytes as BufferSource);
+      const module = await WebAssembly.compile(toBufferSource(wasmBytes));
       const instance = await WebAssembly.instantiate(module, {
         env: {
           abort: () => {
@@ -38,23 +45,16 @@ export function createStatefulGate(): StatefulGate {
       }
 
       try {
-        const { validate: wasmValidate, memory } = instance.exports as unknown as {
-          validate: (ptr: number, len: number) => number;
-          memory: WebAssembly.Memory;
-          alloc?: (size: number) => number;
-        };
+        const { validate: wasmValidate, memory, alloc } = instance.exports;
 
-        if (typeof wasmValidate !== 'function' || !memory) {
+        if (!isWasmFunction(wasmValidate) || !(memory instanceof WebAssembly.Memory)) {
           return { passed: false, gate: 'stateful', reason: 'Invalid WASM exports' };
         }
 
         const json = JSON.stringify(expression);
         const bytes = utf8Encode(json);
 
-        let ptr = 0;
-        if ((instance.exports as any).alloc) {
-          ptr = (instance.exports as any).alloc(bytes.length);
-        }
+        const ptr = isWasmFunction(alloc) ? alloc(bytes.length) : 0;
 
         const memView = new Uint8Array(memory.buffer);
         memView.set(bytes, ptr);
@@ -66,8 +66,8 @@ export function createStatefulGate(): StatefulGate {
         } else {
           return { passed: false, gate: 'stateful', reason: `WASM validation failed with code ${result}` };
         }
-      } catch (err: any) {
-        return { passed: false, gate: 'stateful', reason: err.message || 'WASM execution error' };
+      } catch (err) {
+        return { passed: false, gate: 'stateful', reason: messageOf(err, 'WASM execution error') };
       }
     },
   };

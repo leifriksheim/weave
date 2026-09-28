@@ -154,7 +154,7 @@ async function exportKey(key: SpaceKey): Promise<StoredKey> {
 async function importKey(stored: StoredKey): Promise<SpaceKey> {
   const key = await globalThis.crypto.subtle.importKey(
     'raw',
-    base64UrlDecode(stored.raw) as BufferSource,
+    base64UrlDecode(stored.raw),
     { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt'],
@@ -173,6 +173,7 @@ export function createSpaceManager(
 ): SpaceManager {
   async function readSpace(spaceId: string): Promise<Space | null> {
     const bytes = await adapter.get(`${SPACE_PREFIX}${spaceId}`);
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- what writeSpace stored
     return bytes ? (JSON.parse(utf8Decode(bytes)) as Space) : null;
   }
 
@@ -183,6 +184,7 @@ export function createSpaceManager(
   async function readKeyring(spaceId: string): Promise<{ key: SpaceKey | null; keys: SpaceKey[] }> {
     const bytes = await adapter.get(`${KEY_PREFIX}${spaceId}`);
     if (!bytes) return { key: null, keys: [] };
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- what writeKeyring stored
     const stored = JSON.parse(utf8Decode(bytes)) as StoredKeyring;
     const keys = await Promise.all(stored.keys.map(importKey));
     return { key: keys.find((key) => key.id === stored.current) ?? keys.at(-1) ?? null, keys };
@@ -221,6 +223,7 @@ export function createSpaceManager(
       invite: invite ? base64UrlDecode(invite) : null,
       role: await readText(ROLE_PREFIX, spaceId),
       ...(memberKey ? { memberKey: base64UrlDecode(memberKey) } : {}),
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- stored only after checkRelays passed it
       ...(relays ? { relays: JSON.parse(relays) as string[] } : {}),
     };
   }
@@ -392,6 +395,7 @@ export async function encodeSpaceInvite(
  */
 export function parseSpaceInvite(invite: string): SpaceInvite {
   try {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only the space's id and name are checked here; joining checks the rest
     const parsed = JSON.parse(utf8Decode(base64UrlDecode(invite.trim()))) as SpaceInvite;
     if (!parsed?.space?.id || !parsed.space.name) {
       throw new Error('missing space');

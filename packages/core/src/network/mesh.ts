@@ -24,7 +24,8 @@
 import type { PeerInfo, NetworkMessage } from '../types.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { createEmitter, type Emitter } from '../utils/events.js';
-import type { SignalKind } from './signaling.js';
+import { isSignalKind, type SignalKind } from './signaling.js';
+import { isRecord } from '../utils/narrow.js';
 import { createMultiSignalingClient } from './multi-signaling.js';
 import { createRTCTransport, DEFAULT_ICE_SERVERS } from './rtc-transport.js';
 import type { SignalledTransport } from './transport.js';
@@ -103,12 +104,6 @@ interface Room {
   readonly peers: Map<string, PeerInfo>;
   readonly handshakes: Map<string, Handshake>;
   readonly events: Emitter<NetworkEvents>;
-}
-
-interface Frame {
-  readonly room?: unknown;
-  readonly type?: unknown;
-  readonly payload?: unknown;
 }
 
 type Deliver = (kind: SignalKind, data: unknown) => void;
@@ -216,7 +211,7 @@ export function createMesh(config: MeshConfig): Mesh {
     const binding = transport.binding?.(peer) ?? null;
     if (type === AUTH_HELLO_MESSAGE) {
       const handshake = greet(name, peer);
-      const nonce = (payload as { nonce?: unknown } | null)?.nonce;
+      const nonce = isRecord(payload) ? payload.nonce : undefined;
       if (!handshake || handshake.proved || typeof nonce !== 'string') return;
       handshake.proved = true;
       if (room.auth)
@@ -298,14 +293,16 @@ export function createMesh(config: MeshConfig): Mesh {
     try {
       if (kind === 'offer') {
         attempted.add(peer);
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- setRemoteDescription checks it and throws into the catch below
         const answer = await transport.handleOffer(peer, data as RTCSessionDescriptionInit, (candidate) =>
           deliver('candidate', candidate),
         );
         deliver('answer', answer);
       } else if (kind === 'answer') {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- setRemoteDescription checks it and throws into the catch below
         await transport.handleAnswer(peer, data as RTCSessionDescriptionInit);
       } else {
-        await transport.addIceCandidate(peer, data as RTCIceCandidateInit);
+        await transport.addIceCandidate(peer, data);
       }
     } catch (err) {
       fail(err);
@@ -344,20 +341,20 @@ export function createMesh(config: MeshConfig): Mesh {
     }
   };
 
-  const onRelayedSignal = (from: string, signal: RelayedSignal): void => {
+  const onRelayedSignal = (from: string, signal: unknown): void => {
+    if (!isRecord(signal)) return;
+    const { id, origin, target, kind, hops } = signal;
     // Flooding means the same signal can arrive by several routes; act once.
-    if (typeof signal?.id !== 'string' || signal.id.length > 64 || !seenSignals.accept(signal.id)) return;
-    if (
-      !isPeerDid(signal.origin) ||
-      !isPeerDid(signal.target) ||
-      !['offer', 'answer', 'candidate'].includes(signal.kind)
-    )
-      return;
-    if (signal.target === did) {
-      void onSignal(signal.origin, signal.kind, signal.data, throughMesh(signal.origin));
-    } else if (typeof signal.hops === 'number' && signal.hops > 0) {
+    if (typeof id !== 'string' || id.length > 64 || !seenSignals.accept(id)) return;
+    if (!isPeerDid(origin) || !isPeerDid(target) || !isSignalKind(kind)) return;
+    if (target === did) {
+      void onSignal(origin, kind, signal.data, throughMesh(origin));
+    } else if (typeof hops === 'number' && hops > 0) {
       // The sender says how far it may go; never further than we would send it.
-      floodSignal({ ...signal, hops: Math.min(signal.hops, MAX_HOPS) - 1 }, from);
+      floodSignal(
+        { ...signal, id, origin, target, kind, data: signal.data, hops: Math.min(hops, MAX_HOPS) - 1 },
+        from,
+      );
     }
   };
 
@@ -379,12 +376,13 @@ export function createMesh(config: MeshConfig): Mesh {
   transport.on('disconnected', lost);
 
   transport.on('data', (peer, data) => {
-    let frame: Frame;
+    let frame: unknown;
     try {
-      frame = JSON.parse(utf8Decode(data)) as Frame;
+      frame = JSON.parse(utf8Decode(data));
     } catch {
       return fail(new Error('Failed to parse incoming message'));
     }
+    if (!isRecord(frame)) return;
     const { type, payload } = frame;
     const name = typeof frame.room === 'string' ? frame.room : null;
     if (typeof type !== 'string') return;
@@ -399,7 +397,7 @@ export function createMesh(config: MeshConfig): Mesh {
       return;
     }
     if (!isAdmitted(peer)) return;
-    if (type === SIGNAL_MESSAGE) return onRelayedSignal(peer, payload as RelayedSignal);
+    if (type === SIGNAL_MESSAGE) return onRelayedSignal(peer, payload);
 
     const room = name ? rooms.get(name) : undefined;
     if (!name || !room?.peers.has(peer)) return;

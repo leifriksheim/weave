@@ -10,6 +10,7 @@
 import type { Expression } from '../types.js';
 import { sha256 } from '../utils/hash.js';
 import { utf8Decode, utf8Encode } from '../utils/encoding.js';
+import { isRecord, isStoredExpression } from '../utils/narrow.js';
 
 export const SEGMENT_SUFFIX = '.seg';
 
@@ -21,12 +22,9 @@ export function packSegment(versions: ReadonlyArray<Expression>): Uint8Array {
 /** The versions in a segment; none for bytes that are not one */
 export function unpackSegment(bytes: Uint8Array): Expression[] {
   try {
-    const parsed = JSON.parse(utf8Decode(bytes)) as { v?: unknown; versions?: unknown };
-    if (parsed.v !== 1 || !Array.isArray(parsed.versions)) return [];
-    return parsed.versions.filter(
-      (version): version is Expression =>
-        typeof version === 'object' && version !== null && typeof (version as Expression).id === 'string',
-    );
+    const parsed: unknown = JSON.parse(utf8Decode(bytes));
+    if (!isRecord(parsed) || parsed.v !== 1 || !Array.isArray(parsed.versions)) return [];
+    return parsed.versions.filter(isStoredExpression);
   } catch {
     return [];
   }

@@ -15,6 +15,7 @@
  */
 import type { CollectionRules, Who } from './rules.js';
 import type { LinkDeclaration } from './links.js';
+import { isList, isRecord } from '../utils/narrow.js';
 
 /** As much of a definition as a summary reads */
 export interface Describable {
@@ -53,19 +54,20 @@ function joinAnd(parts: ReadonlyArray<string>): string {
 }
 
 const listOf = (who: Who | ReadonlyArray<Who> | undefined): ReadonlyArray<Who> =>
-  who === undefined ? ['member'] : Array.isArray(who) ? who : [who as Who];
+  who === undefined ? ['member'] : isList(who) ? who : [who];
 
 /** A field's label: its schema title, else its name in words */
 function fieldLabel(schema: unknown, field: string): string {
-  const properties = (schema as { properties?: Record<string, { title?: unknown }> } | null)?.properties;
-  const title = properties?.[field]?.title;
+  const properties = isRecord(schema) ? schema.properties : undefined;
+  const property = isRecord(properties) ? properties[field] : undefined;
+  const title = isRecord(property) ? property.title : undefined;
   return typeof title === 'string' && title.trim() ? title.trim().toLowerCase() : words(field);
 }
 
 /** What a link role points at, in words: "trip" when it names one collection, else the role's own name */
 function linkTarget(definition: Describable, rel: string): string {
   const to = definition.links?.[rel]?.to;
-  return Array.isArray(to) && to.length === 1 ? words(to[0]!) : words(rel);
+  return to !== undefined && isList(to) && to.length === 1 ? words(to[0]!) : words(rel);
 }
 
 /**
@@ -78,7 +80,7 @@ function linkTarget(definition: Describable, rel: string): string {
  */
 export function describeCollection(definition: Describable): ReadonlyArray<string> {
   const rules = definition.rules ?? {};
-  const unknown = Object.keys(rules).find((key) => !(KNOWN_RULES as ReadonlyArray<string>).includes(key));
+  const unknown = Object.keys(rules).find((key) => !KNOWN_RULES.some((rule) => rule === key));
   if (unknown) throw new Error(`No way to describe the rule "${unknown}" — add it to records/describe.ts`);
 
   const noun = (definition.title?.trim() || words(definition.name)).toLowerCase();
@@ -147,9 +149,7 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
       link.to === '*' ? 'anything in the space' : joinOr(link.to.map((to) => article(words(to))));
     // The link's own name only when it says something the target doesn't: "about", not "trip" → a trip.
     const named =
-      Array.isArray(link.to) && link.to.length === 1 && words(link.to[0]!) === words(rel)
-        ? ''
-        : ` (“${rel}”)`;
+      isList(link.to) && link.to.length === 1 && words(link.to[0]!) === words(rel) ? '' : ` (“${rel}”)`;
     sentences.push(
       link.cardinality === 'one'
         ? `Each ${noun} points at one thing: ${target}${named}.`

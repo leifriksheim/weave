@@ -88,6 +88,7 @@ export function createStaySignedIn(
   const read = <T>(key: string): T | null => {
     try {
       const raw = storage?.getItem(key);
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only this store writes these keys
       return raw ? (JSON.parse(raw) as T) : null;
     } catch {
       return null;

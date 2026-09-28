@@ -20,6 +20,7 @@
  */
 import { canonicalize } from '../schema/expression.js';
 import { base64UrlEncode, utf8Encode } from '../utils/encoding.js';
+import { isPlainObject } from '../utils/narrow.js';
 
 /** Topic fields one collection may name */
 const MAX_TOPICS = 8;
@@ -47,8 +48,8 @@ export function checkTopics(topics: unknown, at = 'topics'): string | null {
 export function topicValues(body: unknown, field: string): Array<string | number | boolean> {
   let value: unknown = body;
   for (const part of field.split('.')) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
-    value = (value as Record<string, unknown>)[part];
+    if (!isPlainObject(value)) return [];
+    value = value[part];
   }
   const scalar = (v: unknown): v is string | number | boolean =>
     typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
@@ -64,15 +65,13 @@ export async function topicKey(
     'spaceKey' in material
       ? new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', material.spaceKey))
       : utf8Encode(`weave/public-topics/v1|${material.spaceId}`);
-  const base = await globalThis.crypto.subtle.importKey('raw', secret as BufferSource, 'HKDF', false, [
-    'deriveKey',
-  ]);
+  const base = await globalThis.crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveKey']);
   return globalThis.crypto.subtle.deriveKey(
     {
       name: 'HKDF',
       hash: 'SHA-256',
       salt: new Uint8Array(0),
-      info: utf8Encode('weave/topic-tags/v1') as BufferSource,
+      info: utf8Encode('weave/topic-tags/v1'),
     },
     base,
     { name: 'HMAC', hash: 'SHA-256', length: 256 },
@@ -90,7 +89,7 @@ export async function topicTag(
 ): Promise<string> {
   // Collection and field go in too, so one value in two places is two tags.
   const input = utf8Encode(`${collection}\u0000${field}\u0000${canonicalize(value)}`);
-  const mac = new Uint8Array(await globalThis.crypto.subtle.sign('HMAC', key, input as BufferSource));
+  const mac = new Uint8Array(await globalThis.crypto.subtle.sign('HMAC', key, input));
   return base64UrlEncode(mac.subarray(0, TAG_BYTES));
 }
 

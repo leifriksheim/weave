@@ -73,7 +73,7 @@ export async function unwrapSpaceKey(
   const ephemeralRaw = base64UrlDecode(wrapped.ephemeralPublicKey);
   const ephemeralPublicKey = await globalThis.crypto.subtle.importKey(
     'raw',
-    ephemeralRaw as BufferSource,
+    ephemeralRaw,
     { name: 'ECDH', namedCurve: 'P-256' },
     true,
     [],
@@ -93,7 +93,7 @@ export async function unwrapSpaceKey(
 
   return globalThis.crypto.subtle.unwrapKey(
     'raw',
-    wrappedKeyData as BufferSource,
+    wrappedKeyData,
     kek,
     { name: 'AES-KW' },
     { name: 'AES-GCM', length: 256 },

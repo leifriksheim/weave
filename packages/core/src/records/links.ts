@@ -12,8 +12,8 @@
  * an optional library (`@weaveprotocol/core/schemas`), defined into a space like
  * any other collection.
  */
-import type { Link } from '../types.js';
 import { RECORD_KEY_PATTERN } from './key.js';
+import { isRecord } from '../utils/narrow.js';
 
 const LINK_REL_PATTERN = /^[a-z][a-zA-Z0-9]{0,63}$/;
 
@@ -24,8 +24,9 @@ const MAX_LINKS = 32;
 export function checkLinks(links: unknown): string | null {
   if (!Array.isArray(links)) return 'links must be a list';
   if (links.length > MAX_LINKS) return `At most ${MAX_LINKS} links per record`;
-  for (const link of links as Array<Partial<Link>>) {
-    if (typeof link !== 'object' || link === null) return 'A link must be an object';
+  const list: ReadonlyArray<unknown> = links;
+  for (const link of list) {
+    if (!isRecord(link)) return 'A link must be an object';
     if (typeof link.rel !== 'string' || !LINK_REL_PATTERN.test(link.rel)) {
       return 'A link role is lower camel case, like "about" or "replyTo"';
     }

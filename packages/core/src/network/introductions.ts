@@ -102,7 +102,7 @@ export interface SeenSignals {
  * @param limit How many ids to remember
  * @returns The record
  */
-export function createSeenSignals(limit: number = 512): SeenSignals {
+export function createSeenSignals(limit = 512): SeenSignals {
   const seen = new Set<string>();
   const order: string[] = [];
 
