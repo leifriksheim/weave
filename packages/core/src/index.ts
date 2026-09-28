@@ -134,14 +134,7 @@ export { createSchemaEngine } from './schema/schema-engine.js';
 export type { SchemaEngine, ValidationResult } from './schema/schema-engine.js';
 export { createSigner } from './schema/signer.js';
 export type { Signer } from './schema/signer.js';
-export {
-  createExpression,
-  canonicalize,
-  serializeExpression,
-  deserializeExpression,
-  getExpressionId,
-  signedPart,
-} from './schema/expression.js';
+export { createExpression, canonicalize, getExpressionId, signedPart } from './schema/expression.js';
 
 // Phase 3: Local Storage & State
 export { createIndexedDBAdapter } from './storage/indexeddb-adapter.js';
@@ -304,8 +297,6 @@ export {
   utf8Encode,
   utf8Decode,
   concatBytes,
-  varintEncode,
-  varintDecode,
   bytesToHex,
   hexToBytes,
 } from './utils/encoding.js';

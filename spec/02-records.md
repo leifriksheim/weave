@@ -227,7 +227,7 @@ Member order on the wire is irrelevant. The id is reproducible from the
 canonical text above; the signature is not (ECDSA uses a fresh nonce), but any
 valid signature verifies.
 
-_Source: `packages/core/src/types.ts` (`Expression`, `UnsignedExpression`, `Link`), `packages/core/src/schema/expression.ts` (`createExpression`, `signedPart`, `getExpressionId`, `serializeExpression`), `packages/core/src/schema/signer.ts`, `packages/core/src/validation/crypto-gate.ts`. Tests: `packages/core/tests/validation.test.ts` ("crypto gate"), `packages/core/tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `packages/core/tests/links.test.ts` ("links are signed"), `packages/core/tests/attacks.test.ts` ("a stranger sending a mangled copy first…")._
+_Source: `packages/core/src/types.ts` (`Expression`, `UnsignedExpression`, `Link`), `packages/core/src/schema/expression.ts` (`createExpression`, `signedPart`, `getExpressionId`), `packages/core/src/schema/signer.ts`, `packages/core/src/validation/crypto-gate.ts`. Tests: `packages/core/tests/validation.test.ts` ("crypto gate"), `packages/core/tests/identity.test.ts` ("expressions signed by an identity verify against its DID"), `packages/core/tests/links.test.ts` ("links are signed"), `packages/core/tests/attacks.test.ts` ("a stranger sending a mangled copy first…")._
 
 ---
 

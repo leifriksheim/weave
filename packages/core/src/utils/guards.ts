@@ -30,13 +30,6 @@ export function bufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
     : new Uint8Array(bytes);
 }
 
-/** The bytes of a BufferSource, as a view rather than a copy */
-export function bytesFrom(source: BufferSource): Uint8Array {
-  return ArrayBuffer.isView(source)
-    ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength)
-    : new Uint8Array(source);
-}
-
 /**
  * Whether a credential is what a passkey ceremony returns. Checked by shape
  * rather than `instanceof`, since password managers answer with their own objects.
