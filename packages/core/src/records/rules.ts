@@ -20,7 +20,11 @@
  * "At most one per…" is not checked against other records (no peer ever holds
  * them all). It is made true by construction: the record's key is derived from
  * what must be unique, so a second vote *is* the first one's next version.
+ *
+ * What the others can't say, `check` can: conditions over the body, the
+ * version before and versions it cites (`records/checks.ts`).
  */
+import { checkChecks, type Check } from './checks.js';
 import { hashedKey } from '../utils/hash.js';
 import { isList, isRecord, readField } from '../utils/guards.js';
 import type { Link } from '../types.js';
@@ -54,6 +58,12 @@ export interface CollectionRules {
   readonly onePer?: ReadonlyArray<string>;
   /** Fields that keep the value the record was created with */
   readonly fixed?: ReadonlyArray<string>;
+  /**
+   * Conditions every created or edited version must meet, judged by every
+   * peer that can read it: "at least ten members voted yes", "a move from
+   * the board before". See `records/checks.ts`.
+   */
+  readonly check?: ReadonlyArray<Check>;
 }
 
 const isWho = (w: unknown): w is Who =>
@@ -74,8 +84,8 @@ export function checkRules(
   if (!isRecord(rules)) return `${at} must be an object`;
   const r = rules;
   for (const key of Object.keys(r)) {
-    if (!['create', 'edit', 'delete', 'onePer', 'fixed'].includes(key))
-      return `${at}.${key} is not a rule (use create, edit, delete, onePer, fixed)`;
+    if (!['create', 'edit', 'delete', 'onePer', 'fixed', 'check'].includes(key))
+      return `${at}.${key} is not a rule (use create, edit, delete, onePer, fixed, check)`;
   }
   for (const action of ['create', 'edit', 'delete']) {
     const who = r[action];
@@ -102,6 +112,7 @@ export function checkRules(
       return `${at}.${list} must be a non-empty list of names`;
     }
   }
+  if (r.check !== undefined) return checkChecks(r.check, `${at}.check`, permissions);
   return null;
 }
 

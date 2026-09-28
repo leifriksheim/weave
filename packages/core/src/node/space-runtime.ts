@@ -33,6 +33,7 @@ import { createStorageProvider, type StorageProvider } from '../storage/storage-
 import { chainProblem, newRecordKey, nextVersion } from '../records/version.js';
 import { RECORD_KEY_PATTERN } from '../records/key.js';
 import { checkLinks } from '../records/links.js';
+import { runChecks, type Check, type CheckedVersion, type Uncited } from '../records/checks.js';
 import {
   allows,
   changedFixedField,
@@ -981,6 +982,13 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         ok: false,
         reason: `A new ${expression.collection} record must be kept whole: its rules are checked against it`,
       };
+    // A check reads the version before, and may be cited by another's: every
+    // version is kept whole, so every peer reads the same thing, however late.
+    if (rules.check?.length && !expression.retain)
+      return {
+        ok: false,
+        reason: `A ${expression.collection} version must be kept whole: its checks read it`,
+      };
     if (expression.seq === 0 && rules.onePer) {
       const opened = await openBody(expression);
       if (opened.body === null && opened.encrypted) return STANDS;
@@ -1009,7 +1017,93 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
           };
       }
     }
+    if (rules.check?.length) return checkStanding(expression, first, root, state, rules.check);
     return STANDS;
+  }
+
+  // ─── Checks ────────────────────────────────────────────────────────
+  //
+  // Conditions a collection's versions must meet (`records/checks.ts`). They
+  // read only what never changes: this version, the one before when it was
+  // kept whole, and versions cited by id, kept whole and standing.
+
+  /** A version as a check reads it: its author's account, and its content when it was kept whole */
+  async function checkedVersion(
+    version: Expression,
+    whole: boolean,
+  ): Promise<CheckedVersion | { readonly unreadable: true }> {
+    let body: unknown = null;
+    // Public links are on the outside, the same for every peer; sealed ones only with the body.
+    let links: ReadonlyArray<Link> = version.links ?? [];
+    if (whole && !version.deleted) {
+      const opened = await openBody(version);
+      if (opened.body === null && opened.encrypted) return { unreadable: true };
+      body = opened.body;
+      links = opened.links;
+    }
+    return Object.freeze({
+      id: version.id,
+      key: version.key,
+      collection: version.collection,
+      seq: version.seq,
+      author: (await judge(version)).root ?? version.author,
+      createdAt: version.createdAt,
+      deleted: !!version.deleted,
+      body,
+      links,
+    });
+  }
+
+  /** A version a check cites: here, kept whole, and standing — or why it can't count */
+  async function cited(id: string): Promise<CheckedVersion | Uncited> {
+    const version = await storage.getExpression(id);
+    if (!version) return { later: true };
+    // Whether it was kept is on the version, signed: the same answer on every peer.
+    if (!version.retain && !version.deleted) return { refused: `it cites ${id}, which was not kept whole` };
+    if (!(await consistent(version))) return { refused: `it cites ${id}, which is not its record's` };
+    const stands = await standingOf(version);
+    if (!stands.ok)
+      return stands.later ? { later: true } : { refused: `it cites ${id}, which does not stand` };
+    return checkedVersion(version, true);
+  }
+
+  async function checkStanding(
+    expression: Expression,
+    first: Expression,
+    root: string,
+    state: AccessState,
+    checks: ReadonlyArray<Check>,
+  ): Promise<Standing> {
+    const opened = await openBody(expression);
+    // Without the key, a peer can't tell: it accepts on the other checks, as with onePer.
+    if (opened.body === null && opened.encrypted) return STANDS;
+    const previous =
+      expression.seq > 0 && expression.prev ? await storage.getExpression(expression.prev) : null;
+    const prev = previous ? await checkedVersion(previous, !!previous.retain) : null;
+    if (prev && 'unreadable' in prev) return STANDS;
+    const outcome = await runChecks(checks, {
+      values: {
+        body: opened.body,
+        links: opened.links,
+        key: expression.key,
+        seq: expression.seq,
+        collection: expression.collection,
+        author: root,
+        creator: (await judge(first)).root ?? first.author,
+        createdAt: expression.createdAt,
+        prev,
+      },
+      cite: cited,
+      can: (permission, did) => {
+        const role = standing(state, did);
+        return !!role && roleHolds(role, permissionName(expression.collection, permission));
+      },
+      member: (did) => standing(state, did) !== null,
+    });
+    if ('later' in outcome)
+      return { ok: false, reason: 'Versions it cites have not arrived yet', later: true };
+    if ('unreadable' in outcome || outcome.passed) return STANDS;
+    return { ok: false, reason: outcome.reason };
   }
 
   /**
@@ -2283,7 +2377,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // What a removed carrier was is read back after the delete (`nameKeepers`).
       collection === CARRIER_COLLECTION ||
       definition?.history === 'all' ||
-      (version.seq === 0 && !!(definition?.rules?.onePer || definition?.rules?.fixed));
+      (version.seq === 0 && !!(definition?.rules?.onePer || definition?.rules?.fixed)) ||
+      // Every version under a check: it reads the one before, and others cite it.
+      (!deleted && !!definition?.rules?.check?.length);
 
     const { history, events: held } = await access();
     const signed = await signer.sign(

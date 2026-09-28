@@ -668,6 +668,7 @@ describe('what a collection allows, in words', () => {
       delete: { delete: 'creator' },
       onePer: { onePer: ['@author'] },
       fixed: { fixed: ['x'] },
+      check: { check: [{ that: { '>': [{ var: 'body.amount' }, 0] }, else: 'An amount is more than 0' }] },
     };
     const baseline = describeCollection({ name: 'app.thing' });
     for (const rule of known) {

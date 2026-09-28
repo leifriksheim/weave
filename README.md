@@ -867,6 +867,36 @@ during sync, and something that arrives before what it depends on waits instead
 of being guessed about. `node.records.can(space,
 'edit', key)` asks first — for hiding a button rather than showing an error.
 
+**Checks, with evidence.** Some rules need proof: a proposal passes with ten
+yes votes, a move must be legal from the board before, a transfer can't spend
+more than the balances it names. A definition's `check` is a list of
+conditions, written as JSON, over the body, the version before it, and
+versions it **cites** by id; every peer judges them, and refuses a version
+that fails with the check's own reason. A check never searches: the writer
+finds the votes and cites them, and everyone else only confirms. It always
+ends, reads no clock, and reads only versions kept whole, so every peer
+reaches the same verdict however late it joins:
+
+```typescript
+rules: {
+  onePer: ['link:about'], // one "passed" per proposal
+  check: [{
+    // Shortened: the guide's version also checks each is a vote on this proposal
+    that: { '>=': [{ size: { distinct: { map: [
+      { filter: [{ versions: { var: 'body.votes' } },
+        { '==': [{ var: 'it.body.choice' }, 'yes'] }] },
+      { var: 'it.author' },
+    ] } } }, 10] },
+    else: 'A proposal passes with yes votes from ten members',
+  }],
+},
+```
+
+One step is bounded, but a record's versions are not, and versions can cite
+versions: state machines, quorums, ledgers and commit-and-reveal games all
+fit. See [collections](packages/core/docs/collections.md#checks) and
+[02 — Records §7.6](spec/02-records.md).
+
 **Queries.** `node.records.query(space, { collection, where, include,
 sort, limit, cursor })` finds records with Mongo-style filters (`{ done: false,
 amount: { $gt: 10 } }`; `@author`, `@createdAt` and friends for the record

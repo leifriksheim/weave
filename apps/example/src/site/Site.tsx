@@ -289,6 +289,33 @@ const votes = collection({
 await node.collections.define(space.id, votes);
 `;
 
+const CHECK_DECIDED = `
+const decided = collection({
+  name: 'app.poll.decided',
+  schema: z.object({ choice: z.int(), votes: z.array(z.string()) }),
+  links: { about: { to: ['app.poll'], cardinality: 'one' } },
+  rules: {
+    onePer: ['link:about'], // one decision per poll
+    check: [{
+      // Five different people's votes for this choice, on this poll
+      that: { '>=': [{ size: { distinct: { map: [
+        { filter: [{ versions: { var: 'body.votes' } }, { and: [
+          { '==': [{ var: 'it.collection' }, 'app.poll.vote'] },
+          { '==': [{ link: ['about', { var: 'it' }] }, { link: ['about'] }] },
+          { '==': [{ var: 'it.body.choice' }, { var: 'body.choice' }] },
+        ] }] },
+        { var: 'it.author' },
+      ] } } }, 5] },
+      else: 'A poll is decided by five votes for one option',
+    }],
+  },
+});
+
+// Your app finds the votes and cites them. Every device checks the proof.
+await node.records.put(space.id, decided,
+  { choice: 1, votes: lisbon.map((vote) => vote.version) }, { links: about });
+`;
+
 const STEP_USE = `
 // Typed from the schema: leave out the options, and it won't compile
 const poll = await node.records.put(space.id, polls, {
@@ -405,6 +432,26 @@ const CONSENSUS: ReadonlyArray<Part> = [
   {
     title: 'Access you can take back',
     body: 'Remove someone or disconnect an app, and from then on their changes stop counting on every device. Backdating a change doesn’t get around it.',
+  },
+];
+
+/** What checks with evidence make possible, without a server or a chain */
+const CHECKS: ReadonlyArray<Part> = [
+  {
+    title: 'Unlock when enough agree',
+    body: 'A proposal passes, a role is granted or a reward is released only with enough signed approvals behind it. Three of five admins, ten members, whatever the space decides.',
+  },
+  {
+    title: 'Moves that must be legal',
+    body: 'Each version is checked against the one before, so a game, a workflow or an order can only move the way its rules allow.',
+  },
+  {
+    title: 'Points that add up',
+    body: 'Credits, badges and balances that cite the records they came from. Every device checks the sums.',
+  },
+  {
+    title: 'Fair dice, sealed bids',
+    body: 'Commit to a hidden value, reveal it later, and every device checks it matches. Randomness and auctions with nobody to trust.',
   },
 ];
 
@@ -561,6 +608,37 @@ export function Developers() {
       </Band>
 
       <Band
+        kicker="Checks with evidence"
+        title="Contracts, without a chain."
+        intro={
+          <p>
+            Some rules need proof: enough votes, a legal move, a balance that covers it. A record can cite the
+            records that prove it, and every device checks the proof before it counts. No server decides, and
+            no blockchain has to agree on an order.
+          </p>
+        }
+      >
+        <Points points={CHECKS} />
+        <div className="split">
+          <div>
+            <h3>Checks are data, and they always finish</h3>
+            <p>
+              A check is JSON stored with the collection, so it travels with the data and every app and agent
+              sees the same rule. It reads the record, the version before it, and the versions it cites. It
+              has no loops but over lists already in hand, and no clock, so every device reaches the same
+              verdict.
+            </p>
+            <p>
+              The hard part happens once, in the app that writes: it finds the votes and cites them. Everyone
+              else only checks. One step is small, but a record can go through any number of them, and records
+              can build on records.
+            </p>
+          </div>
+          <Code file="decided.ts">{CHECK_DECIDED}</Code>
+        </div>
+      </Band>
+
+      <Band
         kicker="The layers"
         title="What's underneath, top to bottom."
         intro={
@@ -619,7 +697,7 @@ export function Developers() {
               },
               {
                 title: 'Rules instead of an API',
-                body: 'Say who may create, edit and delete, what must be unique, and which fields are fixed. Every device enforces it, so there’s no permission server to write.',
+                body: 'Say who may create, edit and delete, what must be unique, which fields are fixed, and what a record must prove. Every device enforces it, so there’s no permission server to write.',
               },
               {
                 title: 'Collaboration included',
