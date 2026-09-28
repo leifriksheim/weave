@@ -15,6 +15,8 @@ import { Library } from './Library';
 import { NewCollection } from './NewCollection';
 import { GraphView } from './GraphView';
 import { QueryPlayground } from './QueryPlayground';
+import { CollectionsOverview, namespaceLabel } from './CollectionsOverview';
+import { namespaceOf } from '../derive/filters';
 import { RolesView } from './RolesView';
 import { AppsView } from './apps/AppsView';
 import { spaceBadges } from './SpaceList';
@@ -33,6 +35,8 @@ interface Place {
 
 /** Defining a new collection, in the main area */
 const NEW = '__new__';
+/** Every collection at once, in the main area */
+const ALL = '__all__';
 
 /** The ways of looking at one space: apps made for its collections, the data itself, how it connects, asking of it, and who may do what */
 const TABS = [
@@ -60,6 +64,8 @@ export function SpaceView({
   const account = useAccount();
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
   const [tab, setTab] = useState<Tab>('apps');
+  // Which namespace the Data tab shows; null for all of them.
+  const [namespace, setNamespace] = useState<string | null>(null);
 
   // Syncing while it is on screen. Opening writes nothing: standard schemas
   // are added only when someone picks them from the library.
@@ -80,13 +86,21 @@ export function SpaceView({
   const ordered = [...collections].sort(
     (a, b) => Number(a.name.startsWith('std.')) - Number(b.name.startsWith('std.')),
   );
-  // Land on the first collection rather than an empty page.
+  const namespaces = [...new Set(ordered.map((c) => namespaceOf(c.name)))];
+  const shown = namespace === null ? ordered : ordered.filter((c) => namespaceOf(c.name) === namespace);
+  // Collections under a heading for their namespace, when there is more than one to tell apart.
+  const groups = (namespace === null ? namespaces : [namespace])
+    .map((ns) => ({ ns, members: shown.filter((c) => namespaceOf(c.name) === ns) }))
+    .filter((g) => g.members.length > 0);
+  // Land on every collection at once rather than an empty page.
   const selected =
     place.collection === NEW
       ? NEW
       : ordered.some((c) => c.name === place.collection)
         ? place.collection
-        : (ordered[0]?.name ?? null);
+        : ordered.length
+          ? ALL
+          : null;
   const current = collections.find((c) => c.name === selected) ?? null;
   const openRecord = (r: NodeRecord) =>
     setPlace({
@@ -177,21 +191,62 @@ export function SpaceView({
       {tab === 'data' && (
         <div className="space-layout">
           <aside className="space-side">
+            {namespaces.length > 1 && (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span className="collection-nav-heading" style={sideHeading}>
+                  Namespace
+                </span>
+                <select
+                  value={namespace ?? ALL}
+                  onChange={(e) => setNamespace(e.target.value === ALL ? null : e.target.value)}
+                  aria-label="Namespace"
+                  style={{ ...styles.input, height: 34, fontSize: 13 }}
+                >
+                  <option value={ALL}>All namespaces</option>
+                  {namespaces.map((ns) => (
+                    <option key={ns} value={ns}>
+                      {namespaceLabel(ns)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <nav aria-label="Collections" className="collection-nav">
               <span className="collection-nav-heading" style={sideHeading}>
                 In this space
               </span>
-              {ordered.map((c) => (
+              {ordered.length > 0 && (
                 <button
-                  key={c.name}
-                  onClick={() => setPlace({ collection: c.name, key: null })}
-                  aria-current={selected === c.name ? 'page' : undefined}
+                  onClick={() => setPlace({ collection: ALL, key: null })}
+                  aria-current={selected === ALL ? 'page' : undefined}
                   data-nav
-                  style={{ ...navItem, ...(selected === c.name ? navItemOn : {}) }}
+                  style={{ ...navItem, ...(selected === ALL ? navItemOn : {}) }}
                 >
-                  <span>{collectionLabel(c)}</span>
-                  <span style={{ color: palette.ink.faint, fontSize: 12 }}>{c.records}</span>
+                  <span>All collections</span>
+                  <span style={{ color: palette.ink.faint, fontSize: 12 }}>{shown.length}</span>
                 </button>
+              )}
+              {groups.map((g) => (
+                <div key={g.ns} style={{ display: 'contents' }}>
+                  {groups.length > 1 && (
+                    <span className="collection-nav-heading" style={groupHeading}>
+                      {namespaceLabel(g.ns)}
+                    </span>
+                  )}
+                  {g.members.map((c) => (
+                    <button
+                      key={c.name}
+                      onClick={() => setPlace({ collection: c.name, key: null })}
+                      aria-current={selected === c.name ? 'page' : undefined}
+                      title={c.name}
+                      data-nav
+                      style={{ ...navItem, ...(selected === c.name ? navItemOn : {}) }}
+                    >
+                      <span>{collectionLabel(c)}</span>
+                      <span style={{ color: palette.ink.faint, fontSize: 12 }}>{c.records}</span>
+                    </button>
+                  ))}
+                </div>
               ))}
               {ordered.length === 0 && (
                 <span style={{ fontSize: 13, color: palette.ink.faint, padding: '6px 10px' }}>
@@ -227,6 +282,12 @@ export function SpaceView({
                   onAdded={(name) => setPlace({ collection: name, key: null })}
                 />
               </section>
+            ) : selected === ALL ? (
+              <CollectionsOverview
+                collections={shown}
+                namespace={namespace}
+                onOpen={(name) => setPlace({ collection: name, key: null })}
+              />
             ) : selected ? (
               <CollectionView
                 key={selected}
@@ -295,6 +356,12 @@ const sideHeading = {
   textTransform: 'uppercase' as const,
   letterSpacing: '.05em',
   padding: '0 10px 6px',
+};
+const groupHeading = {
+  fontSize: 11,
+  color: palette.ink.faint,
+  padding: '12px 10px 4px',
+  fontFamily: palette.mono,
 };
 const navItem = {
   display: 'flex',
