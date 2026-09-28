@@ -3,6 +3,7 @@ import { useAccount, useConnection } from '@weaveprotocol/core/react';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { useDismiss } from '@weave/app-shared/useDismiss';
 import { ConnectAgent } from './ConnectAgent';
+import { useAppNotifications } from '../notifications';
 import { palette } from '../styles';
 
 /**
@@ -10,7 +11,8 @@ import { palette } from '../styles';
  *
  * Everything about the account itself — its name, passkeys, staying signed
  * in, connected apps — lives in the account home, so "Account settings" opens
- * it. This app only knows how to disconnect itself.
+ * it. This app only knows how to disconnect itself, and how to ask for
+ * notifications — which it shows itself (`notifications.ts`).
  */
 export function AccountMenu() {
   const account = useAccount();
@@ -19,6 +21,7 @@ export function AccountMenu() {
   const [copied, setCopied] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const notifications = useAppNotifications();
 
   useDismiss(
     open,
@@ -115,6 +118,35 @@ export function AccountMenu() {
               An agent in this browser works as you, with nothing to set up. One on your computer connects
               here, and keeps working with this tab closed.
             </p>
+          </div>
+
+          <Divider />
+
+          <div style={{ padding: 6 }}>
+            {notifications.on === 0 ? (
+              <Item onClick={notifications.turnOn} hint="Messages, polls, contacts">
+                Turn on notifications
+              </Item>
+            ) : notifications.permission === 'granted' ? (
+              <Item
+                onClick={() => {
+                  setOpen(false);
+                  notifications.manage();
+                }}
+                hint={`${notifications.on} on · manage`}
+              >
+                Notifications
+              </Item>
+            ) : (
+              <Item onClick={notifications.allow} hint={`${notifications.on} on in your account`}>
+                Allow notifications here
+              </Item>
+            )}
+            {notifications.error && (
+              <p style={{ margin: '4px 10px 6px', fontSize: 12, lineHeight: 1.45, color: palette.ink.faint }}>
+                {notifications.error}
+              </p>
+            )}
           </div>
 
           <Divider />

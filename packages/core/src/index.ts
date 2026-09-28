@@ -321,6 +321,7 @@ export {
   createCarrierNode,
   createHostNode,
   NotAllowedError,
+  watchNotifications,
 } from './node/index.js';
 export type {
   StoreFactory,
@@ -378,6 +379,8 @@ export type {
   NotifyApp,
   NotifyProposal,
   CarriedSubscriptionView,
+  NotifyMatch,
+  WatchNotificationsOptions,
 } from './node/index.js';
 
 // Queries: plain-data filters, sorting, paging and includes over a space

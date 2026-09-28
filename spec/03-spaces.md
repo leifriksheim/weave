@@ -1188,10 +1188,12 @@ after) or a browser extension's (`chrome-extension://`, `moz-extension://` or
 `safari-web-extension://`, then 1–64 letters, digits or dashes), and
 `app.name` at most 80 characters.
 
-`app` names the app or carrier that proposed the subscription, by the origin
-the browser reported; the account home writes it on its behalf when the person
-says yes ([06](06-nodes-and-sessions.md) §4.5, §4.12). A subscription without `app` was
-made in the home. `app` is not copied to the carried form.
+`app` names the app that proposed the subscription, by the origin the browser
+reported; the account home writes it on its behalf when the person says yes
+([06](06-nodes-and-sessions.md) §4.12), and that app shows what it matches. A
+home adds no subscription of its own; one without `app` was made by an earlier
+home, or proposed by an earlier extension (so an extension's origin stays
+valid), and nothing shows it now. `app` is not copied to the carried form.
 
 Carriers cannot read, so each device with the account key copies every
 subscription into every carry space with the value replaced by tags:
@@ -1211,8 +1213,8 @@ A carrier matches an arriving version when: not paused; same collection; `seq`
 is 0 and not deleted; the space is in `spaces` (or `"all"`); its `createdAt`
 is at or after `since` and within 24 hours of now; if `others`, its root is
 not the account; and if `tags` is present, the version's `tags` include one of
-`tags[spaceId]`. _Implementation detail:_ the carrier then shows a
-notification with `label`.
+`tags[spaceId]`. No carrier shows a notification yet; the carried form is
+what a carrier needs to wake an app that is closed ([06](06-nodes-and-sessions.md) §6.4).
 
 _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
 

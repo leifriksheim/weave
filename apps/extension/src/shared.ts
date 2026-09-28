@@ -9,22 +9,12 @@
  * - **offscreen** — a hidden page that lives as long as Chrome does. The
  *   carrier node runs here.
  * - **welcome** — a full tab: connecting to the account home, the pod, status.
- * - **popup** — the toolbar button: status at a glance, and what it notifies about.
- * - **notify** — a full tab: picking what to be notified about, and asking the home.
- *
- * Notifications: the carrier matches arriving records against the account's
- * subscriptions without reading them, and the offscreen page hands each
- * match to the worker, which alone may show one (`chrome.notifications`).
+ * - **popup** — the toolbar button: status at a glance.
  *
  * The offscreen page may only use `chrome.runtime`, so everything it keeps is
  * in IndexedDB, which every page of the extension shares.
  */
-import type {
-  CarriedCollection,
-  CarriedSpace,
-  CarriedSubscriptionView,
-  CarrierEvent,
-} from '@weaveprotocol/core/node';
+import type { CarriedSpace } from '@weaveprotocol/core/node';
 import type { CarryGrant } from '@weaveprotocol/core/session';
 
 declare const __WEAVE_HOME__: string;
@@ -62,8 +52,6 @@ export interface CarrierStatus {
   readonly removed?: boolean;
   readonly account?: { readonly name: string; readonly did: string; readonly home: string };
   readonly spaces: ReadonlyArray<CarriedSpace>;
-  /** What the account asked to be told about, as this extension holds it */
-  readonly subscriptions: ReadonlyArray<CarriedSubscriptionView>;
   readonly pod: { readonly state: PodState; readonly folder: string | null };
   readonly error?: string;
 }
@@ -76,27 +64,12 @@ export type Request =
   /** Forget everything */
   | { readonly to: 'offscreen'; readonly type: 'disconnect' }
   /** Moving to another account: forget this one's copy and pod, keep the key */
-  | { readonly to: 'offscreen'; readonly type: 'forget-account' }
-  /** What each carried space holds, by kind: answered with `SpaceCollections[]` */
-  | { readonly to: 'offscreen'; readonly type: 'collections' };
-
-/** A carried space, and the kinds of record in it the carrier can see */
-export interface SpaceCollections {
-  readonly space: { readonly id: string; readonly name: string };
-  readonly collections: ReadonlyArray<CarriedCollection>;
-}
+  | { readonly to: 'offscreen'; readonly type: 'forget-account' };
 
 /** Messages to the worker */
 export type WorkerMessage =
   | { readonly to: 'worker'; readonly type: 'ensure' }
-  | { readonly to: 'worker'; readonly type: 'badge'; readonly status: CarrierStatus }
-  /** Something a subscription asks about arrived: show it, unless it's muted here */
-  | {
-      readonly to: 'worker';
-      readonly type: 'notify';
-      readonly event: Extract<CarrierEvent, { type: 'notify' }>;
-      readonly home: string;
-    };
+  | { readonly to: 'worker'; readonly type: 'badge'; readonly status: CarrierStatus };
 
 /** Broadcast by the offscreen page whenever the status changes */
 export interface StatusChanged {
@@ -106,15 +79,9 @@ export interface StatusChanged {
 }
 
 /** Asks the offscreen page something, making sure it is running first. */
-export async function ask(request: Exclude<Request, { type: 'collections' }>): Promise<CarrierStatus> {
+export async function ask(request: Request): Promise<CarrierStatus> {
   await chrome.runtime.sendMessage({ to: 'worker', type: 'ensure' } satisfies WorkerMessage);
   return chrome.runtime.sendMessage(request);
-}
-
-/** What each carried space holds; empty while the carrier isn't running */
-export async function askCollections(): Promise<ReadonlyArray<SpaceCollections>> {
-  await chrome.runtime.sendMessage({ to: 'worker', type: 'ensure' } satisfies WorkerMessage);
-  return chrome.runtime.sendMessage({ to: 'offscreen', type: 'collections' } satisfies Request);
 }
 
 // ─── The grant, kept in IndexedDB ───────────────────────────────────────
@@ -155,20 +122,6 @@ export const loadRemoved = () =>
   kv<boolean | undefined>('readonly', (store) => store.get('removed')).then(Boolean);
 export const setRemoved = (removed: boolean) =>
   kv<void>('readwrite', (store) => store.put(removed, 'removed'));
-
-/** Subscriptions muted in this browser only — the account's own pause is in the home */
-export const loadMuted = () =>
-  kv<string[] | undefined>('readonly', (store) => store.get('muted')).then((muted) => new Set(muted ?? []));
-export const setMuted = (muted: ReadonlySet<string>) =>
-  kv<void>('readwrite', (store) => store.put([...muted], 'muted'));
-
-/**
- * The account page of a home. A grant's `home` is the connect page
- * (`https://home.example/connect`), which shows nothing unless an app asks.
- */
-export const accountPage = (home: string) => new URL('./', home).href;
-/** Where the account home keeps its "Notify me when…" */
-export const notificationsPage = (home: string) => `${accountPage(home)}#notifications`;
 
 /** The databases the carrier keeps its copy in, for one account */
 export const storePrefix = (did: string) => `weave-carrier:${did}`;

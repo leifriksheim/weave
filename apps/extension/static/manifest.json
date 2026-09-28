@@ -3,7 +3,7 @@
   "name": "Weave",
   "short_name": "Weave",
   "version": "0.1.0",
-  "description": "Keeps your Weave spaces online, and lets you know when something you asked about happens, while your browser is open. It can't read them.",
+  "description": "Keeps your Weave spaces online while your browser is open. It can't read them.",
   "minimum_chrome_version": "120",
   "background": {
     "service_worker": "worker.js",
@@ -23,5 +23,5 @@
     "48": "icons/48.png",
     "128": "icons/128.png"
   },
-  "permissions": ["offscreen", "alarms", "unlimitedStorage", "notifications"]
+  "permissions": ["offscreen", "alarms", "unlimitedStorage"]
 }

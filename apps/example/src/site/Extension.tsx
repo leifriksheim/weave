@@ -50,9 +50,9 @@ export function Extension() {
             Your phone gets your laptop’s changes the moment it comes online, even if the laptop’s tabs are
             long closed.
           </Feature>
-          <Feature icon="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3" title="Notifications, privately">
-            New messages in a space, ones that mention you, ones in #design. You pick, and it matches them
-            without learning what you asked for.
+          <Feature icon="M2 4.5h4l1.5 1.5H14v7H2z" title="Your pod, kept current">
+            With a pod, everything that arrives is written into your folder, even while every app of yours is
+            closed.
           </Feature>
           <Feature icon="M2.5 3.5h11v8h-11zM6 14h4" title="Your friends reach you">
             A message sent while every app of yours is closed still reaches you, instead of waiting for you to

@@ -21,12 +21,7 @@ export const connection = createWeaveConnection({
     name: 'Weave example',
     access: 'write',
     scope: 'account',
-    // Offered on the home's approval screen; the account's extension does the noticing, with this app closed.
-    notify: [
-      { label: 'New chat message', collection: 'std.message', others: true },
-      { label: 'New poll', collection: 'std.poll', others: true },
-      { label: 'Someone asks to be your contact', collection: 'std.contact-request', others: true },
-    ],
+    // No notifications here: connecting asks for none. The person turns them on later (notifications.ts).
   },
   network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
 });
