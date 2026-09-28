@@ -100,7 +100,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit && tsc -p tests",
-    "test": "node --experimental-vm-modules --import tsx --test --test-concurrency=4 tests/*.test.ts",
+    "test": "node --experimental-vm-modules --import tsx --test --test-concurrency=4 --test-timeout=60000 --test-force-exit tests/*.test.ts",
     "prepack": "cp ../../README.md README.md",
     "postpack": "rm -f README.md",
     "prepublishOnly": "npm run build"

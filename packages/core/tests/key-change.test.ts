@@ -169,6 +169,15 @@ async function team3() {
     await hold(who.node, space);
     await joined(who.node, space);
   }
+  // Alice must have their joins before she can change who is in.
+  await until(
+    async () => {
+      const members = new Set((await alice.node.spaces.access(space)).members.map((m) => m.did));
+      return members.has(bob.node.did) && members.has(carol.node.did);
+    },
+    6000,
+    'Alice to see both join',
+  );
   await alice.node.records.put(space, 'app.note', { text: 'before' });
   for (const who of [bob, carol]) await until(() => reads(who, space, 'before'), 6000, 'the first note');
   return { hub, alice, bob, carol, space };

@@ -235,23 +235,33 @@ describe('a node shared by the tabs of a site', () => {
     );
   });
 
-  test('a tab that goes without closing is noticed by its lock, and lets go of the node', async () => {
-    const me = await signer();
-    const shared = fakeSharedWorker();
-    const gone = await startNodeInWorker(shared.connect(), { signer: me, stores: { indexedDB: 'weave:me' } });
-    const tab = shared.tabs[0]!;
-    // What the browser does when a tab closes: its locks are let go. Taking this one lets go of the tab's hold.
-    await navigator.locks.request(`weave-node-tab:${tab}`, { steal: true }, async () => {});
+  // Node has Web Locks from 24; browsers have had them for years.
+  test(
+    'a tab that goes without closing is noticed by its lock, and lets go of the node',
+    {
+      skip: globalThis.navigator?.locks ? false : 'no Web Locks in this runtime',
+    },
+    async () => {
+      const me = await signer();
+      const shared = fakeSharedWorker();
+      const gone = await startNodeInWorker(shared.connect(), {
+        signer: me,
+        stores: { indexedDB: 'weave:me' },
+      });
+      const tab = shared.tabs[0]!;
+      // What the browser does when a tab closes: its locks are let go. Taking this one lets go of the tab's hold.
+      await navigator.locks.request(`weave-node-tab:${tab}`, { steal: true }, async () => {});
 
-    let next = gone;
-    await until(
-      async () => {
-        next = await startNodeInWorker(shared.connect(), { signer: me, stores: { indexedDB: 'weave:me' } });
-        cleanup.push(() => next.close());
-        return next.sessionDid !== gone.sessionDid;
-      },
-      2000,
-      'the node to close once its only tab was gone',
-    );
-  });
+      let next = gone;
+      await until(
+        async () => {
+          next = await startNodeInWorker(shared.connect(), { signer: me, stores: { indexedDB: 'weave:me' } });
+          cleanup.push(() => next.close());
+          return next.sessionDid !== gone.sessionDid;
+        },
+        2000,
+        'the node to close once its only tab was gone',
+      );
+    },
+  );
 });
