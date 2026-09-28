@@ -431,10 +431,13 @@ describe('the mesh, through real relays', () => {
       const [alice, bob] = [await identity(), await identity()];
       const a = peer('proved', alice);
       const b = peer('proved', bob);
+      const seenA = collect(a);
       const seenB = collect(b);
       await a.connect();
       await b.connect();
+      // Each side checks the other on its own: Alice sends only once she has checked Bob too.
       await until(() => seenB.connected.includes(alice.did), 5000, 'Bob to meet Alice');
+      await until(() => seenA.connected.includes(bob.did), 5000, 'Alice to meet Bob');
       a.send(bob.did, { type: 'hello', from: alice.did, payload: 'proved' });
       await until(() => seenB.messages.some((m) => m.payload === 'proved'), 2000, 'the message');
       a.disconnect();
