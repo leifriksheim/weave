@@ -138,6 +138,11 @@ export interface WeaveAuthConfig {
    * can't be handed.
    */
   readonly worker?: () => WorkerLike;
+  /**
+   * How long an answer to a proposal waits for another device to have its
+   * subscriptions, in milliseconds. Default 8000.
+   */
+  readonly deliverMs?: number;
 }
 
 /**
@@ -1388,7 +1393,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       const notify = await adding;
       // The home's window closes once it answers. Until another device — the
       // app asking, usually — has them, they would exist only here.
-      const delivered = notify.length === 0 || (await node.account.delivered(DELIVER_MS));
+      const delivered = notify.length === 0 || (await node.account.delivered(config.deliverMs ?? DELIVER_MS));
       return { v: 1, kind: 'proposed', notify, delivered };
     },
 

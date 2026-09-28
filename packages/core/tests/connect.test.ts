@@ -44,8 +44,11 @@ afterEach(async () => {
 /** Each home's recovery code, for signing in to it again */
 const recoveryCodes = new WeakMap<WeaveAuth, string>();
 
-/** The account home: a signed-in flow on the hub */
-async function home(hub: FakeHub): Promise<WeaveAuth> {
+/**
+ * The account home: a signed-in flow on the hub. A proposal's answer waits
+ * `deliverMs` for another device, which a home alone never finds: kept short.
+ */
+async function home(hub: FakeHub, deliverMs = 200): Promise<WeaveAuth> {
   const accounts = createFolderAccountStore(createMemoryDirectory().handle);
   const stores = memoryStores();
   const values = new Map<string, string>([['weave.stay-signed-in', '"never"']]);
@@ -58,6 +61,7 @@ async function home(hub: FakeHub): Promise<WeaveAuth> {
     },
     browser: { accounts: async () => accounts, stores: () => stores },
     network: { transports: (spaceId, sessionDid) => [hub.transport(sessionDid, spaceId)] },
+    deliverMs,
   });
   await auth.start();
   await auth.createAccount('Ada');
@@ -546,7 +550,8 @@ describe('an app proposing subscriptions', () => {
 
   test('one the home already has, which never left it, is written again and answered once the app has it', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
-    const auth = await home(hub);
+    // Alone, the first answer waits all of it; the second comes as soon as the app has it, well before.
+    const auth = await home(hub, 4000);
     const key = await appKey();
     const grant = await connect(auth, { scope: 'account', audience: key.did });
     const request = propose([{ label: 'New message', collection: 'app.chat.message' }]);
