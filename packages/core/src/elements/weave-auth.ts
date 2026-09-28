@@ -43,7 +43,8 @@ export interface WeaveSessionEventDetail {
   readonly session: WeaveSession | null;
 }
 
-const Base = (globalThis.HTMLElement ?? class {}) as typeof HTMLElement;
+// Where there is no DOM the module still loads; the element is only ever made where there is one.
+const Base = globalThis.HTMLElement ?? class {};
 
 /** The mark and the name, above every step */
 function wordmark(): HTMLElement {
@@ -273,9 +274,8 @@ export class WeaveAuthElement extends Base {
 
   /** Redraws, keeping focus and what was typed. */
   #render(state: AuthState): void {
-    const focused = this.contains(globalThis.document.activeElement)
-      ? (globalThis.document.activeElement as HTMLElement).dataset.key
-      : undefined;
+    const active = globalThis.document.activeElement;
+    const focused = active instanceof HTMLElement && this.contains(active) ? active.dataset.key : undefined;
 
     this.replaceChildren(...this.#screen(state));
 
@@ -287,12 +287,13 @@ export class WeaveAuthElement extends Base {
 
   /** An input that survives a redraw */
   #input(key: string, props: Record<string, unknown>): HTMLInputElement {
-    return h('input', {
+    const input = h('input', {
       ...props,
       'data-key': key,
       value: this.#drafts.get(key) ?? props.value ?? '',
-      oninput: (event: Event) => this.#drafts.set(key, (event.target as HTMLInputElement).value),
-    }) as HTMLInputElement;
+      oninput: () => this.#drafts.set(key, input.value),
+    });
+    return input;
   }
 
   #screen(state: AuthState): HTMLElement[] {
@@ -453,7 +454,7 @@ export class WeaveAuthElement extends Base {
       class: 'wa-offscreen',
       tabindex: '-1',
       'aria-hidden': 'true',
-    }) as HTMLInputElement;
+    });
 
     const code = this.#input('code', {
       type: 'password',
@@ -508,7 +509,7 @@ export class WeaveAuthElement extends Base {
             ', or open that account instead.',
           )
         : null,
-    ].filter((node): node is HTMLElement => node !== null);
+    ].filter((node) => node !== null);
   }
 
   /** The everyday password, filed under the account's name so a manager fills the right one. */
@@ -827,7 +828,7 @@ export class WeaveAuthElement extends Base {
           type: 'checkbox',
           checked: this.#stored,
           onchange: (event: Event) => {
-            this.#stored = (event.target as HTMLInputElement).checked;
+            if (event.target instanceof HTMLInputElement) this.#stored = event.target.checked;
             this.#redraw();
           },
         }),
@@ -849,8 +850,7 @@ export class WeaveAuthElement extends Base {
   #unlock(state: AuthState): HTMLElement {
     const auth = this.auth;
     const account = state.session?.account;
-    const passkeys =
-      typeof (globalThis as { PublicKeyCredential?: unknown }).PublicKeyCredential !== 'undefined';
+    const passkeys = typeof globalThis.PublicKeyCredential !== 'undefined';
 
     const choosing = this.#choosingPassword || !passkeys;
     const form = () => {

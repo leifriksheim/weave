@@ -3,13 +3,13 @@ import {
   createElement,
   useContext,
   useEffect,
-  useSyncExternalStore,
   type ReactElement,
   type ReactNode,
 } from 'react';
 import type { AuthState, WeaveAuth, WeaveSession } from '../session/auth.js';
 import type { WeaveConnectionState, WeaveConnection } from '../session/connection.js';
 import type { P2PNode } from '../node/types.js';
+import { useFollow, type Followed } from './follow.js';
 
 interface WeaveContextValue {
   readonly auth: WeaveAuth | null;
@@ -19,26 +19,19 @@ interface WeaveContextValue {
 
 const WeaveContext = createContext<WeaveContextValue>({ auth: null, connection: null, node: null });
 
-/** Something with state to follow — a sign-in flow, or a connection */
-interface Store<S> {
-  subscribe(listener: (state: S) => void): () => void;
-  getState(): S;
+/** A sign-in flow, or a connection: state to follow, once started */
+interface Store<S> extends Followed<S> {
   start(): Promise<void>;
 }
 
 const nothing = (): null => null;
-const never = () => () => {};
 
 /** Follows a flow's or a connection's state, and starts it; null when there is none. */
 function useStore<S>(store: Store<S> | null): S | null {
   useEffect(() => {
     void store?.start();
   }, [store]);
-  return useSyncExternalStore<S | null>(
-    store ? store.subscribe : never,
-    store ? store.getState : nothing,
-    store ? store.getState : nothing,
-  );
+  return useFollow(store, nothing);
 }
 
 export type WeaveProviderProps = { readonly children?: ReactNode } &
@@ -80,11 +73,7 @@ export function useWeave(): {
   session: WeaveSession | null;
 } {
   const { auth } = useContext(WeaveContext);
-  const state = useSyncExternalStore<AuthState | null>(
-    auth ? auth.subscribe : never,
-    auth ? auth.getState : nothing,
-    auth ? auth.getState : nothing,
-  );
+  const state = useFollow<AuthState, null>(auth, nothing);
   return { auth, state, session: state?.session ?? null };
 }
 
@@ -116,11 +105,7 @@ export function useSession(): WeaveSession {
  */
 export function useConnection(): { connection: WeaveConnection; state: WeaveConnectionState } {
   const { connection } = useContext(WeaveContext);
-  const state = useSyncExternalStore<WeaveConnectionState | null>(
-    connection ? connection.subscribe : never,
-    connection ? connection.getState : nothing,
-    connection ? connection.getState : nothing,
-  );
+  const state = useFollow<WeaveConnectionState, null>(connection, nothing);
   if (!connection || !state)
     throw new Error('useConnection needs a WeaveProvider with a connection above it.');
   return { connection, state };
@@ -133,16 +118,8 @@ export function useConnection(): { connection: WeaveConnection; state: WeaveConn
  */
 export function useAccount(): { did: string; name: string } {
   const { auth, connection } = useContext(WeaveContext);
-  const authState = useSyncExternalStore<AuthState | null>(
-    auth ? auth.subscribe : never,
-    auth ? auth.getState : nothing,
-    auth ? auth.getState : nothing,
-  );
-  const connectionState = useSyncExternalStore<WeaveConnectionState | null>(
-    connection ? connection.subscribe : never,
-    connection ? connection.getState : nothing,
-    connection ? connection.getState : nothing,
-  );
+  const authState = useFollow<AuthState, null>(auth, nothing);
+  const connectionState = useFollow<WeaveConnectionState, null>(connection, nothing);
   if (authState?.session) return { did: authState.session.did, name: authState.session.account.name };
   if (connectionState?.grant) return { did: connectionState.grant.did, name: connectionState.grant.name };
   throw new Error('useAccount needs someone signed in or connected.');

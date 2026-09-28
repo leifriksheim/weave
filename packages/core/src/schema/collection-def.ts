@@ -30,12 +30,13 @@
  * it. At validation time unknown keywords are ignored instead, so a space
  * written by a newer app that allows more stays readable by an older one.
  */
-import { Validator } from '@cfworker/json-schema';
+import { Validator, type Schema } from '@cfworker/json-schema';
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from '../types.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { DefineCollection } from '../node/types.js';
 import { checkRules, PERMISSION_PATTERN, type CollectionRules } from '../records/rules.js';
 import { checkTopics } from '../records/topics.js';
+import { isObject, isRecord } from '../utils/guards.js';
 
 export type JsonSchema = { readonly [keyword: string]: unknown };
 
@@ -61,8 +62,8 @@ export function collection<const C extends DefineCollection>(definition: C): C {
  * has no stored equivalent, like a regex, is refused with the reason.
  */
 export function toJsonSchema(schema: JsonSchema | StandardJSONSchemaV1): JsonSchema {
-  const standard = (schema as Partial<StandardJSONSchemaV1>)['~standard'];
-  if (!standard) return schema as JsonSchema;
+  if (!isStandardJsonSchema(schema)) return schema;
+  const standard = schema['~standard'];
   if (typeof standard.jsonSchema?.input !== 'function') {
     throw new Error(
       `This ${standard.vendor ?? ''} schema can't describe itself as JSON Schema, which is what a space stores. ` +
@@ -72,6 +73,10 @@ export function toJsonSchema(schema: JsonSchema | StandardJSONSchemaV1): JsonSch
   // What was accepted is what gets stored; the dialect marker adds nothing.
   const { $schema: _dialect, ...json } = standard.jsonSchema.input({ target: 'draft-2020-12' });
   return json;
+}
+
+function isStandardJsonSchema(schema: JsonSchema | StandardJSONSchemaV1): schema is StandardJSONSchemaV1 {
+  return '~standard' in schema && Boolean(schema['~standard']);
 }
 
 /** A collection, as a space describes it to whoever opens it. */
@@ -195,8 +200,7 @@ const NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
  * @param path Where in the schema, for the message
  */
 export function checkPublishableSchema(schema: unknown, path = 'schema'): string | null {
-  if (typeof schema !== 'object' || schema === null || Array.isArray(schema))
-    return `${path} must be an object`;
+  if (!isRecord(schema)) return `${path} must be an object`;
   for (const [keyword, value] of Object.entries(schema)) {
     const at = `${path}.${keyword}`;
     if (!KEYWORDS.has(keyword)) {
@@ -211,8 +215,7 @@ export function checkPublishableSchema(schema: unknown, path = 'schema'): string
         break;
       }
       case 'properties': {
-        if (typeof value !== 'object' || value === null || Array.isArray(value))
-          return `${at} must be an object`;
+        if (!isRecord(value)) return `${at} must be an object`;
         for (const [property, sub] of Object.entries(value)) {
           const problem = checkPublishableSchema(sub, `${at}.${property}`);
           if (problem) return problem;
@@ -250,7 +253,8 @@ export function checkPublishableSchema(schema: unknown, path = 'schema'): string
         // Only labelled choices: [{ const, title? }]. Not general composition.
         if (!Array.isArray(value) || value.length === 0)
           return `${at} must be a non-empty list of { const, title }`;
-        for (const [i, choice] of value.entries()) {
+        const choices: unknown[] = value;
+        for (const [i, choice] of choices.entries()) {
           if (typeof choice !== 'object' || choice === null || !('const' in choice))
             return `${at}[${i}] must be { const, title }`;
           const extra = Object.keys(choice).find(
@@ -265,10 +269,9 @@ export function checkPublishableSchema(schema: unknown, path = 'schema'): string
       case 'const':
         break;
       case 'x-choicesFrom': {
-        const from = value as { rel?: unknown; field?: unknown } | null;
+        const from = value;
         if (
-          typeof from !== 'object' ||
-          from === null ||
+          !isObject(from) ||
           typeof from.rel !== 'string' ||
           !LINK_REL.test(from.rel) ||
           typeof from.field !== 'string' ||
@@ -287,26 +290,25 @@ export function checkPublishableSchema(schema: unknown, path = 'schema'): string
  * Why a definition may not be published, or null when it may.
  */
 export function checkStoredCollection(definition: unknown): string | null {
-  const d = definition as Partial<StoredCollection> | null;
-  if (typeof d !== 'object' || d === null) return 'A collection definition must be an object';
+  const d = definition;
+  if (!isObject(d)) return 'A collection definition must be an object';
   if (typeof d.name !== 'string' || !NAME.test(d.name)) {
     return 'name must be reverse-DNS, lower case, with at least one dot — e.g. "app.todo.item"';
   }
   if (d.name.startsWith('sys.')) return '"sys.*" collections belong to the protocol';
-  if (!Number.isInteger(d.version) || (d.version as number) < 1)
+  if (typeof d.version !== 'number' || !Number.isInteger(d.version) || d.version < 1)
     return 'version must be a whole number from 1';
   if (d.title !== undefined && typeof d.title !== 'string') return 'title must be text';
   if (d.description !== undefined && typeof d.description !== 'string') return 'description must be text';
   if (d.history !== undefined && d.history !== 'latest' && d.history !== 'all')
     return 'history must be "latest" or "all"';
   if (d.links !== undefined) {
-    if (typeof d.links !== 'object' || d.links === null || Array.isArray(d.links))
-      return 'links must be an object of roles';
+    if (!isRecord(d.links)) return 'links must be an object of roles';
     for (const [rel, declaration] of Object.entries(d.links)) {
       if (!/^[a-z][a-zA-Z0-9]{0,63}$/.test(rel))
         return `Link role "${rel}" must be lower camel case, like "about"`;
-      const decl = declaration as Partial<LinkDeclaration> | null;
-      if (typeof decl !== 'object' || decl === null) return `links.${rel} must be an object`;
+      const decl = declaration;
+      if (!isObject(decl)) return `links.${rel} must be an object`;
       const to = decl.to;
       if (to !== '*' && !(Array.isArray(to) && to.length > 0 && to.every((c) => typeof c === 'string'))) {
         return `links.${rel}.to must be "*" or a list of collection names`;
@@ -318,15 +320,11 @@ export function checkStoredCollection(definition: unknown): string | null {
         return `links.${rel}.description must be text`;
     }
   }
-  if (d.permissions !== undefined) {
-    if (
-      !Array.isArray(d.permissions) ||
-      !d.permissions.every((p) => typeof p === 'string' && PERMISSION_PATTERN.test(p))
-    ) {
-      return 'permissions must be a list of names in lower camel case, like "moderate"';
-    }
+  const permissions = d.permissions === undefined ? [] : d.permissions;
+  if (!isPermissionList(permissions)) {
+    return 'permissions must be a list of names in lower camel case, like "moderate"';
   }
-  const rules = checkRules(d.rules, 'rules', d.permissions ?? []);
+  const rules = checkRules(d.rules, 'rules', permissions);
   if (rules) return rules;
   const topics = checkTopics(d.topics);
   if (topics) return topics;
@@ -341,6 +339,14 @@ export function checkStoredCollection(definition: unknown): string | null {
   return checkPublishableSchema(d.schema);
 }
 
+export function isStoredCollection(definition: unknown): definition is StoredCollection {
+  return checkStoredCollection(definition) === null;
+}
+
+function isPermissionList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((p) => typeof p === 'string' && PERMISSION_PATTERN.test(p));
+}
+
 export interface SchemaIssue {
   /** Where in the value, as a JSON pointer: `/items/0/text` */
   readonly path: string;
@@ -349,15 +355,20 @@ export interface SchemaIssue {
 
 const validators = new WeakMap<object, Validator>();
 
+function newValidator(schema: unknown): Validator {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the library interprets any JSON Schema value; its type lists only the keywords it knows
+  return new Validator(schema as Schema | boolean, '2020-12', false);
+}
+
 /**
  * One validator per schema object. It is built from a copy: the validator
  * writes into the schema it is given, and a stored schema is frozen.
  */
 function validatorFor(schema: JsonSchema): Validator {
-  if (typeof schema !== 'object' || schema === null) return new Validator(schema as never, '2020-12', false);
+  if (typeof schema !== 'object' || schema === null) return newValidator(schema);
   let found = validators.get(schema);
   if (!found) {
-    found = new Validator(structuredClone(schema) as never, '2020-12', false);
+    found = newValidator(structuredClone(schema));
     validators.set(schema, found);
   }
   return found;

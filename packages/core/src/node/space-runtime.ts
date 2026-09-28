@@ -60,7 +60,6 @@ import {
   sealWith,
   spaceKeyBytes,
   spaceKeyFromRaw,
-  type EncryptedExpression,
   type SpaceKey,
 } from '../privacy/space-encryption.js';
 import { createNetworkManager, type NetworkManager } from '../network/network-manager.js';
@@ -125,6 +124,7 @@ import type { StoreFactory } from './stores.js';
 import {
   CATALOG_COLLECTION,
   checkStoredCollection,
+  isStoredCollection,
   toJsonSchema,
   validateJsonSchema,
   type SchemaIssue,
@@ -135,6 +135,7 @@ import { PASS_COLLECTION } from '../space/pass.js';
 import { base32Encode, cidFromBytes, cidOfDigest, sha256 } from '../utils/hash.js';
 import { sameTags, tagsFor, topicKey, topicTag } from '../records/topics.js';
 import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../utils/encoding.js';
+import { isRecord, unref } from '../utils/guards.js';
 import type {
   CacheConfig,
   ConnectionState,
@@ -399,12 +400,24 @@ type Standing =
 const STANDS: Standing = { ok: true };
 
 function looksEncrypted(body: unknown): boolean {
-  const envelope = body as Record<string, unknown> | null;
-  return typeof envelope?.ciphertext === 'string' && typeof envelope?.iv === 'string';
+  return isRecord(body) && typeof body.ciphertext === 'string' && typeof body.iv === 'string';
+}
+
+/** The key a sealed body names, as the keyring is looked up by */
+function sealedKeyId(body: unknown): string {
+  return String(isRecord(body) ? body.keyId : undefined);
 }
 
 function isFolderAdapter(adapter: StorageAdapter): adapter is FolderAdapter {
-  return typeof (adapter as FolderAdapter).reload === 'function';
+  return 'reload' in adapter && typeof adapter.reload === 'function';
+}
+
+const isRole = (role: unknown): role is Role => checkRole(role) === null;
+const isLinks = (links: unknown): links is ReadonlyArray<Link> => checkLinks(links) === null;
+const areKeepers = (keepers: unknown): keepers is Keeper[] => checkKeepers(keepers) === null;
+
+function isPending(value: unknown): value is Pending {
+  return isRecord(value) && typeof value.collection === 'string' && isStringList(value.by);
 }
 
 const isStringList = (value: unknown): value is string[] =>
@@ -439,7 +452,8 @@ interface Pending {
 async function loadCacheState(adapter: StorageAdapter): Promise<CacheState> {
   try {
     const bytes = await adapter.get(CACHE_KEY);
-    const saved = bytes ? (JSON.parse(utf8Decode(bytes)) as Partial<CacheState>) : {};
+    const parsed: unknown = bytes ? JSON.parse(utf8Decode(bytes)) : null;
+    const saved = isRecord(parsed) ? parsed : {};
     const numbers = (value: unknown): Record<string, number> =>
       Object.fromEntries(
         Object.entries(typeof value === 'object' && value !== null ? value : {}).filter(
@@ -549,17 +563,19 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       return { body: expression.body, links: expression.links ?? [], encrypted: false };
     const known = openedBodies.get(expression.id);
     if (known) return known;
-    const sealedWith = keyring.get(String((expression.body as { keyId?: unknown }).keyId));
+    const sealedWith = keyring.get(sealedKeyId(expression.body));
     if (!sealedWith) return { body: null, links: [], encrypted: true };
     try {
-      const opened = (await decryptExpression(expression as EncryptedExpression, sealedWith)).body as {
-        body?: unknown;
-        links?: unknown;
-      };
-      const links =
-        checkLinks(opened?.links ?? []) === null
-          ? ((opened?.links as ReadonlyArray<Link> | undefined) ?? [])
-          : [];
+      const { ciphertext, iv, keyId } = isRecord(expression.body) ? expression.body : {};
+      // A key id that is not a string can't be the one found above, so it never opens.
+      if (typeof ciphertext !== 'string' || typeof iv !== 'string' || typeof keyId !== 'string')
+        return { body: null, links: [], encrypted: true };
+      const content = (
+        await decryptExpression({ ...expression, body: { ciphertext, iv, keyId } }, sealedWith)
+      ).body;
+      const opened = isRecord(content) ? content : null;
+      const sealedLinks = opened?.links ?? [];
+      const links = isLinks(sealedLinks) ? sealedLinks : [];
       const result: Opened = Object.freeze({ body: opened?.body ?? null, links, encrypted: true });
       // An id names its content, so what opened once opens the same way again.
       openedBodies.set(expression.id, result);
@@ -644,8 +660,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
     // Everything else in the history is taken away by a change, never deleted: a delete has no body to carry a keep list.
     if (version.deleted || looksEncrypted(version.body)) return null;
-    const body = version.body as Record<string, unknown> | null;
-    if (!body || typeof body !== 'object') return null;
+    const body = version.body;
+    if (!isRecord(body)) return null;
     const keep = isStringList(body.keep) ? body.keep.slice(0, MAX_KEEP) : [];
 
     switch (version.collection) {
@@ -653,23 +669,24 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         const name = typeof body.name === 'string' ? body.name : '';
         if (version.key !== roleKey(name)) return null;
         if (body.removed === true) return { ...base, keep, kind: 'role', name, role: null };
-        const role: Role = {
+        const role = {
           name,
           ...(typeof body.title === 'string' ? { title: body.title } : {}),
-          rank: body.rank as number,
-          permissions: body.permissions as string[],
+          rank: body.rank,
+          permissions: body.permissions,
         };
-        return checkRole(role) ? null : { ...base, keep, kind: 'role', name, role };
+        return isRole(role) ? { ...base, keep, kind: 'role', name, role } : null;
       }
       case MEMBER_COLLECTION: {
         const did = body.did;
         const role = body.role;
         if (typeof did !== 'string' || !(role === null || typeof role === 'string')) return null;
         if (version.key !== (await memberKey(did))) return null;
-        const invite = body.invite as { key?: unknown; signature?: unknown } | undefined;
+        const invite = body.invite;
         let viaInvite: string | undefined;
         if (invite !== undefined) {
-          if (typeof invite?.key !== 'string' || typeof invite.signature !== 'string') return null;
+          if (!isRecord(invite) || typeof invite.key !== 'string' || typeof invite.signature !== 'string')
+            return null;
           if (!(await verifyInvite(space.id, did, invite.key, invite.signature, provider))) return null;
           viaInvite = invite.key;
         }
@@ -705,15 +722,16 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         return { ...base, keep: [], kind: 'relays', relays: body.relays };
       }
       case KEEPERS_COLLECTION: {
+        const { keepers } = body;
         const copies = body.copies ?? null;
-        if (version.key !== SPACE_KEEPERS_RECORD || checkKeepers(body.keepers, copies) !== null) return null;
-        return {
-          ...base,
-          keep: [],
-          kind: 'keepers',
-          keepers: body.keepers as Keeper[],
-          copies: copies as number | null,
-        };
+        if (
+          version.key !== SPACE_KEEPERS_RECORD ||
+          checkKeepers(keepers, copies) !== null ||
+          !areKeepers(keepers) ||
+          !(copies === null || typeof copies === 'number')
+        )
+          return null;
+        return { ...base, keep: [], kind: 'keepers', keepers, copies };
       }
       case REVOKE_COLLECTION: {
         if (typeof body.note !== 'string') return null;
@@ -806,8 +824,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         if (version.collection !== CATALOG_COLLECTION || version.deleted) return 'invalid';
         const opened = await openBody(version);
         if (opened.body === null) return 'unreadable';
-        const definition = opened.body as StoredCollection;
-        if (checkStoredCollection(definition) !== null || version.key !== `collection:${definition.name}`)
+        const definition = opened.body;
+        if (!isStoredCollection(definition) || version.key !== `collection:${definition.name}`)
           return 'invalid';
         return { definition };
       })();
@@ -859,7 +877,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (topics.length === 0 && !expression.tags?.length) return null;
     const opened = await openBody(expression);
     if (opened.body === null) return null;
-    const key = tagKey(opened.encrypted ? String((expression.body as { keyId?: unknown }).keyId) : null);
+    const key = tagKey(opened.encrypted ? sealedKeyId(expression.body) : null);
     if (!key) return null;
     const expected = await tagsFor(await key, expression.collection, topics, opened.body);
     return sameTags(expression.tags, expected)
@@ -1129,6 +1147,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       createdBy: creator?.verified ? creator.root : null,
       createdAt: genesis?.createdAt ?? expression.createdAt,
       updatedAt: expression.createdAt,
+      // The caller names the body's type; nothing here checks it against one.
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the caller's type for the body
       body: body as T | null,
       links,
       encrypted,
@@ -1307,7 +1327,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         if (!verdict.verified || !verdict.root || (await profileKey(verdict.root)) !== key) continue;
         if (!(await standingOf(version)).ok) continue;
         if (version.deleted) break; // they took it down
-        const body = (await openBody(version)).body as { name?: unknown; contactKey?: unknown } | null;
+        const opened = (await openBody(version)).body;
+        const body = isRecord(opened) ? opened : null;
         if (!found) {
           const name = body?.name;
           if (typeof name !== 'string' || !name.trim()) break;
@@ -1342,7 +1363,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         const verdict = await judge(version);
         if (!verdict.verified || !verdict.root || (await memberKeyRecordKey(verdict.root)) !== key) continue;
         if (!(await standingOf(version)).ok) continue;
-        const body = version.body as { key?: unknown } | null;
+        const body = isRecord(version.body) ? version.body : null;
         if (isContactPublicKey(body?.key)) {
           found.set(verdict.root, body.key);
           break;
@@ -1425,18 +1446,18 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       for (const versions of (await storage.histories('box:')).values()) {
         for (const version of versions) {
           if (version.collection !== BOX_COLLECTION || version.deleted || opened.has(version.id)) continue;
-          const body = version.body as { keyId?: unknown; to?: unknown; sealed?: unknown } | null;
+          const body = isRecord(version.body) ? version.body : null;
           if (body?.to !== deps.rootDid || typeof body.keyId !== 'string' || typeof body.sealed !== 'string')
             continue;
           const epoch = epochs.find((known) => known.keyId === body.keyId);
           if (!epoch || keyring.has(epoch.keyId)) continue;
           opened.add(version.id);
-          const content = (await openSealed(
+          const content = await openSealed(
             memberPair.privateKey,
             body.sealed,
             boxContext(space.id, epoch.keyId, deps.rootDid),
-          )) as { key?: unknown } | null;
-          if (typeof content?.key !== 'string') continue;
+          );
+          if (!isRecord(content) || typeof content.key !== 'string') continue;
           // Whoever sealed it, it is the key the history names or it is nothing.
           const found = await spaceKeyFromRaw(base64UrlDecode(content.key)).catch(() => null);
           if (found?.id === epoch.keyId && (await deriveReadKey(found, provider)).did === epoch.readKey)
@@ -1451,7 +1472,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       more = false;
       for (const versions of (await storage.histories('key:')).values()) {
         for (const version of versions) {
-          const body = version.body as { keyId?: unknown; earlier?: unknown } | null;
+          const body = isRecord(version.body) ? version.body : null;
           if (
             version.collection !== KEY_COLLECTION ||
             opened.has(version.id) ||
@@ -1520,7 +1541,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const boxed = new Set<string>();
     for (const versions of (await storage.histories('box:')).values()) {
       for (const version of versions) {
-        const body = version.body as { keyId?: unknown; to?: unknown } | null;
+        const body = isRecord(version.body) ? version.body : null;
         if (
           version.collection !== BOX_COLLECTION ||
           body?.keyId !== epoch.keyId ||
@@ -1850,7 +1871,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     network.on('message', (message: NetworkMessage) => {
       if (message.type === 'sync') void sync.handleMessage(message.from, message.payload);
       else if (message.type === WHO_MESSAGE) {
-        const note = (message.payload as { note?: unknown } | null)?.note;
+        const note = isRecord(message.payload) ? message.payload.note : undefined;
         const checked = accountOf(message.from, note);
         peerAccounts.set(message.from, checked);
         void checked.then((known) => {
@@ -1950,7 +1971,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       recordsChanged();
     };
     // In Node a channel holds the process open; it must never be the only thing doing so.
-    (channel as { unref?: () => void }).unref?.();
+    unref(channel);
   }
 
   // ─── Holding part of the space ─────────────────────────────────────
@@ -1971,7 +1992,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       cacheTimer = null;
       void adapter.put(CACHE_KEY, utf8Encode(JSON.stringify(cacheState))).catch(() => {});
     }, 500);
-    (cacheTimer as { unref?: () => void }).unref?.();
+    unref(cacheTimer);
   };
   const flushCache = async () => {
     if (!cacheTimer) return;
@@ -2038,7 +2059,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (which.ids && !which.ids.has(id)) continue;
       const bytes = await adapter.get(name);
       if (!bytes) continue;
-      const pending = JSON.parse(utf8Decode(bytes)) as Pending;
+      const pending: unknown = JSON.parse(utf8Decode(bytes));
+      if (!isPending(pending)) continue;
       if (which.collection !== undefined && pending.collection !== which.collection) continue;
       if (!pending.by.includes(peer)) pending.by.push(peer);
       if (pending.by.length >= target) await adapter.delete(name);
@@ -2077,7 +2099,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     const waiting = new Set<string>();
     for (const name of await adapter.list(PENDING_PREFIX)) {
       const bytes = await adapter.get(name);
-      if (bytes) waiting.add((JSON.parse(utf8Decode(bytes)) as Pending).collection);
+      const pending: unknown = bytes ? JSON.parse(utf8Decode(bytes)) : null;
+      if (isPending(pending)) waiting.add(pending.collection);
     }
     let dropped = false;
     for (const [collection, at] of Object.entries(cacheState.used)) {
@@ -2097,7 +2120,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   // When the app opens the space, then every few hours while it stays open.
   const dropTimer = cache ? setInterval(() => void dropUnused().catch(() => {}), 6 * HOUR) : null;
   const tidying = cache ? dropUnused().catch(() => {}) : Promise.resolve();
-  (dropTimer as { unref?: () => void } | null)?.unref?.();
+  unref(dropTimer);
 
   // ─── Writing ───────────────────────────────────────────────────────
 
@@ -2191,7 +2214,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         ? []
         : ((await catalog()).get(collection)?.definition.topics ?? []);
       if (topics.length) {
-        const sealedWith = looksEncrypted(payload) ? String((payload as { keyId?: unknown }).keyId) : null;
+        const sealedWith = looksEncrypted(payload) ? sealedKeyId(payload) : null;
         const key = tagKey(sealedWith);
         if (key) tags = await tagsFor(await key, collection, topics, body);
       }
@@ -2365,6 +2388,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
           entry.shown = undefined;
           throw error;
         }));
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the caller's type for the body, as in view
       return Promise.all(page.map((entry) => shownOf(entry) as Promise<NodeRecord<T>>));
     },
 

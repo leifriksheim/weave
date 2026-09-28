@@ -55,6 +55,7 @@ import { createServerAuth } from '../network/peer-auth.js';
 import { DEFAULT_ICE_SERVERS } from '../network/rtc-transport.js';
 import { deriveInviteKey } from '../space/space-access.js';
 import { base64UrlDecode, base64UrlEncode } from '../utils/encoding.js';
+import { isRecord, unref } from '../utils/guards.js';
 import { onePerKey } from '../records/rules.js';
 import {
   contactKeyPair,
@@ -198,13 +199,13 @@ function collectionsOf(query: Query): string[] {
 }
 
 /** Accepts a bare invite or a whole share link carrying one (`…#invite=…`). */
-function bareInvite(invite: string): string {
-  return /[#&?]invite=([^&\s]+)/.exec(invite)?.[1] ?? invite.trim();
+/** What a rejection says: its message when it has one */
+function reasonText(reason: unknown): string {
+  return String((isRecord(reason) ? reason.message : undefined) ?? reason);
 }
 
-/** Lets a long-lived timer not hold a process open on its own. */
-function unref(timer: ReturnType<typeof setTimeout>): void {
-  (timer as { unref?: () => void }).unref?.();
+function bareInvite(invite: string): string {
+  return /[#&?]invite=([^&\s]+)/.exec(invite)?.[1] ?? invite.trim();
 }
 
 /**
@@ -1422,15 +1423,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     if (record.body?.to !== config.signer.did || typeof record.body.sealed !== 'string') return null;
     const from = record.root;
     if (!from || record.createdBy !== from || from === config.signer.did) return null;
-    const value = (await openSealed(
+    const value = await openSealed(
       contactKeys.privateKey,
       record.body.sealed,
       requestContext(spaceId, from, config.signer.did),
-    )) as {
-      invite?: unknown;
-      note?: unknown;
-    } | null;
-    if (typeof value?.invite !== 'string') return null;
+    );
+    if (!isRecord(value) || typeof value.invite !== 'string') return null;
     let invited;
     try {
       invited = parseSpaceInvite(value.invite);
@@ -1884,9 +1882,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         );
         if (!left.some((result) => result.status === 'fulfilled')) {
           const reasons = left
-            .map((result) =>
-              result.status === 'rejected' ? String((result.reason as Error)?.message ?? result.reason) : '',
-            )
+            .map((result) => (result.status === 'rejected' ? reasonText(result.reason) : ''))
             .filter(Boolean);
           throw new Error(`None of their door's relays took the knock. ${reasons.join('; ')}`);
         }
@@ -2061,6 +2057,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         },
         query,
       );
+      // The query's type says what it finds; running it can't prove that.
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- typed from the query
       return { ...result, complete } as ResultOf<Q>;
     },
     watch<Q extends Query>(
@@ -2227,12 +2225,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       records: agentRecords,
       collections: agentCollections,
       account: Object.freeze({
-        profile: accountApi.profile,
+        profile: () => accountApi.profile(),
         setName: person('rename the account'),
         revoke: person('revoke notes'),
       }),
       carriers: Object.freeze({
-        list: carriers.list,
+        list: () => carriers.list(),
         add: person('add a carrier'),
         remove: person('remove a carrier'),
       }),
@@ -2274,7 +2272,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         dismiss: person('dismiss a knock'),
       }),
       delegation: () => note,
-      iceServers: node.iceServers,
+      iceServers: () => node.iceServers(),
       delegate: person('pass its access on'),
       asAgent: person('start another agent'),
       subscribe: (listener: (event: NodeEvent) => void) =>

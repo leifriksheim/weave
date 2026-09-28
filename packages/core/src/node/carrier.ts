@@ -359,11 +359,13 @@ export async function createCarryCore(config: CarryCoreConfig) {
     if (changed) emit({ type: 'spaces' });
   }
 
+  const carriedView: ReadonlyMap<string, Carried> = carried;
+  const carriesView: ReadonlyMap<string, Carry> = carries;
   return {
     did,
     podDid,
-    carried: carried as ReadonlyMap<string, Carried>,
-    carries: carries as ReadonlyMap<string, Carry>,
+    carried: carriedView,
+    carries: carriesView,
 
     /**
      * Starts carrying for an account: joins its carry space and every space
@@ -479,10 +481,10 @@ export async function createCarrierNode(config: CarrierConfig): Promise<CarrierN
   return Object.freeze({
     did: core.did,
     carrySpace,
-    spaces: core.spaces,
-    usePod: core.setPod,
-    subscriptions: core.subscriptions,
-    collections: core.collections,
+    spaces: () => core.spaces(),
+    usePod: (stores: StoreFactory | null) => core.setPod(stores),
+    subscriptions: () => core.subscriptions(),
+    collections: (spaceId: string) => core.collections(spaceId),
 
     subscribe(listener: (event: CarrierEvent) => void) {
       listeners.add(listener);

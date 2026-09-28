@@ -19,7 +19,8 @@
 import type { DefineCollection, NodeCollection, NodeRecord, P2PNode } from '../node/types.js';
 import type { Typed } from '../query/types.js';
 import type { JsonSchema } from '../schema/collection-def.js';
-import { checkStoredCollection } from '../schema/collection-def.js';
+import { checkStoredCollection, isStoredCollection } from '../schema/collection-def.js';
+import { isObject } from '../utils/guards.js';
 import { canonicalize } from '../schema/expression.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { CollectionRules } from '../records/rules.js';
@@ -77,8 +78,8 @@ export const app: DefineCollection & Typed<App> = {
 
 /** Why this can't be an app, or null when it can */
 export function checkApp(value: unknown): string | null {
-  const body = value as Partial<App> | null;
-  if (!body || typeof body !== 'object') return 'An app must be an object';
+  if (!isObject(value)) return 'An app must be an object';
+  const body = value;
   if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 100)
     return 'An app needs a title of 1–100 characters';
   if (
@@ -96,19 +97,20 @@ export function checkApp(value: unknown): string | null {
   if (!Array.isArray(body.needs) || body.needs.length === 0 || body.needs.length > MAX_APP_COLLECTIONS) {
     return `An app needs 1–${MAX_APP_COLLECTIONS} collections`;
   }
+  const needs: unknown[] = body.needs;
   const names = new Set<string>();
-  for (const [index, need] of body.needs.entries()) {
+  for (const [index, need] of needs.entries()) {
     const at = `needs[${index}]`;
-    if (!need || typeof need !== 'object') return `${at} must be a collection definition`;
+    if (!isObject(need)) return `${at} must be a collection definition`;
     if (typeof need.name === 'string' && need.name.startsWith('sys.'))
       return `${at}: sys.* collections are the protocol's own`;
     if ('version' in need) return `${at}: leave out "version" — the space decides it when the app is added`;
-    const problem = checkStoredCollection({ ...need, version: 1 });
-    if (problem) return `${at}: ${problem}`;
-    if (names.has(need.name)) return `${at}: ${need.name} is listed twice`;
-    names.add(need.name);
+    const stored = { ...need, version: 1 };
+    if (!isStoredCollection(stored)) return `${at}: ${checkStoredCollection(stored)}`;
+    if (names.has(stored.name)) return `${at}: ${stored.name} is listed twice`;
+    names.add(stored.name);
     try {
-      describeCollection(need);
+      describeCollection(stored);
     } catch (error) {
       return `${at}: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -161,7 +163,7 @@ function essence(definition: {
 }
 
 const fieldNames = (schema: unknown) =>
-  Object.keys((schema as { properties?: Record<string, unknown> } | null)?.properties ?? {});
+  Object.keys((isObject(schema) && isObject(schema.properties) ? schema.properties : null) ?? {});
 
 /** What would change, in words, going from what the space has to what the app says */
 function differences(held: NodeCollection, wanted: AppDefinition): string[] {

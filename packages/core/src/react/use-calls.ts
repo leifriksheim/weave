@@ -4,17 +4,16 @@ import {
   useContext,
   useEffect,
   useState,
-  useSyncExternalStore,
   type ReactElement,
   type ReactNode,
 } from 'react';
 import { createCalls, type Calls, type CallsOptions, type CallsState } from '../calls/calls.js';
 import { useNode } from './context.js';
+import { useFollow } from './follow.js';
 
 const CallsContext = createContext<Calls | null>(null);
 
 const EMPTY: CallsState = Object.freeze({ current: null, ringing: [], around: [], rejoin: null });
-const never = () => () => {};
 const empty = () => EMPTY;
 
 /**
@@ -39,7 +38,6 @@ export function CallsProvider({
       void made.close();
     };
     // Options are read once, when the node is new.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node]);
   return createElement(CallsContext.Provider, { value: calls }, children);
 }
@@ -51,10 +49,6 @@ export function CallsProvider({
  */
 export function useCalls(): { readonly state: CallsState; readonly calls: Calls | null } {
   const calls = useContext(CallsContext);
-  const state = useSyncExternalStore(
-    calls ? calls.subscribe : never,
-    calls ? calls.getState : empty,
-    calls ? calls.getState : empty,
-  );
+  const state = useFollow(calls, empty);
   return { state, calls };
 }

@@ -25,6 +25,8 @@
 import { base64UrlEncode, base64UrlDecode, utf8Encode, utf8Decode, concatBytes } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
 import { protocolError } from '../utils/errors.js';
+import { bufferSource, isRecord } from '../utils/guards.js';
+import { hkdfAesKey } from './hkdf.js';
 
 const ROOM_PREFIX = utf8Encode('weave-pairing-room-v1');
 const PAIRING_KEY_INFO = utf8Encode('weave-pairing-key-v1');
@@ -62,25 +64,7 @@ export async function pairingRoomId(seed: Uint8Array): Promise<string> {
  * @returns An AES-GCM key
  */
 export async function derivePairingKey(seed: Uint8Array): Promise<CryptoKey> {
-  const material = await globalThis.crypto.subtle.importKey(
-    'raw',
-    seed as BufferSource,
-    { name: 'HKDF' },
-    false,
-    ['deriveKey'],
-  );
-  return globalThis.crypto.subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: new Uint8Array(0) as BufferSource,
-      info: PAIRING_KEY_INFO as BufferSource,
-    },
-    material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
+  return hkdfAesKey(seed, PAIRING_KEY_INFO);
 }
 
 /**
@@ -97,6 +81,12 @@ export function encodePairingTicket(ticket: PairingTicket): string {
   return base64UrlEncode(utf8Encode(JSON.stringify(ticket)));
 }
 
+function isPairingTicket(value: unknown): value is PairingTicket {
+  return (
+    isRecord(value) && value.v === 1 && typeof value.code === 'string' && typeof value.relay === 'string'
+  );
+}
+
 /**
  * Unpacks a ticket from a URL fragment.
  * @param encoded The string after `#pair=`
@@ -104,10 +94,8 @@ export function encodePairingTicket(ticket: PairingTicket): string {
  */
 export function decodePairingTicket(encoded: string): PairingTicket {
   try {
-    const ticket = JSON.parse(utf8Decode(base64UrlDecode(encoded.trim()))) as PairingTicket;
-    if (ticket?.v !== 1 || typeof ticket.code !== 'string' || typeof ticket.relay !== 'string') {
-      throw new Error('unexpected shape');
-    }
+    const ticket: unknown = JSON.parse(utf8Decode(base64UrlDecode(encoded.trim())));
+    if (!isPairingTicket(ticket)) throw new Error('unexpected shape');
     return ticket;
   } catch {
     throw protocolError(
@@ -127,9 +115,9 @@ export function decodePairingTicket(encoded: string): PairingTicket {
 export async function sealPairingPayload(plaintext: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const ciphertext = await globalThis.crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv as BufferSource },
+    { name: 'AES-GCM', iv },
     key,
-    plaintext as BufferSource,
+    bufferSource(plaintext),
   );
   return concatBytes(iv, new Uint8Array(ciphertext));
 }
@@ -147,9 +135,9 @@ export async function openPairingPayload(sealed: Uint8Array, key: CryptoKey): Pr
 
   try {
     const plain = await globalThis.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: sealed.slice(0, IV_BYTES) as BufferSource },
+      { name: 'AES-GCM', iv: sealed.slice(0, IV_BYTES) },
       key,
-      sealed.slice(IV_BYTES) as BufferSource,
+      sealed.slice(IV_BYTES),
     );
     return new Uint8Array(plain);
   } catch {

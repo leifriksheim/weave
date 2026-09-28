@@ -36,6 +36,7 @@
  */
 import type { P2PNode, NodeEvent } from '../node/types.js';
 import { call as callSchema } from '../schemas/index.js';
+import { isObject, unref } from '../utils/guards.js';
 
 export interface CallsOptions {
   /** How a WebRTC connection is made. `new RTCPeerConnection` by default. */
@@ -175,9 +176,10 @@ const LEAVE_LINGER_MS = 1000;
 const MEMBERS_MS = 10_000;
 
 function isCallMessage(value: unknown): value is CallMessage {
-  const message = value as { type?: unknown; call?: unknown } | null;
+  const message = value;
   return (
-    typeof message?.type === 'string' &&
+    isObject(message) &&
+    typeof message.type === 'string' &&
     CALL_TYPES.has(message.type) &&
     typeof message.call === 'string' &&
     message.call.length > 0 &&
@@ -293,7 +295,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
 
   function later(fn: () => void, ms: number): ReturnType<typeof setTimeout> {
     const timer = setTimeout(fn, ms);
-    (timer as { unref?: () => void }).unref?.();
+    unref(timer);
     return timer;
   }
 
@@ -399,7 +401,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     if (dropped) changed();
   }
   const sweeper = setInterval(sweep, Math.max(250, Math.min(heartbeatMs, goneMs / 3)));
-  (sweeper as { unref?: () => void }).unref?.();
+  unref(sweeper);
 
   // ─── Connections ───────────────────────────────────────────────────
 
@@ -711,11 +713,8 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
 
   function readRejoin(): { space: string; call: string } | null {
     try {
-      const saved = JSON.parse(storage?.getItem(REJOIN_KEY) ?? 'null') as {
-        space?: unknown;
-        call?: unknown;
-      } | null;
-      return typeof saved?.space === 'string' && typeof saved.call === 'string'
+      const saved: unknown = JSON.parse(storage?.getItem(REJOIN_KEY) ?? 'null');
+      return isObject(saved) && typeof saved.space === 'string' && typeof saved.call === 'string'
         ? { space: saved.space, call: saved.call }
         : null;
     } catch {
@@ -792,7 +791,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
         forgetRejoin();
         writeRejoin(call);
         call.heartbeat = setInterval(() => void send(space, hereMessage(call)), heartbeatMs);
-        (call.heartbeat as { unref?: () => void }).unref?.();
+        unref(call.heartbeat);
         await send(space, hereMessage(call));
         for (const [peer, presence] of inCall(space, call.id) ?? []) {
           call.seen.add(presence.account);

@@ -11,6 +11,7 @@
  * The fact is the account's word, carried in a note it signed. A note without
  * it is an ordinary app's; nothing about the key itself says "agent".
  */
+import { isRecord } from '../utils/guards.js';
 import { parseUCAN, type Fact } from './ucan.js';
 
 /** The fact an agent's note carries */
@@ -21,7 +22,9 @@ export function isAgentNote(encoded: string | null | undefined): boolean {
   if (!encoded) return false;
   try {
     const facts = parseUCAN(encoded).payload.fct;
-    return Array.isArray(facts) && facts.some((fact) => fact?.weave === AGENT_FACT.weave);
+    return (
+      Array.isArray(facts) && facts.some((fact: unknown) => isRecord(fact) && fact.weave === AGENT_FACT.weave)
+    );
   } catch {
     return false;
   }

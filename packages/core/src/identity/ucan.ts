@@ -113,7 +113,8 @@ export async function issueUCAN(options: IssueUCANOptions, provider: CryptoProvi
     fct: options.facts,
   };
 
-  // Clean up undefined properties for deterministic encoding
+  // A JSON round trip drops undefined fields, so what is signed is what a reader parses.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the round trip keeps the shape it was given
   const cleanPayload = JSON.parse(JSON.stringify(payload)) as UCANPayload;
 
   const encodedHeader = base64UrlEncode(utf8Encode(canonicalize(header)));
@@ -154,7 +155,11 @@ export function parseUCAN(encoded: string): {
   const headerStr = utf8Decode(base64UrlDecode(parts[0]!));
   const payloadStr = utf8Decode(base64UrlDecode(parts[1]!));
 
+  // Unverified by design: verifyUCAN checks the fields it relies on, and a
+  // stricter parse here would change which tokens peers accept.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- wire input, checked by verifyUCAN
   const header = JSON.parse(headerStr) as UCANHeader;
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- wire input, checked by verifyUCAN
   const payload = JSON.parse(payloadStr) as UCANPayload;
 
   return {

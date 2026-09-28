@@ -49,6 +49,7 @@ import { parseSpaceInvite } from '../space/space-manager.js';
 import { checkSpace } from '../space/space-access.js';
 import { checkRelays } from '../space/roles.js';
 import { sha256 } from '../utils/hash.js';
+import { isObject } from '../utils/guards.js';
 import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../utils/encoding.js';
 
 /** A door names at most this many relays: enough that one going away doesn't matter */
@@ -149,9 +150,8 @@ export function parseDoorCode(text: string): DoorCode {
   } catch {
     throw new Error('That is not a door code — it may be cut short.');
   }
-  const problem = checkDoorCode(parsed);
-  if (problem) throw new Error(`That door code doesn't work: ${problem}`);
-  const code = parsed as DoorCode;
+  if (!isDoorCode(parsed)) throw new Error(`That door code doesn't work: ${checkDoorCode(parsed)}`);
+  const code = parsed;
   return Object.freeze({
     v: 1,
     key: code.key,
@@ -161,10 +161,12 @@ export function parseDoorCode(text: string): DoorCode {
   });
 }
 
+const isDoorCode = (value: unknown): value is DoorCode => checkDoorCode(value) === null;
+
 /** Why a value is not a door code, or null */
 export function checkDoorCode(value: unknown): string | null {
-  const code = value as Partial<DoorCode> | null;
-  if (!code || typeof code !== 'object' || code.v !== 1) return 'it is not a version 1 door';
+  const code = value;
+  if (!isObject(code) || code.v !== 1) return 'it is not a version 1 door';
   if (!isContactPublicKey(code.key)) return 'its key is not a P-256 public key';
   if (!isContactPublicKey(code.sign) || code.sign === code.key)
     return 'its signing key is not a P-256 public key of its own';
@@ -274,12 +276,10 @@ export async function openKnock(
   provider: CryptoProvider,
 ): Promise<OpenedKnock | null> {
   const door = contactPublicKey(doorKey);
-  const opened = (await openSealed((await contactKeyPair(doorKey)).privateKey, blob, knockContext(door))) as {
-    body?: KnockBody;
-    sig?: unknown;
-  } | null;
-  const body = opened?.body;
-  if (!body || typeof opened.sig !== 'string') return null;
+  const opened = await openSealed((await contactKeyPair(doorKey)).privateKey, blob, knockContext(door));
+  if (!isObject(opened)) return null;
+  const { body, sig } = opened;
+  if (!isObject(body) || typeof sig !== 'string') return null;
   if (body.v !== 1 || body.door !== door) return null;
   if (typeof body.from !== 'string' || typeof body.session !== 'string' || typeof body.name !== 'string')
     return null;
@@ -288,7 +288,8 @@ export async function openKnock(
   if (typeof body.proof !== 'string' || body.proof.length > MAX_PROOF) return null;
   if (body.note !== undefined && (typeof body.note !== 'string' || Array.from(body.note).length > MAX_NOTE))
     return null;
-  if (!Number.isSafeInteger(body.at) || !Number.isFinite(receivedAt)) return null;
+  if (typeof body.at !== 'number' || !Number.isSafeInteger(body.at) || !Number.isFinite(receivedAt))
+    return null;
   const now = Math.floor(Date.now() / 1000);
   if (body.at > now + UCAN_CLOCK_SKEW_SECONDS || body.at < now - KNOCK_TTL_SECONDS) return null;
   // Signed when it was dropped, not dated back to when a note was still good.
@@ -300,7 +301,7 @@ export async function openKnock(
   let signed = false;
   try {
     const key = await provider.importPublicKey(didToPublicKey(body.session).publicKeyBytes);
-    signed = await provider.verify(key, base64UrlDecode(opened.sig), utf8Encode(canonicalize(body)));
+    signed = await provider.verify(key, base64UrlDecode(sig), utf8Encode(canonicalize(body)));
   } catch {
     return null;
   }
@@ -335,7 +336,7 @@ export async function openKnock(
   return Object.freeze({
     from: body.from,
     name: clip(body.name, MAX_NAME) || 'Someone',
-    ...(body.note ? { note: body.note } : {}),
+    ...(typeof body.note === 'string' && body.note ? { note: body.note } : {}),
     invite: body.invite,
     pairSpace: invited.space.id,
     at: body.at * 1000,

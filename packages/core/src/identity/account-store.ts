@@ -24,10 +24,12 @@
 
 import type { DirectoryHandleLike } from '../storage/folder-adapter.js';
 import { readFolderFile, writeFolderFile } from '../storage/folder-adapter.js';
-import type { AccountVault } from './account-vault.js';
+import { isAccountVault, type AccountVault } from './account-vault.js';
 import { readFolderVault } from './folder-account.js';
 import { base64UrlEncode, utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { protocolError } from '../utils/errors.js';
+import { isRecord } from '../utils/guards.js';
+import { openDb, requestResult, transactionDone } from './idb.js';
 
 /** What can be known about an account without unlocking it */
 export interface AccountSummary {
@@ -106,11 +108,16 @@ export function isAccountId(id: unknown): id is string {
  * else, `../../elsewhere` above all, is someone editing the list to aim an
  * account at files outside the folder.
  */
-function isTrustworthy(account: AccountSummary): boolean {
-  if (!isAccountId(account?.id) || typeof account.dataPath !== 'string') return false;
+function isTrustworthy(account: unknown): boolean {
+  if (!isRecord(account) || !isAccountId(account.id) || typeof account.dataPath !== 'string') return false;
   if (account.dataPath === LEGACY_DATA_PATH) return true;
   const [accounts, id, stores, ...more] = account.dataPath.split('/');
   return accounts === ACCOUNTS_DIR && isAccountId(id) && stores === 'stores' && more.length === 0;
+}
+
+/** A row read back from the list; the fields beyond id and path are taken as written. */
+function isTrustworthyRow(row: unknown): row is AccountSummary {
+  return isTrustworthy(row);
 }
 
 function checkId(id: string): void {
@@ -144,10 +151,10 @@ function collapse(accounts: ReadonlyArray<AccountSummary>): AccountSummary[] {
 function parseList(bytes: Uint8Array | null): AccountSummary[] {
   if (!bytes) return [];
   try {
-    const parsed = JSON.parse(utf8Decode(bytes)) as { accounts?: AccountSummary[] };
+    const parsed: unknown = JSON.parse(utf8Decode(bytes));
     // A row that fails the check is skipped, not repaired: it was not written
     // by this store, so there is no telling what it was meant to be.
-    return Array.isArray(parsed?.accounts) ? parsed.accounts.filter(isTrustworthy) : [];
+    return isRecord(parsed) && Array.isArray(parsed.accounts) ? parsed.accounts.filter(isTrustworthyRow) : [];
   } catch {
     throw protocolError(
       'FOLDER_ACCOUNT_UNREADABLE',
@@ -204,7 +211,9 @@ export function createFolderAccountStore(dir: DirectoryHandleLike): AccountStore
       if (!bytes) return null;
 
       try {
-        return JSON.parse(utf8Decode(bytes)) as AccountVault;
+        const vault: unknown = JSON.parse(utf8Decode(bytes));
+        if (!isAccountVault(vault)) throw new Error('not a vault');
+        return vault;
       } catch {
         throw protocolError(
           'FOLDER_ACCOUNT_UNREADABLE',
@@ -253,43 +262,30 @@ const DB_NAME = 'weave-accounts';
 const STORE = 'accounts';
 const LIST_KEY = '__list';
 
-function openDb(dbName: string): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = globalThis.indexedDB.open(dbName, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE)) {
-        request.result.createObjectStore(STORE);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+function idbGet(db: IDBDatabase, key: string): Promise<unknown> {
+  return requestResult(db.transaction(STORE, 'readonly').objectStore(STORE).get(key));
 }
 
-function idbGet<T>(db: IDBDatabase, key: string): Promise<T | null> {
-  return new Promise((resolve, reject) => {
-    const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
-    request.onsuccess = () => resolve((request.result as T) ?? null);
-    request.onerror = () => reject(request.error);
-  });
+/** The list as this store wrote it; unlike a folder's, no other origin can edit it */
+async function idbList(db: IDBDatabase): Promise<AccountSummary[]> {
+  const rows = await idbGet(db, LIST_KEY);
+  return isSummaryList(rows) ? rows : [];
+}
+
+function isSummaryList(rows: unknown): rows is AccountSummary[] {
+  return Array.isArray(rows);
 }
 
 function idbPut(db: IDBDatabase, key: string, value: unknown): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  const tx = db.transaction(STORE, 'readwrite');
+  tx.objectStore(STORE).put(value, key);
+  return transactionDone(tx);
 }
 
 function idbDelete(db: IDBDatabase, key: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).delete(key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  const tx = db.transaction(STORE, 'readwrite');
+  tx.objectStore(STORE).delete(key);
+  return transactionDone(tx);
 }
 
 /**
@@ -301,23 +297,24 @@ function idbDelete(db: IDBDatabase, key: string): Promise<void> {
  * @param dbName Overridable for tests
  * @returns A store over this origin's database
  */
-export async function createBrowserAccountStore(dbName: string = DB_NAME): Promise<AccountStore> {
-  const db = await openDb(dbName);
+export async function createBrowserAccountStore(dbName = DB_NAME): Promise<AccountStore> {
+  const db = await openDb(dbName, STORE);
 
   return Object.freeze({
     kind: 'browser' as const,
 
     async list(): Promise<ReadonlyArray<AccountSummary>> {
-      return collapse((await idbGet<AccountSummary[]>(db, LIST_KEY)) ?? []);
+      return collapse(await idbList(db));
     },
 
     async read(id: string): Promise<AccountVault | null> {
-      return idbGet<AccountVault>(db, id);
+      const vault = await idbGet(db, id);
+      return isAccountVault(vault) ? vault : null;
     },
 
     async write(summary: AccountSummary, vault: AccountVault): Promise<void> {
       await idbPut(db, summary.id, vault);
-      const accounts = ((await idbGet<AccountSummary[]>(db, LIST_KEY)) ?? []).filter(
+      const accounts = (await idbList(db)).filter(
         (account) => account.id !== summary.id && account.did !== summary.did,
       );
       await idbPut(db, LIST_KEY, [...accounts, summary]);
@@ -325,9 +322,7 @@ export async function createBrowserAccountStore(dbName: string = DB_NAME): Promi
 
     async remove(id: string): Promise<void> {
       await idbDelete(db, id);
-      const accounts = ((await idbGet<AccountSummary[]>(db, LIST_KEY)) ?? []).filter(
-        (account) => account.id !== id,
-      );
+      const accounts = (await idbList(db)).filter((account) => account.id !== id);
       await idbPut(db, LIST_KEY, accounts);
     },
   });

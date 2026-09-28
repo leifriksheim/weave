@@ -21,6 +21,7 @@ import type { CryptoProvider, StorageAdapter } from '../types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
 import { createServerAuth, type ServerAuth } from '../network/peer-auth.js';
 import { utf8Decode, utf8Encode } from '../utils/encoding.js';
+import { isRecord } from '../utils/guards.js';
 import { createCarryCore, type CarriedSpace, type CarrierEvent } from './carrier.js';
 import type { StoreFactory } from './stores.js';
 import type { NodeNetworkConfig } from './types.js';
@@ -146,6 +147,8 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
 
   const read = async (id: string): Promise<Subscription | null> => {
     const bytes = await store.get(`${SUBSCRIPTION_PREFIX}${id}`);
+    // Only `write` below puts anything here; a check would turn a damaged record into a missing one.
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- this host's own writes
     return bytes ? (JSON.parse(utf8Decode(bytes)) as Subscription) : null;
   };
   const bucketKey = (id: string) => `${BUCKET_PREFIX}${encodeURIComponent(id)}.json`;
@@ -177,8 +180,8 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     for (const key of await config.mirror.list(BUCKET_PREFIX)) {
       const bytes = await config.mirror.get(key);
       if (!bytes) continue;
-      const subscription = JSON.parse(utf8Decode(bytes)) as Subscription;
-      if (typeof subscription.id === 'string')
+      const subscription: unknown = JSON.parse(utf8Decode(bytes));
+      if (isRecord(subscription) && typeof subscription.id === 'string')
         await store.put(`${SUBSCRIPTION_PREFIX}${subscription.id}`, bytes);
     }
   }
@@ -289,7 +292,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       return dropped;
     },
 
-    spaces: core.spaces,
+    spaces: () => core.spaces(),
 
     async carriedFor(id: string) {
       const space = (await read(id))?.carry?.space;

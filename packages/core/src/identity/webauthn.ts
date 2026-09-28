@@ -1,5 +1,6 @@
 import { base64UrlEncode, base64UrlDecode } from '../utils/encoding.js';
 import { protocolError } from '../utils/errors.js';
+import { bufferSource, bytesFrom, isPublicKeyCredential } from '../utils/guards.js';
 
 export interface PasskeyOptions {
   readonly rpId: string;
@@ -86,7 +87,7 @@ export async function registerPasskey(options: PasskeyOptions): Promise<PasskeyR
   const createOptions: PublicKeyCredentialCreationOptions & { hints?: string[] } = {
     rp: { id: options.rpId, name: options.rpName },
     user: {
-      id: userId as BufferSource,
+      id: bufferSource(userId),
       name: options.userName,
       displayName: options.userName,
     },
@@ -103,29 +104,29 @@ export async function registerPasskey(options: PasskeyOptions): Promise<PasskeyR
       userVerification: 'required',
       ...(options.attachment ? { authenticatorAttachment: options.attachment } : {}),
     },
-    ...(options.hints ? { hints: options.hints as string[] } : {}),
+    ...(options.hints ? { hints: [...options.hints] } : {}),
     extensions: {
       prf: {
         eval: {
           first: PRF_SALT,
         },
       },
-    } as any, // PRF might not be in standard TS types yet
+    },
   };
 
-  const credential = (await globalThis.navigator.credentials.create({
+  const credential = await globalThis.navigator.credentials.create({
     publicKey: createOptions,
-  })) as PublicKeyCredential;
+  });
 
-  if (!credential) {
+  if (!isPublicKeyCredential(credential)) {
     throw new Error('Failed to create passkey.');
   }
 
-  const response = credential.response as AuthenticatorAttestationResponse;
+  const response: AuthenticatorResponse & Partial<Pick<AuthenticatorAttestationResponse, 'getPublicKey'>> =
+    credential.response;
 
-  const extensions = credential.getClientExtensionResults();
-  const prf = (extensions as any).prf;
-  const prfDeclared = prf?.results?.first ? true : (prf?.enabled as boolean | undefined);
+  const prf = credential.getClientExtensionResults().prf;
+  const prfDeclared = prf?.results?.first ? true : prf?.enabled;
 
   // Newer authenticators return the PRF output from the creation ceremony itself,
   // which saves the user a second prompt.
@@ -138,7 +139,7 @@ export async function registerPasskey(options: PasskeyOptions): Promise<PasskeyR
     userHandle: base64UrlEncode(userId),
     publicKey: new Uint8Array(response.getPublicKey?.() || new ArrayBuffer(0)),
     prfDeclared,
-    prfOutput: prfOutputBuffer ? new Uint8Array(prfOutputBuffer) : null,
+    prfOutput: prfOutputBuffer ? new Uint8Array(bytesFrom(prfOutputBuffer)) : null,
   });
 }
 
@@ -157,18 +158,18 @@ export async function renamePasskey(params: {
   userHandle: string;
   name: string;
 }): Promise<boolean> {
-  const signal = (
-    globalThis.PublicKeyCredential as unknown as
-      | {
-          signalCurrentUserDetails?: (details: {
-            rpId: string;
-            userId: string;
-            name: string;
-            displayName: string;
-          }) => Promise<void>;
-        }
-      | undefined
-  )?.signalCurrentUserDetails;
+  // Not in TypeScript's DOM types yet.
+  const api:
+    | (typeof PublicKeyCredential & {
+        signalCurrentUserDetails?: (details: {
+          rpId: string;
+          userId: string;
+          name: string;
+          displayName: string;
+        }) => Promise<void>;
+      })
+    | undefined = globalThis.PublicKeyCredential;
+  const signal = api?.signalCurrentUserDetails;
   if (typeof signal !== 'function') return false;
   try {
     await signal.call(globalThis.PublicKeyCredential, {
@@ -202,13 +203,13 @@ export async function authenticatePasskey(
     challenge: globalThis.crypto.getRandomValues(new Uint8Array(32)),
     rpId: options?.rpId,
     userVerification: 'required',
-    ...(options?.hints ? { hints: options.hints as string[] } : {}),
+    ...(options?.hints ? { hints: [...options.hints] } : {}),
     // Narrow the ceremony to the known credential; without this the browser
     // would prompt for any passkey on the origin.
     ...(credentialId
       ? {
           allowCredentials: [
-            { type: 'public-key' as const, id: base64UrlDecode(credentialId) as BufferSource },
+            { type: 'public-key' as const, id: bufferSource(base64UrlDecode(credentialId)) },
           ],
         }
       : {}),
@@ -218,26 +219,26 @@ export async function authenticatePasskey(
           first: PRF_SALT,
         },
       },
-    } as any,
+    },
   };
 
-  const credential = (await globalThis.navigator.credentials.get({
+  const credential = await globalThis.navigator.credentials.get({
     publicKey: getOptions,
-  })) as PublicKeyCredential;
+  });
 
-  if (!credential) {
+  if (!isPublicKeyCredential(credential)) {
     throw new Error('Failed to authenticate passkey.');
   }
 
-  const response = credential.response as AuthenticatorAssertionResponse;
-  const extensions = credential.getClientExtensionResults();
+  const response: AuthenticatorResponse & Partial<Pick<AuthenticatorAssertionResponse, 'authenticatorData'>> =
+    credential.response;
 
-  const prfOutputBuffer = (extensions as any).prf?.results?.first;
-  const prfOutput = prfOutputBuffer ? new Uint8Array(prfOutputBuffer) : null;
+  const prfOutputBuffer = credential.getClientExtensionResults().prf?.results?.first;
+  const prfOutput = prfOutputBuffer ? new Uint8Array(bytesFrom(prfOutputBuffer)) : null;
 
   return Object.freeze({
     credentialId: base64UrlEncode(new Uint8Array(credential.rawId)),
     prfOutput,
-    authenticatorData: new Uint8Array(response.authenticatorData),
+    authenticatorData: new Uint8Array(response.authenticatorData ?? new ArrayBuffer(0)),
   });
 }

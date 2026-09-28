@@ -25,6 +25,7 @@
  */
 
 import { base64UrlEncode } from '../utils/encoding.js';
+import { openDb, requestResult } from './idb.js';
 
 const DB_NAME = 'weave-device-keys';
 const STORE = 'keys';
@@ -35,32 +36,14 @@ export interface DeviceKey {
   readonly key: CryptoKey;
 }
 
-function openDb(dbName: string): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = globalThis.indexedDB.open(dbName, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE)) {
-        request.result.createObjectStore(STORE);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function withStore<T>(
+async function withStore(
   dbName: string,
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest,
-): Promise<T> {
-  const db = await openDb(dbName);
+): Promise<unknown> {
+  const db = await openDb(dbName, STORE);
   try {
-    return await new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(STORE, mode);
-      const request = run(tx.objectStore(STORE));
-      request.onsuccess = () => resolve(request.result as T);
-      request.onerror = () => reject(request.error);
-    });
+    return await requestResult(run(db.transaction(STORE, mode).objectStore(STORE)));
   } finally {
     db.close();
   }
@@ -76,7 +59,7 @@ async function withStore<T>(
  * @param dbName Overridable for tests
  * @returns The key, and the id a wrap should record
  */
-export async function createDeviceKey(dbName: string = DB_NAME): Promise<DeviceKey> {
+export async function createDeviceKey(dbName = DB_NAME): Promise<DeviceKey> {
   const key = await globalThis.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
     'encrypt',
     'decrypt',
@@ -99,9 +82,10 @@ export async function createDeviceKey(dbName: string = DB_NAME): Promise<DeviceK
  * @param dbName Overridable for tests
  * @returns The key, or null when this device does not have it
  */
-export async function getDeviceKey(id: string, dbName: string = DB_NAME): Promise<CryptoKey | null> {
+export async function getDeviceKey(id: string, dbName = DB_NAME): Promise<CryptoKey | null> {
   try {
-    return (await withStore<CryptoKey | undefined>(dbName, 'readonly', (store) => store.get(id))) ?? null;
+    const key = await withStore(dbName, 'readonly', (store) => store.get(id));
+    return key instanceof CryptoKey ? key : null;
   } catch {
     return null;
   }
@@ -112,7 +96,7 @@ export async function getDeviceKey(id: string, dbName: string = DB_NAME): Promis
  * @param id The id recorded in the wrap
  * @param dbName Overridable for tests
  */
-export async function deleteDeviceKey(id: string, dbName: string = DB_NAME): Promise<void> {
+export async function deleteDeviceKey(id: string, dbName = DB_NAME): Promise<void> {
   try {
     await withStore(dbName, 'readwrite', (store) => store.delete(id));
   } catch {

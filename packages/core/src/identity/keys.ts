@@ -1,4 +1,5 @@
 import { CryptoProvider } from '../types.js';
+import { bufferSource } from '../utils/guards.js';
 
 export interface DerivedKeyPair {
   readonly publicKey: CryptoKey;
@@ -52,7 +53,7 @@ export async function deriveKeyFromPassword(
     {
       name: 'PBKDF2',
       hash: 'SHA-256',
-      salt: salt as BufferSource,
+      salt: bufferSource(salt),
       iterations: 100000,
     },
     passwordKey,

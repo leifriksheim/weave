@@ -52,7 +52,6 @@ export function useLive<T>(
       stopped = true;
       unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node, spaceId, ...deps]);
 
   return value;

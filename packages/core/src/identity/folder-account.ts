@@ -15,10 +15,11 @@
 
 import type { DirectoryHandleLike } from '../storage/folder-adapter.js';
 import { readFolderFile, writeFolderFile } from '../storage/folder-adapter.js';
-import type { AccountVault, SeedWrap } from './account-vault.js';
+import { isAccountVault, type AccountVault, type SeedWrap } from './account-vault.js';
 import { isValidRecoveryCode, recoveryCodeToSeed } from './recovery-code.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { protocolError } from '../utils/errors.js';
+import { isRecord } from '../utils/guards.js';
 
 export const ACCOUNT_FILE = 'weave-account.json';
 const README_FILE = 'README.txt';
@@ -82,9 +83,9 @@ export async function readFolderVault(dir: DirectoryHandleLike): Promise<FolderS
 
   // Deliberately loose: version 1 and version 2 are different shapes, and an
   // intersection of the two is uninhabited. Narrowing happens below.
-  let parsed: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(utf8Decode(bytes)) as Record<string, unknown>;
+    parsed = JSON.parse(utf8Decode(bytes));
   } catch {
     throw protocolError(
       'FOLDER_ACCOUNT_UNREADABLE',
@@ -94,16 +95,17 @@ export async function readFolderVault(dir: DirectoryHandleLike): Promise<FolderS
     );
   }
 
-  const label = typeof parsed.label === 'string' ? parsed.label : 'My data';
-  const did = typeof parsed.did === 'string' ? parsed.did : null;
+  const fields = isRecord(parsed) ? parsed : {};
+  const label = typeof fields.label === 'string' ? fields.label : 'My data';
+  const did = typeof fields.did === 'string' ? fields.did : null;
 
-  if (parsed.version === 2 && Array.isArray(parsed.wraps)) {
-    return { vault: parsed as unknown as AccountVault, unlockedSeed: null, label, did };
+  if (isAccountVault(parsed)) {
+    return { vault: parsed, unlockedSeed: null, label, did };
   }
 
   // The first format kept the seed as a recovery code, in the clear.
-  if (typeof parsed.recoveryCode === 'string' && isValidRecoveryCode(parsed.recoveryCode)) {
-    return { vault: null, unlockedSeed: recoveryCodeToSeed(parsed.recoveryCode), label, did };
+  if (typeof fields.recoveryCode === 'string' && isValidRecoveryCode(fields.recoveryCode)) {
+    return { vault: null, unlockedSeed: recoveryCodeToSeed(fields.recoveryCode), label, did };
   }
 
   throw protocolError(

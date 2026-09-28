@@ -23,10 +23,10 @@ import {
   reviewApp,
   supersededApps,
   type App,
-  type AppDefinition,
 } from '../schemas/apps.js';
 import { SCREEN_GUIDE } from '../schemas/screens.js';
 import { describeCollection } from '../records/describe.js';
+import { isRecord } from '../utils/guards.js';
 
 /** The subset of JSON Schema these inputs use */
 export interface ActionSchema {
@@ -76,7 +76,26 @@ export interface NodeAction {
 const space = { type: 'string', description: 'Space id, from spaces_list' } as const;
 const key = { type: 'string', description: 'Record key — stays the same when the record is edited' } as const;
 
-const str = (input: Record<string, unknown>, key: string) => input[key] as string;
+// Inputs reach `run` only after `checkActionInput`, so these find what the schema promised.
+function str(input: Record<string, unknown>, key: string): string {
+  const value = input[key];
+  if (typeof value !== 'string') throw new TypeError(`"${key}" must be text`);
+  return value;
+}
+
+function oneOf<const T extends string>(input: Record<string, unknown>, key: string, values: readonly T[]): T {
+  const found = values.find((value) => value === input[key]);
+  if (found === undefined) throw new TypeError(`"${key}" must be one of ${values.join(', ')}`);
+  return found;
+}
+
+function obj(input: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = input[key];
+  if (!isRecord(value)) throw new TypeError(`"${key}" must be an object`);
+  return value;
+}
+
+const isApp = (value: unknown): value is App => checkApp(value) === null;
 
 const links = {
   type: 'array',
@@ -88,8 +107,12 @@ const links = {
     required: ['rel', 'to'],
   },
 } as const;
+// Links are checked where the record is written, like every other writer's.
 const linksOf = (input: Record<string, unknown>) =>
-  Array.isArray(input.links) ? { links: input.links as Array<{ rel: string; to: string }> } : {};
+  Array.isArray(input.links)
+    ? // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checked by the write
+      { links: input.links as Array<{ rel: string; to: string }> }
+    : {};
 
 export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[]>([
   {
@@ -129,7 +152,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: (node, input) =>
       node.spaces.create({
         name: str(input, 'name'),
-        visibility: input.visibility as 'private' | 'public',
+        visibility: oneOf(input, 'visibility', ['private', 'public']),
         ...rolePresets[input.roles === 'team' || input.roles === 'community' ? input.roles : 'solo'],
       }),
   },
@@ -325,20 +348,20 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: async (node, input) => {
       const defined = await node.collections.define(str(input, 'space'), {
         name: str(input, 'name'),
-        schema: input.schema as Record<string, unknown>,
+        schema: obj(input, 'schema'),
         ...(typeof input.title === 'string' ? { title: input.title } : {}),
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
         ...(typeof input.version === 'number' ? { version: input.version } : {}),
         ...(input.history === 'all' || input.history === 'latest' ? { history: input.history } : {}),
+        // Links and rules are checked with the rest of the definition, by `define`.
         ...(typeof input.links === 'object' && input.links !== null
-          ? { links: input.links as Record<string, never> }
+          ? // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checked by define
+            { links: input.links as Record<string, never> }
           : {}),
         ...(Array.isArray(input.permissions)
           ? { permissions: input.permissions.filter((p): p is string => typeof p === 'string') }
           : {}),
-        ...(typeof input.rules === 'object' && input.rules !== null
-          ? { rules: input.rules as Record<string, never> }
-          : {}),
+        ...(typeof input.rules === 'object' && input.rules !== null ? { rules: input.rules } : {}),
         ...(typeof input.screen === 'string' ? { screen: input.screen } : {}),
         ...(Array.isArray(input.network)
           ? { network: input.network.filter((o): o is string => typeof o === 'string') }
@@ -433,14 +456,13 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     readOnly: false,
     run: async (node, input) => {
       const spaceId = str(input, 'space');
-      const body: App = {
+      const body = {
         title: str(input, 'title'),
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
         ...(typeof input.updates === 'string' ? { updates: input.updates } : {}),
-        needs: input.needs as ReadonlyArray<AppDefinition>,
+        needs: input.needs,
       };
-      const problem = checkApp(body);
-      if (problem) throw new Error(problem);
+      if (!isApp(body)) throw new Error(checkApp(body) ?? 'Not an app');
       const record = await proposeApp(node, spaceId, body);
       const review = reviewApp(body, await node.collections.list(spaceId));
       return {
@@ -519,8 +541,11 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     readOnly: true,
     peerContent: true,
     run: (node, input) => {
-      const { space: spaceId, ...query } = input;
-      return node.records.query(spaceId as string, query as unknown as Query);
+      const { space: _space, ...rest } = input;
+      const query: unknown = rest;
+      // runQuery refuses a malformed query, after resolving collection references.
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checked by runQuery
+      return node.records.query(str(input, 'space'), query as Query);
     },
   },
   {
@@ -600,7 +625,7 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: (node, input) =>
       node.records.can(
         str(input, 'space'),
-        str(input, 'action') as 'create' | 'edit' | 'delete',
+        oneOf(input, 'action', ['create', 'edit', 'delete']),
         str(input, 'target'),
       ),
   },
@@ -634,15 +659,14 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
 
 /** Why an input does not fit an action's schema, or null when it does. */
 export function checkActionInput(action: NodeAction, input: unknown): string | null {
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) return 'Input must be an object';
-  const record = input as Record<string, unknown>;
+  if (!isRecord(input)) return 'Input must be an object';
   for (const key of action.input.required ?? []) {
-    if (record[key] === undefined) return `Missing "${key}"`;
+    if (input[key] === undefined) return `Missing "${key}"`;
   }
-  for (const [key, value] of Object.entries(record)) {
+  for (const [key, value] of Object.entries(input)) {
     const spec = action.input.properties[key];
     if (!spec) return `Unknown field "${key}"`;
-    if (spec.enum && !spec.enum.includes(value as string))
+    if (spec.enum && (typeof value !== 'string' || !spec.enum.includes(value)))
       return `"${key}" must be one of ${spec.enum.join(', ')}`;
     const actual = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
     const expected = spec.type === 'integer' ? 'number' : spec.type;
@@ -661,6 +685,7 @@ export async function runAction(node: P2PNode, name: string, input: unknown = {}
   const action = NODE_ACTIONS.find((candidate) => candidate.name === name);
   if (!action) throw new Error(`Unknown action: ${name}`);
   const problem = checkActionInput(action, input);
-  if (problem) throw new Error(`${name}: ${problem}`);
-  return action.run(node, input as Record<string, unknown>);
+  if (problem !== null || !isRecord(input))
+    throw new Error(`${name}: ${problem ?? 'Input must be an object'}`);
+  return action.run(node, input);
 }
