@@ -34,6 +34,7 @@ import { verifyUCAN, parseUCAN, type Capability, type UCANToken } from '../ident
 import { isAgentNote } from '../identity/agent-note.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import { createNode } from '../node/node.js';
+import { startNodeInWorker, workerNetwork, type WorkerLike } from '../node/worker.js';
 import { indexedDBStores, type StoreFactory } from '../node/stores.js';
 import type { CacheConfig, NewSpace, NodeNetworkConfig, P2PNode } from '../node/types.js';
 import { checkStartingRoles } from '../space/space-access.js';
@@ -523,21 +524,35 @@ export async function startConnectedNode(params: {
   readonly network?: NodeNetworkConfig;
   readonly stores?: StoreFactory;
   readonly cache?: CacheConfig | false;
+  /** Runs the node in a worker, off the page's main thread. Not with `stores`, which a worker can't be handed. */
+  readonly worker?: () => WorkerLike;
 }): Promise<P2PNode> {
+  if (params.worker && params.stores)
+    throw new Error('A node in a worker opens its own stores: pass worker or stores, not both');
   const key = params.key ?? (await appKey());
   // The home's relays as well as the app's, so the two always share one.
   const relays = [...new Set([...(params.network?.relays ?? []), ...(params.grant.relays ?? [])])];
   const network = params.network || relays.length ? { ...params.network, relays } : undefined;
-  const node = await createNode({
+  const shared = {
     signer: grantSigner(params.grant),
     sessionKey: key.keys,
-    stores: params.stores ?? indexedDBStores(`weave-app:${params.grant.did}`),
     ...(params.cache === false ? {} : { cache: params.cache ?? {} }),
     ...(params.grant.accountKey ? { accountKey: base64UrlDecode(params.grant.accountKey) } : {}),
     ...(params.grant.contactKey ? { contactKey: base64UrlDecode(params.grant.contactKey) } : {}),
     ...(params.grant.contactsSpace ? { contactsSpace: params.grant.contactsSpace } : {}),
-    ...(network ? { network } : {}),
-  });
+  };
+  const stores = `weave-app:${params.grant.did}`;
+  const node = params.worker
+    ? await startNodeInWorker(params.worker(), {
+        ...shared,
+        stores: { indexedDB: stores },
+        ...(network ? { network: workerNetwork(network) } : {}),
+      })
+    : await createNode({
+        ...shared,
+        stores: params.stores ?? indexedDBStores(stores),
+        ...(network ? { network } : {}),
+      });
   const held = new Set((await node.spaces.list()).map((space) => space.id));
   for (const space of params.grant.spaces) {
     if (!held.has(space.id))

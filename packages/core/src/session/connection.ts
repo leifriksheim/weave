@@ -36,6 +36,7 @@ import {
   type Proposed,
 } from './connect.js';
 import type { NotifyProposal } from '../space/notify.js';
+import type { WorkerLike } from '../node/worker.js';
 import type { KeyValueStore } from './stay-signed-in.js';
 
 export interface WeaveConnectionConfig {
@@ -49,6 +50,12 @@ export interface WeaveConnectionConfig {
   readonly storage?: KeyValueStore | null;
   /** Where the node keeps its data. Default: this site's IndexedDB. */
   readonly stores?: (grant: Grant) => StoreFactory;
+  /**
+   * Runs the node in a worker, off the page's main thread
+   * (`@weaveprotocol/core/node-worker`). Called each time the node starts;
+   * the worker ends when it closes. Not with `stores`.
+   */
+  readonly worker?: () => WorkerLike;
 }
 
 /**
@@ -138,6 +145,7 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
       key: await appKey(),
       ...(config.network ? { network: config.network } : {}),
       ...(config.stores ? { stores: config.stores(grant) } : {}),
+      ...(config.worker ? { worker: config.worker } : {}),
     });
     update({ status: 'ready', home: grant.home, grant, node, error: null });
 

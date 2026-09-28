@@ -40,6 +40,8 @@ import {
   createSpaceManager,
   encodeSpaceInvite,
   parseSpaceInvite,
+  bareInvite,
+  previewInvite,
   type InviteLinkOptions,
   type SpaceRecord,
 } from '../space/space-manager.js';
@@ -140,7 +142,6 @@ import type {
   DefineCollection,
   DelegateParams,
   InviteOptions,
-  InvitePreview,
   ListOptions,
   NewSpace,
   NodeConfig,
@@ -198,14 +199,9 @@ function collectionsOf(query: Query): string[] {
   return [...found];
 }
 
-/** Accepts a bare invite or a whole share link carrying one (`…#invite=…`). */
 /** What a rejection says: its message when it has one */
 function reasonText(reason: unknown): string {
   return String((isRecord(reason) ? reason.message : undefined) ?? reason);
-}
-
-function bareInvite(invite: string): string {
-  return /[#&?]invite=([^&\s]+)/.exec(invite)?.[1] ?? invite.trim();
 }
 
 /**
@@ -863,17 +859,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return inviteTo(spaceId, { secret, role });
     },
 
-    preview(invite: string): InvitePreview {
-      const parsed = parseSpaceInvite(bareInvite(invite));
-      const { id, name, visibility, creator, createdAt } = parsed.space;
-      return {
-        space: { id, name, visibility, creator, createdAt },
-        invitedBy: parsed.invitedBy,
-        carriesKey: typeof parsed.key === 'string',
-        carriesWrite: typeof parsed.invite === 'string',
-        role: typeof parsed.invite === 'string' ? (parsed.role ?? null) : null,
-      };
-    },
+    preview: previewInvite,
 
     async join(invite: string, options: { readonly memberKey?: Uint8Array } = {}) {
       const record = await joinRegistry(bareInvite(invite));

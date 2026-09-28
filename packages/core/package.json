@@ -56,6 +56,11 @@
       "types": "./dist/privacy/index.d.ts",
       "import": "./dist/privacy/index.js"
     },
+    "./node-worker": {
+      "@weaveprotocol/source": "./src/node-worker.ts",
+      "types": "./dist/node-worker.d.ts",
+      "import": "./dist/node-worker.js"
+    },
     "./node": {
       "@weaveprotocol/source": "./src/node/index.ts",
       "types": "./dist/node/index.d.ts",
@@ -95,7 +100,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit && tsc -p tests",
-    "test": "node --experimental-vm-modules --import tsx --test --test-concurrency=4 tests/*.test.ts",
+    "test": "node --experimental-vm-modules --import tsx --test --test-concurrency=4 --test-timeout=60000 --test-force-exit tests/*.test.ts",
     "prepack": "cp ../../README.md README.md",
     "postpack": "rm -f README.md",
     "prepublishOnly": "npm run build"

@@ -10,6 +10,8 @@ export type { PeerTransport, PeerTransportEvents, SignalledTransport, CandidateS
 export { createRTCTransport } from './rtc-transport.js';
 export type { RTCTransport, RTCTransportConfig, RTCTransportEvents } from './rtc-transport.js';
 
+export { serveTransport, remoteTransport } from './remote-transport.js';
+
 export { createWebSocketTransport } from './ws-transport.js';
 export type { WebSocketTransportConfig } from './ws-transport.js';
 

@@ -22,6 +22,7 @@ import {
   spaceIdOf,
   type SpaceKeyPair,
 } from './space-access.js';
+import type { InvitePreview } from '../node/types.js';
 import { solo } from './presets.js';
 import { checkRelays } from './roles.js';
 
@@ -404,4 +405,22 @@ export function parseSpaceInvite(invite: string): SpaceInvite {
   } catch {
     throw new Error('That invite could not be read — it may be truncated or from another app.');
   }
+}
+
+/** Accepts a bare invite or a whole share link carrying one (`…#invite=…`). */
+export function bareInvite(invite: string): string {
+  return /[#&?]invite=([^&\s]+)/.exec(invite)?.[1] ?? invite.trim();
+}
+
+/** What an invite or a share link says, read without storage or a node — `spaces.preview` */
+export function previewInvite(invite: string): InvitePreview {
+  const parsed = parseSpaceInvite(bareInvite(invite));
+  const { id, name, visibility, creator, createdAt } = parsed.space;
+  return {
+    space: { id, name, visibility, creator, createdAt },
+    invitedBy: parsed.invitedBy,
+    carriesKey: typeof parsed.key === 'string',
+    carriesWrite: typeof parsed.invite === 'string',
+    role: typeof parsed.invite === 'string' ? (parsed.role ?? null) : null,
+  };
 }

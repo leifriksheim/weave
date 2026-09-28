@@ -3,8 +3,11 @@
  * A node, and the actions every front end builds on.
  */
 export { createNode, SESSION_CAPABILITY } from './node.js';
+export { serveNode, remoteNode, serveSigner, remoteSigner } from './remote.js';
+export { startNodeInWorker, runNodeWorker } from './worker.js';
+export type { WorkerNodeConfig, WorkerLike } from './worker.js';
 export { writeCapability, relayRoom } from './space-runtime.js';
-export { indexedDBStores, folderStores } from './stores.js';
+export { indexedDBStores, folderStores, workerStores } from './stores.js';
 export { copyAccountData } from './copy.js';
 export { createCarrierNode } from './carrier.js';
 export { watchNotifications } from './watch-notifications.js';
@@ -21,7 +24,7 @@ export type { NotifyWhen, NotifyApp, NotifyProposal, CarriedSubscription } from 
 export { createHostNode, NotAllowedError } from './host.js';
 export type { HostConfig, HostNode, Invoice, Subscription, SubscriptionState } from './host.js';
 export type { CopyAccountParams, CopyResult } from './copy.js';
-export type { StoreFactory, StoreOptions } from './stores.js';
+export type { StoreFactory, StoreOptions, WorkerStores } from './stores.js';
 export type { Keeper } from '../space/roles.js';
 export { NODE_ACTIONS, runAction, checkActionInput } from './actions.js';
 export type { NodeAction, ActionSchema } from './actions.js';

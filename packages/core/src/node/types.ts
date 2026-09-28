@@ -21,7 +21,7 @@ import type {
 import type { LinkDeclaration } from '../records/links.js';
 import type { RootSigner } from '../identity/root-signer.js';
 import type { Capability, UCANToken } from '../identity/ucan.js';
-import type { PeerTransport } from '../network/transport.js';
+import type { PeerTransport, SignalledTransport } from '../network/transport.js';
 import type { MeshStatus } from '../network/mesh.js';
 import type { ServerAuth } from '../network/peer-auth.js';
 import type { StoreFactory } from './stores.js';
@@ -35,6 +35,12 @@ export interface NodeNetworkConfig {
   /** Always-on nodes to hold a socket to, `ws(s)://host/peer`. The space id is appended. */
   readonly nodes?: ReadonlyArray<string>;
   readonly iceServers?: ReadonlyArray<RTCIceServer>;
+  /**
+   * How WebRTC connections through the relays are made, given the ICE servers
+   * to use. On this thread by default; a node in a worker passes
+   * `remoteTransport`, so the page makes them.
+   */
+  readonly createTransport?: (iceServers: () => ReadonlyArray<RTCIceServer>) => SignalledTransport;
   /**
    * Extra transports per space — how a node serving sockets, or a test, plugs
    * in. Given the space and this node's session DID, which is its identity on

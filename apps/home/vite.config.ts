@@ -63,6 +63,8 @@ export default defineConfig(({ mode }) => ({
     conditions: ['@weaveprotocol/source', ...defaultClientConditions],
     dedupe: ['react', 'react-dom'],
   },
+  // The node's worker (src/weave-worker.ts) is a module, like the page.
+  worker: { format: 'es' },
   plugins: [securityHeaders(mode), react()],
   server: { port: 5174 },
 }));

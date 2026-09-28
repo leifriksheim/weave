@@ -51,6 +51,8 @@ export default defineConfig(() => ({
     // this app's copy of React, not look for their own.
     dedupe: ['react', 'react-dom'],
   },
+  // The node's worker (src/weave-worker.ts) is a module, like the page.
+  worker: { format: 'es' },
   plugins: [securityHeaders(), react()],
   server: { port: 5173 },
 }));

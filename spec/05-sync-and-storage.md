@@ -809,7 +809,10 @@ An entry read while a change was landing is not kept. When another writer
 changed the same store (another tab, another origin or device on a shared
 folder) the node MUST re-read all of it (`invalidate`). This implementation notifies other tabs of one browser through
 a `BroadcastChannel` named `weave-node:<root DID>:<space id>` (_implementation
-detail_).
+detail_). Where a browser has shared workers, the apps in this repository run
+one node for all of a site's tabs in a `SharedWorker`, so those tabs share one
+store and have nothing to tell each other; the channel remains for browsers
+without them, where each tab's node runs in a worker of its own (`packages/core/src/node/worker.ts`).
 
 The store's overall **fingerprint** (for status and tests) is the §3.3
 fingerprint of the sum of every collection's sum, as hex.
