@@ -1,6 +1,7 @@
 /**
  * Runs a browser bench in headless Chromium and prints what it logs: the
- * pixel bench over IndexedDB, or another page (ENTRY=idb-micro.ts).
+ * pixel bench over IndexedDB, or another page (ENTRY=idb-micro.ts,
+ * ENTRY=worker-idb.ts).
  * Playwright is not a dependency of this repository: point PLAYWRIGHT at an
  * installed copy, with its Chromium downloaded. PROFILE=<file> also writes a
  * CPU profile of the page.
@@ -25,8 +26,24 @@ const bundled = await build({
   logLevel: 'error',
 });
 const script = bundled.outputFiles[0].text;
+// The node's worker script, for a page that starts one (`startNodeInWorker`)
+const worker = (
+  await build({
+    entryPoints: [`${here}../../../src/node-worker.ts`],
+    bundle: true,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    write: false,
+    logLevel: 'error',
+  })
+).outputFiles[0].text;
 
 const server = createServer((request, response) => {
+  if (request.url?.startsWith('/node-worker.js')) {
+    response.writeHead(200, { 'content-type': 'text/javascript' });
+    return response.end(worker);
+  }
   if (request.url?.startsWith('/bench.js')) {
     response.writeHead(200, { 'content-type': 'text/javascript' });
     return response.end(script);

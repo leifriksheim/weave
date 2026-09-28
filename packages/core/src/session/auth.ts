@@ -65,6 +65,7 @@ import type { PairingTicket } from '../identity/pairing.js';
 import { isFolderStorageAvailable } from '../storage/directory-access.js';
 import { base64UrlEncode } from '../utils/encoding.js';
 import { createNode } from '../node/node.js';
+import { startNodeInWorker, workerNetwork, type WorkerLike } from '../node/worker.js';
 import { copyAccountData } from '../node/copy.js';
 import type { StoreFactory } from '../node/stores.js';
 import type { NodeNetworkConfig, P2PNode } from '../node/types.js';
@@ -77,6 +78,7 @@ import {
   pickPod,
   recallPod,
   rememberPod,
+  describeStores,
   storesFor,
   type Place,
   type PodContents,
@@ -129,6 +131,13 @@ export interface WeaveAuthConfig {
     readonly accounts: () => Promise<AccountStore>;
     readonly stores: (account: AccountSummary) => StoreFactory;
   };
+  /**
+   * Runs the node in a worker, off the page's main thread
+   * (`@weaveprotocol/core/node-worker`). Called once per sign-in; the worker
+   * ends when the node closes. Not with `browser.stores`, which a worker
+   * can't be handed.
+   */
+  readonly worker?: () => WorkerLike;
 }
 
 /**
@@ -479,6 +488,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   const stay = createStaySignedIn(storage, rpId, prefix);
   const browserAccounts = config.browser?.accounts ?? createBrowserAccountStore;
   const browserStores = config.browser?.stores ?? ((account: AccountSummary) => storesFor(account));
+  if (config.worker && config.browser?.stores)
+    throw new Error('A node in a worker opens its own stores: pass worker or browser.stores, not both');
 
   const LAST_ACCOUNT = `${prefix}.last-account`;
   const get = (key: string) => {
@@ -606,13 +617,25 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     const manager = createIdentityManager();
     const identity = await manager.fromSeed(unlocked);
     const key = await deriveVaultKey(unlocked);
-    const node = await createNode({
+    const shared = {
       signer: createLocalRootSigner(identity, manager.getProvider()),
       accountKey: await deriveVaultKeyBytes(unlocked),
       contactKey: await deriveContactKeyBytes(unlocked),
-      stores: storesOf(place, account, key),
-      ...(config.network ? { network: config.network } : {}),
-    });
+    };
+    const node = config.worker
+      ? await startNodeInWorker(config.worker(), {
+          ...shared,
+          stores: describeStores(
+            account,
+            place.directory ? { directory: place.directory, vaultKey: key } : undefined,
+          ),
+          ...(config.network ? { network: workerNetwork(config.network) } : {}),
+        })
+      : await createNode({
+          ...shared,
+          stores: storesOf(place, account, key),
+          ...(config.network ? { network: config.network } : {}),
+        });
 
     seed = unlocked;
     vaultKey = key;

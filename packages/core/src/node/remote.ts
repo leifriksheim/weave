@@ -176,6 +176,9 @@ export function serveNode(node: P2PNode, port: MessagePortLike): () => void {
     }
   };
   add(node);
+  const timer = setInterval(() => {
+    for (const handle of served.keys()) checkDelegation(handle);
+  }, DELEGATION_CHECK_MS);
 
   const run = async (handle: number, path: string, args: ReadonlyArray<unknown>): Promise<unknown> => {
     const entry = served.get(handle);
@@ -206,6 +209,8 @@ export function serveNode(node: P2PNode, port: MessagePortLike): () => void {
     }
     if (path === 'close') {
       drop(handle);
+      // With the node itself closed there is nothing left to renew; later calls are told it has closed.
+      if (handle === 0) clearInterval(timer);
       await target.close();
       return undefined;
     }
@@ -260,10 +265,6 @@ export function serveNode(node: P2PNode, port: MessagePortLike): () => void {
 
   port.addEventListener('message', onMessage);
   port.start?.();
-  const timer = setInterval(() => {
-    for (const handle of served.keys()) checkDelegation(handle);
-  }, DELEGATION_CHECK_MS);
-
   return () => {
     clearInterval(timer);
     port.removeEventListener('message', onMessage);

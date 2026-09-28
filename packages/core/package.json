@@ -56,6 +56,11 @@
       "types": "./dist/privacy/index.d.ts",
       "import": "./dist/privacy/index.js"
     },
+    "./node-worker": {
+      "@weaveprotocol/source": "./src/node-worker.ts",
+      "types": "./dist/node-worker.d.ts",
+      "import": "./dist/node-worker.js"
+    },
     "./node": {
       "@weaveprotocol/source": "./src/node/index.ts",
       "types": "./dist/node/index.d.ts",

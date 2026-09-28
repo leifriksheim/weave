@@ -58,3 +58,24 @@ export function folderStores(
       : adapter;
   };
 }
+
+/** Where a node in a worker keeps its data, said as data: a store factory can't be sent */
+export type WorkerStores =
+  /** This origin's IndexedDB, under a prefix (`indexedDBStores`) */
+  | { readonly indexedDB: string }
+  /** A data folder the person picked (`folderStores`) */
+  | {
+      readonly directory: DirectoryHandleLike;
+      readonly basePath?: string;
+      readonly vaultKey?: CryptoKey | null;
+    };
+
+/** The store factory a description stands for */
+export function workerStores(stores: WorkerStores): StoreFactory {
+  return 'indexedDB' in stores
+    ? indexedDBStores(stores.indexedDB)
+    : folderStores(stores.directory, {
+        ...(stores.basePath !== undefined ? { basePath: stores.basePath } : {}),
+        ...(stores.vaultKey ? { vaultKey: stores.vaultKey } : {}),
+      });
+}

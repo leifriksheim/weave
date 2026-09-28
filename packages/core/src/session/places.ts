@@ -21,7 +21,7 @@ import {
   recallDataFolder,
   rememberDataFolder,
 } from '../storage/directory-access.js';
-import { folderStores, indexedDBStores, type StoreFactory } from '../node/stores.js';
+import { workerStores, type StoreFactory, type WorkerStores } from '../node/stores.js';
 import type { DirectoryHandleLike } from '../storage/folder-adapter.js';
 
 /** Where accounts and their data are kept */
@@ -121,9 +121,17 @@ export function storesFor(
   account: AccountSummary,
   folder?: { readonly directory: DirectoryHandleLike; readonly vaultKey: CryptoKey },
 ): StoreFactory {
+  return workerStores(describeStores(account, folder));
+}
+
+/** The same stores as {@link storesFor}, said as data, for a node in a worker to open */
+export function describeStores(
+  account: AccountSummary,
+  folder?: { readonly directory: DirectoryHandleLike; readonly vaultKey: CryptoKey },
+): WorkerStores {
   return folder
-    ? folderStores(folder.directory, { basePath: account.dataPath, vaultKey: folder.vaultKey })
-    : indexedDBStores(`weave:${account.dataPath.replace(/\//g, ':')}`);
+    ? { directory: folder.directory, basePath: account.dataPath, vaultKey: folder.vaultKey }
+    : { indexedDB: `weave:${account.dataPath.replace(/\//g, ':')}` };
 }
 
 /** Deletes the IndexedDB databases an account kept in this browser. */
