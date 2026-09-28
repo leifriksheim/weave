@@ -24,7 +24,7 @@
 import type { PeerInfo, NetworkMessage } from '../types.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { createEmitter, type Emitter } from '../utils/events.js';
-import { isSignalKind, type SignalKind } from './signaling.js';
+import { isSignalKind, type RelayStatus, type SignalKind } from './signaling.js';
 import { isObject } from '../utils/guards.js';
 import { createMultiSignalingClient } from './multi-signaling.js';
 import { createRTCTransport, DEFAULT_ICE_SERVERS } from './rtc-transport.js';
@@ -85,12 +85,45 @@ export interface Mesh {
    * least a while. For connections of the application's own — a call's.
    */
   iceServers(): Promise<ReadonlyArray<RTCIceServer>>;
+  /** The relays, the connections open and the ones being made, as they are now */
+  status(): MeshStatus;
+  /** Hears every change to `status()`; returns a function that stops it */
+  subscribe(listener: () => void): () => void;
+  /** Tries every relay that is waiting to reconnect, now */
+  reconnect(): void;
+}
+
+/** A connection to a peer that has not opened yet */
+export interface PendingConnection {
+  readonly peer: string;
+  /** When this attempt started (ms) */
+  readonly since: number;
+  /** Attempts so far that never opened */
+  readonly tries: number;
+}
+
+/** What the mesh is doing, for a person looking at why a peer is missing */
+export interface MeshStatus {
+  readonly relays: ReadonlyArray<RelayStatus>;
+  /** Peers with an open connection, and how many rooms each is admitted in */
+  readonly links: ReadonlyArray<{ readonly peer: string; readonly rooms: number }>;
+  readonly connecting: ReadonlyArray<PendingConnection>;
+  /** Whether a relay offered TURN, for networks that cannot connect directly */
+  readonly turn: boolean;
 }
 
 /** Ask the relay for new TURN passwords once the ones held run out within this */
 const ICE_REFRESH_MS = 10 * 60_000;
 /** How long to wait for them before going ahead with what there is */
 const ICE_WAIT_MS = 1500;
+/**
+ * How long a connection has to open before it is given up and offered again.
+ * An offer that is never answered leaves a connection that never fails either,
+ * and a peer marked as tried is not offered to again, so without this it is
+ * lost until one side restarts. Each try waits twice as long, up to the cap.
+ */
+const CONNECT_TIMEOUT_MS = 20_000;
+const MAX_CONNECT_TIMEOUT_MS = 5 * 60_000;
 
 interface Handshake {
   readonly nonce: string;
@@ -117,6 +150,7 @@ export function createMesh(config: MeshConfig): Mesh {
   signaling.on('ice', (servers, expiresAt) => {
     relayIce = { servers, expiresAt };
     iceAskedAt = 0;
+    changed();
   });
   const currentIce = (): ReadonlyArray<RTCIceServer> =>
     relayIce && relayIce.expiresAt > Date.now() ? [...configuredIce, ...relayIce.servers] : configuredIce;
@@ -135,8 +169,48 @@ export function createMesh(config: MeshConfig): Mesh {
   const expected = new Map<string, Set<string>>();
   /** Connections waiting to be put to use in some room, or closed */
   const idle = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Connections started and not yet open, each with the timer that gives up on it */
+  const pending = new Map<
+    string,
+    { since: number; tries: number; timer: ReturnType<typeof setTimeout>; again: (() => void) | null }
+  >();
+  /** Failed tries per peer, so each wait is longer; forgotten once a connection opens */
+  const tries = new Map<string, number>();
+  /** The rooms each peer is in, as the relays say — the rooms to offer in again */
+  const present = new Map<string, Set<string>>();
   const seenSignals = createSeenSignals();
   let started: Promise<void> | null = null;
+  const changes = new Set<() => void>();
+  const changed = (): void => {
+    for (const listener of [...changes]) listener();
+  };
+  signaling.on('status', changed);
+
+  /** Gives an attempt a deadline; past it the connection is closed and, if `again` is given, offered again. */
+  const watch = (peer: string, again: (() => void) | null): void => {
+    const held = pending.get(peer);
+    if (held) clearTimeout(held.timer);
+    const tried = tries.get(peer) ?? 0;
+    const wait = Math.min(CONNECT_TIMEOUT_MS * 2 ** tried, MAX_CONNECT_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      const attempt = pending.get(peer);
+      pending.delete(peer);
+      if (links.has(peer)) return;
+      tries.set(peer, tried + 1);
+      transport.close(peer);
+      attempted.delete(peer);
+      changed();
+      attempt?.again?.();
+    }, wait);
+    pending.set(peer, { since: held?.since ?? Date.now(), tries: tried, timer, again });
+    changed();
+  };
+
+  const unwatch = (peer: string): void => {
+    const held = pending.get(peer);
+    if (held) clearTimeout(held.timer);
+    if (pending.delete(peer)) changed();
+  };
 
   const fail = (error: unknown) => {
     const err = error instanceof Error ? error : new Error(String(error));
@@ -159,7 +233,8 @@ export function createMesh(config: MeshConfig): Mesh {
   const lost = (peer: string): void => {
     clearTimeout(idle.get(peer));
     idle.delete(peer);
-    links.delete(peer);
+    unwatch(peer);
+    if (links.delete(peer)) changed();
     attempted.delete(peer);
     expected.delete(peer);
     for (const room of rooms.values()) drop(room, peer);
@@ -238,6 +313,7 @@ export function createMesh(config: MeshConfig): Mesh {
     const info: PeerInfo = { did: peer, connectionId: peer, connectedAt: new Date().toISOString() };
     room.peers.set(peer, info);
     room.events.emit('peer-connected', info);
+    changed();
 
     if (!introduce) return;
     // Introduce in both directions. Telling only the newcomer would leave the
@@ -251,7 +327,10 @@ export function createMesh(config: MeshConfig): Mesh {
   const drop = (room: Room, peer: string): void => {
     endHandshake(room, peer);
     const info = room.peers.get(peer);
-    if (info && room.peers.delete(peer)) room.events.emit('peer-disconnected', info);
+    if (info && room.peers.delete(peer)) {
+      room.events.emit('peer-disconnected', info);
+      changed();
+    }
   };
 
   // ─── Connecting ─────────────────────────────────────────────────────
@@ -276,7 +355,8 @@ export function createMesh(config: MeshConfig): Mesh {
     (kind, data) =>
       signaling.signal(kind, target, data);
 
-  const offerTo = async (peer: string, deliver: Deliver): Promise<void> => {
+  const offerTo = async (peer: string, deliver: Deliver, again: (() => void) | null): Promise<void> => {
+    watch(peer, again);
     try {
       const offer = await transport.createOffer(peer, (candidate) => deliver('candidate', candidate));
       deliver('offer', offer);
@@ -293,6 +373,8 @@ export function createMesh(config: MeshConfig): Mesh {
     try {
       if (kind === 'offer') {
         attempted.add(peer);
+        // The side that offered tries again; this side only lets go of what never opened.
+        watch(peer, null);
         // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- setRemoteDescription checks it and throws into the catch below
         const answer = await transport.handleOffer(peer, data as RTCSessionDescriptionInit, (candidate) =>
           deliver('candidate', candidate),
@@ -319,11 +401,23 @@ export function createMesh(config: MeshConfig): Mesh {
     (expected.get(peer) ?? expected.set(peer, new Set()).get(peer)!).add(name);
     if (offer && !attempted.has(peer)) {
       attempted.add(peer);
-      void offerTo(peer, offer);
+      void offerTo(peer, offer, () => meetAgain(peer));
     }
   };
 
-  signaling.on('peer-joined', (peer, room) => meet(room, peer, throughRelay(peer)));
+  /** Offers again to a peer whose connection never opened, in the rooms the relays still see it in. */
+  const meetAgain = (peer: string): void => {
+    for (const name of present.get(peer) ?? []) meet(name, peer, throughRelay(peer));
+  };
+
+  signaling.on('peer-joined', (peer, room) => {
+    (present.get(peer) ?? present.set(peer, new Set()).get(peer)!).add(room);
+    meet(room, peer, throughRelay(peer));
+  });
+  signaling.on('peer-left', (peer, room) => {
+    const rooms = present.get(peer);
+    if (rooms?.delete(room) && rooms.size === 0) present.delete(peer);
+  });
   signaling.on(
     'signal',
     (message) => void onSignal(message.from, message.type, message.payload, throughRelay(message.from)),
@@ -359,8 +453,11 @@ export function createMesh(config: MeshConfig): Mesh {
   };
 
   transport.on('connected', (peer) => {
+    unwatch(peer);
+    tries.delete(peer);
     links.add(peer);
     attempted.add(peer);
+    changed();
     for (const name of expected.get(peer) ?? []) greet(name, peer);
     expected.delete(peer);
     // The other side greets in the rooms it knows we share; if none does, the connection has no use.
@@ -426,6 +523,23 @@ export function createMesh(config: MeshConfig): Mesh {
   };
 
   return {
+    status: (): MeshStatus => ({
+      relays: signaling.relays(),
+      links: [...links].map((peer) => ({
+        peer,
+        rooms: [...rooms.values()].filter((room) => room.peers.has(peer)).length,
+      })),
+      connecting: [...pending].map(([peer, { since, tries: tried }]) => ({ peer, since, tries: tried })),
+      turn: relayIce !== null && relayIce.expiresAt > Date.now(),
+    }),
+
+    subscribe(listener) {
+      changes.add(listener);
+      return () => changes.delete(listener);
+    },
+
+    reconnect: () => signaling.reconnect(),
+
     async iceServers() {
       const stale = !relayIce || relayIce.expiresAt - Date.now() < ICE_REFRESH_MS;
       // A relay that did not answer last time has no TURN; don't wait on it every call.
@@ -483,6 +597,10 @@ export function createMesh(config: MeshConfig): Mesh {
           if (rooms.size === 0) {
             for (const timer of idle.values()) clearTimeout(timer);
             idle.clear();
+            for (const { timer } of pending.values()) clearTimeout(timer);
+            pending.clear();
+            tries.clear();
+            present.clear();
             signaling.disconnect();
             started = null;
           }

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { CarrierSummary, SpaceStatus } from '@weaveprotocol/core';
-import { useAccount, useNode } from '@weaveprotocol/core/react';
+import { useAccount, useNetwork, useNode } from '@weaveprotocol/core/react';
+import { healthOf, type Health } from '../derive/network';
+import { Dot, HEALTH_COLOR } from './NetworkView';
 import { nameOf, type People } from '../derive/people';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { styles } from '../styles';
@@ -20,8 +22,18 @@ function listed(names: ReadonlyArray<string>): string {
  * is the one its connection proved (`status.accounts`), so a name here is
  * someone actually connected, not someone claiming to be.
  */
-export function WhoIsHere({ status, people }: { status: SpaceStatus; people: People }) {
+export function WhoIsHere({
+  status,
+  people,
+  onOpen,
+}: {
+  status: SpaceStatus;
+  people: People;
+  /** Opens the details: the Network tab */
+  onOpen?: () => void;
+}) {
   const node = useNode();
+  const network = useNetwork();
   const { did: me } = useAccount();
   const [carriers, setCarriers] = useState<ReadonlyArray<CarrierSummary>>([]);
   const carrierKeys = status.carriers.join(',');
@@ -33,14 +45,35 @@ export function WhoIsHere({ status, people }: { status: SpaceStatus; people: Peo
       .catch(() => {});
   }, [node, carrierKeys]);
 
-  if (status.connection === 'offline') return <span style={styles.badge}>○ offline</span>;
-  if (status.connection === 'connecting') return <span style={styles.badge}>◌ connecting</span>;
-  if (status.connection === 'error')
+  const health = healthOf(status, network);
+  if (health !== 'syncing') {
+    const reconnecting = network.relays.some((relay) => relay.openedAt !== null);
+    const copy: Record<Exclude<Health, 'syncing'>, [string, string]> = {
+      offline: [
+        network.relays.length === 0 ? 'offline · no relay' : "offline · can't reach the relay",
+        'Nothing leaves this device until a relay is reachable. Your changes are saved and go out then.',
+      ],
+      connecting: [
+        reconnecting ? 'reconnecting…' : 'connecting…',
+        'Finding the relay and the devices in this space',
+      ],
+      elsewhere: [
+        'open in another tab',
+        'This app is connected in another tab or window, and only one of them can be at a time. Close the other one and this one connects within a few seconds.',
+      ],
+      alone: [
+        'online · no one else here',
+        'The relay is reachable, but none of your other devices or the people in this space have it open right now',
+      ],
+    };
+    const [label, why] = copy[health];
     return (
-      <span style={styles.badge} title="Can't reach the relay that introduces peers">
-        ○ no relay
-      </span>
+      <Badge onOpen={onOpen} title={why}>
+        <Dot color={HEALTH_COLOR[health]} />
+        <span>{label}</span>
+      </Badge>
     );
+  }
 
   const ownDevices = status.peers.filter(
     (peer) => status.own.includes(peer) || status.accounts[peer] === me,
@@ -62,8 +95,8 @@ export function WhoIsHere({ status, people }: { status: SpaceStatus; people: Peo
   ].filter(Boolean);
 
   return (
-    <span
-      style={{ ...styles.badge, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+    <Badge
+      onOpen={onOpen}
       title={[
         'Syncing directly with, right now:',
         ...here.map((did) => `• ${nameOf(did, people)}`),
@@ -72,6 +105,8 @@ export function WhoIsHere({ status, people }: { status: SpaceStatus; people: Peo
           ? [`• ${servers} ${servers === 1 ? 'server' : 'servers'} that didn't say whose they are`]
           : []),
         `• ${status.carriers.length} ${status.carriers.length === 1 ? 'carrier' : 'carriers'}, keeping your spaces online without reading them`,
+        '',
+        'Open Network for details',
       ].join('\n')}
     >
       {here.length > 0 ? (
@@ -91,9 +126,30 @@ export function WhoIsHere({ status, people }: { status: SpaceStatus; people: Peo
           ))}
         </span>
       ) : (
-        '●'
+        <Dot color={HEALTH_COLOR.syncing} />
       )}
       <span>online · {parts.length > 0 ? parts.join(' · ') : 'just you'}</span>
-    </span>
+    </Badge>
+  );
+}
+
+/** The badge, which opens the Network tab when there is one to open */
+function Badge({ onOpen, title, children }: { onOpen?: () => void; title: string; children: ReactNode }) {
+  const style = { ...styles.badge, display: 'inline-flex', alignItems: 'center', gap: 6 };
+  if (!onOpen)
+    return (
+      <span style={style} title={title}>
+        {children}
+      </span>
+    );
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={title}
+      style={{ ...style, cursor: 'pointer', font: 'inherit', fontSize: 12 }}
+    >
+      {children}
+    </button>
   );
 }

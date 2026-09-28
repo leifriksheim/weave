@@ -23,6 +23,8 @@ import { spaceBadges } from './SpaceList';
 import { styles, palette } from '../styles';
 import { Icon } from './Icon';
 import { WhoIsHere } from './WhoIsHere';
+import { NetworkView } from './NetworkView';
+import { RelayDown } from './RelayNotice';
 import { CallButton } from './calls/Calls';
 import { peopleFrom } from '../derive/people';
 import { PersonScopeProvider } from './Person';
@@ -38,13 +40,14 @@ const NEW = '__new__';
 /** Every collection at once, in the main area */
 const ALL = '__all__';
 
-/** The ways of looking at one space: apps made for its collections, the data itself, how it connects, asking of it, and who may do what */
+/** The ways of looking at one space: apps made for its collections, the data itself, how it connects, asking of it, who may do what, and how it reaches other devices */
 const TABS = [
   { id: 'apps', label: 'Apps' },
   { id: 'data', label: 'Data' },
   { id: 'explore', label: 'Explore' },
   { id: 'query', label: 'Query' },
   { id: 'roles', label: 'People & roles' },
+  { id: 'network', label: 'Network' },
 ] as const;
 type Tab = (typeof TABS)[number]['id'];
 
@@ -116,6 +119,7 @@ export function SpaceView({
       me={account.did}
       {...(onOpenSpace ? { openSpace: onOpenSpace } : {})}
     >
+      {tab !== 'network' && <RelayDown />}
       <header style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h1 style={{ ...styles.appTitle, fontSize: 26 }}>{space.name}</h1>
@@ -130,7 +134,7 @@ export function SpaceView({
             <Icon name={space.visibility === 'private' ? 'lock' : 'globe'} size={12} />
             {spaceBadges(space)}
           </span>
-          {status && <WhoIsHere status={status} people={people} />}
+          {status && <WhoIsHere status={status} people={people} onOpen={() => setTab('network')} />}
           <CallButton space={space} />
           {status && status.rejected > 0 && (
             <span
@@ -187,6 +191,7 @@ export function SpaceView({
       {tab === 'explore' && <GraphView space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'query' && <QueryPlayground space={space} collections={collections} onOpen={openRecord} />}
       {tab === 'roles' && <RolesView space={space} collections={collections} />}
+      {tab === 'network' && <NetworkView space={space} status={status} />}
 
       {tab === 'data' && (
         <div className="space-layout">

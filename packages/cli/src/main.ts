@@ -25,6 +25,7 @@ import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import {
+  CLOSE_DID_TAKEN,
   createNode,
   isValidRecoveryCode,
   NODE_ACTIONS,
@@ -418,6 +419,22 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     stderr(
       `weave mcp: an agent for ${agent.grant.name} (${agent.grant.did}), ${daysLeft(agent.grant)} days left`,
     );
+    // Every agent process on this computer signs with the one agent key, and a relay lets one
+    // of them in; the rest would otherwise sit there looking connected (#55).
+    let refused = false;
+    agent.node.subscribe((event) => {
+      if (event.type !== 'network') return;
+      const relays = agent.node.network.status().relays;
+      const now = relays.length > 0 && relays.every((relay) => relay.closeCode === CLOSE_DID_TAKEN);
+      if (now === refused) return;
+      refused = now;
+      stderr(
+        now
+          ? 'weave mcp: the relay refused this agent: another `weave mcp` with the same --home is connected. ' +
+              'Writes are kept here and sync once that one stops (`ps aux | grep "weave mcp"`).'
+          : 'weave mcp: connected to the relay.',
+      );
+    });
     await runMcpStdio(agent.node, { name: 'weave', version: VERSION }, { agent: true });
     await agent.close();
     // WebRTC keeps the process alive; the agent closed stdin, so it's done.

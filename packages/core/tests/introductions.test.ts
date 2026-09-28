@@ -13,8 +13,7 @@ import {
   PEERS_MESSAGE,
   SIGNAL_MESSAGE,
 } from '../src/network/introductions.js';
-import { createMultiSignalingClient } from '../src/network/multi-signaling.js';
-import type { SignalingClient } from '../src/network/signaling.js';
+import { createMultiSignalingClient, type MultiSignalingClient } from '../src/network/multi-signaling.js';
 import { isRecord } from '../src/utils/guards.js';
 
 describe('who opens the connection', () => {
@@ -103,9 +102,9 @@ const realWebSocket = global.WebSocket;
  * keeps timers alive and holds the test process open long after its assertions
  * have passed.
  */
-let created: SignalingClient[] = [];
+let created: MultiSignalingClient[] = [];
 
-function makeClient(urls: ReadonlyArray<string>, did = 'did:key:zMe'): SignalingClient {
+function makeClient(urls: ReadonlyArray<string>, did = 'did:key:zMe'): MultiSignalingClient {
   const client = createMultiSignalingClient(urls, did);
   created.push(client);
   return client;

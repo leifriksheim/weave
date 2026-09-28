@@ -255,7 +255,7 @@ export type { RolePreset } from './space/presets.js';
 export type { SpaceGenesis, SpaceKeyPair } from './space/space-access.js';
 
 // Phase 4: P2P Networking
-export { createSignalingClient } from './network/signaling.js';
+export { createSignalingClient, CLOSE_DID_TAKEN } from './network/signaling.js';
 export { createMultiSignalingClient } from './network/multi-signaling.js';
 export {
   isControlMessage,
@@ -279,10 +279,16 @@ export type {
   CandidateSink,
 } from './network/transport.js';
 export { createMesh } from './network/mesh.js';
-export type { Mesh, MeshConfig } from './network/mesh.js';
+export type { Mesh, MeshConfig, MeshStatus, PendingConnection } from './network/mesh.js';
 export { createNetworkManager } from './network/network-manager.js';
 export type { NetworkManager, NetworkManagerConfig, NetworkEvents } from './network/network-manager.js';
-export type { SignalingClient, SignalingMessage, SignalKind } from './network/signaling.js';
+export type {
+  SignalingClient,
+  SignalingMessage,
+  SignalKind,
+  RelayState,
+  RelayStatus,
+} from './network/signaling.js';
 
 // Phase 5: Gossip/Sync Protocol
 export { parseSyncMessage, SYNC_PROTOCOL_VERSION } from './sync/sync-messages.js';
@@ -355,6 +361,7 @@ export type {
   NodeRecords,
   NodeRecord,
   NodeEvent,
+  NodeNetwork,
   SpaceSummary,
   SpaceStatus,
   CarrierSummary,

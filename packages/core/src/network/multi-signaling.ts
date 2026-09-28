@@ -26,16 +26,27 @@
 import { createEmitter } from '../utils/events.js';
 import {
   createSignalingClient,
+  type RelayStatus,
   type SignalingClient,
   type SignalingEvents,
   type SignalKind,
 } from './signaling.js';
 
 /** A client over several relays, where a room may name relays of its own */
-export interface MultiSignalingClient extends SignalingClient {
+export interface MultiSignalingClient extends Omit<SignalingClient, 'status' | 'on' | 'off'> {
   /** Joins a room on every relay, and on `relays` as well — joining again with a different list moves to it */
   readonly join: (room: string, relays?: ReadonlyArray<string>) => void;
+  /** Every relay in use and where its socket stands */
+  readonly relays: () => ReadonlyArray<RelayStatus>;
+  readonly on: <K extends keyof MultiSignalingEvents>(event: K, callback: MultiSignalingEvents[K]) => void;
+  readonly off: <K extends keyof MultiSignalingEvents>(event: K, callback: MultiSignalingEvents[K]) => void;
 }
+
+/** One relay's `status` becomes the whole list's */
+export type MultiSignalingEvents = Omit<SignalingEvents, 'status'> & {
+  /** A relay opened, closed or is waiting to try again; carries every relay */
+  status: (relays: ReadonlyArray<RelayStatus>) => void;
+};
 
 /**
  * Creates a signaling client spanning several relays.
@@ -57,7 +68,7 @@ export function createMultiSignalingClient(urls: ReadonlyArray<string>, did: str
   /** Each room's own relays */
   const extraOf = new Map<string, ReadonlySet<string>>();
   let connecting = false;
-  const { on, off, emit } = createEmitter<SignalingEvents>();
+  const { on, off, emit } = createEmitter<MultiSignalingEvents>();
 
   /** Which relays a peer has been seen on, so replies go back the same way. */
   const routes = new Map<string, Set<SignalingClient>>();
@@ -113,7 +124,10 @@ export function createMultiSignalingClient(urls: ReadonlyArray<string>, did: str
       emit('peer-left', where.slice(space + 1), where.slice(0, space));
     }
     client.disconnect();
+    emit('status', relays());
   };
+
+  const relays = (): ReadonlyArray<RelayStatus> => clientList().map((client) => client.status());
 
   function wire(client: SignalingClient): void {
     client.on('peer-joined', (peer, room) => {
@@ -148,6 +162,9 @@ export function createMultiSignalingClient(urls: ReadonlyArray<string>, did: str
         Math.min(...offers.map((offer) => offer.expiresAt)),
       );
     });
+
+    client.on('status', () => emit('status', relays()));
+    client.on('refused', () => emit('refused'));
 
     client.on('connected', () => {
       if (connectedCount() === 1) emit('connected');
@@ -217,6 +234,12 @@ export function createMultiSignalingClient(urls: ReadonlyArray<string>, did: str
     requestIce: () => {
       for (const client of clientList()) if (client.isConnected()) client.requestIce();
     },
+
+    reconnect: () => {
+      for (const client of clientList()) client.reconnect();
+    },
+
+    relays,
 
     on,
     off,

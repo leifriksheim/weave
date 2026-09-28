@@ -4,7 +4,7 @@ import { CallsProvider, useAccount, useConnection, useNode, useSpaces } from '@w
 import { AccountMenu } from './components/AccountMenu';
 import { ConnectScreen } from './components/ConnectScreen';
 import { ContactsView } from './components/ContactsView';
-import { RelayNotice } from './components/RelayNotice';
+import { RelayDown, RelayNotice } from './components/RelayNotice';
 import { HowItWorks } from './components/HowItWorks';
 import { InviteBanner } from './components/InviteBanner';
 import { SpaceList } from './components/SpaceList';
@@ -120,6 +120,7 @@ function Workspace() {
         )}
         <InviteBanner onJoin={(link) => joinLink(link).then((space) => (space && setOpen(space), space))} />
         <RelayNotice />
+        {!open && <RelayDown />}
 
         {open ? (
           <SpaceView key={open.id} space={open} onOpenSpace={openById} />
