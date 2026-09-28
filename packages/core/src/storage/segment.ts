@@ -10,7 +10,7 @@
 import type { Expression } from '../types.js';
 import { sha256 } from '../utils/hash.js';
 import { utf8Decode, utf8Encode } from '../utils/encoding.js';
-import { isRecord, isStoredExpression } from '../utils/narrow.js';
+import { isObject, isStoredExpression } from '../utils/guards.js';
 
 export const SEGMENT_SUFFIX = '.seg';
 
@@ -23,7 +23,7 @@ export function packSegment(versions: ReadonlyArray<Expression>): Uint8Array {
 export function unpackSegment(bytes: Uint8Array): Expression[] {
   try {
     const parsed: unknown = JSON.parse(utf8Decode(bytes));
-    if (!isRecord(parsed) || parsed.v !== 1 || !Array.isArray(parsed.versions)) return [];
+    if (!isObject(parsed) || parsed.v !== 1 || !Array.isArray(parsed.versions)) return [];
     return parsed.versions.filter(isStoredExpression);
   } catch {
     return [];

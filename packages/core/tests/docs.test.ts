@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import * as z from 'zod';
 import { NODE_ACTIONS } from '../src/node/actions.js';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const docs = join(root, 'docs');

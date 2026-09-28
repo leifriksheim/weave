@@ -31,7 +31,7 @@
 
 import type { StorageAdapter, BatchOp, Expression } from '../types.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
-import { isStoredExpression } from '../utils/narrow.js';
+import { isStoredExpression } from '../utils/guards.js';
 
 // ─── The slice of the File System Access API this module relies on ─────
 //

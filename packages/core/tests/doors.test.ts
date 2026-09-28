@@ -44,7 +44,7 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
 import { portOf } from './helpers/net.js';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 
 // ─── Relays, for the mailbox ────────────────────────────────────────
 

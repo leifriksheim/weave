@@ -4,7 +4,7 @@
  */
 
 import type { StorageAdapter, BatchOp, Expression } from '../types.js';
-import { isStoredExpression } from '../utils/narrow.js';
+import { isStoredExpression } from '../utils/guards.js';
 
 /**
  * Bumped to 3 when the Merkle tree gave way to plain entries and sync by

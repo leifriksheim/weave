@@ -9,7 +9,7 @@
  */
 import { AwsClient } from 'aws4fetch';
 import type { BlobStore } from '../blob-store.js';
-import { toBufferSource } from '../../utils/narrow.js';
+import { bufferSource } from '../../utils/guards.js';
 
 export interface S3Config {
   /** https://<account>.r2.cloudflarestorage.com, https://s3.us-west-004.backblazeb2.com, … */
@@ -70,7 +70,7 @@ export function createS3BlobStore(config: S3Config): BlobStore {
     },
 
     async put(key: string, bytes: Uint8Array) {
-      const response = await send(objectUrl(key), { method: 'PUT', body: toBufferSource(bytes) });
+      const response = await send(objectUrl(key), { method: 'PUT', body: bufferSource(bytes) });
       if (!response.ok) await fail('put', response);
     },
 

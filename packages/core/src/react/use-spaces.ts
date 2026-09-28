@@ -37,6 +37,7 @@ export function useSpaces(): SpacesState {
   }, [node]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the first load, then one per change
     void refresh();
     return node.subscribe((event) => {
       if (event.type === 'spaces') void refresh();

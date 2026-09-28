@@ -6,7 +6,7 @@
  */
 
 import type { PeerInfo, NetworkMessage } from '../types.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { createEmitter } from '../utils/events.js';
 import type { PeerTransport } from './transport.js';
@@ -62,7 +62,7 @@ export function createNetworkManager(config: NetworkManagerConfig): NetworkManag
   transport.on('data', (peerId, data) => {
     try {
       const message: unknown = JSON.parse(utf8Decode(data));
-      if (!isRecord(message) || typeof message.type !== 'string') throw new Error('Not a message');
+      if (!isObject(message) || typeof message.type !== 'string') throw new Error('Not a message');
       // The sender is the connection it arrived on, not whatever the message claims.
       emit('message', { ...message, type: message.type, from: peerId, payload: message.payload });
     } catch {

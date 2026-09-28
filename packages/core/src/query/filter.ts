@@ -4,7 +4,7 @@
  */
 import type { NodeRecord } from '../node/types.js';
 import type { Filter } from './types.js';
-import { isPlainObject, isRecord } from '../utils/narrow.js';
+import { isRecord, isObject } from '../utils/guards.js';
 
 /** Nested `include` beyond this is refused rather than quietly slow. */
 export const MAX_INCLUDE_DEPTH = 3;
@@ -42,7 +42,7 @@ export function fieldValue(record: NodeRecord, path: string): unknown {
   }
   let value: unknown = record.body;
   for (const part of path.split('.')) {
-    if (!isRecord(value)) return undefined;
+    if (!isObject(value)) return undefined;
     value = value[part];
   }
   return value;
@@ -50,7 +50,7 @@ export function fieldValue(record: NodeRecord, path: string): unknown {
 
 function equal(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (!isRecord(a) || !isRecord(b)) return false;
+  if (!isObject(a) || !isObject(b)) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
   const ak = Object.keys(a);
   const bk = Object.keys(b);
@@ -105,7 +105,7 @@ function operatorHolds(op: string, value: unknown, operand: unknown): boolean {
 /** Whether one field satisfies a condition: an operator object, or a value to equal. */
 function conditionHolds(value: unknown, condition: unknown): boolean {
   if (
-    isPlainObject(condition) &&
+    isRecord(condition) &&
     Object.keys(condition).length > 0 &&
     Object.keys(condition).every((k) => k.startsWith('$'))
   ) {
@@ -127,7 +127,7 @@ export function matches(record: NodeRecord, filter: Filter): boolean {
 // ─── Checking a query before running it ─────────────────────────────
 
 function checkFilter(filter: unknown, at: string): string | null {
-  if (!isPlainObject(filter)) return `${at} must be an object`;
+  if (!isRecord(filter)) return `${at} must be an object`;
   for (const [field, condition] of Object.entries(filter)) {
     if (field === '$and' || field === '$or') {
       if (!Array.isArray(condition)) return `${at}.${field} must be a list of filters`;
@@ -146,7 +146,7 @@ function checkFilter(filter: unknown, at: string): string | null {
       return `${at}: "${field}" is not a field or a logical operator ($and, $or, $not)`;
     if (field.startsWith('@') && !META[field])
       return `${at}: unknown record field "${field}" — use one of ${Object.keys(META).join(', ')}`;
-    if (isPlainObject(condition) && Object.keys(condition).some((k) => k.startsWith('$'))) {
+    if (isRecord(condition) && Object.keys(condition).some((k) => k.startsWith('$'))) {
       for (const op of Object.keys(condition)) {
         if (!OPERATORS.has(op))
           return `${at}.${field}: unknown operator "${op}" — use one of ${[...OPERATORS].join(', ')}`;
@@ -157,11 +157,11 @@ function checkFilter(filter: unknown, at: string): string | null {
 }
 
 function checkIncludes(includes: unknown, at: string, depth: number): string | null {
-  if (!isPlainObject(includes)) return `${at} must be an object of named includes`;
+  if (!isRecord(includes)) return `${at} must be an object of named includes`;
   if (depth > MAX_INCLUDE_DEPTH) return `${at}: includes nest at most ${MAX_INCLUDE_DEPTH} deep`;
   for (const [name, inc] of Object.entries(includes)) {
     const here = `${at}.${name}`;
-    if (!isPlainObject(inc)) return `${here} must be an object`;
+    if (!isRecord(inc)) return `${here} must be an object`;
     if (typeof inc.rel !== 'string') return `${here}.rel is required: the link role to follow, e.g. "about"`;
     if (inc.from !== undefined && typeof inc.from !== 'string')
       return `${here}.from must be a collection name`;
@@ -186,7 +186,7 @@ function checkIncludes(includes: unknown, at: string, depth: number): string | n
 
 /** Why a query cannot run, or null when it can. Queries are data; functions and unknown operators are refused. */
 export function checkQuery(query: unknown): string | null {
-  if (!isPlainObject(query)) return 'A query must be an object';
+  if (!isRecord(query)) return 'A query must be an object';
   const q = query;
   if (typeof q.collection !== 'string' || !q.collection) return 'A query needs a "collection"';
   if (q.where !== undefined) {
@@ -198,7 +198,7 @@ export function checkQuery(query: unknown): string | null {
     if (problem) return problem;
   }
   if (q.sort !== undefined) {
-    if (!isPlainObject(q.sort)) return 'sort must be an object: { field: "asc" | "desc" }';
+    if (!isRecord(q.sort)) return 'sort must be an object: { field: "asc" | "desc" }';
     for (const [field, direction] of Object.entries(q.sort)) {
       if (direction !== 'asc' && direction !== 'desc') return `sort.${field} must be "asc" or "desc"`;
       if (field.startsWith('@') && !META[field]) return `sort: unknown record field "${field}"`;

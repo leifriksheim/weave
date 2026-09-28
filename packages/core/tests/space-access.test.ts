@@ -6,7 +6,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 
 import { createNode } from '../src/node/node.js';
 import type { P2PNode } from '../src/node/types.js';

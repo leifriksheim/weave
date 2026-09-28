@@ -8,7 +8,7 @@ import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { createRelay, MAX_MESSAGE_BYTES } from '../../relay/relay.mjs';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 import { portOf, textOf } from './helpers/net.js';
 
 const secret = 'test-secret';

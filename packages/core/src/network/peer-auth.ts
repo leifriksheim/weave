@@ -49,7 +49,7 @@
 import type { CryptoProvider } from '../types.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { didToPublicKey } from '../identity/did.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 /** What a client sends to prove itself: its own signature, and in a private space the read key's */
 export interface HelloProof {
@@ -160,7 +160,7 @@ async function checkRead(
     ? proof.earlier.slice(0, MAX_EARLIER_READ_KEYS)
     : [];
   const ours = earlier.find(
-    (item): item is Record<string, unknown> => isRecord(item) && item.readKey === current,
+    (item): item is Record<string, unknown> => isObject(item) && item.readKey === current,
   );
   return (
     ours !== undefined &&
@@ -254,7 +254,7 @@ export function createServerAuth(
     read === null ? null : typeof read === 'string' ? { key: async () => null, current: () => read } : read;
   return Object.freeze({
     async checkHello(clientDid: string, nodeDid: string, nodeNonce: string, proof: unknown) {
-      const given: Record<string, unknown> = isRecord(proof) ? proof : {};
+      const given: Record<string, unknown> = isObject(proof) ? proof : {};
       const label = helloLabel(spaceId, clientDid, nodeDid, nodeNonce);
       if (!clientDid.startsWith('did:key:') || !(await verifyBy(provider, clientDid, given.sig, label)))
         return false;
@@ -345,7 +345,7 @@ export function createMeshAuth(
       return { sig, ...proof };
     },
     async check(peerDid: string, ourNonce: string, binding: ChannelBinding | null, proof: unknown) {
-      const given: Record<string, unknown> = isRecord(proof) ? proof : {};
+      const given: Record<string, unknown> = isObject(proof) ? proof : {};
       // What they signed, seen from this end: their certificate is our remote one.
       const label = meshLabel(
         spaceId,

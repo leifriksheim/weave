@@ -20,7 +20,7 @@
  */
 import { canonicalize } from '../schema/expression.js';
 import { base64UrlEncode, utf8Encode } from '../utils/encoding.js';
-import { isPlainObject } from '../utils/narrow.js';
+import { isRecord } from '../utils/guards.js';
 
 /** Topic fields one collection may name */
 const MAX_TOPICS = 8;
@@ -48,7 +48,7 @@ export function checkTopics(topics: unknown, at = 'topics'): string | null {
 export function topicValues(body: unknown, field: string): Array<string | number | boolean> {
   let value: unknown = body;
   for (const part of field.split('.')) {
-    if (!isPlainObject(value)) return [];
+    if (!isRecord(value)) return [];
     value = value[part];
   }
   const scalar = (v: unknown): v is string | number | boolean =>

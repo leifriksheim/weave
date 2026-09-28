@@ -52,6 +52,8 @@ export function useLive<T>(
       stopped = true;
       unsubscribe();
     };
+    // The caller names what `load` depends on, as with useEffect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node, spaceId, ...deps]);
 
   return value;

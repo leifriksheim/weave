@@ -52,7 +52,7 @@ import { team } from '../src/space/presets.js';
 import { memberKey } from '../src/space/space-access.js';
 import { nextVersion } from '../src/records/version.js';
 import { hold, letGo } from './helpers/hold.js';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 
 const open: Array<{ close(): Promise<unknown> }> = [];
 afterEach(async () => {

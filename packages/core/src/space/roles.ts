@@ -36,7 +36,7 @@
  */
 
 import type { SpaceRole } from '../types.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 /** A role, as a space defines it */
 export type Role = SpaceRole;
@@ -88,7 +88,7 @@ const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 
 /** Why a role is malformed, or null */
 export function checkRole(role: unknown): string | null {
-  if (!isRecord(role)) return 'A role must be an object';
+  if (!isObject(role)) return 'A role must be an object';
   const r = role;
   if (typeof r.name !== 'string' || !ROLE_NAME_PATTERN.test(r.name))
     return 'A role name is 1–40 characters of a–z, 0–9 and . _ -';
@@ -203,7 +203,7 @@ export function checkKeepers(keepers: unknown, copies: unknown = null): string |
   const dids = new Set<string>();
   for (const keeper of list) {
     if (
-      !isRecord(keeper) ||
+      !isObject(keeper) ||
       typeof keeper.did !== 'string' ||
       !keeper.did.startsWith('did:key:') ||
       keeper.did.length > 200

@@ -14,7 +14,7 @@ import { createCryptoGate } from '../src/validation/crypto-gate.js';
 import { createStructuralGate } from '../src/validation/structural-gate.js';
 import { createCapabilityGate } from '../src/validation/capability-gate.js';
 import type { Expression, StandardSchemaV1 } from '../src/types.js';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);

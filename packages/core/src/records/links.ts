@@ -13,7 +13,7 @@
  * any other collection.
  */
 import { RECORD_KEY_PATTERN } from './key.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 const LINK_REL_PATTERN = /^[a-z][a-zA-Z0-9]{0,63}$/;
 
@@ -26,7 +26,7 @@ export function checkLinks(links: unknown): string | null {
   if (links.length > MAX_LINKS) return `At most ${MAX_LINKS} links per record`;
   const list: ReadonlyArray<unknown> = links;
   for (const link of list) {
-    if (!isRecord(link)) return 'A link must be an object';
+    if (!isObject(link)) return 'A link must be an object';
     if (typeof link.rel !== 'string' || !LINK_REL_PATTERN.test(link.rel)) {
       return 'A link role is lower camel case, like "about" or "replyTo"';
     }

@@ -26,7 +26,7 @@ import { team } from '../src/space/presets.js';
 import { parseSpaceInvite } from '../src/space/space-manager.js';
 import { hold } from './helpers/hold.js';
 import { joined } from './helpers/joined.js';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 import { createNode } from '../src/node/node.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';

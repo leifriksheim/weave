@@ -33,7 +33,7 @@ import type { BlobStore } from './blob-store.js';
 import type { StorageProvider } from './storage-provider.js';
 import { packSegment, segmentName, SEGMENT_SUFFIX, unpackSegment, versionSize } from './segment.js';
 import { utf8Decode, utf8Encode } from '../utils/encoding.js';
-import { unref } from '../utils/narrow.js';
+import { unref } from '../utils/guards.js';
 
 /** What became of a version handed over from the store */
 export type Taken = 'stored' | 'later' | 'refused';

@@ -15,7 +15,7 @@
  */
 import type { CollectionRules, Who } from './rules.js';
 import type { LinkDeclaration } from './links.js';
-import { isList, isRecord } from '../utils/narrow.js';
+import { isList, isObject } from '../utils/guards.js';
 
 /** As much of a definition as a summary reads */
 export interface Describable {
@@ -58,9 +58,9 @@ const listOf = (who: Who | ReadonlyArray<Who> | undefined): ReadonlyArray<Who> =
 
 /** A field's label: its schema title, else its name in words */
 function fieldLabel(schema: unknown, field: string): string {
-  const properties = isRecord(schema) ? schema.properties : undefined;
-  const property = isRecord(properties) ? properties[field] : undefined;
-  const title = isRecord(property) ? property.title : undefined;
+  const properties = isObject(schema) ? schema.properties : undefined;
+  const property = isObject(properties) ? properties[field] : undefined;
+  const title = isObject(property) ? property.title : undefined;
   return typeof title === 'string' && title.trim() ? title.trim().toLowerCase() : words(field);
 }
 

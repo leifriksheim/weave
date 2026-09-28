@@ -26,7 +26,7 @@ import type { SpaceKey } from '../privacy/space-encryption.js';
 import { canonicalize } from '../schema/expression.js';
 import { cidFromBytes, sha256 } from '../utils/hash.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
-import { toBufferSource } from '../utils/narrow.js';
+import { bufferSource } from '../utils/guards.js';
 import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../identity/did.js';
 import { checkRole } from './roles.js';
 
@@ -59,7 +59,7 @@ export function generateInviteSecret(): Uint8Array {
 
 /** 32 bytes from a secret under a label: HKDF-SHA-256 with an empty salt. */
 export async function expandSecret(secret: Uint8Array, info: string): Promise<Uint8Array<ArrayBuffer>> {
-  const material = await globalThis.crypto.subtle.importKey('raw', toBufferSource(secret), 'HKDF', false, [
+  const material = await globalThis.crypto.subtle.importKey('raw', bufferSource(secret), 'HKDF', false, [
     'deriveBits',
   ]);
   const bits = await globalThis.crypto.subtle.deriveBits(

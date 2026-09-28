@@ -3,7 +3,7 @@ import { SchemaEngine } from '../schema/schema-engine.js';
 import { GateResult } from './crypto-gate.js';
 import { checkVersionShape } from '../records/version.js';
 import { messageOf } from '../utils/errors.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 export interface StructuralGate {
   validate(expression: Expression): Promise<GateResult>;
@@ -21,7 +21,7 @@ export interface StructuralGate {
  */
 function isEncryptedBody(body: unknown): boolean {
   return (
-    isRecord(body) &&
+    isObject(body) &&
     typeof body.ciphertext === 'string' &&
     typeof body.iv === 'string' &&
     typeof body.keyId === 'string'

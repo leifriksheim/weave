@@ -11,7 +11,7 @@
 
 import type { DirectoryHandleLike } from './folder-adapter.js';
 import { protocolError } from '../utils/errors.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 /** Read or read-write, in the browser's vocabulary */
 export type FolderAccessMode = 'read' | 'readwrite';
@@ -50,7 +50,7 @@ function canRequest(handle: object): handle is Pick<PermissionAwareHandle, 'requ
 }
 
 function isDirectoryHandle(value: unknown): value is DirectoryHandleLike {
-  return isRecord(value) && typeof value.getDirectoryHandle === 'function';
+  return isObject(value) && typeof value.getDirectoryHandle === 'function';
 }
 
 /**

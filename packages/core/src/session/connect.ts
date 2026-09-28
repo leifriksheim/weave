@@ -40,7 +40,7 @@ import { checkStartingRoles } from '../space/space-access.js';
 import { parseSpaceInvite } from '../space/space-manager.js';
 import { checkProposal, MAX_PROPOSALS, type NotifyProposal } from '../space/notify.js';
 import type { KeyValueStore } from './stay-signed-in.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 /** Messages between an app and the home it opened */
 const HELLO = 'weave:hello';
@@ -306,7 +306,7 @@ export async function appKey(name = 'default'): Promise<AppKey> {
 }
 
 function isKeyPair(value: unknown): value is CryptoKeyPair {
-  return isRecord(value) && value.privateKey instanceof CryptoKey && value.publicKey instanceof CryptoKey;
+  return isObject(value) && value.privateKey instanceof CryptoKey && value.publicKey instanceof CryptoKey;
 }
 
 /** Forgets this app's key. The next connection makes a new one. */
@@ -463,7 +463,7 @@ function askHome<T>(
       // Only the popup we opened, at the address we opened it on.
       if (event.source !== popup || event.origin !== homeOrigin) return;
       const data: unknown = event.data;
-      if (!isRecord(data)) return;
+      if (!isObject(data)) return;
       if (data.type === HELLO) popup.postMessage({ type: REQUEST, request }, homeOrigin);
       else if (data.type === GRANT && data.grant)
         // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checkGrant, checkCarryGrant and proposeToHome check it
@@ -605,7 +605,7 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
     const onMessage = (event: MessageEvent) => {
       if (event.source !== opener) return;
       const data: unknown = event.data;
-      if (!isRecord(data) || data.type !== REQUEST) return;
+      if (!isObject(data) || data.type !== REQUEST) return;
       globalThis.removeEventListener('message', onMessage);
       globalThis.clearTimeout(timer);
 
@@ -650,7 +650,7 @@ export function receiveConnectRequest(timeoutMs = 10_000): Promise<IncomingReque
 }
 
 function isRequest(value: unknown, origin: string): value is ConnectRequest | ProposeRequest {
-  if (!isRecord(value)) return false;
+  if (!isObject(value)) return false;
   const proposal = value;
   if (proposal.kind !== undefined) {
     return (

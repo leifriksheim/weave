@@ -29,7 +29,7 @@ import {
 } from '../identity/pairing.js';
 import { seedToRecoveryCode, recoveryCodeToSeed } from '../identity/recovery-code.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { P2PNode } from '../node/types.js';
 
@@ -42,7 +42,7 @@ interface Handover {
 }
 
 function isHandover(value: unknown): value is Handover {
-  return isRecord(value) && Array.isArray(value.spaces) && value.spaces.every((s) => typeof s === 'string');
+  return isObject(value) && Array.isArray(value.spaces) && value.spaces.every((s) => typeof s === 'string');
 }
 
 export type PairingStage =

@@ -22,7 +22,7 @@
  * what must be unique, so a second vote *is* the first one's next version.
  */
 import { sha256 } from '../utils/hash.js';
-import { isList, isPlainObject, readField } from '../utils/narrow.js';
+import { isList, isRecord, readField } from '../utils/guards.js';
 import type { Link } from '../types.js';
 
 /**
@@ -71,7 +71,7 @@ export function checkRules(
   permissions: ReadonlyArray<string> = [],
 ): string | null {
   if (rules === undefined) return null;
-  if (!isPlainObject(rules)) return `${at} must be an object`;
+  if (!isRecord(rules)) return `${at} must be an object`;
   const r = rules;
   for (const key of Object.keys(r)) {
     if (!['create', 'edit', 'delete', 'onePer', 'fixed'].includes(key))

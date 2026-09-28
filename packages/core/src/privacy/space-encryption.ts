@@ -1,7 +1,7 @@
 import type { Expression } from '../types.js';
 import { base64UrlEncode, base64UrlDecode, utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { sha256 } from '../utils/hash.js';
-import { toBufferSource } from '../utils/narrow.js';
+import { bufferSource } from '../utils/guards.js';
 
 /**
  * Represents a key used to encrypt a Space.
@@ -126,7 +126,7 @@ export async function spaceKeyFromRaw(
 ): Promise<SpaceKey> {
   const key = await globalThis.crypto.subtle.importKey(
     'raw',
-    toBufferSource(raw),
+    bufferSource(raw),
     { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt'],

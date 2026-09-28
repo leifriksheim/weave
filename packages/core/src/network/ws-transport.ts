@@ -21,7 +21,7 @@
 import type { PeerTransport, PeerTransportEvents } from './transport.js';
 import { peerNonce, type ClientAuth } from './peer-auth.js';
 import { createEmitter } from '../utils/events.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 export interface WebSocketTransportConfig {
   /** `wss://node.example.com/peer` */
@@ -47,7 +47,7 @@ function parseFrame(data: unknown, type: string): Frame | null {
   if (typeof data !== 'string') return null;
   try {
     const parsed: unknown = JSON.parse(data);
-    return isRecord(parsed) && parsed.type === type && typeof parsed.did === 'string' && parsed.did.length > 0
+    return isObject(parsed) && parsed.type === type && typeof parsed.did === 'string' && parsed.did.length > 0
       ? { type, did: parsed.did, nonce: parsed.nonce, sig: parsed.sig }
       : null;
   } catch {

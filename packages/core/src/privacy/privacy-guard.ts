@@ -10,7 +10,7 @@ import {
 import { type WrappedKey, wrapSpaceKey, unwrapSpaceKey } from './key-distribution.js';
 import { base64UrlEncode } from '../utils/encoding.js';
 import { sha256 } from '../utils/hash.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 /**
  * Orchestrator for transparent encryption and decryption of expressions within spaces.
@@ -29,7 +29,7 @@ export interface PrivacyGuard {
 
 /** An encrypted body, as far as telling it from a plain one goes; `decryptExpression` checks the rest */
 function hasCiphertext(body: unknown): body is EncryptedExpressionBody {
-  return isRecord(body) && 'ciphertext' in body;
+  return isObject(body) && 'ciphertext' in body;
 }
 
 interface SpaceEntry {

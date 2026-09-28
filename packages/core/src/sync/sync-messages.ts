@@ -10,7 +10,7 @@
  * should fail loudly, not leave a quiet partial sync.
  */
 import type { Expression } from '../types.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 export const SYNC_PROTOCOL_VERSION = 4;
 
@@ -73,5 +73,5 @@ export function parseSyncMessage(value: unknown): SyncMessage | null {
 
 /** Only the version and that there is a type: the engine checks each field as it reads it. */
 function isSyncMessage(value: unknown): value is SyncMessage {
-  return isRecord(value) && value.v === SYNC_PROTOCOL_VERSION && typeof value.type === 'string';
+  return isObject(value) && value.v === SYNC_PROTOCOL_VERSION && typeof value.type === 'string';
 }

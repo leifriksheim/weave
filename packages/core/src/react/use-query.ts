@@ -24,6 +24,7 @@ export function useQuery<const Q extends Query>(spaceId: string, query: Q): Quer
   const key = JSON.stringify(plainQuery(query));
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a new query must not show the last one's result
     setState({ result: null, error: null });
     return node.records.watch(
       spaceId,

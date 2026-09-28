@@ -7,7 +7,7 @@
  * answers queries instead of the tab.
  */
 import type { NodeRecord } from '../node/types.js';
-import { isPlainObject, isRecord } from '../utils/narrow.js';
+import { isRecord, isObject } from '../utils/guards.js';
 
 /** Predicates on one field. Absent operators do not constrain. */
 export interface Operators {
@@ -163,18 +163,18 @@ export type ResultOf<Q extends Query> = QueryResult<
 
 /** The name a collection reference stands for */
 export const nameOf = (ref: CollectionRef): string =>
-  isRecord(ref) && typeof ref.name === 'string'
+  isObject(ref) && typeof ref.name === 'string'
     ? ref.name
     : // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a malformed reference passes through, for the checker to explain
       (ref as string);
 
 /** Every `from` in an include map replaced by its name, at every depth */
 function plainIncludes(map: Readonly<Record<string, Include>>): Readonly<Record<string, Include>> {
-  if (!isPlainObject(map)) return map;
+  if (!isRecord(map)) return map;
   return Object.fromEntries(
     Object.entries(map).map(([name, inc]) => [
       name,
-      isPlainObject(inc)
+      isRecord(inc)
         ? {
             ...inc,
             ...(inc.from !== undefined ? { from: nameOf(inc.from) } : {}),
@@ -191,7 +191,7 @@ function plainIncludes(map: Readonly<Record<string, Include>>): Readonly<Record<
  * Anything malformed is passed through untouched, for the checker to explain.
  */
 export function plainQuery(query: Query): Query {
-  if (!isPlainObject(query)) return query;
+  if (!isRecord(query)) return query;
   return {
     ...query,
     collection: nameOf(query.collection),

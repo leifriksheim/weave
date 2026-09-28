@@ -32,12 +32,14 @@ export function CallsProvider({
   const [calls, setCalls] = useState<Calls | null>(null);
   useEffect(() => {
     const made = createCalls(node, options);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- calls live as long as the node, and must be closed with it
     setCalls(made);
     return () => {
       setCalls(null);
       void made.close();
     };
     // Options are read once, when the node is new.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node]);
   return createElement(CallsContext.Provider, { value: calls }, children);
 }

@@ -15,7 +15,7 @@ import {
 } from '../src/network/introductions.js';
 import { createMultiSignalingClient } from '../src/network/multi-signaling.js';
 import type { SignalingClient } from '../src/network/signaling.js';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 
 describe('who opens the connection', () => {
   test('exactly one side of any pair initiates', () => {

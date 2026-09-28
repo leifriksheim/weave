@@ -81,7 +81,7 @@ export default tseslint.config(
     settings: { react: { version: 'detect' } },
   },
   {
-    files: ['**/*.{jsx,tsx}'],
+    files: ['**/*.{jsx,tsx}', 'packages/core/src/react/**/*.ts'],
     plugins: { 'react-hooks': reactHooks },
     rules: reactHooks.configs['recommended-latest'].rules,
   },

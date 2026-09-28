@@ -21,7 +21,7 @@ import { createValidationEngine } from '../src/validation/validation-engine.js';
 import { createSyncEngine } from '../src/sync/sync-engine.js';
 import type { SyncMessage } from '../src/sync/sync-messages.js';
 import type { Expression, StandardSchemaV1 } from '../src/types.js';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);

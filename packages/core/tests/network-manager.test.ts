@@ -9,7 +9,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { createFakeHub } from './helpers/fake-transport.js';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 import { createEmitter } from '../src/utils/events.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createNetworkManager, type NetworkManager } from '../src/network/network-manager.js';

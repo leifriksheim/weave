@@ -14,7 +14,7 @@ import { generateSeed } from '../src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import type { StandardSchemaV1 } from '../src/types.js';
 import * as z from 'zod';
-import { isRecord } from './helpers/shape.js';
+import { isRecord } from '../src/utils/guards.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';

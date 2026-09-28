@@ -25,7 +25,7 @@ import type { PeerInfo, NetworkMessage } from '../types.js';
 import { utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { createEmitter, type Emitter } from '../utils/events.js';
 import { isSignalKind, type SignalKind } from './signaling.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 import { createMultiSignalingClient } from './multi-signaling.js';
 import { createRTCTransport, DEFAULT_ICE_SERVERS } from './rtc-transport.js';
 import type { SignalledTransport } from './transport.js';
@@ -211,7 +211,7 @@ export function createMesh(config: MeshConfig): Mesh {
     const binding = transport.binding?.(peer) ?? null;
     if (type === AUTH_HELLO_MESSAGE) {
       const handshake = greet(name, peer);
-      const nonce = isRecord(payload) ? payload.nonce : undefined;
+      const nonce = isObject(payload) ? payload.nonce : undefined;
       if (!handshake || handshake.proved || typeof nonce !== 'string') return;
       handshake.proved = true;
       if (room.auth)
@@ -342,7 +342,7 @@ export function createMesh(config: MeshConfig): Mesh {
   };
 
   const onRelayedSignal = (from: string, signal: unknown): void => {
-    if (!isRecord(signal)) return;
+    if (!isObject(signal)) return;
     const { id, origin, target, kind, hops } = signal;
     // Flooding means the same signal can arrive by several routes; act once.
     if (typeof id !== 'string' || id.length > 64 || !seenSignals.accept(id)) return;
@@ -382,7 +382,7 @@ export function createMesh(config: MeshConfig): Mesh {
     } catch {
       return fail(new Error('Failed to parse incoming message'));
     }
-    if (!isRecord(frame)) return;
+    if (!isObject(frame)) return;
     const { type, payload } = frame;
     const name = typeof frame.room === 'string' ? frame.room : null;
     if (typeof type !== 'string') return;

@@ -20,7 +20,7 @@
 
 import type { StorageAdapter, BatchOp } from '../types.js';
 import { concatBytes } from '../utils/encoding.js';
-import { toBufferSource } from '../utils/narrow.js';
+import { bufferSource } from '../utils/guards.js';
 
 /**
  * Marks a value this module wrote.
@@ -89,7 +89,7 @@ export function createEncryptedAdapter(
     const ciphertext = await globalThis.crypto.subtle.encrypt(
       { name: 'AES-GCM', iv, additionalData: bound(storageKey) },
       key,
-      toBufferSource(value),
+      bufferSource(value),
     );
     return concatBytes(MAGIC, iv, new Uint8Array(ciphertext));
   }

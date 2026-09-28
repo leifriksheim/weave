@@ -34,7 +34,7 @@ import { isAgentNote } from '../identity/agent-note.js';
 import { sealPairingPayload, openPairingPayload } from '../identity/pairing.js';
 import { base64UrlDecode, base64UrlEncode, concatBytes, utf8Decode, utf8Encode } from '../utils/encoding.js';
 import { cidFromBytes } from '../utils/hash.js';
-import { toBufferSource } from '../utils/narrow.js';
+import { bufferSource } from '../utils/guards.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { Grant } from './connect.js';
 
@@ -91,7 +91,7 @@ async function linkRoom(secret: Uint8Array): Promise<string> {
 async function linkKey(secret: Uint8Array): Promise<CryptoKey> {
   const material = await globalThis.crypto.subtle.importKey(
     'raw',
-    toBufferSource(secret),
+    bufferSource(secret),
     { name: 'HKDF' },
     false,
     ['deriveKey'],

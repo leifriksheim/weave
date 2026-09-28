@@ -13,7 +13,7 @@
  *   client → { type: 'purge', topic, sign, ids?, sig } relay → { type: 'purged', topic, count } | { type: 'refused', topic, reason }
  */
 
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 /** One sealed knock, as a relay holds it */
 export interface MailItem {
@@ -117,7 +117,7 @@ export function createMailboxClient(options: MailboxOptions = {}): MailboxClient
         } catch {
           return;
         }
-        if (!isRecord(answer)) return;
+        if (!isObject(answer)) return;
         hear(answer, say).then(
           (value) => {
             if (value !== undefined && settle()) resolve(value);
@@ -192,7 +192,7 @@ function reasonOf(answer: Record<string, unknown>): string {
 
 function isMailItem(value: unknown): value is MailItem {
   return (
-    isRecord(value) &&
+    isObject(value) &&
     Number.isSafeInteger(value.seq) &&
     typeof value.id === 'string' &&
     typeof value.at === 'number' &&

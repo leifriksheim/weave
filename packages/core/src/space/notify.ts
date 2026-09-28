@@ -29,7 +29,7 @@ import type { Expression } from '../types.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
 import { parseUCAN } from '../identity/ucan.js';
 import { checkTopics, topicKey, topicTag } from '../records/topics.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 /** Subscriptions as the person made them, in the account registry: key `notify:<id>` */
 export const NOTIFY_COLLECTION = 'sys.notify';
@@ -107,7 +107,7 @@ const COLLECTION = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
 
 /** Why a subscription can't be kept, or null */
 export function checkNotify(when: unknown): string | null {
-  if (!isRecord(when)) return 'A subscription must be an object';
+  if (!isObject(when)) return 'A subscription must be an object';
   const w = when;
   if (typeof w.label !== 'string' || !w.label.trim() || w.label.length > 120)
     return 'label is what the notification says: some text, at most 120 characters';
@@ -126,7 +126,7 @@ export function checkNotify(when: unknown): string | null {
   }
   if (w.topic !== undefined) {
     const t = w.topic;
-    if (!isRecord(t) || typeof t.field !== 'string' || checkTopics([t.field]) !== null)
+    if (!isObject(t) || typeof t.field !== 'string' || checkTopics([t.field]) !== null)
       return 'topic.field must be a field name';
     if (!['string', 'number', 'boolean'].includes(typeof t.value))
       return 'topic.value must be text, a number or yes/no';
@@ -149,7 +149,7 @@ export function checkNotify(when: unknown): string | null {
   if (typeof w.since !== 'string' || !Number.isFinite(Date.parse(w.since))) return 'since must be a date';
   if (w.app !== undefined) {
     const a = w.app;
-    if (!isRecord(a) || typeof a.origin !== 'string' || !isOrigin(a.origin))
+    if (!isObject(a) || typeof a.origin !== 'string' || !isOrigin(a.origin))
       return 'app.origin must be a web origin';
     if (a.name !== undefined && (typeof a.name !== 'string' || a.name.length > 80))
       return 'app.name must be text, at most 80 characters';
@@ -176,9 +176,9 @@ function isOrigin(value: string): boolean {
  * the browser reported it: a click may only lead back to the app that asked.
  */
 export function checkProposal(proposal: unknown, origin: string): string | null {
-  if (!isRecord(proposal)) return 'A proposed subscription must be an object';
+  if (!isObject(proposal)) return 'A proposed subscription must be an object';
   const p = proposal;
-  const topic = p.topic === undefined ? undefined : isRecord(p.topic) ? p.topic : null;
+  const topic = p.topic === undefined ? undefined : isObject(p.topic) ? p.topic : null;
   if (topic === null || (topic && 'me' in topic && (topic.me !== true || 'value' in topic))) {
     return 'topic is { field, value } or { field, me: true }';
   }
@@ -297,11 +297,11 @@ export function readCarried(body: unknown): CarriedSubscription | null {
 
 /** `checkNotify` checks the fields a carried subscription shares with the person's; the tags are checked here. */
 function isCarried(body: unknown): body is CarriedSubscription {
-  if (!isRecord(body) || body.v !== 1) return false;
+  if (!isObject(body) || body.v !== 1) return false;
   if (checkNotify({ ...body, topic: undefined }) !== null) return false;
   if (body.tags === undefined) return true;
   return (
-    isRecord(body.tags) &&
+    isObject(body.tags) &&
     Object.values(body.tags).every((list) => Array.isArray(list) && list.every((t) => typeof t === 'string'))
   );
 }

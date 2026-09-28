@@ -5,7 +5,7 @@
  * spaces open and close, and joins them all again after a reconnect.
  */
 import { createEmitter } from '../utils/events.js';
-import { isRecord } from '../utils/narrow.js';
+import { isObject } from '../utils/guards.js';
 
 /** What a peer's connection offer, answer or candidate is */
 export type SignalKind = 'offer' | 'answer' | 'candidate';
@@ -56,12 +56,12 @@ export function isSignalKind(value: unknown): value is SignalKind {
 
 /** A relay's TURN offer, kept only if it has the shape of one: `turn:`/`turns:` URLs, a username and a password */
 function iceFrom(payload: unknown): { servers: ReadonlyArray<RTCIceServer>; expiresAt: number } | null {
-  if (!isRecord(payload)) return null;
+  if (!isObject(payload)) return null;
   const { servers, expiresAt } = payload;
   if (!Array.isArray(servers) || typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null;
   const kept: RTCIceServer[] = [];
   for (const server of servers.slice(0, 4)) {
-    if (!isRecord(server)) continue;
+    if (!isObject(server)) continue;
     const urls = (Array.isArray(server.urls) ? server.urls : [server.urls]).filter(
       (url): url is string => typeof url === 'string' && url.length < 256 && /^turns?:/.test(url),
     );
@@ -119,7 +119,7 @@ export function createSignalingClient(url: string, did: string): SignalingClient
       ws.onmessage = (event) => {
         try {
           const msg: unknown = JSON.parse(String(event.data));
-          if (!isRecord(msg)) throw new Error('Not a signaling message');
+          if (!isObject(msg)) throw new Error('Not a signaling message');
           const { type, from, room, to, payload } = msg;
           if (type === 'ice') {
             const offered = iceFrom(payload);

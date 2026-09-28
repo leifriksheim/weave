@@ -2,7 +2,7 @@ import { Expression } from '../types.js';
 import { GateResult } from './crypto-gate.js';
 import { utf8Encode } from '../utils/encoding.js';
 import { messageOf } from '../utils/errors.js';
-import { toBufferSource } from '../utils/narrow.js';
+import { bufferSource } from '../utils/guards.js';
 
 export interface StateContext {
   readonly getExpression: (id: string) => Promise<Expression | null>;
@@ -27,7 +27,7 @@ export function createStatefulGate(): StatefulGate {
 
   return {
     async registerRule(collection: string, wasmBytes: Uint8Array): Promise<void> {
-      const module = await WebAssembly.compile(toBufferSource(wasmBytes));
+      const module = await WebAssembly.compile(bufferSource(wasmBytes));
       const instance = await WebAssembly.instantiate(module, {
         env: {
           abort: () => {
