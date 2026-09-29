@@ -65,11 +65,14 @@ import {
   createAgentChat,
   DEFAULT_MODEL,
   fileSpend,
-  knownModel,
+  parsePrice,
+  priceOf,
+  type Price,
   spendFor,
   streamingThink,
 } from './agent-chat.js';
 import { startWatching, suggestedIn, triggerPrompt } from './agent-watch.js';
+import { openAIThink } from './agent-openai.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
 
 const VERSION = '0.1.0';
@@ -87,6 +90,7 @@ Usage:
   weave disconnect
   weave mcp [--account]
   weave agent [--model claude-opus-5-5] [--daily-cap 2] [--no-chat]
+              [--provider anthropic|openai] [--base-url URL] [--price IN/OUT]
   weave agent --bot [--daily-cap-each 0.5]   an account of its own, as a bot in its spaces
   weave actions
 
@@ -103,6 +107,12 @@ Agents (Claude Code, Claude Desktop, Cursor):
   it stops for the day once --daily-cap dollars are spent. It also runs your
   watches (std.watch records): what to do when some records appear or change,
   or at set times. --no-chat runs only those, until stopped.
+
+  Any server that speaks OpenAI's Chat Completions works with --provider
+  openai: OpenAI, OpenRouter, DeepSeek, Kimi, or a model on your own machine
+  (--base-url http://localhost:11434/v1 for Ollama, no key needed). Models
+  whose price it doesn't know need --price, dollars per million tokens.
+  The key comes from OPENAI_API_KEY (or ANTHROPIC_API_KEY), or is asked for.
 
   "weave agent --bot" runs the unlocked account itself as a bot instead: an
   account of its own that people invite to their spaces. It says it is a bot
@@ -309,6 +319,25 @@ async function createIfEmpty(globals: Globals): Promise<void> {
  * `weave agent`: the connected agent's node, and a chat with it in this
  * terminal. The model's words go to stdout; what it does goes to stderr.
  */
+/** Which model thinks, where, and at what price */
+interface ModelChoice {
+  /** `anthropic`, or `openai` for any server that speaks Chat Completions */
+  readonly provider: 'anthropic' | 'openai';
+  readonly name: string;
+  /** Another server than the provider's own: `http://localhost:11434/v1`, `https://api.deepseek.com` */
+  readonly baseUrl?: string;
+  readonly price: Price;
+}
+
+/** Whether an address is this machine: a model there asks for no key */
+const isLoopback = (url: string) => {
+  try {
+    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+};
+
 /** Who `weave agent` runs as: a person's connected agent, or a bot with an account of its own */
 interface Runner {
   readonly node: P2PNode;
@@ -328,7 +357,7 @@ interface Runner {
 async function runAgent(
   home: string,
   runner: Runner,
-  options: { model: string; dailyCap: number; capEach: number | null; chat: boolean },
+  options: { model: ModelChoice; dailyCap: number; capEach: number | null; chat: boolean },
 ): Promise<number> {
   const { node } = runner;
   watchRelayRefusal(node, (refused) =>
@@ -340,21 +369,43 @@ async function runAgent(
     ),
   );
 
-  let apiKey = process.env.ANTHROPIC_API_KEY?.trim() || (await loadModelKey(home));
-  if (!apiKey) {
+  const { model } = options;
+  const openai = model.provider === 'openai';
+  const local = !!model.baseUrl && isLoopback(model.baseUrl);
+  let apiKey =
+    (openai
+      ? (process.env.OPENAI_API_KEY ?? process.env.WEAVE_AGENT_API_KEY)
+      : (process.env.ANTHROPIC_API_KEY ?? process.env.WEAVE_AGENT_API_KEY)
+    )?.trim() || (await loadModelKey(home, model.provider));
+  // A model on your own machine usually asks for no key.
+  if (!apiKey && !local) {
     stderr(
-      'weave agent thinks with your own Anthropic API key. Make one at https://platform.claude.com/settings/keys',
+      openai
+        ? `weave agent thinks with your own API key at ${model.baseUrl ?? 'api.openai.com'}.`
+        : 'weave agent thinks with your own Anthropic API key. Make one at https://platform.claude.com/settings/keys',
     );
     apiKey = await askSecret('API key (kept in the agent folder, readable only by you): ');
-    if (!apiKey) throw new Error('weave agent needs an Anthropic API key');
-    await saveModelKey(home, apiKey);
+    if (!apiKey) throw new Error('weave agent needs an API key');
+    await saveModelKey(home, apiKey, model.provider);
   }
 
-  // Loaded here, not at the top: it is most of the bundle, and only this command uses it.
-  const { default: Anthropic } = await import('@anthropic-ai/sdk');
   await mkdir(path.join(home, 'agent'), { recursive: true, mode: 0o700 });
   const spend = fileSpend(path.join(home, 'agent'));
-  const client = new Anthropic({ apiKey });
+  // The SDK is loaded here, not at the top: it is most of the bundle, and only this command uses it.
+  const thinking = openai
+    ? (write: (text: string) => void) =>
+        openAIThink({ baseUrl: model.baseUrl ?? 'https://api.openai.com/v1', apiKey: apiKey ?? '', write })
+    : await (async () => {
+        const { default: Anthropic } = await import('@anthropic-ai/sdk');
+        const client = new Anthropic({ apiKey, ...(model.baseUrl ? { baseURL: model.baseUrl } : {}) });
+        return (write: (text: string) => void) => streamingThink(client, write);
+      })();
+  const modelOptions = {
+    model: model.name,
+    price: model.price,
+    // Anthropic's own additions only at Anthropic.
+    ...(openai || model.baseUrl ? { plain: true } : {}),
+  };
   const today = async () => `$${(await spend.today()).toFixed(2)} of $${options.dailyCap.toFixed(2)} today`;
   const names = new Map<string, string>();
   const nameOf = async (space: string, did: string) => {
@@ -392,8 +443,8 @@ async function runAgent(
         stderr(`  [${name}] set off${by}${trigger.record ? '' : ' by the time'}`);
         const run = createAgentChat({
           node,
-          think: streamingThink(client, () => {}),
-          model: options.model,
+          think: thinking(() => {}),
+          ...modelOptions,
           spend: who ? spendFor(spend, who) : spend,
           dailyCap: options.dailyCap,
           confirm: async () => false,
@@ -428,7 +479,7 @@ async function runAgent(
     await runner.close();
   };
   if (!options.chat) {
-    stderr(`weave agent: ${runner.intro}, watching. ${options.model}, ${await today()}.`);
+    stderr(`weave agent: ${runner.intro}, watching. ${options.model.name}, ${await today()}.`);
     return untilStopped({ close });
   }
 
@@ -439,8 +490,8 @@ async function runAgent(
   });
   const chat = createAgentChat({
     node,
-    think: streamingThink(client, (text) => process.stdout.write(text)),
-    model: options.model,
+    think: thinking((text) => process.stdout.write(text)),
+    ...modelOptions,
     spend,
     dailyCap: options.dailyCap,
     // Piped input can't answer for the person, so it never allows what deletes.
@@ -453,7 +504,7 @@ async function runAgent(
     ...(runner.bot ? { bot: runner.bot } : {}),
   });
 
-  stderr(`weave agent: ${runner.intro}. ${options.model}, ${await today()}.`);
+  stderr(`weave agent: ${runner.intro}. ${options.model.name}, ${await today()}.`);
   stderr('Say what you need. Ctrl-D to stop.');
   lines.setPrompt('\n› ');
   lines.prompt();
@@ -639,7 +690,10 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     const { values } = parseArgs({
       args,
       options: {
-        model: { type: 'string', default: process.env.WEAVE_AGENT_MODEL ?? DEFAULT_MODEL },
+        model: { type: 'string' },
+        provider: { type: 'string' },
+        'base-url': { type: 'string' },
+        price: { type: 'string' },
         'daily-cap': { type: 'string', default: '2' },
         'daily-cap-each': { type: 'string' },
         'no-chat': { type: 'boolean' },
@@ -655,8 +709,26 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     // A bot answers anyone who can set it off, so each of them gets a share by default.
     const each = values['daily-cap-each'] ?? (values.bot ? String(dailyCap / 4) : undefined);
     const capEach = each === undefined ? null : dollars('daily-cap-each', each);
-    if (!knownModel(values.model))
-      throw new Error(`weave agent doesn't know what ${values.model} costs, so it can't keep the daily cap`);
+    const provider = values.provider ?? process.env.WEAVE_AGENT_PROVIDER ?? 'anthropic';
+    if (provider !== 'anthropic' && provider !== 'openai')
+      throw new Error('--provider is anthropic, or openai for any server that speaks Chat Completions');
+    const name =
+      values.model ?? process.env.WEAVE_AGENT_MODEL ?? (provider === 'anthropic' ? DEFAULT_MODEL : undefined);
+    if (!name)
+      throw new Error('With --provider openai, say which model: --model gpt-5.5, deepseek-v4-pro, …');
+    const baseUrl = values['base-url'] ?? process.env.WEAVE_AGENT_BASE_URL;
+    const priceText = values.price ?? process.env.WEAVE_AGENT_PRICE;
+    const price = priceText ? parsePrice(priceText) : priceOf(name);
+    if (priceText && !price)
+      throw new Error(
+        '--price is dollars per million tokens, input/output or input/output/cached, like 0.15/0.60',
+      );
+    if (!price)
+      throw new Error(
+        `weave agent doesn't know what ${name} costs, so it can't keep the daily cap. ` +
+          'Give --price in dollars per million tokens, like --price 0.15/0.60 (0/0 for a model on your machine).',
+      );
+    const model: ModelChoice = { provider, name, price, ...(baseUrl ? { baseUrl } : {}) };
     const home = homePath(globals.home);
     const nodes = (process.env.WEAVE_NODES ?? '')
       .split(',')
@@ -682,7 +754,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         close: () => agent.close(),
       };
     }
-    return runAgent(home, runner, { model: values.model, dailyCap, capEach, chat: !values['no-chat'] });
+    return runAgent(home, runner, { model, dailyCap, capEach, chat: !values['no-chat'] });
   }
 
   // Named before the account is opened, so a mistyped command, or one this

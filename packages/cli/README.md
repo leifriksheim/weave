@@ -221,6 +221,39 @@ What the agent writes never sets a watch off.
 `--no-chat` runs only the watches, until stopped: on a server, or in the
 background.
 
+### Other models
+
+`weave agent` thinks with Anthropic's models by default. `--provider openai`
+talks to any server that speaks OpenAI's Chat Completions instead: OpenAI,
+OpenRouter, DeepSeek, Kimi, Groq, Mistral, or a model on your own machine.
+The tools, the confirmations, the caps and the watches are the same whichever
+model answers.
+
+```bash
+# DeepSeek
+OPENAI_API_KEY=sk-… weave agent --provider openai --base-url https://api.deepseek.com \
+  --model deepseek-v4-pro --price 0.66/1.98
+
+# A model on this machine, with Ollama: no key, nothing leaves the machine
+weave agent --provider openai --base-url http://localhost:11434/v1 --model qwen3 --price 0/0
+```
+
+- `--price` is dollars per million tokens, `input/output` or
+  `input/output/cached`. It is needed for any model whose price `weave agent`
+  doesn't know (it knows Anthropic's), since the daily caps depend on it.
+- The key comes from `OPENAI_API_KEY` (or `WEAVE_AGENT_API_KEY`), or is asked
+  for once and kept in `~/.weave/agent/openai-key`. A server on `localhost`
+  needs none.
+- `--base-url` with the default provider points it at an Anthropic-compatible
+  endpoint instead (DeepSeek and Kimi offer one); Anthropic's own additions,
+  like thinking and fallbacks, are left out there.
+- `WEAVE_AGENT_PROVIDER`, `WEAVE_AGENT_MODEL`, `WEAVE_AGENT_BASE_URL` and
+  `WEAVE_AGENT_PRICE` set the same from the environment.
+
+Models differ a lot in how well they use tools and resist instructions hidden
+in what they read. That matters most for a bot that writes in a community:
+its role still limits what it can do, but pick a strong model for one.
+
 ### A bot for a space
 
 `weave agent --bot` runs an account of its own as a **bot**: something a

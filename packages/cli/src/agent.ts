@@ -269,12 +269,13 @@ export async function startBotNode(
   };
 }
 
-const modelKeyFile = (home: string) => path.join(agentDir(home), 'anthropic-key');
+/** Where a provider's API key is kept: `anthropic-key`, `openai-key` */
+const modelKeyFile = (home: string, provider: string) => path.join(agentDir(home), `${provider}-key`);
 
-/** The Anthropic API key `weave agent` was given, or null before it asked */
-export async function loadModelKey(home: string): Promise<string | null> {
+/** The API key `weave agent` was given for a provider, or null before it asked */
+export async function loadModelKey(home: string, provider = 'anthropic'): Promise<string | null> {
   try {
-    return (await readFile(modelKeyFile(home), 'utf8')).trim() || null;
+    return (await readFile(modelKeyFile(home, provider), 'utf8')).trim() || null;
   } catch (error) {
     if (errorCode(error) === 'ENOENT') return null;
     throw error;
@@ -282,9 +283,9 @@ export async function loadModelKey(home: string): Promise<string | null> {
 }
 
 /** Keeps the API key next to the agent's own key, readable only by this user */
-export async function saveModelKey(home: string, key: string): Promise<void> {
+export async function saveModelKey(home: string, key: string, provider = 'anthropic'): Promise<void> {
   await mkdir(agentDir(home), { recursive: true, mode: 0o700 });
-  await writeFile(modelKeyFile(home), `${key}\n`, { mode: 0o600 });
+  await writeFile(modelKeyFile(home, provider), `${key}\n`, { mode: 0o600 });
 }
 
 /**

@@ -2,8 +2,9 @@
  * `weave agent`: the connected agent, thinking for itself.
  *
  * `weave mcp` lends the node's tools to a chat client someone has open.
- * This runs the model loop here instead, with the person's own Anthropic API
- * key: the same tools (`NODE_ACTIONS` less what needs a person), the same
+ * This runs the model loop here instead, with the person's own API key, at
+ * Anthropic or any server that speaks OpenAI's Chat Completions
+ * (`agent-openai.ts`): the same tools (`NODE_ACTIONS` less what needs a person), the same
  * instructions, the same note on everything it writes. For now it chats in
  * the terminal; answering in spaces and running scheduled jobs come next (#103).
  *
@@ -28,7 +29,7 @@ import { errorCode, isRecord } from './json.js';
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 
 /** USD per million tokens: input, output, 5-minute cache writes, cache reads */
-interface Price {
+export interface Price {
   readonly input: number;
   readonly output: number;
   readonly cacheWrite: number;
@@ -56,7 +57,20 @@ const FALLBACK_MODELS = new Set([
 /** Models without adaptive thinking or effort, which refuse both */
 const PLAIN_MODELS = new Set(['claude-haiku-4-5']);
 
-export const knownModel = (model: string): boolean => model in PRICES;
+/** What a model costs, when it is one whose price is known here */
+export const priceOf = (model: string): Price | null => PRICES[model] ?? null;
+
+/**
+ * A price given by hand, as dollars per million tokens: "input/output", or
+ * "input/output/cached" where cached input costs less. "0/0" for a model
+ * running on your own machine. Null when it can't be read.
+ */
+export function parsePrice(text: string): Price | null {
+  const parts = text.split('/').map((part) => Number(part.trim()));
+  if (parts.length < 2 || parts.length > 3 || parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  const [input = 0, output = 0, cached] = parts;
+  return { input, output, cacheWrite: input, cacheRead: cached ?? input };
+}
 
 /** The parts of a reply the loop reads; a `BetaMessage` is one */
 export type Reply = Pick<BetaMessage, 'content' | 'stop_reason' | 'model'> & {
@@ -69,9 +83,11 @@ export type Reply = Pick<BetaMessage, 'content' | 'stop_reason' | 'model'> & {
 /** One model call. The real one streams the text to the terminal as it comes. */
 export type Think = (params: MessageCreateParamsBase) => Promise<Reply>;
 
-/** What one call cost in USD, priced as the model that answered, or the one asked when that's unknown */
-export function replyCost(reply: Reply, asked: string): number {
-  const price = PRICES[reply.model] ?? PRICES[asked];
+/**
+ * What one call cost in USD: at `price` when given, else as the model that
+ * answered, or the one asked when that one's is unknown.
+ */
+export function replyCost(reply: Reply, asked: string, price = PRICES[reply.model] ?? PRICES[asked]): number {
   if (!price) throw new Error(`No price known for ${asked}`);
   const { usage } = reply;
   return (
@@ -140,6 +156,14 @@ export interface AgentChatOptions {
   readonly spend: Spend;
   /** USD a day; no model call starts once today's spend reaches it */
   readonly dailyCap: number;
+  /** What the model costs, when it isn't one whose price is known here */
+  readonly price?: Price;
+  /**
+   * A server that speaks the Messages API without Anthropic's own additions
+   * (thinking, effort, fallbacks, cache control): one of the Anthropic-compatible
+   * endpoints other providers offer, or any `Think` that isn't Anthropic's.
+   */
+  readonly plain?: boolean;
   /** Asks the person before a destructive action runs; false leaves it undone */
   readonly confirm: (question: string) => Promise<boolean>;
   /** What the agent is doing, for the person: tool calls, refusals, cost */
@@ -237,7 +261,9 @@ async function runTool(
 
 export function createAgentChat(options: AgentChatOptions): AgentChat {
   const { node, think, model, spend, dailyCap, log } = options;
-  if (!knownModel(model)) throw new Error(`No price known for ${model}, so the daily cap can't be kept`);
+  const price = options.price ?? priceOf(model);
+  if (!price) throw new Error(`No price known for ${model}, so the daily cap can't be kept`);
+  const plain = options.plain === true;
   const maxSteps = options.maxSteps ?? 30;
   const tools = agentTools();
   const system = options.bot
@@ -252,11 +278,11 @@ export function createAgentChat(options: AgentChatOptions): AgentChat {
     tools,
     messages: [...messages],
     // Caches everything up to the latest message, so each step reads the history back cheaply.
-    cache_control: { type: 'ephemeral' },
-    ...(PLAIN_MODELS.has(model)
+    ...(plain ? {} : { cache_control: { type: 'ephemeral' as const } }),
+    ...(plain || PLAIN_MODELS.has(model)
       ? {}
-      : { thinking: { type: 'adaptive' }, output_config: { effort: 'medium' } }),
-    ...(FALLBACK_MODELS.has(model)
+      : { thinking: { type: 'adaptive' as const }, output_config: { effort: 'medium' as const } }),
+    ...(!plain && FALLBACK_MODELS.has(model)
       ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const }
       : {}),
   });
@@ -302,9 +328,9 @@ export function createAgentChat(options: AgentChatOptions): AgentChat {
             .flatMap((block) => (block.type === 'text' ? [block.text] : []))
             .join('')
             .trim() || said;
-        const price = replyCost(reply, model);
-        cost += price;
-        await spend.add(price);
+        const paid = replyCost(reply, model, price);
+        cost += paid;
+        await spend.add(paid);
         // Appended whole and unchanged: thinking blocks must come back exactly as they were.
         messages.push({ role: 'assistant', content: reply.content });
 

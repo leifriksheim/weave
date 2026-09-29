@@ -74,6 +74,10 @@ Any collection, any filter the query format allows. An agent may write a watch
 when asked, but it runs only once the person has saved it themselves; see
 [standard-library.md](standard-library.md) (Watches).
 
+`weave agent` can think with Anthropic's models, or with any server that
+speaks OpenAI's Chat Completions, including a model on your own machine
+(`--provider openai`; see `packages/cli/README.md`).
+
 ## Bots
 
 A bot is the same program running as an account of its own
