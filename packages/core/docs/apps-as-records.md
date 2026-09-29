@@ -58,8 +58,8 @@ show as a change that undoes the other. So a review names the apps in use
 that need a collection it would change (`reviewApp`, `usedBy`), and
 `apps_propose` warns an agent whose proposal changes one without `updates`.
 
-> **Planned (open question):** with [spec 02 §6.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md), an update's review would list
-> `compare`'s breaks.
+> **Planned (open question):** with [`compare`](#compatible-definitions), an update's review would list
+> its breaks.
 
 _Source: `packages/core/src/schemas/apps.ts` (`supersededApps`, `reviewApp`, `proposeApp`, `addApp`), `packages/core/src/node/actions.ts` (`apps_propose`, `apps_list`), `apps/example/src/components/apps/AppsView.tsx`, `apps/example/src/components/apps/MadeApps.tsx`. Tests: `packages/core/tests/agents.test.ts` ("an update replaces the app it names: once added, the old version is not offered again", "a change to a collection another app uses names that app, and warns the agent")._
 
@@ -126,9 +126,64 @@ _Source: `packages/core/src/records/describe.ts`. Tests: `packages/core/tests/ag
 
 ## Compatible definitions
 
-The spec plans a check, `compare(held, wanted)`, for whether a space's
-definition of a collection is one an app can read and write ([spec 02 §6.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)).
-Until peers enforce it, it is the app's to use:
+An app decides it can open a space by finding a collection with the right
+**name**. Chat opens any `std.message`, whatever its fields and whoever its
+rules let edit it. And a space whose definition is a little older than the
+app's (a `std.message` without the `shares` link) stays that way, because the
+library skips a collection the space already has. Whether an app can use a
+definition it did not write is a question for the app, not for peers: a peer
+stores and judges every record the same way whatever the answer.
+
+> **Planned.** Not built. Issues:
+> [#11](https://github.com/leifriksheim/weave/issues/11),
+> [#12](https://github.com/leifriksheim/weave/issues/12). The parts peers
+> would check, content-addressed definitions and additive-only changes, are
+> planned in [spec 02 §6.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md).
+
+### The check: `compare(held, wanted)`
+
+`held` is the definition the space has; `wanted` the one the app was built
+with. The result is two lists of breaks, each a path and a plain sentence:
+
+```ts
+interface Compatibility {
+  read: Break[]; // why the app might meet a record it can't read; empty: it can read them all
+  write: Break[]; // why a record the app writes might not fit, or be refused; empty: it can write
+}
+interface Break {
+  path: string;
+  message: string;
+} // 'rules.edit', "Anyone can edit anyone's messages here; this app assumes only their author"
+```
+
+An app that only shows records needs `read` empty; one that writes needs both.
+Anything the checker cannot decide is a break.
+
+- **Fields.** Reading needs every body the space accepts to be one the app
+  accepts (held ⊆ wanted); writing needs wanted ⊆ held. Over the schema
+  keywords a definition may use ([spec 02 §6.2](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md))
+  this is a walk of both schemas: `type` sets contained (`integer` inside
+  `number`); a field one side relies on is `required` on the other; numeric
+  and length ranges contained; `enum`, `const` and `oneOf` value sets
+  contained; recurse into `properties` and `items`. `title`, `description`
+  and `x-choicesFrom` are ignored. A field only one side mentions is ignored,
+  unless that side requires it or closes the schema
+  (`additionalProperties: false`).
+- **Links.** A link role the app uses is declared in the space; where it may
+  point is contained (`["app.poll"]` is inside `"*"` for reading, not for
+  writing); `"one"` is inside `"many"`. Roles the app does not know are
+  ignored when reading.
+- **Rules: never looser.** Stricter rules are never a safety problem (at worst
+  the app cannot write, which `can` already reports), so rules are checked one
+  way: the space's rule must be an **attenuation** of the app's, as in UCAN.
+  For `create`, `edit`, `delete`, every who in the space's list is covered by
+  one in the app's (`member` covers everyone; `creator` and `can:<p>` cover
+  themselves; defaults count). `onePer`: the space promises at least the
+  uniqueness the app relies on (fewer parts is a stronger promise). `fixed`:
+  the space keeps at least the fields the app expects fixed. `permissions`: a
+  permission the app's rules name is declared.
+
+### What uses it
 
 1. **Apps open by compatibility**, not by name. A collection that exists but
    is not compatible is shown with its breaks instead of opened.
@@ -141,9 +196,55 @@ Until peers enforce it, it is the app's to use:
    anyone edit messages; now only their author"), not only "changes who may do
    what".
 
+An app should not define a `std.*` name that is not compatible with the
+standard library's. Peers don't refuse one on arrival (refusing depends on
+what each peer knows, and would leave peers disagreeing), so an app treats an
+incompatible `std.message` as not a message.
+
 Built so far: `apps_propose` refuses a `std.*` definition that is not exactly
 the library's ([what a `std.*` name means](standard-library.md#what-a-std-name-means)).
 Typed handles in the library (`node.use(space, Poll)`) would run the same check.
+
+The plans differ in one place: this check stays on the app's side and lets a
+person approve a breaking change, while #12 makes "additive" a rule peers
+enforce. `compare` is the check "additive" needs, in both directions, and
+identical content-addressed definitions (#11) are trivially compatible, so it
+would run only on a real change.
+
+### What "additive" means
+
+Spec 02 §6.5 plans the rule; this is why it draws the line where it does.
+Changes are classified as **oasdiff** classifies OpenAPI changes, treating a
+collection's schema as a request body and a response body at once: apps write
+records (a request) and apps read them (a response).
+
+- **As a request**, a change must not **tighten**: a new required field, a
+  narrower type, a smaller range or length, fewer `enum`/`const`/`oneOf`
+  values, a link that may point at less. Apps on the old definition could no
+  longer write.
+- **As a response**, a change must not **loosen**: a field no longer
+  required, a wider type, a larger range, more `enum` values, a link that may
+  point at more. Apps on the old definition would meet records they misread
+  (a status they don't switch on).
+
+A change under the same name is additive when oasdiff would report no
+error-level break for it on either side. Findings oasdiff reports as warnings
+or information stay that. The catalogue of checks is oasdiff's, mapped onto
+the schema keywords and links; a keyword it has no check for is a break.
+
+Rules are not shape. `create`, `edit`, `delete`, `onePer`, `fixed` and
+`permissions` are the space's governance: a space may tighten them under the
+same name (at worst an app can't write, which `can` reports), and may never
+loosen them past what an app relies on ("never looser", above).
+
+### Open questions
+
+- **Rules only apply from now on.** A space that was loose last month and
+  strict today holds records written under the loose rules. Either `compare`
+  looks at every definition the collection has had, or "compatible" is stated
+  to describe records written from now on. Probably the second.
+- **Translating instead of refusing** (lenses between versions, as in
+  Cambria), so an app can read a definition it is not compatible with. Later.
 
 ## Screens
 
@@ -225,7 +326,7 @@ optional hints to a definition:
   nothing has to run anywhere.
 
 Like `x-choicesFrom`, hints are display only and never checked when
-validating, and `compare` ([spec 02 §6.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)) ignores them. They would go in a new
+validating, and [`compare`](#compatible-definitions) ignores them. They would go in a new
 top-level definition member rather than as schema keywords: unknown
 top-level members are ignored by today's peers, while an unknown schema
 keyword makes the definition invalid ([spec 02 §6.2](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)). Added when a real agent-made app

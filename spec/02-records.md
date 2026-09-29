@@ -46,17 +46,13 @@ as IEEE 754 binary64, `true`, `false`, `null`. Then:
 
 No whitespace appears anywhere outside strings.
 
-- A producer MUST NOT emit an object with two members of the same name. (What
-  a reader does with one is not specified; this implementation keeps the last.)
+- A producer MUST NOT emit an object with two members of the same name. What
+  a reader does with one is not specified.
 - Because the form is computed from the _parsed_ value, how a value was
   formatted on the wire does not matter: `1.0`, `1` and `1e0` are the same
   number and hash the same. A reader in a language whose JSON numbers are not
   binary64 MUST convert them to binary64 before canonicalizing, or hashes will
   differ for numbers that do not survive the round trip.
-- _Implementation detail:_ the reference `canonicalize()` also accepts
-  JavaScript values that JSON cannot carry (an object member whose value is
-  `undefined` is left out; `undefined` in an array becomes `null`). Nothing on
-  the wire depends on this.
 
 For every value that is valid I-JSON (RFC 7493: no lone surrogates, no
 duplicate names), this is the same output as the JSON Canonicalization Scheme,
@@ -149,10 +145,6 @@ list unless a list is meant (an absent member and a present one hash differently
 A reader MUST keep and re-hash every member it receives, including ones it does
 not know: the signed part is "everything except `id`, `signature` and `body`"
 (§3.2), not a fixed list.
-
-_Implementation detail:_ the reference writer always includes `seen` on
-records written in a space (possibly `[]`), and never includes an empty `links`
-or `tags`.
 
 ### 3.2 What is signed
 
@@ -568,9 +560,6 @@ sealed body with malformed links treats the record as having none.
 
 A delete carries no links.
 
-_Implementation detail:_ the node's `update` carries a record's links over
-to the next version unless new ones are given.
-
 ### 5.2 Link declarations
 
 A collection declares the link roles its records may carry, in its definition
@@ -599,7 +588,7 @@ points into one of the `to` collections.
 Conformance is a writer's check and a reader's flag, **never a reason to refuse
 a record on arrival** (§9.6): whether a link conforms depends on which
 definition and which target a peer holds. A writer SHOULD NOT write links that
-do not conform; the reference node refuses to.
+do not conform.
 
 _Source: `packages/core/src/records/links.ts` (`checkLinks`, `LINK_REL_PATTERN`, `MAX_LINKS`, `LinkDeclaration`), `packages/core/src/node/space-runtime.ts` (`openBody`, `linkIssues`, `write`). Tests: `packages/core/tests/links.test.ts` (all)._
 
@@ -696,23 +685,11 @@ these value types:
 
 Anything else (`pattern`, `$ref`, `format`, `anyOf`, a schema-valued
 `additionalProperties`, …) makes the definition invalid. A `$schema` member is
-not part of the subset; a writer converting from a validator library drops it.
+not part of the subset.
 
-**Validating.** A body is checked against a stored schema as draft 2020-12
-JSON Schema, with **unknown keywords ignored**, so a space written by a newer
-app that allows more stays readable by an older one. Validation reports every
-failing leaf (not only the first) with a JSON Pointer to the value.
-
-`x-choicesFrom` says a value picks from a list in another record — the record
-this one links to as `rel`, in its field `field`. A number is a position in
-that list; anything else is the option itself. It is a display hint and is
-never checked when validating.
-
-_Implementation detail:_ validation uses `@cfworker/json-schema` (draft
-`2020-12`, not short-circuiting). A validator that describes itself as JSON
-Schema (Standard JSON Schema: Zod 4.2+, ArkType 2.1.28+, Valibot) is converted
-with target `draft-2020-12` before storing, and the result is checked like any
-other.
+Whether a body fits its schema is never a reason to refuse it (§9.6), so how
+a reader validates a body, and what `x-choicesFrom` means to an app, are not
+protocol: see [collections](../packages/core/docs/collections.md#validating).
 
 > **Planned: `pattern` and `format`.** Left out on purpose: every member's
 > app checks every record, in whatever language, regex dialects differ, and a
@@ -726,12 +703,13 @@ other.
 >   in I-Regexp. (The alternative is a linear-time matcher, a dependency.)
 > - `format` accepts only formats with exact definitions: `date-time`
 >   (RFC 3339), `date`, `uri`. Not `email`.
-> - Compatibility (§6.5) treats two patterns as compatible only when they are
->   identical.
+> - Compatibility and additive changes (§6.5) treat two patterns as
+>   compatible only when they are identical.
 >
-> Older apps ignore unknown keywords when validating, and a record that does
-> not fit is still kept and flagged (§9.6), so a space using `pattern` stays
-> readable by an app that predates it.
+> Older apps ignore unknown keywords when validating
+> ([collections](../packages/core/docs/collections.md#validating)), and a
+> record that does not fit is still kept and flagged (§9.6), so a space using
+> `pattern` stays readable by an app that predates it.
 >
 > _Open:_ the publishing check above makes a definition that uses `pattern`
 > **invalid** to an older peer, and an invalid definition counts as none
@@ -754,12 +732,8 @@ deleting one needs `manage`, or being whoever first defined it (while still a
 member). A definition written under an agent's delegation never counts
 ([01 — Identity](01-identity.md), agent notes).
 
-A writer SHOULD give each new definition of a collection a `version` higher
-than the one in force; the reference node refuses otherwise. Peers do not check
-it.
-
-_Implementation detail:_ the reference node refuses to delete a definition
-while its collection still has records.
+Peers do not check `version` against the definition it replaces. What the
+library does with it: [collections](../packages/core/docs/collections.md#versions-of-a-definition).
 
 ### 6.4 Reserved names
 
@@ -773,158 +747,66 @@ while its collection still has records.
   notifications — `sys.carrier`, `sys.pass`, `sys.hosting`, `sys.notify`,
   `sys.subscription` — in [06 — Nodes, sessions and apps](06-nodes-and-sessions.md)
   (`sys.relays` and `sys.keepers` also in [05](05-sync-and-storage.md)).
-- **`std.*`** is a naming convention for the optional standard library
-  ([standard library](../packages/core/docs/standard-library.md)), **not reserved**: any
-  member allowed to define collections may define a `std.*` name with any
-  shape. Apps agree by using the same definitions, not by any privilege.
-  (Planned to change: §6.5.)
+- **`std.*`** is **not reserved**: it names the optional
+  [standard library](../packages/core/docs/standard-library.md), a
+  convention. (Planned to change: §6.5.)
 - Any other name is the space's to use. Records in a collection nobody has
   defined are still stored and synced; they simply have no schema or rules.
 
 Names are **local to a space**. Nothing registers or owns a name across
 spaces, so a name never says what shape a collection has; its definition in
-that space does. Two apps sharing a space settle a clash over a name before
-anything is defined, when a person reads what each would define (the
-reference: [the app review](../packages/core/docs/apps-as-records.md#the-app-review)).
+that space does.
 
-_Source: `packages/core/src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `validateJsonSchema`, `toJsonSchema`, `asStandardSchema`, `MAX_SCREEN_BYTES`, `checkScreenNetwork`, `MAX_SCREEN_ORIGINS`), `packages/core/src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`, `define`, `undefine`), `packages/core/src/space/roles.ts` (`definition` events). Tests: `packages/core/tests/space-catalog.test.ts` (all), `packages/core/tests/schemas.test.ts` ("schemas from a validator you already use"), `packages/core/tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write")._
+_Source: `packages/core/src/schema/collection-def.ts` (`StoredCollection`, `CATALOG_COLLECTION`, `checkStoredCollection`, `checkPublishableSchema`, `MAX_SCREEN_BYTES`, `checkScreenNetwork`, `MAX_SCREEN_ORIGINS`), `packages/core/src/node/space-runtime.ts` (`definitionIn`, `loadCatalog`), `packages/core/src/space/roles.ts` (`definition` events). Tests: `packages/core/tests/space-catalog.test.ts` ("but refused when publishing, where the author can fix it", "names are reverse-DNS, and sys.\* is reserved", "redefining bumps the version, and only the definer or someone who can manage the space may"), `packages/core/tests/attacks.test.ts` ("a member cannot take down a collection's definition they did not write")._
 
 ### 6.5 Planned: compatible definitions
 
-Issues: [#11](https://github.com/leifriksheim/weave/issues/11) (content-addressed
-definitions), [#12](https://github.com/leifriksheim/weave/issues/12) (definition
-tiers, additive-only). This section is the one plan for both, and for the
-compatibility check that was drafted separately; where they differ, it says so.
-
-**Why.** An app decides it can open a space by finding a collection with the
-right **name**. Chat opens any `std.message`, whatever its fields and whoever
-its rules let edit it. And a space whose definition is a little older than the
-app's (a `std.message` without the `shares` link) stays that way, because the
-library skips a collection the space already has.
-
-#### The check: `compare(held, wanted)`
-
-`held` is the definition the space has; `wanted` the one the app was built
-with. The result is two lists of breaks, each a path and a plain sentence:
-
-```ts
-interface Compatibility {
-  read: Break[]; // why the app might meet a record it can't read; empty: it can read them all
-  write: Break[]; // why a record the app writes might not fit, or be refused; empty: it can write
-}
-interface Break {
-  path: string;
-  message: string;
-} // 'rules.edit', "Anyone can edit anyone's messages here; this app assumes only their author"
-```
-
-An app that only shows records needs `read` empty; one that writes needs both.
-Anything the checker cannot decide is a break.
-
-- **Fields.** Reading needs every body the space accepts to be one the app
-  accepts (held ⊆ wanted); writing needs wanted ⊆ held. Over the §6.2 keywords
-  this is a walk of both schemas: `type` sets contained (`integer` inside
-  `number`); a field one side relies on is `required` on the other; numeric
-  and length ranges contained; `enum`, `const` and `oneOf` value sets
-  contained; recurse into `properties` and `items`. `title`, `description`
-  and `x-choicesFrom` are ignored.
-- **Links.** A link role the app uses is declared in the space; where it may
-  point is contained (`["app.poll"]` is inside `"*"` for reading, not for
-  writing); `"one"` is inside `"many"`. Roles the app does not know are
-  ignored when reading.
-- **Rules: never looser.** Stricter rules are never a safety problem (at worst
-  the app cannot write, which `can` already reports), so rules are checked one
-  way: the space's rule must be an **attenuation** of the app's, as in UCAN.
-  For `create`, `edit`, `delete`, every who in the space's list is covered by
-  one in the app's (`member` covers everyone; `creator` and `can:<p>` cover
-  themselves; defaults count). `onePer`: the space promises at least the
-  uniqueness the app relies on (fewer parts is a stronger promise). `fixed`:
-  the space keeps at least the fields the app expects fixed. `permissions`: a
-  permission the app's rules name is declared.
-
-#### What uses it
-
-Until #12 makes it a peer's check (below), `compare` is an app's: to open a
-collection only when it is compatible, to apply a harmless update of a
-standard definition, and to show a person the breaks in an app review. How
-the reference library uses it is in [apps as records](../packages/core/docs/apps-as-records.md#compatible-definitions).
-
-A writer SHOULD NOT define a `std.*` name that is not compatible with the
-standard library's. Peers do not refuse one on arrival (refusing depends on
-what each peer knows, and leaves peers disagreeing, as in §9.6); an app
-treats an incompatible `std.message` as not a message.
-
-#### Where #11 and #12 go further
-
-- **Content-addressed definitions (#11).** A definition's id is the hash of its
-  content and never changes; a new one names `supersedes: <hash>`, and
-  `sys.collection` becomes a pointer from a name to the current hash. Identical
-  hashes are trivially compatible, so `compare` runs only on a real change.
-  #11 also has each record store the hash it was written against. Today a
-  record is judged by the definition in force as of `seen` (§6.3), and the
-  writer names none: a writer-chosen definition was removed because a writer
-  could name an older, looser one (vote ten times under a definition from
-  before "one vote per person"). So a pin **adds** a check and never removes
-  one: a pinned record is accepted only if it is valid under the pinned
-  definition **and** under the definition in force as of `seen`. The pin tells
-  readers what shape the writer meant; it can't let a record in that the
-  space's current definition refuses.
-- **Tiers and additive-only (#12).** `std.*` frozen by the spec; publisher
-  definitions under `<did>/name`, signed by the publisher and followed
-  automatically; space definitions changed by space roles. Under one name
-  only additive changes are valid, **enforced by peers**; a breaking change
-  needs a new name (`name/2`), and may ship upgrade steps as data. Apps declare
-  the names or hashes they support. Here the plan differs: the compatibility
-  draft keeps the check on the app side and lets a person approve a breaking
-  change; #12 makes "additive" a validation rule. Peers can enforce it only
-  on something every peer sees the same way, which content-addressed
-  definitions and their `supersedes` chain (#11) provide. `compare` is the
-  check "additive" needs, in both directions (below). #12 depends on #11, and on key rotation
-  ([#9](https://github.com/leifriksheim/weave/issues/9)), because a stolen
-  publisher key could push "additive" versions spaces pick up automatically.
-
-#### Direction: what "additive" means
-
-Classified as **oasdiff** classifies OpenAPI changes, treating a collection's
-schema as a request body and a response body at once: apps write records
-(a request) and apps read them (a response).
-
-- **As a request**, a change must not **tighten**: a new required field, a
-  narrower type, a smaller range or length, fewer `enum`/`const`/`oneOf`
-  values, a link that may point at less. Apps on the old definition could no
-  longer write.
-- **As a response**, a change must not **loosen**: a field no longer
-  required, a wider type, a larger range, more `enum` values, a link that may
-  point at more. Apps on the old definition would meet records they misread
-  (a status they don't switch on).
-
-A change under the same name is **additive** when oasdiff would report no
-error-level break for it on either side. That leaves: new optional fields,
-new optional link roles, and changes to `title`, `description` and other
-annotations. Anything else needs a new name (`name/2`). Findings oasdiff
-reports as warnings or information stay that. The catalogue of checks is
-oasdiff's, mapped onto the §6.2 keywords and links; a keyword it has no check
-for is a break.
-
-**Rules are not shape.** `create`, `edit`, `delete`, `onePer`, `fixed` and
-`permissions` are the space's governance: a space may tighten them under the
-same name (at worst an app can't write, which `can` reports), and may never
-loosen them past what an app relies on (§6.5, "never looser").
-
-Unknown fields follow the same convention: a field only one side mentions is
-ignored, unless that side requires it or closes the schema
-(`additionalProperties: false`).
-
-#### Open questions
-
-- **Rules only apply from now on.** A space that was loose last month and
-  strict today holds records written under the loose rules. Either `compare`
-  looks at every definition the collection has had, or "compatible" is stated
-  to describe records written from now on. Probably the second.
-- **Translating instead of refusing** (lenses between versions, as in
-  Cambria), so an app can read a definition it is not compatible with. Later.
-
-Depends on: nothing built yet on the peer side; the app-side check is in the package docs.
+> **Planned.** Not normative. Issues:
+> [#11](https://github.com/leifriksheim/weave/issues/11) (content-addressed
+> definitions) and [#12](https://github.com/leifriksheim/weave/issues/12)
+> (definition tiers, additive-only). Today any change to a definition counts
+> once the access history lets its writer make it (§6.3), and an app decides
+> for itself whether a space's definition is one it can use. Whether an app
+> can read and write a definition it did not write, `compare(held, wanted)`,
+> is the library's, not a peer's: see
+> [apps as records](../packages/core/docs/apps-as-records.md#compatible-definitions).
+> These two plans make part of it a peer's check.
+>
+> - **Content-addressed definitions (#11).** A definition's id is the hash of
+>   its content and never changes; a new one names `supersedes: <hash>`, and
+>   `sys.collection` becomes a pointer from a name to the current hash. Each
+>   record may store the hash it was written against. Today a record is
+>   judged by the definition in force as of `seen` (§6.3) and names none: a
+>   writer-chosen definition was removed because a writer could name an
+>   older, looser one (vote ten times under a definition from before "one
+>   vote per person"). So a pin **adds** a check and never removes one: a
+>   pinned record is accepted only if it is valid under the pinned definition
+>   **and** under the definition in force as of `seen`.
+> - **Tiers and additive-only (#12).** `std.*` frozen by the spec; publisher
+>   definitions under `<did>/name`, signed by the publisher and followed
+>   automatically; space definitions changed by space roles. Under one name
+>   only additive changes are valid, **enforced by peers**; a breaking change
+>   needs a new name (`name/2`), and may ship upgrade steps as data. Peers can
+>   enforce it only on something every peer sees the same way, which the
+>   `supersedes` chain of #11 provides, so #12 depends on #11, and on key
+>   rotation ([#9](https://github.com/leifriksheim/weave/issues/9)), because a
+>   stolen publisher key could push "additive" versions spaces pick up
+>   automatically.
+>
+> **What "additive" means.** A new definition under the same name is additive
+> when every body the old schema accepts is accepted by the new one (it does
+> not **tighten**: no new required field, narrower type, smaller range or
+> length, fewer `enum`/`const`/`oneOf` values, or link role that may point at
+> less), and the new one accepts nothing the old one would not, except in
+> fields and link roles the old one did not name (it does not **loosen**: no
+> field made optional, wider type, larger range, more values, or link that
+> may point at more). That leaves new optional fields, new optional link
+> roles, and changes to `title`, `description` and other annotations.
+> Anything else needs a new name. A keyword the check has no rule for is a
+> break. Rules (`create`, `edit`, `delete`, `onePer`, `fixed`,
+> `permissions`) are the space's governance, not shape: under the same name
+> they may tighten, never loosen. Why this line, after oasdiff:
+> [apps as records](../packages/core/docs/apps-as-records.md#what-additive-means).
 
 ## 7. Rules
 
@@ -1450,11 +1332,11 @@ Given a valid signature and root, whether the version _stands_ in this space:
 
 A check can end three ways:
 
-| Outcome     | When                                                                                                                                                   | What the peer does                                                                                                                                                                                    |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **stands**  | every check passes                                                                                                                                     | Stores it; the ordering rule (§4.3) decides whether it becomes current.                                                                                                                               |
-| **later**   | it depends on something not held: its first version, the version its `prev` names, access changes named in `seen`, or a version its checks cite (§7.6) | Holds it aside (at most 1,000, oldest dropped) and re-judges waiting versions whenever something new is stored. Nothing is reported.                                                                  |
-| **refused** | any other failure                                                                                                                                      | Does not store it, does not pass it on, and reports it (a `rejected` event with the peer and reason). Remembers the refusal as (peer, id) — at most 10,000 — only so it does not ask that peer again. |
+| Outcome     | When                                                                                                                                                   | What the peer does                                                                                                             |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| **stands**  | every check passes                                                                                                                                     | Stores it; the ordering rule (§4.3) decides whether it becomes current.                                                        |
+| **later**   | it depends on something not held: its first version, the version its `prev` names, access changes named in `seen`, or a version its checks cite (§7.6) | Holds it aside and re-judges waiting versions whenever something new is stored. Nothing is reported.                           |
+| **refused** | any other failure                                                                                                                                      | Does not store it and does not pass it on. It may remember the refusal as (peer, id), only so it does not ask that peer again. |
 
 A peer MUST NOT remember a refusal by id alone, and MUST NOT cache a failing
 verdict: a copy with a mangled signature shares the genuine version's id
@@ -1465,8 +1347,8 @@ removal, a revoked note — [03](03-spaces.md)). When reading, a peer uses the
 current version if it stands; otherwise the newest held version of that record
 that does; otherwise the record is absent.
 
-_Implementation detail:_ when admitting a batch, the reference sorts
-`sys.collection` versions first, then by ascending `seq`, so little has to wait.
+How the reference node holds, reports and remembers these, and its limits:
+[the node](../packages/core/docs/node.md#versions-that-wait-or-are-refused).
 
 ### 9.6 What is never a reason to refuse
 
@@ -1477,11 +1359,11 @@ A peer MUST NOT refuse a version on arrival because:
 - its collection is not defined.
 
 Each of these depends on which definition, schema or target a peer happens to
-hold, and refusing would leave peers disagreeing forever. Readers flag such a
-record instead (the node reports `conforms: false` with the issues). A writer
+hold, and refusing would leave peers disagreeing forever. A reader may flag
+such a record instead. A writer
 checks them before signing and SHOULD NOT write what does not conform.
 
-_Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`), `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `chainStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/checks.test.ts` ("between peers"), `packages/core/tests/attacks.test.ts`._
+_Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`), `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `chainStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/checks.test.ts` ("between peers"), `packages/core/tests/attacks.test.ts`._
 
 ---
 

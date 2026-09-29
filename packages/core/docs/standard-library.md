@@ -34,7 +34,7 @@ to the convention:
 Names of an app's own collections should say what they are for
 (`carpool.ride`) rather than share a generic prefix (`app.ride`) that another
 app may want for something else. Making apps open collections by what they
-hold rather than by name is [spec 02 §6.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md).
+hold rather than by name is [compatible definitions](apps-as-records.md#compatible-definitions).
 
 _Source: `packages/core/src/schemas/apps.ts` (`standardNeeds`), `packages/core/src/schemas/standard.ts` (`standardDefinition`, `standardGroups`), `packages/core/src/node/actions.ts` (`collections_standard`, `apps_propose`). Tests: `packages/core/tests/agents.test.ts` ("a standard collection by name is exactly the library’s; a look-alike std.\* is refused", "collections_standard lists the library by area, and gives definitions in full")._
 
