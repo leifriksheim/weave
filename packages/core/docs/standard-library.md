@@ -239,9 +239,18 @@ _Source: `packages/core/src/schemas/library/community.ts` (`ballot`, `decision`,
 
 **Settings**
 
-| Name          | Body                                                        | Links | Rules                                                  |
-| ------------- | ----------------------------------------------------------- | ----- | ------------------------------------------------------ |
-| `std.setting` | **`app`** string 1–200; **`key`** string 1–200; `value` any | —     | edit, delete: `creator`; `onePer: [@author, app, key]` |
+| Name          | Body                                                             | Links | Rules                                                                     |
+| ------------- | ---------------------------------------------------------------- | ----- | ------------------------------------------------------------------------- |
+| `std.setting` | **`app`** string 1–200; **`key`** string 1–200; `value` any      | —     | edit, delete: `creator`; `onePer: [@author, app, key]`                    |
+| `std.host`    | **`url`** string 1–2048; `did` string 1–256; `name` string ≤ 100 | —     | create, edit, delete: `can:manage`; `onePer: [url]`; permissions `manage` |
+
+`std.host` names a host the space pays to keep it online, which anyone in it
+may chip in for; members' devices hand it the space's pass
+([node](node.md#a-space-paying-for-itself), [spec 06 §4.6](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+Naming a host sends it every member's pass, so only those who may manage the
+space do it; in the `community` preset, admins and moderators.
+
+_Source: `packages/core/src/schemas/library/community.ts` (`host`)._
 
 **Agents**
 

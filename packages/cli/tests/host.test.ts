@@ -19,6 +19,7 @@ import { generateSeed } from '../../core/src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../../core/src/identity/account-vault.js';
 import {
   createHostClient,
+  createSpaceHostClient,
   describeHost,
   HostError,
   newSubscriptionSeed,
@@ -39,6 +40,11 @@ import { createFakeHub, type FakeHub } from '../../core/tests/helpers/fake-trans
 import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
 import { at, bodyOf, urlOf } from './helpers/json.js';
 import { until } from '../../core/tests/helpers/until.js';
+import { host as hostSchema } from '../../core/src/schemas/library/community.js';
+import { team } from '../../core/src/space/presets.js';
+import { parseSpaceInvite } from '../../core/src/space/space-manager.js';
+import { hold } from '../../core/tests/helpers/hold.js';
+import { joined } from '../../core/tests/helpers/joined.js';
 
 const provider = createP256Provider();
 const open: Array<{ close(): Promise<void> }> = [];
@@ -1003,5 +1009,192 @@ describe('wallet payments', () => {
     const after = (await laptop.hosting.list())[0]!;
     assert.equal(after.status?.state, 'active');
     assert.equal(after.status?.carrying, true);
+  });
+});
+
+describe('a space paying for itself', () => {
+  async function running(options: Partial<Parameters<typeof startHost>[0]> = {}) {
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      ...options,
+    });
+    open.push(served);
+    return served;
+  }
+
+  /** A space its creator's device made, naming a host in `std.host` */
+  async function community(hub: FakeHub, url: string) {
+    const me = await account();
+    const laptop = await device(me, hub);
+    const { id } = await laptop.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await laptop.collections.define(id, hostSchema);
+    await laptop.records.put(id, hostSchema.name, { url });
+    return { me, laptop, space: id };
+  }
+
+  test('a member’s device hands a free host the pass, and the host carries the space for itself', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const served = await running({ free: true });
+    const url = `http://127.0.0.1:${served.port}`;
+    const { laptop, space } = await community(hub, url);
+
+    const [view] = await laptop.hosting.space(space);
+    assert.equal(view?.host, served.node.did);
+    assert.equal(view?.status?.subscription, `space:${space}`);
+    assert.equal(view?.status?.carrying, true);
+    assert.ok(view?.status?.readKey?.startsWith('did:key:'), 'it holds the read key, which opens nothing');
+    assert.equal(view?.pay, null, 'a free host has no pay page');
+    await until(carries(served.node, space), 4000, 'the host to carry the space');
+
+    // Anyone may ask how a space stands, and gets the host's signed word.
+    const info = await describeHost(url);
+    const { status } = await createSpaceHostClient(url, info.did).status(space);
+    assert.equal(status.carrying, true);
+    const unknown = await createSpaceHostClient(url, info.did).status('nosuchspace');
+    assert.equal(unknown.status.state, 'none', 'a space nobody has handed over yet');
+    assert.equal(unknown.status.carrying, false);
+
+    // A pass proves which space it is for: one for another space is refused.
+    const { id: other } = await laptop.spaces.create({ name: 'Other', visibility: 'public' });
+    const otherPass = { v: 1, space: parseSpaceInvite(await laptop.spaces.invite(other)).space };
+    const wrong = await fetch(`${url}/host/spaces/${space}/pass`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pass: otherPass }),
+    });
+    assert.equal(wrong.status, 400);
+    assert.match(String(at(await wrong.json(), 'error')), /not a pass for this space/);
+  });
+
+  test('a paying host carries nothing until someone chips in; a one-off card payment adds its time once', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const bodies: string[] = [];
+    const billing = createStripeBilling({
+      secretKey: 'sk_test_x',
+      webhookSecret: 'whsec_test',
+      monthlyPrice: 'price_month',
+      onceMonthlyPrice: 'price_once_month',
+      fetch: async (input: string | URL | Request, init?: RequestInit) => {
+        if (urlOf(input).endsWith('/v1/checkout/sessions')) bodies.push(bodyOf(init));
+        return new Response(JSON.stringify({ url: 'https://checkout.stripe.test/c/1' }));
+      },
+    });
+    const served = await running({ billing });
+    const url = `http://127.0.0.1:${served.port}`;
+    const { laptop, space } = await community(hub, url);
+
+    const [before] = await laptop.hosting.space(space);
+    assert.equal(before?.status?.state, 'none');
+    assert.equal(before?.status?.carrying, false);
+    assert.ok(before?.pay?.endsWith(`/pay#space=${space}`), 'a link anyone may open, unsigned');
+    const put = await fetch(`${url}/host/spaces/${space}/pass`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pass: { v: 1 } }),
+    });
+    assert.equal(put.status, 402, 'not before someone pays');
+
+    // The pay page, as it calls for a space: no signature, the space named.
+    const pay = async (method: string, path = '', body?: unknown) => {
+      const response = await fetch(`${url}/pay/api${path}`, {
+        method,
+        headers: {
+          authorization: `WeavePay space=${space}`,
+          ...(body ? { 'content-type': 'application/json' } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      const answer: unknown = await response.json();
+      return { status: response.status, answer };
+    };
+    const page = await pay('GET');
+    assert.equal(at(page.answer, 'space'), space);
+    assert.deepEqual(
+      at(page.answer, 'card'),
+      [{ id: 'monthly', label: 'A month' }],
+      'one-off plans, not renewing ones',
+    );
+    assert.equal(
+      at(await pay('POST', '/card', { plan: 'monthly' }), 'answer', 'url'),
+      'https://checkout.stripe.test/c/1',
+    );
+    const checkout = new URLSearchParams(bodies[0]);
+    assert.equal(checkout.get('mode'), 'payment');
+    assert.equal(checkout.get('metadata[weave_subscription]'), `space:${space}`);
+
+    const webhook = (body: string) => {
+      const t = nowSeconds();
+      const v1 = createHmac('sha256', 'whsec_test').update(`${t}.${body}`).digest('hex');
+      return fetch(`${url}/host/billing/webhook`, {
+        method: 'POST',
+        headers: { 'stripe-signature': `t=${t},v1=${v1}` },
+        body,
+      });
+    };
+    const paid = (id: string) =>
+      JSON.stringify({
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id,
+            mode: 'payment',
+            payment_status: 'paid',
+            metadata: { weave_subscription: `space:${space}`, weave_plan: 'monthly' },
+          },
+        },
+      });
+    await webhook(paid('cs_1'));
+    await webhook(paid('cs_1'));
+    const client = createSpaceHostClient(url, served.node.did);
+    const once = (await client.status(space)).status.paidUntil;
+    assert.ok(
+      once > nowSeconds() + 27 * 24 * 3600 && once < nowSeconds() + 32 * 24 * 3600,
+      'a month, counted once',
+    );
+    // Someone else chips in: their month is added to the first.
+    await webhook(paid('cs_2'));
+    assert.ok((await client.status(space)).status.paidUntil > once + 27 * 24 * 3600, 'time adds up');
+
+    const [after] = await laptop.hosting.space(space);
+    assert.equal(after?.status?.carrying, true);
+    await until(carries(served.node, space), 4000, 'the host to carry the space');
+  });
+
+  test('when the space’s key changes, the next look hands the host the new pass', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const served = await running({ free: true });
+    const url = `http://127.0.0.1:${served.port}`;
+    const { laptop, space } = await community(hub, url);
+    const bob = await device(await account(), hub);
+    await bob.spaces.join(await laptop.spaces.invite(space));
+    await hold(laptop, space);
+    await joined(bob, space);
+    const first = (await laptop.hosting.space(space))[0]?.status?.readKey;
+    assert.ok(first);
+
+    await laptop.spaces.setMember(space, bob.did, null);
+    await until(
+      async () => (await laptop.hosting.space(space))[0]?.status?.readKey !== first,
+      6000,
+      'the host to hold the new read key',
+    );
+  });
+
+  test('a host for named accounts only carries no space for itself', async () => {
+    const served = await running({ free: true, allow: ['did:key:zDnaeSomeone'] });
+    const response = await fetch(`http://127.0.0.1:${served.port}/host/spaces/abc/pass`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pass: { v: 1 } }),
+    });
+    assert.equal(response.status, 403);
+  });
+
+  test('a pay link for a space names it and signs nothing; the host reads it as that space’s subscription', async () => {
+    const hostDid = 'did:key:zDnaeHost';
+    assert.equal(await verifyPayLink('WeavePay space=abc123', hostDid), 'space:abc123');
+    assert.equal(await verifyPayLink('WeavePay space=../etc', hostDid), null);
   });
 });

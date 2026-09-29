@@ -14,6 +14,10 @@
  * node. What it learns: which spaces exist, their size, when they change, and
  * — through the carry spaces — which account asked for which.
  *
+ * A space can also pay for itself: a subscription named `space:<id>` carries
+ * that one space, from its pass alone, handed over by any member's device.
+ * Anyone may pay into it; what it carries is still only ciphertext.
+ *
  * Subscriptions live in the host's own store, next to the carried spaces. The
  * payment side (`packages/cli/src/host/…`) only ever moves a subscription's date.
  */
@@ -27,10 +31,20 @@ import type { StoreFactory } from './stores.js';
 import type { NodeNetworkConfig } from './types.js';
 import type { BlobStore } from '../storage/blob-store.js';
 import { deleteMirrored } from '../storage/mirror.js';
+import { openPass } from '../space/pass.js';
+
+/** What names a space's own subscription at a host */
+const SPACE_SUBSCRIPTION_PREFIX = 'space:';
+
+/** A space's own subscription id: `space:<space id>` */
+export const spaceSubscription = (spaceId: string) => `${SPACE_SUBSCRIPTION_PREFIX}${spaceId}`;
 
 /** Someone paying for hosting, as the host knows them */
 export interface Subscription {
-  /** The subscription key's DID — what every call about it is signed with */
+  /**
+   * The subscription key's DID, what every call about it is signed with; or
+   * for a space paying for itself, `space:<space id>`
+   */
   readonly id: string;
   /** Unix seconds. Past it, the grace period; past that, it is dropped. */
   readonly paidUntil: number;
@@ -38,6 +52,8 @@ export interface Subscription {
   readonly since: number;
   /** The account and its carry space, once a device has handed them over */
   readonly carry?: { readonly account: string; readonly space: string; readonly invite: string };
+  /** For a space's own subscription: the pass a member's device handed over, once one has */
+  readonly pass?: unknown;
   /** The payment provider's reference for whoever pays — nothing else about them is kept */
   readonly customer?: string;
   /** A wallet payment asked for and not yet seen (`packages/cli/src/wallet.ts`) */
@@ -102,6 +118,14 @@ export interface HostNode {
   attach(id: string, account: string, invite: string): Promise<Subscription>;
   /** Stops carrying for a subscription; the subscription stays */
   detach(id: string): Promise<void>;
+  /**
+   * Carries a space for its own subscription, from a pass. A later pass (the
+   * space's key changed) replaces the one before.
+   * @throws When the subscription is lapsed, or the pass is not for its space
+   */
+  carrySpace(id: string, pass: unknown): Promise<Subscription>;
+  /** The read key a space's own subscription carries it with, as a DID: null when public or not carried */
+  readKeyOf(id: string): string | null;
   /** Drops what lapsed past its grace period. Run now and then. */
   sweep(): Promise<ReadonlyArray<string>>;
   /** Every space carried, for every subscription */
@@ -115,6 +139,12 @@ export interface HostNode {
 }
 
 const SUBSCRIPTION_PREFIX = 'subscription:';
+
+/** The space a subscription is a space's own for, or null for an account's */
+const spaceIdOf = (id: string): string | null =>
+  id.startsWith(SPACE_SUBSCRIPTION_PREFIX) && id.length > SPACE_SUBSCRIPTION_PREFIX.length && id.length <= 200
+    ? id.slice(SPACE_SUBSCRIPTION_PREFIX.length)
+    : null;
 
 /** An account this host was not told to carry for */
 export class NotAllowedError extends Error {
@@ -213,6 +243,12 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
 
   // Carry again what was carried before a restart — the store is only a cache of the spaces, but the list is ours.
   for (const subscription of await list()) {
+    if (subscription.pass !== undefined && state(subscription) !== 'lapsed') {
+      await core.addPass(subscription.pass).catch((error: unknown) => {
+        console.error(`Could not carry for subscription ${subscription.id}:`, error);
+      });
+      continue;
+    }
     // An account taken off the list since is not carried again.
     if (!subscription.carry || state(subscription) === 'lapsed' || !allowed(subscription.carry.account))
       continue;
@@ -229,7 +265,8 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     did: core.did,
 
     async subscribe(id: string) {
-      if (!id.startsWith('did:key:')) throw new Error('A subscription is named by its key');
+      if (!id.startsWith('did:key:') && !spaceIdOf(id))
+        throw new Error('A subscription is named by its key, or by the space it is for');
       return (await read(id)) ?? write({ id, paidUntil: 0, since: now() });
     },
 
@@ -249,6 +286,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       if (extended.carry && !core.carries.has(extended.carry.space)) {
         await core.addCarry(extended.carry.account, extended.carry.invite);
       }
+      if (extended.pass !== undefined) await core.addPass(extended.pass).catch(() => {});
       return extended;
     },
 
@@ -279,11 +317,29 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       if (!(await carriedByOther(carry.space, id))) await core.removeCarry(carry.space);
     },
 
+    async carrySpace(id: string, pass: unknown) {
+      const spaceId = spaceIdOf(id);
+      if (!spaceId) throw new Error('Only a space’s own subscription carries a space from a pass');
+      const subscription = await read(id);
+      if (!subscription || state(subscription) === 'lapsed') throw new Error('That space is not paid for');
+      const opened = await openPass(pass, provider);
+      if (!opened || opened.space.id !== spaceId) throw new Error('That is not a pass for this space');
+      await core.addPass(pass);
+      return write({ ...subscription, pass });
+    },
+
+    readKeyOf(id: string) {
+      const spaceId = spaceIdOf(id);
+      return spaceId ? core.readKeyOf(spaceId) : null;
+    },
+
     async sweep() {
       const dropped: string[] = [];
       for (const subscription of await list()) {
         if (state(subscription) !== 'lapsed') continue;
         await forget(subscription.id);
+        const spaceId = spaceIdOf(subscription.id);
+        if (spaceId) await core.removePass(spaceId);
         if (subscription.carry && !(await carriedByOther(subscription.carry.space, subscription.id))) {
           await core.removeCarry(subscription.carry.space);
         }

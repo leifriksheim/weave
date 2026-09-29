@@ -333,6 +333,7 @@ export {
   checkActionInput,
   createCarrierNode,
   createHostNode,
+  spaceSubscription,
   NotAllowedError,
   watchNotifications,
 } from './node/index.js';
@@ -389,6 +390,7 @@ export type {
   HostNode,
   NodeHosting,
   HostingView,
+  SpaceHostingView,
   Subscription,
   SubscriptionState,
   Keeper,
@@ -443,7 +445,9 @@ export {
   signStatus,
   readStatus,
   payLink,
+  spacePayLink,
   verifyPayLink,
+  createSpaceHostClient,
   HOST_DESCRIPTION_PATH,
   PAY_LINK_SECONDS,
   HostError,
@@ -455,6 +459,7 @@ export type {
   SignedStatus,
   HostDescription,
   HostClient,
+  SpaceHostClient,
 } from './session/hosting.js';
 
 // Mirrors: a space kept in a dumb file store — a bucket, an app folder — synced like a peer

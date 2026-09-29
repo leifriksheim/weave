@@ -55,6 +55,8 @@ export function billingFromEnv(env: NodeJS.ProcessEnv): Billing | null {
     webhookSecret: env.STRIPE_WEBHOOK_SECRET,
     ...(env.STRIPE_PRICE_MONTHLY ? { monthlyPrice: env.STRIPE_PRICE_MONTHLY } : {}),
     ...(env.STRIPE_PRICE_YEARLY ? { yearlyPrice: env.STRIPE_PRICE_YEARLY } : {}),
+    ...(env.STRIPE_ONCE_PRICE_MONTHLY ? { onceMonthlyPrice: env.STRIPE_ONCE_PRICE_MONTHLY } : {}),
+    ...(env.STRIPE_ONCE_PRICE_YEARLY ? { onceYearlyPrice: env.STRIPE_ONCE_PRICE_YEARLY } : {}),
   });
 }
 

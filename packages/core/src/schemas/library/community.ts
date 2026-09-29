@@ -420,3 +420,32 @@ export interface Setting {
   readonly key: string;
   readonly value?: unknown;
 }
+
+/**
+ * A host the space pays to keep it online: its own subscription there
+ * (`space:<id>`, spec 06 §4.6), which anyone in the space may chip in for.
+ * Members' devices hand that host the space's pass once someone has paid, so
+ * it carries the space without being able to read it. Only those who may
+ * manage it choose the host: naming one sends it every member's pass.
+ */
+export const host = typed<Host>()({
+  name: 'std.host',
+  title: 'Host',
+  description: 'A host the space pays to keep it online, and anyone in it may chip in for.',
+  schema: {
+    type: 'object',
+    properties: {
+      url: text(2048, 'The host’s address: https://, or http:// on localhost', 1),
+      did: text(256, 'The host’s key, as it described itself when it was chosen', 1),
+      name: text(100),
+    },
+    required: ['url'],
+  },
+  permissions: ['manage'],
+  rules: { create: 'can:manage', edit: 'can:manage', delete: 'can:manage', onePer: ['url'] },
+});
+export interface Host {
+  readonly url: string;
+  readonly did?: string;
+  readonly name?: string;
+}

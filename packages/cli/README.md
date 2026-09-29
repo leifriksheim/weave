@@ -143,6 +143,15 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   `WEAVE_WALLETCONNECT_PROJECT_ID` (free at dashboard.reown.com) and build the
   WalletConnect bundle once with `npm run bundle:pay` in `cli/` (the published
   package has it built).
+- **Spaces pay for themselves too.** A community names the host in its space
+  (`std.host`), and anyone in it chips in: `https://<host>/pay#space=<id>`,
+  no sign-in. Each payment adds its time to what is paid already, from a
+  wallet, or by card once `STRIPE_ONCE_PRICE_MONTHLY` and/or
+  `STRIPE_ONCE_PRICE_YEARLY` name one-off prices in your Stripe dashboard
+  (a card that renews stays for accounts). Members' devices hand the host the
+  space's pass once it is paid, and it carries the space blind, like an
+  account's. `GET /host/spaces/<id>` says how a space stands, to anyone.
+  A host with `--allow` carries no space for itself.
 - With a bucket, the disk is only a cache: lose it, start on the same key and
   bucket, and every subscription and space comes back.
 - Put it behind something that terminates TLS (Caddy does it in two lines).

@@ -653,6 +653,7 @@ extension included.
 | `list()`       | Asks each host for its status and hands over the carry space when paid and not carrying, making the carrier first if needed (named after the host's address). At most once a minute per host; a second look waits for a handover in flight. |
 | `payPage(url)` | The host's pay page, with the signed fragment.                                                                                                                                                                                              |
 | `stop(url)`    | Sends `DELETE …/carry` (ignoring failure), removes the carrier and deletes the `sys.hosting` record.                                                                                                                                        |
+| `space(id)`    | The hosts a space names in `std.host`, each asked how the space's own subscription stands, with its pay link (below).                                                                                                                       |
 
 Every device runs `list()` after each reconciliation ([following the account](#following-the-account)).
 A device reaches a host's sockets only when configured with it as a node
@@ -663,6 +664,29 @@ subscription for `graceDays` (default 30) after `paidUntil`, and drops lapsed
 ones in a sweep every hour (`sweepMs`). Both are the host's own policy.
 
 _Source: `packages/core/src/node/node.ts` (`carriers`, `notifications`, `hosting`), `packages/core/src/node/carrier.ts` (`arrived`), `packages/core/src/session/hosting.ts`, `packages/cli/src/host.ts`. Tests: `packages/core/tests/carrier.test.ts`, `packages/cli/tests/host.test.ts`._
+
+### A space paying for itself
+
+A space names the hosts it pays in `std.host` records ([standard library](standard-library.md)),
+which only members holding `std.host/manage` may write. The host keeps the
+space for the space itself: its own subscription, `space:<id>`, which anyone
+may pay into ([spec 06 §4.6](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+
+Every device holding the space's key (not an agent's note alone, nor a
+carrier) looks at the hosts its space names when it takes a role there and
+on changes after that: at once when the list of hosts changed, else at most
+every ten minutes. For each, it reads the description, refuses a host whose
+key is not the one the record names, asks for the status, and hands over the
+space's pass when the host is paid (or free and not lapsed) and either does
+not carry the space or carries it with an older read key. It looks only where
+the space defines `std.host`, so a space held in part is not made to hold it.
+
+`node.hosting.space(id)` does the same at once and returns each host's view:
+its name, key, status, and `pay`, the pay page with `#space=<id>`, which an
+app opens for anyone who wants to chip in. An agent may call it for a space
+it was given.
+
+_Source: `packages/core/src/node/node.ts` (`keepSpaceHosts`, `askSpaceHost`, `hosting.space`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself")._
 
 ## Doors
 

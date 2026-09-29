@@ -7,6 +7,8 @@
  *
  *   GET    /.well-known/weave-host                who the host is: key, name, price, pay page
  *   GET    /host/subscriptions/:id                its status, signed by the host
+ *   GET    /host/spaces/:space                    a space's own subscription: its status, to anyone
+ *   PUT    /host/spaces/:space/pass               { pass } — carry the space, once someone paid for it
  *   PUT    /host/subscriptions/:id/carry          { account, invite } — the account's carry space
  *   DELETE /host/subscriptions/:id/carry
  *   POST   /host/billing/webhook                  the payment provider, telling us someone paid
@@ -59,6 +61,14 @@ export interface Billing {
   /** The provider's page for managing what a customer pays */
   manage(params: { customer: string; returnUrl: string }): Promise<string>;
   /**
+   * Paying once, not renewing: what anyone chipping in for a space pays with.
+   * Absent when the provider has no one-off prices.
+   */
+  readonly once?: {
+    readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+    checkout(params: { subscription: string; plan: string; returnUrl: string }): Promise<string>;
+  };
+  /**
    * A webhook call, checked as the provider's. What it says about a
    * subscription: paid until when, and by which customer. Null for anything
    * else — and for a call that isn't really the provider's.
@@ -66,7 +76,12 @@ export interface Billing {
   webhook(
     body: string,
     headers: IncomingMessage['headers'],
-  ): Promise<{ subscription: string; until: number; customer?: string } | null>;
+  ): Promise<
+    | { subscription: string; until: number; customer?: string }
+    /** A payment made once: a plan's time added to what is paid already, counted once by `id` */
+    | { subscription: string; plan: string; id: string }
+    | null
+  >;
 }
 
 export interface HostOptions {
@@ -110,6 +125,16 @@ const MAX_BODY = 64 * 1024;
 const SUBSCRIPTION_PATH =
   /^\/host\/subscriptions\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(\/carry)?$/;
 const PAY_API = /^\/pay\/api(\/(card|manage|wallet|wallet\/claim))?$/;
+/** A space's own subscription, open to anyone */
+const SPACE_PATH = /^\/host\/spaces\/([A-Za-z0-9_-]{1,120})(\/pass)?$/;
+/** A plan's time, for payments that add it to what is paid already */
+function addPlan(plan: string, from: number): number {
+  const date = new Date(from * 1000);
+  if (plan === 'yearly') date.setUTCFullYear(date.getUTCFullYear() + 1);
+  else if (plan === 'monthly') date.setUTCMonth(date.getUTCMonth() + 1);
+  else throw new Error(`No such plan: ${plan}`);
+  return Math.floor(date.getTime() / 1000);
+}
 /** The WalletConnect bundle, next to this file both in the source tree and in the published package */
 const WALLETCONNECT_BUNDLE = new URL('../pay/dist/walletconnect.js', import.meta.url);
 /**
@@ -192,7 +217,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const billing = options.billing ?? null;
   const wallet = options.wallet ?? null;
   // The transactions already counted, so none pays twice — on disk, and in the bucket when there is one.
-  const spentStore = wallet ? await options.stores('host-wallet') : null;
+  const spentStore = wallet || billing?.once ? await options.stores('host-wallet') : null;
   const isSpent = async (tx: string) =>
     !!(await spentStore?.has(`spent:${tx}`)) || !!(await options.mirror?.get(`${SPENT_PREFIX}${tx}`));
   const markSpent = async (tx: string, subscription: string) => {
@@ -234,6 +259,21 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         spaces: 0,
         at,
       };
+    if (id.startsWith('space:')) {
+      const readKey = node.readKeyOf(id);
+      const carrying = subscription.pass !== undefined && node.state(subscription) !== 'lapsed';
+      return {
+        subscription: id,
+        host: node.did,
+        state: node.state(subscription),
+        paidUntil: subscription.paidUntil,
+        renews: subscription.customer !== undefined,
+        carrying,
+        spaces: carrying ? 1 : 0,
+        at,
+        ...(readKey ? { readKey } : {}),
+      };
+    }
     return {
       subscription: id,
       host: node.did,
@@ -309,12 +349,25 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     if (url.pathname === '/host/billing/webhook' && method === 'POST') {
       if (!billing) throw new Refusal(404, 'This host takes no payments');
       const paid = await billing.webhook(await readBody(req), req.headers);
-      if (paid) {
+      if (paid && 'until' in paid) {
         await node.extend(paid.subscription, paid.until, paid.customer);
         log(`subscription ${paid.subscription} paid until ${new Date(paid.until * 1000).toISOString()}`);
+      } else if (paid) {
+        // Paid once: its time is added, and a webhook delivered twice adds it once.
+        await oneAtATime(async () => {
+          if (await isSpent(`card:${paid.id}`)) return;
+          await markSpent(`card:${paid.id}`, paid.subscription);
+          const subscription = await node.subscribe(paid.subscription);
+          const until = addPlan(paid.plan, Math.max(now(), subscription.paidUntil));
+          await node.extend(paid.subscription, until);
+          log(`subscription ${paid.subscription} paid once, until ${new Date(until * 1000).toISOString()}`);
+        });
       }
       return send(res, 200, { received: true });
     }
+
+    const spaceMatch = SPACE_PATH.exec(url.pathname);
+    if (spaceMatch) return answerSpace(req, res, method, spaceMatch[1]!, spaceMatch[2] !== undefined);
 
     const match = SUBSCRIPTION_PATH.exec(url.pathname);
     if (!match) throw new Refusal(404, 'No such call');
@@ -367,7 +420,41 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     throw new Refusal(405, 'That call does not take that method');
   }
 
-  /** The pay page, its script, and its API — every call there carries a pay link a home signed */
+  /**
+   * A space's own subscription. Nothing is signed: anyone may see how it
+   * stands and pay for it, and a pass proves itself, so anyone holding one may
+   * hand it over; the host carries it only once someone has paid.
+   */
+  async function answerSpace(
+    req: IncomingMessage,
+    res: ServerResponse,
+    method: string,
+    space: string,
+    pass: boolean,
+  ): Promise<void> {
+    const id = `space:${space}`;
+    if (!pass && method === 'GET') return send(res, 200, await signedStatusOf(id));
+    if (pass && method === 'PUT') {
+      // A host carrying only named accounts carries no space for itself.
+      if (options.allow) throw new Refusal(403, new NotAllowedError().message);
+      const input = jsonFields(await readBody(req));
+      if (input.pass === undefined) throw new Refusal(400, 'A pass is needed');
+      if (options.free) await node.subscribe(id);
+      const subscription = await node.get(id);
+      if (!subscription || node.state(subscription) === 'lapsed')
+        throw new Refusal(402, 'Nobody has paid for this space yet');
+      try {
+        await node.carrySpace(id, input.pass);
+      } catch (error) {
+        throw new Refusal(400, error instanceof Error ? error.message : 'That pass could not be used');
+      }
+      log(`space ${space} carried for itself`);
+      return send(res, 200, await signedStatusOf(id));
+    }
+    throw new Refusal(405, 'That call does not take that method');
+  }
+
+  /** The pay page, its script, and its API — every call there carries a pay link a home signed, or names a space */
   async function answerPay(
     req: IncomingMessage,
     res: ServerResponse,
@@ -398,11 +485,14 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     const body = await readBody(req);
     const input = jsonFields(body);
 
+    const forSpace = id.startsWith('space:');
     if (action === null && method === 'GET') {
       return send(res, 200, {
         name,
         status: await statusOf(id),
-        card: billing?.plans ?? [],
+        // A space is paid for once at a time, by whoever chips in; an account's card renews.
+        card: forSpace ? (billing?.once?.plans ?? []) : (billing?.plans ?? []),
+        ...(forSpace ? { space: id.slice('space:'.length) } : {}),
         wallet: wallet?.offer ?? null,
         walletConnect,
       });
@@ -410,6 +500,19 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
     if (action === 'card' && method === 'POST') {
       if (!billing) throw new Refusal(404, 'This host takes no card payments');
+      if (forSpace) {
+        const once = billing.once;
+        if (!once) throw new Refusal(404, 'This host takes no one-off card payments');
+        if (typeof input.plan !== 'string' || !once.plans.some((plan) => plan.id === input.plan))
+          throw new Refusal(400, 'No such plan');
+        await node.subscribe(id);
+        const checkout = await once.checkout({
+          subscription: id,
+          plan: input.plan,
+          returnUrl: `${originOf(req, options.publicUrl)}/pay?paid=card`,
+        });
+        return send(res, 200, { url: checkout });
+      }
       if (typeof input.plan !== 'string' || !billing.plans.some((plan) => plan.id === input.plan))
         throw new Refusal(400, 'No such plan');
       const subscription = await node.subscribe(id);

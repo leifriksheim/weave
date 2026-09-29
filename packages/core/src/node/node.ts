@@ -121,6 +121,8 @@ import {
 } from '../space/notify.js';
 import {
   createHostClient,
+  createSpaceHostClient,
+  spacePayLink,
   describeHost,
   HOSTING_COLLECTION,
   HostError,
@@ -155,6 +157,7 @@ import type {
   NotifyView,
   NodeHosting,
   HostingView,
+  SpaceHostingView,
   NodeCollections,
   NodeContacts,
   NodeDirect,
@@ -368,6 +371,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         .get(event.space)
         ?.then((rt) => checkRevoked(event.space, rt))
         .catch(() => {});
+    if (event.type === 'records' && event.space !== accountSpaceId)
+      void keepSpaceHosts(event.space).catch(() => {});
     // A space joined with an invite whose record had not arrived: perhaps it has now.
     if (event.type === 'records' && event.space !== accountSpaceId) void finishJoining(event.space);
     if (event.type === 'records' && event.space === accountSpaceId) {
@@ -438,6 +443,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
                 .get(spaceId)
                 ?.then((rt) => publishProfile(spaceId, rt))
                 .catch(() => {});
+            if (role !== null) void keepSpaceHosts(spaceId).catch(() => {});
             if (record.role === role) return;
             void registry.setRole(spaceId, role).then(() => emit({ type: 'spaces' }));
           },
@@ -1270,7 +1276,109 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     return url;
   }
 
+  // ─── A space paying for itself ─────────────────────────────────────
+  //
+  // A space names the hosts it pays in `std.host` records, which only those
+  // who may manage it write. Any member's device holding the space key hands
+  // such a host the space's pass once someone has paid there, and again when
+  // the space's key changes, so the host carries it without reading it.
+
+  /** When each space last asked its hosts, and what it named then: asked again after a while, or when that changed */
+  const spaceHostsAsked = new Map<string, { at: number; named: string }>();
+  const SPACE_HOSTS_EVERY_MS = 10 * 60_000;
+
+  async function namedHosts(
+    spaceId: string,
+  ): Promise<ReadonlyArray<{ url: string; did?: string; name?: string }>> {
+    const rt = await runtime(spaceId);
+    // Only where the space keeps hosts: listing a collection makes a space held in part hold it.
+    if (!(await rt.collections()).some((c) => c.name === 'std.host' && c.version !== null)) return [];
+    const records = await rt.list<unknown>({ collection: 'std.host' });
+    return records.flatMap((record) => {
+      const body = record.body;
+      if (!record.verified || record.deleted || !isRecord(body) || typeof body.url !== 'string') return [];
+      let url: string;
+      try {
+        url = checkAddress(body.url, 'A host').origin;
+      } catch {
+        return [];
+      }
+      return [
+        {
+          url,
+          ...(typeof body.did === 'string' ? { did: body.did } : {}),
+          ...(typeof body.name === 'string' ? { name: body.name } : {}),
+        },
+      ];
+    });
+  }
+
+  /** The read key a space is carried with now, as a DID: what a host should hold */
+  const currentReadKey = (pass: SpacePass): string | undefined => pass.readKey ?? pass.space.readKey;
+
+  async function askSpaceHost(
+    spaceId: string,
+    named: { url: string; did?: string; name?: string },
+    hand: boolean,
+  ): Promise<SpaceHostingView> {
+    const name = named.name ?? new URL(named.url).hostname;
+    try {
+      const description = await describeHost(named.url);
+      // A host whose key changed since the space chose it is not the host it chose.
+      if (named.did && named.did !== description.did)
+        return { url: named.url, name, host: null, status: null, pay: null, error: 'The host’s key changed' };
+      const client = createSpaceHostClient(named.url, description.did, provider);
+      let { status } = await client.status(spaceId);
+      // Paid, or a free host that hasn't let it lapse, as for an account's subscription.
+      const paid =
+        status.state === 'active' ||
+        status.state === 'grace' ||
+        (description.free && status.state !== 'lapsed');
+      const record = hand && paid ? await findRecord(spaceId) : null;
+      if (record && (record.space.visibility === 'public' || record.key)) {
+        const pass = await makePass(record);
+        if (!status.carrying || (pass.read && status.readKey !== currentReadKey(pass)))
+          ({ status } = await client.hand(spaceId, pass));
+      }
+      const pay =
+        description.pay === undefined
+          ? null
+          : spacePayLink(new URL(description.pay, `${named.url}/`).toString(), spaceId);
+      return { url: named.url, name: named.name ?? description.name, host: description.did, status, pay };
+    } catch (error) {
+      return {
+        url: named.url,
+        name,
+        host: null,
+        status: null,
+        pay: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /** Hands the hosts a space names its pass, when they were paid and don't carry it with its key yet */
+  async function keepSpaceHosts(spaceId: string): Promise<void> {
+    if (agentSession || spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId))
+      return;
+    const hosts = await namedHosts(spaceId);
+    const named = hosts.map((h) => h.url).join(' ');
+    const asked = spaceHostsAsked.get(spaceId);
+    if (!hosts.length || (asked?.named === named && Date.now() - asked.at < SPACE_HOSTS_EVERY_MS)) return;
+    spaceHostsAsked.set(spaceId, { at: Date.now(), named });
+    for (const known of hosts) await askSpaceHost(spaceId, known, true);
+  }
+
   const hosting: NodeHosting = Object.freeze({
+    async space(spaceId: string) {
+      const hand = !agentSession;
+      const views = await Promise.all(
+        (await namedHosts(spaceId)).map((known) => askSpaceHost(spaceId, known, hand)),
+      );
+      if (hand) spaceHostsAsked.set(spaceId, { at: Date.now(), named: views.map((v) => v.url).join(' ') });
+      return views;
+    },
+
     async list() {
       return Promise.all((await hostingRecords()).map((known) => viewHosting(known)));
     },
@@ -2354,6 +2462,11 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         use: person('start using a host'),
         payPage: person('pay for hosting'),
         stop: person('stop using a host'),
+        // Open to an agent in a space it was given, as reading the space is.
+        space: async (spaceId: string) => {
+          if (!allowed(spaceId)) throw new Error('That space was not given to this agent');
+          return hosting.space(spaceId);
+        },
       }),
       // The list only when the agent was given it; changing it, or asking anyone, is the person's.
       contacts: Object.freeze({

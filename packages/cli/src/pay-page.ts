@@ -2,6 +2,9 @@
  * The host's pay page (spec/06-nodes-and-sessions.md, Hosts): where a subscription is paid, on the host's
  * own address, so no payment code ever runs next to an account's seed.
  *
+ * A space's own subscription is paid on it too, from a link naming the space
+ * (`#space=<id>`): anyone in the space may chip in, so that link is not signed.
+ *
  * The home opens it with a link signed by the subscription key, in the
  * fragment (`#s=…&at=…&sig=…`). The page keeps that in this tab's session
  * storage — it survives a trip to Stripe and back — and sends it with every
@@ -76,7 +79,7 @@ export function payPageHtml(name: string): string {
   </div>
   <div id="manage" hidden><button id="manage-button">Change card or cancel</button></div>
   <p id="error" class="error" hidden></p>
-  <p class="muted">You can close this tab when you're done. Your home shows the new date when you go back to it.</p>
+  <p class="muted" id="after">You can close this tab when you're done. Your home shows the new date when you go back to it.</p>
 </main>
 <script type="module" src="/pay/pay.js"></script>
 </body>
@@ -90,14 +93,18 @@ const show = (id, on = true) => { $(id).hidden = !on; };
 
 // The pay link: in the fragment on arrival, kept for this tab after that (a trip to Stripe drops the fragment).
 const fresh = new URLSearchParams(location.hash.slice(1));
-if (fresh.get('s')) {
+if (fresh.get('s') || fresh.get('space')) {
   try { sessionStorage.setItem('weave-pay', location.hash.slice(1)); } catch {}
   history.replaceState(null, '', location.pathname + location.search);
 }
 let kept = '';
 try { kept = sessionStorage.getItem('weave-pay') || ''; } catch {}
-const link = new URLSearchParams(fresh.get('s') ? fresh : kept);
-const auth = link.get('s') ? 'WeavePay s=' + link.get('s') + ', at=' + link.get('at') + ', sig=' + link.get('sig') : null;
+const link = new URLSearchParams(fresh.get('s') || fresh.get('space') ? fresh : kept);
+// A space is paid for by whoever chips in, so its link names it and signs nothing.
+const forSpace = !!link.get('space');
+const auth = link.get('s')
+  ? 'WeavePay s=' + link.get('s') + ', at=' + link.get('at') + ', sig=' + link.get('sig')
+  : forSpace ? 'WeavePay space=' + link.get('space') : null;
 
 async function api(method, path, body) {
   const response = await fetch('/pay/api' + path, {
@@ -137,14 +144,14 @@ function describe(status) {
   const until = new Date(status.paidUntil * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
   if (status.state === 'active' && status.paidUntil > 0) return (status.renews ? 'Renews on ' : 'Paid until ') + until + '.';
   if (status.state === 'active') return 'Free on this host.';
-  if (status.state === 'grace') return 'The payment ran out on ' + until + '. Your spaces stay online for a while longer.';
+  if (status.state === 'grace') return 'The payment ran out on ' + until + (forSpace ? '. The space stays online for a while longer.' : '. Your spaces stay online for a while longer.');
   return 'Not paid for yet.';
 }
 
 let state = null;
 async function load() {
   if (!auth) {
-    $('status').textContent = 'Open this page from your Weave home: Settings, Keep my spaces online, Payment.';
+    $('status').textContent = 'Open this page from your Weave home, or from a space you want to chip in for.';
     return;
   }
   try {
@@ -154,17 +161,18 @@ async function load() {
     if (error.status !== 401) fail(error);
     return;
   }
-  $('status').textContent = describe(state.status);
+  $('status').textContent = (forSpace ? 'Keeping a space online. Anyone in it can chip in: what you pay adds time. ' : '') + describe(state.status);
+  if (forSpace) $('after').textContent = "You can close this tab when you're done. The space shows the new date when you go back to it.";
   if (new URLSearchParams(location.search).get('paid')) {
     $('note').textContent = 'Payment received. It can take a moment to show here.';
     show('note');
   }
   // Paying again while a card renews by itself would pay twice: change the card instead.
-  const payable = !state.status.renews;
+  const payable = forSpace || !state.status.renews;
   const plans = $('card-plans');
-  plans.replaceChildren(...(state.card || []).map((plan, i) => button('Pay ' + plan.label.toLowerCase(), () => act(() => payByCard(plan.id)), i === 0)));
+  plans.replaceChildren(...(state.card || []).map((plan, i) => button((forSpace ? 'Add ' : 'Pay ') + plan.label.toLowerCase(), () => act(() => payByCard(plan.id)), i === 0)));
   show('card', payable && (state.card || []).length > 0);
-  show('manage', state.status.renews);
+  show('manage', !forSpace && state.status.renews);
   if (state.wallet && payable) {
     const w = state.wallet;
     const more = state.status.state === 'active' && state.status.paidUntil > 0 ? 'Add more time · ' : '';

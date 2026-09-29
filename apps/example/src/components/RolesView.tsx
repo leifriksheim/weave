@@ -19,6 +19,7 @@ import { RingButton } from './calls/Calls';
 import { createInviteLink } from '../spaces';
 import { styles, palette, variants } from '../styles';
 import { Person } from './Person';
+import { SpaceHosting } from './SpaceHosting';
 
 /**
  * Your own name, renamed in place. It goes on the account, and the node
@@ -83,6 +84,7 @@ export function RolesView({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
       <Members space={space} access={access} me={account.did} people={people} collections={collections} />
+      <SpaceHosting space={space} collections={collections} />
       <Roles space={space} access={access} collections={collections} />
       <WhatYouCanDo access={access} collections={collections} />
     </div>

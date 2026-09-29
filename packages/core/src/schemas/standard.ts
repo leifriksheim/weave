@@ -83,6 +83,7 @@ import {
   badge,
   award,
   setting,
+  host,
 } from './library/community.js';
 import { watch } from './library/agents.js';
 
@@ -157,7 +158,7 @@ export const standardGroups: Readonly<Record<string, Definitions>> = Object.free
     badge,
     award,
   ],
-  Settings: [setting],
+  Settings: [setting, host],
   Agents: [watch],
 });
 
