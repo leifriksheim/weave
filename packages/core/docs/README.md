@@ -48,6 +48,7 @@ implementation may do it differently and still work with this one.
 | [query-format.md](query-format.md)         | The JSON query format: filters, operators, sort and cursor, include                            |
 | [standard-library.md](standard-library.md) | Every `std.*` collection, and the conventions they follow                                      |
 | [apps-as-records.md](apps-as-records.md)   | `std.app`: the review, updates, notifications, compatibility, and how screens run              |
+| [doors.md](doors.md)                       | Doors kept as records, and how a knock becomes a contact: `std.door`, `std.knock`, the answer  |
 
 ## Rules of thumb
 
