@@ -55,6 +55,7 @@ the others wrote.
 | [calls.md](calls.md)                       | Voice and video calls in a space: the `call.*` messages, ringing, joining, leaving                           |
 | [contacts.md](contacts.md)                 | `std.contact` and `std.contact-request`: the list, sealed requests, `node.contacts`                          |
 | [doors.md](doors.md)                       | Doors kept as records, and how a knock becomes a contact: `std.door`, `std.knock`, the answer                |
+| [spaces.md](spaces.md)                     | Role presets, invite defaults, key upkeep, profiles, the space manager                                       |
 
 ## Rules of thumb
 

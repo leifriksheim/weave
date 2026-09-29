@@ -95,7 +95,9 @@ unless all of these hold (`checkSpace`):
 > roles, or with which first key. The name is left out so it can change.
 
 **Example.** Creator `did:key:zDnaeZLoH5izvFBqsJ62j3zJ2DYJWASAB7QFmkYR6aeAzhCLg`
-(the account of seed `01 02 … 10`), the `team` preset, a fixed time and nonce:
+(the account of seed `01 02 … 10`), two roles — `owner` (title `Owner`, rank
+100, permissions `["*"]`) and `editor` (title `Editor`, rank 10, permissions
+`["invite","define"]`), the creator holding `owner` — a fixed time and nonce:
 
 ```
 {"createdAt":"2026-01-01T00:00:00.000Z","creator":"did:key:zDnaeZLoH5izvFBqsJ62j3zJ2DYJWASAB7QFmkYR6aeAzhCLg","creatorRole":"owner","nonce":"AAECAwQFBgcICQoL","roles":[{"name":"owner","permissions":["*"],"rank":100,"title":"Owner"},{"name":"editor","permissions":["invite","define"],"rank":10,"title":"Editor"}],"v":2,"visibility":"public"}
@@ -116,10 +118,8 @@ To create a space a peer picks the starting roles and `creatorRole`, takes the
 current time and a fresh 12-byte random nonce, and for a private space
 generates a space key (§8.1) and derives its read key (§8.4). Then it computes
 the id. Nothing is written into the space at creation: the genesis alone
-makes the creator a member.
-
-_Implementation detail:_ with no roles given the `solo` preset is used; with
-roles but no `creatorRole`, the highest-ranked role is the creator's.
+makes the creator a member. (The library's defaults for roles and
+`creatorRole` are in [its docs](../packages/core/docs/spaces.md#presets).)
 
 _Source: `packages/core/src/space/space-access.ts` (`spaceGenesis`, `spaceIdOf`, `checkSpace`, `checkStartingRoles`), `packages/core/src/space/space-manager.ts` (`create`), `packages/core/src/types.ts` (`Space`). Tests: `packages/core/tests/space.test.ts`, `packages/core/tests/space-access.test.ts` ("the space vouches for itself")._
 
@@ -163,16 +163,11 @@ permission, `app.forum.*/moderate` matches `app.forum.post/moderate`. A role
 
 ### 2.3 Presets
 
-Presets are plain data for applications; the protocol never looks at a
-preset's name. _Implementation detail._
+Not protocol: the protocol reads whatever roles a genesis names and never
+looks at a preset's name. The library's presets are in
+[its docs](../packages/core/docs/spaces.md#presets).
 
-| Preset      | Roles (name, rank, permissions)                                   | Creator |
-| ----------- | ----------------------------------------------------------------- | ------- |
-| `solo`      | owner 100 `["*"]`                                                 | owner   |
-| `team`      | owner 100 `["*"]`; editor 10 `["invite","define"]`                | owner   |
-| `community` | admin 100 `["*"]`; moderator 50 `["invite","*/*"]`; member 0 `[]` | admin   |
-
-_Source: `packages/core/src/space/roles.ts` (`checkRole`, `permissionMatches`, `roleHolds`), `packages/core/src/space/presets.ts`, `packages/core/src/records/rules.ts` (`permissionName`). Tests: `packages/core/tests/roles.test.ts` ("permissions")._
+_Source: `packages/core/src/space/roles.ts` (`checkRole`, `permissionMatches`, `roleHolds`), `packages/core/src/records/rules.ts` (`permissionName`). Tests: `packages/core/tests/roles.test.ts` ("permissions")._
 
 ---
 
@@ -546,25 +541,26 @@ Each is judged by §4.5.
 (allowed: a role up to your own rank), then removes themselves. The new holder
 keeps managing.
 
-**Leaving on a node** (`node.spaces.leave`): the node deletes the space's
-membership record in the account registry (§13), closes the space and forgets
-it and its keys. Whether a leave must also write the self-removal above is not
-yet specified (§17).
+**Leaving on a device:** when an account stops holding a space, it deletes
+the space's membership record in the account registry (§13.2) and forgets
+the space and its keys. Whether it must also write the self-removal above is
+not yet specified (§17). What the library does is in
+[its docs](../packages/core/docs/node.md#leaving-a-space).
 
-> **Known defect:** the reference leave is local only. It writes no
-> `sys.member` self-removal (`packages/core/src/node/node.ts`, `spaces.leave`), so the
+> **Known defect:** the reference implementation's leave is local only: it
+> deletes the membership and writes no `sys.member` self-removal, so the
 > space's history still lists the account and no key change becomes due
 > (§9). A fix is expected to write the self-removal.
 > Tracked in [#15](https://github.com/leifriksheim/weave/issues/15).
 
-> **Planned:** leaving writes the self-removal. `node.spaces.leave` first
+> **Planned:** leaving writes the self-removal. A device that leaves first
 > writes the account's own `sys.member` with `role: null`, then forgets the
 > space as today. The replay then drops the account from `readers`, a key
-> change becomes due (§9.2), and a manager's node changes the key. Anyone may
+> change becomes due (§9.2), and a manager changes the key (§9.3). Anyone may
 > leave whatever their rank, so the last account at the top can leave too:
 > the space is then left with no one holding `manage`, and that is accepted.
 > Handing over (give your role, then leave) needs nothing new in the
-> protocol. Open questions: a node that cannot write (a view-only holder)
+> protocol. Open questions: a device that cannot write (a view-only holder)
 > has nothing to remove; and whether a device that follows a deleted
 > membership in the registry (§13.2) should also write the self-removal, or
 > leave it to the device where the person pressed Leave. Tracked in
@@ -669,9 +665,8 @@ the same bytes; a member record whose `invite` does not verify yields no event
 
 If the joiner already holds a role, joining is a no-op. If the invite's record
 has not arrived yet, the joiner keeps the secret and tries again as records
-arrive; once joined it forgets the secret. _Implementation detail:_ this is
-written even though the joiner is not yet a member (`joining: true`), and its
-`seen` is the joiner's heads, which must include the invite event.
+arrive; once joined it forgets the secret. The joiner writes this record
+before it is a member; its `seen` must include the invite event.
 
 > **Known defect:** a joiner can count itself a member for a moment after the
 > invite was closed elsewhere, until the close reaches it. Other members
@@ -743,10 +738,8 @@ next `&` or whitespace.
   standing: the holder writes nothing.
 - A **role** invite also carries the secret of an open `sys.invite` record.
 
-_Implementation detail_ (`node.spaces.invite`): with no role given, the node
-opens an invite for the lowest-ranked role strictly below the inviter's; when
-there is none (e.g. `solo`) it makes a view-only invite. `write: false` forces
-view-only. Each role invite gets its own fresh secret and record.
+Which kind of invite to make, and for which role, is the inviter's choice; the
+library's defaults are in [its docs](../packages/core/docs/spaces.md#invites).
 
 ### 7.6 Accepting and previewing
 
@@ -759,12 +752,8 @@ On `join`, a peer **MUST**:
 
 A carried `key` is imported as-is; its id is its hash (§8.1), so it is either
 a key the history names or one that opens nothing. It is not checked against
-`encryptionKeyId` (it may be a later key). Relays from the invite are a hint,
-used only if they pass `checkRelays` and the node holds no relay list for the
-space yet.
-
-A **preview** decodes without storing: `{ space: {id, name, visibility, creator, createdAt}, invitedBy, carriesKey, carriesWrite, role }`
-(`role` null for a view-only invite). _Implementation detail._
+`encryptionKeyId` (it may be a later key). Relays from the invite are used
+only if they pass `checkRelays` (§10).
 
 Closing an invite by its link: derive the invite DID from the link's secret
 (§7.1) and close that record.
@@ -923,8 +912,8 @@ sys.memberkey at memberkey:<hex40(accountDid)>
 
 A member key record counts only if it stands, its root's `hex40` matches its
 record key, and `key` is a valid point; the newest such version of each
-account wins. A member that can write **SHOULD** publish its member key
-(implementation: on every upkeep when it differs from what is published).
+account wins. A member that can write **SHOULD** publish its member key, and
+publish it again when it differs from what is published.
 
 > Rationale: one per space, so an account home can hand an app the member keys
 > of exactly the spaces it grants.
@@ -938,7 +927,7 @@ the next applied `key` event.
 ### 9.3 Changing the key (`sys.key`)
 
 A member holding `manage` and the current key, seeing `keyDue`, **SHOULD**
-change the key (the node does this by itself; `changeKey` does it by hand):
+change the key:
 
 1. generate a new space key `K'`;
 2. `earlier` = `sealWith(K', [base64url(raw) of every key it holds], "weave/space-earlier-keys/v1|<spaceId>|<K'.id>")`;
@@ -992,9 +981,9 @@ _Source: `packages/core/src/node/space-runtime.ts` (`learnKeys`, `rotateKey`, `b
 **`sys.relays`** at `relays:space`: `{ relays: string[] }` — where the
 space's members meet. Valid (`checkRelays`) when it is a list of at most 8
 distinct URLs, each at most 200 characters, each `wss://`, or `ws://` only on
-`localhost`, `127.0.0.1` or `[::1]`. Only `manage` may set it. A node holding
-`manage` in a space with no relays yet names its own. Until the space names
-some, a node uses the relays from the invite that brought it.
+`localhost`, `127.0.0.1` or `[::1]`. Only `manage` may set it. Until the space
+names some, members meet on relays they learn elsewhere, such as the invite
+that brought them (§7.4).
 
 **`sys.keepers`** at `keepers:space`: `{ keepers: [{ did, name }], copies }`
 — nodes that hold every record of the space, and how many a write should
@@ -1014,74 +1003,32 @@ An account tells a space who it is with one record:
 
 ```
 sys.profile at profile:<hex40(accountDid)>
-{ name: string (trimmed, 1–64 chars), contactKey?: <compressed P-256 point, base64url> }
+{ name: string, contactKey?: <compressed P-256 point, base64url> }
 ```
 
+`sys.profile` is reserved for this. It is encrypted in a private space (§8.2).
 `contactKey` is the public half of the account's contact key
 ([01 §9.1](01-identity.md)), to which others seal what only the account may
-open.
+open, and by which they find it ([07](07-doors.md)).
 
-It is encrypted in a private space (§8.2) and written with `retain`, so older
-versions stay.
+A reader **MUST** take a profile, and its `contactKey`, only from a version of
+`sys.profile` that verifies, stands, and whose root's `hex40` is the record
+key; anything else written at that key is ignored. So nobody can name, or
+plant a contact key for, another account.
 
-A reader resolves each profile key to one profile:
+How a reader picks among an account's versions, and when the library
+publishes a profile, is not protocol; see
+[its docs](../packages/core/docs/spaces.md#profiles).
 
-- consider versions newest first; skip any whose collection is not
-  `sys.profile`, that does not verify, whose root's `hex40` is not the record
-  key, or that does not stand;
-- a deleted version ends the search (no profile);
-- the first remaining version gives `name` (trimmed, first 64 characters;
-  empty → no profile), `did` = root, `updatedAt` = its `createdAt`;
-- `contactKey` is taken from the newest remaining version that carries a valid
-  P-256 point, so a newer version written without one does not hide it.
-
-A writer that does not hold the contact key **MUST** carry forward the
-`contactKey` of its current profile. _Implementation detail:_ the node
-publishes the account's name (from the registry, §13) into every space it
-opens and again on a rename, except the registry, the contacts space and
-agent sessions; a non-member publishes nothing.
-
-> **Planned:** profiles, round two.
->
-> - **A name per space** ("in this space, call me…"). The record is already
->   per space; what is missing is a way to say the name was chosen for this
->   space, so the node's publishing of the account name (above) does not
->   overwrite it on the next rename.
-> - **An avatar**, as a reference to an image on the profile. Depends on a
->   way for a record to carry a file, which is not specified yet (the blob
->   stores of [05](05-sync-and-storage.md) hold mirrors, not files records
->   point to).
-> - **Private nicknames for others**: a name you give someone, seen only by
->   you. It belongs in the account's own spaces, not in the shared one;
->   `std.contact`'s `name` ([contacts](../packages/core/docs/contacts.md))
->   already does this for contacts.
->
-> Open questions: the field names; the avatar's size limit and format; and
-> whether nicknames for people who are not contacts get a collection of their
-> own. `profile:` keys may also change (§8.6).
-
-_Source: `packages/core/src/node/space-runtime.ts` (`profileKey`, `loadProfiles`, `publishProfile`), `packages/core/src/node/node.ts` (`publishProfile`). Tests: `packages/core/tests/profiles.test.ts`, `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored")._
+_Source: `packages/core/src/node/space-runtime.ts` (`profileKey`, `loadProfiles`). Tests: `packages/core/tests/profiles.test.ts`, `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored")._
 
 ---
 
 ## 12. The space manager
 
-_Implementation detail throughout._ The space manager keeps, per space, in a
-storage adapter (sealed at rest, see [05](05-sync-and-storage.md)):
-
-| Storage key           | Value                                                                                         |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `space:<id>`          | JSON space object                                                                             |
-| `spacekey:<id>`       | JSON `{ keys: [{ id, raw, createdAt, version }], current }` — every key held, `raw` base64url |
-| `spaceinvite:<id>`    | base64url invite secret, until used                                                           |
-| `spacerole:<id>`      | the role last held — a hint for listing, never a gate                                         |
-| `spacememberkey:<id>` | base64url member key scalar, for a node given it without the vault key                        |
-| `spacerelays:<id>`    | JSON relay list last heard                                                                    |
-
-`remove` deletes all six. Joining again with a secret while one is waiting
-keeps the newer one.
-
-_Source: `packages/core/src/space/space-manager.ts`. Tests: `packages/core/tests/space.test.ts` ("space manager")._
+Not protocol: how a device keeps the spaces it holds and their keys is its
+own, and nothing of it is exchanged. The library's space manager is described
+in [its docs](../packages/core/docs/spaces.md#the-space-manager).
 
 ---
 
@@ -1096,11 +1043,16 @@ label:
 ```
 nonce   = base64url( HKDF-SHA256(vaultKey, salt = empty, info = "<label>/nonce/v1", 32)[0..12] )
 rawKey  = HKDF-SHA256(vaultKey, salt = empty, info = "<label>/key/v1", 32)
-space   = { visibility: "private", creator: accountDid, roles: solo.roles, creatorRole: "owner",
-            createdAt: "1970-01-01T00:00:00.000Z", nonce,
+space   = { visibility: "private", creator: accountDid,
+            roles: [{ name: "owner", title: "Owner", rank: 100, permissions: ["*"] }],
+            creatorRole: "owner", createdAt: "1970-01-01T00:00:00.000Z", nonce,
             readKey: readDid(rawKey), encryptionKeyId: base64url(SHA-256(rawKey)) }
 id      = cid(canonical(genesis))            // §1.2
 ```
+
+The roles are exactly that one role, title included; in the genesis they
+read `[{"name":"owner","permissions":["*"],"rank":100,"title":"Owner"}]`. Any
+other bytes give another id.
 
 | Label                    | Space                | Name               |
 | ------------------------ | -------------------- | ------------------ |
@@ -1121,7 +1073,6 @@ account is ignored by readers), and agents write nothing.
 | Collection    | Record key                           | Body                                  | Meaning                                                                                                                          |
 | ------------- | ------------------------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `sys.joined`  | `space:<spaceId>`                    | `{ space: spaceId, invite }`          | The account belongs to the space. `invite` is a **view-only** invite (§7.5) — secrets are never kept. Deleted: the account left. |
-| `sys.profile` | `profile`                            | `{ name }`                            | The account's name. Newest wins.                                                                                                 |
 | `sys.carrier` | `carrier:<hex40(carrySpaceId)>`      | `{ space, invite, did, name, since }` | A carrier the account uses (§14).                                                                                                |
 | `sys.notify`  | `notify:<base32 of 10 random bytes>` | `NotifyWhen` (§15)                    | A subscription.                                                                                                                  |
 | `sys.hosting` | —                                    | —                                     | Hosting; see [06](06-nodes-and-sessions.md).                                                                                     |
@@ -1129,12 +1080,12 @@ account is ignored by readers), and agents write nothing.
 A membership counts only if it verifies, its root is the account, and (unless
 deleted) its key is `space:<body.space>`.
 
-Every device of the account follows the registry: a live membership for a
-space it does not hold → join its invite; a deleted membership for one it
-holds → close and forget it locally; a space held but never recorded →
-record it. When a space's key changes, a device that learns the new key
-rewrites the membership with an invite carrying it, so new devices join with
-the current key.
+A device of the account **SHOULD** follow the registry, holding the spaces it
+lists and no others, and **SHOULD** keep each membership's invite carrying the
+space's current key, so a new device joins with it. How the library does this
+is in [06](06-nodes-and-sessions.md) §1.3. The registry holds other records
+of the library's own too, such as the account's name
+([docs](../packages/core/docs/spaces.md#profiles)).
 
 _Source: `packages/core/src/space/account-registry.ts`, `packages/core/src/node/node.ts` (`memberships`, `remember`, `forget`, `reconcileOnce`, `ownName`). Tests: `packages/core/tests/node.test.ts` ("the account registry"), `packages/core/tests/account.test.ts` ("the account name"), `packages/core/tests/space-access.test.ts` ("invite secrets are never kept")._
 
@@ -1143,7 +1094,7 @@ _Source: `packages/core/src/space/account-registry.ts`, `packages/core/src/node/
 ## 14. Passes and carry spaces
 
 A **carrier** (an extension, a host) stores and forwards a space it cannot
-read. It gets a **carry space**: a private space the account creates (`solo`)
+read. It gets a **carry space**: a private space the account creates, with itself the only member,
 and shares with it by a view-only invite recorded in `sys.carrier` (§13.2). In
 it the account keeps one **pass** per space to carry:
 
@@ -1196,10 +1147,10 @@ after) or a browser extension's (`chrome-extension://`, `moz-extension://` or
 
 `app` names the app that proposed the subscription, by the origin the browser
 reported; the account home writes it on its behalf when the person says yes
-([06](06-nodes-and-sessions.md) §2.11), and that app shows what it matches. A
-home adds no subscription of its own; one without `app` was made by an earlier
-home, or proposed by an earlier extension (so an extension's origin stays
-valid), and nothing shows it now. `app` is not copied to the carried form.
+([06](06-nodes-and-sessions.md) §2.11). How apps show what a subscription
+matches is not protocol; see
+[the library's docs](../packages/core/docs/spaces.md#subscriptions). `app` is
+not copied to the carried form.
 
 Carriers cannot read, so each device with the account key copies every
 subscription into every carry space with the value replaced by tags:
