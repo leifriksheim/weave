@@ -224,7 +224,7 @@ exposes them:
   for two, so they need a session note with `with: "*"` (whole-account access).
 - `node.direct` — [direct-messages.md](direct-messages.md): `reachable`, `send`
   and `list`. Needs the account's member key for the space.
-- `node.doors` — [07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md). Needs the contact key; knocking and
+- `node.doors` — [doors.md](doors.md), [07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md). Needs the contact key; knocking and
   accepting also need whole-account access.
 - `node.carriers`, `node.hosting`, `node.notifications` — [spec 06 §4](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md).
 - `node.iceServers()` — the configured ICE servers plus TURN servers a relay
@@ -262,7 +262,7 @@ Closing the agent leaves the underlying node running.
 An agent granted `scope: account` gets a `*` note and the account key in its
 grant ([spec 06 §2.5](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)), so the contact list is within its note to read. A home must not
 give an agent the contact key: with it, an agent could open contact requests
-and knocks on the account's doors ([07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md)).
+and knocks on the account's doors ([doors.md](doors.md)).
 
 _Source: `packages/core/src/node/node.ts` (`asAgent`). Tests: `packages/core/tests/agents.test.ts` ("an agent acting for a person")._
 
@@ -281,7 +281,7 @@ _Source: `packages/core/src/session/connection.ts`, `packages/core/src/node/watc
 
 ## Doors
 
-`node.doors` ([06 — Nodes, sessions and apps](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)):
+`node.doors` ([doors.md](doors.md), [spec 07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md)):
 
 | Call                               | Does                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -289,10 +289,10 @@ _Source: `packages/core/src/session/connection.ts`, `packages/core/src/node/watc
 | `open({ relays?, name?, label? })` | Opens a door. Relays default to this node's relays (up to 3); name to the account's name                                                                                                                                                                                                                           |
 | `close(id)`                        | Deletes the `std.door`                                                                                                                                                                                                                                                                                             |
 | `clear(id)`                        | Purges every knock at the door, from every relay it names                                                                                                                                                                                                                                                          |
-| `knock(code, { note? })`           | [spec 07 §7](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md), returns `{ space }`                                                                                                                                                                                                                |
+| `knock(code, { note? })`           | [the exchange](doors.md#the-exchange), returns `{ space }`                                                                                                                                                                                                                                                         |
 | `knocks()`                         | Fetches every open door's topic from every relay it names, opens and checks ([spec 07 §6](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md); opened results are cached by id), settles sent knocks and writes owed answers; returns `{ id, door, from, name, note?, pairSpace, at }`, newest first |
 | `sent()`                           | Your unanswered knocks: `{ space, name, at }`                                                                                                                                                                                                                                                                      |
-| `accept(id)`                       | [spec 07 §7](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md), returns the new `ContactView`                                                                                                                                                                                                      |
+| `accept(id)`                       | [the exchange](doors.md#the-exchange), returns the new `ContactView`                                                                                                                                                                                                                                               |
 | `dismiss(id)`                      | Purges one knock                                                                                                                                                                                                                                                                                                   |
 
 ## Client conveniences
