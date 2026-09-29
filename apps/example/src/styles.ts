@@ -183,6 +183,12 @@ export function injectBaseStyles(): void {
       background: ${surface.card}; border: 1px solid ${surface.lineStrong}; border-radius: 12px;
       box-shadow: 0 8px 30px rgba(0,0,0,.12); font-size: 14px;
     }
+    .call-overlay {
+      position: fixed; z-index: 40; inset: 0; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center;
+      background: rgba(0,0,0,.35);
+    }
+    .call-incoming { width: min(340px, 100%); align-items: center; text-align: center; gap: 16px; padding: 24px; }
     .call-ringing { display: inline-flex; border-radius: 50%; animation: call-ring 1.2s ease-out infinite; }
     @keyframes call-ring { 0% { box-shadow: 0 0 0 0 rgba(26,127,55,.45); } 100% { box-shadow: 0 0 0 12px rgba(26,127,55,0); } }
     @media (prefers-reduced-motion: reduce) { .call-ringing { animation: none; } }

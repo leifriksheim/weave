@@ -116,14 +116,24 @@ once merge into the lower id.
 1. The caller starts (or joins) the call, sends `call.ring` to the callee's
    account and shows `outgoing: ringing`.
 2. The callee's devices ring for 45 s unless answered, declined or cancelled.
+   A ring also stops when the caller's device has left the call, or has not
+   been heard in it for `gone` (15 s): a page that closed without a
+   `call.leave` rings nobody.
 3. Answering: stop ringing, join the call (with that id), send
    `call.answered` to the caller's account and to one's own account (so other
-   devices stop). Declining: `call.declined` the same way.
+   devices stop). Joining a call that is ringing the device, by any route, is
+   answering it. Declining: `call.declined` the same way.
 4. The caller on `call.answered` clears `outgoing`; on `call.declined` shows
-   `declined` and, if nobody else is in the call 2.5 s later, leaves.
+   `declined` and, if nobody else is in the call 2.5 s later, leaves. A
+   `call.here` in the call from the rung account clears `outgoing` too, so an
+   answer lost on the way still stops the ringing.
 5. After 45 s unanswered, the caller sends `call.cancel`, writes a missed-call
    record ([`std.call`](standard-library.md#stdcall)), shows `missed`, and
    leaves 2.5 s later if alone.
+
+A device must not ring again for a call it stopped ringing for (answered,
+declined, cancelled or timed out) in the last 90 s: the same `call.ring` can
+arrive twice.
 
 Group calls do not ring: a call going on shows to everyone with the space
 open.

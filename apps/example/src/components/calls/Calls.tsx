@@ -11,8 +11,9 @@ import { styles, palette } from '../../styles';
 /**
  * Calls, drawn once for the whole app, above whatever space is on screen: the
  * call you're in (a panel in the corner, or the whole stage), whoever is
- * ringing you, and the call you were in before a reload. None of it lives in
- * a space's screen, so moving between spaces never touches the call.
+ * ringing you (in front of everything, so it can't be missed), and the call
+ * you were in before a reload. None of it lives in a space's screen, so moving
+ * between spaces never touches the call.
  */
 export function CallLayer({
   spaces,
@@ -31,10 +32,20 @@ export function CallLayer({
 
   return (
     <>
+      {state.ringing.length > 0 && (
+        <div className="call-overlay">
+          {state.ringing.map((ring, i) => (
+            <Ringing
+              key={ring.id}
+              ring={ring}
+              spaceName={spaceNamed(ring.space)}
+              inCall={state.current}
+              first={i === 0}
+            />
+          ))}
+        </div>
+      )}
       <div className="call-stack" aria-live="polite">
-        {state.ringing.map((ring) => (
-          <Ringing key={ring.id} ring={ring} spaceName={spaceNamed(ring.space)} inCall={state.current} />
-        ))}
         {state.rejoin && !state.current && (
           <Rejoin call={state.rejoin} spaceName={spaceNamed(state.rejoin.space)} />
         )}
@@ -130,6 +141,11 @@ function CallPanel({
           onClick={() => setStage(!stage)}
         />
       </header>
+
+      {/* Voices play here, apart from the tiles: a video element with no picture yet may never start, and moving the tiles to picture-in-picture shouldn't cut anyone off. */}
+      {call.people.map((person) =>
+        person.stream ? <Voice key={person.peer} stream={person.stream} /> : null,
+      )}
 
       {outgoing}
       {call.problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{call.problem}</p>}
@@ -237,8 +253,8 @@ function Tile({
   const showVideo = camera && !!stream?.getVideoTracks().length;
   return (
     <figure className="call-tile">
-      {/* Always there when there is a stream, so their voice plays with the camera off too. Your own is silent. */}
-      {stream && <Video stream={stream} muted={self} mirror={self} hidden={!showVideo} />}
+      {/* Picture only: voices play in the panel (Voice). */}
+      {stream && <Video stream={stream} mirror={self} hidden={!showVideo} />}
       {!showVideo && (
         <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
           <Avatar did={did} size={40} />
@@ -253,17 +269,7 @@ function Tile({
   );
 }
 
-function Video({
-  stream,
-  muted,
-  mirror,
-  hidden,
-}: {
-  stream: MediaStream;
-  muted: boolean;
-  mirror: boolean;
-  hidden: boolean;
-}) {
+function Video({ stream, mirror, hidden }: { stream: MediaStream; mirror: boolean; hidden: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const video = ref.current;
@@ -274,7 +280,7 @@ function Video({
       ref={ref}
       autoPlay
       playsInline
-      muted={muted}
+      muted
       style={{
         position: 'absolute',
         inset: 0,
@@ -288,69 +294,135 @@ function Video({
   );
 }
 
+/**
+ * One person's voice. Its own element, holding only their sound, so it starts
+ * whether or not their camera is on. Where the browser won't play sound before
+ * the page has been touched, it starts at the next click or key.
+ */
+function Voice({ stream }: { stream: MediaStream }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  const track = stream.getAudioTracks()[0] ?? null;
+  useEffect(() => {
+    const audio = ref.current;
+    if (!audio || !track || typeof MediaStream === 'undefined') return;
+    audio.srcObject = new MediaStream([track]);
+    const play = () => void audio.play().then(stopWaiting, () => {});
+    const stopWaiting = () => {
+      document.removeEventListener('pointerdown', play);
+      document.removeEventListener('keydown', play);
+    };
+    audio.play().catch(() => {
+      document.addEventListener('pointerdown', play);
+      document.addEventListener('keydown', play);
+    });
+    return () => {
+      stopWaiting();
+      audio.srcObject = null;
+    };
+  }, [track]);
+  return <audio ref={ref} autoPlay hidden />;
+}
+
 // ─── Someone ringing ─────────────────────────────────────────────────
 
 function Ringing({
   ring,
   spaceName,
   inCall,
+  first,
 }: {
   ring: IncomingCall;
   spaceName: string;
   inCall: CurrentCall | null;
+  first: boolean;
 }) {
   const { calls } = useCalls();
   const people = peopleFrom(useProfiles(ring.space));
   const [busy, setBusy] = useState(false);
+  const name = nameOf(ring.from, people);
   const answer = (video: boolean) => {
     if (!calls || !mayLeaveFor(inCall, 'answer this one')) return;
     setBusy(true);
     void calls.answer(ring.id, { video }).catch(() => setBusy(false));
   };
   return (
-    <div className="call-card" role="alertdialog" aria-label={`${nameOf(ring.from, people)} is calling`}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span className="call-ringing">
-          <Avatar did={ring.from} size={36} />
-        </span>
-        <div style={{ minWidth: 0 }}>
-          <p style={{ fontWeight: 600, color: palette.ink.strong }}>{nameOf(ring.from, people)} is calling</p>
-          <p style={{ fontSize: 13, color: palette.ink.muted }}>in {spaceName}</p>
-        </div>
+    <div
+      className="call-card call-incoming"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={`ring-${ring.id}`}
+    >
+      <span className="call-ringing">
+        <Avatar did={ring.from} size={72} />
+      </span>
+      <div>
+        <p id={`ring-${ring.id}`} style={{ fontSize: 18, fontWeight: 600, color: palette.ink.strong }}>
+          {name}
+        </p>
+        <p style={{ fontSize: 14, color: palette.ink.muted }}>is calling you · {spaceName}</p>
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button
+      <div style={{ display: 'flex', gap: 24, justifyContent: 'center' }}>
+        <Choice
+          icon="hangUp"
+          label="Decline"
+          tone="danger"
+          disabled={busy}
           onClick={() => void calls?.decline(ring.id)}
+        />
+        <Choice
+          icon="phone"
+          label="Answer"
+          tone="good"
           disabled={busy}
-          data-variant="danger"
-          style={{ ...styles.smallButton, flex: 1, color: palette.accent.danger }}
-        >
-          Decline
-        </button>
-        <button
+          autoFocus={first}
           onClick={() => answer(false)}
-          disabled={busy}
-          data-variant="quiet"
-          style={{ ...styles.smallButton, flex: 1 }}
-        >
-          Answer
-        </button>
-        <button
-          onClick={() => answer(true)}
-          disabled={busy}
-          data-variant="primary"
-          style={{
-            ...styles.smallButton,
-            flex: 1,
-            background: palette.ink.strong,
-            color: '#fff',
-            border: `1px solid ${palette.ink.strong}`,
-          }}
-        >
-          With video
-        </button>
+        />
+        <Choice icon="camera" label="With video" tone="good" disabled={busy} onClick={() => answer(true)} />
       </div>
     </div>
+  );
+}
+
+/** A big round button with its word under it, for answering */
+function Choice({
+  icon,
+  label,
+  tone,
+  disabled,
+  autoFocus = false,
+  onClick,
+}: {
+  icon: keyof typeof ICONS;
+  label: string;
+  tone: 'good' | 'danger';
+  disabled: boolean;
+  autoFocus?: boolean;
+  onClick: () => void;
+}) {
+  const color = tone === 'good' ? palette.accent.good : palette.accent.danger;
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, fontSize: 13 }}>
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        style={{
+          width: 52,
+          height: 52,
+          borderRadius: 26,
+          padding: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: color,
+          border: `1px solid ${color}`,
+          color: '#fff',
+        }}
+      >
+        <Icon name={icon} size={20} />
+      </button>
+      {label}
+    </label>
   );
 }
 

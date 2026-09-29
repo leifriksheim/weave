@@ -265,6 +265,8 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     IncomingCall & { readonly peer: string; readonly timer: ReturnType<typeof setTimeout> }
   >();
   const ringsFrom = new Map<string, number[]>();
+  /** Calls that stopped ringing here, and when: a ring for one again is the same ring arriving twice */
+  const rang = new Map<string, number>();
   const members = new Map<string, { readonly at: number; readonly dids: Promise<ReadonlySet<string>> }>();
   let active: Active | null = null;
   /** A start under way, so a second one waits for it rather than racing it */
@@ -401,6 +403,14 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
         }
       }
     }
+    // A caller who went without saying so is ringing nobody.
+    for (const [id, ring] of ringing) {
+      if (now - ring.since > goneMs && !inCall(ring.space, id)?.has(ring.peer)) {
+        stopRinging(id);
+        dropped = true;
+      }
+    }
+    for (const [id, at] of rang) if (now - at > ringMs * 2) rang.delete(id);
     if (dropped) changed();
   }
   const sweeper = setInterval(sweep, Math.max(250, Math.min(heartbeatMs, goneMs / 3)));
@@ -627,6 +637,8 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
             // Someone just arrived: tell them we're here now, not at our next heartbeat.
             if (isNew) void send(space, hereMessage(call), peer);
             if (!call.links.has(peer) && node.sessionDid < peer) void offer(call, peer, from);
+            // The person you're ringing is in the call, however they got there.
+            if (call.outgoing?.state === 'ringing' && call.outgoing.to === from) call.outgoing = null;
           } else if (message.call < call.id && call.links.size === 0) {
             // Two calls started at once in one space: the lower id wins, and everyone moves into it.
             call.id = message.call;
@@ -646,7 +658,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
         return;
       }
       case 'call.ring': {
-        if (active?.id === message.call || ringing.has(message.call)) return;
+        if (active?.id === message.call || ringing.has(message.call) || rang.has(message.call)) return;
         if (!withinRingAllowance(from) || !(await isMember(space, from))) return;
         const timer = later(() => stopRinging(message.call), ringMs);
         ringing.set(message.call, { id: message.call, space, from, peer, since: Date.now(), timer });
@@ -700,7 +712,14 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     if (!ring) return;
     clearTimeout(ring.timer);
     ringing.delete(id);
+    rang.set(id, Date.now());
     changed();
+  }
+
+  /** Tells the caller, and your own other devices, that you're in the call they rang you for */
+  async function sayAnswered(ring: { readonly id: string; readonly space: string; readonly from: string }) {
+    await send(ring.space, { type: 'call.answered', call: ring.id }, ring.from);
+    await send(ring.space, { type: 'call.answered', call: ring.id }, node.did);
   }
 
   /** Ends a call nobody else joined, a moment after the ringing came to nothing */
@@ -810,6 +829,12 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
         call.heartbeat = setInterval(() => void send(space, hereMessage(call)), heartbeatMs);
         unref(call.heartbeat);
         await send(space, hereMessage(call));
+        // Joining a call that is ringing you answers it, whichever button did it.
+        const ring = ringing.get(call.id);
+        if (ring) {
+          stopRinging(call.id);
+          void sayAnswered(ring);
+        }
         for (const [peer, presence] of inCall(space, call.id) ?? []) {
           call.seen.add(presence.account);
           call.startedAt = Math.min(call.startedAt, presence.since);
@@ -950,10 +975,10 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
     async answer(id: string, opts: CallOptions = {}) {
       const ring = ringing.get(id);
       if (!ring) throw new Error('That call isn’t ringing any more.');
+      // Quiet at once: the camera and microphone can take a while to ask for.
       stopRinging(id);
       await start(ring.space, { ...opts, call: id });
-      await send(ring.space, { type: 'call.answered', call: id }, ring.from);
-      await send(ring.space, { type: 'call.answered', call: id }, node.did);
+      await sayAnswered(ring);
     },
 
     async decline(id: string) {
@@ -1038,6 +1063,7 @@ export function createCalls(node: P2PNode, options: CallsOptions = {}): Calls {
       clearInterval(sweeper);
       for (const ring of ringing.values()) clearTimeout(ring.timer);
       ringing.clear();
+      rang.clear();
       forgetRejoin();
       unsubscribe();
       listeners.clear();
