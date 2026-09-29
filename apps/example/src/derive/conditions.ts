@@ -10,7 +10,7 @@
  * a subscription's `where` (spec 03 §15), or a rule's test. Pure functions,
  * like schema-ui.
  */
-import type { Condition, NodeCollection } from '@weaveprotocol/core';
+import type { Condition, Filter, NodeCollection } from '@weaveprotocol/core';
 import { choicesOf, fieldsOf, type Choice } from './schema-ui';
 import { fieldTypeOf, type FieldTypeName } from './field-types';
 
@@ -180,6 +180,41 @@ export function whereOf(clauses: ReadonlyArray<Clause>, me: string): Condition {
   const parts = clauses.filter(complete).map((clause) => conditionOf(clause, me));
   if (parts.length === 0) return undefined;
   return parts.length === 1 ? parts[0] : { and: parts };
+}
+
+/** One condition as a query's filter, on the body field it names */
+function filterOf(clause: Clause, me: string): Filter {
+  const value = clause.me ? me : clause.value;
+  const on = (condition: unknown): Filter => ({ [clause.field]: condition });
+  switch (clause.op) {
+    case 'is':
+      return on(value);
+    case 'isNot':
+      return on({ $ne: value });
+    case 'more':
+      return on({ $gt: value });
+    case 'less':
+    case 'before':
+      return on({ $lt: value });
+    case 'atLeast':
+    case 'after':
+      return on({ $gte: value });
+    case 'atMost':
+      return on({ $lte: value });
+    case 'includes':
+      return on({ $contains: value });
+    case 'filled':
+      return on({ $exists: true, $nin: EMPTY });
+    case 'empty':
+      return { $or: [on({ $exists: false }), on({ $in: EMPTY })] };
+  }
+}
+
+/** Every complete condition as a query's `where`; undefined when there are none */
+export function filterFrom(clauses: ReadonlyArray<Clause>, me: string): Filter | undefined {
+  const parts = clauses.filter(complete).map((clause) => filterOf(clause, me));
+  if (parts.length === 0) return undefined;
+  return parts.length === 1 ? parts[0] : { $and: parts };
 }
 
 /**

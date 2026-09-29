@@ -1199,25 +1199,39 @@ _Source: `packages/core/src/records/checks.ts` (`checkChecks`, `runChecks`, `MAX
 
 ## 8. Topics and blind tags
 
-A collection may name up to eight body fields as **topics** (`channel`,
-`mentions`). Each record then carries, on its outside, a keyed hash of each
-value of each topic field — so a keeper that cannot read a private body can
+A collection may name up to eight **topics**: body fields (`mentions`) and link
+roles (`link:channel`). Each record then carries, on its outside, a keyed hash
+of each value of each topic — so a keeper that cannot read a private body can
 still match "messages in #design" or "messages that mention me", learning which
 records share a topic but not which topic.
 
-### 8.1 Topic fields
+### 8.1 Topics
 
-`topics` is a list of at most 8 distinct field paths, each matching
-`^[a-zA-Z_][a-zA-Z0-9_]{0,63}(\.[a-zA-Z_][a-zA-Z0-9_]{0,63}){0,3}$` (up to
-four dotted segments).
+`topics` is a list of at most 8 distinct strings, each one of:
 
-The **values** of a topic field in a body: follow the path one segment at a
+- a **field path**, matching
+  `^[a-zA-Z_][a-zA-Z0-9_]{0,63}(\.[a-zA-Z_][a-zA-Z0-9_]{0,63}){0,3}$` (up to
+  four dotted segments);
+- a **link role**, `link:` followed by a role (§5.1), matching
+  `^link:[a-z][a-zA-Z0-9]{0,63}$`, as `onePer` names one (§7.3).
+
+The **values** of a field path in a body: follow the path one segment at a
 time, through objects only (an array or a scalar on the way gives no values).
 At the end:
 
 - a string, a boolean, or a finite number → that one value;
 - an array → each element that is a string, boolean or finite number (others skipped);
 - anything else, or missing → no values.
+
+The **values** of a link role: the `to` of **every** link of the version with
+that `rel`, in any order — the links sealed with the body in a private space,
+the envelope's `links` in a public one (§5.1). No link of that role → no
+values.
+
+> Rationale: a record that points at another record says so with a link, and
+> everything that follows links (conformance, `onePer`, checks, queries) sees
+> it. A link topic lets a keeper match on that link too, so a reference never
+> has to be copied into the body to be matched without reading.
 
 ### 8.2 The tag key
 
@@ -1235,29 +1249,34 @@ In a private space the key is tied to the space key the body was sealed with
 ### 8.3 Tags
 
 ```
-tag = base64url( HMAC-SHA-256( tagKey, UTF-8( collection ‖ 0x00 ‖ field ‖ 0x00 ‖ canonical(value) ) )[0..16) )
+tag = base64url( HMAC-SHA-256( tagKey, UTF-8( collection ‖ 0x00 ‖ topic ‖ 0x00 ‖ canonical(value) ) )[0..16) )
 ```
 
-— 16 bytes, 22 base64url characters. `canonical(value)` is §1, so the string
+— 16 bytes, 22 base64url characters. `topic` is the string as `topics` names
+it: `mentions`, `link:channel`. `canonical(value)` is §1, so the string
 `"design"` is hashed with its quotes and differs from the number or boolean of
-the same spelling. The collection and field are included, so one value in two
+the same spelling. The collection and topic are included, so one value in two
 places gives two tags.
 
-A record's `tags` are the tags of every value of every topic field of its
-body, **each once, sorted** (ascending by UTF-16 code units), **truncated to
-the first 64**. A record with no topic values carries no `tags` member. A
-delete carries none.
+A record's `tags` are the tags of every value of every topic of it, **each
+once, sorted** (ascending by UTF-16 code units), **truncated to the first 64**.
+A record with no topic values carries no `tags` member. A delete carries none.
 
-Example: public space `bimjoifogypbqrtuich3e375d67y43znkjsjnp4q4qhe7gwf7u74a`,
-collection `app.chat.message`, field `channel`, value `"design"` →
-`77UGGhMoLC5C1rXEcsqWKw`.
+Examples, in the public space
+`bimjoifogypbqrtuich3e375d67y43znkjsjnp4q4qhe7gwf7u74a`:
+
+- collection `app.chat.message`, field `channel`, value `"design"` →
+  `77UGGhMoLC5C1rXEcsqWKw`;
+- collection `std.message`, topic `link:channel`, a link
+  `{ "rel": "channel", "to": "mfrggzdfmztwq2lknnwg23tpoa" }` →
+  `KmBza5PO__zHr48zfCH8Pw`.
 
 ### 8.4 Checking
 
 A peer that can read a non-delete version's body, and holds the key it was
-sealed with, MUST recompute its tags under the `topics` in force (as of `seen`)
-and refuse the version if the recomputed set differs from the set in `tags`
-(order and duplicates ignored). With no topics in force, a version carrying
+sealed with, MUST recompute its tags from its body and links under the
+`topics` in force (as of `seen`) and refuse the version if the recomputed set
+differs from the set in `tags` (order and duplicates ignored). With no topics in force, a version carrying
 any tag is refused. A peer that cannot read the body, or holds only a stub,
 does not check (see the known defect in §4.9).
 
@@ -1267,7 +1286,7 @@ To ask a keeper for records on a topic, a reader computes the tag the same way
 > Rationale: a blind index (as in CipherSweet) — equality only, never ranges or
 > substrings. The keeper learns co-occurrence and frequency, nothing more.
 
-_Source: `packages/core/src/records/topics.ts` (`checkTopics`, `topicValues`, `topicKey`, `topicTag`, `tagsFor`, `sameTags`, `MAX_TOPICS`, `MAX_TAGS`), `packages/core/src/node/space-runtime.ts` (`tagKey`, `tagProblem`, `write`). Tests: `packages/core/tests/topics.test.ts` (all)._
+_Source: `packages/core/src/records/topics.ts` (`checkTopics`, `topicValues`, `topicKey`, `topicTag`, `tagsFor`, `sameTags`, `MAX_TOPICS`, `MAX_TAGS`, `LINK`), `packages/core/src/node/space-runtime.ts` (`tagKey`, `tagProblem`, `write`). Tests: `packages/core/tests/topics.test.ts` (all; "topic tags on links" for link roles)._
 
 ---
 
@@ -1375,7 +1394,7 @@ _Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`),
 | `seen`                                      | ≤ 64 ids, each 1–128 chars                                                           |
 | Links per version                           | ≤ 32                                                                                 |
 | Link role                                   | `^[a-z][a-zA-Z0-9]{0,63}$`                                                           |
-| Topic fields per collection                 | ≤ 8, ≤ 4 path segments                                                               |
+| Topics per collection                       | ≤ 8; a field of ≤ 4 path segments, or `link:<role>`                                  |
 | Tags per version                            | ≤ 64                                                                                 |
 | Permission name                             | `^[a-z][a-zA-Z0-9]{0,39}$`                                                           |
 | Checks per collection                       | ≤ 16; ≤ 2,000 parts in all, ≤ 32 deep                                                |

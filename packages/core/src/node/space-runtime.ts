@@ -881,7 +881,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (opened.body === null) return null;
     const key = tagKey(opened.encrypted ? sealedKeyId(expression.body) : null);
     if (!key) return null;
-    const expected = await tagsFor(await key, expression.collection, topics, opened.body);
+    const expected = await tagsFor(await key, expression.collection, topics, opened.body, opened.links);
     return sameTags(expression.tags, expected)
       ? null
       : { ok: false, reason: `Its topic tags don't match what it says` };
@@ -2365,7 +2365,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (topics.length) {
         const sealedWith = looksEncrypted(payload) ? sealedKeyId(payload) : null;
         const key = tagKey(sealedWith);
-        if (key) tags = await tagsFor(await key, collection, topics, body);
+        if (key) tags = await tagsFor(await key, collection, topics, body, links);
       }
     }
 

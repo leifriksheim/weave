@@ -2,10 +2,10 @@
  * @module records/topics
  * Topic tags: letting a node that can't read a record still match what it's about.
  *
- * A collection names a few fields as its topics — `channel`, `mentions`. When a
- * record is written, each value of each topic field becomes a tag on the
- * outside of the record: a keyed hash of the collection, the field and the
- * value. Someone who wants "messages in #design" or "messages that mention
+ * A collection names a few topics: body fields (`mentions`) or link roles
+ * (`link:channel`). When a record is written, each value of each topic — a
+ * field's value, a link's target key — becomes a tag on the outside of the
+ * record: a keyed hash of the collection, the topic and the value. Someone who wants "messages in #design" or "messages that mention
  * me" works out the same tag and hands it to a keeper, which compares tags
  * without learning what any of them stand for.
  *
@@ -21,6 +21,7 @@
 import { canonicalize } from '../schema/expression.js';
 import { base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { isRecord } from '../utils/guards.js';
+import type { Link } from '../types.js';
 
 /** Topic fields one collection may name */
 const MAX_TOPICS = 8;
@@ -29,25 +30,39 @@ const MAX_TAGS = 64;
 /** Bytes of HMAC kept per tag: 128 bits, as a truncated MAC */
 const TAG_BYTES = 16;
 
-/** A field of the body, or a dotted path into it: `channel`, `address.city` */
+/** A field of the body, or a dotted path into it: `mentions`, `address.city` */
 const FIELD = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}(\.[a-zA-Z_][a-zA-Z0-9_]{0,63}){0,3}$/;
+/** A link role, as `onePer` names one: `link:channel` */
+const LINK = /^link:[a-z][a-zA-Z0-9]{0,63}$/;
 
 /** Why a list of topic fields can't be a collection's, or null */
 export function checkTopics(topics: unknown, at = 'topics'): string | null {
   if (topics === undefined) return null;
   if (!Array.isArray(topics) || topics.length > MAX_TOPICS)
-    return `${at} must be a list of at most ${MAX_TOPICS} field names`;
-  for (const field of topics) {
-    if (typeof field !== 'string' || !FIELD.test(field))
-      return `${at}: "${String(field)}" is not a field name, like "channel" or "author.name"`;
+    return `${at} must be a list of at most ${MAX_TOPICS} topics`;
+  for (const topic of topics) {
+    if (typeof topic !== 'string' || !(FIELD.test(topic) || LINK.test(topic)))
+      return `${at}: "${String(topic)}" is not a field name or link role, like "mentions" or "link:channel"`;
   }
-  return new Set(topics).size === topics.length ? null : `${at} names a field twice`;
+  return new Set(topics).size === topics.length ? null : `${at} names a topic twice`;
 }
 
-/** The values of a topic field in a body: a text, number or yes/no, or each of those in a list. Anything else has none. */
-export function topicValues(body: unknown, field: string): Array<string | number | boolean> {
+/**
+ * The values of a topic. A link role's are the keys its links point at, each
+ * link of that role. A field's are a text, number or yes/no in the body, or
+ * each of those in a list; anything else has none.
+ */
+export function topicValues(
+  body: unknown,
+  topic: string,
+  links: ReadonlyArray<Link> = [],
+): Array<string | number | boolean> {
+  if (topic.startsWith('link:')) {
+    const rel = topic.slice('link:'.length);
+    return links.filter((link) => link.rel === rel).map((link) => link.to);
+  }
   let value: unknown = body;
-  for (const part of field.split('.')) {
+  for (const part of topic.split('.')) {
     if (!isRecord(value)) return [];
     value = value[part];
   }
@@ -80,29 +95,31 @@ export async function topicKey(
   );
 }
 
-/** The tag for one value of one topic field of a collection */
+/** The tag for one value of one topic of a collection */
 export async function topicTag(
   key: CryptoKey,
   collection: string,
-  field: string,
+  topic: string,
   value: string | number | boolean,
 ): Promise<string> {
-  // Collection and field go in too, so one value in two places is two tags.
-  const input = utf8Encode(`${collection}\u0000${field}\u0000${canonicalize(value)}`);
+  // Collection and topic go in too, so one value in two places is two tags.
+  const input = utf8Encode(`${collection}\u0000${topic}\u0000${canonicalize(value)}`);
   const mac = new Uint8Array(await globalThis.crypto.subtle.sign('HMAC', key, input));
   return base64UrlEncode(mac.subarray(0, TAG_BYTES));
 }
 
-/** Every tag a body carries under a collection's topics: sorted, each once, at most `MAX_TAGS` */
+/** Every tag a record carries under a collection's topics: sorted, each once, at most `MAX_TAGS` */
 export async function tagsFor(
   key: CryptoKey,
   collection: string,
   topics: ReadonlyArray<string>,
   body: unknown,
+  links: ReadonlyArray<Link> = [],
 ): Promise<string[]> {
   const tags = new Set<string>();
-  for (const field of topics) {
-    for (const value of topicValues(body, field)) tags.add(await topicTag(key, collection, field, value));
+  for (const topic of topics) {
+    for (const value of topicValues(body, topic, links))
+      tags.add(await topicTag(key, collection, topic, value));
   }
   return [...tags].sort().slice(0, MAX_TAGS);
 }

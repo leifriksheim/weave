@@ -87,6 +87,9 @@ export function Chat(props: AppProps) {
 
   const addChannel = async (name: string) => {
     if (!hasChannels) await node.collections.define(space.id, channel);
+    // Messages defined before they linked their channel can't be written in one.
+    if (!collections.find((c) => c.name === message.name)?.links.channel)
+      await node.collections.define(space.id, message);
     const last = channels?.at(-1)?.body?.position ?? null;
     const made = await node.records.put(space.id, channel.name, { name, position: positionBetween(last) });
     setPlace({ kind: 'room', channel: made.key });
@@ -189,7 +192,7 @@ function Room({
     space.writable &&
     roleHolds(access?.role, DEFINE) &&
     !!defined(message.name) &&
-    !defined(message.name)?.topics.includes('mentions');
+    !(defined(message.name)?.topics.includes('mentions') && defined(message.name)?.links?.channel);
   const [draft, setDraft] = useState('');
   const [asking, setAsking] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -197,14 +200,14 @@ function Room({
   const input = useRef<HTMLInputElement>(null);
   const stuck = useRef(true);
 
-  const where = { channel: inChannel ? inChannel.key : { $exists: false } };
+  const where = { 'link:channel': inChannel ? inChannel.key : { $exists: false } };
   const messages = useLive(
     space.id,
     async () => (await node.records.query(space.id, { ...CHAT, where })).records,
     [inChannel?.key],
   );
   const roomName = inChannel?.body?.name ?? GENERAL;
-  const inRoom = inChannel ? { channel: inChannel.key } : {};
+  const inRoom = inChannel ? [{ rel: 'channel', to: inChannel.key }] : [];
   // Where what arrived since you last looked begins: a line above it, the way chat apps mark it.
   // Fixed when the chat opens, so reading it doesn't move the line away.
   const [after] = useState(() => (since ? Date.parse(since) : Infinity));
@@ -237,13 +240,11 @@ function Room({
     setReplying(null);
     const body = {
       text,
-      ...inRoom,
       ...(mentions.length ? { mentions } : {}),
       ...(to?.root && to.root !== me ? { replyingTo: to.root } : {}),
     };
-    void (to && linksReplies
-      ? node.records.put(space.id, message.name, body, { links: [{ rel: 'replyTo', to: to.key }] })
-      : node.records.put(space.id, message.name, body));
+    const links = [...inRoom, ...(to && linksReplies ? [{ rel: 'replyTo', to: to.key }] : [])];
+    void node.records.put(space.id, message.name, body, { links });
   };
 
   const sendPoll = async (question: string, options: string[]) => {
@@ -252,8 +253,8 @@ function Room({
     await node.records.put(
       space.id,
       message.name,
-      { text: `Poll: ${question}`, ...inRoom },
-      { links: [{ rel: 'shares', to: asked.key }] },
+      { text: `Poll: ${question}` },
+      { links: [...inRoom, { rel: 'shares', to: asked.key }] },
     );
     setAsking(null);
   };
@@ -281,7 +282,8 @@ function Room({
           }}
         >
           <span style={{ flex: '1 1 240px' }}>
-            Update this space's messages so mentions and replies notify people even when the app is closed.
+            Update this space's messages so channels, mentions and replies work everywhere, and notify people
+            even when the app is closed.
           </span>
           <button
             onClick={() => {

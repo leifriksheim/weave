@@ -10,6 +10,28 @@ It uses the same data folder layout a browser does. Point `--home` at the folder
 you picked in Chrome and the CLI, the daemon and the browser all share one
 account.
 
+## At a terminal, and anywhere else
+
+Run `weave` alone at a terminal and pick what to do: set up an account,
+invite someone, join a space, connect or run an agent, run a bot, add a
+watch. Any command asks for what it still needs there: a space picked from
+your spaces, a role, a collection, a record, a yes before something that
+can't be undone.
+
+Anywhere else (an agent like Claude Code, a script, CI) nothing is ever
+asked, since nobody would answer. A missing value fails at once and names
+the flag that gives it:
+
+```
+$ weave spaces invite
+weave: Missing --space. Its id is in `weave spaces list`.
+```
+
+So every question has a flag, and a person and an agent reach the same result
+by different roads. `--yes` answers yes ahead of time. Prompts draw on
+stderr: what a command prints as data stays on stdout, JSON unless it goes
+straight to a person (an invite then prints on its own line, to copy).
+
 ## Quick start
 
 In this repo, `npm run dev` (at the root) already runs a node with a throwaway
@@ -232,6 +254,11 @@ background.
 
 ### Other models
 
+At a terminal, the first `weave agent` asks where the model runs (Claude,
+DeepSeek, Kimi, OpenAI, OpenRouter, Ollama or another server), which model
+and at what price, and keeps the answer in `~/.weave/agent/model.json`.
+`weave agent --setup` asks again; flags and the environment win over it.
+
 `weave agent` thinks with Anthropic's models by default. `--provider openai`
 talks to any server that speaks OpenAI's Chat Completions instead: OpenAI,
 OpenRouter, DeepSeek, Kimi, Groq, Mistral, or a model on your own machine.
@@ -273,10 +300,31 @@ as itself, and every member's device checks what it writes against its role.
 People mention it by its own name.
 
 ```bash
+weave --home ~/club-bot agent --bot
+```
+
+At a terminal that is all: it makes the bot's account (with its own recovery
+code), asks for an invite an admin made, with the role the bot should hold,
+and joins. By flags alone:
+
+```bash
 weave --home ~/club-bot init --name "Club Bot" --passphrase
-weave --home ~/club-bot spaces join --invite 'https://…#invite=…'   # an invite with the role it should hold
+weave --home ~/club-bot spaces join --invite 'https://…#invite=…'
 weave --home ~/club-bot agent --bot --no-chat
 ```
+
+Someone who may instruct it adds what it watches for, as themselves:
+
+```bash
+weave watch add        # at a terminal: space, what sets it off, from whom, what to do
+weave watch add --space <id> --name "Answer when mentioned" --collection std.message \
+  --where '{"mentions":{"$contains":"$me"}}' --from member --do "Answer them briefly"
+weave watch add --space <id> --name Mornings --every "0 8 * * 1-5" --do "Post today's plan"
+```
+
+`weave watch add` defines `std.watch` in the space first when it has none and
+you may add collections; `weave collections define --standard <std.name>`
+does that for any collection in the library.
 
 It runs the watches in a space written by members holding
 `std.watch/instruct` there (admins and moderators in the community preset),

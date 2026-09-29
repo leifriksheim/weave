@@ -1,72 +1,27 @@
 /**
- * Rules: "when a poll has more than 10 votes, close it". A person builds one
- * by picking, from what the space's collections say their records hold, and
- * it runs on their own devices while this app is open on one of them.
+ * Rules, as this app builds them: "when a poll has more than 10 votes, close
+ * it", picked from what the space's collections say their records hold. What
+ * runs is the library's (`std.rule`, `runRules` in `@weaveprotocol/core/schemas`):
+ * a query and a condition. What was picked is kept beside it (`picked`), so
+ * the rule can be shown in words and changed again.
  *
- * A rule is an ordinary record in the space (`app.rule`), so everyone there
- * can see what runs, and who made it. Only its maker's devices run it, and
- * whatever it writes is written as them: a rule can do nothing its maker
- * couldn't do by hand. Each time it acts it leaves a run (`app.rule.run`),
- * one per rule per record by construction (`onePer`), which is how it acts
- * once for each record and not again — and the rule's history, for anyone.
- * A run also names the record its rule wrote, and nothing a rule wrote sets
- * off a rule: "when a message is added, post in chat" would otherwise answer
- * itself forever, and so would two rules that answer each other.
- *
- * Nothing here is protocol: a peer that has never heard of rules syncs and
- * judges these records like any other. Two devices of the maker open at once
- * may both act before either's run arrives at the other; running rules on
- * one always-on node instead is the way out of that (issue #109).
+ * It runs on its maker's devices while this app is open on one of them;
+ * running rules on one always-on node instead is issue #109.
  */
 import { useEffect, useRef } from 'react';
 import { useAccount, useNode } from '@weaveprotocol/core/react';
-import { recordHolds } from '@weaveprotocol/core';
-import type { DefineCollection, NodeCollection, NodeRecord, P2PNode } from '@weaveprotocol/core';
-import { comment, fragments, message, task } from '@weaveprotocol/core/schemas';
-import { attachable, isObject, quickAddBody, recordLabel } from './derive/schema-ui';
-import { clausesWords, clauseFields, whereOf, type Clause, type ClauseField } from './derive/conditions';
+import type { Condition, NodeCollection, QueryRecord } from '@weaveprotocol/core';
+import { IT, runRules, type Rule, type RuleAction, type RuleWhen } from '@weaveprotocol/core/schemas';
+import { attachable, isObject, quickAddBody } from './derive/schema-ui';
+import {
+  clausesWords,
+  clauseFields,
+  filterFrom,
+  whereOf,
+  type Clause,
+  type ClauseField,
+} from './derive/conditions';
 import { collectionLabel } from './derive/schema-ui';
-
-export const ruleCollection = {
-  name: 'app.rule',
-  title: 'Rule',
-  description: 'When something happens in the space, do something. Runs on its maker’s devices.',
-  schema: {
-    type: 'object',
-    properties: {
-      name: fragments.words(120),
-      when: { type: 'object' },
-      then: { type: 'object' },
-      paused: { type: 'boolean' },
-      since: fragments.when('Nothing before this sets it off'),
-    },
-    required: ['name', 'when', 'then', 'since'],
-  },
-  permissions: ['moderate'],
-  rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
-} as const satisfies DefineCollection;
-
-export const runCollection = {
-  name: 'app.rule.run',
-  title: 'Rule run',
-  description: 'A rule acted on a record: once each, whichever device did it.',
-  schema: {
-    type: 'object',
-    properties: {
-      did: fragments.words(500),
-      ok: { type: 'boolean' },
-      at: fragments.when(),
-      made: { type: 'string', description: 'The record it wrote, if it wrote a new one' },
-    },
-    required: ['did', 'ok', 'at'],
-  },
-  links: {
-    rule: fragments.one(['app.rule'], 'The rule that ran'),
-    about: fragments.about('The record it ran for'),
-  },
-  permissions: ['moderate'],
-  rules: { onePer: ['link:rule', 'link:about'], edit: 'creator', delete: ['creator', 'can:moderate'] },
-} as const satisfies DefineCollection;
 
 /** "…has more than 10 votes": how many records point at it, of one collection, perhaps only some of them */
 export interface CountClause {
@@ -77,35 +32,89 @@ export interface CountClause {
   readonly clauses?: ReadonlyArray<Clause>;
 }
 
-export interface RuleWhen {
+/** What a person picked: records of a collection, some of their fields, and perhaps how many point at them */
+// A type, not an interface, so it is also the plain object a rule's `picked` is.
+export type Picked = {
   readonly collection: string;
   readonly clauses: ReadonlyArray<Clause>;
   readonly count?: CountClause;
+};
+
+/** A rule as the builder starts or reopens it */
+export interface PickedRule {
+  readonly name: string;
+  readonly picked: Picked;
+  readonly then: RuleAction;
 }
+
+/** The include a counted rule reads, which `{count}` in its text fills in */
+const COUNTED = 'count';
+
+function isClause(value: unknown): value is Clause {
+  return isObject(value) && typeof value.field === 'string' && typeof value.op === 'string';
+}
+
+function isCount(value: unknown): value is CountClause {
+  return (
+    isObject(value) &&
+    typeof value.collection === 'string' &&
+    typeof value.rel === 'string' &&
+    typeof value.op === 'string' &&
+    typeof value.value === 'number'
+  );
+}
+
+/** What was picked for a rule, when this app built it */
+export function pickedOf(rule: Rule): Picked | null {
+  const picked = rule.picked;
+  if (!isObject(picked) || typeof picked.collection !== 'string' || !Array.isArray(picked.clauses))
+    return null;
+  const clauses: ReadonlyArray<unknown> = picked.clauses;
+  return {
+    collection: picked.collection,
+    clauses: clauses.filter(isClause),
+    ...(isCount(picked.count) ? { count: picked.count } : {}),
+  };
+}
+
+const COUNT_OPERATOR: Readonly<Record<CountClause['op'], string>> = {
+  more: '>',
+  atLeast: '>=',
+  less: '<',
+  atMost: '<=',
+  is: '==',
+};
 
 /**
- * What a rule does. `{title}` in text becomes what the record is called,
- * `{count}` how many it counted. `add` makes a record in any collection that
- * one line of text can make, pointing at the record through `link` when given.
+ * What was picked, as the rule runs it: the collection as a query, counting
+ * what links to it as an include, and every condition as one. `me` becomes
+ * the maker, who alone runs it.
  */
-export type RuleAction =
-  | { readonly kind: 'notify'; readonly text: string }
-  | { readonly kind: 'add'; readonly collection: string; readonly text: string; readonly link?: string }
-  | { readonly kind: 'set'; readonly field: string; readonly value: string | number | boolean };
-
-export interface Rule {
-  readonly name: string;
-  readonly when: RuleWhen;
-  readonly then: RuleAction;
-  readonly paused?: boolean;
-  readonly since: string;
-}
-
-export interface RuleRun {
-  readonly did: string;
-  readonly ok: boolean;
-  readonly at: string;
-  readonly made?: string;
+export function compile(picked: Picked, me: string): RuleWhen {
+  const parts: Condition[] = [];
+  const own = whereOf(picked.clauses, me);
+  if (own !== undefined) parts.push(own);
+  const count = picked.count;
+  if (count) parts.push({ [COUNT_OPERATOR[count.op]]: [{ var: `included.${COUNTED}` }, count.value] });
+  const only = count ? filterFrom(count.clauses ?? [], me) : undefined;
+  return {
+    query: {
+      collection: picked.collection,
+      ...(count
+        ? {
+            include: {
+              [COUNTED]: {
+                rel: count.rel,
+                from: count.collection,
+                count: true,
+                ...(only ? { where: only } : {}),
+              },
+            },
+          }
+        : {}),
+    },
+    ...(parts.length ? { holds: parts.length === 1 ? parts[0] : { and: parts } } : {}),
+  };
 }
 
 export const ACTIONS: ReadonlyArray<{ kind: RuleAction['kind']; label: string; hint: string }> = [
@@ -114,22 +123,23 @@ export const ACTIONS: ReadonlyArray<{ kind: RuleAction['kind']; label: string; h
   { kind: 'set', label: 'Change it', hint: 'Set one of its fields' },
 ];
 
-/** Where a rule can add a record for one of `about`: the links first that name it, then those to anything */
+/** Where a rule can add a record, and the links a new one could point at the record it is about by */
 export interface AddTarget {
   readonly collection: NodeCollection;
   readonly links: ReadonlyArray<string>;
 }
 
 /**
- * The collections a rule can add to, for a record of `about`: those a line of
- * text can make a record of, with the links a new one could point at it by.
- * Those that can point at it come first.
+ * The collections a rule can add to, for a record of `about`: those one line
+ * of text can make a record of (`quickAddBody`), with the links a new one
+ * could point at it by, those naming it before those to anything. Those that
+ * can point at it come first.
  */
 export function addable(collections: ReadonlyArray<NodeCollection>, about: string): ReadonlyArray<AddTarget> {
   const pointing = attachable(collections, about);
   const found = collections
     .filter(
-      (c) => c.version !== null && !c.name.startsWith('app.rule') && quickAddBody(c.schema, 'text') !== null,
+      (c) => c.version !== null && !c.name.startsWith('std.rule') && quickAddBody(c.schema, 'text') !== null,
     )
     .map((collection) => {
       const rels = pointing.filter((a) => a.collection.name === collection.name).map((a) => a.rel);
@@ -138,6 +148,18 @@ export function addable(collections: ReadonlyArray<NodeCollection>, about: strin
     });
   return [...found.filter((t) => t.links.length > 0), ...found.filter((t) => t.links.length === 0)];
 }
+
+/** The link an added record points at the rule's record by, if any */
+export const linkToIt = (then: RuleAction): string | undefined =>
+  then.kind === 'add' ? then.links?.find((l) => l.to === IT)?.rel : undefined;
+
+/** An add action, pointing at the rule's record by `link` when given */
+export const addAction = (collection: string, text: string, link?: string): RuleAction => ({
+  kind: 'add',
+  collection,
+  text,
+  ...(link ? { links: [{ rel: link, to: IT }] } : {}),
+});
 
 const COUNT_WORDS: Readonly<Record<CountClause['op'], string>> = {
   more: 'more than',
@@ -150,35 +172,6 @@ export const COUNT_OPS = (['atLeast', 'more', 'less', 'atMost', 'is'] as const).
   op,
   label: COUNT_WORDS[op],
 }));
-
-function isRule(body: unknown): body is Rule {
-  return (
-    isObject(body) &&
-    typeof body.name === 'string' &&
-    isObject(body.when) &&
-    typeof body.when.collection === 'string' &&
-    Array.isArray(body.when.clauses) &&
-    isObject(body.then) &&
-    typeof body.then.kind === 'string' &&
-    typeof body.since === 'string'
-  );
-}
-
-/** Rules saved before a rule could add to any collection named three; read as what they did */
-const EARLIER: Readonly<Record<string, { collection: string; link?: string }>> = {
-  message: { collection: message.name, link: 'shares' },
-  comment: { collection: comment.name, link: 'about' },
-  task: { collection: task.name },
-};
-
-/** A rule record's body, when it is one */
-export function ruleOf(record: NodeRecord): Rule | null {
-  if (!isRule(record.body)) return null;
-  const then: unknown = record.body.then;
-  const earlier = isObject(then) && typeof then.kind === 'string' ? EARLIER[then.kind] : undefined;
-  if (!earlier || !isObject(then) || typeof then.text !== 'string') return record.body;
-  return { ...record.body, then: { kind: 'add', text: then.text, ...earlier } };
-}
 
 const plural = (word: string) => (/(s|x|ch|sh)$/.test(word) ? `${word}es` : `${word}s`);
 
@@ -193,7 +186,7 @@ const article = (word: string) => (/^[aeiou]/.test(word) ? 'an' : 'a');
 
 /** "When a poll has more than 10 votes" */
 export function whenWords(
-  when: RuleWhen,
+  when: Picked,
   collections: ReadonlyArray<NodeCollection>,
   nameOf?: (did: string) => string,
 ): string {
@@ -223,7 +216,7 @@ export function thenWords(
       return `notify me: “${then.text}”`;
     case 'add': {
       const thing = noun(collections, then.collection);
-      return `add ${article(thing)} ${thing}${then.link ? ' about it' : ''}: “${then.text}”`;
+      return `add ${article(thing)} ${thing}${linkToIt(then) ? ' about it' : ''}: “${then.text}”`;
     }
     case 'set': {
       const field = fieldsFor(collections, collection).find((f) => f.name === then.field);
@@ -239,205 +232,31 @@ export function thenWords(
   }
 }
 
+/** A whole rule in words; one made elsewhere, by hand or by an agent, by what it looks at */
+export function ruleWords(
+  rule: Rule,
+  collections: ReadonlyArray<NodeCollection>,
+  nameOf?: (did: string) => string,
+): string {
+  const picked = pickedOf(rule);
+  const queried = rule.when.query.collection;
+  const collection = picked?.collection ?? (typeof queried === 'string' ? queried : queried.name);
+  const when = picked
+    ? whenWords(picked, collections, nameOf)
+    : `When ${article(noun(collections, collection))} ${noun(collections, collection)} matches its query${rule.when.holds ? ' and condition' : ''}`;
+  return `${when}, ${thenWords(rule.then, collections, collection)}.`;
+}
+
 function fieldsFor(collections: ReadonlyArray<NodeCollection>, name: string): ReadonlyArray<ClauseField> {
   const found = collections.find((c) => c.name === name);
   return found ? clauseFields(found) : [];
 }
 
-/** `{title}` and `{count}` filled in */
-function fill(text: string, record: NodeRecord, schema: NodeCollection['schema'], count: number | null) {
-  return text.replaceAll('{title}', recordLabel(record, schema)).replaceAll('{count}', String(count ?? ''));
-}
-
-/** The records a rule counts for one record, as the rule's maker sees them */
-async function counted(
-  node: P2PNode,
-  space: string,
-  record: NodeRecord,
-  count: CountClause,
-  me: string,
-): Promise<ReadonlyArray<NodeRecord>> {
-  const pointing = await node.records.linked(space, record.key, {
-    rel: count.rel,
-    collection: count.collection,
-  });
-  const where = whereOf(count.clauses ?? [], me);
-  const kept: NodeRecord[] = [];
-  for (const one of pointing)
-    if (
-      one.verified &&
-      (where === undefined || (await recordHolds(where, { ...one, author: one.createdBy })))
-    )
-      kept.push(one);
-  return kept;
-}
-
-function compare(op: CountClause['op'], n: number, value: number): boolean {
-  switch (op) {
-    case 'more':
-      return n > value;
-    case 'atLeast':
-      return n >= value;
-    case 'less':
-      return n < value;
-    case 'atMost':
-      return n <= value;
-    case 'is':
-      return n === value;
-  }
-}
-
-/** One record a rule is about, and whether it holds for it now */
-export interface RuleMatch {
-  readonly record: NodeRecord;
-  readonly count: number | null;
-  /** When it came to hold, as far as can be told: the record's last change, or the newest thing counted */
-  readonly moment: number;
-}
-
-/** The records a rule holds for now, newest first. `me` is the rule's maker, for "me" in its conditions. */
-export async function matching(
-  node: P2PNode,
-  space: string,
-  when: RuleWhen,
-  me: string,
-  limit = 200,
-): Promise<ReadonlyArray<RuleMatch>> {
-  const records = await node.records.list(space, { collection: when.collection, newestFirst: true, limit });
-  const where = whereOf(when.clauses, me);
-  const found: RuleMatch[] = [];
-  for (const record of records) {
-    if (!record.verified || record.deleted || record.body === null) continue;
-    if (where !== undefined && !(await recordHolds(where, { ...record, author: record.createdBy }))) continue;
-    let moment = Date.parse(record.updatedAt);
-    let count: number | null = null;
-    if (when.count) {
-      const them = await counted(node, space, record, when.count, me);
-      count = them.length;
-      if (!compare(when.count.op, count, when.count.value)) continue;
-      for (const one of them) moment = Math.max(moment, Date.parse(one.createdAt));
-    }
-    found.push({ record, count, moment });
-  }
-  return found;
-}
-
-/** Does what a rule says, as the person running it; says what happened */
-async function act(
-  node: P2PNode,
-  space: string,
-  rule: Rule,
-  match: RuleMatch,
-  collections: ReadonlyArray<NodeCollection>,
-): Promise<RuleRun> {
-  const at = new Date().toISOString();
-  const schema = collections.find((c) => c.name === match.record.collection)?.schema ?? null;
-  const text = (template: string) => fill(template, match.record, schema, match.count);
-  const then = rule.then;
-  try {
-    switch (then.kind) {
-      case 'notify': {
-        const shown = typeof globalThis.Notification === 'function' && Notification.permission === 'granted';
-        if (shown)
-          new Notification(rule.name, { body: text(then.text), tag: `${rule.name}:${match.record.key}` });
-        return {
-          did: shown ? `Notified: ${text(then.text)}` : 'Notifications are off in this browser',
-          ok: shown,
-          at,
-        };
-      }
-      case 'add': {
-        const target = collections.find((c) => c.name === then.collection && c.version !== null);
-        const body = target ? quickAddBody(target.schema, text(then.text)) : null;
-        const thing = noun(collections, then.collection);
-        if (!target || !body) return { did: `This space has no ${plural(thing)} to add to`, ok: false, at };
-        const made = await node.records.put(space, target.name, body, {
-          links: then.link ? [{ rel: then.link, to: match.record.key }] : [],
-        });
-        return { did: `Added ${article(thing)} ${thing}: ${text(then.text)}`, ok: true, at, made: made.key };
-      }
-      case 'set': {
-        const current = await node.records.get(space, match.record.key);
-        const body = isObject(current?.body) ? current.body : null;
-        if (!current || !body) return { did: 'It is not there any more', ok: false, at };
-        if (!(await node.records.can(space, 'edit', current.key)))
-          return { did: 'Only whoever made it can change it', ok: false, at };
-        await node.records.update(space, current.key, { ...body, [then.field]: then.value });
-        return {
-          did: `${text('“{title}”')}: ${thenWords(then, collections, rule.when.collection).replace(/^set its/, 'set')}`,
-          ok: true,
-          at,
-        };
-      }
-    }
-  } catch (error) {
-    return { did: error instanceof Error ? error.message : String(error), ok: false, at };
-  }
-}
-
-/** The records each rule has run for, by rule key, and the records rules wrote */
-async function runsIn(
-  node: P2PNode,
-  space: string,
-): Promise<{ by: Map<string, Set<string>>; made: Set<string> }> {
-  const runs = await node.records.list(space, { collection: runCollection.name });
-  const by = new Map<string, Set<string>>();
-  const made = new Set<string>();
-  for (const run of runs) {
-    if (isObject(run.body) && typeof run.body.made === 'string') made.add(run.body.made);
-    const rule = run.links.find((l) => l.rel === 'rule')?.to;
-    const about = run.links.find((l) => l.rel === 'about')?.to;
-    if (!rule || !about) continue;
-    if (!by.has(rule)) by.set(rule, new Set());
-    by.get(rule)!.add(about);
-  }
-  return { by, made };
-}
-
-/** Runs every rule this account made, in one space, once: acting for each record it newly holds for */
-async function runSpace(node: P2PNode, space: string, me: string, busy: Set<string>): Promise<void> {
-  const collections = await node.collections.list(space);
-  const defined = (name: string) => collections.some((c) => c.name === name && c.version !== null);
-  if (!defined(ruleCollection.name) || !defined(runCollection.name)) return;
-  const rules = (await node.records.list(space, { collection: ruleCollection.name })).filter(
-    (record) => record.createdBy === me && record.verified,
-  );
-  if (rules.length === 0) return;
-  const { by: runs, made } = await runsIn(node, space);
-  for (const record of rules) {
-    const rule = ruleOf(record);
-    if (!rule || rule.paused || !defined(rule.when.collection)) continue;
-    const since = Date.parse(rule.since);
-    for (const match of await matching(node, space, rule.when, me)) {
-      const claim = `${record.key} ${match.record.key}`;
-      if (
-        match.moment < since ||
-        made.has(match.record.key) ||
-        runs.get(record.key)?.has(match.record.key) ||
-        busy.has(claim)
-      )
-        continue;
-      busy.add(claim);
-      try {
-        const links = [
-          { rel: 'rule', to: record.key },
-          { rel: 'about', to: match.record.key },
-        ];
-        // Claimed first, so a second look while this acts leaves it alone.
-        const run = await node.records.put(
-          space,
-          runCollection.name,
-          { did: 'Running…', ok: true, at: new Date().toISOString() },
-          { links },
-        );
-        const done = await act(node, space, rule, match, collections);
-        if (done.made) made.add(done.made);
-        await node.records.update(space, run.key, done, { links });
-      } finally {
-        busy.delete(claim);
-      }
-    }
-  }
+/** A rule's `notify`, on this device: a browser notification, when they are on */
+function notify(title: string, text: string, record: QueryRecord): boolean {
+  if (typeof globalThis.Notification !== 'function' || Notification.permission !== 'granted') return false;
+  new Notification(title, { body: text, tag: `${title}:${record.key}` });
+  return true;
 }
 
 /** How long after a burst of changes in a space its rules are looked at */
@@ -458,7 +277,7 @@ export function useRunRules(): void {
     const run = (space: string) => {
       const before = running.get(space) ?? Promise.resolve();
       const next = before
-        .then(() => (live ? runSpace(node, space, did, busy.current) : undefined))
+        .then(() => (live ? runRules(node, space, did, { busy: busy.current, notify }) : undefined))
         .catch(() => {});
       running.set(space, next);
     };
@@ -487,19 +306,22 @@ export function useRunRules(): void {
 /**
  * Starting points for a space, from what its collections say about themselves:
  * what a rule is for, before anyone has made one. Nothing here knows about
- * polls or tasks; a collection someone made yesterday gets ideas too.
+ * polls or channels; a collection someone made yesterday gets ideas too.
  */
 export function ideas(
   collections: ReadonlyArray<NodeCollection>,
-): ReadonlyArray<{ title: string; rule: Omit<Rule, 'since'> }> {
+): ReadonlyArray<{ title: string; rule: PickedRule }> {
   const live = collections.filter(
-    (c) => c.schema !== null && c.version !== null && !c.name.startsWith('app.rule'),
+    (c) => c.schema !== null && c.version !== null && !c.name.startsWith('std.rule'),
   );
-  const found: Array<{ title: string; rule: Omit<Rule, 'since'> }> = [];
+  const found: Array<{ title: string; rule: PickedRule }> = [];
   for (const collection of live) {
     const thing = noun(collections, collection.name);
     const fields = fieldsFor(collections, collection.name);
-    // Another collection pointing at this one by a link of its own, as votes do at a poll
+    const targets = addable(collections, collection.name).filter(
+      (t) => t.collection.name !== collection.name,
+    );
+    // Another collection that belongs under this one by a link naming it, as votes do under a poll
     const counted = attachable(live, collection.name).find(
       (a) =>
         a.collection.name !== collection.name && (a.collection.links[a.rel]?.to !== '*' || a.rel === 'about'),
@@ -508,13 +330,28 @@ export function ideas(
       const many = noun(collections, counted.collection.name, true);
       const count = { collection: counted.collection.name, rel: counted.rel, op: 'atLeast' as const };
       const yes = fields.find((f) => f.kind === 'yesno');
+      // Something added under it by a link that names it, like a message in a channel
+      const under = targets.find((t) => t.links[0] && t.collection.links[t.links[0]]?.to !== '*');
+      if (under)
+        found.push({
+          title: `Say so under ${article(thing)} ${thing} once it has 100 ${many}`,
+          rule: {
+            name: `Busy ${plural(thing)}`,
+            picked: { collection: collection.name, clauses: [], count: { ...count, value: 100 } },
+            then: addAction(
+              under.collection.name,
+              `“{title}” just passed {count} ${many} 🎉`,
+              under.links[0],
+            ),
+          },
+        });
       found.push(
         yes
           ? {
               title: `Mark ${article(thing)} ${thing} “${yes.label.toLowerCase()}” once it has 10 ${many}`,
               rule: {
                 name: `${yes.label} at 10 ${many}`,
-                when: { collection: collection.name, clauses: [], count: { ...count, value: 10 } },
+                picked: { collection: collection.name, clauses: [], count: { ...count, value: 10 } },
                 then: { kind: 'set', field: yes.name, value: true },
               },
             }
@@ -522,7 +359,7 @@ export function ideas(
               title: `Hear when ${article(thing)} ${thing} gets 5 ${many}`,
               rule: {
                 name: `Popular ${plural(thing)}`,
-                when: { collection: collection.name, clauses: [], count: { ...count, value: 5 } },
+                picked: { collection: collection.name, clauses: [], count: { ...count, value: 5 } },
                 then: { kind: 'notify', text: `“{title}” has {count} ${many}` },
               },
             },
@@ -532,25 +369,19 @@ export function ideas(
     const choice = fields.find((f) => f.kind === 'choice' && (f.choices?.length ?? 0) > 1);
     const last = choice?.choices?.at(-1);
     if (choice && last && (typeof last.value === 'string' || typeof last.value === 'number')) {
-      const tell = addable(collections, collection.name).find(
-        (t) => t.collection.name !== collection.name && t.links.length > 0,
-      );
+      const tell = targets.find((t) => t.links.length > 0);
       const where = tell ? noun(collections, tell.collection.name) : null;
+      const said = last.label.toLowerCase();
       found.push({
-        title: `${tell ? `Add ${article(where!)} ${where}` : 'Notify me'} when ${article(thing)} ${thing} is ${last.label.toLowerCase()}`,
+        title: `${tell && where ? `Add ${article(where)} ${where}` : 'Notify me'} when ${article(thing)} ${thing} is ${said}`,
         rule: {
-          name: `${collectionLabel(collection)} ${last.label.toLowerCase()}`,
-          when: {
+          name: `${collectionLabel(collection)} ${said}`,
+          picked: {
             collection: collection.name,
             clauses: [{ field: choice.name, op: 'is', value: last.value }],
           },
           then: tell
-            ? {
-                kind: 'add',
-                collection: tell.collection.name,
-                text: `${last.label}: {title}`,
-                link: tell.links[0],
-              }
+            ? addAction(tell.collection.name, `${last.label}: {title} 🎉`, tell.links[0])
             : { kind: 'notify', text: `${last.label}: {title}` },
         },
       });
@@ -561,7 +392,7 @@ export function ideas(
         title: `Notify me when ${article(thing)} ${thing} has me as ${person.label.toLowerCase()}`,
         rule: {
           name: `${collectionLabel(collection)} for me`,
-          when: {
+          picked: {
             collection: collection.name,
             clauses: [{ field: person.name, op: person.kind === 'people' ? 'includes' : 'is', me: true }],
           },

@@ -33,8 +33,20 @@ const OPERATORS = new Set([
   '$contains',
 ]);
 
-/** A field of a record: `@…` for the record itself, a dotted path into its body otherwise. */
+/** `link:channel`: the role of a link, as `onePer` and checks name one */
+const LINK_FIELD = /^link:[a-z][a-zA-Z0-9]{0,63}$/;
+
+/**
+ * A field of a record: `@…` for the record itself, `link:<rel>` for where its
+ * first link of that role points (missing when it has none), a dotted path
+ * into its body otherwise.
+ */
 export function fieldValue(record: NodeRecord, path: string): unknown {
+  if (path.startsWith('link:')) {
+    if (!LINK_FIELD.test(path)) throw new Error(`"${path}" is not a link role, like "link:channel"`);
+    const rel = path.slice('link:'.length);
+    return record.links.find((link) => link.rel === rel)?.to;
+  }
   if (path.startsWith('@')) {
     const read = META[path];
     if (!read) throw new Error(`Unknown record field "${path}" — use one of ${Object.keys(META).join(', ')}`);
@@ -146,6 +158,8 @@ function checkFilter(filter: unknown, at: string): string | null {
       return `${at}: "${field}" is not a field or a logical operator ($and, $or, $not)`;
     if (field.startsWith('@') && !META[field])
       return `${at}: unknown record field "${field}" — use one of ${Object.keys(META).join(', ')}`;
+    if (field.startsWith('link:') && !LINK_FIELD.test(field))
+      return `${at}: "${field}" is not a link role, like "link:channel"`;
     if (isRecord(condition) && Object.keys(condition).some((k) => k.startsWith('$'))) {
       for (const op of Object.keys(condition)) {
         if (!OPERATORS.has(op))
@@ -202,6 +216,7 @@ export function checkQuery(query: unknown): string | null {
     for (const [field, direction] of Object.entries(q.sort)) {
       if (direction !== 'asc' && direction !== 'desc') return `sort.${field} must be "asc" or "desc"`;
       if (field.startsWith('@') && !META[field]) return `sort: unknown record field "${field}"`;
+      if (field.startsWith('link:') && !LINK_FIELD.test(field)) return `sort: "${field}" is not a link role`;
     }
   }
   if (q.limit !== undefined && (typeof q.limit !== 'number' || !Number.isInteger(q.limit) || q.limit < 0))

@@ -9,24 +9,32 @@ import {
 import { useAccess, useAccount, useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
 import { clauseFields, clauseOn, type Clause, type ClauseField } from '../../derive/conditions';
-import { attachable, collectionLabel, recordLabel } from '../../derive/schema-ui';
+import { belonging, collectionLabel, recordLabel } from '../../derive/schema-ui';
 import { nameOf, type People } from '../../derive/people';
 import {
-  ACTIONS,
-  COUNT_OPS,
-  addable,
   matching,
-  noun,
-  ruleCollection,
+  rule as ruleCollection,
   ruleOf,
-  runCollection,
-  thenWords,
-  whenWords,
-  type CountClause,
+  ruleRun as runCollection,
   type Rule,
   type RuleAction,
   type RuleMatch,
+} from '@weaveprotocol/core/schemas';
+import {
+  ACTIONS,
+  COUNT_OPS,
+  addAction,
+  addable,
+  linkToIt,
   type AddTarget,
+  compile,
+  noun,
+  pickedOf,
+  thenWords,
+  whenWords,
+  type CountClause,
+  type Picked,
+  type PickedRule,
 } from '../../rules';
 import { usePeopleHere } from '../Person';
 import { styles, palette } from '../../styles';
@@ -50,7 +58,7 @@ export function RuleBuilder({
   /** A rule to change, instead of making one */
   editing?: NodeRecord;
   /** Where a new one starts: an idea picked from the list */
-  start?: Omit<Rule, 'since'>;
+  start?: PickedRule;
   onClose: () => void;
 }) {
   const node = useNode();
@@ -58,16 +66,24 @@ export function RuleBuilder({
   const access = useAccess(space.id);
   const here = usePeopleHere();
   const people = here?.people ?? new Map();
-  const initial = (editing ? ruleOf(editing) : null) ?? start;
+  const stored = editing ? ruleOf(editing) : null;
+  const picked = stored ? pickedOf(stored) : (start?.picked ?? null);
+  const initial = stored ?? start;
 
   const offered = useMemo(
     () =>
-      collections.filter((c) => c.schema !== null && c.version !== null && !c.name.startsWith('app.rule')),
+      collections.filter(
+        (c) =>
+          c.schema !== null &&
+          c.version !== null &&
+          c.name !== ruleCollection.name &&
+          c.name !== runCollection.name,
+      ),
     [collections],
   );
-  const [collection, setCollection] = useState(initial?.when.collection ?? offered[0]?.name ?? '');
-  const [clauses, setClauses] = useState<ReadonlyArray<Clause>>(initial?.when.clauses ?? []);
-  const [count, setCount] = useState<CountClause | null>(initial?.when.count ?? null);
+  const [collection, setCollection] = useState(picked?.collection ?? offered[0]?.name ?? '');
+  const [clauses, setClauses] = useState<ReadonlyArray<Clause>>(picked?.clauses ?? []);
+  const [count, setCount] = useState<CountClause | null>(picked?.count ?? null);
   const [then, setThen] = useState<RuleAction>(initial?.then ?? { kind: 'notify', text: '{title}' });
   const [name, setName] = useState<string | null>(initial?.name ?? null);
   const [busy, setBusy] = useState(false);
@@ -76,14 +92,7 @@ export function RuleBuilder({
   const chosen = offered.find((c) => c.name === collection);
   const fields = useMemo(() => (chosen ? clauseFields(chosen) : []), [chosen]);
   const countable = useMemo(
-    () =>
-      collection
-        ? attachable(collections, collection).filter(
-            // A link to anything at all, like a message sharing a record, is not what "how many" counts.
-            (a) =>
-              a.collection.version !== null && (a.collection.links[a.rel]?.to !== '*' || a.rel === 'about'),
-          )
-        : [],
+    () => (collection ? belonging(collections, collection) : []),
     [collections, collection],
   );
   const countFields = useMemo(() => {
@@ -92,7 +101,7 @@ export function RuleBuilder({
   }, [collections, count?.collection]);
 
   const when = useMemo(
-    () => ({ collection, clauses, ...(count ? { count } : {}) }),
+    (): Picked => ({ collection, clauses, ...(count ? { count } : {}) }),
     [collection, clauses, count],
   );
   const who = (d: string) => nameOf(d, people);
@@ -116,7 +125,7 @@ export function RuleBuilder({
     if (!when.collection) return;
     let live = true;
     const timer = setTimeout(() => {
-      void matching(node, space.id, when, did, 100)
+      void matching(node, space.id, compile(when, did), 100)
         .then((matches) => live && setFound({ for: when, matches }))
         .catch(() => live && setFound({ for: when, matches: [] }));
     }, 250);
@@ -143,9 +152,10 @@ export function RuleBuilder({
       }
       const body: Rule = {
         name: shownName.trim() || 'Rule',
-        when,
+        when: compile(when, did),
+        picked: when,
         then,
-        ...(initial && 'paused' in initial && initial.paused ? { paused: true } : {}),
+        ...(stored?.paused ? { paused: true } : {}),
         since: new Date().toISOString(),
       };
       if (editing) await node.records.update(space.id, editing.key, body);
@@ -177,18 +187,15 @@ export function RuleBuilder({
                 setClauses([]);
                 setCount(null);
                 if (then.kind === 'set') setThen({ kind: 'notify', text: '{title}' });
-                // What a new record can point at depends on what it is about
+                // What a new record can point at depends on what the rule is about
                 if (then.kind === 'add') {
                   const links = addable(collections, next).find(
                     (t) => t.collection.name === then.collection,
                   )?.links;
-                  const link = then.link && links?.includes(then.link) ? then.link : links?.[0];
-                  setThen({
-                    kind: 'add',
-                    collection: then.collection,
-                    text: then.text,
-                    ...(link ? { link } : {}),
-                  });
+                  const link = linkToIt(then);
+                  setThen(
+                    addAction(then.collection, then.text, link && links?.includes(link) ? link : links?.[0]),
+                  );
                 }
               }}
             />
@@ -326,9 +333,9 @@ export function RuleBuilder({
             then={then}
             onChange={setThen}
             settable={settable}
+            counting={!!count}
             targets={targets}
             collections={collections}
-            counting={!!count}
             people={people}
             me={did}
           />
@@ -355,7 +362,7 @@ export function RuleBuilder({
                 .slice(0, 3)
                 .map(
                   (m) =>
-                    `“${recordLabel(m.record, chosen.schema)}”${m.count !== null ? ` (${m.count})` : ''}`,
+                    `“${recordLabel(m.record, chosen.schema)}”${typeof m.included.count === 'number' ? ` (${m.included.count})` : ''}`,
                 )
                 .join(', ')}
               {preview.length > 3 ? '…' : ''}. It acts only on what changes from now on.
@@ -408,8 +415,7 @@ function startAction(
   if (kind === 'notify') return { kind, text };
   if (kind === 'add') {
     const target = targets[0]!;
-    const link = target.links[0];
-    return { kind, collection: target.collection.name, text, ...(link ? { link } : {}) };
+    return addAction(target.collection.name, text, target.links[0]);
   }
   const field = settable[0]!;
   const first = clauseOn(field);
@@ -421,18 +427,18 @@ function ActionDetail({
   then,
   onChange,
   settable,
+  counting,
   targets,
   collections,
-  counting,
   people,
   me,
 }: {
   then: RuleAction;
   onChange: (then: RuleAction) => void;
   settable: ReadonlyArray<ClauseField>;
+  counting: boolean;
   targets: ReadonlyArray<AddTarget>;
   collections: ReadonlyArray<NodeCollection>;
-  counting: boolean;
   people: People;
   me: string;
 }) {
@@ -488,24 +494,17 @@ function ActionDetail({
             <Pill
               label="Linked"
               strong={false}
-              value={then.link ?? ''}
+              value={linkToIt(then) ?? ''}
               options={[
                 ...target.links.map((rel) => ({ value: rel, label: `about it (${rel})` })),
                 { value: '', label: 'on its own' },
               ]}
-              onChange={(rel) =>
-                onChange({
-                  kind: 'add',
-                  collection: then.collection,
-                  text: then.text,
-                  ...(rel ? { link: rel } : {}),
-                })
-              }
+              onChange={(rel) => onChange(addAction(then.collection, then.text, rel || undefined))}
             />
           )}
           {target === undefined && (
             <span style={{ color: palette.ink.muted }}>
-              ({noun(collections, then.collection, true)} aren’t in this space)
+              ({noun(collections, then.collection, true)} can’t be added here)
             </span>
           )}
         </Sentence>

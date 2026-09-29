@@ -123,6 +123,16 @@ export {
   copyApp,
   MAX_APP_COLLECTIONS,
 } from './apps.js';
+export { rule, ruleRun, IT, checkRule, ruleOf, matching, act, runRules, fillRuleText } from './rules.js';
+export type {
+  Rule,
+  RuleRun,
+  RuleWhen,
+  RuleAction,
+  RuleMatch,
+  RuleNotifier,
+  RunRulesOptions,
+} from './rules.js';
 export { SCREEN_GUIDE, SCREEN_CLIENT, screenDocument, screenPolicy, createScreenBridge } from './screens.js';
 export type { ScreenBridge, ScreenRecord, ScreenViewer } from './screens.js';
 export type { App, AppDefinition, AppReview, AppNeedReview, ReviewContext } from './apps.js';
