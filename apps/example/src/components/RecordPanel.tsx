@@ -36,7 +36,7 @@ import { useDraft } from './useDraft';
  * once a space has added them — so they are not also offered as "+ Add …"
  * here. They are still ordinary collections, listed like any other.
  */
-export const ANNOTATIONS = new Set<string>([reaction.name, comment.name, tag.name]);
+const ANNOTATIONS = new Set<string>([reaction.name, comment.name, tag.name]);
 
 /**
  * One record, in a panel beside the list it came from: its title, its fields

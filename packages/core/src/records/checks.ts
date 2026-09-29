@@ -524,3 +524,83 @@ export async function runChecks(checks: ReadonlyArray<Check>, scope: CheckScope)
   }
   return { passed: true };
 }
+
+/** What a record condition reads: a record as it stands, without the space or anything cited */
+const RECORD_NAMES = new Set(['body', 'links', 'key', 'collection', 'author', 'createdAt']);
+/** Operators that ask the space, which a record condition has nothing to ask */
+const SPACE_OPERATORS = new Set(['versions', 'can', 'member']);
+
+/**
+ * Why a condition over one record can't be kept, or null. The same language
+ * as a check, reading only `body`, `links`, `key`, `collection`, `author` and
+ * `createdAt`, and asking the space nothing: what a subscription's `where`
+ * holds, judged by an app with the record in hand.
+ */
+export function checkRecordCondition(condition: unknown, at = 'where'): string | null {
+  const problem = checkCondition(condition, at, [], false, 1, { nodes: 0 });
+  if (problem) return problem;
+  return readsOnlyRecord(condition, at);
+}
+
+function readsOnlyRecord(condition: unknown, at: string): string | null {
+  if (Array.isArray(condition)) {
+    const items: ReadonlyArray<unknown> = condition;
+    for (const [i, item] of items.entries()) {
+      const problem = readsOnlyRecord(item, `${at}[${i}]`);
+      if (problem) return problem;
+    }
+    return null;
+  }
+  const found = operation(condition);
+  if (!found) return null;
+  const { op, args } = found;
+  if (SPACE_OPERATORS.has(op)) return `${at}: "${op}" asks the space, which a record condition can't`;
+  if (op === 'var') {
+    const name = String(args[0]).split('.')[0]!;
+    if (name !== 'it' && !RECORD_NAMES.has(name))
+      return `${at}: "${name}" is not something a record condition can read (${[...RECORD_NAMES].join(', ')})`;
+    return null;
+  }
+  for (const [i, arg] of args.entries()) {
+    const problem = readsOnlyRecord(arg, `${at}.${op}[${i}]`);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+/**
+ * Whether a condition that passed `checkRecordCondition` holds for a record.
+ * Only `true` holds: a wrong kind of value, a missing field compared as a
+ * number, anything that would refuse a version, is simply not a match.
+ */
+export async function recordHolds(
+  condition: unknown,
+  record: {
+    readonly body: unknown;
+    readonly links: ReadonlyArray<Link>;
+    readonly key: string;
+    readonly collection: string;
+    readonly author: string | null;
+    readonly createdAt: string;
+  },
+): Promise<boolean> {
+  const scope: CheckScope = {
+    values: {
+      body: record.body,
+      links: record.links,
+      key: record.key,
+      collection: record.collection,
+      author: record.author,
+      createdAt: record.createdAt,
+    },
+    cite: () => Promise.resolve({ refused: 'a record condition cites nothing' }),
+    can: () => false,
+    member: () => false,
+  };
+  try {
+    return (await evaluate(condition, { scope, steps: 0, cited: new Map() }, null)) === true;
+  } catch (error) {
+    if (isStop(error)) return false;
+    throw error;
+  }
+}

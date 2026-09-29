@@ -31,10 +31,12 @@
  * reads the registry and matches what it sees arrive (`matchesRecord`,
  * `node/watch-notifications.ts`), with the body in hand.
  */
-import type { Expression } from '../types.js';
+import type { Expression, Link } from '../types.js';
 import type { SpaceKey } from '../privacy/space-encryption.js';
 import { parseUCAN } from '../identity/ucan.js';
 import { checkTopics, topicKey, topicTag, topicValues } from '../records/topics.js';
+import { checkRecordCondition, recordHolds, type Condition } from '../records/checks.js';
+import { canonicalize } from '../schema/expression.js';
 import { isObject } from '../utils/guards.js';
 
 /** Subscriptions as the person made them, in the account registry: key `notify:<id>` */
@@ -56,6 +58,12 @@ export interface NotifyWhen {
   readonly topic?: { readonly field: string; readonly value: string | number | boolean };
   /** Only records other people wrote. Default true. */
   readonly others?: boolean;
+  /**
+   * Only records this condition holds for: a check's language over the
+   * record alone (`checkRecordCondition`) — `{ "==": [{ "var": "body.status" }, "done"] }`.
+   * Judged by an app, which can read the body; never carried.
+   */
+  readonly where?: Condition;
   /** Where clicking the notification goes: an app's address. Default: the account home. */
   readonly open?: string;
   /** Kept, but quiet */
@@ -86,6 +94,8 @@ export interface NotifyProposal {
     | { readonly field: string; readonly value: string | number | boolean }
     | { readonly field: string; readonly me: true };
   readonly others?: boolean;
+  /** Only records this condition holds for (`NotifyWhen.where`) */
+  readonly where?: Condition;
   /** Only these of the spaces the app may reach. Default: all of them. */
   readonly spaces?: ReadonlyArray<string>;
   /** Must be on the app's own origin. Default: the app's origin. */
@@ -138,6 +148,10 @@ export function checkNotify(when: unknown): string | null {
       return 'topic.value must be text, a number or yes/no';
   }
   if (w.others !== undefined && typeof w.others !== 'boolean') return 'others must be true or false';
+  if (w.where !== undefined) {
+    const problem = checkRecordCondition(w.where);
+    if (problem) return problem;
+  }
   if (w.paused !== undefined && typeof w.paused !== 'boolean') return 'paused must be true or false';
   if (w.open !== undefined) {
     try {
@@ -188,6 +202,7 @@ export interface AppNotify {
   readonly collection: string;
   readonly topic?: NotifyProposal['topic'];
   readonly others?: boolean;
+  readonly where?: Condition;
 }
 
 /** Why an app's `notify` entry can't be offered, or null */
@@ -216,6 +231,7 @@ export function checkProposal(proposal: unknown, origin?: string): string | null
     spaces: p.spaces ?? 'all',
     ...(topic ? { topic: { field: topic.field, value: topic.me === true ? 'me' : topic.value } } : {}),
     ...(p.others !== undefined ? { others: p.others } : {}),
+    ...(p.where !== undefined ? { where: p.where } : {}),
     ...(p.open !== undefined ? { open: p.open } : {}),
     since: new Date(0).toISOString(),
     ...(origin !== undefined ? { app: { origin } } : {}),
@@ -255,6 +271,7 @@ export function fromProposal(
     spaces: context.spaces,
     ...(topic ? { topic: { field: topic.field, value: 'me' in topic ? context.account : topic.value } } : {}),
     others: proposal.others ?? true,
+    ...(proposal.where !== undefined ? { where: proposal.where } : {}),
     open: proposal.open ?? `${context.app.origin}/`,
     since: context.since ?? new Date().toISOString(),
     app: context.app,
@@ -273,7 +290,8 @@ export function sameSubscription(a: NotifyWhen, b: NotifyWhen): boolean {
     spaces(a.spaces) === spaces(b.spaces) &&
     a.topic?.field === b.topic?.field &&
     a.topic?.value === b.topic?.value &&
-    (a.others ?? true) === (b.others ?? true)
+    (a.others ?? true) === (b.others ?? true) &&
+    canonicalize(a.where ?? null) === canonicalize(b.where ?? null)
   );
 }
 
@@ -382,14 +400,17 @@ export interface ReadableRecord {
   /** Who created it: the account, not the key that signed */
   readonly createdBy: string | null;
   readonly body: unknown;
+  /** What it points at, for a `where` that reads `links` */
+  readonly links?: ReadonlyArray<Link>;
   readonly verified: boolean;
   readonly deleted?: true;
 }
 
 /**
- * Whether a record an app just saw is one a subscription asks about. The
- * app can read, so a topic is matched on the body's value, not a tag — the
- * same answer `matchesSubscription` gives a carrier from the outside.
+ * Whether a record an app just saw is one a subscription asks about, apart
+ * from its `where` (`whereHolds`). The app can read, so a topic is matched
+ * on the body's value, not a tag — the same answer `matchesSubscription`
+ * gives a carrier from the outside.
  */
 export function matchesRecord(
   when: NotifyWhen,
@@ -406,4 +427,21 @@ export function matchesRecord(
   if ((when.others ?? true) && record.createdBy === account) return false;
   if (when.topic && !topicValues(record.body, when.topic.field).includes(when.topic.value)) return false;
   return true;
+}
+
+/**
+ * Whether a subscription's `where` holds for a record: true when it has none.
+ * A carrier never has it, so it may wake an app for a record this then
+ * turns down — better an app woken for nothing than a record missed.
+ */
+export function whereHolds(when: NotifyWhen, record: ReadableRecord): Promise<boolean> {
+  if (when.where === undefined) return Promise.resolve(true);
+  return recordHolds(when.where, {
+    body: record.body,
+    links: record.links ?? [],
+    key: record.key,
+    collection: record.collection,
+    author: record.createdBy,
+    createdAt: record.createdAt,
+  });
 }

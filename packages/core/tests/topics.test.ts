@@ -25,7 +25,7 @@ import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
 import { team } from '../src/space/presets.js';
 import { until } from './helpers/until.js';
-import { matchesRecord } from '../src/space/notify.js';
+import { carriedFor, checkNotify, checkProposal, matchesRecord, whereHolds } from '../src/space/notify.js';
 import { message, post } from '../src/schemas/library/publishing.js';
 import { comment } from '../src/schemas/library/annotations.js';
 import { task } from '../src/schemas/library/planning.js';
@@ -469,4 +469,61 @@ describe('a standard message’s topics', () => {
       assert.deepEqual(matches, [written.key]);
     });
   }
+});
+
+describe('a subscription’s where', () => {
+  test('narrows what an app is told about to records the condition holds for, and is never carried', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const alice = await person(hub);
+    const { id: space } = await alice.node.spaces.create({ name: 'Board', ...team, visibility: 'private' });
+    await alice.node.collections.define(space, task);
+    const bob = 'did:key:zDnaeBob';
+    const since = new Date(Date.now() - 1000).toISOString();
+
+    const urgent = await alice.node.records.put(space, task.name, { title: 'Fix the door', priority: 4 });
+    const later = await alice.node.records.put(space, task.name, { title: 'Paint', priority: 1 });
+    const unset = await alice.node.records.put(space, task.name, { title: 'Sweep' });
+
+    const when = {
+      label: 'Urgent task',
+      collection: task.name,
+      spaces: 'all' as const,
+      where: { '>=': [{ var: 'body.priority' }, 3] },
+      since,
+    };
+    assert.equal(checkNotify(when), null);
+    const told: string[] = [];
+    for (const record of [urgent, later, unset])
+      if (matchesRecord(when, record, bob) && (await whereHolds(when, record))) told.push(record.key);
+    // A missing priority is not compared: it is simply not a match.
+    assert.deepEqual(told, [urgent.key]);
+
+    const carried = await carriedFor(when, [{ id: space, key: null, visibility: 'private' }]);
+    assert.equal('where' in carried, false);
+  });
+
+  test('is refused when it asks the space, reads what a record doesn’t have, or is not a condition', () => {
+    const base = {
+      label: 'x',
+      collection: 'std.task',
+      spaces: 'all' as const,
+      since: new Date().toISOString(),
+    };
+    assert.match(checkNotify({ ...base, where: { member: [{ var: 'author' }] } })!, /asks the space/);
+    assert.match(checkNotify({ ...base, where: { '==': [{ var: 'prev.body' }, null] } })!, /prev/);
+    assert.match(checkNotify({ ...base, where: { '~': [1, 2] } })!, /not an operator/);
+    assert.match(
+      checkProposal({ label: 'x', collection: 'std.task', where: { versions: [[]] } })!,
+      /asks the space/,
+    );
+    assert.equal(
+      checkProposal({
+        label: 'Assigned to me, urgent',
+        collection: 'std.task',
+        topic: { field: 'assignees', me: true },
+        where: { and: [{ '>=': [{ var: 'body.priority' }, 3] }, { '!=': [{ var: 'body.status' }, 'done'] }] },
+      }),
+      null,
+    );
+  });
 });

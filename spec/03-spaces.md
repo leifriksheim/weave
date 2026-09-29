@@ -1131,25 +1131,48 @@ registry, sealed like everything there:
 ```
 sys.notify at notify:<id>
 NotifyWhen = { label, collection, spaces: "all" | spaceId[], topic?: { field, value },
-               others?: boolean (default true), open?: url, paused?: boolean, since: ISO date,
-               app?: { origin, name? } }
+               others?: boolean (default true), where?: condition, open?: url,
+               paused?: boolean, since: ISO date, app?: { origin, name? } }
+```
+
+For example, urgent tasks assigned to the account:
+
+```json
+{
+  "label": "Urgent task for me",
+  "collection": "std.task",
+  "spaces": "all",
+  "topic": { "field": "assignees", "value": "did:key:zDnae…" },
+  "where": { ">=": [{ "var": "body.priority" }, 3] },
+  "since": "2026-09-29T12:00:00.000Z"
+}
 ```
 
 Valid (`checkNotify`) when: `label` 1–120 characters, not blank; `collection`
 matches `^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$` and does not start with `sys.`;
 `spaces` is `"all"` or 1–256 strings; `topic.field` is a valid topic field
-([02](02-records.md)) and `topic.value` a string, number or boolean; `open`
+([02](02-records.md)) and `topic.value` a string, number or boolean; `where`,
+when present, is a condition in the language of checks ([02](02-records.md)
+§7.6) that reads only `body`, `links`, `key`, `collection`, `author` and
+`createdAt`, and uses none of `versions`, `can` and `member`
+(`checkRecordCondition`), within the same size limits; `open`
 an `https://` URL (or `http://` on localhost / 127.0.0.1); `since` a date;
 `app.origin`, when present, a web origin (scheme, host and port, nothing
 after) or a browser extension's (`chrome-extension://`, `moz-extension://` or
 `safari-web-extension://`, then 1–64 letters, digits or dashes), and
 `app.name` at most 80 characters.
 
+`where` narrows a subscription to records it holds for: a device that can
+read the record evaluates it as a check would, with `author` the record's
+creator, and anything but `true` (a missing field compared as a number, say)
+is not a match. It is never carried: a carrier matches on the outside alone
+and may wake an app for a record the app then turns down.
+
 `app` names the app that proposed the subscription, by the origin the browser
 reported; the account home writes it on its behalf when the person says yes
 ([06](06-nodes-and-sessions.md) §2.11). How apps show what a subscription
 matches is not protocol; see
-[the library's docs](../packages/core/docs/spaces.md#subscriptions). `app` is
+[the library's docs](../packages/core/docs/spaces.md#subscriptions). `app` and `where` are
 not copied to the carried form.
 
 Carriers cannot read, so each device with the account key copies every
@@ -1173,7 +1196,7 @@ not the account; and if `tags` is present, the version's `tags` include one of
 `tags[spaceId]`. No carrier shows a notification yet; the carried form is
 what a carrier needs to wake an app that is closed ([06](06-nodes-and-sessions.md) §4.4).
 
-_Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
+_Source: `packages/core/src/space/notify.ts` (`checkNotify`, `whereHolds`), `packages/core/src/records/checks.ts` (`checkRecordCondition`, `recordHolds`), `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier"), `packages/core/tests/topics.test.ts` ("a subscription’s where")._
 
 > **Planned: devices deliver subscriptions.** Issue:
 > [#30](https://github.com/leifriksheim/weave/issues/30). Delivery moves to

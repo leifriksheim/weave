@@ -146,4 +146,29 @@ One without `app` was made by an earlier home, or proposed by an earlier
 extension (which is why an extension's origin stays valid), and nothing shows
 it now.
 
-_Source: `packages/core/src/space/notify.ts` (`checkNotify`), `packages/core/src/node/node.ts` (`notifications`), `apps/example/src/notifications.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
+**Narrowing with `where`.** A subscription, a proposal and an app's `notify`
+entry may carry `where`: a condition over the record in the language of
+[checks](collections.md#checks), reading `body`, `links`, `key`,
+`collection`, `author` and `createdAt`. Since a collection's schema says what
+each field holds, an app can build these from what a person picks — "a task
+whose priority is at least 3", "a poll that isn't closed" — rather than
+offering a fixed list. `checkRecordCondition` says whether one can be kept,
+and `recordHolds(condition, record)` whether it holds, which an app can use
+to show what a subscription would have matched before proposing it.
+
+```typescript
+await connection.propose([
+  {
+    label: 'Urgent task for me',
+    collection: 'std.task',
+    topic: { field: 'assignees', me: true },
+    where: { '>=': [{ var: 'body.priority' }, 3] },
+  },
+]);
+```
+
+Put what a carrier can match in `topic` when there is one: `where` is judged
+only by the app, so a carrier matching on `collection` alone wakes the app for
+records it then turns down.
+
+_Source: `packages/core/src/space/notify.ts` (`checkNotify`, `whereHolds`), `packages/core/src/records/checks.ts` (`checkRecordCondition`, `recordHolds`), `packages/core/src/node/node.ts` (`notifications`), `apps/example/src/notifications.ts`. Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier"), `packages/core/tests/topics.test.ts` ("a subscription’s where")._
