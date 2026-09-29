@@ -29,6 +29,7 @@ import type {
   NodeCollection,
   NodeCollections,
   NodeContacts,
+  NodeDirect,
   NodeDoors,
   NodeEvent,
   NodeHosting,
@@ -59,6 +60,7 @@ const NAMESPACES = new Set([
   'hosting',
   'notifications',
   'contacts',
+  'direct',
   'doors',
   'network',
 ]);
@@ -473,6 +475,7 @@ export async function remoteNode(port: MessagePortLike): Promise<P2PNode> {
         accept: true,
         others: true,
       }),
+      direct: namespace<NodeDirect>(handle, 'direct', { reachable: true, send: true, list: true }),
       doors: namespace<NodeDoors>(handle, 'doors', {
         list: true,
         open: true,

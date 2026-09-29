@@ -294,6 +294,8 @@ export { createVersionCheck } from './validation/check-version.js';
 
 // Phase 7: Encryption & Privacy
 export { generateSpaceKey, encryptExpression, decryptExpression } from './privacy/space-encryption.js';
+export { sealDirect, openDirect, directContext, directRecipients, MAX_DIRECT_TO } from './privacy/direct.js';
+export type { DirectBody, DirectContent } from './privacy/direct.js';
 export type { SpaceKey, EncryptedExpression, EncryptedExpressionBody } from './privacy/space-encryption.js';
 
 // Utilities
@@ -371,6 +373,8 @@ export type {
   NodeAccount,
   AccountProfileView,
   NodeContacts,
+  NodeDirect,
+  DirectMessage,
   ContactView,
   ContactRequest,
   NodeDoors,
