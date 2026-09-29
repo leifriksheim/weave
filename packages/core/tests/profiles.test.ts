@@ -166,6 +166,76 @@ describe('profiles', () => {
     assert.equal(await nameIn(mallory.node, space, alice.node.did), 'Alice');
   });
 
+  test('an account can say it is a bot, everyone sees it, and a rename keeps it', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const alice = await person(hub, 'Alice');
+    const bot = await person(hub, 'Club Bot');
+    const { id: space } = await alice.node.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await bot.node.spaces.join(await alice.node.spaces.invite(space));
+    await hold(alice.node, space);
+    await hold(bot.node, space);
+    const botIn = async () => (await alice.node.spaces.profiles(space)).find((p) => p.did === bot.node.did);
+
+    await until(async () => (await botIn())?.name === 'Club Bot', 4000, 'the bot’s name');
+    assert.equal((await botIn())?.bot, undefined);
+    assert.equal((await bot.node.account.setBot(true)).bot, true);
+    await until(async () => (await botIn())?.bot === true, 4000, 'the bot flag');
+
+    await bot.node.account.setName('Club Helper');
+    await until(async () => (await botIn())?.name === 'Club Helper', 4000, 'the rename');
+    assert.equal((await botIn())?.bot, true);
+    assert.equal((await bot.node.account.profile())?.bot, true);
+
+    await bot.node.account.setBot(false);
+    await until(async () => (await botIn())?.bot === undefined, 4000, 'no longer a bot');
+  });
+
+  test('nobody can mark someone else as a bot: a flag on a profile they did not sign is ignored', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const alice = await person(hub, 'Alice');
+    const mallory = await person(hub, 'Mallory');
+    const { id: space } = await alice.node.spaces.create({ name: 'Chat', ...team, visibility: 'public' });
+    await mallory.node.spaces.join(await alice.node.spaces.invite(space));
+    await hold(alice.node, space);
+    await joined(mallory.node, space);
+    await until(async () => (await nameIn(alice.node, space, alice.node.did)) === 'Alice', 4000, 'Alice');
+
+    const aliceKey = await profileKey(alice.node.did);
+    const aliceCurrent = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(
+      aliceKey,
+    );
+    const provider = mallory.manager.getProvider();
+    const pair = await provider.generateKeyPair();
+    const keyDid = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
+    const ucan = await createLocalRootSigner(mallory.me, provider).delegate({
+      audience: keyDid,
+      capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
+      expiration: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const forged = await createSigner(provider).sign(
+      createExpression({
+        author: keyDid,
+        collection: PROFILE_COLLECTION,
+        space,
+        body: { name: 'Alice', bot: true },
+        proof: ucan.encoded,
+        version: nextVersion(aliceCurrent!),
+        retain: true,
+        seen: await seenBy(mallory.node, space),
+      }),
+      pair.privateKey,
+    );
+    await createStorageProvider(await mallory.stores(`spaces/${space}`)).addExpression(forged);
+    await hold(mallory.node, space);
+    await until(
+      async () => (await (await stored(alice.stores, space)).getCurrent(aliceKey))?.id === forged.id,
+      4000,
+      'the forgery to reach Alice',
+    );
+    const aliceSeen = (await alice.node.spaces.profiles(space)).find((p) => p.did === alice.node.did);
+    assert.equal(aliceSeen?.bot, undefined);
+  });
+
   test('a follower of a personal space writes nothing there', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const alice = await person(hub, 'Alice');

@@ -221,7 +221,30 @@ What the agent writes never sets a watch off.
 `--no-chat` runs only the watches, until stopped: on a server, or in the
 background.
 
-The agent can't yet be addressed in a shared space as itself (#103).
+### A bot for a space
+
+`weave agent --bot` runs an account of its own as a **bot**: something a
+community adds to its spaces to help everyone, rather than one person's
+agent. It says it is a bot in its profile, so apps show it as one; it writes
+as itself, and every member's device checks what it writes against its role.
+People mention it by its own name.
+
+```bash
+weave --home ~/club-bot init --name "Club Bot" --passphrase
+weave --home ~/club-bot spaces join --invite 'https://…#invite=…'   # an invite with the role it should hold
+weave --home ~/club-bot agent --bot --no-chat
+```
+
+It runs the watches in a space written by members holding
+`std.watch/instruct` there (admins and moderators in the community preset),
+in that space only. A watch's `from` narrows what sets it off to records by
+some roles, so `"from": ["member"]` is "a mention from anyone with a role".
+`--daily-cap-each` limits what each person who sets it off may spend in a
+day, a quarter of `--daily-cap` unless given, so nobody can spend the day for
+everyone.
+
+Give it a role that can do what it is for and no more: a misled bot can do
+only what its role allows.
 
 ## Who gets served
 

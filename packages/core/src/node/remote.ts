@@ -447,7 +447,12 @@ export async function remoteNode(port: MessagePortLike): Promise<P2PNode> {
       spaces,
       records,
       collections,
-      account: namespace<NodeAccount>(handle, 'account', { profile: true, setName: true, revoke: true }),
+      account: namespace<NodeAccount>(handle, 'account', {
+        profile: true,
+        setName: true,
+        setBot: true,
+        revoke: true,
+      }),
       carriers: namespace<NodeCarriers>(handle, 'carriers', { list: true, add: true, remove: true }),
       hosting: namespace<NodeHosting>(handle, 'hosting', {
         list: true,

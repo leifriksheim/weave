@@ -17,16 +17,22 @@ export function nameOf(did: string | null | undefined, people: People): string {
   return displayName(did, people.values());
 }
 
+/** Whether an account says it is a bot, in the profile it gave this space */
+export const isBot = (did: string | null | undefined, people: People): boolean =>
+  !!did && people.get(did)?.bot === true;
+
 /**
- * Who wrote this version: their name, and "via agent" when an agent wrote it
- * for them. The account signed that into the agent's note, so it can't be
- * left out by the agent.
+ * Who wrote this version: their name, "via agent" when an agent wrote it for
+ * them, and "bot" when the account says it is one. The account signed "via
+ * agent" into the agent's note, so the agent can't leave it out.
  */
 export function writerOf(
   record: { readonly root: string | null; readonly viaAgent?: true },
   people: People,
 ): string {
-  return record.viaAgent ? `${nameOf(record.root, people)} via agent` : nameOf(record.root, people);
+  const name = nameOf(record.root, people);
+  if (record.viaAgent) return `${name} via agent`;
+  return isBot(record.root, people) ? `${name} · bot` : name;
 }
 
 /**

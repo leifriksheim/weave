@@ -58,11 +58,13 @@ export const PERSON_ONLY = new Set([
 export interface McpOptions {
   /** Serving an agent's node (`weave connect`), not the account itself */
   readonly agent?: boolean;
+  /** A bot: an account of its own that spaces added, offered what an agent is */
+  readonly bot?: boolean;
 }
 
 /** The actions served as tools: all of them, or for an agent, all but the person-only ones */
 export const offered = (options: McpOptions) =>
-  NODE_ACTIONS.filter((action) => !options.agent || !PERSON_ONLY.has(action.name));
+  NODE_ACTIONS.filter((action) => !(options.agent || options.bot) || !PERSON_ONLY.has(action.name));
 
 /** An action's description as a tool, with a warning when its result grants access */
 export const toolDescription = (action: NodeAction) =>
@@ -76,10 +78,14 @@ export function toolInstructions(node: P2PNode, options: McpOptions = {}): strin
     `You are acting for the identity ${node.did}. Spaces hold signed records in named collections ` +
     '(e.g. "std.event"); start with spaces_list. Writes are signed and synced to every member of the space. ' +
     'Standard collections (collections_standard) are shared by every app that uses them; prefer them to shapes of your own.' +
-    (options.agent
-      ? ' You are an agent: what you write shows as the person\'s, "via agent". You cannot add collections or change ' +
-        'who is in a space; to make something new, propose an app (apps_propose) and the person adds it.'
-      : '')
+    (options.bot
+      ? ' You are a bot: an account of your own, which spaces added as a member to help everyone in them. What you ' +
+        "write shows as you, and every member's device checks it against your role there. You cannot add " +
+        'collections or change who is in a space.'
+      : options.agent
+        ? ' You are an agent: what you write shows as the person\'s, "via agent". You cannot add collections or change ' +
+          'who is in a space; to make something new, propose an app (apps_propose) and the person adds it.'
+        : '')
   );
 }
 

@@ -29,7 +29,9 @@ export function Watches({ space }: AppProps) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 640 }}>
       <p style={{ fontSize: 13, color: palette.ink.muted }}>
         Your agent does these for you while <code>weave agent</code> runs. It can suggest one when you ask it
-        to keep an eye on something; it starts once you turn it on here.
+        to keep an eye on something; it starts once you turn it on here. A bot in this space (
+        <code>weave agent --bot</code>) runs the watches of members allowed to instruct it: admins and
+        moderators, unless the space’s roles say otherwise.
       </p>
       {space.writable &&
         (adding ? (

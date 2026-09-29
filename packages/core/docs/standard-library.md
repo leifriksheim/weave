@@ -245,9 +245,9 @@ _Source: `packages/core/src/schemas/library/community.ts` (`ballot`, `decision`,
 
 **Agents**
 
-| Name        | Body                                                                                                                                                                          | Links | Rules                   |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ----------------------- |
-| `std.watch` | **`name`** string 1–200; `query` { **`collection`** string 1–200, `where` object }; `spaces` string[] (≤ 64); `every` string 9–100; **`do`** string 1–10000; `paused` boolean | —     | edit, delete: `creator` |
+| Name        | Body                                                                                                                                                                                                        | Links | Rules                                           |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ----------------------------------------------- |
+| `std.watch` | **`name`** string 1–200; `query` { **`collection`** string 1–200, `where` object }; `spaces` string[] (≤ 64); `every` string 9–100; `from` string 1–100[] (≤ 16); **`do`** string 1–10000; `paused` boolean | —     | edit, delete: `creator`; permissions `instruct` |
 
 **Watches.** A `std.watch` is what a person's own agent does without being
 asked each time: when records like `query` appear or change, or at the times
@@ -262,6 +262,9 @@ asked each time: when records like `query` appear or change, or at the times
   weekday 0 or 7 is Sunday; a day and a weekday both given means either.
 - `spaces` limits the watch to some spaces; without it, every space the agent
   follows. A watch can be kept in any space.
+- `from` limits what sets it off to records written by someone holding one of
+  these roles in their space, by role name; `"member"` is anyone holding a
+  role at all, so not someone who can only read.
 
 A watch runs for the agent of the account that wrote it, and only while its
 current version was not written via an agent (`viaAgent`, which the account
@@ -271,6 +274,27 @@ to turn it on. Nothing the agent itself writes sets a watch off, so it cannot
 set itself off. Whatever set a watch off reaches the model as data; only `do`
 is the person's.
 
+**Bots.** A bot is an account of its own that people invite to their spaces
+as a member, and that says it is a bot in its profile ([spec 03 §11](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md)).
+Besides its own watches, it runs the watches in a space written by members
+holding `std.watch/instruct` there, and only in that space, whatever their
+`spaces` says: the space's roles decide who may direct it. In the `community`
+preset, admins (`*`) and moderators (`*/*`) hold it. Nothing the bot writes
+sets a watch off. What it writes shows as the bot, and every member's device
+checks it against the bot's role, so a role that may post messages but not
+delete keeps a misled bot from deleting.
+
+```json
+{
+  "name": "Answer when mentioned",
+  "query": { "collection": "std.message", "where": { "mentions": { "$contains": "$me" } } },
+  "from": ["member"],
+  "do": "Answer them in the same channel, briefly."
+}
+```
+
+Here `$me` is the bot, so this is "someone with a role mentions the bot".
+
 ```json
 {
   "name": "Tasks given to me",
@@ -279,7 +303,7 @@ is the person's.
 }
 ```
 
-_Source: `packages/core/src/schemas/library/agents.ts` (`watch`), `packages/cli/src/agent-watch.ts` (`startWatching`, `watchesIn`, `cronMatches`, `withMe`, `triggerPrompt`), `apps/example/src/components/apps/Watches.tsx`. Tests: `packages/cli/tests/agent-watch.test.ts` (all)._
+_Source: `packages/core/src/schemas/library/agents.ts` (`watch`), `packages/cli/src/agent-watch.ts` (`startWatching`, `watchesIn`, `cronMatches`, `withMe`, `triggerPrompt`), `apps/example/src/components/apps/Watches.tsx`. Tests: `packages/cli/tests/agent-watch.test.ts` (all, including "a bot runs the watches of members allowed to instruct it…" and "a watch with `from`…")._
 
 **Mentions and replies.** A `std.message`, `std.comment` or `std.post` names
 the accounts it calls on in `mentions` (as do `std.note`, `std.doc-block` and

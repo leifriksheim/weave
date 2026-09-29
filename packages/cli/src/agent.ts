@@ -32,6 +32,7 @@ import { grantSigner, type Grant } from '@weaveprotocol/core/session';
 import { acceptAgentLink, checkAgentGrant } from '@weaveprotocol/core/session';
 import { base64UrlDecode } from '@weaveprotocol/core';
 import { openFsDirectory } from './fs-directory.js';
+import type { Unlocked } from './home.js';
 import { errorCode, isRecord } from './json.js';
 
 /** The relay the apps meet on unless told otherwise */
@@ -205,6 +206,28 @@ export async function startAgentNode(
 export async function forgetAgent(home: string): Promise<void> {
   await rm(path.join(agentDir(home), 'grant.json'), { force: true });
   await rm(path.join(agentDir(home), 'data'), { recursive: true, force: true });
+}
+
+/**
+ * A bot's node: an account of its own, unlocked here, online the way an
+ * agent is (relays and WebRTC), and holding every space it is in. It says it
+ * is a bot in every space (`account.setBot`).
+ */
+export async function startBotNode(
+  unlocked: Unlocked,
+  options: { readonly nodes?: ReadonlyArray<string> } = {},
+): Promise<{ node: P2PNode; close(): Promise<void> }> {
+  await enableWebRTC();
+  const node = await createNode({
+    signer: unlocked.signer,
+    stores: unlocked.stores,
+    accountKey: unlocked.accountKey,
+    contactKey: unlocked.contactKey,
+    network: { relays: configuredRelays(), ...(options.nodes?.length ? { nodes: options.nodes } : {}) },
+  });
+  if (!(await node.account.profile())?.bot) await node.account.setBot(true);
+  for (const space of await node.spaces.list()) void node.spaces.hold(space.id).catch(() => {});
+  return { node, close: () => node.close() };
 }
 
 const modelKeyFile = (home: string) => path.join(agentDir(home), 'anthropic-key');

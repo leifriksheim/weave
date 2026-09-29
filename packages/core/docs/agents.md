@@ -74,6 +74,16 @@ Any collection, any filter the query format allows. An agent may write a watch
 when asked, but it runs only once the person has saved it themselves; see
 [standard-library.md](standard-library.md) (Watches).
 
+## Bots
+
+A bot is the same program running as an account of its own
+(`weave agent --bot`), which people invite to their spaces as a member. It says
+it is a bot in its profile (`node.account.setBot`), writes as itself, is
+checked against its role like any member, and can be mentioned by its own
+DID. It runs the watches of members holding `std.watch/instruct` in a space,
+in that space only. See [standard-library.md](standard-library.md) (Watches,
+Bots).
+
 ## In your own code
 
 `node.asAgent({ keys, note })` gives the same node acting as an agent, from an
