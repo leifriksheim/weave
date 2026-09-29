@@ -2,7 +2,7 @@
 
 A DID is a name, not an address: it is on everything an account signs, so
 knowing it must not be enough to reach the account. Two people who share a
-space can become contacts through it ([03 — Spaces](03-spaces.md), Contacts).
+space can become contacts through it ([contacts](../packages/core/docs/contacts.md)).
 This part covers two people who share nothing yet.
 
 A **door** is an address its owner hands out on purpose, and can close:
@@ -20,8 +20,16 @@ mailboxes. The owner's devices fetch knocks, check them, and **accept** one by
 joining the space and **answering** there, signed with the door signing key.
 The answer is what makes the owner the knocker's contact.
 
+This part specifies what a relay and a door's owner check: the keys, the code,
+the topic, the mailbox and the knock. Where an account keeps its doors, and the
+records that turn a knock into a space for two and answer it, are a convention
+on top: see [Doors](../packages/core/docs/doors.md) in the library's docs.
+
 The account behind a door is never in the code, the topic, or anything a relay
 holds. The knocker learns it when the owner answers.
+
+Lengths in this part count Unicode code points; text MUST be shortened without
+splitting one.
 
 > Rationale: this is Nostr's outbox model (the address names its own relays,
 > so relays never need to know about each other) with SimpleX-style addresses
@@ -51,7 +59,8 @@ The 48 bytes are reduced to a scalar exactly as the root key is
   characters): the same form as a contact key's.
 - The door key is used only for ECDH (opening knocks). The signing key is used
   only for ECDSA P-256 / SHA-256 signatures (P1363, 64 bytes, base64url), over
-  the purge (§5) and answer (§7) messages. Neither is used for the other job.
+  the purge message (§5) and the owner's answer
+  ([Doors](../packages/core/docs/doors.md)). Neither is used for the other job.
 
 Every device and app that holds the contact key derives the same door keys.
 The contact key's public half is published on the account's profile in every
@@ -61,26 +70,9 @@ _Source: `packages/core/src/identity/contact-key.ts` (`deriveDoorKeyBytes`, `der
 
 ## 2. Doors as records
 
-An account's doors are `std.door` records in its **contacts space**
-([03 — Spaces](03-spaces.md)), which only the account can find and every one of
-its devices holds.
-
-| Field    | Type                 |                                                                                                                   |
-| -------- | -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `id`     | string, 16–64 chars  | The door id both keys are derived from                                                                            |
-| `relays` | string[], 1–3        | Relay URLs, each passing the space relay check: `wss://`, or `ws://` on localhost only, ≤200 chars, no duplicates |
-| `name`   | string ≤64, optional | The name the code gives whoever knocks                                                                            |
-| `label`  | string ≤64, optional | What the owner calls the door; never leaves the contacts space                                                    |
-
-Rules: `onePer: ['id']`. A peer MUST only treat as a door a verified
-`std.door` whose root is the account itself. **Closing** a door is deleting its
-record: its knocks are no longer fetched, and knocks already opened stop being
-offered.
-
-Lengths here and throughout this part count Unicode code points; text MUST be
-shortened without splitting one.
-
-_Source: `packages/core/src/schemas/contacts.ts` (`door`), `packages/core/src/node/node.ts` (Doors)._
+Not protocol: an account keeps its doors as `std.door` records in its own
+contacts space, which only its devices read. See
+[Doors](../packages/core/docs/doors.md#stddoor) in the library's docs.
 
 ## 3. The door code
 
@@ -93,13 +85,14 @@ code = base64url( canonicalJSON({ v: 1, key, sign, relays, name? }) )
 | `v`      | `1`                  |                                                            |
 | `key`    | string               | The door key's public half                                 |
 | `sign`   | string               | The door signing key's public half; MUST differ from `key` |
-| `relays` | string[], 1–3        | As in `std.door`                                           |
+| `relays` | string[], 1–3        | Relay URLs; see below                                      |
 | `name`   | string ≤64, optional | Who the owner says they are. **It proves nothing.**        |
 
 Canonical JSON is defined in [02 — Records](02-records.md). A reader MUST
 accept a bare code, or a link carrying one as `door=<code>` after `#`, `?` or
 `&` (e.g. `https://app.example/#door=eyJr…`), and MUST reject a code whose keys
-are not valid P-256 points or whose relays fail the check above.
+are not valid P-256 points or whose relays fail the space relay check: each
+`wss://`, or `ws://` on localhost only, at most 200 characters, no duplicates.
 
 > Rationale: a code in a URL goes in the fragment, like an invite, so it isn't
 > sent to the server that serves the page.
@@ -127,8 +120,7 @@ _Source: `packages/core/src/doors/doors.ts` (`doorTopic`)._
 
 Every relay ([04 — Network](04-network.md)) also runs a mailbox. It speaks JSON
 text frames on the same WebSocket endpoint as signaling. A mailbox socket
-needs no `join` and names no DID; the implementation opens a fresh socket for
-each call.
+needs no `join` and names no DID.
 
 ### Messages
 
@@ -137,12 +129,12 @@ each call.
 ```json
 → { "type": "drop", "topic": "<43 chars>", "blob": "<base64url>", "ttl": 1209600 }
 ← { "type": "dropped", "topic": "<topic>", "id": "<base64url SHA-256 of blob>" }
-← { "type": "refused", "topic": "<topic>", "reason": "This door is full" }
+← { "type": "refused", "topic": "<topic>", "reason": "<plain words>" }
 ```
 
 - `blob` MUST be non-empty base64url, at most 12,000 characters.
-- `ttl` is seconds, optional. The relay keeps a blob for its own TTL (default
-  14 days) or the client's, whichever is shorter; a client can't ask for more.
+- `ttl` is seconds, optional. The relay keeps a blob for its own TTL or the
+  client's, whichever is shorter; a client can't ask for more.
 - The relay files the blob under `id = base64url(SHA-256(UTF-8(blob)))`, and
   records `at`, when it took it (ms). Dropping a blob already held under that
   topic MUST answer `dropped` with the same id and store nothing new.
@@ -155,11 +147,13 @@ each call.
 ```
 
 - `items` are the unexpired blobs with `seq > after`, oldest first. `seq`
-  increases with every drop on that relay. A page holds at most 16 items or
-  48 KiB of blobs; `more: true` means fetch again after the last `seq`.
+  increases with every drop on that relay. The relay pages them (the
+  reference relay: at most 16 items or 48 KiB of blobs a page); `more: true`
+  means fetch again after the last `seq`.
 - With `watch: true`, the relay also sends a `mail` message with one item each
   time a blob is dropped under the topic, until the socket closes or the client
-  sends `{ "type": "unwatch", "topic": "<topic>" }`. At most 32 per socket.
+  sends `{ "type": "unwatch", "topic": "<topic>" }`. A relay may cap the
+  watches on one socket and ignore the rest (see Limits).
 
 **challenge / purge** — the door's owner clears knocks.
 
@@ -183,23 +177,24 @@ characters (no answer).
 
 ### Limits
 
+Blob size and blobs per topic are the same on every relay. Every other limit
+is the relay operator's to set; a client learns of one only from `refused`
+(or, for watches, from silence). The values below are the reference relay's.
 An **address** is an IPv4 address or an IPv6 /64.
 
-| Limit                                  | Default                                                                            | On breach                                   |
-| -------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------- |
-| Blob size                              | 12,000 chars                                                                       | `refused`                                   |
-| Blobs per topic                        | 64                                                                                 | `refused` ("This door is full")             |
-| Drops per topic per address per hour   | 4                                                                                  | `refused` ("Too many knocks on this door…") |
-| Drops per address per hour, all topics | 30                                                                                 | `refused` ("Too many knocks from here…")    |
-| Topics held                            | 50,000                                                                             | `refused`                                   |
-| Total held                             | 64 Mi chars, plus a reserve of 8 Mi only topics holding fewer than 2 blobs may use | `refused` ("The mailbox is full")           |
-| TTL                                    | 14 days                                                                            | capped                                      |
-| Watches per socket                     | 32                                                                                 | extra watches ignored                       |
+| Limit                                  | Value                                                                              | On breach             |
+| -------------------------------------- | ---------------------------------------------------------------------------------- | --------------------- |
+| Blob size                              | 12,000 chars (every relay)                                                         | `refused`             |
+| Blobs per topic                        | 64 (every relay)                                                                   | `refused`             |
+| Drops per topic per address per hour   | 4                                                                                  | `refused`             |
+| Drops per address per hour, all topics | 30                                                                                 | `refused`             |
+| Topics held                            | 50,000                                                                             | `refused`             |
+| Total held                             | 64 Mi chars, plus a reserve of 8 Mi only topics holding fewer than 2 blobs may use | `refused`             |
+| TTL                                    | 14 days                                                                            | capped                |
+| Watches per socket                     | 32                                                                                 | extra watches ignored |
 
-Everything but the per-topic count and blob size is an operator setting
-(`createRelay({ mailbox })`). The socket's message budget, size cap and
-heartbeat are the relay's usual ones ([04 — Network](04-network.md)). Expired
-blobs and old drop counts are swept on the heartbeat.
+The socket's message budget, size cap and heartbeat are the relay's usual ones
+([04 — Network](04-network.md)).
 
 A full door refuses new knocks rather than dropping old ones, so a flood can't
 push out real knocks; a full relay still takes a knock or two on every door,
@@ -215,8 +210,8 @@ keeps its code working.
 > Other implementations SHOULD NOT copy these limits. Tracked in
 > [#23](https://github.com/leifriksheim/weave/issues/23).
 
-_Implementation detail:_ this relay keeps the mailbox in memory, so a restart
-loses what it held. Senders drop to every relay a door names for that reason.
+A relay need not keep its mailbox across a restart (the reference relay keeps
+it in memory), which is one reason a knock goes to every relay a door names.
 
 _Source: `packages/relay/relay.mjs` (`handleMail`, `purge`, `sweepMail`, `MAILBOX_LIMITS`), `packages/core/src/network/mailbox.ts`. Tests: `packages/core/tests/doors.test.ts` ("the relay's mailbox")._
 
@@ -243,7 +238,7 @@ sig    = ECDSA-P256-SHA256(session private key, UTF-8(canonicalJSON(body)))   �
 sealed = sealFor(door, { body, sig }, context = "weave/knock/v1|" + door)
 ```
 
-`sealFor` is the contact-key seal ([01 — Identity](01-identity.md)): a fresh
+`sealFor` is the contact-key seal ([01 §9.4](01-identity.md)): a fresh
 P-256 key pair per message, ECDH with the door key, HKDF-SHA-256 over the shared
 secret and the ephemeral point (info `weave/contact-seal/v1`), AES-256-GCM with
 a 12-byte IV and the context as additional data. The blob is
@@ -275,9 +270,9 @@ The knock's **id** is `base64url(SHA-256(UTF-8(blob)))`, the same on every relay
 A client MUST de-duplicate by it, computing it itself rather than trusting a
 relay's `id`. Where relays disagree about `receivedAt`, the earliest is used.
 
-A client SHOULD also skip knocks from itself, from accounts its contact list
-marks blocked, and whose space for two it already holds (accepted here or on
-another device).
+Which of the knocks that pass these checks a client offers the person
+(leaving out blocked accounts, for one) is up to it; see
+[Doors](../packages/core/docs/doors.md#the-exchange).
 
 > Rationale.
 >
@@ -299,75 +294,12 @@ _Source: `packages/core/src/doors/doors.ts` (`sealKnock`, `openKnock`, `knockId`
 
 ## 7. The exchange
 
-```
- Anna                                   relay(s)                                 Leif
-  │ doors.open() → std.door, code                                                  │
-  │ ── code, out of band (a link, a QR code, a bio) ─────────────────────────────▶ │
-  │                                          spaces.create(private), define answers│
-  │                                                         invite(role: editor)   │
-  │                                     ◀── drop(topic, sealed knock) ── to each   │
-  │                                                         std.knock { space, … } │
-  │ fetch(topic) ──▶ ◀── mail [knock]                                              │
-  │ open + check (§6)                                                              │
-  │ accept: spaces.join(invite); std.contact { did: Leif, space, door }            │
-  │         purge(knock) ──▶                                                       │
-  │ once a member there: std.knock-answer { sig }                                  │
-  │ ═════════════════ the space for two syncs ═══════════════════════════════════▶ │
-  │                           answer checks out: std.contact { did: Anna }, invite │
-  │                                                    closed, std.knock deleted   │
-```
-
-**Knocking.** The knocker:
-
-1. parses the code, and refuses one of its own doors;
-2. creates a private space named `"<own name> & <code name>"` with the `team`
-   role preset, defines `std.knock-answer` in it, and makes an editor invite;
-3. seals the knock (§6) and drops it at **every** relay the code names;
-4. if no relay answers `dropped`, leaves the space and fails;
-5. otherwise writes `std.knock { space, name, door, sign, invite }` in its
-   contacts space.
-
-**Accepting.** The owner joins the invite and writes
-`std.contact { did: from, name, space, door: <door id> }`, keeping a name it
-already had for that account. It SHOULD purge the knock from the door's relays.
-Once its membership in the space for two has landed, it writes the **answer**:
-
-```
-std.knock-answer { sig }      sig = door signing key over UTF-8("weave/knock-answer/v1|" + space + "|" + own account DID)
-```
-
-and rewrites the contact without `door`. Until then the contact carries the
-door id, so any device of the account can write the answer.
-
-**Settling.** For each `std.knock`, the knocker's devices look in its space for
-a verified `std.knock-answer` whose author is a member other than themselves
-and whose `sig` checks out against the `std.knock`'s `sign`. When one does, they
-write `std.contact { did: <that author>, name: <their profile name, else the code's>, space }`,
-close the invite, and delete the `std.knock`. Anyone else who joined with the
-invite (it may have been passed on) is never taken for the person behind the
-door, and nobody joins after.
-
-A `std.knock` nobody answered within the knock TTL plus a day is let go: the
-knocker leaves the space and deletes the record. One whose space is no longer
-held is deleted.
-
-**Dismissing** a knock purges it from the door's relays; nothing else is
-written, and the knocker is not blocked. **Clearing** a door purges all of its
-knocks and keeps the door open.
-
-| Collection         | Fields                                                                          | Rules                | Where                    |
-| ------------------ | ------------------------------------------------------------------------------- | -------------------- | ------------------------ |
-| `std.knock`        | `space` ≤256, `name` ≤64, `door` ≤64, `sign` ≤64, `invite` ≤8000 (all required) | `onePer: ['space']`  | Knocker's contacts space |
-| `std.knock-answer` | `sig` ≤200 (required)                                                           | edit/delete: creator | The space for two        |
-| `std.contact`      | adds `door` ≤64, optional                                                       | as before            | Owner's contacts space   |
-
-**Who may.** Knocking and accepting create or join a space, so they need a note
-for every space (`with: '*'`), as `contacts.ask` does, and the contact key.
-Doors are the person's: a node whose note is an agent's MUST refuse to open,
-close, clear, read, knock, accept or dismiss, and an account home MUST NOT give
-an agent the contact key.
-
-_Source: `packages/core/src/node/node.ts` (Doors), `packages/core/src/node/types.ts` (`NodeDoors`), `packages/core/src/schemas/contacts.ts`, `packages/core/src/session/auth.ts` (`grant`). Tests: `packages/core/tests/doors.test.ts` ("node.doors"), `packages/core/tests/agents.test.ts`._
+Not protocol: how a knock becomes a space for two (`std.knock`), how the owner
+answers there (`std.knock-answer`, signed with the door signing key) and how
+the knocker settles it are records a peer syncs and judges like any other. See
+[Doors](../packages/core/docs/doors.md#the-exchange) in the library's docs. An
+account home MUST NOT give an agent the contact key
+([06 §3.1](06-nodes-and-sessions.md)).
 
 ## 8. Security considerations
 
@@ -380,11 +312,11 @@ _Source: `packages/core/src/node/node.ts` (Doors), `packages/core/src/node/types
 - **What the owner learns.** The knocker's account, proven, and the name and
   note they chose. The name proves nothing: the account DID is what to trust,
   and a code handed over in person is the proof of whose door it is.
-- **Spam.** Anyone with a code can knock. Each address gets 4 knocks per door
-  and 30 in all per hour; each door holds 64. A single IPv6 /56 holds 256 /64s,
-  so a determined flood can fill one door: its owner **clears** it, which keeps
-  every printed code and bio link working, and blocking hides an account's
-  knocks on every door. A knock only shows as a request; nothing in it runs.
+- **Spam.** Anyone with a code can knock. On the reference relay, each
+  address gets 4 knocks per door and 30 in all per hour; each door holds 64. A
+  single IPv6 /56 holds 256 /64s, so a determined flood can fill one door: its
+  owner **clears** it, which keeps every printed code and bio link working, and
+  blocking hides an account's knocks on every door. A knock only shows as a request; nothing in it runs.
 - **Filling a relay.** The per-address budget across topics bounds what one
   address can hold; the reserve keeps every door able to take a knock or two
   when the relay is full; the TTL can't be raised by clients. Both budgets are
@@ -398,8 +330,8 @@ _Source: `packages/core/src/node/node.ts` (Doors), `packages/core/src/node/types
   ([#26](https://github.com/leifriksheim/weave/issues/26)).
 - **Leaked invites.** The invite in a knock is multi-use until the knocker
   closes it. Only the answer, signed with the door's key, makes someone the
-  knocker's contact; the invite is closed then. Anyone who joined with a leaked
-  invite first shows up in `contacts.others` for the knocker to see.
+  knocker's contact; the invite is closed then
+  ([Doors](../packages/core/docs/doors.md#the-exchange)).
 - **Replays.** A knock re-dropped by anyone is the same blob (same id). Dropped
   again later, it fails the time check (§6, 4).
 - **Losing a relay.** A door names up to three relays, and knocks go to all of
@@ -429,15 +361,13 @@ opposite of "the seed is the account".
    `org.weaveprotocol.door`, key `self`:
    `{ "$type": "org.weaveprotocol.door", "code": "<door code>", "createdAt": "…" }`.
    The repository is signed, so the record is the handle owner's word.
-4. `node.doors.knock` accepts a handle wherever it takes a code.
 
 **A checked handle on a knock.** A knock gains an optional `handle` and a
 `handleProof`: the knocker's own door signing key over
 `weave/knock-handle/v1|<door knocked on>|<knock at>`. The owner resolves the
 handle, reads the knocker's own door record, and checks the proof against the
 `sign` key in that code. This proves the knocker controls the handle's
-repository and a door, without their account DID becoming public. Shown as
-"@leif.bsky.social ✓" when it checks out, as the plain name otherwise.
+repository and a door, without their account DID becoming public.
 
 **Linking a handle** happens at the account home: ATProto OAuth (PAR, PKCE,
 DPoP) asking only to write `org.weaveprotocol.door`; the home opens or picks a
@@ -445,11 +375,9 @@ door and writes the record. Unlinking deletes it; rotating writes another
 door's code into it. The account registry remembers which door a handle points
 at.
 
-**Who may knock.** A door gains a policy in its `std.door` record (never
-published): `anyone` (default), `follows` or `mutuals` on the handle's network.
-Follows are `app.bsky.graph.follow` records in the owner's own repository, read
-from their PDS, with no AppView. Knocks that don't match are kept but shown
-apart.
+How a client knocks on a handle, shows a checked one, and lets a door's owner
+limit who may knock is planned in
+[Doors](../packages/core/docs/doors.md#planned-names).
 
 **Trade-offs.** The PLC directory, a DoH resolver and `bsky.social` owning its
 subdomains become dependencies of _discovery_ only: contacts already made are
@@ -461,9 +389,5 @@ ATProto account.
 ## 10. Not yet specified
 
 - **Topics that change over time** (§4).
-- **Retrying a knock** that reached no relay, or whose relays lost it
-  (restart), until it is answered or expires. A retry is a fresh knock, signed
-  and dropped at once.
-- **Live knocks.** The mailbox supports `watch`; `node.doors` only fetches.
 - **Proof of work** on `drop`, if public relays see abuse.
 - **Revocation** checks on a knocker's note (§8).

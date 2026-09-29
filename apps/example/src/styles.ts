@@ -187,6 +187,13 @@ export function injectBaseStyles(): void {
     @keyframes call-ring { 0% { box-shadow: 0 0 0 0 rgba(26,127,55,.45); } 100% { box-shadow: 0 0 0 12px rgba(26,127,55,0); } }
     @media (prefers-reduced-motion: reduce) { .call-ringing { animation: none; } }
 
+    /* Chat: its channels and conversations down the left, the one open beside them. */
+    .chat-shell { display: grid; grid-template-columns: 208px minmax(0, 1fr); }
+    .chat-places {
+      display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
+      padding: 4px 8px 12px; border-right: 1px solid ${surface.line}; background: ${surface.sunken};
+    }
+
     @media (max-width: 900px) {
       .space-shell { grid-template-columns: 200px minmax(0, 1fr); }
       .space-content { padding: 20px 20px 48px; }
@@ -206,6 +213,16 @@ export function injectBaseStyles(): void {
       .collection-nav [data-nav] { border: 1px solid ${surface.line} !important; border-radius: ${radius.pill}px !important; padding: 0 12px !important; }
       .collection-nav [data-nav][aria-current] { border-color: ${ink.strong} !important; }
       .collection-nav-heading { display: none; }
+      /* The chat's list becomes a row of tabs above it, as the side column's does. */
+      .chat-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+      .chat-places {
+        flex-direction: row; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none;
+        padding: 6px 8px; border-right: none; border-bottom: 1px solid ${surface.line};
+      }
+      .chat-places::-webkit-scrollbar { display: none; }
+      .chat-places > * { flex-shrink: 0; width: auto !important; }
+      .chat-places-heading { padding: 0 2px 0 6px !important; }
+      .chat-places-heading > span, .chat-places-note { display: none; }
     }
 
     @media (max-width: 640px) {

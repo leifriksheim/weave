@@ -60,6 +60,8 @@ export type {
   CarrierSummary,
   AccountProfileView,
   NodeContacts,
+  NodeDirect,
+  DirectMessage,
   ContactView,
   ContactRequest,
   NodeDoors,
