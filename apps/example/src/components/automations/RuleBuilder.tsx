@@ -14,6 +14,7 @@ import { nameOf, type People } from '../../derive/people';
 import {
   ACTIONS,
   COUNT_OPS,
+  addable,
   matching,
   noun,
   ruleCollection,
@@ -25,6 +26,7 @@ import {
   type Rule,
   type RuleAction,
   type RuleMatch,
+  type AddTarget,
 } from '../../rules';
 import { usePeopleHere } from '../Person';
 import { styles, palette } from '../../styles';
@@ -101,6 +103,10 @@ export function RuleBuilder({
 
   const has = (n: string) => collections.some((c) => c.name === n && c.version !== null);
   const settable = fields.filter((f) => ['choice', 'yesno', 'number', 'text'].includes(f.kind));
+  const targets = useMemo(
+    () => (collection ? addable(collections, collection) : []),
+    [collections, collection],
+  );
   const onlyTheirs = chosen?.rules.edit === 'creator';
 
   // What it holds for right now: shown, never acted on — a rule acts on what changes after it's made.
@@ -171,6 +177,19 @@ export function RuleBuilder({
                 setClauses([]);
                 setCount(null);
                 if (then.kind === 'set') setThen({ kind: 'notify', text: '{title}' });
+                // What a new record can point at depends on what it is about
+                if (then.kind === 'add') {
+                  const links = addable(collections, next).find(
+                    (t) => t.collection.name === then.collection,
+                  )?.links;
+                  const link = then.link && links?.includes(then.link) ? then.link : links?.[0];
+                  setThen({
+                    kind: 'add',
+                    collection: then.collection,
+                    text: then.text,
+                    ...(link ? { link } : {}),
+                  });
+                }
               }}
             />
             {count ? (
@@ -271,8 +290,9 @@ export function RuleBuilder({
             style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6 }}
           >
             {ACTIONS.map((action) => {
-              const missing = action.needs && !has(action.needs);
-              const unusable = missing || (action.kind === 'set' && settable.length === 0);
+              const unusable =
+                (action.kind === 'set' && settable.length === 0) ||
+                (action.kind === 'add' && targets.length === 0);
               const on = then.kind === action.kind;
               return (
                 <button
@@ -280,14 +300,14 @@ export function RuleBuilder({
                   type="button"
                   disabled={unusable}
                   title={
-                    missing
-                      ? `Needs ${noun(collections, action.needs!, true)} in this space`
-                      : unusable
-                        ? 'Nothing here it could change'
-                        : action.hint
+                    !unusable
+                      ? action.hint
+                      : action.kind === 'add'
+                        ? 'Nothing in this space can be added from a line of text'
+                        : 'Nothing here it could change'
                   }
                   aria-pressed={on}
-                  onClick={() => setThen(startAction(action.kind, settable, then))}
+                  onClick={() => setThen(startAction(action.kind, settable, targets, then))}
                   style={{
                     ...tile,
                     borderColor: on ? palette.ink.strong : palette.surface.line,
@@ -306,6 +326,8 @@ export function RuleBuilder({
             then={then}
             onChange={setThen}
             settable={settable}
+            targets={targets}
+            collections={collections}
             counting={!!count}
             people={people}
             me={did}
@@ -379,10 +401,16 @@ export function RuleBuilder({
 function startAction(
   kind: RuleAction['kind'],
   settable: ReadonlyArray<ClauseField>,
+  targets: ReadonlyArray<AddTarget>,
   was: RuleAction,
 ): RuleAction {
   const text = 'text' in was ? was.text : '{title}';
-  if (kind !== 'set') return { kind, text };
+  if (kind === 'notify') return { kind, text };
+  if (kind === 'add') {
+    const target = targets[0]!;
+    const link = target.links[0];
+    return { kind, collection: target.collection.name, text, ...(link ? { link } : {}) };
+  }
   const field = settable[0]!;
   const first = clauseOn(field);
   return { kind, field: field.name, value: first.value ?? (field.kind === 'number' ? 0 : '') };
@@ -393,6 +421,8 @@ function ActionDetail({
   then,
   onChange,
   settable,
+  targets,
+  collections,
   counting,
   people,
   me,
@@ -400,6 +430,8 @@ function ActionDetail({
   then: RuleAction;
   onChange: (then: RuleAction) => void;
   settable: ReadonlyArray<ClauseField>;
+  targets: ReadonlyArray<AddTarget>;
+  collections: ReadonlyArray<NodeCollection>;
   counting: boolean;
   people: People;
   me: string;
@@ -416,7 +448,7 @@ function ActionDetail({
           options={settable.map((f) => ({ value: f.name, label: f.label.toLowerCase() }))}
           onChange={(name) => {
             const next = settable.find((f) => f.name === name);
-            if (next) onChange(startAction('set', [next], then));
+            if (next) onChange(startAction('set', [next], [], then));
           }}
         />
         <span>to</span>
@@ -434,8 +466,50 @@ function ActionDetail({
   }
   const insert = (token: string) =>
     onChange({ ...then, text: `${then.text}${then.text.endsWith(' ') || !then.text ? '' : ' '}${token}` });
+  const target = then.kind === 'add' ? targets.find((t) => t.collection.name === then.collection) : undefined;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {then.kind === 'add' && (
+        <Sentence>
+          <span>Add a</span>
+          <Pill
+            label="What to add"
+            value={then.collection}
+            options={targets.map((t) => ({
+              value: t.collection.name,
+              label: collectionLabel(t.collection).toLowerCase(),
+            }))}
+            onChange={(name) => {
+              const next = targets.find((t) => t.collection.name === name);
+              if (next) onChange(startAction('add', [], [next], then));
+            }}
+          />
+          {target && target.links.length > 0 && (
+            <Pill
+              label="Linked"
+              strong={false}
+              value={then.link ?? ''}
+              options={[
+                ...target.links.map((rel) => ({ value: rel, label: `about it (${rel})` })),
+                { value: '', label: 'on its own' },
+              ]}
+              onChange={(rel) =>
+                onChange({
+                  kind: 'add',
+                  collection: then.collection,
+                  text: then.text,
+                  ...(rel ? { link: rel } : {}),
+                })
+              }
+            />
+          )}
+          {target === undefined && (
+            <span style={{ color: palette.ink.muted }}>
+              ({noun(collections, then.collection, true)} aren’t in this space)
+            </span>
+          )}
+        </Sentence>
+      )}
       <input
         aria-label="What it says"
         value={then.text}

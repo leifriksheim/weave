@@ -9,6 +9,9 @@
  * couldn't do by hand. Each time it acts it leaves a run (`app.rule.run`),
  * one per rule per record by construction (`onePer`), which is how it acts
  * once for each record and not again — and the rule's history, for anyone.
+ * A run also names the record its rule wrote, and nothing a rule wrote sets
+ * off a rule: "when a message is added, post in chat" would otherwise answer
+ * itself forever, and so would two rules that answer each other.
  *
  * Nothing here is protocol: a peer that has never heard of rules syncs and
  * judges these records like any other. Two devices of the maker open at once
@@ -20,7 +23,7 @@ import { useAccount, useNode } from '@weaveprotocol/core/react';
 import { recordHolds } from '@weaveprotocol/core';
 import type { DefineCollection, NodeCollection, NodeRecord, P2PNode } from '@weaveprotocol/core';
 import { comment, fragments, message, task } from '@weaveprotocol/core/schemas';
-import { isObject, recordLabel } from './derive/schema-ui';
+import { attachable, isObject, quickAddBody, recordLabel } from './derive/schema-ui';
 import { clausesWords, clauseFields, whereOf, type Clause, type ClauseField } from './derive/conditions';
 import { collectionLabel } from './derive/schema-ui';
 
@@ -53,6 +56,7 @@ export const runCollection = {
       did: fragments.words(500),
       ok: { type: 'boolean' },
       at: fragments.when(),
+      made: { type: 'string', description: 'The record it wrote, if it wrote a new one' },
     },
     required: ['did', 'ok', 'at'],
   },
@@ -79,13 +83,15 @@ export interface RuleWhen {
   readonly count?: CountClause;
 }
 
-/** What a rule does. `{title}` in text becomes what the record is called, `{count}` how many it counted. */
+/**
+ * What a rule does. `{title}` in text becomes what the record is called,
+ * `{count}` how many it counted. `add` makes a record in any collection that
+ * one line of text can make, pointing at the record through `link` when given.
+ */
 export type RuleAction =
   | { readonly kind: 'notify'; readonly text: string }
-  | { readonly kind: 'message'; readonly text: string }
-  | { readonly kind: 'comment'; readonly text: string }
-  | { readonly kind: 'set'; readonly field: string; readonly value: string | number | boolean }
-  | { readonly kind: 'task'; readonly text: string };
+  | { readonly kind: 'add'; readonly collection: string; readonly text: string; readonly link?: string }
+  | { readonly kind: 'set'; readonly field: string; readonly value: string | number | boolean };
 
 export interface Rule {
   readonly name: string;
@@ -99,26 +105,39 @@ export interface RuleRun {
   readonly did: string;
   readonly ok: boolean;
   readonly at: string;
+  readonly made?: string;
 }
 
-export const ACTIONS: ReadonlyArray<{
-  kind: RuleAction['kind'];
-  label: string;
-  hint: string;
-  /** What the space must have for it */
-  needs?: string;
-}> = [
+export const ACTIONS: ReadonlyArray<{ kind: RuleAction['kind']; label: string; hint: string }> = [
   { kind: 'notify', label: 'Notify me', hint: 'A notification on this device' },
-  {
-    kind: 'message',
-    label: 'Post in chat',
-    hint: 'A message everyone sees, sharing it',
-    needs: message.name,
-  },
-  { kind: 'comment', label: 'Comment on it', hint: 'A comment under it', needs: comment.name },
+  { kind: 'add', label: 'Add something', hint: 'A record in any collection here, about it' },
   { kind: 'set', label: 'Change it', hint: 'Set one of its fields' },
-  { kind: 'task', label: 'Add a task', hint: 'A task on the board', needs: task.name },
 ];
+
+/** Where a rule can add a record for one of `about`: the links first that name it, then those to anything */
+export interface AddTarget {
+  readonly collection: NodeCollection;
+  readonly links: ReadonlyArray<string>;
+}
+
+/**
+ * The collections a rule can add to, for a record of `about`: those a line of
+ * text can make a record of, with the links a new one could point at it by.
+ * Those that can point at it come first.
+ */
+export function addable(collections: ReadonlyArray<NodeCollection>, about: string): ReadonlyArray<AddTarget> {
+  const pointing = attachable(collections, about);
+  const found = collections
+    .filter(
+      (c) => c.version !== null && !c.name.startsWith('app.rule') && quickAddBody(c.schema, 'text') !== null,
+    )
+    .map((collection) => {
+      const rels = pointing.filter((a) => a.collection.name === collection.name).map((a) => a.rel);
+      const named = rels.filter((rel) => collection.links[rel]?.to !== '*');
+      return { collection, links: [...named, ...rels.filter((rel) => !named.includes(rel))] };
+    });
+  return [...found.filter((t) => t.links.length > 0), ...found.filter((t) => t.links.length === 0)];
+}
 
 const COUNT_WORDS: Readonly<Record<CountClause['op'], string>> = {
   more: 'more than',
@@ -145,8 +164,21 @@ function isRule(body: unknown): body is Rule {
   );
 }
 
+/** Rules saved before a rule could add to any collection named three; read as what they did */
+const EARLIER: Readonly<Record<string, { collection: string; link?: string }>> = {
+  message: { collection: message.name, link: 'shares' },
+  comment: { collection: comment.name, link: 'about' },
+  task: { collection: task.name },
+};
+
 /** A rule record's body, when it is one */
-export const ruleOf = (record: NodeRecord): Rule | null => (isRule(record.body) ? record.body : null);
+export function ruleOf(record: NodeRecord): Rule | null {
+  if (!isRule(record.body)) return null;
+  const then: unknown = record.body.then;
+  const earlier = isObject(then) && typeof then.kind === 'string' ? EARLIER[then.kind] : undefined;
+  if (!earlier || !isObject(then) || typeof then.text !== 'string') return record.body;
+  return { ...record.body, then: { kind: 'add', text: then.text, ...earlier } };
+}
 
 const plural = (word: string) => (/(s|x|ch|sh)$/.test(word) ? `${word}es` : `${word}s`);
 
@@ -189,12 +221,10 @@ export function thenWords(
   switch (then.kind) {
     case 'notify':
       return `notify me: “${then.text}”`;
-    case 'message':
-      return `post in chat: “${then.text}”`;
-    case 'comment':
-      return `comment on it: “${then.text}”`;
-    case 'task':
-      return `add a task: “${then.text}”`;
+    case 'add': {
+      const thing = noun(collections, then.collection);
+      return `add ${article(thing)} ${thing}${then.link ? ' about it' : ''}: “${then.text}”`;
+    }
     case 'set': {
       const field = fieldsFor(collections, collection).find((f) => f.name === then.field);
       const label = (field?.label ?? then.field).toLowerCase();
@@ -303,7 +333,6 @@ async function act(
   const at = new Date().toISOString();
   const schema = collections.find((c) => c.name === match.record.collection)?.schema ?? null;
   const text = (template: string) => fill(template, match.record, schema, match.count);
-  const has = (name: string) => collections.some((c) => c.name === name && c.version !== null);
   const then = rule.then;
   try {
     switch (then.kind) {
@@ -317,32 +346,16 @@ async function act(
           at,
         };
       }
-      case 'message':
-        if (!has(message.name)) return { did: 'There is no chat in this space', ok: false, at };
-        await node.records.put(
-          space,
-          message.name,
-          { text: text(then.text) },
-          {
-            links: [{ rel: 'shares', to: match.record.key }],
-          },
-        );
-        return { did: `Posted in chat: ${text(then.text)}`, ok: true, at };
-      case 'comment':
-        if (!has(comment.name)) return { did: 'This space has no comments', ok: false, at };
-        await node.records.put(
-          space,
-          comment.name,
-          { text: text(then.text) },
-          {
-            links: [{ rel: 'about', to: match.record.key }],
-          },
-        );
-        return { did: `Commented: ${text(then.text)}`, ok: true, at };
-      case 'task':
-        if (!has(task.name)) return { did: 'This space has no tasks', ok: false, at };
-        await node.records.put(space, task.name, { title: text(then.text) });
-        return { did: `Added a task: ${text(then.text)}`, ok: true, at };
+      case 'add': {
+        const target = collections.find((c) => c.name === then.collection && c.version !== null);
+        const body = target ? quickAddBody(target.schema, text(then.text)) : null;
+        const thing = noun(collections, then.collection);
+        if (!target || !body) return { did: `This space has no ${plural(thing)} to add to`, ok: false, at };
+        const made = await node.records.put(space, target.name, body, {
+          links: then.link ? [{ rel: then.link, to: match.record.key }] : [],
+        });
+        return { did: `Added ${article(thing)} ${thing}: ${text(then.text)}`, ok: true, at, made: made.key };
+      }
       case 'set': {
         const current = await node.records.get(space, match.record.key);
         const body = isObject(current?.body) ? current.body : null;
@@ -362,18 +375,23 @@ async function act(
   }
 }
 
-/** The records each rule has run for, by rule key */
-async function runsIn(node: P2PNode, space: string): Promise<Map<string, Set<string>>> {
+/** The records each rule has run for, by rule key, and the records rules wrote */
+async function runsIn(
+  node: P2PNode,
+  space: string,
+): Promise<{ by: Map<string, Set<string>>; made: Set<string> }> {
   const runs = await node.records.list(space, { collection: runCollection.name });
   const by = new Map<string, Set<string>>();
+  const made = new Set<string>();
   for (const run of runs) {
+    if (isObject(run.body) && typeof run.body.made === 'string') made.add(run.body.made);
     const rule = run.links.find((l) => l.rel === 'rule')?.to;
     const about = run.links.find((l) => l.rel === 'about')?.to;
     if (!rule || !about) continue;
     if (!by.has(rule)) by.set(rule, new Set());
     by.get(rule)!.add(about);
   }
-  return by;
+  return { by, made };
 }
 
 /** Runs every rule this account made, in one space, once: acting for each record it newly holds for */
@@ -385,14 +403,20 @@ async function runSpace(node: P2PNode, space: string, me: string, busy: Set<stri
     (record) => record.createdBy === me && record.verified,
   );
   if (rules.length === 0) return;
-  const runs = await runsIn(node, space);
+  const { by: runs, made } = await runsIn(node, space);
   for (const record of rules) {
     const rule = ruleOf(record);
     if (!rule || rule.paused || !defined(rule.when.collection)) continue;
     const since = Date.parse(rule.since);
     for (const match of await matching(node, space, rule.when, me)) {
       const claim = `${record.key} ${match.record.key}`;
-      if (match.moment < since || runs.get(record.key)?.has(match.record.key) || busy.has(claim)) continue;
+      if (
+        match.moment < since ||
+        made.has(match.record.key) ||
+        runs.get(record.key)?.has(match.record.key) ||
+        busy.has(claim)
+      )
+        continue;
       busy.add(claim);
       try {
         const links = [
@@ -407,6 +431,7 @@ async function runSpace(node: P2PNode, space: string, me: string, busy: Set<stri
           { links },
         );
         const done = await act(node, space, rule, match, collections);
+        if (done.made) made.add(done.made);
         await node.records.update(space, run.key, done, { links });
       } finally {
         busy.delete(claim);
@@ -459,61 +484,90 @@ export function useRunRules(): void {
   }, [node, did]);
 }
 
-/** Starting points for a space, from the collections it has: what a rule is for, before anyone has made one */
+/**
+ * Starting points for a space, from what its collections say about themselves:
+ * what a rule is for, before anyone has made one. Nothing here knows about
+ * polls or tasks; a collection someone made yesterday gets ideas too.
+ */
 export function ideas(
   collections: ReadonlyArray<NodeCollection>,
 ): ReadonlyArray<{ title: string; rule: Omit<Rule, 'since'> }> {
-  const has = (name: string) => collections.some((c) => c.name === name && c.version !== null);
+  const live = collections.filter(
+    (c) => c.schema !== null && c.version !== null && !c.name.startsWith('app.rule'),
+  );
   const found: Array<{ title: string; rule: Omit<Rule, 'since'> }> = [];
-  if (has('std.poll') && has('std.vote'))
-    found.push({
-      title: 'Close a poll once 10 people have voted',
-      rule: {
-        name: 'Close full polls',
-        when: {
-          collection: 'std.poll',
-          clauses: [],
-          count: { collection: 'std.vote', rel: 'about', op: 'atLeast', value: 10 },
+  for (const collection of live) {
+    const thing = noun(collections, collection.name);
+    const fields = fieldsFor(collections, collection.name);
+    // Another collection pointing at this one by a link of its own, as votes do at a poll
+    const counted = attachable(live, collection.name).find(
+      (a) =>
+        a.collection.name !== collection.name && (a.collection.links[a.rel]?.to !== '*' || a.rel === 'about'),
+    );
+    if (counted) {
+      const many = noun(collections, counted.collection.name, true);
+      const count = { collection: counted.collection.name, rel: counted.rel, op: 'atLeast' as const };
+      const yes = fields.find((f) => f.kind === 'yesno');
+      found.push(
+        yes
+          ? {
+              title: `Mark ${article(thing)} ${thing} “${yes.label.toLowerCase()}” once it has 10 ${many}`,
+              rule: {
+                name: `${yes.label} at 10 ${many}`,
+                when: { collection: collection.name, clauses: [], count: { ...count, value: 10 } },
+                then: { kind: 'set', field: yes.name, value: true },
+              },
+            }
+          : {
+              title: `Hear when ${article(thing)} ${thing} gets 5 ${many}`,
+              rule: {
+                name: `Popular ${plural(thing)}`,
+                when: { collection: collection.name, clauses: [], count: { ...count, value: 5 } },
+                then: { kind: 'notify', text: `“{title}” has {count} ${many}` },
+              },
+            },
+      );
+    }
+    // A choice's last option is often where things end up: done, closed, shipped
+    const choice = fields.find((f) => f.kind === 'choice' && (f.choices?.length ?? 0) > 1);
+    const last = choice?.choices?.at(-1);
+    if (choice && last && (typeof last.value === 'string' || typeof last.value === 'number')) {
+      const tell = addable(collections, collection.name).find(
+        (t) => t.collection.name !== collection.name && t.links.length > 0,
+      );
+      const where = tell ? noun(collections, tell.collection.name) : null;
+      found.push({
+        title: `${tell ? `Add ${article(where!)} ${where}` : 'Notify me'} when ${article(thing)} ${thing} is ${last.label.toLowerCase()}`,
+        rule: {
+          name: `${collectionLabel(collection)} ${last.label.toLowerCase()}`,
+          when: {
+            collection: collection.name,
+            clauses: [{ field: choice.name, op: 'is', value: last.value }],
+          },
+          then: tell
+            ? {
+                kind: 'add',
+                collection: tell.collection.name,
+                text: `${last.label}: {title}`,
+                link: tell.links[0],
+              }
+            : { kind: 'notify', text: `${last.label}: {title}` },
         },
-        then: { kind: 'set', field: 'closed', value: true },
-      },
-    });
-  if (has('std.poll') && has('std.vote') && has(message.name))
-    found.push({
-      title: 'Tell the chat when a poll gets its fifth vote',
-      rule: {
-        name: 'Popular polls',
-        when: {
-          collection: 'std.poll',
-          clauses: [],
-          count: { collection: 'std.vote', rel: 'about', op: 'atLeast', value: 5 },
+      });
+    }
+    const person = fields.find((f) => f.kind === 'person' || f.kind === 'people');
+    if (person)
+      found.push({
+        title: `Notify me when ${article(thing)} ${thing} has me as ${person.label.toLowerCase()}`,
+        rule: {
+          name: `${collectionLabel(collection)} for me`,
+          when: {
+            collection: collection.name,
+            clauses: [{ field: person.name, op: person.kind === 'people' ? 'includes' : 'is', me: true }],
+          },
+          then: { kind: 'notify', text: '{title}' },
         },
-        then: { kind: 'message', text: '“{title}” has {count} votes' },
-      },
-    });
-  if (has(task.name) && has(message.name))
-    found.push({
-      title: 'Celebrate finished tasks in chat',
-      rule: {
-        name: 'Done!',
-        when: { collection: task.name, clauses: [{ field: 'status', op: 'is', value: 'done' }] },
-        then: { kind: 'message', text: 'Done: {title} 🎉' },
-      },
-    });
-  if (has(task.name))
-    found.push({
-      title: 'Notify me when an urgent task is assigned to me',
-      rule: {
-        name: 'Urgent for me',
-        when: {
-          collection: task.name,
-          clauses: [
-            { field: 'assignees', op: 'includes', me: true },
-            { field: 'priority', op: 'is', value: 1 },
-          ],
-        },
-        then: { kind: 'notify', text: '{title}' },
-      },
-    });
-  return found;
+      });
+  }
+  return found.slice(0, 6);
 }
