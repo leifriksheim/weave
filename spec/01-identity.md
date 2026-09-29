@@ -284,7 +284,7 @@ by a convention built on the protocol (`packages/core/docs/`), not by it:
 | `weave/space-key-box/v1\|<spaceId>\|<keyId>\|<to>`               | `sealFor` context                                | `space/space-access.ts:205`                                   | 03     |
 | `weave/space-earlier-keys/v1\|<spaceId>\|<keyId>`                | Sealing context                                  | `space/space-access.ts:192`                                   | 03     |
 | `weave/space-membership/v1\|<spaceId>`                           | Sealing context                                  | `space/space-access.ts:194`                                   | 03, 04 |
-| `weave/contact-request\|<spaceId>\|<from>\|<to>`                 | `sealFor` context                                | `node/node.ts:1340`                                           | 03     |
+| `weave/contact-request\|<spaceId>\|<from>\|<to>`                 | `sealFor` context                                | `node/node.ts:1340`                                           | docs   |
 | `weave/direct/v1\|<spaceId>\|<from>\|<to,…>`                     | Sealing context (the text)                       | `privacy/direct.ts:37`                                        | docs   |
 | `weave/direct/v1\|<spaceId>\|<from>\|<to,…>\|<reader>`           | `sealFor` context (one reader's box)             | `privacy/direct.ts:41`                                        | docs   |
 | `weave/knock/v1\|<doorKey>`                                      | `sealFor` context                                | `doors/doors.ts` (`sealKnock`)                                | 07     |

@@ -53,6 +53,7 @@ the others wrote.
 | [direct-messages.md](direct-messages.md)   | `std.direct` and `node.direct`: text sealed for some members of a space                        |
 | [apps-as-records.md](apps-as-records.md)   | `std.app`: the review, updates, notifications, compatibility, and how screens run              |
 | [calls.md](calls.md)                       | Voice and video calls in a space: the `call.*` messages, ringing, joining, leaving             |
+| [contacts.md](contacts.md)                 | `std.contact` and `std.contact-request`: the list, sealed requests, `node.contacts`            |
 
 ## Rules of thumb
 
