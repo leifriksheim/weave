@@ -1156,7 +1156,7 @@ are in [Sync and storage in the library](../packages/core/docs/storage.md#pacing
 
 | Name                           | Value                        | Where                     |
 | ------------------------------ | ---------------------------- | ------------------------- |
-| `SYNC_PROTOCOL_VERSION`        | 4                            | `v` on every sync message |
+| `SYNC_PROTOCOL_VERSION`        | 5                            | `v` on every sync message |
 | Negentropy version byte        | `0x61`                       | §3                        |
 | Id size / fingerprint size     | 32 / 16 bytes                | §3                        |
 | IdList threshold / buckets     | < 32 items / 16              | §3.4                      |

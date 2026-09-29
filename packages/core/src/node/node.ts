@@ -68,6 +68,8 @@ import {
   openSealed,
   sealFor,
 } from '../identity/contact-key.js';
+import { direct as directSchema } from '../schemas/library/publishing.js';
+import { openDirect, sealDirect, type DirectBody } from '../privacy/direct.js';
 import {
   contact as contactSchema,
   contactRequest as contactRequestSchema,
@@ -155,6 +157,8 @@ import type {
   HostingView,
   NodeCollections,
   NodeContacts,
+  NodeDirect,
+  DirectMessage,
   NodeRecords,
   NodeSpaces,
   P2PNode,
@@ -1809,6 +1813,73 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     return found;
   }
 
+  /** A direct message as this account reads it — null when it is neither by nor for this account */
+  async function directView(
+    spaceId: string,
+    open: SpaceRuntime,
+    record: NodeRecord<DirectBody>,
+  ): Promise<DirectMessage | null> {
+    // Who wrote it is whoever created it: the context binds that account, so a copy posted by anyone else opens nothing.
+    const from = record.createdBy;
+    if (!record.verified || record.collection !== directSchema.name || !from || record.root !== from)
+      return null;
+    const to = Array.isArray(record.body?.to) ? record.body.to.filter((did) => typeof did === 'string') : [];
+    const me = config.signer.did;
+    if (from !== me && !to.includes(me)) return null;
+    const pair = open.ownMemberKey();
+    const opened = pair ? await openDirect(spaceId, from, record.body, me, pair.privateKey) : null;
+    return Object.freeze({
+      key: record.key,
+      from,
+      to: [...to].sort(),
+      text: opened?.text ?? null,
+      createdAt: record.createdAt,
+      ...(record.viaAgent ? { viaAgent: true as const } : {}),
+    });
+  }
+
+  const direct: NodeDirect = Object.freeze({
+    async reachable(spaceId: string) {
+      const open = await runtime(spaceId);
+      const { members } = await open.access();
+      const keys = await open.memberKeys();
+      return members
+        .map((member) => member.did)
+        .filter((did) => did !== config.signer.did && keys.has(did))
+        .sort();
+    },
+
+    async send(spaceId: string, to: ReadonlyArray<string>, text: string) {
+      const open = await runtime(spaceId);
+      const pair = open.ownMemberKey();
+      if (!pair)
+        throw new Error(
+          "This node can't seal direct messages here: it wasn't given your member key for this space.",
+        );
+      const trimmed = text.trim();
+      if (!trimmed) throw new Error('A direct message needs some text');
+      // Your own key as this node holds it, so your other devices read what you sent even before it is published.
+      const keys = new Map(await open.memberKeys());
+      keys.set(config.signer.did, pair.publicKey);
+      const body = await sealDirect(spaceId, config.signer.did, to, { text: trimmed }, keys);
+      await ensureDefined(open, directSchema);
+      const record = await open.put<DirectBody>(directSchema.name, body);
+      const view = await directView(spaceId, open, record);
+      if (!view) throw new Error('The direct message was written, but could not be read back');
+      return view;
+    },
+
+    async list(spaceId: string) {
+      const open = await runtime(spaceId);
+      const found: DirectMessage[] = [];
+      for (const record of await open.list<DirectBody>({ collection: directSchema.name })) {
+        const view = await directView(spaceId, open, record);
+        if (view) found.push(view);
+      }
+      return found.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key));
+    },
+  });
+
   const doors: NodeDoors = Object.freeze({
     async list() {
       if (!config.contactKey || agentSession) return [];
@@ -2297,6 +2368,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         accept: person('accept contact requests'),
         others: person("look inside a contact's space"),
       }),
+      // Direct messages are sealed to the person's member key, which an agent isn't given.
+      direct: Object.freeze({
+        reachable: (spaceId: string) => (allowed(spaceId) ? direct.reachable(spaceId) : Promise.resolve([])),
+        send: person('send direct messages'),
+        list: person('read direct messages'),
+      }),
       // Doors are the person's: an agent has none and knocks on none.
       doors: Object.freeze({
         list: async () => [],
@@ -2334,6 +2411,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     hosting,
     notifications,
     contacts,
+    direct,
     doors,
     asAgent,
 

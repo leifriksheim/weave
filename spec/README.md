@@ -15,7 +15,7 @@ the code disagree, that is a bug in one of them: open an issue, and say which.
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [01 — Identity](01-identity.md)                           | Seeds and recovery codes, key derivation, DIDs, the account vault, root and session signers, UCAN delegations, agent notes, device keys, contact keys, pairing         |
 | [02 — Records](02-records.md)                             | Expressions, canonical encoding and hashing, signatures, versions and which one wins, links, collection definitions, rules and checks, topics, the validation pipeline |
-| [03 — Spaces](03-spaces.md)                               | Spaces, roles and the access log, invites, encryption and key distribution, the account registry, profiles, contacts                                                   |
+| [03 — Spaces](03-spaces.md)                               | Spaces, roles and the access log, invites, encryption and key distribution, the account registry, profiles                                                             |
 | [04 — Network](04-network.md)                             | Relays and the signaling protocol, several relays at once, peer authentication, WebRTC and WebSocket transports, the mesh, introductions, live messages, ICE and TURN  |
 | [05 — Sync and storage](05-sync-and-storage.md)           | Negentropy set reconciliation and its messages, what is stored and how, data folders, sealing at rest, segments, mirrors, blobs                                        |
 | [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) | The session note and following the account, the account home and app grants, agents, carriers and hosts, calls                                                         |
@@ -32,6 +32,9 @@ change without touching this spec:
 - **The library's interface**: creating a node, its stores, holding spaces,
   events, sign-in, the app-side client, React ([node](../packages/core/docs/node.md),
   [sign-in](../packages/core/docs/sign-in.md)).
+- **How the library handles spaces**: role presets, invite defaults, how it
+  reads and publishes profiles, and where it keeps spaces and their keys
+  ([spaces](../packages/core/docs/spaces.md)).
 - **The query format** a node answers ([query format](../packages/core/docs/query-format.md)).
   Peers never exchange queries.
 - **Node actions** and the tools the CLI, MCP and WebMCP make of them
@@ -40,6 +43,8 @@ change without touching this spec:
   reserved ([standard library](../packages/core/docs/standard-library.md)).
 - **Apps kept in a space** (`std.app`), their review, what they notify about,
   and how an app runs their screens ([apps as records](../packages/core/docs/apps-as-records.md)).
+- **Contacts**: the contact list, contact requests and how they are sealed
+  ([contacts](../packages/core/docs/contacts.md)).
 
 The test for a new rule: does a peer produce, accept, store, sign or check
 it, or do two parties exchange it? Then it belongs here. Is it what a body
@@ -103,14 +108,11 @@ they are described; the smaller ones share
 | Forgetting in blob stores                                                         | [02 §4.9](02-records.md)                                                                                                                 |
 | References to records in other spaces                                             | [02 §5.3](02-records.md), [#38](https://github.com/leifriksheim/weave/issues/38)                                                         |
 | `pattern` and `format` in definitions                                             | [02 §6](02-records.md)                                                                                                                   |
-| Compatible definitions; content-addressed definitions; definition tiers           | [02 §6.5](02-records.md), [#11](https://github.com/leifriksheim/weave/issues/11), [#12](https://github.com/leifriksheim/weave/issues/12) |
 | Private `onePer` keys; uniqueness that cannot be a key                            | [02 §7.3](02-records.md), [#87](https://github.com/leifriksheim/weave/issues/87)                                                         |
 | Asking for what a version cites                                                   | [02 §7.6](02-records.md), [#79](https://github.com/leifriksheim/weave/issues/79)                                                         |
 | Leaving writes the self-removal (fixes a known defect)                            | [03 §6.2](03-spaces.md), [#15](https://github.com/leifriksheim/weave/issues/15)                                                          |
-| Contact requests that can be taken back; leaving a space for two updates the list | [03 §16.5](03-spaces.md), [#40](https://github.com/leifriksheim/weave/issues/40)                                                         |
 | Keep lists past the cap; deleted access records can't leave access standing       | [03 §6.3, §7.2](03-spaces.md)                                                                                                            |
 | What a private space still shows (hashed keys and collection names)               | [03 §8.6](03-spaces.md)                                                                                                                  |
-| Profiles, round two                                                               | [03 §11](03-spaces.md)                                                                                                                   |
 | Access-control convergence                                                        | [05 §8](05-sync-and-storage.md), [#10](https://github.com/leifriksheim/weave/issues/10)                                                  |
 | A node you can pin; no plain `ws://` off this machine                             | [04 §5.2](04-network.md), [#32](https://github.com/leifriksheim/weave/issues/32)                                                         |
 | Limits on what one peer can cost another                                          | [04 §7.4](04-network.md), [05 §6.4, §8](05-sync-and-storage.md), [#33](https://github.com/leifriksheim/weave/issues/33)                  |
@@ -124,8 +126,9 @@ they are described; the smaller ones share
 | Web Push through carriers, to an app that is closed                               | [06 §4.4](06-nodes-and-sessions.md)                                                                                                      |
 | Subscriptions delivered per device, through receiver records                      | [03 §15](03-spaces.md), [06 §4.4](06-nodes-and-sessions.md), [#30](https://github.com/leifriksheim/weave/issues/30)                      |
 | Hosts: reachability, restore, user storage, quotas, reminders, private payments   | [06 §4.6](06-nodes-and-sessions.md)                                                                                                      |
-| Calls: blocked people don't ring, ringing a closed app, big calls, listen-only    | [06 §5](06-nodes-and-sessions.md), [#20](https://github.com/leifriksheim/weave/issues/20)                                                |
 | Names: handles that lead to a door                                                | [07 §9](07-doors.md)                                                                                                                     |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Content-addressed definitions; definition tiers, additive-only                    | [02 §6.5](02-records.md), [#11](https://github.com/leifriksheim/weave/issues/11), [#12](https://github.com/leifriksheim/weave/issues/12) |
 
 Proposed in an issue but not yet designed into the spec, so listed under
 **Not yet specified** in their part: key rotation, KERI-style pre-rotation

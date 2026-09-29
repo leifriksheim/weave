@@ -61,6 +61,20 @@ called and how an app shows something are not protocol, however useful: the
 standard collections (`std.*`), the query format, node actions, `std.app` and
 screens are described in `packages/core/docs/` instead.
 
+To tell which a change is, ask: **would a peer that has never heard of it
+still sync, store and judge every record the same way?** If yes, it is a layer
+on the protocol and belongs in the docs, even when it seals, signs or fixes
+exact bytes that two apps must agree on. Direct messages (`std.direct`) are one.
+If a peer must check, refuse or send something new, it is protocol.
+
+What only one node ever reads is not protocol either: its own stores, caches,
+timers, retry intervals, defaults and config, and the library's function
+names. Those belong in the docs, or in the code alone. A number is protocol
+only when the other side enforces it, like a relay's limit or a peer's
+timeout. Something the devices of one account share across implementations,
+like the vault, the data folder or the derived account spaces, is protocol:
+two implementations must read it the same way.
+
 - A change to anything in the spec's scope changes the spec in the same PR.
   Where the spec and the code disagree, one of them is a bug: fix it, or open
   an issue that says which.
