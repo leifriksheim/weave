@@ -41,7 +41,10 @@ export const ICONS = {
 
 export type IconName = keyof typeof ICONS;
 
-export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
+/** One of ours by name, or a path of its own on the same grid: what a mini app brings (`fromMiniApp`) */
+export type Glyph = IconName | { readonly path: string };
+
+export function Icon({ name, size = 16 }: { name: Glyph; size?: number }) {
   return (
     <svg
       width={size}
@@ -55,7 +58,7 @@ export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
       aria-hidden
       style={{ flexShrink: 0 }}
     >
-      <path d={ICONS[name]} />
+      <path d={typeof name === 'string' ? ICONS[name] : name.path} />
     </svg>
   );
 }

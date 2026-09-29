@@ -43,7 +43,10 @@ export { useLive } from './use-live.js';
 export { useQuery } from './use-query.js';
 export type { QueryState } from './use-query.js';
 export { useSpaces } from './use-spaces.js';
-export type { SpacesState } from './use-spaces.js';
+export type { SpacesOptions, SpacesState } from './use-spaces.js';
+export { useMyName } from './use-my-name.js';
+export { useNames } from './use-names.js';
+export { useInviteLink, inviteLink, inviteFromLink } from './use-invite-link.js';
 export {
   useHoldSpace,
   useRecord,

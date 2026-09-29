@@ -136,7 +136,7 @@ All from `@weaveprotocol/core/react`, below a `WeaveProvider`:
 | Hook                                                                | Gives                                                                   |
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `useNode()`                                                         | The node, to write with                                                 |
-| `useSpaces()`                                                       | The spaces, kept current, with `create`, `join`, `leave`                |
+| `useSpaces({ having? })`                                            | The spaces, kept current, with `create`, `join`, `leave`                |
 | `useQuery(space, query)`                                            | `{ result, error }`, re-run as records change here or arrive from peers |
 | `useRecord(space, key)` / `useLinked(space, key)`                   | One record; the records pointing at it                                  |
 | `useCollections(space)` / `useProfiles(space)` / `useAccess(space)` | What a space holds; who is in it; roles and members                     |
@@ -144,6 +144,9 @@ All from `@weaveprotocol/core/react`, below a `WeaveProvider`:
 | `useCan(space, action, target)`                                     | Whether to show an edit or delete button                                |
 | `useHoldSpace(space)`                                               | Keeps a space syncing while the view is on screen                       |
 | `useLive(space, load, deps)`                                        | Anything else, reloaded as the space changes                            |
+| `useNames(space)`                                                   | `name(did)`: what someone is called there, never passing for another    |
+| `useMyName()`                                                       | The account's name, to ask for when making or joining a space           |
+| `useInviteLink()`                                                   | The invite this page was opened with, what it is for, and `dismiss`     |
 
 ```tsx
 function Todos({ space }: { space: string }) {
@@ -152,6 +155,44 @@ function Todos({ space }: { space: string }) {
   if (!result) return null;
   if (!result.complete && result.records.length === 0) return <p>Loading…</p>;
   return result.records.map((todo) => <Todo key={todo.key} todo={todo} />);
+}
+```
+
+**An app given the whole account** sees every space in it. `useSpaces({ having: [proposal] })`
+lists only the spaces that define those collections: the ones the app works in.
+A space still being joined is kept, since its definitions haven't arrived yet.
+
+**Names.** A name is whatever its owner typed, so two people can both be "Sam".
+`useNames(space)` (or `displayName(did, profiles)` from `@weaveprotocol/core`)
+adds the tail of the identity when a name is shared, and shows the tail alone
+for someone with no profile.
+
+**Invite links** carry the invite after `#`, which browsers never send to a
+server. `inviteLink(invite)` makes one for this page, `inviteFromLink(text)`
+takes the invite out of a pasted link, and `useInviteLink()` reads the one the
+page was opened with:
+
+```tsx
+import { inviteLink, useInviteLink, useMyName, useNode } from '@weaveprotocol/core/react';
+
+const link = inviteLink(await node.spaces.invite(space.id)); // https://app.example/#invite=…
+
+function Invited({ onJoin }: { onJoin: (invite: string) => Promise<unknown> }) {
+  const { invite, preview, dismiss } = useInviteLink();
+  const me = useMyName();
+  if (!invite || !preview) return null;
+  return (
+    <button
+      onClick={() =>
+        void me
+          .save()
+          .then(() => onJoin(invite))
+          .then(dismiss)
+      }
+    >
+      Join {preview.space.name}
+    </button>
+  );
 }
 ```
 

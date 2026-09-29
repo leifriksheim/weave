@@ -11,6 +11,7 @@
   "dependencies": {
     "@mcp-b/webmcp-polyfill": "^4.0.0",
     "@weave/app-shared": "*",
+    "@weave/liquid": "*",
     "@weaveprotocol/core": "*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

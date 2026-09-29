@@ -1,0 +1,9 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "customConditions": ["@weaveprotocol/source"],
+    "noEmit": true
+  },
+  "include": ["**/*.ts"]
+}

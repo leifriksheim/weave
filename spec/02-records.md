@@ -1047,7 +1047,7 @@ and the `edit` rule decides whether it is allowed.
 > collection names. _Open:_ which space key: a record's key must outlive key
 > changes, so it cannot simply be the key its body was sealed with (as topic
 > tags use, §8.2); and how a reader finds a record written under an earlier
-> key.
+> key. Issue: [#87](https://github.com/leifriksheim/weave/issues/87).
 
 > **Planned: uniqueness that cannot be a key.** `onePer` works only when the
 > unique parts can be known before writing ("one per person per poll").

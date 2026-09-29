@@ -236,6 +236,7 @@ export type {
   RecordVerdict,
 } from './space/roles.js';
 export { rolePresets, solo, team, community } from './space/presets.js';
+export { displayName } from './space/names.js';
 export type { RolePreset } from './space/presets.js';
 export type { SpaceGenesis, SpaceKeyPair } from './space/space-access.js';
 

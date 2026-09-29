@@ -3,7 +3,7 @@ import { supersededApps, type App, type AppNotify } from '@weaveprotocol/core/sc
 import { hash } from '@weave/app-shared/hash';
 import { APPS, readiness, type WeaveApp } from './index';
 import { isAdded, useMadeApps } from './MadeApps';
-import type { IconName } from '../Icon';
+import type { Glyph } from '../Icon';
 import { isObject } from '../../derive/schema-ui';
 
 /**
@@ -16,7 +16,7 @@ export interface AppEntry {
   readonly id: string;
   readonly title: string;
   readonly description?: string | undefined;
-  readonly icon: IconName;
+  readonly icon: Glyph;
   readonly hue: number;
   readonly notify: ReadonlyArray<AppNotify>;
   readonly builtIn?: WeaveApp;

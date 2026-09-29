@@ -4,6 +4,7 @@ import { Modal } from '@weave/app-shared/Modal';
 import { ConnectAgent, useKnownAgent } from '../ConnectAgent';
 import { Icon } from '../Icon';
 import { useMadeApps } from './MadeApps';
+import { DESIGNS, designPrompt, type Design } from './designs';
 import { styles, palette, variants } from '../../styles';
 
 /** Things a group might ask for, to start from */
@@ -17,8 +18,20 @@ const IDEAS = [
   { label: 'Chore rota', text: 'a chore rota that takes turns, week by week' },
 ] as const;
 
+/** The look picked last time, in this browser */
+const DESIGN_KEY = 'weave:app-design';
+const rememberedDesign = (): Design => {
+  try {
+    const id = globalThis.localStorage.getItem(DESIGN_KEY);
+    return DESIGNS.find((one) => one.id === id) ?? DESIGNS[0]!;
+  } catch {
+    return DESIGNS[0]!;
+  }
+};
+
 /**
- * Making a new app for a space, by describing it to an agent.
+ * Making a new app for a space, by describing it to an agent, in one of a
+ * few looks that all sit well beside Weave (`designs.ts`).
  *
  * The agent works in the space through the CLI's MCP server (or this page's
  * WebMCP tools) and proposes the app as a `std.app` record. Nothing is added
@@ -50,11 +63,20 @@ export function CreateApp({
   const [before, setBefore] = useState<ReadonlySet<string> | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [design, setDesign] = useState(rememberedDesign);
+  const pick = (next: Design) => {
+    setDesign(next);
+    try {
+      globalThis.localStorage.setItem(DESIGN_KEY, next.id);
+    } catch {
+      // Only remembering the pick is lost.
+    }
+  };
 
   if (connecting) return <ConnectAgent onClose={() => setConnecting(false)} />;
 
   const what = idea.trim().replace(/[.\s]+$/, '');
-  const prompt = `In my Weave space "${space.name}", make an app: ${what}. Use the standard collections where they fit, and propose it to the space, saying what is worth being notified about.`;
+  const prompt = `In my Weave space "${space.name}", make an app: ${what}. Use the standard collections where they fit, and propose it to the space, saying what is worth being notified about. ${designPrompt(design)}`;
   const agent = known ?? 'your agent';
   const adds = mayDefine ? 'you add it' : 'someone who runs the space adds it';
   const byHand = mayDefine ? onBuildByHand : undefined;
@@ -107,6 +129,8 @@ export function CreateApp({
           </button>
         ))}
       </div>
+
+      <DesignPicker value={design} onChange={pick} />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <button
@@ -190,6 +214,93 @@ export function CreateApp({
         </div>
       )}
     </Modal>
+  );
+}
+
+/** The looks, each as a small swatch of itself */
+function DesignPicker({ value, onChange }: { value: Design; onChange: (design: Design) => void }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <span style={{ fontSize: 14, fontWeight: 600, color: palette.ink.strong }}>
+        Look <span style={{ fontWeight: 400, color: palette.ink.muted }}>· {value.blurb}</span>
+      </span>
+      <div
+        role="radiogroup"
+        aria-label="Look"
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}
+      >
+        {DESIGNS.map((one) => {
+          const on = one.id === value.id;
+          return (
+            <button
+              key={one.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              title={one.blurb}
+              onClick={() => onChange(one)}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 2px 7px',
+                borderRadius: 8,
+                border: `1px solid ${on ? palette.ink.strong : palette.surface.line}`,
+                boxShadow: on ? `0 0 0 1px ${palette.ink.strong}` : 'none',
+                background: palette.surface.card,
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  width: 40,
+                  height: 30,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  padding: 4,
+                  borderRadius: Math.min(one.swatch.radius, 8),
+                  border: `1px solid ${palette.surface.line}`,
+                  background: palette.surface.sunken,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: one.swatch.font,
+                    fontWeight: one.swatch.weight,
+                    fontSize: 11,
+                    lineHeight: 1,
+                    color: palette.ink.strong,
+                    textAlign: 'left',
+                  }}
+                >
+                  Aa
+                </span>
+                <span
+                  style={{
+                    alignSelf: 'flex-end',
+                    width: 18,
+                    height: 7,
+                    borderRadius: Math.min(one.swatch.radius, 4),
+                    background: one.swatch.accent,
+                  }}
+                />
+              </span>
+              <span
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: on ? 600 : 500,
+                  color: on ? palette.ink.strong : palette.ink.muted,
+                }}
+              >
+                {one.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

@@ -1391,6 +1391,7 @@ That starts everything, with coloured output per part, and Ctrl-C stops it all:
 | Part   | Where                 | What                                                                                                                         |
 | ------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | app    | http://localhost:5173 | The example app                                                                                                              |
+| liquid | http://localhost:5190 | Liquid, a standalone app for one job: liquid democracy (below)                                                               |
 | home   | http://localhost:5174 | The account home it connects to                                                                                              |
 | node   | port 8787             | An always-on node that is also the relay; a throwaway identity on first run (`packages/cli/.env.dev`, data in `.weave-dev/`) |
 | host   | http://localhost:8788 | `weave host`, what "Keep my spaces online" uses, with its pay page at `/pay`; settings in `packages/cli/.env.host.dev`       |
@@ -1399,6 +1400,23 @@ That starts everything, with coloured output per part, and Ctrl-C stops it all:
 `apps/example/.env.development` and `apps/home/.env.development` point the app and home
 at the rest. Override any of them in a `.env.local`, and the host in
 `packages/cli/.env.host.local`.
+
+**Liquid.** `apps/liquid/` is the other example: a standalone app that does
+one thing. An assembly votes on proposals, and anyone can trust a person or a
+party with their vote, topic by topic, and take it back. Its collections are
+its own (`apps/liquid/src/schema.ts`), and every device counts the votes the
+same way (`apps/liquid/src/tally.ts`, tested in `apps/liquid/tests/`). What it
+can't promise is on its own **?** page.
+
+**Mini apps.** Liquid is written once and runs two ways: as its own site, and
+as one of the example app's apps, on the same records. The contract is
+`MiniApp` in `apps/shared/src/mini-app.ts`: the collections the app needs, its
+icon, and a `Space` component that shows one space in whatever frame it gets.
+The mini app exports one (`@weave/liquid/app`, from
+`apps/liquid/src/mini-app.tsx`), its standalone shell wraps the same `Space` in a
+header of its own, and the example lists it with `fromMiniApp`
+(`apps/example/src/components/apps/index.tsx`). A new one is a workspace under
+`apps/` that exports a `MiniApp`, plus one line in the example's `APPS`.
 
 **Trying hosting and payments.** In the home: Settings, **Keep my spaces
 online**, **Keep online** (the dev host is filled in), then **Payment**, which
@@ -1536,6 +1554,7 @@ One npm workspace, installed once at the root (`npm install`):
 | `packages/relay` | `@weaveprotocol/relay` (private)  | The signaling relay and its mailbox, run alone on Fly and inside every node |
 | `apps/home`      | —                                 | The account home                                                            |
 | `apps/example`   | —                                 | The website and the example app                                             |
+| `apps/liquid`    | —                                 | Liquid, a standalone example app: liquid democracy                          |
 | `apps/extension` | —                                 | The Chrome extension                                                        |
 | `apps/shared`    | `@weave/app-shared` (private)     | Styles, relay settings and components the home and the website share        |
 | `spec`           | —                                 | The protocol specification                                                  |

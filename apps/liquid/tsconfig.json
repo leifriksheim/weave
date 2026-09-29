@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "customConditions": ["@weaveprotocol/source"],
+    "noEmit": true
+  },
+  "include": ["src"]
+}
