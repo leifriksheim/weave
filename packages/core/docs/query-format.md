@@ -7,7 +7,7 @@ produced by an agent. It runs against the records one node holds of one space.
 > offer any query language, and a better one later is not a protocol change.
 > Open, in [#28](https://github.com/leifriksheim/weave/issues/28): the
 > interface another query language plugs into, which reports the collections
-> it read so a cache ([spec 05 §9.2](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md)) keeps them; and the
+> it read so a cache ([holding part of a space](node.md#holding-part-of-a-space)) keeps them; and the
 > small filter a screen's `weave.list(collection, { where })` takes (field
 > equality and `link:<rel>`, `packages/core/src/schemas/screens.ts`), which
 > apps that run [screens](apps-as-records.md#screens) have to agree on.

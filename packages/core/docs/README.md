@@ -56,6 +56,7 @@ the others wrote.
 | [contacts.md](contacts.md)                 | `std.contact` and `std.contact-request`: the list, sealed requests, `node.contacts`                                       |
 | [doors.md](doors.md)                       | Doors kept as records, and how a knock becomes a contact: `std.door`, `std.knock`, the answer                             |
 | [spaces.md](spaces.md)                     | Role presets, invite defaults, key upkeep, profiles, the space manager                                                    |
+| [storage.md](storage.md)                   | Pacing sync, the store in memory, storage adapters, IndexedDB, data folders, blob stores and mirrors                      |
 
 ## Rules of thumb
 

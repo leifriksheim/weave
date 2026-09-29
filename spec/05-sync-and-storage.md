@@ -1,9 +1,11 @@
 # 05 — Sync and storage
 
 How two peers that hold the same space find out which record versions each
-lacks and exchange them, and how a node keeps what it holds: the store and
-its entries, storage adapters, the data folder that several clients share,
-sealing at rest, and mirrors in dumb file stores.
+lacks and exchange them, and how what a node holds is kept where others can
+read it: the store and its entries, the data folder that several clients
+share, sealing at rest, and mirrors in dumb file stores. How the library
+paces sync and keeps its own stores (IndexedDB, adapters, blob store drivers)
+is in [Sync and storage in the library](../packages/core/docs/storage.md).
 
 What a version _is_ (its fields, id, signature, and which of two versions
 wins) is in [02 — Records](02-records.md). Who may write what, and what a
@@ -383,7 +385,8 @@ see [03 — Spaces](03-spaces.md)).
   `reconciled` with `message: ""` and `held: false`.
 
 Which collections a node chooses to hold is the node's own choice; how this
-implementation chooses is in §9.
+library chooses is in
+[the node: holding part of a space](../packages/core/docs/node.md#holding-part-of-a-space).
 
 _Source: `packages/core/src/sync/sync-engine.ts` (`Holds`, `holdsCollection`, `readHolds`).
 Tests: `packages/core/tests/reconcile.test.ts` ("holding part of a space")._
@@ -404,13 +407,16 @@ request with it is forgotten.
 
 ### 6.2 Hello
 
-A node sends a `hello` (without `reply`):
+A node MUST send a `hello` (without `reply`):
 
 - as soon as a peer connects;
-- to every peer every **heartbeat** (30 s by default);
-- shortly (≈100 ms) after it took in something new from a peer, a folder or a
-  mirror, so a version passed along does not wait a heartbeat at every hop;
-- whenever what it holds changes (§9).
+- whenever what it holds changes (§5).
+
+It SHOULD also say hello to every peer at a regular interval, and soon after
+it took in something new from a peer, a folder or a mirror, so a version
+passed along does not wait for the next interval at every hop. How often is
+the node's own; the library's values are in
+[Sync and storage in the library](../packages/core/docs/storage.md#pacing-sync).
 
 On a `hello` from peer P:
 
@@ -442,9 +448,7 @@ For each differing collection the initiator:
 
 1. Builds its item set for the collection and sends `reconcile` with a fresh
    `id` and the output of _initiate_ (§3.4), with a frame limit of 32,000
-   bytes. If a session for that collection with that peer is already running
-   and has heard something in the last 30 s, it does not start another; it
-   marks the running one to run **again** once it ends.
+   bytes.
 2. On each `reconciled` with the session's `id`:
    - `held: false` ends the session.
    - Otherwise it feeds `message` to its reconciler. A message that fails to
@@ -452,8 +456,8 @@ For each differing collection the initiator:
    - It notes the ids in `have` and in `need` not already handled in this
      session, leaving out those refused from this peer before (§8).
    - If the reconciler produced a next message, it sends it as another
-     `reconcile` with the same session id — up to 64 rounds; past that the
-     session is abandoned as runaway.
+     `reconcile` with the same session id. The initiator MAY abandon a
+     session that runs to too many rounds.
    - Otherwise the session ends.
 
    When the session ends, however it ends, the initiator asks for every id
@@ -469,24 +473,19 @@ For each differing collection the initiator:
    > comes first and waits for its first version (§8), and both go in
    > together.
 
-   **Asking.** A node asks a peer for ids through a queue: it sends `want`
-   messages of at most 200 ids of one collection, each with a fresh request
-   id, and keeps at most **4** of them unanswered per peer. Ids of the
-   space's own records (`sys.` collections, [03](03-spaces.md)) and first
-   versions a waiting version names (§8) go to the front of the queue;
-   everything else joins the back. An id already queued or asked for is not
-   queued again. When a `want` is answered, the next ones go.
+   **Asking.** A node asks a peer for ids in `want` messages of at most 200
+   ids of one collection, each with a fresh request id. How many it keeps
+   unanswered at once, and in what order it asks, is its own
+   ([Sync and storage in the library](../packages/core/docs/storage.md#pacing-sync)).
 
 3. When a session has ended and every `want` for its collection has been
    answered and none is queued, the collection is **level** with that peer
    (as far as could be taken in). The
    initiator then sends the peer a `hello` with `reply: true`, so the peer
    learns where things stand too without starting another round.
-4. If the session was marked to run again, a new session begins.
 
-A session that has heard nothing for 30 s is dropped at the next heartbeat,
-and so is a `want` unanswered for 30 s; the next queued ones then go. What a
-dropped `want` asked for is found again on the next round.
+A node MAY give up on a session or a `want` that has heard nothing for a
+while. What a dropped `want` asked for is found again on the next round.
 
 ### 6.4 Answering (responder)
 
@@ -501,25 +500,26 @@ cannot parse (§18).
 
 > **Known defect:** a responder that cannot parse a `reconcile` sends no reply
 > at all (`packages/core/src/sync/sync-engine.ts`, `onReconcile`), so the initiator waits
-> until its session goes stale after 30 s (§6.3). A fix will answer at once.
+> until it gives up on the session (§6.3; 30 s in this library). A fix will
+> answer at once.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
 > **Planned: limits per peer.** Every `hello` and every `reconcile` round
 > costs the answering side a pass over a collection's in-memory item set, as
-> often as a peer asks. Today only a session (64 rounds), a message (32,000
-> bytes), a `want` (200 ids) and a hello (1,000 collections) are bounded. A
+> often as a peer asks. Today only a message (32,000 bytes), a `want` (200
+> ids) and a hello (1,000 collections) are bounded by the protocol, and a
+> session's rounds by this library. A
 > node will also limit, per peer per minute, the hellos it answers and the
 > sessions it serves, and the collections one hello may make it compare. A
 > peer over its limit is ignored until the minute is out, not disconnected.
 > Open: the numbers, and whether a node says it is refusing (so the other
-> side does not wait out the 30 s stale timer). Byte rates per connection
+> side does not wait until it gives up). Byte rates per connection
 > belong to [04 — Network](04-network.md). Tracked in [#33](https://github.com/leifriksheim/weave/issues/33).
 
 ### 6.5 Done
 
 A node is **synced** with a peer when no session and no `want` is in flight
-with it, and no id is queued to ask it for. This implementation reports `synced` and `level` as events; §9 uses
-them, and records whether the peer holds `"all"`.
+with it, and no id is queued to ask it for.
 
 ### 6.6 Sequence
 
@@ -539,9 +539,8 @@ A (initiator: its DID sorts first)                       B
    ── hello {sums, reply:true} ──────────────────────────▶    A is level on app.note
 ```
 
-_Source: `packages/core/src/sync/sync-engine.ts` (`onReconciled`, `want`, `pump`,
-`sweep`, `MAX_WANTS_IN_FLIGHT`), `packages/core/src/node/space-runtime.ts` (wiring:
-heartbeat, `announceSoon`, peer connect). Tests: `packages/core/tests/reconcile.test.ts`
+_Source: `packages/core/src/sync/sync-engine.ts` (`onReconciled`, `want`),
+`packages/core/src/node/space-runtime.ts` (peer connect). Tests: `packages/core/tests/reconcile.test.ts`
 ("sync by reconciliation", "joining, a deleted record never shows as it once
 was", "a want whose answer is lost is given up, and the peer is synced
 again"), `packages/core/tests/sync.test.ts`._
@@ -575,11 +574,14 @@ arrival; see 02.
 
 The gatekeeper gives one of three answers:
 
-| Answer  | Meaning                                                                                                                                           | What happens                                                                                                                                                                                                                                                                                                                                 |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| valid   | passes                                                                                                                                            | stored (§10)                                                                                                                                                                                                                                                                                                                                 |
-| later   | depends on something not here yet: the record's first version, the version its `prev` names, the definition or access change it was written under | held in memory (at most 1,000; the oldest give way) and tried again whenever another version is stored; asked for again on the next round if still waiting. If it names a first version (`genesis`) or a previous version (`prev`) this node does not hold, that version is asked of the same peer at once, at the front of the queue (§6.3) |
-| invalid | refused                                                                                                                                           | dropped; remembered as refused **from that peer** (at most 10,000 entries) and not asked of that peer again                                                                                                                                                                                                                                  |
+| Answer  | Meaning                                                                                                                                           | What happens                                                                                                                                                                                                                                                       |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| valid   | passes                                                                                                                                            | stored (§10)                                                                                                                                                                                                                                                       |
+| later   | depends on something not here yet: the record's first version, the version its `prev` names, the definition or access change it was written under | held and tried again whenever another version is stored; asked for again on the next round if still waiting. If it names a first version (`genesis`) or a previous version (`prev`) this node does not hold, that version is asked of the same peer at once (§6.3) |
+| invalid | refused                                                                                                                                           | dropped; remembered as refused **from that peer** and not asked of that peer again                                                                                                                                                                                 |
+
+How many versions a node keeps waiting, and how many refusals it remembers,
+is its own ([Sync and storage in the library](../packages/core/docs/storage.md#pacing-sync)).
 
 > Rationale: a refusal is keyed on peer and id, not id alone. A version id
 > does not cover the signature, so a stranger's mangled copy shares the real
@@ -598,15 +600,13 @@ A batch of versions (one `versions` or `push-update`) is taken in this order:
 6. Ask the sender for the first and previous versions still missing that
    waiting versions name (above).
 
-_Implementation detail:_ the node tells the page that records changed once
-per message taken in, not once per version, with every version it placed.
-
 A `versions` with an `id` is only considered if it answers a `want` this node
 has in flight with that peer, and only versions whose `id` was asked for are
 taken. A `versions` without `id` is limited to its first 200 entries.
 
-> **Planned: bounding waiting versions.** The waiting set is capped by count
-> (1,000) but not by size, and every version stored retries all of it. A peer
+> **Planned: bounding waiting versions.** This library caps the waiting set
+> by count ([1,000](../packages/core/docs/storage.md#pacing-sync)) but not by
+> size, and every version stored retries all of it. A peer
 > can fill it with large versions that never become valid. A node will cap
 > the total bytes held waiting, and the retries done per version stored. Open:
 > the numbers, and whether waiting versions are counted per peer so one peer
@@ -645,48 +645,26 @@ What is **protocol** here is how a keeper confirms it has a write:
 
 Only a peer whose session DID is among the space's named keepers counts.
 
-How much a node holds is **its own choice**. This implementation's policy for
-a node configured with a cache (`NodeConfig.cache`; an app connected to an
-account home, [06](06-nodes-and-sessions.md)):
+How much a node holds is **its own choice** (§5), and so is when it counts
+a write as kept well enough. The library's policy for a node that holds part
+of a space (which part, when a query's result is complete, how many keepers a
+write waits for, when an unused collection is dropped, and the store keys it
+keeps this in) is in
+[The node: holding part of a space](../packages/core/docs/node.md#holding-part-of-a-space).
 
-- **Whole or part.** The node holds part of the space when the space names at
-  least one keeper, or when it has not yet been synced with a peer that holds
-  `"all"` (until then it cannot know whether keepers are named). Otherwise it
-  holds the space whole and may itself be one of its copies. When this
-  changes it says hello to every peer.
-- **What part.** The collections the app declared (`cache.collections`), plus
-  every collection a query has used; a newly used collection triggers a hello
-  to every peer. A query's result is **complete** only once each collection
-  it uses has been level with a peer holding `"all"`. Signed writer logs
-  will replace this definition (planned, below).
-- **Pending writes.** Each of the node's own non-`sys.*` writes is pending
-  until `target = min(number of keepers, max(copies ?? 2, cache.copies ?? 0))`
-  distinct keepers have confirmed it.
-- **Dropping.** On opening the space and every 6 hours, a collection no query
-  has used for `unusedAfterDays` (default 30) is dropped — its versions
-  removed and it is no longer held — unless the app declared it or it holds a
-  pending write. It is un-held _before_ its versions go, so nothing syncs it
-  back meanwhile.
-
-Implementation detail — the state is kept in the space's own store (§12):
-
-| Key                    | Value (UTF-8 JSON)                                                                                                                                                                                                                 |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cache`                | `{ "settled": boolean, "used": { [collection]: ms }, "level": { [collection]: ms } }` — `settled`: has synced with a whole-space peer; `used`: when a query last used it; `level`: when it was first level with a whole-space peer |
-| `pending/<version id>` | `{ "collection": string, "by": [keeper DID…] }` — deleted once `by` reaches the target                                                                                                                                             |
-
-Completeness rests on trust: a keeper that withholds versions, or a peer
-holding `"all"` that lost some, still counts as level. A reader cannot tell.
+Today a node that holds part of a space cannot check it has everything: it
+can only trust the keepers and whole-space peers it was level with. §9.1 plans
+a check.
 
 _Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"),
-`packages/core/src/node/types.ts` (`CacheConfig`), `packages/core/src/space/roles.ts` (`Keeper`,
-`checkKeepers`). Tests: `packages/core/tests/caches.test.ts`, `packages/core/tests/reconcile.test.ts`
+`packages/core/src/space/roles.ts` (`Keeper`, `checkKeepers`). Tests: `packages/core/tests/caches.test.ts`, `packages/core/tests/reconcile.test.ts`
 ("holding part of a space")._
 
 ### 9.1 Planned: completeness from signed writer logs
 
 > **Planned** ([#13](https://github.com/leifriksheim/weave/issues/13)). Not
-> normative. Replaces the definition of **complete** above.
+> normative. Replaces the library's definition of **complete**
+> ([docs](../packages/core/docs/node.md#holding-part-of-a-space)).
 
 Every writer keeps a signed, append-only log per `(account, writer, space,
 collection)`, `sys.*` included; each version carries its writer id, its
@@ -717,25 +695,17 @@ be written into 02. Open: how heads are
 encoded in `hello` without breaking its 1,000-collection bound, and how many
 heads a hello may carry.
 
-### 9.2 Planned: caches that fetch, widen and trim
+### 9.2 Planned: caches that fetch by key, and hold subsets
 
-> **Planned.** Not normative. The policy above, extended. None of it changes
-> what other nodes see except the first item.
+> **Planned.** Not normative. Both need something new on the wire. Widening a
+> cache when keepers go missing, and trimming it by size, are a node's own and
+> planned in [the docs](../packages/core/docs/node.md#planned-caches-that-widen-and-trim).
 
 - **Links outside what is held.** An `include` without `from` can reach any
   collection. Today it finds only what the node already holds. A cache will
   fetch the linked records by record key, keep them, and not keep them in
   sync; the next run asks again. Sync has no way to ask for a record by key
   (`want` takes version ids), so this needs a message, or `prove` above.
-- **Widening.** A node holding part of a space starts holding all of it when
-  too few keepers are online (Holochain's arcs: nodes grow their share when
-  others go missing). Opt-in only (`cache.widen: true`), since done on its own
-  it could fill a disk at a bad moment. Open: what "too few" is, and for how
-  long.
-- **Trimming by size.** `cache.maxBytes`: above it, drop least recently used
-  collections first, undeclared ones before declared. Also trim when
-  `navigator.storage.estimate()` says room is low, before the browser clears
-  the site. Pending writes are never dropped.
 - **Subsets smaller than a collection**, by topic tag ("only the channels I
   opened"), which a blind keeper can serve ([02 — Records](02-records.md),
   topics), or by count: the most recent by each keeper's own arrival order,
@@ -794,8 +764,8 @@ versions gives the same entries in any arrival order:
 already in the same form, and its `i/` entry. Keeping a stub over a whole
 version replaces it: the body is deleted. **Drop** removes a version's `i/`
 entry and deletes it; only removing (below) drops. The writes of one
-placement land together or not at all: with an adapter that has `commit`
-(§11), versions, entries and deletes in one atomic write; without, versions
+placement land together or not at all: with an adapter that can write
+atomically ([`commit`](../packages/core/docs/storage.md#storage-adapters)), versions, entries and deletes in one atomic write; without, versions
 first, then the entries in one batch, then the deletes, so no entry ever
 names a version that is not there.
 
@@ -815,23 +785,14 @@ write and does not stop the others.
 
 ### 10.2 In memory
 
-The item sets and each collection's running sum (§3.3) are read from the `i/`
-entries once, kept in memory, and updated by every change made through this
-store. So are the `r/` and `g/` entries read or written, and version bodies
-(at most 50,000, the oldest let go first): a body never changes under its id.
-An entry read while a change was landing is not kept. When another writer
+A node may keep what it read from a store in memory. When another writer
 changed the same store (another tab, another origin or device on a shared
-folder) the node MUST re-read all of it (`invalidate`). This implementation notifies other tabs of one browser through
-a `BroadcastChannel` named `weave-node:<root DID>:<space id>` (_implementation
-detail_). Where a browser has shared workers, the apps in this repository run
-one node for all of a site's tabs in a `SharedWorker`, so those tabs share one
-store and have nothing to tell each other; the channel remains for browsers
-without them, where each tab's node runs in a worker of its own (`packages/core/src/node/worker.ts`).
+folder, §14.5) the node MUST read it again before it trusts what it kept. How
+this library caches a store, tells other tabs, and computes the fingerprint it
+shows in status is in
+[Sync and storage in the library](../packages/core/docs/storage.md#the-store-in-memory).
 
-The store's overall **fingerprint** (for status and tests) is the §3.3
-fingerprint of the sum of every collection's sum, as hex.
-
-_Source: `packages/core/src/storage/storage-provider.ts` (`change`, `land`, `MAX_BODIES`), `packages/core/src/records/version.ts`. Tests:
+_Source: `packages/core/src/storage/storage-provider.ts` (`change`, `land`, `invalidate`), `packages/core/src/records/version.ts`. Tests:
 `packages/core/tests/versions.test.ts` ("a store of versions"), `packages/core/tests/reconcile.test.ts`
 ("a superseded version stays in the set as a stub", "a store written by someone else is
 read again once told", "changes that come in while one lands land together;
@@ -841,33 +802,9 @@ one that fails leaves nothing")._
 
 ## 11. Storage adapters
 
-The store runs over an adapter with this contract (all methods async):
-
-| Method                                            | Contract                                                                                                                                                          |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get(key)`                                        | Entry bytes, or null                                                                                                                                              |
-| `put(key, bytes)`                                 | Set an entry                                                                                                                                                      |
-| `delete(key)`                                     | Remove an entry; absent is fine                                                                                                                                   |
-| `has(key)`                                        | Whether an entry exists                                                                                                                                           |
-| `list(prefix?)`                                   | Every entry key starting with `prefix`, in no guaranteed order                                                                                                    |
-| `batch(ops)`                                      | Apply `{type:'put',key,value}` / `{type:'delete',key}` ops; SHOULD be atomic                                                                                      |
-| `putExpression(v)`                                | Store a version body by its `id`                                                                                                                                  |
-| `getExpression(id)`                               | A version body, or null                                                                                                                                           |
-| `deleteExpression(id)`                            | Remove a version body                                                                                                                                             |
-| `queryExpressions(collection, limit=50, cursor?)` | Version bodies in a collection (every body kept, not only current), after the version with id `cursor`                                                            |
-| `close()`                                         | Release it                                                                                                                                                        |
-| `entries(prefix)`                                 | _Optional._ Every entry under `prefix` with its bytes, in one read. Without it, `list` then `get` each                                                            |
-| `getExpressions(ids)`                             | _Optional._ Version bodies by id, null where absent, in the order asked, in one read. Without it, `getExpression` each                                            |
-| `commit({ store, ops, remove })`                  | _Optional._ Stores these bodies, applies these entry ops and deletes these bodies, atomically. Without it, `putExpression` each, `batch`, `deleteExpression` each |
-
-The optional methods only save round trips: a store gives the same answers
-with or without them.
-
-Entry keys are strings; values are bytes. Adapters: IndexedDB (§13), data
-folder (§14), the sealing wrapper (§15), and an in-memory one for tests.
-
-_Source: `packages/core/src/types.ts` (`StorageAdapter`, `BatchOp`). Tests:
-`packages/core/tests/folder-adapter.test.ts`, `packages/core/tests/helpers/memory-adapter.ts`._
+Not protocol: how a store reaches its bytes is the library's interface, and
+only one node reads it. The adapter contract is in
+[Sync and storage in the library](../packages/core/docs/storage.md#storage-adapters).
 
 ---
 
@@ -876,12 +813,16 @@ _Source: `packages/core/src/types.ts` (`StorageAdapter`, `BatchOp`). Tests:
 A node opens stores **by path**, and a store factory maps a path to an
 adapter:
 
-| Path                     | Holds                                                                             | Sealed (§15)                     |
-| ------------------------ | --------------------------------------------------------------------------------- | -------------------------------- |
-| `registry`               | the spaces this node holds, and their keys                                        | yes, on a node given a vault key |
-| `spaces/<space id>`      | one space: §10 entries and bodies, plus §9 `cache` and `pending/…`                | no                               |
-| `mirrors/<space id>/<n>` | a mirror's writer state (§16.4); `n` is the mirror's index                        | no                               |
-| `host`                   | a host's subscriptions (`subscription:<id>`) — see [06](06-nodes-and-sessions.md) | no                               |
+| Path                     | Holds                                                            | Sealed (§15)                     |
+| ------------------------ | ---------------------------------------------------------------- | -------------------------------- |
+| `registry`               | the spaces this node holds, and their keys                       | yes, on a node given a vault key |
+| `spaces/<space id>`      | one space: §10 entries and bodies, and what the node keeps on it | no                               |
+| `mirrors/<space id>/<n>` | a mirror's writer state (§16.4); `n` is the mirror's index       | no                               |
+
+Other entries a node keeps in a space's store, and what a mirror's writer
+keeps in its store, are the node's own (the library's are in
+[the node](../packages/core/docs/node.md#holding-part-of-a-space) and
+[mirrors](../packages/core/docs/storage.md#mirrors)).
 
 **Registry entries.** One space's registry entries, each keyed by space id:
 
@@ -896,15 +837,11 @@ adapter:
 
 Forgetting a space deletes all six.
 
-**Factories** (_implementation detail_ for IndexedDB, normative for folders):
-
-- IndexedDB: one database per path, named `<prefix>:<path with / → :>`. For
-  an account: prefix `weave:<dataPath with / → :>`, e.g.
-  `weave:accounts:k3x9q2:stores:spaces:<space id>`. For an app connected to
-  an account home: prefix `weave-app:<grant DID>`.
-- Folder: a folder adapter (§14) at `<dataPath>/<path>` under the data
-  folder; the `registry` store wrapped by the sealing adapter under the
-  account's vault key.
+In a data folder, a store at a path is a folder adapter (§14) at
+`<dataPath>/<path>`, and the `registry` store is sealed under the account's
+vault key (§15). Where a node keeps its stores otherwise (IndexedDB, and a
+host's own store) is its own; the library's naming is in
+[Sync and storage in the library](../packages/core/docs/storage.md#indexeddb).
 
 _Source: `packages/core/src/node/stores.ts`, `packages/core/src/session/places.ts` (`storesFor`),
 `packages/core/src/space/space-manager.ts`, `packages/core/src/node/node.ts`, `packages/core/src/node/space-runtime.ts`.
@@ -915,29 +852,9 @@ Tests: `packages/core/tests/account-vault.test.ts` ("encryption at rest"),
 
 ## 13. IndexedDB adapter
 
-_Implementation detail_: only this origin reads it.
-
-- Database version **3**. Opening a database of version 1 or 2 (which held a
-  Merkle tree) deletes its object stores: it is a local copy, rebuilt by
-  syncing.
-- Object store `kv`: out-of-line string keys; values are `ArrayBuffer`s (the
-  entry bytes). `list(prefix)` is a key-range cursor over
-  `[prefix, prefix + "￿"]`.
-- Object store `expressions`: key path `id`; indexes `collection`, `author`,
-  `createdAt` (non-unique). Values are the version objects.
-- `batch` is one `readwrite` transaction over `kv`. Bodies are written in
-  their own transactions, except through `commit`: one `readwrite`
-  transaction over `kv` and `expressions`.
-- `entries(prefix)` is `getAllKeys` and `getAll` over the same key range in
-  one `readonly` transaction; `getExpressions` is one `readonly` transaction.
-
-Accounts kept in a browser live in database `weave-accounts`, object store
-`accounts` ([01 — Identity](01-identity.md)). A remembered data-folder handle
-lives in database `weave-folder`, object store `handles`, key `data-folder`
-(§14.7).
-
-_Source: `packages/core/src/storage/indexeddb-adapter.ts`, `packages/core/src/storage/directory-access.ts`.
-Tests: none directly (the adapter needs a browser)._
+Not protocol: only the origin that wrote an IndexedDB database reads it. The
+library's databases, object stores and transactions are in
+[Sync and storage in the library](../packages/core/docs/storage.md#indexeddb).
 
 ---
 
@@ -1006,10 +923,9 @@ A writer MUST use exactly this encoding; a reader MUST decode it.
 - Names that end in `.tmp` are a writer's work in progress and MUST be
   ignored. Only names ending in `.json` in `expressions/` are versions.
 
-A writer SHOULD replace a file atomically (write elsewhere, then rename). The
-browser's File System Access API does this on `close()`; the Node/Bun
-directory used by the CLI writes `<name>.<uuid>.tmp` with mode `0600` and
-renames it into place. Directories are created with mode `0700`.
+A writer SHOULD replace a file atomically: write it under a name ending in
+`.tmp`, then rename it into place. How the library does it is in
+[Sync and storage in the library](../packages/core/docs/storage.md#data-folders).
 
 ### 14.4 Safety
 
@@ -1024,11 +940,11 @@ There is no lock file. Version files are immutable and content-addressed, so
 two writers either write different files or identical ones. The entries are
 derived state, and the rule is: **the set of version files wins.**
 
-Any client sharing a folder SHOULD re-read it periodically (this
-implementation: every 2 s while a space is open) and reconcile:
+Any client sharing a folder SHOULD re-read it periodically while a space is
+open, and reconcile:
 
 1. List `expressions/`. Note files that appeared since the last pass and files
-   that vanished. If anything moved, re-read the in-memory sync state (§10.2).
+   that vanished. If anything moved, read the store again (§10.2).
 2. For every version file that is not indexed, **or appeared since the last
    pass**, read it, pass it through the gatekeeper (§8), and place it (§10.1).
    Placing again is idempotent and corrects a current entry a race left wrong.
@@ -1047,16 +963,13 @@ opening an account needs one of its wraps or the recovery code.
 
 ### 14.7 Getting the folder (browser)
 
-_Implementation detail._ The folder comes from `showDirectoryPicker` with
-`id: "weave-pod"`, `mode: "readwrite"`, `startIn: "documents"`, which needs a
-user gesture. The handle is remembered in IndexedDB (§13); on a later visit
-`readwrite` permission is queried, and requested again only from a gesture.
-Browsers without the API (Firefox, Safari, mobile) keep data in IndexedDB
-instead.
+Not protocol: how a client gets hold of the folder is its own. The library's
+use of `showDirectoryPicker` is in
+[Sync and storage in the library](../packages/core/docs/storage.md#data-folders).
 
 _Source: `packages/core/src/storage/folder-adapter.ts`, `packages/core/src/storage/folder-reconcile.ts`,
-`packages/core/src/storage/directory-access.ts`, `packages/core/src/identity/account-store.ts`,
-`packages/cli/src/fs-directory.ts`, `packages/core/src/node/space-runtime.ts` (watch loop). Tests:
+`packages/core/src/identity/account-store.ts`,
+`packages/cli/src/fs-directory.ts` (path safety). Tests:
 `packages/core/tests/folder-adapter.test.ts`, `packages/cli/tests/path-safety.test.ts`._
 
 ---
@@ -1106,31 +1019,15 @@ _Source: `packages/core/src/storage/encrypted-adapter.ts`, `packages/core/src/no
 
 A **mirror** keeps a space in a dumb file store — a bucket or an app folder —
 and syncs with it like a peer that never runs code. This implementation uses
-mirrors for carriers ([06](06-nodes-and-sessions.md)).
+mirrors for carriers and hosts ([06](06-nodes-and-sessions.md)).
 
 ### 16.1 Blob stores
 
-A blob store keeps bytes by name and is assumed slow, eventually consistent,
-and without atomic operations:
-
-| Method                     | Contract                                                                        |
-| -------------------------- | ------------------------------------------------------------------------------- |
-| `get(key)`                 | bytes, or null when absent                                                      |
-| `put(key, bytes)`          | create or replace                                                               |
-| `delete(key)`              | remove; absent is fine                                                          |
-| `list(prefix)`             | every key under `prefix`, any order                                             |
-| `changes?(prefix, cursor)` | optional: keys added/removed since `cursor`; not used by the mirror yet (§16.5) |
-
-Drivers:
-
-- **Memory** — for tests.
-- **S3-compatible** (R2, B2, MinIO, Wasabi, AWS): path-style URLs
-  `<endpoint>/<bucket>/<prefix/><key>`, each `/`-separated part
-  `encodeURIComponent`-ed; SigV4-signed (`aws4fetch`), region default
-  `auto`; `list` is `ListObjectsV2` (`list-type=2`) following continuation
-  tokens; `get` 404 → null; `delete` 404 is success; 429 and 5xx are retried
-  up to 5 attempts, waiting `Retry-After` seconds if given, else
-  `min(200·2^attempt, 5000) ms` × a random factor in [0.5, 1).
+A blob store keeps bytes by name (a key, `/`-separated) and is assumed slow,
+eventually consistent, and without atomic operations: a mirror asks it only
+to get, put, delete and list keys under a prefix. How a node talks to one
+(the library's interface and its drivers) is not protocol; see
+[Sync and storage in the library](../packages/core/docs/storage.md#blob-stores).
 
 ### 16.2 Layout
 
@@ -1174,17 +1071,16 @@ first is `000001-ca1cf99cf9ccaa1b.seg`. Only names ending `.seg` are segments.
 
 ### 16.4 Push, pull, compaction
 
-Writer state (_implementation detail_), in the store `mirrors/<space>/<n>`:
-`mirror:writer` (the writer id), `mirror:counter` (decimal), `mirror:read:<segment key>` = `1`
-for each segment read or written, `mirror:known:<version id>` = `1` for each
-version known to be in the blob store.
+A writer keeps what it needs to remember (its writer id, its counter, the
+segments it has read, the versions it knows are in the blob store) in its own
+store (§12); the library's keys are in
+[Sync and storage in the library](../packages/core/docs/storage.md#mirrors).
 
-**Push.** Soon after a change (5 s after the first by default), and on close:
-collect every version the store keeps (§10) that is not known to be in the
-blob store; pack them into segments of about 256 KiB (a segment is closed
-once it reaches that size); upload each; mark its versions known. "Known" is
-everything this writer uploaded **or read**, so nobody re-uploads everyone
-else's versions. If the writer then has 32 or more segments, compact.
+**Push.** After local changes, and on close: collect every version the store
+keeps (§10) that is not known to be in the blob store; pack them into
+segments; upload each; mark its versions known. "Known" is everything this
+writer uploaded **or read**, so nobody re-uploads everyone else's versions.
+When and how big is the writer's own.
 
 **Pull.** List `<space id>/`; for every segment not under the writer's own
 prefix and not yet read, in name order: fetch it (skip it if it is gone —
@@ -1205,22 +1101,17 @@ duplicates, which are harmless.
 **Deleting a space** from a blob store deletes every key under
 `<space id>/`.
 
-_Source: `packages/core/src/storage/blob-store.ts`, `packages/core/src/storage/blob/memory.ts`,
-`packages/core/src/storage/blob/s3.ts`, `packages/core/src/storage/segment.ts`, `packages/core/src/storage/mirror.ts`,
+_Source: `packages/core/src/storage/segment.ts`, `packages/core/src/storage/mirror.ts`,
 `packages/core/src/node/space-runtime.ts` ("Mirrors"), `packages/core/src/node/host.ts`. Tests:
 `packages/core/tests/mirror.test.ts`._
 
 ### 16.5 Planned: mirrors in your own storage
 
-> **Planned.** Not normative. Mirrors on any node, in storage the person
-> already has, and the rest of the mirror design.
+> **Planned.** Not normative. The rest of the mirror design that other
+> writers must agree on. Mirrors on any node, change feeds, more drivers and
+> the request budget they must fit are the library's, planned in
+> [Sync and storage in the library](../packages/core/docs/storage.md#planned-mirrors-in-your-own-storage).
 
-- **Any node, several mirrors.** Today only carriers and hosts mirror. A node
-  will take a list of blob stores (`NodeConfig.mirrors`), one per space each,
-  since a person may have their own Dropbox and a host's bucket at once. It
-  pulls when a space opens and on each change notice, and flushes after local
-  writes and on close. Two devices never online together then meet through
-  the store.
 - **Restore.** The account registry is a space, sealed under a key from the
   seed, so it mirrors like any other. Recovery code, then connect storage, and
   every space comes back. Segments are **not** sealed with the space key: a
@@ -1234,35 +1125,12 @@ _Source: `packages/core/src/storage/blob-store.ts`, `packages/core/src/storage/b
   Together with compaction, this is the only deleting there is. Open: how to
   date a segment without trusting the store's modified times, which services
   report differently.
-- **Change feeds.** Where the service has one, pull uses
-  `BlobStore.changes` instead of listing: Dropbox `list_folder/continue` with
-  long polling, Drive `changes.list`. S3 and directories list.
-- **More drivers**, each passing one contract suite (round-trips, absent is
-  null, a second delete is fine, `list` over several pages, keys with slashes
-  and unicode, a 1 MB blob), with shared backoff on 429 and 5xx that honours
-  `Retry-After`, never retries a delete that returned 404, and never logs a
-  token or signed URL:
-  - _Directory_: a directory handle or a directory on disk.
-  - _Google Drive_: everything in one app-created folder, `drive.file` scope
-    only (the app sees only its own files). Drive addresses files by id, not
-    name, so the driver keeps a name → file id map from one `files.list`,
-    updated on every `put` and invalidated on 404. Drive allows duplicate
-    names, so a `put` updates an existing file id rather than creating
-    another. Tokens come from a callback (`getAccessToken`); service accounts
-    do not work (they have no storage of their own).
-  - _Dropbox_ and _OneDrive_, in their app folders, the narrowest grant each
-    offers. Dropbox first.
-  - Not iCloud: it has no usable web API; iCloud users keep a data folder
-    (§14) instead.
 - **Files and avatars** fit the same store later, as
   `<space id>/files/<hash>`: content-addressed and immutable, so any writer
   may write the same one. Not designed further.
 
-Budget: a store like Drive allows about 1,000 requests per 100 seconds. The
-segment, never the single version, is the unit fetched, and syncing 1,000
-records must fit that budget. Open: mirrors laid out per collection, so a
-cache (§9) could read only what it holds; today only whole-space nodes
-mirror.
+Open: mirrors laid out per collection, so a node holding part of a space
+(§9) could read only what it holds; today only whole-space nodes mirror.
 
 ### 16.6 Planned: files
 
@@ -1283,27 +1151,21 @@ mirror.
 
 ## 17. Constants
 
-| Name                                   | Value                                  | Where                     |
-| -------------------------------------- | -------------------------------------- | ------------------------- |
-| `SYNC_PROTOCOL_VERSION`                | 5                                      | `v` on every sync message |
-| Negentropy version byte                | `0x61`                                 | §3                        |
-| Id size / fingerprint size             | 32 / 16 bytes                          | §3                        |
-| IdList threshold / buckets             | < 32 items / 16                        | §3.4                      |
-| `FRAME_SIZE_LIMIT`                     | 32,000 bytes (before base64)           | §6                        |
-| Minimum frame limit / headroom         | 4,096 / 200 bytes                      | §3.4                      |
-| `MAX_IDS_PER_REQUEST`                  | 200                                    | `want`, `versions`        |
-| `MAX_WANTS_IN_FLIGHT`                  | 4 per peer                             | §6.3                      |
-| `stored` ids considered                | 2,000                                  | §4                        |
-| Collections per hello                  | 1,000                                  | §4                        |
-| Rounds per session                     | 64                                     | §6.3                      |
-| Session, `want` stale after            | 30 s                                   | §6.3                      |
-| Heartbeat                              | 30 s                                   | §6.2                      |
-| Hello after taking something in        | 100 ms                                 | §6.2                      |
-| Waiting versions / refusals remembered | 1,000 / 10,000                         | §8                        |
-| Folder re-read                         | 2 s                                    | §14.5                     |
-| Mirror flush                           | 256 KiB or 5 s; compact at 32 segments | §16.4                     |
-| Cache: drop unused after               | 30 days, checked every 6 h             | §9                        |
-| Keepers per space                      | 16                                     | §9                        |
+The values a peer relies on. Timers, caps and sizes a node keeps for itself
+are in [Sync and storage in the library](../packages/core/docs/storage.md#pacing-sync).
+
+| Name                           | Value                        | Where                     |
+| ------------------------------ | ---------------------------- | ------------------------- |
+| `SYNC_PROTOCOL_VERSION`        | 5                            | `v` on every sync message |
+| Negentropy version byte        | `0x61`                       | §3                        |
+| Id size / fingerprint size     | 32 / 16 bytes                | §3                        |
+| IdList threshold / buckets     | < 32 items / 16              | §3.4                      |
+| `FRAME_SIZE_LIMIT`             | 32,000 bytes (before base64) | §6                        |
+| Minimum frame limit / headroom | 4,096 / 200 bytes            | §3.4                      |
+| `MAX_IDS_PER_REQUEST`          | 200                          | `want`, `versions`        |
+| `stored` ids considered        | 2,000                        | §4                        |
+| Collections per hello          | 1,000                        | §4                        |
+| Keepers per space              | 16                           | §9                        |
 
 ---
 
@@ -1311,10 +1173,5 @@ mirror.
 
 - **Responder errors.** How a responder reports a `reconcile` it cannot
   parse. See the known defect in §6.4.
-- **Widening a cache** when too few keepers are online is not built; a cache
-  only widens as queries use collections. Planned in §9.2.
-- **`BlobStore.changes`** is defined but no mirror uses it; pull always lists.
-  Planned in §16.5, with the other blob drivers (directory, Drive, Dropbox,
-  OneDrive); only memory and S3-compatible exist.
 - **Member key at rest.** How to move `spacememberkey:` and `spacerelays:`
   entries written unsealed to sealed ones. See the known defect in §15.
