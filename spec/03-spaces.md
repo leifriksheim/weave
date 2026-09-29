@@ -28,7 +28,8 @@ How peers connect and prove they may read is in [04 — Network](04-network.md).
 - [14. Passes and carry spaces](#14-passes-and-carry-spaces)
 - [15. Subscriptions (notify)](#15-subscriptions-notify)
 - [16. Contacts](#16-contacts)
-- [17. Not yet specified](#17-not-yet-specified)
+- [17. Direct messages](#17-direct-messages)
+- [18. Not yet specified](#18-not-yet-specified)
 
 Terms used throughout:
 
@@ -548,7 +549,7 @@ keeps managing.
 **Leaving on a node** (`node.spaces.leave`): the node deletes the space's
 membership record in the account registry (§13), closes the space and forgets
 it and its keys. Whether a leave must also write the self-removal above is not
-yet specified (§17).
+yet specified (§18).
 
 > **Known defect:** the reference leave is local only. It writes no
 > `sys.member` self-removal (`packages/core/src/node/node.ts`, `spaces.leave`), so the
@@ -1347,7 +1348,88 @@ _Source: `packages/core/src/schemas/contacts.ts`, `packages/core/src/identity/co
 
 ---
 
-## 17. Not yet specified
+## 17. Direct messages
+
+A direct message is text only some members of a space can read: the people
+it is for, and whoever wrote it. It is a record in the space, so it syncs,
+is kept and is deleted like any other; its text is sealed so the space key
+alone does not open it. One record serves every reader and every one of
+their devices: a fresh **message key** seals the text once, and that key is
+sealed to each reader's member key (§9.1).
+
+It needs a space where members publish member keys, so today a private
+space.
+
+### 17.1 `std.direct`
+
+```
+std.direct  (topics: to; rules: edit "creator", delete "creator"; create: any member)
+{
+  to:    [<account DID>, …],               // 1–16, sorted, once each, not the writer
+  data:  string ≤ 60000,                   // the text, sealed with the message key
+  boxes: [{ to: <account DID>, sealed: string ≤ 1000 }, …]   // ≤ 17: one per reader
+}
+```
+
+The **writer** (`from`) is the root of the record's first version. The
+**readers** are every DID in `to`, and `from`.
+
+In a private space the whole body is also encrypted with the space key (§8),
+so peers outside the space see only the envelope. Other members see `to`,
+`from` and when: who wrote to whom, not what.
+
+### 17.2 Sealing
+
+```
+context = "weave/direct/v1|<spaceId>|<from>|<to joined by ",">"
+k       = a fresh space key (§8.1)
+data    = sealWith(k, { text }, context)                       // §8.5
+box(r)  = sealFor(memberKey(r), { key: base64url(raw k) }, context + "|" + r)   // §16.4
+boxes   = [ box(r) for r in to, then box(from) ]
+```
+
+`memberKey(r)` is the key `r` published in `sys.memberkey` (§9.1); the writer
+**MAY** use its own member key as it holds it rather than as published. A
+writer **MUST NOT** write a direct message for someone without a member key
+in the space. `text` is a string of 1–10000 characters.
+
+Example: space `space-1`, from `did:a`, to `did:c` and `did:b`:
+`context` = `weave/direct/v1|space-1|did:a|did:b,did:c`; the box for `did:b`
+is bound to `weave/direct/v1|space-1|did:a|did:b,did:c|did:b`.
+
+### 17.3 Opening
+
+A reader `r` **MUST** open a direct message only when: the record verifies
+and stands (§5), its collection is `std.direct`, and `r` is `from` or is in
+`to`. It **MUST** build the context from the space the record is in, `from`
+and `to` as the record gives them (sorted), and:
+
+1. take the box whose `to` is `r`;
+2. open it with its own member key and `context + "|" + r`, giving a value
+   whose `key` is a base64url string of 32 bytes;
+3. open `data` with that key and `context`, giving an object whose `text` is
+   a string.
+
+If any step fails the message is unreadable to `r` — shown as such, never
+refused, like a body a reader cannot open (§8.3).
+
+> Rationale: binding the context to the space, the writer and who it is for
+> means a copy re-posted by another member, moved to another space, or with a
+> reader added to `to`, opens nothing; binding each box to its reader means a
+> box cannot be moved to another reader's slot.
+
+_Source: `packages/core/src/privacy/direct.ts` (`sealDirect`, `openDirect`, `directContext`), `packages/core/src/schemas/library/publishing.ts` (`direct`), `packages/core/src/node/node.ts` (`direct`, `directView`), `packages/core/src/node/space-runtime.ts` (`memberKeys`, `ownMemberKey`). Tests: `packages/core/tests/direct.test.ts`, `packages/core/tests/agents.test.ts` ("neither sends nor reads direct messages")._
+
+### 17.4 Planned: direct messages in public spaces
+
+Members publish member keys only in private spaces (§9.1), so a public
+space has none to seal to. Publishing them in every space would let members
+of a public space write to each other; the body would then be readable only
+through the sealing above, with `to` in the clear to anyone.
+
+---
+
+## 18. Not yet specified
 
 - Leaving a space (§6.2) writes no self-removal yet; planned in §6.2
   ([#15](https://github.com/leifriksheim/weave/issues/15)).

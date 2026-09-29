@@ -222,6 +222,13 @@ exposes them:
   key.
 - `node.contacts` — [03](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md). `ask` and `accept` make or join a space
   for two, so they need a session note with `with: "*"` (whole-account access).
+- `node.direct` — [03 §17](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md). `reachable(space)` lists
+  the members who have published a member key; `send(space, to, text)` seals
+  and writes a `std.direct`, defining it first when the space lacks it;
+  `list(space)` opens every one by or for the account, oldest first, with
+  `text: null` for one this node can't open. Needs the account's member key
+  for the space, which an agent is not given: an agent may only ask
+  `reachable`.
 - `node.doors` — [07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md). Needs the contact key; knocking and
   accepting also need whole-account access.
 - `node.carriers`, `node.hosting`, `node.notifications` — [spec 06 §4](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md).
@@ -234,7 +241,7 @@ exposes them:
   Local only: nothing here goes over the wire.
 - `node.asAgent({ keys, note })` — [acting as an agent](#a-node-acting-as-an-agent).
 
-_Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/profiles.test.ts`._
+_Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/direct.test.ts`, `packages/core/tests/profiles.test.ts`._
 
 ## A node acting as an agent
 

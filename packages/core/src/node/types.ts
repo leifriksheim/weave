@@ -819,6 +819,35 @@ export interface NodeContacts {
   others(did: string): Promise<ReadonlyArray<string>>;
 }
 
+/** A direct message, opened (`node.direct`) */
+export interface DirectMessage {
+  /** The record's key: delete it to take the message back */
+  readonly key: string;
+  /** Who wrote it */
+  readonly from: string;
+  /** Who it is for, sorted, not counting `from` */
+  readonly to: ReadonlyArray<string>;
+  /** Null when this node can't open it: its member key here isn't the one it was sealed to */
+  readonly text: string | null;
+  readonly createdAt: string;
+  readonly viaAgent?: true;
+}
+
+/**
+ * Direct messages: text only some members of a space can read, in a
+ * `std.direct` record sealed with each reader's member key (weave-protocol
+ * 03 §17). The other members see who wrote to whom and when, not what.
+ * Needs a private space: only there do members publish member keys.
+ */
+export interface NodeDirect {
+  /** Who in the space can be written to: members who have published a member key, not you */
+  reachable(spaceId: string): Promise<ReadonlyArray<string>>;
+  /** Seals text for these members and you, and writes it. Defines `std.direct` first when the space lacks it and you may. */
+  send(spaceId: string, to: ReadonlyArray<string>, text: string): Promise<DirectMessage>;
+  /** Every direct message in the space written by or to this account, oldest first */
+  list(spaceId: string): Promise<ReadonlyArray<DirectMessage>>;
+}
+
 /** A door of this account's, as `node.doors` shows it */
 export interface DoorView {
   readonly id: string;
@@ -938,6 +967,8 @@ export interface P2PNode {
   readonly notifications: NodeNotifications;
   /** People: the account's contact list, and asking to be added */
   readonly contacts: NodeContacts;
+  /** Direct messages: text only some members of a space can read */
+  readonly direct: NodeDirect;
   /** Doors: how people you share no space with can ask to become your contact */
   readonly doors: NodeDoors;
   /** The delegation the session key currently writes under (root → session) */
