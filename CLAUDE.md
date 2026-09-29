@@ -151,6 +151,11 @@ Elsewhere:
 
 - `ws` in `packages/cli` and `packages/relay`: Node has a WebSocket client but
   no server.
+- `@clack/prompts`, a dev dependency of `packages/cli`, bundled
+  (`packages/cli/src/ask.ts`): prompts at a terminal, reading keys in raw
+  mode and redrawing, which is fiddly across terminals to get right. Released
+  since 2023, widely used, four tiny dependencies. Used only when stdin and
+  stderr are terminals; with none, the CLI asks nothing.
 - `node-datachannel` in `packages/cli`: WebRTC for `weave mcp` and headless
   nodes.
 - `@anthropic-ai/sdk`, a dev dependency of `packages/cli`, bundled into

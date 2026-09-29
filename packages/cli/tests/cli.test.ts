@@ -5,7 +5,7 @@
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -16,6 +16,7 @@ import { openFsDirectory } from '../src/fs-directory.js';
 import { openHome, createAccount, unlock, chooseAccount } from '../src/home.js';
 import { startDaemon, type Daemon } from '../src/daemon.js';
 import { handleMcpMessage, PERSON_ONLY } from '../src/mcp.js';
+import { loadModelSetting } from '../src/guide.js';
 import { createNode } from '../../core/src/node/node.js';
 import type { P2PNode } from '../../core/src/node/types.js';
 import { createFolderAdapter } from '../../core/src/storage/folder-adapter.js';
@@ -470,5 +471,124 @@ describe('the weave command', () => {
         return true;
       },
     );
+  });
+
+  test('with no terminal nothing is asked: a missing value fails at once, naming its flag', async () => {
+    const main = fileURLToPath(new URL('../src/main.ts', import.meta.url));
+    const env = { ...process.env, WEAVE_HOME: await tempDir(), WEAVE_PASSPHRASE: 'pw' };
+    // execFile gives no terminal, as an agent's shell or CI would.
+    const weave = (...args: string[]) =>
+      run(process.execPath, ['--conditions=@weaveprotocol/source', '--import', 'tsx', main, ...args], {
+        env,
+        timeout: 30_000,
+      });
+    const refused = async (args: string[], pattern: RegExp) =>
+      assert.rejects(weave(...args), (error: unknown) => {
+        assert.match(String(at(error, 'stderr')), pattern);
+        return true;
+      });
+
+    await weave('init', '--name', 'Leif', '--passphrase');
+    await refused(['spaces', 'invite'], /Missing --space\. Its id is in `weave spaces list`/);
+    await refused(['spaces', 'create', '--name', 'Club'], /Missing --visibility/);
+
+    const space = at(
+      JSON.parse((await weave('spaces', 'create', '--name', 'Club', '--visibility', 'private')).stdout),
+      'id',
+    );
+    assert.ok(typeof space === 'string');
+    await refused(['records', 'get', '--space', space], /Missing --key/);
+
+    // A standard collection by its name, and a watch by flags alone.
+    const defined: unknown = JSON.parse(
+      (await weave('collections', 'define', '--standard', 'std.watch', '--space', space)).stdout,
+    );
+    assert.equal(at(defined, 'name'), 'std.watch');
+    await refused(
+      ['watch', 'add', '--space', space, '--name', 'Mentions', '--collection', 'std.message'],
+      /Missing --do/,
+    );
+    const watch: unknown = JSON.parse(
+      (
+        await weave(
+          'watch',
+          'add',
+          '--space',
+          space,
+          '--name',
+          'Mentions',
+          '--collection',
+          'std.message',
+          '--where',
+          '{"mentions":{"$contains":"$me"}}',
+          '--from',
+          'member',
+          '--do',
+          'Answer them briefly',
+        )
+      ).stdout,
+    );
+    assert.deepEqual(at(watch, 'query'), {
+      collection: 'std.message',
+      where: { mentions: { $contains: '$me' } },
+    });
+    assert.deepEqual(at(watch, 'from'), ['member']);
+    const scheduled: unknown = JSON.parse(
+      (
+        await weave(
+          'watch',
+          'add',
+          '--space',
+          space,
+          '--name',
+          'Mornings',
+          '--every',
+          '0 8 * * 1-5',
+          '--do',
+          'Plan my day',
+        )
+      ).stdout,
+    );
+    assert.equal(at(scheduled, 'every'), '0 8 * * 1-5');
+    await refused(
+      ['watch', 'add', '--space', space, '--name', 'Bad', '--every', 'at noon daily', '--do', 'x'],
+      /--every: /,
+    );
+    await refused(
+      ['collections', 'define', '--standard', 'std.nothing', '--space', space],
+      /The library has no std\.nothing/,
+    );
+
+    // Something that can't be undone still runs without asking, as it always has: the agent or script said so.
+    const listed: unknown = JSON.parse((await weave('records', 'list', '--space', space)).stdout);
+    assert.ok(Array.isArray(listed));
+    const key = at(listed, 0, 'key');
+    assert.ok(typeof key === 'string');
+    await weave('records', 'delete', '--space', space, '--key', key);
+  });
+
+  test('what agent setup kept is read back, and anything unreadable is as if never kept', async () => {
+    const home = await tempDir();
+    await mkdir(path.join(home, 'agent'), { recursive: true });
+    assert.equal(await loadModelSetting(home), null);
+    await writeFile(
+      path.join(home, 'agent', 'model.json'),
+      JSON.stringify({
+        provider: 'openai',
+        model: 'deepseek-v4-pro',
+        baseUrl: 'https://api.deepseek.com',
+        price: '0.66/1.98',
+      }),
+    );
+    assert.deepEqual(await loadModelSetting(home), {
+      provider: 'openai',
+      model: 'deepseek-v4-pro',
+      baseUrl: 'https://api.deepseek.com',
+      price: '0.66/1.98',
+    });
+    await writeFile(path.join(home, 'agent', 'model.json'), '{"provider":"elsewhere","model":"x"}');
+    assert.equal(await loadModelSetting(home), null);
+    await writeFile(path.join(home, 'agent', 'model.json'), 'not json');
+    assert.equal(await loadModelSetting(home), null);
   });
 });

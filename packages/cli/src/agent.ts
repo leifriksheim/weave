@@ -110,6 +110,12 @@ async function loadAgentGrant(home: string): Promise<Grant | null> {
   }
 }
 
+/** Whether this computer's agent was connected to an account, and its note still runs */
+export async function hasConnectedAgent(home: string): Promise<boolean> {
+  const grant = await loadAgentGrant(home);
+  return !!grant && grant.expiresAt > Date.now() / 1000;
+}
+
 /** "Agent on leifs-macbook" — what the person sees in the app and their account */
 export function defaultAgentName(): string {
   return `Agent on ${os.hostname().replace(/\.local$/, '')}`;
