@@ -150,6 +150,42 @@ describe('calls', () => {
     );
   });
 
+  test('joining the call you are being rung for answers it, however you join', async () => {
+    const { alice, bob, space: id } = await space();
+    await alice.calls.ring(id, bob.node.did);
+    await until(() => bob.calls.getState().ringing.length === 1, 4000, 'Bob’s phone to ring');
+
+    // Bob uses "Join call" in the space rather than the ring's own button.
+    await bob.calls.start(id);
+    assert.equal(bob.calls.getState().ringing.length, 0, 'the ringing stops');
+    await until(() => alice.calls.getState().current?.outgoing === null, 4000, 'Alice to stop ringing');
+    await until(() => connected(alice.calls).length === 1, 4000, 'both to connect');
+  });
+
+  test('a ring that arrives again after it was answered does not ring again', async () => {
+    const { alice, bob, space: id } = await space();
+    await alice.calls.ring(id, bob.node.did);
+    await until(() => bob.calls.getState().ringing.length === 1, 4000, 'the ring');
+    const { id: call } = bob.calls.getState().ringing[0]!;
+    await bob.calls.answer(call);
+    await bob.calls.leave();
+    // The same ring, delivered a second time.
+    await alice.node.spaces.send(id, { type: 'call.ring', call }, bob.node.did);
+    await settle(200);
+    assert.equal(bob.calls.getState().ringing.length, 0);
+  });
+
+  test('a ring stops when the caller is gone without saying so', async () => {
+    const { alice, bob, space: id } = await space();
+    // Rings for a minute, so only the caller being gone can stop it in time.
+    const patient = createCalls(bob.node, { ...OPTIONS, ringMs: 60_000 });
+    allCalls.push(patient);
+    // A ring from nobody who is in a call: as if the caller's page closed at once.
+    await alice.node.spaces.send(id, { type: 'call.ring', call: 'vanished' }, bob.node.did);
+    await until(() => patient.getState().ringing.length === 1, 4000, 'the ring');
+    await until(() => patient.getState().ringing.length === 0, 4000, 'the ringing to stop');
+  });
+
   test('a declined ring ends a call nobody else is in', async () => {
     const { alice, bob, space: id } = await space();
     await alice.calls.ring(id, bob.node.did);

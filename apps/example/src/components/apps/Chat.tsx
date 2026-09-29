@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useAccess, useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import { DEFINE, roleHolds } from '@weaveprotocol/core';
 import type { DirectMessage, NodeRecord, ResultOf } from '@weaveprotocol/core';
@@ -8,6 +8,8 @@ import { nameOf, peopleFrom, writerOf, type People } from '../../derive/people';
 import { Icon } from '../Icon';
 import { ago } from '../../derive/time';
 import { Avatar } from '@weave/app-shared/Avatar';
+import { createPortal } from 'react-dom';
+import { Modal } from '@weave/app-shared/Modal';
 import { Reactions } from '../std/Reactions';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
@@ -824,12 +826,16 @@ function Places({
   onAddChannel: ((name: string) => Promise<void>) | undefined;
 }) {
   const [adding, setAdding] = useState<'channel' | 'direct' | null>(null);
+  // The same function every render: the dialog takes a new one as a reason to move focus again.
+  const stopAdding = useCallback(() => setAdding(null), []);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const inRoom = (key: string | null) => place.kind === 'room' && place.channel === key;
   const inDirect = (group: ReadonlyArray<string>) => place.kind === 'direct' && sameGroup(place.with, group);
-  // People you haven't written to yet, for starting a conversation.
-  const started = new Set(conversations.filter((c) => c.with.length === 1).map((c) => c.with[0]));
+  // A conversation just started, before anything is sent in it: listed while it's open, gone if left empty.
+  const drafting =
+    place.kind === 'direct' && !conversations.some((c) => sameGroup(c.with, place.with)) ? place.with : null;
+  const shown = drafting ? [{ with: drafting }, ...conversations] : conversations;
 
   const submitChannel = async () => {
     const trimmed = name.trim();
@@ -898,7 +904,7 @@ function Places({
             label="Direct messages"
             onAdd={reachable.length > 0 ? () => setAdding(adding === 'direct' ? null : 'direct') : undefined}
           />
-          {conversations.map((c) => (
+          {shown.map((c) => (
             <PlaceButton
               key={c.with.join(',')}
               current={inDirect(c.with)}
@@ -910,24 +916,18 @@ function Places({
               </span>
             </PlaceButton>
           ))}
-          {adding === 'direct' &&
-            reachable
-              .filter((did) => !started.has(did))
-              .map((did) => (
-                <PlaceButton
-                  key={did}
-                  current={false}
-                  onClick={() => {
-                    setAdding(null);
-                    onPlace({ kind: 'direct', with: [did] });
-                  }}
-                >
-                  <Icon name="plus" size={12} />
-                  <Avatar did={did} size={16} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{nameOf(did, people)}</span>
-                </PlaceButton>
-              ))}
-          {conversations.length === 0 && adding !== 'direct' && (
+          {adding === 'direct' && (
+            <NewConversation
+              people={people}
+              reachable={reachable}
+              onStart={(group) => {
+                setAdding(null);
+                onPlace({ kind: 'direct', with: group });
+              }}
+              onClose={stopAdding}
+            />
+          )}
+          {shown.length === 0 && (
             <p
               className="chat-places-note"
               style={{ fontSize: 12, color: palette.ink.faint, padding: '2px 8px' }}
@@ -940,6 +940,110 @@ function Places({
         </>
       )}
     </nav>
+  );
+}
+
+/**
+ * Who to write to: everyone who can be written to, ticked one or more at a
+ * time. Picking opens the conversation; it stays in the list once something
+ * is sent in it.
+ */
+function NewConversation({
+  people,
+  reachable,
+  onStart,
+  onClose,
+}: {
+  people: People;
+  reachable: ReadonlyArray<string>;
+  onStart: (group: ReadonlyArray<string>) => void;
+  onClose: () => void;
+}) {
+  const [picked, setPicked] = useState<ReadonlyArray<string>>([]);
+  const [find, setFind] = useState('');
+  const found = reachable
+    .map((did) => ({ did, name: nameOf(did, people) }))
+    .filter((p) => p.name.toLowerCase().includes(find.trim().toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const toggle = (did: string) =>
+    setPicked((was) => (was.includes(did) ? was.filter((d) => d !== did) : [...was, did]));
+  const names = picked.map((did) => nameOf(did, people));
+  // Out of the list it's opened from, which on a phone is a scrolling row.
+  return createPortal(
+    <Modal title="New message" onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (picked.length) onStart([...picked].sort());
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+      >
+        {reachable.length > 6 && (
+          <input
+            value={find}
+            onChange={(e) => setFind(e.target.value)}
+            placeholder="Find someone"
+            aria-label="Find someone"
+            style={styles.input}
+          />
+        )}
+        <div
+          role="group"
+          aria-label="People"
+          style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 320, overflowY: 'auto' }}
+        >
+          {found.map((p) => (
+            <label
+              key={p.did}
+              data-nav
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '6px 8px',
+                borderRadius: 6,
+                fontSize: 14,
+                color: palette.ink.strong,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={picked.includes(p.did)}
+                onChange={() => toggle(p.did)}
+                style={styles.checkbox}
+              />
+              <Avatar did={p.did} size={24} />
+              {p.name}
+            </label>
+          ))}
+          {found.length === 0 && (
+            <p style={{ fontSize: 13, color: palette.ink.faint, padding: '6px 8px' }}>Nobody by that name.</p>
+          )}
+        </div>
+        <p style={{ fontSize: 12.5, color: palette.ink.muted }}>
+          Only the people you pick can read it. Others in the space see that you wrote, not what.
+        </p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onClose} data-variant="quiet" style={styles.smallButton}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={picked.length === 0}
+            data-variant="primary"
+            style={{ ...styles.addButton, height: 32 }}
+          >
+            {picked.length === 0
+              ? 'Message'
+              : picked.length === 1
+                ? `Message ${names[0]}`
+                : `Message ${picked.length} people`}
+          </button>
+        </div>
+      </form>
+    </Modal>,
+    document.body,
   );
 }
 
@@ -969,7 +1073,8 @@ function Heading({ label, onAdd }: { label: string; onAdd: (() => void) | undefi
         <button
           type="button"
           onClick={onAdd}
-          aria-label={label === 'Channels' ? 'Add a channel' : 'Write to someone'}
+          aria-label={label === 'Channels' ? 'Add a channel' : 'New message'}
+          title={label === 'Channels' ? 'Add a channel' : 'New message'}
           data-variant="ghost"
           style={{
             border: 'none',
@@ -1011,7 +1116,9 @@ function PlaceButton({
         padding: '0 8px',
         border: 'none',
         borderRadius: 6,
-        background: current ? palette.surface.sunken : 'none',
+        // The list itself is sunken: the open one stands up out of it, the way the space's sidebar marks its own.
+        background: current ? palette.surface.card : 'none',
+        boxShadow: current ? `0 0 0 1px ${palette.surface.line}` : 'none',
         color: current ? palette.ink.strong : palette.ink.body,
         fontWeight: current ? 600 : 400,
         font: 'inherit',
