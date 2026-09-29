@@ -120,6 +120,23 @@ that lets go of that one hold:
 
 _Source: `packages/core/src/node/node.ts` (`runtime`, `hold`, `closeRuntime`). Tests: `packages/core/tests/live.test.ts` ("holding a space")._
 
+## Leaving a space
+
+`spaces.leave(id)` deletes the space's `sys.joined` record in the account
+registry, closes the space and forgets it with its keys. It is local: it
+writes no `sys.member` self-removal, so the space's history still lists the
+account, keeps it a reader, and no key change becomes due. To give up the
+role too, call `setMember(id, self, null)` first. The account registry and
+the contacts space cannot be left.
+
+> **Known defect:** a leave should also give up the account's place in the
+> space ([spec 03 §6.2](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md),
+> planned there). The fix makes `spaces.leave` write the account's own
+> `sys.member` with `role: null` first, then forget the space as today.
+> Tracked in [#15](https://github.com/leifriksheim/weave/issues/15).
+
+_Source: `packages/core/src/node/node.ts` (`spaces.leave`, `forget`). Tests: `packages/core/tests/node.test.ts` ("the account registry")._
+
 ## Holding part of a space
 
 With `config.cache`, and once a space names at least one keeper

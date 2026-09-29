@@ -32,6 +32,9 @@ change without touching this spec:
 - **The library's interface**: creating a node, its stores, holding spaces,
   events, sign-in, the app-side client, React ([node](../packages/core/docs/node.md),
   [sign-in](../packages/core/docs/sign-in.md)).
+- **How the library handles spaces**: role presets, invite defaults, how it
+  reads and publishes profiles, and where it keeps spaces and their keys
+  ([spaces](../packages/core/docs/spaces.md)).
 - **The query format** a node answers ([query format](../packages/core/docs/query-format.md)).
   Peers never exchange queries.
 - **Node actions** and the tools the CLI, MCP and WebMCP make of them
@@ -110,7 +113,6 @@ they are described; the smaller ones share
 | Contact requests that can be taken back; leaving a space for two updates the list | [03 §16.5](03-spaces.md), [#40](https://github.com/leifriksheim/weave/issues/40)                                                         |
 | Keep lists past the cap; deleted access records can't leave access standing       | [03 §6.3, §7.2](03-spaces.md)                                                                                                            |
 | What a private space still shows (hashed keys and collection names)               | [03 §8.6](03-spaces.md)                                                                                                                  |
-| Profiles, round two                                                               | [03 §11](03-spaces.md)                                                                                                                   |
 | Access-control convergence                                                        | [05 §8](05-sync-and-storage.md), [#10](https://github.com/leifriksheim/weave/issues/10)                                                  |
 | A node you can pin; no plain `ws://` off this machine                             | [04 §5.2](04-network.md), [#32](https://github.com/leifriksheim/weave/issues/32)                                                         |
 | Limits on what one peer can cost another                                          | [04 §7.4](04-network.md), [05 §6.4, §8](05-sync-and-storage.md), [#33](https://github.com/leifriksheim/weave/issues/33)                  |

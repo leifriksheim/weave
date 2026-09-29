@@ -44,6 +44,7 @@ implementation may do it differently and still work with this one.
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | [node.md](node.md)                         | `createNode`: configuration, stores, holding spaces, events, the app-side client, doors, React |
 | [sign-in.md](sign-in.md)                   | `createWeaveAuth`: places, stages, ways in, staying signed in, pods                            |
+| [spaces.md](spaces.md)                     | Role presets, invite defaults, key upkeep, profiles, the space manager                         |
 | [actions.md](actions.md)                   | The node's actions, and the CLI, MCP and WebMCP tools made of them                             |
 | [query-format.md](query-format.md)         | The JSON query format: filters, operators, sort and cursor, include                            |
 | [standard-library.md](standard-library.md) | Every `std.*` collection, and the conventions they follow                                      |
