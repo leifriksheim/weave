@@ -6,10 +6,17 @@
  */
 import { displayName, type SpaceProfile } from '@weaveprotocol/core';
 
-export type People = ReadonlyMap<string, SpaceProfile>;
+/** Someone in a space: the name the space keeps, and whether their `std.profile` says they are a bot */
+export type Someone = SpaceProfile & { readonly bot?: true };
 
-export function peopleFrom(profiles: ReadonlyArray<SpaceProfile> | undefined): People {
-  return new Map((profiles ?? []).map((p) => [p.did, p]));
+export type People = ReadonlyMap<string, Someone>;
+
+/** Everyone with a name in a space; `bots` are those whose `std.profile` there says so */
+export function peopleFrom(
+  profiles: ReadonlyArray<SpaceProfile> | undefined,
+  bots: ReadonlySet<string> = new Set(),
+): People {
+  return new Map((profiles ?? []).map((p) => [p.did, bots.has(p.did) ? { ...p, bot: true as const } : p]));
 }
 
 /** "Leif", "Leif · 4YtJb2" when someone else here is also Leif, or "4YtJb2" with no profile */
@@ -17,16 +24,22 @@ export function nameOf(did: string | null | undefined, people: People): string {
   return displayName(did, people.values());
 }
 
+/** Whether an account says it is a bot, in its `std.profile` in this space: its own word, shown and nothing more */
+export const isBot = (did: string | null | undefined, people: People): boolean =>
+  !!did && people.get(did)?.bot === true;
+
 /**
- * Who wrote this version: their name, and "via agent" when an agent wrote it
- * for them. The account signed that into the agent's note, so it can't be
- * left out by the agent.
+ * Who wrote this version: their name, "via agent" when an agent wrote it for
+ * them, and "bot" when the account says it is one. The account signed "via
+ * agent" into the agent's note, so the agent can't leave it out.
  */
 export function writerOf(
   record: { readonly root: string | null; readonly viaAgent?: true },
   people: People,
 ): string {
-  return record.viaAgent ? `${nameOf(record.root, people)} via agent` : nameOf(record.root, people);
+  const name = nameOf(record.root, people);
+  if (record.viaAgent) return `${name} via agent`;
+  return isBot(record.root, people) ? `${name} · bot` : name;
 }
 
 /**

@@ -187,6 +187,8 @@ export async function createCarryCore(config: CarryCoreConfig) {
   let podStores: StoreFactory | null = null;
   const carries = new Map<string, Carry>();
   const carried = new Map<string, Carried>();
+  /** Spaces carried from a pass handed over alone, not through a carry space: a space paying for itself */
+  const direct = new Map<string, SpaceRecord>();
 
   const mesh = meshFor(config.network, did);
   const open = (
@@ -341,6 +343,11 @@ export async function createCarryCore(config: CarryCoreConfig) {
       }
       entry.wants = wants;
     }
+    for (const [spaceId, record] of direct) {
+      const known = wanted.get(spaceId);
+      const later = (read: SpaceRecord['read']) => !!read && read.did !== record.space.readKey;
+      if (!known || (!later(known.read) && later(record.read))) wanted.set(spaceId, record);
+    }
     let changed = false;
     for (const [spaceId, record] of wanted) {
       const held = carried.get(spaceId);
@@ -386,6 +393,31 @@ export async function createCarryCore(config: CarryCoreConfig) {
       await refresh();
       return carrySpace;
     },
+
+    /**
+     * Carries one space from its pass alone, with no carry space: a space
+     * whose members pay for it together. A later pass for the same space (its
+     * key changed) replaces the one before.
+     * @returns The space's id
+     * @throws When the pass can't be opened
+     */
+    async addPass(value: unknown): Promise<string> {
+      const pass = await openPass(value, provider);
+      if (!pass) throw new Error('That is not a pass for a space.');
+      if (carries.has(pass.space.id)) throw new Error('That is a carry space, not a space to carry.');
+      direct.set(pass.space.id, carriedRecord(pass));
+      await refresh();
+      return pass.space.id;
+    },
+
+    /** Stops carrying a space held from its pass alone, unless an account's passes still name it */
+    async removePass(spaceId: string): Promise<void> {
+      if (!direct.delete(spaceId)) return;
+      await refresh();
+    },
+
+    /** The read key a space is carried with now, as a DID: null for a public space, or one not carried */
+    readKeyOf: (spaceId: string): string | null => carried.get(spaceId)?.record.read?.did ?? null,
 
     /** Stops carrying for an account: its carry space, and every space nobody else still asks for */
     async removeCarry(carrySpace: string): Promise<void> {

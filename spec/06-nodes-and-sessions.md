@@ -951,7 +951,70 @@ advertise it, and using a host does not add it (see Planned, below).
 
 _Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`), `packages/cli/src/host.ts`, `packages/cli/src/pay-page.ts`. Tests: `packages/cli/tests/host.test.ts`._
 
-### 4.6 Planned: hosts
+### 4.6 A space paying for itself
+
+A space can also be a host's subscriber: its **own subscription** there,
+which anyone may pay into, so a community keeps its space online together.
+The host carries that one space as a carrier would (§4.1), from a pass
+(§4.2) any member's device hands over, and can read no more of it than any
+carrier.
+
+**The subscription.** It is named `space:<space id>`. It has no key: anyone
+may ask how it stands and pay for it, and a pass proves itself, so nothing
+about it is signed but the host's answers. A host MUST refuse a space id that
+does not match `^[A-Za-z0-9_-]{1,120}$`.
+
+**Calls.** No `Authorization`.
+
+| Call                               | Body                            | Answer                                                                                                                                                                                        |
+| ---------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /host/spaces/<space id>`      | —                               | `SignedStatus` (§4.5), `subscription` `space:<space id>`; `state` `none` before anyone paid or handed a pass                                                                                  |
+| `PUT /host/spaces/<space id>/pass` | `{ "pass": <SpacePass, §4.2> }` | `SignedStatus`. 402 when not paid (or lapsed); 403 when the host carries only named accounts; 400 when the pass does not open, or is for another space. A later pass replaces the one before. |
+
+A host MUST check a pass as a carrier checks one from a carry space (§4.2):
+its space must verify and hash to the id in the path, and a private space's
+read key must be one the space's history names. It carries the space while
+the subscription is `active` or `grace`, and drops it when it lapses unless an
+account's carry space also names it.
+
+For a space's own subscription, `HostStatus` also has:
+
+| Field     | Meaning                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------- |
+| `readKey` | For a private space it carries: the read key it carries it with, as a DID. Absent otherwise. |
+
+`carrying` is whether it carries the space now, and `spaces` is 1 when it
+does. A device compares `readKey` with the space's current read key to know
+whether the host needs a newer pass, after the space's key changed.
+
+**Pay link.** `<pay page>#space=<space id>`, not signed. The pay page calls
+the host's pay API with
+
+```
+Authorization: WeavePay space=<space id>
+```
+
+which a host MUST read as that space's own subscription, and MUST NOT count
+as the pay link of any account's. Payments to it add time to what is paid
+already, whoever makes them.
+
+```
+https://host.example/pay#space=b3kq7zp2f4mhx6ydwa5rtc9n1e
+```
+
+**Which host a space uses** is not protocol: the library keeps it in a
+`std.host` record that only those who may manage the space write, and every
+member's device holding the space key hands that host the pass once the
+space is paid for there, and again when its key changes. See
+[the node](../packages/core/docs/node.md#a-space-paying-for-itself).
+
+Anyone who knows a space's id can learn whether a host carries it and until
+when, as its status is open. A pass lets its holder download the space's
+records sealed, as a carrier does; any member could hand one over already.
+
+_Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `packages/core/src/node/carrier.ts` (`addPass`, `removePass`), `packages/core/src/session/hosting.ts` (`createSpaceHostClient`, `spacePayLink`, `verifyPayLink`), `packages/cli/src/host.ts` (`answerSpace`), `packages/cli/src/stripe.ts` (`once`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself": all)._
+
+### 4.7 Planned: hosts
 
 > **Planned.** Not normative.
 >

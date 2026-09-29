@@ -21,7 +21,7 @@ export type {
   CarriedSubscriptionView,
 } from './carrier.js';
 export type { NotifyWhen, NotifyApp, NotifyProposal, CarriedSubscription } from '../space/notify.js';
-export { createHostNode, NotAllowedError } from './host.js';
+export { createHostNode, NotAllowedError, spaceSubscription } from './host.js';
 export type { HostConfig, HostNode, Invoice, Subscription, SubscriptionState } from './host.js';
 export type { CopyAccountParams, CopyResult } from './copy.js';
 export type { StoreFactory, StoreOptions, WorkerStores } from './stores.js';
@@ -57,6 +57,7 @@ export type {
   NotifyView,
   NodeHosting,
   HostingView,
+  SpaceHostingView,
   CarrierSummary,
   AccountProfileView,
   NodeContacts,

@@ -32,6 +32,7 @@ import { grantSigner, type Grant } from '@weaveprotocol/core/session';
 import { acceptAgentLink, checkAgentGrant } from '@weaveprotocol/core/session';
 import { base64UrlDecode } from '@weaveprotocol/core';
 import { openFsDirectory } from './fs-directory.js';
+import type { Unlocked } from './home.js';
 import { errorCode, isRecord } from './json.js';
 
 /** The relay the apps meet on unless told otherwise */
@@ -207,12 +208,74 @@ export async function forgetAgent(home: string): Promise<void> {
   await rm(path.join(agentDir(home), 'data'), { recursive: true, force: true });
 }
 
-const modelKeyFile = (home: string) => path.join(agentDir(home), 'anthropic-key');
+/**
+ * Says a bot is one, in a space whose apps keep profiles: its `std.profile`
+ * there gets `bot: true`. A convention between apps, not something the
+ * protocol checks; where the space has no `std.profile`, the bot's name has to
+ * say it.
+ */
+export async function discloseBot(node: P2PNode, space: string): Promise<void> {
+  const collections = await node.collections.list(space);
+  if (!collections.some((c) => c.name === 'std.profile' && c.version !== null)) return;
+  const mine = (await node.records.list(space, { collection: 'std.profile' })).find(
+    (record) => record.root === node.did && !record.deleted,
+  );
+  const body = mine && isRecord(mine.body) ? mine.body : {};
+  if (body.bot === true) return;
+  await (mine
+    ? node.records.update(space, mine.key, { ...body, bot: true })
+    : node.records.put(space, 'std.profile', { bot: true }));
+}
 
-/** The Anthropic API key `weave agent` was given, or null before it asked */
-export async function loadModelKey(home: string): Promise<string | null> {
+/**
+ * A bot's node: an account of its own, unlocked here, online the way an
+ * agent is (relays and WebRTC), and holding every space it is in, where it
+ * says it is a bot (`discloseBot`).
+ */
+export async function startBotNode(
+  unlocked: Unlocked,
+  options: { readonly nodes?: ReadonlyArray<string> } = {},
+): Promise<{ node: P2PNode; close(): Promise<void> }> {
+  await enableWebRTC();
+  const node = await createNode({
+    signer: unlocked.signer,
+    stores: unlocked.stores,
+    accountKey: unlocked.accountKey,
+    contactKey: unlocked.contactKey,
+    network: { relays: configuredRelays(), ...(options.nodes?.length ? { nodes: options.nodes } : {}) },
+  });
+  const held = new Set<string>();
+  const holdAll = async () => {
+    for (const space of await node.spaces.list()) {
+      if (held.has(space.id)) continue;
+      held.add(space.id);
+      void node.spaces
+        .hold(space.id)
+        .then(() => discloseBot(node, space.id))
+        .catch(() => {});
+    }
+  };
+  // A space joined while it runs is held, and told, too.
+  const unsubscribe = node.subscribe((event) => {
+    if (event.type === 'spaces') void holdAll();
+  });
+  await holdAll();
+  return {
+    node,
+    close: async () => {
+      unsubscribe();
+      await node.close();
+    },
+  };
+}
+
+/** Where a provider's API key is kept: `anthropic-key`, `openai-key` */
+const modelKeyFile = (home: string, provider: string) => path.join(agentDir(home), `${provider}-key`);
+
+/** The API key `weave agent` was given for a provider, or null before it asked */
+export async function loadModelKey(home: string, provider = 'anthropic'): Promise<string | null> {
   try {
-    return (await readFile(modelKeyFile(home), 'utf8')).trim() || null;
+    return (await readFile(modelKeyFile(home, provider), 'utf8')).trim() || null;
   } catch (error) {
     if (errorCode(error) === 'ENOENT') return null;
     throw error;
@@ -220,9 +283,9 @@ export async function loadModelKey(home: string): Promise<string | null> {
 }
 
 /** Keeps the API key next to the agent's own key, readable only by this user */
-export async function saveModelKey(home: string, key: string): Promise<void> {
+export async function saveModelKey(home: string, key: string, provider = 'anthropic'): Promise<void> {
   await mkdir(agentDir(home), { recursive: true, mode: 0o700 });
-  await writeFile(modelKeyFile(home), `${key}\n`, { mode: 0o600 });
+  await writeFile(modelKeyFile(home, provider), `${key}\n`, { mode: 0o600 });
 }
 
 /**

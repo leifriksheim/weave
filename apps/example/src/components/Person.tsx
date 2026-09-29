@@ -2,7 +2,7 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 import type { ContactView, SpaceSummary } from '@weaveprotocol/core';
 import { useNode } from '@weaveprotocol/core/react';
 import { styles, palette } from '../styles';
-import { nameOf, type People } from '../derive/people';
+import { isBot, nameOf, type People } from '../derive/people';
 import { takeBack, useContacts, useStanding } from '../contacts';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { Modal } from '@weave/app-shared/Modal';
@@ -44,7 +44,9 @@ export function Person({
 }) {
   const scope = useContext(Scope);
   const [open, setOpen] = useState(false);
-  const name = nameOf(did, scope?.people ?? new Map());
+  const people = scope?.people ?? new Map();
+  // A bot says so in its profile; shown with its name wherever it appears.
+  const name = isBot(did, people) ? `${nameOf(did, people)} · bot` : nameOf(did, people);
   if (!scope || !did)
     return (
       <span style={style}>

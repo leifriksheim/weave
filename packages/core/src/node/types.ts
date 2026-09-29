@@ -726,6 +726,27 @@ export interface NodeHosting {
   payPage(url: string): Promise<string>;
   /** Stops using a host: it forgets the spaces, and the subscription is let go. A card that renews is cancelled on the host's pay page. */
   stop(url: string): Promise<void>;
+  /**
+   * The hosts a space pays to keep it online (its `std.host` records), each
+   * asked how the space's own subscription stands, with a link anyone may
+   * open to chip in. Hands a host the space's pass when it was paid since.
+   */
+  space(spaceId: string): Promise<ReadonlyArray<SpaceHostingView>>;
+}
+
+/** A host a space pays for itself, as `hosting.space` sees it */
+export interface SpaceHostingView {
+  readonly url: string;
+  /** Its name, as the space or the host gives it */
+  readonly name: string;
+  /** The host's key; null when it could not be reached */
+  readonly host: string | null;
+  /** How the space's subscription stands there, signed by the host; null when it could not be asked */
+  readonly status: import('../session/hosting.js').HostStatus | null;
+  /** The host's pay page for this space, which anyone may open; null when it takes no payments */
+  readonly pay: string | null;
+  /** Why it could not be asked, when it couldn't */
+  readonly error?: string;
 }
 
 export interface NodeAccount {

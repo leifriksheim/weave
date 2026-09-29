@@ -11,6 +11,7 @@ import { Avatar } from '@weave/app-shared/Avatar';
 import { createPortal } from 'react-dom';
 import { Modal } from '@weave/app-shared/Modal';
 import { Reactions } from '../std/Reactions';
+import { useBots } from '../../bots';
 import { MentionList, useMentions } from '../std/Mentions';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
@@ -49,7 +50,7 @@ export function Chat(props: AppProps) {
   const { space, collections } = props;
   const node = useNode();
   const { did: me } = useAccount();
-  const people = peopleFrom(useProfiles(space.id));
+  const people = peopleFrom(useProfiles(space.id), useBots(space.id));
   const access = useAccess(space.id);
   const hasChannels = collections.some((c) => c.name === channel.name && c.version !== null);
   const mayDefine = space.writable && roleHolds(access?.role, DEFINE);
@@ -173,7 +174,7 @@ function Room({
 }) {
   const node = useNode();
   const { did: me } = useAccount();
-  const people = peopleFrom(useProfiles(space.id));
+  const people = peopleFrom(useProfiles(space.id), useBots(space.id));
   const mayWrite = useCan(space.id, 'create', message.name);
   const defined = (name: string) => collections.find((c) => c.name === name && c.version !== null);
   const reacts = !!defined(reaction.name);

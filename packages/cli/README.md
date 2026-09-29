@@ -143,6 +143,15 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   `WEAVE_WALLETCONNECT_PROJECT_ID` (free at dashboard.reown.com) and build the
   WalletConnect bundle once with `npm run bundle:pay` in `cli/` (the published
   package has it built).
+- **Spaces pay for themselves too.** A community names the host in its space
+  (`std.host`), and anyone in it chips in: `https://<host>/pay#space=<id>`,
+  no sign-in. Each payment adds its time to what is paid already, from a
+  wallet, or by card once `STRIPE_ONCE_PRICE_MONTHLY` and/or
+  `STRIPE_ONCE_PRICE_YEARLY` name one-off prices in your Stripe dashboard
+  (a card that renews stays for accounts). Members' devices hand the host the
+  space's pass once it is paid, and it carries the space blind, like an
+  account's. `GET /host/spaces/<id>` says how a space stands, to anyone.
+  A host with `--allow` carries no space for itself.
 - With a bucket, the disk is only a cache: lose it, start on the same key and
   bucket, and every subscription and space comes back.
 - Put it behind something that terminates TLS (Caddy does it in two lines).
@@ -221,7 +230,64 @@ What the agent writes never sets a watch off.
 `--no-chat` runs only the watches, until stopped: on a server, or in the
 background.
 
-The agent can't yet be addressed in a shared space as itself (#103).
+### Other models
+
+`weave agent` thinks with Anthropic's models by default. `--provider openai`
+talks to any server that speaks OpenAI's Chat Completions instead: OpenAI,
+OpenRouter, DeepSeek, Kimi, Groq, Mistral, or a model on your own machine.
+The tools, the confirmations, the caps and the watches are the same whichever
+model answers.
+
+```bash
+# DeepSeek
+OPENAI_API_KEY=sk-… weave agent --provider openai --base-url https://api.deepseek.com \
+  --model deepseek-v4-pro --price 0.66/1.98
+
+# A model on this machine, with Ollama: no key, nothing leaves the machine
+weave agent --provider openai --base-url http://localhost:11434/v1 --model qwen3 --price 0/0
+```
+
+- `--price` is dollars per million tokens, `input/output` or
+  `input/output/cached`. It is needed for any model whose price `weave agent`
+  doesn't know (it knows Anthropic's), since the daily caps depend on it.
+- The key comes from `OPENAI_API_KEY` (or `WEAVE_AGENT_API_KEY`), or is asked
+  for once and kept in `~/.weave/agent/openai-key`. A server on `localhost`
+  needs none.
+- `--base-url` with the default provider points it at an Anthropic-compatible
+  endpoint instead (DeepSeek and Kimi offer one); Anthropic's own additions,
+  like thinking and fallbacks, are left out there.
+- `WEAVE_AGENT_PROVIDER`, `WEAVE_AGENT_MODEL`, `WEAVE_AGENT_BASE_URL` and
+  `WEAVE_AGENT_PRICE` set the same from the environment.
+
+Models differ a lot in how well they use tools and resist instructions hidden
+in what they read. That matters most for a bot that writes in a community:
+its role still limits what it can do, but pick a strong model for one.
+
+### A bot for a space
+
+`weave agent --bot` runs an account of its own as a **bot**: something a
+community adds to its spaces to help everyone, rather than one person's
+agent. Where a space keeps `std.profile`, it sets `bot: true` on its own
+there, so apps can show it as one; elsewhere its name has to say so. It writes
+as itself, and every member's device checks what it writes against its role.
+People mention it by its own name.
+
+```bash
+weave --home ~/club-bot init --name "Club Bot" --passphrase
+weave --home ~/club-bot spaces join --invite 'https://…#invite=…'   # an invite with the role it should hold
+weave --home ~/club-bot agent --bot --no-chat
+```
+
+It runs the watches in a space written by members holding
+`std.watch/instruct` there (admins and moderators in the community preset),
+in that space only. A watch's `from` narrows what sets it off to records by
+some roles, so `"from": ["member"]` is "a mention from anyone with a role".
+`--daily-cap-each` limits what each person who sets it off may spend in a
+day, a quarter of `--daily-cap` unless given, so nobody can spend the day for
+everyone.
+
+Give it a role that can do what it is for and no more: a misled bot can do
+only what its role allows.
 
 ## Who gets served
 

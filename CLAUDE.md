@@ -158,6 +158,8 @@ Elsewhere:
   (`packages/cli/src/agent-chat.ts`): the Messages API's streaming, tool use,
   retries and error types. Anthropic's own client, released since 2023, with
   two small dependencies. Never import it from `packages/core` or the apps.
+  Other providers need no SDK: Chat Completions is plain `fetch`
+  (`packages/cli/src/agent-openai.ts`).
 - `@reown/appkit`, a dev dependency of `packages/cli`, bundled into the host's
   pay page only (`packages/cli/pay/`). It brings ~250 packages, which fails the
   bar anywhere near a key; the pay page runs on the host's own address and can

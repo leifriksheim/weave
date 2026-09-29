@@ -150,6 +150,8 @@ export interface HostStatus {
   readonly carrying: boolean;
   /** How many spaces it carries for this subscription */
   readonly spaces: number;
+  /** For a space's own subscription, a private one: the read key it carries the space with, as a DID */
+  readonly readKey?: string;
   /** When the host said it, unix seconds */
   readonly at: number;
 }
@@ -239,10 +241,25 @@ export async function payLink(
   return url.toString();
 }
 
+/** A space id as it may appear in a pay link or a host's path */
+const SPACE_ID = /^[A-Za-z0-9_-]{1,120}$/;
+
 /**
- * The subscription a pay page's call is for — its `Authorization: WeavePay
- * s=…, at=…, sig=…` header, from a pay link to this host (`host`, its key)
- * that is less than an hour old. Null otherwise.
+ * A link to a host's pay page for a space's own subscription. Anyone may pay
+ * for a space, so it needs no signature and never runs out.
+ * @param pay The pay page's address, absolute
+ */
+export function spacePayLink(pay: string, spaceId: string): string {
+  const url = new URL(pay);
+  url.hash = new URLSearchParams({ space: spaceId }).toString();
+  return url.toString();
+}
+
+/**
+ * The subscription a pay page's call is for: from `Authorization: WeavePay
+ * s=…, at=…, sig=…`, a pay link to this host (`host`, its key) less than an
+ * hour old; or from `WeavePay space=<id>`, that space's own subscription
+ * (`space:<id>`), which anyone may pay for. Null otherwise.
  */
 export async function verifyPayLink(
   header: string | undefined,
@@ -250,6 +267,8 @@ export async function verifyPayLink(
   provider: CryptoProvider = createP256Provider(),
   now = Math.floor(Date.now() / 1000),
 ): Promise<string | null> {
+  const space = /^WeavePay space=([A-Za-z0-9_-]{1,120})$/.exec(header ?? '')?.[1];
+  if (space) return `space:${space}`;
   return headerSigner(
     header,
     /^WeavePay s=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/,
@@ -292,6 +311,55 @@ export async function describeHost(url: string): Promise<HostDescription> {
     throw new Error("That address doesn't answer as a Weave host");
   }
   return description;
+}
+
+/** A host's calls about a space's own subscription: open to anyone, as paying for a space is */
+export interface SpaceHostClient {
+  /** How the space's subscription stands, checked as signed by the host */
+  status(spaceId: string): Promise<{ readonly status: HostStatus; readonly receipt: SignedStatus }>;
+  /** Hands the host the space's pass, to carry it with; 402 when nobody has paid */
+  hand(
+    spaceId: string,
+    pass: unknown,
+  ): Promise<{ readonly status: HostStatus; readonly receipt: SignedStatus }>;
+}
+
+/**
+ * A client for one host's calls about spaces paying for themselves.
+ * @param url The host's address, https://
+ * @param host The host's key: every status must be signed by it
+ */
+export function createSpaceHostClient(
+  url: string,
+  host: string,
+  provider: CryptoProvider = createP256Provider(),
+): SpaceHostClient {
+  const base = url.replace(/\/+$/, '');
+  const path = (spaceId: string) => {
+    if (!SPACE_ID.test(spaceId)) throw new Error('That is not a space id');
+    return `${base}/host/spaces/${encodeURIComponent(spaceId)}`;
+  };
+  const checked = async (spaceId: string, receipt: SignedStatus) => {
+    const status = await readStatus(receipt, host, provider);
+    if (!status || status.subscription !== `space:${spaceId}`)
+      throw new Error("The host's answer isn't signed by the host this space uses");
+    return { status, receipt };
+  };
+  return Object.freeze({
+    status: async (spaceId: string) =>
+      checked(spaceId, await answerOf<SignedStatus>(await fetch(path(spaceId)))),
+    hand: async (spaceId: string, pass: unknown) =>
+      checked(
+        spaceId,
+        await answerOf<SignedStatus>(
+          await fetch(`${path(spaceId)}/pass`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ pass }),
+          }),
+        ),
+      ),
+  });
 }
 
 /** A host's calls, signed as one subscription */

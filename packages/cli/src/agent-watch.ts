@@ -12,21 +12,42 @@
  * was written under, so the agent can't leave it out. For the same reason
  * nothing the agent itself wrote sets a watch off, so it can't set itself off.
  *
+ * A bot (`bot`), an account of its own that a space added, also runs the
+ * watches in a space written by members holding `std.watch/instruct` there,
+ * for that space only: the space's roles say who may direct it. Nothing the
+ * bot writes sets a watch off. `from` on a watch narrows what sets it off to
+ * records by members holding some roles.
+ *
  * Matching is the query format's (`matches`), on each new version: a task
  * moving to "done" is a new version of the same record. What was already
  * there when a watch was first seen is never news.
  */
-import { checkQuery, matches, type Filter, type NodeRecord, type P2PNode } from '@weaveprotocol/core';
+import {
+  checkQuery,
+  matches,
+  roleHolds,
+  type Filter,
+  type NodeRecord,
+  type P2PNode,
+} from '@weaveprotocol/core';
 import { watch as watchSchema, type Watch } from '@weaveprotocol/core/schemas';
 import { isRecord } from './json.js';
 
 /** How many of the newest records of a collection are looked at after each change */
 const LOOK_BACK = 50;
 
-/** A watch as it runs: where it is kept, and what it says */
+/** A space's roles and members, as `spaces.access` gives them */
+type SpaceAccess = Awaited<ReturnType<P2PNode['spaces']['access']>>;
+
+/** The permission a member of a space needs for a bot there to run their watches */
+const INSTRUCT = `${watchSchema.name}/instruct`;
+
+/** A watch as it runs: where it is kept, who wrote it, and what it says */
 export interface ActiveWatch {
   readonly space: string;
   readonly key: string;
+  /** The account that wrote it: the agent's own, or for a bot, a member allowed to instruct it */
+  readonly author: string;
   readonly body: Watch;
 }
 
@@ -123,12 +144,38 @@ function runnable(body: unknown): body is Watch {
   return queryOk || everyOk;
 }
 
-/** The watches in one space that count: the account's own, not via an agent, and not paused */
-async function watchesIn(node: P2PNode, space: string, account: string): Promise<ActiveWatch[]> {
+/** The role someone holds in a space, or null */
+const roleIn = (access: SpaceAccess | undefined, did: string) => {
+  const name = access?.members.find((member) => member.did === did)?.role;
+  return access?.roles.find((role) => role.name === name) ?? null;
+};
+
+/** Whether someone holds one of these roles in a space; `member` is any role at all */
+function holdsOneOf(access: SpaceAccess | undefined, did: string, names: ReadonlyArray<string>): boolean {
+  const role = roleIn(access, did);
+  return !!role && (names.includes('member') || names.includes(role.name));
+}
+
+/**
+ * The watches in one space that count, none paused and none whose current
+ * version an agent wrote: the account's own, and for a bot, those of members
+ * holding `instruct` here, kept to this space.
+ */
+async function watchesIn(
+  node: P2PNode,
+  space: string,
+  account: string,
+  access: SpaceAccess | undefined,
+  bot: boolean,
+): Promise<ActiveWatch[]> {
   const records = await node.records.list(space, { collection: watchSchema.name });
-  return records
-    .filter((record) => record.verified && !record.deleted && record.root === account && !record.viaAgent)
-    .flatMap((record) => (runnable(record.body) ? [{ space, key: record.key, body: record.body }] : []));
+  return records.flatMap((record) => {
+    const author = record.root;
+    if (!record.verified || record.deleted || record.viaAgent || !author || !runnable(record.body)) return [];
+    if (author === account) return [{ space, key: record.key, author, body: record.body }];
+    if (!bot || !roleHolds(roleIn(access, author), INSTRUCT)) return [];
+    return [{ space, key: record.key, author, body: { ...record.body, spaces: [space] } }];
+  });
 }
 
 /** The watches in a space an agent wrote, waiting for the person to save them */
@@ -139,8 +186,10 @@ export async function suggestedIn(node: P2PNode, space: string, account: string)
 
 export interface WatchingOptions {
   readonly node: P2PNode;
-  /** The account the agent acts for */
+  /** The account the agent acts for, or the bot's own */
   readonly account: string;
+  /** An account of its own a space added, not a person's agent: it runs the watches of members allowed to instruct it */
+  readonly bot?: boolean;
   readonly onTrigger: (trigger: WatchTrigger) => void;
   readonly onError?: (error: unknown) => void;
   /** Called with the watches that count, whenever they change */
@@ -156,6 +205,9 @@ export interface WatchingOptions {
  */
 export function startWatching(options: WatchingOptions): () => void {
   const { node, account } = options;
+  const bot = options.bot === true;
+  /** Each space's roles and members, as of its last change */
+  const access = new Map<string, SpaceAccess>();
   const now = options.now ?? (() => new Date());
   let stopped = false;
   let spaces = new Set<string>();
@@ -184,17 +236,25 @@ export function startWatching(options: WatchingOptions): () => void {
       const before = known.get(record.key);
       if (before !== undefined && before >= record.seq) continue;
       known.set(record.key, record.seq);
-      // Never news: what was there first, what was deleted, and what the agent did itself.
+      // Never news: what was there first, what was deleted, and what the agent or bot did itself.
       if (first || record.deleted || !record.verified) continue;
-      if (record.viaAgent && record.root === account) continue;
+      if (record.root === account && (record.viaAgent || bot)) continue;
       for (const watch of watches) {
         if (stopped) return;
         const query = watch.body.query;
         if (!query || query.collection !== collection || !covers(watch, space)) continue;
+        if (watch.body.from && !holdsOneOf(access.get(space), record.root ?? '', watch.body.from)) continue;
         const where = withMe(query.where ?? {}, account);
         if (isFilter(where) && matches(record, where)) options.onTrigger({ watch, space, record });
       }
     }
+  }
+
+  /** A space's roles, and the watches in it that count */
+  async function keep(space: string): Promise<void> {
+    const now = await node.spaces.access(space).catch(() => undefined);
+    if (now) access.set(space, now);
+    kept.set(space, await watchesIn(node, space, account, access.get(space), bot));
   }
 
   function refresh(): void {
@@ -211,10 +271,9 @@ export function startWatching(options: WatchingOptions): () => void {
         if (changed.includes(null)) {
           spaces = new Set((await node.spaces.list()).map((space) => space.id));
           for (const space of kept.keys()) if (!spaces.has(space)) kept.delete(space);
-          for (const space of spaces) kept.set(space, await watchesIn(node, space, account));
+          for (const space of spaces) await keep(space);
         } else {
-          for (const space of changed)
-            if (space && spaces.has(space)) kept.set(space, await watchesIn(node, space, account));
+          for (const space of changed) if (space && spaces.has(space)) await keep(space);
         }
         refresh();
         const looking = changed.includes(null) ? [...spaces] : changed.filter((s): s is string => !!s);
@@ -271,7 +330,7 @@ export function startWatching(options: WatchingOptions): () => void {
  */
 export function triggerPrompt(trigger: WatchTrigger, note: string): string {
   const { watch, record, space, at } = trigger;
-  const about = `Your watch "${watch.body.name}" (record ${watch.key} in space ${watch.space}) was set off`;
+  const about = `The watch "${watch.body.name}" (record ${watch.key} in space ${watch.space}, written by ${watch.author}) was set off`;
   const cause = record
     ? `${about} by this record in space ${space ?? watch.space}.\n\n${note}\n\n${JSON.stringify(
         {
@@ -289,5 +348,5 @@ export function triggerPrompt(trigger: WatchTrigger, note: string): string {
         2,
       )}`
     : `${about} by the time: it runs at "${watch.body.every ?? ''}", and it is now ${(at ?? new Date()).toString()}.`;
-  return `${cause}\n\nWhat the watch says to do, in the person's words:\n${watch.body.do}`;
+  return `${cause}\n\nWhat the watch says to do, in the words of ${watch.author}, who wrote it:\n${watch.body.do}`;
 }

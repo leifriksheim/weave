@@ -20,7 +20,11 @@ import {
 
 /**
  * How someone presents themselves: more than the name every space keeps for
- * them (`sys.profile`). One per person.
+ * them (`sys.profile`). One per person, and only theirs to write.
+ *
+ * `bot` is the account saying it is software someone runs, not a person, so
+ * apps can show it. It is the account's own word, like the rest: an honest
+ * operator discloses with it, and it proves nothing about anyone who doesn't.
  */
 export const profile = typed<Profile>()({
   name: 'std.profile',
@@ -43,6 +47,7 @@ export const profile = typed<Profile>()({
           required: ['url'],
         },
       },
+      bot: { type: 'boolean', description: 'The account is software someone runs, not a person' },
     },
   },
   rules: { ...own, onePer: ['@author'] },
@@ -54,6 +59,8 @@ export interface Profile {
   readonly banner?: BlobRef;
   readonly pronouns?: string;
   readonly links?: ReadonlyArray<{ readonly title?: string; readonly url: string }>;
+  /** The account says it is software someone runs, not a person */
+  readonly bot?: boolean;
 }
 
 const labelled = (value: Record<string, unknown>, required: string) => ({
