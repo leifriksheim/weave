@@ -122,7 +122,7 @@ export interface Channel {
 /**
  * A direct message between some members of a space: its text is sealed so
  * only the people in `to` and whoever wrote it can read it, with each one's
- * member key (weave-protocol 03 §17). Other members see who wrote to whom and
+ * member key (`docs/direct-messages.md`). Other members see who wrote to whom and
  * when, not what. `to` is a topic, so "sent to me" can be asked of a keeper
  * that can't read it. Write and read it through `node.direct`.
  */

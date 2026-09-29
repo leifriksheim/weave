@@ -61,6 +61,12 @@ called and how an app shows something are not protocol, however useful: the
 standard collections (`std.*`), the query format, node actions, `std.app` and
 screens are described in `packages/core/docs/` instead.
 
+To tell which a change is, ask: **would a peer that has never heard of it
+still sync, store and judge every record the same way?** If yes, it is a layer
+on the protocol and belongs in the docs, even when it seals, signs or fixes
+exact bytes that two apps must agree on. Direct messages (`std.direct`) are one.
+If a peer must check, refuse or send something new, it is protocol.
+
 - A change to anything in the spec's scope changes the spec in the same PR.
   Where the spec and the code disagree, one of them is a bug: fix it, or open
   an issue that says which.

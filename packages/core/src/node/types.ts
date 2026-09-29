@@ -835,8 +835,8 @@ export interface DirectMessage {
 
 /**
  * Direct messages: text only some members of a space can read, in a
- * `std.direct` record sealed with each reader's member key (weave-protocol
- * 03 §17). The other members see who wrote to whom and when, not what.
+ * `std.direct` record sealed with each reader's member key
+ * (`docs/direct-messages.md`). The other members see who wrote to whom and when, not what.
  * Needs a private space: only there do members publish member keys.
  */
 export interface NodeDirect {

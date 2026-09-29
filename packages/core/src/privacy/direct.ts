@@ -1,5 +1,5 @@
 /**
- * Direct messages (weave-protocol 03 §17): text only some members of a space
+ * Direct messages (`docs/direct-messages.md`): text only some members of a space
  * can read. A fresh message key seals the text once; that key is sealed to
  * each reader's member key, so one record serves every reader and every one
  * of their devices.

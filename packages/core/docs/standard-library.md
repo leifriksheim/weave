@@ -266,7 +266,7 @@ renames a channel. A channel is a label, not a boundary: every member reads
 every channel. Something only some members may read is a space of its own, or
 a direct message.
 
-**Direct messages.** A `std.direct` is sealed (`node.direct`, [spec 03 §17](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md)):
+**Direct messages.** A `std.direct` is sealed (`node.direct`, [direct-messages.md](direct-messages.md)):
 only the people in `to` and whoever wrote it can read `data`. A chat groups
 them into conversations by everyone in them, `to` plus the writer, and must
 show one it can't open as unreadable, not drop it. `to` is a topic, so

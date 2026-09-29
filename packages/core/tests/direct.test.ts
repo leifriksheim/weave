@@ -1,5 +1,5 @@
 /**
- * Direct messages (`node.direct`, weave-protocol 03 §17): text in a shared
+ * Direct messages (`node.direct`, `packages/core/docs/direct-messages.md`): text in a shared
  * space only the people it is for, and whoever wrote it, can read — on every
  * one of their devices — and a copy under anyone else's name opens nothing.
  */
