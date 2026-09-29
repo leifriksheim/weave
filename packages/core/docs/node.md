@@ -1,6 +1,6 @@
 # The node
 
-`createNode` and what it returns: configuration, stores, holding spaces,
+`createNode` and what it returns: configuration, root signers and notes, stores, holding spaces,
 events, live messages, the rest of its surface, acting as an agent, the
 app-side client, doors, and the React and element conveniences.
 
@@ -53,6 +53,57 @@ and drops all event listeners. After `close()`, any call that needs a space
 fails with `Node is closed`. Closing twice does nothing.
 
 _Source: `packages/core/src/node/node.ts` (`createNode`, `close`). Tests: `packages/core/tests/node.test.ts`._
+
+## Root signers and notes
+
+A node never holds the root key. It is given a **root signer** (`RootSigner`),
+which hides where the key lives and is asked only for notes. This is an
+in-process interface, not a wire format; what a note must be is
+[spec 01 §7](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md).
+
+| Member                                                   | Type                    | Meaning                                                                                          |
+| -------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------ |
+| `did`                                                    | string                  | The account DID                                                                                  |
+| `custody`                                                | `'local'` \| `'remote'` | `local`: the seed is unlocked in this page. `remote`: another context (an account home) holds it |
+| `delegate({audience, capabilities, expiration, facts?})` | → UCAN                  | Issue a note from the account to `audience`                                                      |
+
+- The **local** signer (`createLocalRootSigner`) calls `issueUCAN` with the
+  root key. It includes `fct` only when `facts` is non-empty.
+- The **grant** signer an app uses returns the one note the account home
+  already issued to the app's key, unchanged, and refuses once the grant's
+  `expiresAt` has passed. It cannot mint new notes
+  ([spec 06 §2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+
+The **session note** a node asks for when it starts:
+
+```
+aud = session DID
+att = [{ "with": "*", "can": "expression/*" }]   (SESSION_CAPABILITY)
+exp = now + sessionTtlSeconds                     (default 3600)
+nbf = now − 300                                   (issueUCAN's default)
+fct = absent                                      (or [{"weave":"agent"}] for an agent's own node)
+prf = []
+```
+
+Peers check only that the note covers what each record needs, so `att` is
+this node's choice, not a rule. The note is renewed before it runs out
+([spec 06 §1.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+
+**Issuing.** `issueUCAN` defaults `exp` to now + 3600, `nbf` to now − 300
+(`UCAN_CLOCK_SKEW_SECONDS`, so a peer whose clock is a little behind still
+accepts it), `nnc` to 16 random hex characters, and `prf` to `[]`.
+`delegateCapabilities` issues a child of an existing note, with
+`prf = [CID(parent)]` and no facts, and refuses when:
+
+- the issuer is not the parent's `aud`;
+- a child capability is not covered by some parent capability
+  ([spec 01 §7.6](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md));
+- the requested `exp` is later than the parent's (default: the parent's `exp`).
+
+These refusals only save issuing a note that would not verify: a verifier
+checks the chain itself ([spec 01 §7.5](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md)).
+
+_Source: `packages/core/src/identity/root-signer.ts`, `packages/core/src/identity/ucan.ts` (`issueUCAN`, `delegateCapabilities`), `packages/core/src/node/node.ts` (`SESSION_CAPABILITY`, `delegate`), `packages/core/src/session/connect.ts` (`grantSigner`, `grantCapabilities`). Tests: `packages/core/tests/ucan.test.ts`, `packages/core/tests/node.test.ts`, `packages/core/tests/connect.test.ts`._
 
 ## Stores
 
@@ -270,7 +321,8 @@ _Source: `packages/core/src/node/node.ts` (`asAgent`). Tests: `packages/core/tes
 
 `createWeaveConnection({ home, request, network?, storage?, stores? })` is the
 app's twin of [sign-in](sign-in.md): statuses `starting`, `disconnected`, `connecting`, `ready`,
-`expired`. It keeps the grant in `localStorage` under `weave.grant` and the
+`expired`. It keeps the app's key in IndexedDB database `weave-app-key`, the
+grant in `localStorage` under `weave.grant`, and the
 person's chosen home under `weave.home` (`home` in the config is only a
 default). `propose(notify)` sends a proposal to the grant's home ([spec 06 §2.11](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
 `watchNotifications(node, { origin?, onNotify })` hands the app each record
