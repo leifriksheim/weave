@@ -321,8 +321,8 @@ _Source: `packages/core/src/schemas/fragments.ts`, `packages/core/src/schemas/li
 
 ## `std.call`
 
-Calls themselves are kept nowhere. Their history is a `std.call` record in the
-space, written only if the space defines `std.call`:
+Calls themselves are kept nowhere ([calls](calls.md)). Their history is a
+`std.call` record in the space, written only if the space defines `std.call`:
 
 | Field       | Type                            | Meaning                                      |
 | ----------- | ------------------------------- | -------------------------------------------- |
