@@ -216,6 +216,26 @@ function. A listener that throws does not stop the others.
 
 _Source: `packages/core/src/node/types.ts` (`NodeEvent`), `packages/core/src/node/node.ts` (`fromRuntime`, `checkRevoked`). Tests: `packages/core/tests/node.test.ts` ("events announce local writes"), `packages/core/tests/connect.test.ts` ("disconnecting revokes the note")._
 
+### Versions that wait or are refused
+
+A version from a peer stands, waits or is refused
+([spec 02 §9.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)).
+What the node does with each is its own:
+
+- A batch from a peer is admitted `sys.collection` versions first, then by
+  ascending `seq`, so definitions and first versions are in before what
+  depends on them and little has to wait.
+- A version that waits is held in memory, at most 1,000, the oldest dropped
+  when full, and judged again whenever something new is stored. A version
+  waiting for its first version, or the one before it, asks the peer for
+  them at once.
+- A refused version emits a `rejected` event with the peer and the reason,
+  and is remembered as (peer, id), at most 10,000, so it is not asked of that
+  peer again. Never by id alone: a copy with a mangled signature has the
+  genuine version's id.
+
+_Source: `packages/core/src/sync/sync-engine.ts` (`admit`, `admitAll`, `rank`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/reconcile.test.ts` ("a refused version is not asked for again", "a version that waits for its first version asks for it at once, and is acknowledged once in")._
+
 ## Live messages and status
 
 `spaces.send(id, message, to?)` sends a JSON value to the peers connected in
