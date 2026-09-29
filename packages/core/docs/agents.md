@@ -66,13 +66,12 @@ worth hearing about (`notify`: `[{ "label": "New ride", "collection":
 "carpool.ride" }]`), which people can then turn on with one click. The person
 reads what it would do and adds it. See [screens-and-apps.md](screens-and-apps.md).
 
-## Watches
+## Rules
 
-An agent that runs by itself (`weave agent`) also does what the person's
-`std.watch` records say: when some records appear or change, or at set times.
-Any collection, any filter the query format allows. An agent may write a watch
-when asked, but it runs only once the person has saved it themselves; see
-[standard-library.md](standard-library.md) (Watches).
+An agent that runs by itself (`weave agent`) also runs the person's rules
+([rules.md](rules.md)), and does what those that ask it say: when some
+records come to be a certain way, or at set times. An agent may write a rule
+when asked, but it runs only once the person has saved it themselves.
 
 `weave agent` can think with Anthropic's models, or with any server that
 speaks OpenAI's Chat Completions, including a model on your own machine
@@ -83,10 +82,10 @@ speaks OpenAI's Chat Completions, including a model on your own machine
 A bot is the same program running as an account of its own
 (`weave agent --bot`), which people invite to their spaces as a member. It
 writes as itself, is checked against its role like any member, and can be
-mentioned by its own DID. It runs the watches of members holding
-`std.watch/instruct` in a space, in that space only. Where a space keeps
-`std.profile`, it says it is a bot there with `bot: true`. See
-[standard-library.md](standard-library.md) (Watches, Bots).
+mentioned by its own DID. It runs the rules that name it in `by`, of members
+holding `std.rule/instruct` in a space. Where a space keeps `std.profile`, it
+says it is a bot there with `bot: true`. See [rules.md](rules.md#who-runs-a-rule)
+and [standard-library.md](standard-library.md) (Bots).
 
 ## In your own code
 

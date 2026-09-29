@@ -144,15 +144,19 @@ export function AutomationsView({
             {rules.rules.map((record) => {
               const rule = ruleOf(record)!;
               const mine = record.createdBy === did;
+              // An agent's rule waits for its person to save it themselves.
+              const suggested = record.viaAgent === true;
+              const off = rule.paused || suggested;
+              const agentOnly = rule.then.kind === 'ask' || (!rule.when && !!rule.every);
               const runs = rules.runs.get(record.key) ?? [];
               return (
-                <li key={record.key} style={{ ...ruleCard, opacity: rule.paused ? 0.65 : 1 }}>
+                <li key={record.key} style={{ ...ruleCard, opacity: off ? 0.65 : 1 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                     <span
                       style={{
                         ...iconDot,
-                        background: rule.paused ? palette.surface.sunken : palette.ink.strong,
-                        color: rule.paused ? palette.ink.muted : '#fff',
+                        background: off ? palette.surface.sunken : palette.ink.strong,
+                        color: off ? palette.ink.muted : '#fff',
                       }}
                     >
                       <Icon name="bolt" size={14} />
@@ -163,9 +167,19 @@ export function AutomationsView({
                         {ruleWords(rule, collections, who)}
                       </span>
                       <span style={{ fontSize: 12.5, color: palette.ink.muted }}>
-                        {rule.paused ? 'Paused' : 'On'} · made by{' '}
-                        {mine ? 'you' : <Person did={record.createdBy} />} · runs while{' '}
-                        {mine ? 'this app is open on one of your devices' : 'they have this app open'}
+                        {suggested ? 'Suggested by an agent' : rule.paused ? 'Paused' : 'On'} · made by{' '}
+                        {mine ? 'you' : <Person did={record.createdBy} />} ·{' '}
+                        {rule.by ? (
+                          <>
+                            run by <Person did={rule.by} />
+                          </>
+                        ) : agentOnly ? (
+                          `runs while ${mine ? 'your' : 'their'} agent does (weave agent)`
+                        ) : mine ? (
+                          'runs while this app is open on one of your devices'
+                        ) : (
+                          'runs while they have this app open'
+                        )}
                       </span>
                     </div>
                     {mine && (
@@ -175,15 +189,15 @@ export function AutomationsView({
                             act(() =>
                               node.records.update(space.id, record.key, {
                                 ...rule,
-                                paused: !rule.paused,
-                                since: rule.paused ? new Date().toISOString() : rule.since,
+                                paused: !off,
+                                since: off ? new Date().toISOString() : rule.since,
                               }),
                             )
                           }
                           data-variant="quiet"
                           style={styles.smallButton}
                         >
-                          {rule.paused ? 'Turn on' : 'Pause'}
+                          {off ? 'Turn on' : 'Pause'}
                         </button>
                         <button
                           onClick={() => setOpen({ kind: 'rule', editing: record })}

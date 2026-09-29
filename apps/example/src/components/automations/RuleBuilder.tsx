@@ -10,7 +10,7 @@ import { useAccess, useAccount, useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
 import { clauseFields, clauseOn, type Clause, type ClauseField } from '../../derive/conditions';
 import { belonging, collectionLabel, recordLabel } from '../../derive/schema-ui';
-import { nameOf, type People } from '../../derive/people';
+import { isBot, nameOf, type People } from '../../derive/people';
 import {
   matching,
   rule as ruleCollection,
@@ -65,7 +65,7 @@ export function RuleBuilder({
   const { did } = useAccount();
   const access = useAccess(space.id);
   const here = usePeopleHere();
-  const people = here?.people ?? new Map();
+  const people: People = here?.people ?? new Map();
   const stored = editing ? ruleOf(editing) : null;
   const picked = stored ? pickedOf(stored) : (start?.picked ?? null);
   const initial = stored ?? start;
@@ -86,6 +86,11 @@ export function RuleBuilder({
   const [count, setCount] = useState<CountClause | null>(picked?.count ?? null);
   const [then, setThen] = useState<RuleAction>(initial?.then ?? { kind: 'notify', text: '{title}' });
   const [name, setName] = useState<string | null>(initial?.name ?? null);
+  // Who runs a rule that asks: their own agent, or a bot here.
+  const [by, setBy] = useState<string>(stored?.by ?? '');
+  const bots = [...people.entries()]
+    .filter(([d]) => isBot(d, people))
+    .map(([d, p]) => ({ did: d, name: p.name }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -125,7 +130,7 @@ export function RuleBuilder({
     if (!when.collection) return;
     let live = true;
     const timer = setTimeout(() => {
-      void matching(node, space.id, compile(when, did), 100)
+      void matching(node, space.id, compile(when), did, 100)
         .then((matches) => live && setFound({ for: when, matches }))
         .catch(() => live && setFound({ for: when, matches: [] }));
     }, 250);
@@ -152,9 +157,11 @@ export function RuleBuilder({
       }
       const body: Rule = {
         name: shownName.trim() || 'Rule',
-        when: compile(when, did),
+        when: compile(when),
         picked: when,
         then,
+        ...(then.kind === 'ask' && by ? { by } : {}),
+        ...(stored?.every ? { every: stored.every } : {}),
         ...(stored?.paused ? { paused: true } : {}),
         since: new Date().toISOString(),
       };
@@ -345,6 +352,23 @@ export function RuleBuilder({
               ones you made.
             </p>
           )}
+          {then.kind === 'ask' && (
+            <Sentence>
+              <span>Asked of</span>
+              <Pill
+                label="Who does it"
+                value={by}
+                options={[
+                  { value: '', label: 'my own agent' },
+                  ...bots.map((bot) => ({ value: bot.did, label: bot.name })),
+                ]}
+                onChange={setBy}
+              />
+              <span style={{ color: palette.ink.muted }}>
+                {by ? 'while the bot runs' : 'while `weave agent` runs on one of your computers'}
+              </span>
+            </Sentence>
+          )}
         </Step>
       </div>
 
@@ -412,7 +436,7 @@ function startAction(
   was: RuleAction,
 ): RuleAction {
   const text = 'text' in was ? was.text : '{title}';
-  if (kind === 'notify') return { kind, text };
+  if (kind === 'notify' || kind === 'ask') return { kind, text };
   if (kind === 'add') {
     const target = targets[0]!;
     return addAction(target.collection.name, text, target.links[0]);

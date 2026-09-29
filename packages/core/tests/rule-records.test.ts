@@ -99,10 +99,10 @@ describe('rules', () => {
     for (const text of ['a', 'b', 'c']) await say(text, design.key);
     await say('hello', quiet.key);
 
-    const when = busyChannels(3, since).when;
-    assert.deepEqual(await matching(node, space, when), []);
+    const when = busyChannels(3, since).when!;
+    assert.deepEqual(await matching(node, space, when, did), []);
     await say('d', design.key);
-    const found = await matching(node, space, when);
+    const found = await matching(node, space, when, did);
     assert.deepEqual(
       found.map((m) => [m.record.key, m.included.messages]),
       [[design.key, 4]],
