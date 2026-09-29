@@ -1,7 +1,7 @@
 # The node
 
 `createNode` and what it returns: configuration, stores, holding spaces,
-events, live messages, the rest of its surface, acting as an agent, the
+events, live messages, the rest of its surface, the network, acting as an agent, the
 app-side client, doors, and the React and element conveniences.
 
 > Not protocol. This page describes the reference library, and another
@@ -168,14 +168,21 @@ _Source: `packages/core/src/node/types.ts` (`NodeEvent`), `packages/core/src/nod
 ## Live messages and status
 
 `spaces.send(id, message, to?)` sends a JSON value to the peers connected in
-the space right now, kept nowhere and signed as nothing. `to` is either an
-account DID (every connected device that showed a note from that account) or a
-session DID (one device). The encoded message must be at most 64 KiB; larger
-is refused locally. The wire format, the per-peer allowance (a burst of 60,
-then 20 per second) and how the sender's account is established are in
-[04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md).
+the space right now, kept nowhere and signed as nothing. The message is
+`JSON.stringify(message ?? null)`; if that is longer than 65 536 characters
+the call throws "A live message can be at most 64 KB". It goes as a `live`
+message to every connected peer of the space, once per peer, over whichever
+network that peer was last connected on. With `to`, it goes only to peers
+whose session DID equals `to` (one device), or whose account DID, as learned
+from their `who`, equals `to` (every device of that account); a peer whose
+`who` has not been checked yet is matched by session DID only. An agent's node
+refuses `send` ([acting as an agent](#a-node-acting-as-an-agent)). The wire
+format, the per-peer allowance (a burst of 60, then 20 per second) and how the
+sender's account is established are in
+[spec 04 §9](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md).
 
-A received live message is emitted as a `message` event:
+A received live message is emitted as a `message` event,
+`{ type: "message", space, from, peer, agent, message }`:
 
 | Field     | Meaning                                                                                                                                                                                    |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -226,15 +233,75 @@ exposes them:
   accepting also need whole-account access.
 - `node.carriers`, `node.hosting`, `node.notifications` — [spec 06 §4](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md).
 - `node.iceServers()` — the configured ICE servers plus TURN servers a relay
-  offers ([04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)); what calls use ([spec 06 §5](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+  offers ([the network](#the-network)); what calls use ([spec 06 §5](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
 - `node.network` — `status()`: each relay's state (open, or waiting to redial,
   when and why), the connections open and those still being made, and whether
   a relay offered TURN; `reconnect()` redials a waiting relay now
-  ([spec 04 §2](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md), [spec 06 §5.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). A `network` event follows every change.
+  ([the network](#the-network), [spec 06 §5.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). A `network` event follows every change.
   Local only: nothing here goes over the wire.
 - `node.asAgent({ keys, note })` — [acting as an agent](#a-node-acting-as-an-agent).
 
 _Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/profiles.test.ts`._
+
+## The network
+
+How the node uses relays, always-on nodes and WebRTC, where
+[spec 04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)
+leaves it the choice. Another implementation may pick other values and still
+meet this one.
+
+**Redialling a relay** (spec 04 §2). The client waits 1, 2, 4, 8, 16 s and
+then 30 s between attempts, each ±20% so peers that dropped together do not
+return together, and never stops until `disconnect`. After a `4009` it emits
+`refused` and waits 10 s, doubling with each refusal in a row up to 60 s. It
+tries at once when the browser reports `online` or the page becomes visible
+again, since both follow a network change or a sleep, and when asked
+(`reconnect`). A successful open resets the count. Each relay's state
+(`connecting`, `open`, `waiting` with the time of the next attempt and why the
+last one failed, `stopped`) is readable as `RelayStatus`, and through a node
+as `network.status()`.
+
+**Several relays** (spec 04 §3). The signaling layer raises `peer-joined`
+when a peer's set of relays in a room becomes non-empty, and `peer-left` when
+it empties. `requestIce` asks every connected relay for TURN.
+
+**A space's relays** (spec 04 §4). A relay socket opened only for spaces'
+own relays is closed once no room needs it. A node that holds `manage` in a
+space that names no relays names its own configured relays (the valid ones,
+at most 8) by itself.
+
+**Always-on nodes** (spec 04 §5.2). `network.nodes` lists the node URLs to
+dial, one socket per node per space. After an unexpected close the client
+redials without limit, waiting `base/2 + random·base/2` where
+`base = min(1 s · 2ⁿ, 30 s)`; a deliberate close is never redialled. The
+`/peer` endpoint waits 10 s for the hello (configurable).
+
+**In-process links** (spec 04 §5.4). `createLocalHub()` links every
+transport made from it that has connected, delivering on a later task with
+the bytes copied, as on a real wire. It performs no handshake. A carrier uses
+it to link its own copy of a space with the copy in the person's pod folder,
+so the usual sync keeps the two level.
+
+**The mesh** (spec 04 §7). Admission raises `peer-connected` for the room. A
+newly opened connection that no room takes up within 10 s is closed. A
+connection attempt is given 20 s, doubling with each failed attempt at the
+same peer up to 5 min. The node remembers the last 512 relayed-signal ids.
+When a node that must prove read access holds no read key, the handshake
+throws and the room times out.
+
+**ICE servers** (spec 04 §10). The defaults are STUN only:
+`stun:stun.l.google.com:19302` and `stun:stun1.l.google.com:19302`.
+`network.iceServers` replaces them. Each new WebRTC connection uses the
+configured servers plus the TURN servers relays offered, the latter only while
+`expiresAt` is in the future. `node.iceServers()` returns the same list for
+the application's own connections (a call's). Before answering it refreshes:
+if any relay is connected and the TURN passwords held are missing or expire
+within 10 minutes, and it has not asked in the last 10 minutes, it sends `ice`
+to every connected relay and waits up to 1.5 s for an answer (relays without
+TURN never answer), then returns what it has. A node with no relays returns
+the configured servers.
+
+_Source: `packages/core/src/network/signaling.ts` (`createSignalingClient`, `RelayStatus`), `packages/core/src/network/multi-signaling.ts` (`release`), `packages/core/src/network/ws-transport.ts`, `packages/core/src/network/local-transport.ts` (`createLocalHub`), `packages/core/src/node/carrier.ts` (`carry`), `packages/core/src/network/mesh.ts` (`CONNECT_TIMEOUT_MS`, `closeIfIdle`, `iceServers`, `ICE_REFRESH_MS`, `ICE_WAIT_MS`), `packages/core/src/network/introductions.ts` (`createSeenSignals`), `packages/core/src/network/rtc-transport.ts` (`DEFAULT_ICE_SERVERS`), `packages/core/src/node/space-runtime.ts` (`nameRelays`), `packages/core/src/node/node.ts` (`iceServers`), `packages/cli/src/serve.ts` (`onPeer`). Tests: `packages/core/tests/signaling.test.ts` ("signaling reconnects"), `packages/core/tests/relay-refusal.test.ts`, `packages/core/tests/introductions.test.ts`, `packages/core/tests/space-relays.test.ts`, `packages/core/tests/ws-transport.test.ts`, `packages/core/tests/carrier.test.ts`; the client-side ICE refresh is untested._
 
 ## A node acting as an agent
 
