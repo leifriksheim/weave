@@ -225,7 +225,7 @@ _Implementation detail:_ kept in `localStorage` as `<prefix>.stay-signed-in`
 ```
 
 Other keys the flow keeps: `<prefix>.last-account`, `<prefix>.storage-choice`,
-and at an account home `<prefix>.connections:<accountId>` ([spec 06 §2.10](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). `prefix`
+and at an account home `<prefix>.connections:<accountId>` ([the account home's side](#the-account-homes-side)). `prefix`
 defaults to `weave`.
 
 _Source: `packages/core/src/session/stay-signed-in.ts`, `packages/core/src/session/auth.ts`. Tests: none._
@@ -258,3 +258,44 @@ default; if nothing arrives by then it finishes with zero spaces, since the
 identity is already correct and only the spaces are missing.
 
 _Source: `packages/core/src/session/pairing.ts` (`offerToPhone`, `collectFromDesktop`), `packages/core/src/session/auth.ts` (`offerToPhone`, `acceptPairing`). Tests: `packages/core/tests/pairing.test.ts`._
+
+## The account home's side
+
+What a home receives from an app, what it must check and what it answers are
+protocol ([spec 06 §2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). An account home built on `createWeaveAuth` does
+its side with these:
+
+**Receiving a request.** `receiveConnectRequest(timeoutMs = 10 000)` does
+nothing without `window.opener`, says hello, and resolves with the first
+request from the opener and the origin the browser reports for it, or `null`
+after the timeout. Answering closes the window 100 ms later.
+
+**Granting.** `auth.grant({ origin, request, spaceIds, days? })` makes the
+grant: `spaceIds` are the spaces the person picked, `days` their choice of
+lifetime, clamped to [1/24, 365].
+
+**Connections.** The home remembers each connection per account in
+`localStorage` under `<prefix>.connections:<accountId>` (`Connection`:
+`origin`, `name`, `audience`, `access`, `scope`, `carrySpace?`, `spaces`,
+`grantedAt`, `expiresAt`, `token?`, `agent?`). Connecting the same origin again
+replaces its connection; an agent's connection is keyed by its audience
+instead, so each agent is its own. `auth.connections()` lists them.
+
+**Disconnecting.** `auth.disconnect(origin, { agent?, audience? })` removes the
+app's connections (by default the app and every agent connected through it;
+`agent: true` only those agents; `audience` only that key), revokes the notes
+of those with `access: write`, and, unless only agents go, removes the
+subscriptions the app proposed.
+
+**Proposals.** `auth.propose({ origin, request, notify? })` adds the
+subscriptions the person kept: `notify` is the indices kept, default all. The
+home lists the account's subscriptions by app, and the person pauses or removes
+them there.
+
+**Carriers.** `auth.grantCarry({ origin, request })` replaces any earlier
+carrier from the same origin, adds the carrier with `node.carriers.add`
+([carriers and hosting](node.md#carriers-hosting-and-notifications)) and
+returns the `CarryGrant`. Its connection is kept with `expiresAt: 0`, since a
+carry connection never expires.
+
+_Source: `packages/core/src/session/auth.ts` (`grant`, `grantCarry`, `propose`, `connections`, `disconnect`), `packages/core/src/session/connect.ts` (`receiveConnectRequest`). Tests: `packages/core/tests/connect.test.ts` ("the home receiving a request", "connecting an app to an account home", "disconnecting …", "connecting a carrier to an account home")._

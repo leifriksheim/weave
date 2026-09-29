@@ -1,8 +1,10 @@
 # The node
 
-`createNode` and what it returns: configuration, root signers and notes, stores, holding spaces,
-events, live messages, the rest of its surface, the network, acting as an agent, the
-app-side client, doors, and the React and element conveniences.
+`createNode` and what it returns: configuration, root signers and notes, renewing
+the session note, stores, holding spaces, following the account, events, live
+messages, the rest of its surface, the network, acting as an agent, the
+app-side client, carriers and hosting, doors, and the React and element
+conveniences.
 
 > Not protocol. This page describes the reference library, and another
 > implementation may do it differently and still interoperate. What peers must
@@ -38,14 +40,18 @@ Starting a node does the following, in order:
    (`did:key`, P-256 multicodec) is `sessionDid`.
 2. Asks `config.signer.delegate` for a session note ([spec 06 §1.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)) and waits for it.
    If the signer refuses, `createNode` fails.
-3. Schedules renewal of the note ([spec 06 §1.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+3. Schedules renewal of the note ([renewing the session note](#renewing-the-session-note)).
 4. Opens the `registry` store, sealed ([stores](#stores)).
 5. With an account key: derives the account registry space and the contacts
    space ([03](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md)). The contacts space is added to the node's own
    registry like a joined space (so it can be granted to an app like any other
-   space), and both are _hidden_ from `spaces.list` ([spec 06 §1.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+   space), and both are _hidden_ from `spaces.list` ([following the account](#following-the-account)).
 6. With an account key: opens the account registry space and reconciles
-   ([spec 06 §1.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)) before `createNode` returns.
+   ([following the account](#following-the-account)) before `createNode` returns.
+
+A node acts for one account (`node.did`) and signs with one session key
+(`node.sessionDid`) for its whole lifetime. To act for another account, start
+another node.
 
 `close()` stops renewal, closes every open space (flushing what each keeps,
 stopping sync and disconnecting its transports), closes the registry store,
@@ -105,6 +111,34 @@ checks the chain itself ([spec 01 §7.5](https://github.com/leifriksheim/weave/b
 
 _Source: `packages/core/src/identity/root-signer.ts`, `packages/core/src/identity/ucan.ts` (`issueUCAN`, `delegateCapabilities`), `packages/core/src/node/node.ts` (`SESSION_CAPABILITY`, `delegate`), `packages/core/src/session/connect.ts` (`grantSigner`, `grantCapabilities`). Tests: `packages/core/tests/ucan.test.ts`, `packages/core/tests/node.test.ts`, `packages/core/tests/connect.test.ts`._
 
+## Renewing the session note
+
+The note format, and that every record carries it, are protocol
+([spec 06 §1.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). When to renew it is the node's own:
+
+- The first renewal is asked for at `0.75 × ttl` seconds after start (2700 s
+  with the default TTL), and each successful renewal schedules the next
+  `0.75 × ttl` later.
+- If the signer refuses or cannot be reached, the node keeps the note it has
+  and asks again after `min(60, ttl / 4)` seconds, repeating until it succeeds
+  or the node closes. Once the held note expires, peers (and the node's own
+  gates) refuse what it writes.
+
+A signer need not be able to sign. `grantSigner(grant)` answers every
+`delegate` call with the one note an account home granted, unchanged, and
+refuses once `grant.expiresAt` has passed. A node started from a grant
+therefore never gets a fresh note: its "renewal" returns the same note, and when
+it runs out the app must connect again ([spec 06 §2.9](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+
+`node.delegate({ audience, capabilities, expiration? })` passes a narrower note
+from the session key on to another key. The capabilities must be no broader
+than the session note's, and `expiration` is capped at the session note's. It
+returns `{ token, proofs: [<session note>] }`.
+
+`node.delegation()` returns the note the session key writes under now.
+
+_Source: `packages/core/src/node/node.ts` (`delegate`, `scheduleRenewal`, `SESSION_CAPABILITY`), `packages/core/src/session/connect.ts` (`grantSigner`). Tests: `packages/core/tests/node.test.ts` ("the delegation is renewed before it expires")._
+
 ## Stores
 
 A node asks for stores by path through its `StoreFactory`:
@@ -155,7 +189,7 @@ _Source: `packages/core/src/node/stores.ts`, `packages/core/src/node/copy.ts`, `
 A space is opened (its store read, its peers joined, sync started) the first
 time anything asks for it — a read, a write, a status — and stays open until
 it is released or the node closes. Opening a space also: publishes the
-account's profile in it ([spec 06 §1.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)), checks whether the session note was revoked
+account's profile in it ([following the account](#following-the-account)), checks whether the session note was revoked
 there ([events](#events), `revoked`), and names the account's carriers as keepers if the
 account manages it ([spec 06 §4.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
 
@@ -235,7 +269,7 @@ tell. Signed writer logs will replace this definition of complete
 ([spec 05 §9.1](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md)).
 
 The account registry, the contacts space and carry spaces are always held
-whole. Apps connected to an account home use `cache: {}` by default ([spec 06 §2.8](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+whole. Apps connected to an account home use `cache: {}` by default ([the app-side client](#the-app-side-client)).
 
 _Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"), `packages/core/src/node/types.ts` (`CacheConfig`). Tests: `packages/core/tests/caches.test.ts`, `packages/core/tests/reconcile.test.ts` ("holding part of a space")._
 
@@ -254,6 +288,72 @@ _Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space")
   collections first, undeclared ones before declared. Also trim when
   `navigator.storage.estimate()` says room is low, before the browser clears
   the site. Pending writes are never dropped.
+
+## Following the account
+
+What counts in the account's list of spaces, and what a device with the
+account key must keep current for carriers, is protocol
+([spec 06 §1.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). How the reference node does it:
+
+The node's `registry` store ([stores](#stores)) lists every space it holds,
+with its key(s), its invite secret while one is waiting to be used, its role
+as last seen, the relays the space names and, for an app without the account
+key, its member key. Its format is the node's own
+(`packages/core/src/space/space-manager.ts`).
+
+Three kinds of space are the account's own machinery and are hidden from
+`spaces.list`:
+
+| Space                | Derived from                               | Notes                                                          |
+| -------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| The account registry | the account key                            | Never in the node's registry; opened directly. Cannot be left. |
+| The contacts space   | the account key, or `config.contactsSpace` | Held in the registry, hidden. Cannot be left.                  |
+| Carry spaces         | one per carrier the account uses           | Held in the registry, hidden.                                  |
+
+**Reconciling.** With an account key, the node makes its spaces match the
+account's list of `sys.joined` records. This runs at start and whenever
+records change in the account registry, one run at a time. It:
+
+1. joins every carry space a live `sys.carrier` record names, and closes and
+   forgets one whose carrier was removed more than 30 days ago (kept open until
+   then, so an offline carrier still hears it was removed);
+2. joins every space a live `sys.joined` record names that the node does not
+   hold, using the view-only invite in the record;
+3. leaves every space whose `sys.joined` record is deleted;
+4. writes a `sys.joined` record for any space held here that the account
+   registry has never heard of (joined before the registry existed, or on a
+   node without the account key);
+5. brings every carrier's passes and subscriptions up to date
+   ([spec 06 §4.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md));
+6. names the account's carriers as keepers of the open spaces it manages
+   (also whenever a space opens);
+7. asks every host the account uses how it stands, handing it the spaces if it
+   has been paid since ([carriers and hosting](#carriers-hosting-and-notifications)),
+   without waiting for the answer.
+
+Creating or joining a space writes its `sys.joined` record; leaving deletes it.
+
+**Profiles.** When a space opens, when the node's role in it becomes non-null,
+and when the account's name changes on any device, the node publishes the
+account's profile in that space: `{ name, contactKey? }`, with the name taken
+from the account registry's `sys.profile` record and `contactKey` only when
+the node holds the contact key. It does this only in spaces other than the
+account registry and the contacts space, only with an account name to publish,
+and never under an agent's note. The profile record format is in
+[03](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md).
+
+**Joining.** `spaces.join(invite)` accepts a bare invite or any link carrying
+`#invite=…`, `?invite=…` or `&invite=…`. It stores the space (and its key, for
+a private space), stores `memberKey` when given, writes the `sys.joined`
+record, then tries to use the invite's role secret at once. If the space's
+invite record has not reached this device yet, the space is held with
+`joining: true` and the node tries again each time records arrive in it.
+
+**Leaving.** `spaces.leave(id)` deletes the `sys.joined` record, closes the
+space and forgets it with its key. It does not give up the account's role in
+the space; to do that, `setMember(id, self, null)` first.
+
+_Source: `packages/core/src/node/node.ts` (`reconcileOnce`, `remember`, `forget`, `finishJoining`, `publishProfile`, `spaces`), `packages/core/src/space/space-manager.ts`. Tests: `packages/core/tests/node.test.ts` ("the account registry"), `packages/core/tests/profiles.test.ts`, `packages/core/tests/space-access.test.ts`._
 
 ## Events
 
@@ -340,7 +440,9 @@ _Source: `packages/core/src/node/node.ts` (`spaces.send`, `spaces.status`), `pac
 ## The rest of the node's surface
 
 The node's other parts are specified where their data lives; the node only
-exposes them:
+exposes them. Every value a node method returns is JSON-serialisable, so the
+same calls can be exposed over a command line, MCP and WebMCP
+([actions](actions.md)).
 
 - `node.spaces` — create, invite, preview, join, leave, access, `setMember`,
   `putRole`, `removeRole`, `closeInvite`, `changeKey`, `setRelays`,
@@ -360,7 +462,7 @@ exposes them:
   and `list`. Needs the account's member key for the space.
 - `node.doors` — [doors.md](doors.md), [07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md). Needs the contact key; knocking and
   accepting also need whole-account access.
-- `node.carriers`, `node.hosting`, `node.notifications` — [spec 06 §4](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md).
+- `node.carriers`, `node.hosting`, `node.notifications` — [carriers and hosting](#carriers-hosting-and-notifications), [spec 06 §4](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md).
 - `node.iceServers()` — the configured ICE servers plus TURN servers a relay
   offers ([the network](#the-network)); what [calls](calls.md#connections) use.
 - `node.network` — `status()`: each relay's state (open, or waiting to redial,
@@ -462,17 +564,105 @@ _Source: `packages/core/src/node/node.ts` (`asAgent`). Tests: `packages/core/tes
 
 ## The app-side client
 
-`createWeaveConnection({ home, request, network?, storage?, stores? })` is the
-app's twin of [sign-in](sign-in.md): statuses `starting`, `disconnected`, `connecting`, `ready`,
-`expired`. It keeps the app's key in IndexedDB database `weave-app-key`, the
-grant in `localStorage` under `weave.grant`, and the
-person's chosen home under `weave.home` (`home` in the config is only a
-default). `propose(notify)` sends a proposal to the grant's home ([spec 06 §2.11](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
-`watchNotifications(node, { origin?, onNotify })` hands the app each record
-that arrives matching one of its subscriptions ([spec 06 §2.11](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). Client conveniences,
-not protocol.
+What an app and an account home send each other, and what each checks, is
+protocol ([spec 06 §2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). The reference app side:
 
-_Source: `packages/core/src/session/connection.ts`, `packages/core/src/node/watch-notifications.ts`. Tests: `packages/core/tests/connect.test.ts` ("an app showing its own notifications")._
+**The app's key.** `appKey(name = 'default')` makes the app's P-256 key once
+and keeps it, non-extractable, in the IndexedDB database `weave-app-key`,
+object store `keys`, under `name`. `forgetAppKey` deletes it; the next
+connection makes a new one.
+
+**The home's address.** `homeAddress(input)` turns what a person typed into the
+home's connect page:
+
+- no scheme → `https://`, or `http://` for `localhost`, `127.0.0.1`, `[::1]`;
+- the host must be a loopback name or a domain name with a TLD of two or more
+  letters;
+- the scheme must be `https:`, or `http:` on loopback;
+- a path of `/` or empty becomes `/connect`; query and fragment are dropped.
+
+Example: `weave.example.com` → `https://weave.example.com/connect`.
+
+**Asking the home.** `connectToHome` (and `proposeToHome`, for a proposal)
+opens the home in a popup named `weave-home` with features
+`popup,width=460,height=720`, polls every 500 ms to see whether the person
+closed it, and gives up after 10 minutes by default.
+
+**Starting the node.** `startConnectedNode({ grant, key?, network?, stores?, cache? })`
+starts a node with:
+
+- `signer = grantSigner(grant)` ([renewing the session note](#renewing-the-session-note)):
+  `did` = `grant.did`, `custody: "remote"`;
+- `sessionKey` = the app's key;
+- stores `indexedDBStores('weave-app:<grant.did>')` unless given;
+- `cache: {}` unless `cache: false` ([holding part of a space](#holding-part-of-a-space));
+- `accountKey`, `contactKey`, `contactsSpace` from the grant when present;
+- relays = the app's relays ∪ `grant.relays`.
+
+It then joins each granted space it does not hold yet, passing its `memberKey`.
+
+**The connection.** `createWeaveConnection({ home, request, network?, storage?, stores? })`
+is the app's twin of [sign-in](sign-in.md): statuses `starting`, `disconnected`,
+`connecting`, `ready`, `expired`. It keeps the grant in `localStorage` under
+`weave.grant` and the person's chosen home under `weave.home` (`home` in the
+config is only a default). It switches to `expired` at `expiresAt` and does not
+load an expired grant from storage. When the node sees its own note revoked in
+a space it emits `revoked` ([events](#events)), and the connection forgets the
+grant and the app key. `propose(notify)` sends a proposal to the grant's home
+([spec 06 §2.11](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+
+**Showing notifications.** The app shows its own notifications.
+`watchNotifications(node, { origin?, onNotify })` needs the account key (an
+app with `scope: account`): it reads the subscriptions naming the app's origin
+from the registry and hands the app each record that arrives matching one,
+with the body in hand (`matchesRecord`): not paused, the collection, one of the
+spaces, created at or after `since` and within the last 24 hours, by another
+account when `others`, and holding the topic value when there is one. What the
+node held before it started is never news. How the app shows a match is its own
+to decide; a "Notify me" button is where a proposal usually starts.
+
+_Source: `packages/core/src/session/connect.ts` (`appKey`, `forgetAppKey`, `homeAddress`, `connectToHome`, `proposeToHome`, `startConnectedNode`, `grantSigner`), `packages/core/src/session/connection.ts`, `packages/core/src/node/watch-notifications.ts`, `packages/core/src/space/notify.ts` (`matchesRecord`). Tests: `packages/core/tests/connect.test.ts` ("an account home typed by a person", "an app showing its own notifications")._
+
+## Carriers, hosting and notifications
+
+What goes into a carry space, what a carrier checks and the host's HTTP API
+are protocol ([spec 06 §4](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). The reference node's side:
+
+**Carriers.** `node.carriers.add({ did, name })` (needs the account key) makes
+the carry space, named `Carried by <name>` (name trimmed to 80, default
+`Carrier`), writes the `sys.carrier` record, fills the carry space, and returns
+`{ space, invite }` for the carrier to join with. `node.carriers.remove(carrySpace)`
+writes `carry:closed` and deletes the record; the node keeps the carry space
+open for 30 days after, so a carrier that is offline still hears it.
+
+**Subscriptions.** `node.notifications` (needs the account key) lists, adds,
+updates (`label`, `paused`) and removes the account's `sys.notify` records. The
+reference home adds them when a person keeps an app's proposal, and lists them
+by app for the person to pause or remove ([sign-in](sign-in.md#the-account-homes-side)).
+
+**A carrier's matches.** `CarrierNode` reports a version matching a carried
+subscription through `notify`, with only the subscription, the space and the
+record's key, collection and `createdAt`. Nothing shows these yet, the browser
+extension included.
+
+**Hosting.** `node.hosting`:
+
+| Call           | Does                                                                                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `use(url)`     | Reads the host's description, makes the subscription key and writes the `sys.hosting` record.                                                                                                                                               |
+| `list()`       | Asks each host for its status and hands over the carry space when paid and not carrying, making the carrier first if needed (named after the host's address). At most once a minute per host; a second look waits for a handover in flight. |
+| `payPage(url)` | The host's pay page, with the signed fragment.                                                                                                                                                                                              |
+| `stop(url)`    | Sends `DELETE …/carry` (ignoring failure), removes the carrier and deletes the `sys.hosting` record.                                                                                                                                        |
+
+Every device runs `list()` after each reconciliation ([following the account](#following-the-account)).
+A device reaches a host's sockets only when configured with it as a node
+(`network.nodes`, `wss://<host>/peer`).
+
+The reference host (`weave host`, `packages/cli/src/host.ts`) keeps a lapsed
+subscription for `graceDays` (default 30) after `paidUntil`, and drops lapsed
+ones in a sweep every hour (`sweepMs`). Both are the host's own policy.
+
+_Source: `packages/core/src/node/node.ts` (`carriers`, `notifications`, `hosting`), `packages/core/src/node/carrier.ts` (`arrived`), `packages/core/src/session/hosting.ts`, `packages/cli/src/host.ts`. Tests: `packages/core/tests/carrier.test.ts`, `packages/cli/tests/host.test.ts`._
 
 ## Doors
 
