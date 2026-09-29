@@ -16,10 +16,13 @@ export function Modal({
   title,
   onClose,
   children,
+  width,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  /** Wider than the default, for a dialog with more to it */
+  width?: number;
 }) {
   const card = useRef<HTMLDivElement>(null);
 
@@ -76,7 +79,7 @@ export function Modal({
         aria-label={title}
         tabIndex={-1}
         className="modal"
-        style={styles.modal}
+        style={width ? { ...styles.modal, maxWidth: width } : styles.modal}
       >
         <h2 style={styles.modalTitle}>{title}</h2>
         {children}

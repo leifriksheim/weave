@@ -5,7 +5,8 @@ import { rolePresets } from '@weaveprotocol/core';
 import { Modal, Choice } from '@weave/app-shared/Modal';
 import { Info } from '@weave/app-shared/Info';
 import { hash } from '@weave/app-shared/hash';
-import { NameField, useMyName } from './NameField';
+import { useMyName } from '@weaveprotocol/core/react';
+import { NameField } from './NameField';
 import { styles, palette } from '../styles';
 import { useSpaceUnread } from '../seen';
 

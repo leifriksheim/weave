@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import type { NewSpace, SpaceSummary } from '@weaveprotocol/core';
-import { CallsProvider, useAccount, useConnection, useNode, useSpaces } from '@weaveprotocol/core/react';
+import {
+  CallsProvider,
+  inviteFromLink,
+  useAccount,
+  useConnection,
+  useNode,
+  useSpaces,
+} from '@weaveprotocol/core/react';
 import { AccountMenu } from './components/AccountMenu';
 import { AgentCard } from './components/AgentCard';
 import { useShowNotifications } from './notifications';
@@ -14,7 +21,7 @@ import { SpaceRail } from './components/SpaceRail';
 import { SpaceView } from './components/SpaceView';
 import { CallLayer } from './components/calls/Calls';
 import { Wordmark } from '@weave/app-shared/Wordmark';
-import { inviteFrom } from './spaces';
+
 import { readDoorFromUrl, takeBack } from './contacts';
 import { styles, palette } from './styles';
 
@@ -52,7 +59,7 @@ function Workspace() {
     const space = spaces.find((found) => found.id === id);
     if (space) setOpen(space);
   };
-  const joinLink = (link: string) => mine.join(inviteFrom(link));
+  const joinLink = (link: string) => mine.join(inviteFromLink(link));
   useShowNotifications(openById);
 
   /**
