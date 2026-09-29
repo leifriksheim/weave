@@ -61,8 +61,6 @@ application/json`). It MUST NOT reveal how many rooms or peers exist.
 - All relay messages are **text frames** carrying one JSON object each.
   Binary frames are counted against the rate budget (§1.6) and otherwise
   ignored. Text that is not a JSON object with a string `type` is ignored.
-- Per-message compression is off (_implementation detail_: `perMessageDeflate:
-false`).
 
 Before a socket is opened, the relay MAY refuse the upgrade with a plain HTTP
 response and `Connection: close`:
@@ -73,9 +71,10 @@ response and `Connection: close`:
 | `503`  | `Relay full`           | the relay holds `MAX_CONNECTIONS` sockets                 |
 | `429`  | `Too many connections` | the client address holds `MAX_CONNECTIONS_PER_IP` sockets |
 
-The client address is the TCP peer address. _Implementation detail:_ only
-when the environment variable `FLY_APP_NAME` is set is the `Fly-Client-IP`
-header believed instead; anywhere else a header is whatever the client says.
+The client address is the TCP peer address, or the address a proxy the relay
+runs behind reports; anywhere else a header is whatever the client says. How
+the reference relay is told it runs behind one is in
+[`packages/relay/README.md`](../packages/relay/README.md).
 
 _Source: `packages/relay/relay.mjs` (`upgrade`, `clientIp`), `packages/relay/signaling-server.mjs`, `packages/cli/src/serve.ts` (`serve`). Tests: `packages/cli/tests/cli.test.ts` ("answers /health…", "is a relay too…"), `packages/core/tests/network-manager.test.ts` ("the mesh, through real relays")._
 
@@ -214,11 +213,15 @@ _Source: `packages/relay/relay.mjs` (`upgrade`, `handleMessage`). Tests: `packag
 
 ### 1.6 Limits
 
-A relay is open to anyone and MUST bound what one client can cost it. The
-values below are the reference relay's; a compatible relay MAY choose others,
-and clients MUST tolerate being refused or cut off at any of them.
+A relay is open to anyone and MUST bound what one client can cost it. Every
+value below is the reference relay's; a compatible relay MAY choose others,
+and clients MUST tolerate being refused or cut off at any of them. What a
+relay does on exceeding a limit is as the last column says, whatever its
+value. The heartbeat is the exception: a client refused with `4009` waits 10 s
+before trying again (§2), counting on the relay to reap its dead socket within
+two pings, so a relay SHOULD ping every **15 s** or more often.
 
-| Limit                              | Value                         | On exceeding                                                                                                              |
+| Limit                              | Reference value               | On exceeding                                                                                                              |
 | ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Message size (`MAX_MESSAGE_BYTES`) | 64 KiB                        | the WebSocket library closes the socket (1009)                                                                            |
 | Open sockets, whole relay          | 5 000                         | upgrade refused `503 Relay full`                                                                                          |
@@ -259,11 +262,9 @@ The relay sends
 - unprompted, to a socket on its first successful `join`, and
 - on each `{"type":"ice"}` from a socket that has joined at least once.
 
-**One password per network.** All sockets from one IPv4 address, or one
-IPv6 /64, share a username. A held one is reused while more than half its
-TTL remains; after that a new one is minted. So asking again is free, and
-coturn's per-user quota caps an address rather than each request.
-IPv4-mapped IPv6 (`::ffff:a.b.c.d`) counts as the IPv4 address.
+A relay MAY hand one username to every socket of one network, so that
+coturn's per-user quota caps a network rather than each request; the
+reference relay does ([`packages/relay/README.md`](../packages/relay/README.md)).
 
 A relay without TURN never answers `ice`.
 
@@ -271,20 +272,8 @@ _Source: `packages/relay/relay.mjs` (`turnFromEnv`, `offerTurn`, `networkOf`). T
 
 ### 1.8 Running a relay
 
-_Implementation detail._ `packages/relay/signaling-server.mjs` wraps `createRelay`
-in an HTTP server; every always-on node (`weave serve` / `weave run`, and the
-host) runs the same relay on its own port. Configuration is by environment:
-
-| Variable                       | Meaning                                               | Default                             |
-| ------------------------------ | ----------------------------------------------------- | ----------------------------------- |
-| `PORT` (or first CLI argument) | listening port of `signaling-server.mjs`              | `8787` (`8080` in the Docker image) |
-| `TURN_SECRET`                  | shared secret with coturn; TURN is off without it     | —                                   |
-| `TURN_URLS`                    | comma-separated TURN URLs handed out                  | — (TURN off if empty)               |
-| `TURN_TTL_SECONDS`             | password lifetime                                     | `14400` (4 h)                       |
-| `FLY_APP_NAME`                 | when set, believe `Fly-Client-IP`                     | —                                   |
-| `TURN_PUBLIC_IP`               | coturn's external IP (`packages/relay/start.sh` only) | —                                   |
-
-_Source: `packages/relay/relay.mjs`, `packages/relay/relay.d.mts`, `packages/relay/signaling-server.mjs`, `packages/relay/start.sh`, `packages/relay/fly.toml`, `packages/cli/src/serve.ts`. Tests: `packages/core/tests/relay-turn.test.ts`, `packages/cli/tests/cli.test.ts`._
+Not protocol: how the reference relay is started and configured is in
+[`packages/relay/README.md`](../packages/relay/README.md).
 
 ---
 
@@ -317,16 +306,8 @@ per pairing or agent link) on it.
   close: sooner is refused again, and a node holding the DID lets go only
   when it stops.
 
-_Implementation detail:_ the reference client waits 1, 2, 4, 8, 16 s and
-then 30 s between attempts, each ±20% so peers that dropped together do not
-return together, and never stops until `disconnect`. After a `4009` it
-emits `refused` and waits 10 s, doubling with each refusal in a row up to
-60 s. It tries at once when the browser reports `online` or the page becomes
-visible again, since both follow a network change or a sleep, and when asked
-(`reconnect`). A successful open resets the count. Each relay's state
-(`connecting`, `open`, `waiting` with the time of the next attempt and why the
-last one failed, `stopped`) is readable as `RelayStatus`, and through a node
-as `network.status()`.
+How often the reference client redials, and how it reports each relay's
+state, is in [the node's docs](../packages/core/docs/node.md#the-network).
 
 _Source: `packages/core/src/network/signaling.ts` (`createSignalingClient`), `packages/core/src/network/multi-signaling.ts` (`relays`). Tests: `packages/core/tests/signaling.test.ts` ("signaling reconnects"), `packages/core/tests/relay-refusal.test.ts` ("one DID per room"), `packages/core/tests/introductions.test.ts` ("several relays at once")._
 
@@ -347,17 +328,17 @@ Because the same peer is announced by each relay it shares with us, the
 client de-duplicates:
 
 - **Presence** is kept per `(room, peer)` as the set of relays that
-  announced it. `peer-joined` is raised when the set becomes non-empty;
-  `peer-left` only when the last relay says the peer left (or is dropped).
-  A client MUST NOT raise a second `peer-joined` for a peer already present
-  in that room — both sides would open a second connection.
+  announced it. The peer is present in the room while the set is non-empty,
+  and has left only when the last relay says it left (or is dropped). A
+  client MUST NOT treat a second relay's `join` for a peer already present in
+  that room as a new peer: both sides would open a second connection.
 - **Routes.** A client remembers which relays a peer has been seen on (by a
   `join` or a signal from it). Signals to that peer are sent on every
   _connected_ relay it was seen on; to a peer not seen on any, on every
   connected relay.
 - **TURN.** `ice` offers are kept per relay; the client's TURN servers are
   the union of all relays' servers, expiring at the earliest `expiresAt`.
-- `requestIce` is sent to every connected relay.
+  A request for TURN (`ice`) goes to every connected relay.
 
 A peer may therefore receive the same signal once per relay the two share.
 A duplicate signal is meant to have no further effect. Not yet specified: how
@@ -398,11 +379,10 @@ A node joins a space's room on **its configured relays plus the space's
 relays**, the latter for that room only. Until the space names some, it uses
 the relays named by the invite that brought it
 ([03 — Spaces](03-spaces.md)). When the list changes, the node joins the room
-on the new relays and leaves it on relays no longer named; a relay socket
-opened only for spaces' own relays is closed once no room needs it.
+on the new relays and leaves it on relays no longer named.
 
-A node that holds `manage` in a space that names no relays names its own
-configured relays (valid ones, at most 8) by itself.
+How the reference node closes sockets no room needs, and names relays for a
+space it manages, is in [the node's docs](../packages/core/docs/node.md#the-network).
 
 _Source: `packages/core/src/space/roles.ts` (`RELAYS_COLLECTION`, `MAX_RELAYS`, `checkRelays`), `packages/core/src/space/space-access.ts` (`SPACE_RELAYS_RECORD`), `packages/core/src/node/space-runtime.ts` (`useRelays`, `nameRelays`, `setRelays`), `packages/core/src/network/multi-signaling.ts` (`join`, `release`), `packages/core/src/network/mesh.ts` (`useRelays`). Tests: `packages/core/tests/space-relays.test.ts`, `packages/core/tests/network-manager.test.ts` ("a room that names its own relay…")._
 
@@ -415,8 +395,8 @@ their session DID. Two kinds exist:
 
 - **Signalled** (WebRTC): a connection starts with an offer and an answer
   carried by something else — a relay or a peer (§8).
-- **Unsignalled** (a WebSocket to an always-on node; an in-process link):
-  it dials by itself and authenticates, or is trusted, by itself.
+- **Unsignalled** (a WebSocket to an always-on node): it dials by itself and
+  authenticates by itself.
 
 On every transport a message is **one binary frame containing UTF-8 JSON**.
 Transports do not fragment, compress or re-order messages. Not yet
@@ -442,16 +422,16 @@ _Source: `packages/core/src/network/transport.ts`. Tests: `packages/core/tests/n
   `sha-256 3A:9F:…:C1`. These two strings bind the peer handshake to this
   connection (§6.2). A transport without certificates has no binding; both
   strings are then empty.
-- The ICE servers are asked for each new connection (§10), since TURN
-  passwords change.
+- The ICE servers are asked for each new connection, since TURN passwords
+  change (§10).
 
 _Source: `packages/core/src/network/rtc-transport.ts`. Tests: none directly; the mesh tests replace WebRTC with the fake signalled transport in `packages/core/tests/helpers/fake-transport.ts`._
 
 ### 5.2 WebSocket to an always-on node (client side)
 
 Browsers cannot accept connections, but they can dial a node with a DNS name
-and a TLS certificate. A node configured with `network.nodes` holds one
-socket per node **per space**, to
+and a TLS certificate. A client dialling one holds one socket to it **per
+space**, to
 
 ```
 <node URL>?space=<encodeURIComponent(spaceId)>        (&space=… if the URL already has a query)
@@ -479,9 +459,7 @@ The proof fields and what is signed are in §6.1. The client:
 - MUST process frames one at a time, so no data frame overtakes the welcome;
 - ignores text frames after the welcome.
 
-_Implementation detail:_ the client redials without limit after an
-unexpected close, with backoff `base/2 + random·base/2` where
-`base = min(1 s · 2ⁿ, 30 s)`; a deliberate close is never redialled.
+How the reference client redials is in [the node's docs](../packages/core/docs/node.md#the-network).
 
 > **Planned:** a node you can pin, and no plain `ws://` off this machine.
 > Today the client trusts whichever node DID the challenge names (§6.1). A
@@ -506,7 +484,7 @@ An always-on node serves `/peer` on the same port as its relay.
 | Code   | Reason                                    | When                                                                                                                     |
 | ------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `4000` | `missing ?space=`                         | no `space` query parameter                                                                                               |
-| `4008` | `no hello`                                | no frame within 10 s (_implementation detail_: configurable)                                                             |
+| `4008` | `no hello`                                | no frame within the node's wait (10 s in the reference node)                                                             |
 | `4002` | `expected a hello frame`                  | binary, not JSON, `type` ≠ `hello`, `did` not matching `^did:key:z[1-9A-HJ-NP-Za-km-z]{1,250}$`, or `nonce` not a string |
 | `4003` | `not a reader of this space`              | the node does not serve the space, or the proof fails (§6.1)                                                             |
 | `1011` | `could not open space` / `internal error` | the node failed                                                                                                          |
@@ -515,19 +493,18 @@ An always-on node serves `/peer` on the same port as its relay.
 
 3. On success it sends the `welcome` and treats the socket as the peer named
    by the hello's `did`. Only binary frames are data; text frames are
-   ignored. _Implementation detail:_ `maxPayload` is 16 MiB on `/peer`.
+   ignored.
+
+A node MAY bound the size of a frame on `/peer`; the reference node closes
+the socket (`1009`) on a frame over **16 MiB**. A client MUST tolerate being
+cut off there.
 
 _Source: `packages/cli/src/serve.ts` (`onPeer`, `parseHello`, `createSpacePeers`), `packages/core/src/node/node.ts` (`authenticator`), `packages/core/src/node/host.ts`. Tests: `packages/cli/tests/host.test.ts`, `packages/cli/tests/cli.test.ts` ("two devices that are never online together converge through it"), `packages/core/tests/key-change.test.ts`._
 
 ### 5.4 In-process links
 
-_Implementation detail._ `createLocalHub()` links every transport made from
-it that has connected, delivering on a later task with the bytes copied. It
-performs no handshake. It is exported, but nothing in `packages/core/src/` or `packages/cli/src/`
-uses it at present (its header still describes a carrier use that mirrors
-now serve).
-
-_Source: `packages/core/src/network/local-transport.ts`. Tests: none._
+Not protocol: two peers in one process never meet another implementation.
+The reference library's in-process link is in [the node's docs](../packages/core/docs/node.md#the-network).
 
 ---
 
@@ -656,8 +633,7 @@ Alice accepts it by step 4. Alice proves
 Bob accepts it by step 5. The two sync, and Bob learns K1 from the history.
 
 A node that must prove read access but holds no read key MUST NOT complete
-the mesh handshake (the reference implementation throws, and the room times
-out).
+the mesh handshake.
 
 **Letting a reader go.** The check above runs once, at the handshake; a
 verifier MUST keep it true for as long as the peer stays connected. The
@@ -766,11 +742,11 @@ For each `(room, peer)` a side keeps a handshake with its own fresh nonce.
 - On the peer's `__auth-proof` it checks it (§6.2); a failed check ends the
   handshake.
 - The peer is **admitted** once this side has both sent its proof and
-  verified the peer's (or the room asks none). Admission raises
-  `peer-connected` for that room.
+  verified the peer's (or the room asks none). Only then does anything of
+  that room cross.
 - A handshake not finished within **10 s** is abandoned.
-- A connection that is in no room and in no handshake is closed; a newly
-  opened connection that no room has taken up within 10 s is closed.
+- A connection that is in no room and in no handshake is closed, and so is a
+  newly opened connection that no room takes up soon.
 
 Leaving a room: a side sends `__leave` (with `room`) to each peer admitted
 there, and leaves the room on the relays. A receiver of `__leave` drops the
@@ -800,9 +776,9 @@ _Source: `packages/core/src/network/mesh.ts` (`greet`, `onHandshake`, `admit`, `
   leaves a connection that neither opens nor fails, and a peer already tried
   is not offered to again, so without a deadline the two stay apart until one
   restarts. A connection started by offering or answering that has not opened
-  within the attempt timeout (§7.4) is closed and forgotten. The side that
-  offered through a relay offers again while a relay still has the peer in a
-  room; the answering side waits to be offered to.
+  within an attempt timeout of the node's choosing is closed and forgotten.
+  The side that offered through a relay offers again while a relay still has
+  the peer in a room; the answering side waits to be offered to.
 
 Not yet specified: suppression of a duplicate offer that arrives through a
 second shared relay. See the known defect in §3.
@@ -815,11 +791,12 @@ _Source: `packages/core/src/network/mesh.ts` (`meet`, `offerTo`, `onSignal`, `wa
 | ----------------------------------- | ------------------------------------------------------------------------------- |
 | Peers per room                      | bounded by the relay (64 in the reference relay); the mesh sets none of its own |
 | Handshake timeout (`authTimeoutMs`) | 10 s                                                                            |
-| Idle connection timeout             | 10 s after opening                                                              |
-| Connection attempt timeout          | 20 s, doubling with each failed attempt at the same peer up to 5 min            |
 | Peers named per `__peers`           | 64 (`MAX_INTRODUCED`); the rest are ignored                                     |
 | Relayed-signal hops                 | 3 (`MAX_HOPS`)                                                                  |
-| Remembered relayed-signal ids       | 512                                                                             |
+
+The reference node's own timers (how long an idle connection or a connection
+attempt is given, how many relayed-signal ids it remembers) are in
+[the node's docs](../packages/core/docs/node.md#the-network).
 
 _Source: `packages/core/src/network/mesh.ts`, `packages/core/src/network/introductions.ts`. Tests: `packages/core/tests/introductions.test.ts`._
 
@@ -877,8 +854,8 @@ offer.
 - `id` is 8 random bytes as 16 lowercase hex characters, fresh per signal.
 - The sender floods it to every connected peer admitted in _any_ room.
 - A receiver drops it if `id` is not a string of at most 64 characters or was
-  seen before (it remembers the last 512), if `origin` or `target` is not a
-  DID, or if `kind` is not one of the three.
+  seen before (it remembers a bounded number of recent ids), if `origin` or
+  `target` is not a DID, or if `kind` is not one of the three.
 - If `target` is itself, it acts on it as a signal from `origin` (§7.3) and
   replies through the mesh with new ids.
 - Otherwise, if `hops > 0`, it forwards to every admitted peer except the one
@@ -897,7 +874,7 @@ On every transport, a space's peers exchange messages of the form
 ```
 
 — on a mesh connection wrapped in the frame of §7.1 (the frame's `room`
-added), on a node socket or local link as the whole binary frame. The
+added), on a node socket as the whole binary frame. The
 receiver MUST attribute a message to the connection's peer, not to `from`.
 
 | `type` | Payload              | Specified in                                    |
@@ -918,34 +895,27 @@ Sent by each side to each newly admitted peer of a space, **before any
 session's encoded note>}}`. Handling is in §6.4. A peer that sends none has no
 account.
 
-### 9.2 Live messages (`spaces.send`)
+### 9.2 Live messages
 
 A live message reaches whoever is connected in the space right now. It is
 not signed as a record, not stored and not synced; a peer not connected
 misses it. In a private space it reaches only peers that proved the read key.
 
-**Sending** — `node.spaces.send(spaceId, message, to?)`:
+On the wire it is `{"type":"live","from":<session DID>,"payload":<message>}`,
+where `payload` is any JSON value whose `JSON.stringify` is at most 65 536
+characters. It goes to a peer only after the sender's `who` (§9.1).
 
-- The message is `JSON.stringify(message ?? null)`; if that string is longer
-  than 65 536 characters the call fails ("A live message can be at most 64 KB").
-- It is sent as `{"type":"live","from":<session DID>,"payload":<message>}` to
-  every connected peer of the space (once per peer, over whichever network
-  it was last connected on).
-- With `to`, only to peers whose **session DID** equals `to` (one device), or
-  whose **account DID**, as learned from their `who`, equals `to` (every
-  device of that account). A peer whose `who` has not been checked yet is
-  matched by session DID only.
-- _Implementation detail:_ the node's agent API refuses `send`.
-
-**Receiving** — a receiver:
+A receiver:
 
 - MUST rate-limit per peer: a token bucket of **burst 60, 20 per second**;
   messages beyond it are dropped (the connection stays open);
 - MUST drop a message whose `JSON.stringify(payload)` is longer than 65 536
   characters;
-- delivers `{ type: "message", space, from: <account DID or null>, peer:
-<session DID>, agent: <boolean>, message: <payload> }`, where `from` and
-  `agent` come from the peer's `who` (§6.4).
+- attributes it to the peer's session DID, and to the account the peer's
+  `who` proved (§6.4), if any.
+
+How the library sends one, picks whom it goes to and hands one to the app is
+in [the node's docs](../packages/core/docs/node.md#live-messages-and-status).
 
 Example:
 
@@ -957,26 +927,18 @@ Example:
 }
 ```
 
-_Source: `packages/core/src/node/space-runtime.ts` (`send`, `onLive`, `withinAllowance`, `LIVE_MESSAGE`, `MAX_LIVE_BYTES`, `LIVE_BURST`, `LIVE_PER_SECOND`), `packages/core/src/node/types.ts` (`LiveMessage`, `NodeSpaces.send`), `packages/core/src/node/node.ts`. Tests: `packages/core/tests/live.test.ts`._
+_Source: `packages/core/src/node/space-runtime.ts` (`send`, `onLive`, `withinAllowance`, `LIVE_MESSAGE`, `MAX_LIVE_BYTES`, `LIVE_BURST`, `LIVE_PER_SECOND`). Tests: `packages/core/tests/live.test.ts`._
 
 ---
 
 ## 10. ICE and TURN (client side)
 
-- The default ICE servers are STUN only: `stun:stun.l.google.com:19302` and
-  `stun:stun1.l.google.com:19302`. `network.iceServers` replaces them.
-- Each new WebRTC connection uses the configured servers plus the TURN
-  servers relays offered (§1.7, §3), the latter only while `expiresAt` is in
-  the future.
-- `node.iceServers()` returns the same list for connections of the
-  application's own (a call's). Before answering it refreshes: if any relay
-  is connected and the TURN passwords held are missing or expire within
-  10 minutes, and it has not asked in the last 10 minutes, it sends `ice` to
-  every connected relay and waits up to **1.5 s** for an answer (relays
-  without TURN never answer), then returns what it has. A node with no relays
-  returns the configured servers.
+A client MUST use TURN servers a relay offered (§1.7, §3) only while their
+`expiresAt` is in the future. Which other ICE servers it uses, and when it
+asks relays for fresh passwords, is its own choice; the reference node's is in
+[the node's docs](../packages/core/docs/node.md#the-network).
 
-_Source: `packages/core/src/network/rtc-transport.ts` (`DEFAULT_ICE_SERVERS`), `packages/core/src/network/mesh.ts` (`iceServers`, `ICE_REFRESH_MS`, `ICE_WAIT_MS`), `packages/core/src/node/node.ts` (`iceServers`), `packages/core/src/calls/calls.ts`. Tests: `packages/core/tests/relay-turn.test.ts` (the relay side only; the client-side refresh is untested)._
+_Source: `packages/core/src/network/mesh.ts` (`iceServers`). Tests: `packages/core/tests/relay-turn.test.ts` (the relay side only)._
 
 ---
 
