@@ -4,8 +4,9 @@ A **space** is the container every record lives in. This part specifies what a
 space is and how its id is made; how roles, members and invites are recorded
 inside it and replayed into one answer about who may do what; how a private
 space encrypts its records and changes its key; and the few spaces and
-collections built on top of that: the account registry, passes, subscriptions,
-profiles and contacts.
+collections built on top of that: the account registry, passes, subscriptions
+and profiles. Contacts, built on these, are described in the library's docs
+([contacts](../packages/core/docs/contacts.md)).
 
 What a record is, how it is signed, hashed and versioned, and how collection
 rules are written is in [02 — Records](02-records.md). Seeds, DIDs, notes
@@ -964,7 +965,7 @@ sealed = sealFor(recipientMemberKey, { key: base64url(raw K) },
                  "weave/space-key-box/v1|<spaceId>|<keyId>|<toDid>")
 ```
 
-`sealFor` is the ECDH seal of [01 — Identity](01-identity.md) (and §16.4).
+`sealFor` is the ECDH seal of [01 §9.4](01-identity.md).
 
 A manager seals the current key to every reader who has published a member key
 and has no box for that key id yet from themselves or from anyone holding
@@ -1016,6 +1017,10 @@ sys.profile at profile:<hex40(accountDid)>
 { name: string (trimmed, 1–64 chars), contactKey?: <compressed P-256 point, base64url> }
 ```
 
+`contactKey` is the public half of the account's contact key
+([01 §9.1](01-identity.md)), to which others seal what only the account may
+open.
+
 It is encrypted in a private space (§8.2) and written with `retain`, so older
 versions stay.
 
@@ -1048,7 +1053,8 @@ agent sessions; a non-member publishes nothing.
 >   point to).
 > - **Private nicknames for others**: a name you give someone, seen only by
 >   you. It belongs in the account's own spaces, not in the shared one;
->   `std.contact`'s `name` (§16.1) already does this for contacts.
+>   `std.contact`'s `name` ([contacts](../packages/core/docs/contacts.md))
+>   already does this for contacts.
 >
 > Open questions: the field names; the avatar's size limit and format; and
 > whether nicknames for people who are not contacts get a collection of their
@@ -1096,10 +1102,10 @@ space   = { visibility: "private", creator: accountDid, roles: solo.roles, creat
 id      = cid(canonical(genesis))            // §1.2
 ```
 
-| Label                    | Space                    | Name               |
-| ------------------------ | ------------------------ | ------------------ |
-| `weave/account-registry` | the account registry     | `Account registry` |
-| `weave/contacts`         | the contacts space (§16) | `Contacts`         |
+| Label                    | Space                | Name               |
+| ------------------------ | -------------------- | ------------------ |
+| `weave/account-registry` | the account registry | `Account registry` |
+| `weave/contacts`         | the contacts space   | `Contacts`         |
 
 Example (seed `01 02 … 10`): registry `bkbogrf2jtmudunoee5mtpgfdenyrwbdnagfkogw4jvphavoelteq`
 (nonce `isIO1Hq-k9yg1wNZ`), contacts `by2fwk6cy2g73mni4fy3bjcbv2arn4xi5qsw7rzu22rpxnxvzmotq`.
@@ -1227,123 +1233,33 @@ _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (
 
 ## 16. Contacts
 
-A contact is someone you share a **private space for two** with. The protocol
-knows nothing of contacts; they are two standard collections and a node
-procedure. Asking someone you share **no** space with goes through a door; see
-[07 — Doors](07-doors.md), which reuses the seal of §16.4.
+Contacts are not protocol: they are two standard collections, `std.contact`
+in the contacts space (§13.1) and `std.contact-request` in a shared space, and
+a node procedure. A peer that has never heard of them syncs and judges them
+like any other record. They are described in the library's docs,
+[contacts](../packages/core/docs/contacts.md).
 
 ### 16.1 The contacts space and `std.contact`
 
-The list lives in the account's contacts space (§13.1, label
-`weave/contacts`), one record per person:
-
-```
-std.contact  (rules: onePer ["did"])
-{ did: string ≤256, name: string ≤200, space?: string ≤256, note?: string ≤2000, blocked?: boolean }
-record key = onePerKey("std.contact", ["did"], …)
-           = "one:" + hex40("std.contact\ndid=" + JSON.stringify(did))     // 02 — Records
-```
-
-`space` is the id of the space for two. `blocked` hides that person's contact
-requests in every space. A reader **MUST** ignore a record whose root is not
-the account, or whose key is not the one its `did` derives.
+Moved to [contacts](../packages/core/docs/contacts.md). The contacts space itself is §13.1.
 
 ### 16.2 The contact key
 
-Each account has a contact key: a P-256 ECDH key pair derived from its seed
-([01](01-identity.md), `deriveContactKeyBytes`: HKDF-SHA256(seed, salt empty,
-info `"weave/p256-contact-key/v1"`, 48 bytes) reduced to a scalar). Its public
-half — a compressed point, base64url — is published as `contactKey` on the
-account's profile in every space (§11).
+The contact key is [01 §9.1](01-identity.md); its public half is published on
+the profile (§11).
 
 ### 16.3 `std.contact-request`
 
-```
-std.contact-request  (rules: edit "creator", delete "creator"; create: any member)
-{ to: <askee account DID, ≤256>, sealed: string ≤16000 }
-```
-
-Posted in a space both people belong to. In a private space the body is also
-encrypted with the space key (§8); other members see that `to` was asked, not
-what.
+Moved to [contacts](../packages/core/docs/contacts.md).
 
 ### 16.4 How a request is sealed
 
-```
-value   = { invite: <role invite to the space for two>, note?: string ≤2000 }
-context = "weave/contact-request|<spaceId>|<askerAccountDid>|<askeeAccountDid>"
-sealed  = sealFor(askee.contactKey, value, context)
-```
-
-`sealFor(recipientPublic, value, context)`:
-
-1. `E` = fresh ephemeral P-256 ECDH key pair; `Epoint` = its uncompressed
-   point (65 bytes, `04 ‖ x ‖ y`);
-2. `shared` = ECDH(E.private, recipientPublic) — the 32-byte x-coordinate;
-3. `k` = HKDF-SHA256(ikm = `shared ‖ Epoint`, salt = empty, info = `"weave/contact-seal/v1"`, 32 bytes);
-4. `iv` = 12 random bytes;
-5. `ct` = AES-256-GCM(k, iv, UTF-8(JSON.stringify(value)), AAD = UTF-8(context)) (tag appended);
-6. `sealed` = base64url(`Epoint ‖ iv ‖ ct`).
-
-Opening reverses it; anything shorter than 78 bytes, the wrong key, a
-different context or a changed byte opens nothing. A sealed `{"invite":"x"}`
-is 65 + 12 + 14 + 16 = 107 bytes. This is the construction of
-[01 §9.4](01-identity.md), which is planned to move to HPKE
-([#24](https://github.com/leifriksheim/weave/issues/24)).
-
-The receiver **MUST** open a request only when: the record verifies and
-stands, is not written under an agent note, is in `std.contact-request`,
-`to` is the receiver's account, `from` = the record's root equals the root of
-the record's first version and is not the receiver; and **MUST** use the
-context built from the space the record is in and that `from`. It **MUST**
-then reject the value unless `invite` parses as an invite (§7.4) to a
-**private** space whose `creator` is `from` and which carries a `key`.
-
-> Rationale: binding the seal to the space and to who asked whom means a
-> request copied into another space, or re-posted by someone else, does not
-> open.
+Moved to [contacts](../packages/core/docs/contacts.md). `sealFor` is [01 §9.4](01-identity.md).
 
 ### 16.5 Asking, accepting and the rest
 
-_Implementation detail_ (`node.contacts`), except where the formats above apply:
-
-- **ask(space, did, note?)** needs whole-account access and the askee's
-  `contactKey` on their profile in that space. It defines
-  `std.contact-request` in the space if missing (needs `define`), creates a
-  private `team` space named `"<my name> & <their name>"`, opens an `editor`
-  invite to it, writes a `std.contact` for them with that space, then posts
-  the sealed request.
-- **requests(space)** lists requests that open for this account, skipping
-  blocked senders and requests whose space for two the account already holds.
-- **accept(space, requestKey)** joins the invite (§7.6) and writes a
-  `std.contact` for the asker with the space for two. There is no reply
-  record: joining is the answer.
-- **remove(did)** leaves the space for two (locally, §6.2) unless another
-  contact names it, and deletes the `std.contact`.
-- **block(did)** leaves the space for two likewise and writes the contact with
-  `blocked: true`.
-- **others(did)** lists accounts other than the two seen in the space for two
-  (members, profiles, connected peers).
-
-> **Planned:** requests that can be taken back, and a list that never names a
-> space the account left. Today `ask` does not record where it posted the
-> request, so `remove` and `block` leave it standing: the askee can still
-> accept it, into a space nobody holds. And `spaces.leave` on a space for two
-> leaves the `std.contact` naming it.
->
-> - `std.contact` gains `asked?: { space: string ≤256, key: string ≤256 }`,
->   the space and record key of the request. `ask` writes it.
-> - `remove(did)` and `block(did)` delete the `std.contact-request` at
->   `asked` when the space is still held and the record still stands, before
->   leaving the space for two.
-> - `spaces.leave(id)` on a space a `std.contact` names does what `remove`
->   does for that contact.
-> - `ContactView` gains `waiting: boolean`, true while the other account has
->   no member record in the space for two.
->
-> Tracked in [#40](https://github.com/leifriksheim/weave/issues/40).
-
-_Source: `packages/core/src/schemas/contacts.ts`, `packages/core/src/identity/contact-key.ts` (`sealFor`, `openSealed`, `deriveContactKeyBytes`), `packages/core/src/node/node.ts` (contacts section: `requestContext`, `openRequest`, `contacts`), `packages/core/src/space/account-registry.ts` (`deriveContactsSpace`). Tests: `packages/core/tests/contacts.test.ts`, `packages/core/tests/attacks.test.ts`._
+Moved to [contacts](../packages/core/docs/contacts.md), with its Planned section
+([#40](https://github.com/leifriksheim/weave/issues/40)).
 
 ---
 

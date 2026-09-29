@@ -220,7 +220,7 @@ exposes them:
   `profile`, in the account registry, then republishes the profile in every
   open space), `revoke(token)` (in the account registry). All need the account
   key.
-- `node.contacts` — [03](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md). `ask` and `accept` make or join a space
+- `node.contacts` — [contacts.md](contacts.md). `ask` and `accept` make or join a space
   for two, so they need a session note with `with: "*"` (whole-account access).
 - `node.doors` — [07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md). Needs the contact key; knocking and
   accepting also need whole-account access.

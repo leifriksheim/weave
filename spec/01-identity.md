@@ -283,7 +283,7 @@ keys, listed so new labels do not collide with them:
 | `weave/space-key-box/v1\|<spaceId>\|<keyId>\|<to>`               | `sealFor` context                                | `space/space-access.ts:205`                                   | 03     |
 | `weave/space-earlier-keys/v1\|<spaceId>\|<keyId>`                | Sealing context                                  | `space/space-access.ts:192`                                   | 03     |
 | `weave/space-membership/v1\|<spaceId>`                           | Sealing context                                  | `space/space-access.ts:194`                                   | 03, 04 |
-| `weave/contact-request\|<spaceId>\|<from>\|<to>`                 | `sealFor` context                                | `node/node.ts:1324`                                           | 03     |
+| `weave/contact-request\|<spaceId>\|<from>\|<to>`                 | `sealFor` context                                | `node/node.ts:1336`                                           | docs   |
 | `weave/knock/v1\|<doorKey>`                                      | `sealFor` context                                | `doors/doors.ts` (`sealKnock`)                                | 07     |
 | `weave/door-purge/v1\|<topic>\|<nonce>\|<ids>`                   | Signed by a door signing key, checked by a relay | `doors/doors.ts` (`purgeMessage`), `packages/relay/relay.mjs` | 07     |
 | `weave/knock-answer/v1\|<space>\|<account>`                      | Signed by a door signing key                     | `doors/doors.ts` (`signAnswer`)                               | 07     |
