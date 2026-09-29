@@ -5,15 +5,12 @@ import { nameOf } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { useSubscriptions } from '../../notifications';
 import {
-  ideas,
-  ruleCollection,
+  rule as ruleCollection,
   ruleOf,
-  runCollection,
-  thenWords,
-  whenWords,
-  type Rule,
+  ruleRun as runCollection,
   type RuleRun,
-} from '../../rules';
+} from '@weaveprotocol/core/schemas';
+import { ideas, ruleWords, type PickedRule } from '../../rules';
 import { Person, usePeopleHere } from '../Person';
 import { Icon } from '../Icon';
 import { styles, palette } from '../../styles';
@@ -22,7 +19,7 @@ import { WatchBuilder } from './WatchBuilder';
 
 type Open =
   | { readonly kind: 'watch' }
-  | { readonly kind: 'rule'; readonly editing?: NodeRecord; readonly start?: Omit<Rule, 'since'> }
+  | { readonly kind: 'rule'; readonly editing?: NodeRecord; readonly start?: PickedRule }
   | null;
 
 /**
@@ -163,8 +160,7 @@ export function AutomationsView({
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                       <strong style={{ color: palette.ink.strong, fontSize: 14.5 }}>{rule.name}</strong>
                       <span style={{ fontSize: 14, color: palette.ink.body, lineHeight: 1.5 }}>
-                        {whenWords(rule.when, collections, who)},{' '}
-                        {thenWords(rule.then, collections, rule.when.collection)}.
+                        {ruleWords(rule, collections, who)}
                       </span>
                       <span style={{ fontSize: 12.5, color: palette.ink.muted }}>
                         {rule.paused ? 'Paused' : 'On'} · made by{' '}

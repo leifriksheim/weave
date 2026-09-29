@@ -154,6 +154,7 @@ function checkCondition(
   bound: boolean,
   depth: number,
   count: { nodes: number },
+  names: ReadonlyArray<string> = CHECK_NAMES,
 ): string | null {
   if (++count.nodes > MAX_CHECK_NODES)
     return `${at}: checks are too large (at most ${MAX_CHECK_NODES} parts)`;
@@ -163,7 +164,7 @@ function checkCondition(
   if (Array.isArray(condition)) {
     const items: ReadonlyArray<unknown> = condition;
     for (const [i, item] of items.entries()) {
-      const problem = checkCondition(item, `${at}[${i}]`, permissions, bound, depth + 1, count);
+      const problem = checkCondition(item, `${at}[${i}]`, permissions, bound, depth + 1, count, names);
       if (problem) return problem;
     }
     return null;
@@ -181,8 +182,8 @@ function checkCondition(
     const path = args[0];
     if (typeof path !== 'string' || !PATH.test(path)) return `${at}: "var" takes a path, like "body.amount"`;
     const name = path.split('.')[0]!;
-    if (!CHECK_NAMES.includes(name) && !(bound && name === 'it'))
-      return `${at}: "${name}" is not something a check can read (${[...CHECK_NAMES, ...(bound ? ['it'] : [])].join(', ')})`;
+    if (!names.includes(name) && !(bound && name === 'it'))
+      return `${at}: "${name}" is not something a check can read (${[...names, ...(bound ? ['it'] : [])].join(', ')})`;
     return null;
   }
   if (op === 'get' && (typeof args[1] !== 'string' || !PATH.test(args[1])))
@@ -199,7 +200,7 @@ function checkCondition(
   for (const [i, arg] of args.entries()) {
     if ((op === 'get' && i === 1) || (op === 'link' && i === 0) || (op === 'can' && i === 0)) continue;
     const inner = bound || (OVER_ELEMENTS.has(op) && i === 1);
-    const problem = checkCondition(arg, `${at}.${op}[${i}]`, permissions, inner, depth + 1, count);
+    const problem = checkCondition(arg, `${at}.${op}[${i}]`, permissions, inner, depth + 1, count, names);
     if (problem) return problem;
   }
   return null;
@@ -530,23 +531,33 @@ const RECORD_NAMES = new Set(['body', 'links', 'key', 'collection', 'author', 'c
 /** Operators that ask the space, which a record condition has nothing to ask */
 const SPACE_OPERATORS = new Set(['versions', 'can', 'member']);
 
+/** What a condition over a query's result may read besides: what its `include` found */
+const INCLUDED = 'included';
+
 /**
  * Why a condition over one record can't be kept, or null. The same language
  * as a check, reading only `body`, `links`, `key`, `collection`, `author` and
  * `createdAt`, and asking the space nothing: what a subscription's `where`
- * holds, judged by an app with the record in hand.
+ * holds, judged by an app with the record in hand. With `included`, it may
+ * also read `included`: what a query's `include` found for the record, as a
+ * rule's condition does (`packages/core/docs/rules.md`).
  */
-export function checkRecordCondition(condition: unknown, at = 'where'): string | null {
-  const problem = checkCondition(condition, at, [], false, 1, { nodes: 0 });
+export function checkRecordCondition(
+  condition: unknown,
+  at = 'where',
+  options: { readonly included?: boolean } = {},
+): string | null {
+  const names = options.included ? [...RECORD_NAMES, INCLUDED] : [...RECORD_NAMES];
+  const problem = checkCondition(condition, at, [], false, 1, { nodes: 0 }, [...CHECK_NAMES, ...names]);
   if (problem) return problem;
-  return readsOnlyRecord(condition, at);
+  return readsOnlyRecord(condition, at, new Set(names));
 }
 
-function readsOnlyRecord(condition: unknown, at: string): string | null {
+function readsOnlyRecord(condition: unknown, at: string, names: ReadonlySet<string>): string | null {
   if (Array.isArray(condition)) {
     const items: ReadonlyArray<unknown> = condition;
     for (const [i, item] of items.entries()) {
-      const problem = readsOnlyRecord(item, `${at}[${i}]`);
+      const problem = readsOnlyRecord(item, `${at}[${i}]`, names);
       if (problem) return problem;
     }
     return null;
@@ -557,12 +568,12 @@ function readsOnlyRecord(condition: unknown, at: string): string | null {
   if (SPACE_OPERATORS.has(op)) return `${at}: "${op}" asks the space, which a record condition can't`;
   if (op === 'var') {
     const name = String(args[0]).split('.')[0]!;
-    if (name !== 'it' && !RECORD_NAMES.has(name))
-      return `${at}: "${name}" is not something a record condition can read (${[...RECORD_NAMES].join(', ')})`;
+    if (name !== 'it' && !names.has(name))
+      return `${at}: "${name}" is not something a record condition can read (${[...names].join(', ')})`;
     return null;
   }
   for (const [i, arg] of args.entries()) {
-    const problem = readsOnlyRecord(arg, `${at}.${op}[${i}]`);
+    const problem = readsOnlyRecord(arg, `${at}.${op}[${i}]`, names);
     if (problem) return problem;
   }
   return null;
@@ -582,6 +593,8 @@ export async function recordHolds(
     readonly collection: string;
     readonly author: string | null;
     readonly createdAt: string;
+    /** What a query's `include` found for it, for a condition checked with `included` */
+    readonly included?: Readonly<Record<string, unknown>>;
   },
 ): Promise<boolean> {
   const scope: CheckScope = {
@@ -592,6 +605,7 @@ export async function recordHolds(
       collection: record.collection,
       author: record.author,
       createdAt: record.createdAt,
+      included: record.included ?? {},
     },
     cite: () => Promise.resolve({ refused: 'a record condition cites nothing' }),
     can: () => false,

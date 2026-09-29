@@ -24,13 +24,13 @@ import {
 } from '../fragments.js';
 
 /**
- * A chat message. The space is the room, or `channel` names one within it;
+ * A chat message. The space is the room, or it links the `channel` it is in;
  * order is by when it was written. It can share one record — a poll to vote
  * on, a task — which a chat that knows the record's kind shows in place. The
  * text should still make sense alone ("Poll: Where to?"), for chats that don't.
  *
  * `mentions` names who it calls on ("@Sam"), and `replyingTo` whose message
- * it answers. With `channel` they are its topics, so "mentions me", "replies
+ * it answers. With its channel they are its topics, so "mentions me", "replies
  * to me" and "in #design" can be asked of a keeper that can't read it.
  */
 export const message = typed<Message>()({
@@ -41,16 +41,15 @@ export const message = typed<Message>()({
     type: 'object',
     properties: {
       text: { type: 'string', minLength: 1, maxLength: 10000 },
-      channel: text(100, 'The key of the std.channel it is in, when the space has several'),
       mentions: people(64, 'Who it mentions, so they can be told'),
       replyingTo: person('Whose message it replies to, so they can be told'),
     },
     required: ['text'],
   },
-  topics: ['channel', 'mentions', 'replyingTo'],
+  topics: ['link:channel', 'mentions', 'replyingTo'],
   links: {
+    channel: one(['std.channel'], 'The channel it is in, when the space has several'),
     replyTo: { to: ['std.message'], cardinality: 'one', description: 'The message this replies to' },
-    root: one(['std.message'], 'The first message of the thread it is in'),
     shares: { to: '*', cardinality: 'one', description: 'A record this message shares, like a poll' },
   },
   permissions: ['moderate'],
@@ -58,7 +57,6 @@ export const message = typed<Message>()({
 });
 export interface Message {
   readonly text: string;
-  readonly channel?: string;
   /** Accounts it mentions */
   readonly mentions?: ReadonlyArray<string>;
   /** The account whose message it replies to */
@@ -101,7 +99,7 @@ export interface Call {
   readonly people?: ReadonlyArray<string>;
 }
 
-/** A channel in a space with more than one conversation. Messages name it in `channel`. */
+/** A channel in a space with more than one conversation. Messages link it as their `channel`. */
 export const channel = typed<Channel>()({
   name: 'std.channel',
   title: 'Channel',

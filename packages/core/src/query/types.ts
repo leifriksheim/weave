@@ -30,7 +30,8 @@ export interface Operators {
  *
  * A bare name is a field of the record's body — `done`, `address.city`. A
  * name starting with `@` is about the record itself: `@key`, `@author`,
- * `@root`, `@createdBy`, `@createdAt`, `@updatedAt`, `@seq`.
+ * `@root`, `@createdBy`, `@createdAt`, `@updatedAt`, `@seq`. `link:<rel>` is
+ * the key its first link of that role points at: `{ 'link:channel': key }`.
  */
 export type Filter = {
   readonly [field: string]: unknown;

@@ -66,6 +66,26 @@ describe('filters', () => {
     assert.throws(() => matches(r, { '@nope': 1 }), /Unknown record field/);
   });
 
+  test('link:<rel> is where the first link of that role points, or missing', () => {
+    const linked = {
+      ...r,
+      links: [
+        { rel: 'channel', to: 'design' },
+        { rel: 'shares', to: 'poll' },
+        { rel: 'channel', to: 'second' },
+      ],
+    };
+    assert.equal(matches(linked, { 'link:channel': 'design' }), true);
+    assert.equal(matches(linked, { 'link:channel': 'second' }), false);
+    assert.equal(matches(linked, { 'link:channel': { $in: ['x', 'design'] } }), true);
+    assert.equal(matches(linked, { 'link:replyTo': { $exists: false } }), true);
+    assert.equal(matches(r, { 'link:channel': { $exists: false } }), true);
+    // The body is not read: a field called channel is another thing.
+    assert.equal(matches(record({ channel: 'design' }), { 'link:channel': 'design' }), false);
+    assert.match(checkQuery({ collection: 'app.x', where: { 'link:Bad': 'x' } })!, /not a link role/);
+    assert.match(checkQuery({ collection: 'app.x', sort: { 'link:': 'asc' } })!, /not a link role/);
+  });
+
   test('$ne and $exists treat a missing field the way people expect', () => {
     assert.equal(matches(r, { priority: { $ne: 'high' } }), true);
     assert.equal(matches(r, { priority: { $exists: false } }), true);

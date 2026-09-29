@@ -1150,8 +1150,8 @@ For example, urgent tasks assigned to the account:
 
 Valid (`checkNotify`) when: `label` 1–120 characters, not blank; `collection`
 matches `^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$` and does not start with `sys.`;
-`spaces` is `"all"` or 1–256 strings; `topic.field` is a valid topic field
-([02](02-records.md)) and `topic.value` a string, number or boolean; `where`,
+`spaces` is `"all"` or 1–256 strings; `topic.field` is a valid topic, a
+field or `link:<role>` ([02](02-records.md) §8.1), and `topic.value` a string, number or boolean; `where`,
 when present, is a condition in the language of checks ([02](02-records.md)
 §7.6) that reads only `body`, `links`, `key`, `collection`, `author` and
 `createdAt`, and uses none of `versions`, `can` and `member`

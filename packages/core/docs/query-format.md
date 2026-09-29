@@ -36,10 +36,11 @@ Operators  = { 1*( "$eq": Value | "$ne": Value
                  | "$exists": boolean
                  | "$contains": Value ) }
 
-Field      = MetaField | BodyPath
+Field      = MetaField | LinkField | BodyPath
 MetaField  = "@key" | "@author" | "@root" | "@createdBy" | "@createdAt"
            | "@updatedAt" | "@seq" | "@collection"
-BodyPath   = segment *( "." segment )     ; not starting with "@" or "$"
+LinkField  = "link:" rel                  ; rel as spec 02 §5.1
+BodyPath   = segment *( "." segment )     ; not starting with "@", "$" or "link:"
 
 IncludeMap = { *( Name: Include ) }
 Include    = { "rel": string,
@@ -54,7 +55,7 @@ Include    = { "rel": string,
 A query is refused, with a reason, before it runs if: it is not an object;
 `collection` is missing or empty; a filter is not an object, or `$and`/`$or`
 is not a list; a member name starts with `$` and is not `$and`, `$or` or
-`$not`; a `@` field is not a MetaField; an operator object names an unknown
+`$not`; a `@` field is not a MetaField; a `link:` field is not a LinkField; an operator object names an unknown
 operator; an include lacks `rel`, has a non-string `from`, a bad `direction`,
 or a non-integer or negative `limit`; includes nest more than 3 deep; a `sort`
 direction is not `asc`/`desc` or names an unknown `@` field; `limit` is not a
@@ -80,17 +81,18 @@ never `null`.
 
 ## Field values
 
-| Field         | Value                                                                                                                                                                                   |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@key`        | the record key                                                                                                                                                                          |
-| `@author`     | the DID that signed this version                                                                                                                                                        |
-| `@root`       | the account it acted for                                                                                                                                                                |
-| `@createdBy`  | the root of the record's first version (or null)                                                                                                                                        |
-| `@createdAt`  | `createdAt` of the record's first version (the creator's clock)                                                                                                                         |
-| `@updatedAt`  | `createdAt` of this version                                                                                                                                                             |
-| `@seq`        | `seq`                                                                                                                                                                                   |
-| `@collection` | `collection`                                                                                                                                                                            |
-| body path     | Walk the body: at each segment, the current value must be a non-null object or array, and the segment is a member name (or array index, as a string); otherwise the value is _missing_. |
+| Field         | Value                                                                                                                                                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@key`        | the record key                                                                                                                                                                                                                               |
+| `@author`     | the DID that signed this version                                                                                                                                                                                                             |
+| `@root`       | the account it acted for                                                                                                                                                                                                                     |
+| `@createdBy`  | the root of the record's first version (or null)                                                                                                                                                                                             |
+| `@createdAt`  | `createdAt` of the record's first version (the creator's clock)                                                                                                                                                                              |
+| `@updatedAt`  | `createdAt` of this version                                                                                                                                                                                                                  |
+| `@seq`        | `seq`                                                                                                                                                                                                                                        |
+| `@collection` | `collection`                                                                                                                                                                                                                                 |
+| `link:<rel>`  | the `to` of the record's first link with that `rel`, as checks' `link` and `onePer` read it; missing when it has none. `{ "link:channel": key }` finds a channel's messages, `{ "link:channel": { "$exists": false } }` those in no channel. |
+| body path     | Walk the body: at each segment, the current value must be a non-null object or array, and the segment is a member name (or array index, as a string); otherwise the value is _missing_.                                                      |
 
 ## Operators
 
@@ -173,4 +175,4 @@ collection the query needs is still arriving
 ([05 — Sync and storage](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md)). The shape of each record
 object is the node's record view ([06 — Nodes, sessions and apps](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
 
-_Source: `packages/core/src/query/types.ts`, `packages/core/src/query/filter.ts` (`checkQuery`, `matches`, `fieldValue`, `MAX_INCLUDE_DEPTH`), `packages/core/src/query/engine.ts` (`runQuery`, `sortRecords`, `expand`). Tests: `packages/core/tests/query.test.ts` (all), `packages/core/tests/typed-query.test.ts`._
+_Source: `packages/core/src/query/types.ts`, `packages/core/src/query/filter.ts` (`checkQuery`, `matches`, `fieldValue`, `MAX_INCLUDE_DEPTH`), `packages/core/src/query/engine.ts` (`runQuery`, `sortRecords`, `expand`). Tests: `packages/core/tests/query.test.ts` (all; "link:<rel> is where the first link…" for link fields), `packages/core/tests/typed-query.test.ts`._

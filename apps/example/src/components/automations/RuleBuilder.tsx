@@ -9,22 +9,30 @@ import {
 import { useAccess, useAccount, useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
 import { clauseFields, clauseOn, type Clause, type ClauseField } from '../../derive/conditions';
-import { attachable, collectionLabel, recordLabel } from '../../derive/schema-ui';
+import { belonging, collectionLabel, recordLabel } from '../../derive/schema-ui';
 import { nameOf, type People } from '../../derive/people';
 import {
-  ACTIONS,
-  COUNT_OPS,
   matching,
-  noun,
-  ruleCollection,
+  rule as ruleCollection,
   ruleOf,
-  runCollection,
-  thenWords,
-  whenWords,
-  type CountClause,
+  ruleRun as runCollection,
   type Rule,
   type RuleAction,
   type RuleMatch,
+  IT,
+  channel as channelCollection,
+} from '@weaveprotocol/core/schemas';
+import {
+  ACTIONS,
+  COUNT_OPS,
+  compile,
+  noun,
+  pickedOf,
+  thenWords,
+  whenWords,
+  type CountClause,
+  type Picked,
+  type PickedRule,
 } from '../../rules';
 import { usePeopleHere } from '../Person';
 import { styles, palette } from '../../styles';
@@ -48,7 +56,7 @@ export function RuleBuilder({
   /** A rule to change, instead of making one */
   editing?: NodeRecord;
   /** Where a new one starts: an idea picked from the list */
-  start?: Omit<Rule, 'since'>;
+  start?: PickedRule;
   onClose: () => void;
 }) {
   const node = useNode();
@@ -56,16 +64,24 @@ export function RuleBuilder({
   const access = useAccess(space.id);
   const here = usePeopleHere();
   const people = here?.people ?? new Map();
-  const initial = (editing ? ruleOf(editing) : null) ?? start;
+  const stored = editing ? ruleOf(editing) : null;
+  const picked = stored ? pickedOf(stored) : (start?.picked ?? null);
+  const initial = stored ?? start;
 
   const offered = useMemo(
     () =>
-      collections.filter((c) => c.schema !== null && c.version !== null && !c.name.startsWith('app.rule')),
+      collections.filter(
+        (c) =>
+          c.schema !== null &&
+          c.version !== null &&
+          c.name !== ruleCollection.name &&
+          c.name !== runCollection.name,
+      ),
     [collections],
   );
-  const [collection, setCollection] = useState(initial?.when.collection ?? offered[0]?.name ?? '');
-  const [clauses, setClauses] = useState<ReadonlyArray<Clause>>(initial?.when.clauses ?? []);
-  const [count, setCount] = useState<CountClause | null>(initial?.when.count ?? null);
+  const [collection, setCollection] = useState(picked?.collection ?? offered[0]?.name ?? '');
+  const [clauses, setClauses] = useState<ReadonlyArray<Clause>>(picked?.clauses ?? []);
+  const [count, setCount] = useState<CountClause | null>(picked?.count ?? null);
   const [then, setThen] = useState<RuleAction>(initial?.then ?? { kind: 'notify', text: '{title}' });
   const [name, setName] = useState<string | null>(initial?.name ?? null);
   const [busy, setBusy] = useState(false);
@@ -74,14 +90,7 @@ export function RuleBuilder({
   const chosen = offered.find((c) => c.name === collection);
   const fields = useMemo(() => (chosen ? clauseFields(chosen) : []), [chosen]);
   const countable = useMemo(
-    () =>
-      collection
-        ? attachable(collections, collection).filter(
-            // A link to anything at all, like a message sharing a record, is not what "how many" counts.
-            (a) =>
-              a.collection.version !== null && (a.collection.links[a.rel]?.to !== '*' || a.rel === 'about'),
-          )
-        : [],
+    () => (collection ? belonging(collections, collection) : []),
     [collections, collection],
   );
   const countFields = useMemo(() => {
@@ -90,7 +99,7 @@ export function RuleBuilder({
   }, [collections, count?.collection]);
 
   const when = useMemo(
-    () => ({ collection, clauses, ...(count ? { count } : {}) }),
+    (): Picked => ({ collection, clauses, ...(count ? { count } : {}) }),
     [collection, clauses, count],
   );
   const who = (d: string) => nameOf(d, people);
@@ -110,7 +119,7 @@ export function RuleBuilder({
     if (!when.collection) return;
     let live = true;
     const timer = setTimeout(() => {
-      void matching(node, space.id, when, did, 100)
+      void matching(node, space.id, compile(when, did), 100)
         .then((matches) => live && setFound({ for: when, matches }))
         .catch(() => live && setFound({ for: when, matches: [] }));
     }, 250);
@@ -137,9 +146,10 @@ export function RuleBuilder({
       }
       const body: Rule = {
         name: shownName.trim() || 'Rule',
-        when,
+        when: compile(when, did),
+        picked: when,
         then,
-        ...(initial && 'paused' in initial && initial.paused ? { paused: true } : {}),
+        ...(stored?.paused ? { paused: true } : {}),
         since: new Date().toISOString(),
       };
       if (editing) await node.records.update(space.id, editing.key, body);
@@ -307,6 +317,7 @@ export function RuleBuilder({
             onChange={setThen}
             settable={settable}
             counting={!!count}
+            inChannel={collection === channelCollection.name}
             people={people}
             me={did}
           />
@@ -333,7 +344,7 @@ export function RuleBuilder({
                 .slice(0, 3)
                 .map(
                   (m) =>
-                    `“${recordLabel(m.record, chosen.schema)}”${m.count !== null ? ` (${m.count})` : ''}`,
+                    `“${recordLabel(m.record, chosen.schema)}”${typeof m.included.count === 'number' ? ` (${m.included.count})` : ''}`,
                 )
                 .join(', ')}
               {preview.length > 3 ? '…' : ''}. It acts only on what changes from now on.
@@ -394,6 +405,7 @@ function ActionDetail({
   onChange,
   settable,
   counting,
+  inChannel,
   people,
   me,
 }: {
@@ -401,6 +413,8 @@ function ActionDetail({
   onChange: (then: RuleAction) => void;
   settable: ReadonlyArray<ClauseField>;
   counting: boolean;
+  /** The rule is about channels, so a message can go in the one it holds for */
+  inChannel: boolean;
   people: People;
   me: string;
 }) {
@@ -455,6 +469,21 @@ function ActionDetail({
           </button>
         )}
       </div>
+      {then.kind === 'message' && inChannel && (
+        <label
+          style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: palette.ink.muted }}
+        >
+          <input
+            type="checkbox"
+            checked={then.channel === IT}
+            onChange={(e) => {
+              const { channel: _channel, ...rest } = then;
+              onChange(e.target.checked ? { ...rest, channel: IT } : rest);
+            }}
+          />
+          In that channel, not the space’s own room
+        </label>
+      )}
     </div>
   );
 }
