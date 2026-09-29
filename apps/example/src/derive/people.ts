@@ -28,3 +28,14 @@ export function writerOf(
 ): string {
   return record.viaAgent ? `${nameOf(record.root, people)} via agent` : nameOf(record.root, people);
 }
+
+/**
+ * `respondingTo` for a record written in answer to `author`'s: a reaction,
+ * comment, vote or ballot, so they can be told. Nothing when it is your own.
+ */
+export function respondingTo(
+  author: string | null | undefined,
+  me: string | null | undefined,
+): { respondingTo?: string } {
+  return author && author !== me ? { respondingTo: author } : {};
+}

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { IncludedOf, QueryRecord } from '@weaveprotocol/core';
 import { poll, vote, type Poll } from '@weaveprotocol/core/schemas';
-import { nameOf, peopleFrom, type People } from '../../derive/people';
+import { nameOf, peopleFrom, respondingTo, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { styles, palette } from '../../styles';
@@ -91,7 +91,12 @@ export function PollView({
       writable={space.writable}
       onOpen={() => onOpen(record)}
       onVote={(choice) =>
-        void node.records.put(space.id, vote.name, { choice }, { links: [{ rel: 'about', to: record.key }] })
+        void node.records.put(
+          space.id,
+          vote.name,
+          { choice, ...respondingTo(record.root, me) },
+          { links: [{ rel: 'about', to: record.key }] },
+        )
       }
       onUnvote={(key) => void node.records.delete(space.id, key)}
       onClose={(closed) => void node.records.update(space.id, record.key, { ...record.body, closed })}

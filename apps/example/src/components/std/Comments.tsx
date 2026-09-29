@@ -7,7 +7,7 @@ import { ago } from '../../derive/time';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { styles, palette } from '../../styles';
 import { Person } from '../Person';
-import { peopleFrom } from '../../derive/people';
+import { peopleFrom, respondingTo } from '../../derive/people';
 import { MentionList, useMentions } from './Mentions';
 
 /**
@@ -17,10 +17,13 @@ import { MentionList, useMentions } from './Mentions';
 export function Comments({
   space,
   target,
+  targetAuthor,
   comments,
 }: {
   space: SpaceSummary;
   target: string;
+  /** Who wrote what is commented on, told through `respondingTo` */
+  targetAuthor: string | null;
   comments: ReadonlyArray<NodeRecord>;
 }) {
   const node = useNode();
@@ -81,7 +84,7 @@ export function Comments({
             void node.records.put(
               space.id,
               comment.name,
-              { text, ...(mentions.length ? { mentions } : {}) },
+              { text, ...(mentions.length ? { mentions } : {}), ...respondingTo(targetAuthor, me) },
               { links: [{ rel: 'about', to: target }] },
             );
           }}

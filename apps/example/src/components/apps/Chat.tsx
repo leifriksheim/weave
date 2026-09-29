@@ -654,7 +654,12 @@ function Line({
         </div>
         {showReactions && (
           <div style={{ margin: '4px 0 6px' }}>
-            <Reactions space={space} target={record.key} reactions={reactionsOf(record)} />
+            <Reactions
+              space={space}
+              target={record.key}
+              targetAuthor={record.root}
+              reactions={reactionsOf(record)}
+            />
           </div>
         )}
       </div>

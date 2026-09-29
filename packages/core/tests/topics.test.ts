@@ -30,6 +30,7 @@ import { message, post } from '../src/schemas/library/publishing.js';
 import { comment } from '../src/schemas/library/annotations.js';
 import { task } from '../src/schemas/library/planning.js';
 import { standardNeeds } from '../src/schemas/apps.js';
+import { standardDefinition } from '../src/schemas/standard.js';
 import { toJsonSchema } from '../src/schema/collection-def.js';
 import { isRecord } from '../src/utils/guards.js';
 
@@ -339,12 +340,133 @@ describe('a standard message’s topics', () => {
     assert.throws(() => standardNeeds([without]), /different shape/);
   });
 
-  test('an app that needs std.comment, std.post or std.task gets their topics', () => {
-    const needs = standardNeeds(['std.comment', 'std.post', 'std.task']);
+  test('every standard collection that names people has them as topics, so a keeper can tell them', () => {
+    const expected: Record<string, ReadonlyArray<string>> = {
+      'std.message': ['channel', 'mentions', 'replyingTo'],
+      'std.comment': ['mentions', 'replyingTo', 'respondingTo'],
+      'std.post': ['mentions', 'replyingTo'],
+      'std.article': ['mentions'],
+      'std.note': ['mentions'],
+      'std.doc-block': ['mentions'],
+      'std.task': ['assignees'],
+      'std.reaction': ['respondingTo'],
+      'std.repost': ['respondingTo'],
+      'std.claim': ['respondingTo'],
+      'std.rsvp': ['respondingTo'],
+      'std.booking': ['respondingTo'],
+      'std.vote': ['respondingTo'],
+      'std.ballot': ['respondingTo'],
+      'std.pledge': ['respondingTo'],
+      'std.order': ['respondingTo'],
+      'std.order-update': ['respondingTo'],
+      'std.award': ['did'],
+      'std.follow': ['did'],
+      'std.list-item': ['did'],
+      'std.call': ['to', 'people'],
+      'std.settlement': ['from', 'to'],
+      'std.expense': ['paidBy', 'owedBy'],
+      'std.direct': ['to'],
+    };
+    const needs = standardNeeds(Object.keys(expected));
     assert.ok(Array.isArray(needs));
     assert.deepEqual(
-      needs.map((need) => (isRecord(need) ? need.topics : null)),
-      [['mentions', 'replyingTo'], ['mentions', 'replyingTo'], ['assignees']],
+      Object.fromEntries(needs.map((need) => (isRecord(need) ? [need.name, need.topics] : [null, null]))),
+      expected,
     );
   });
+
+  test('a report names nobody: whoever is reported is not told, and a keeper can’t tell whom it is about', () => {
+    assert.equal(standardDefinition('std.report')?.topics, undefined);
+  });
+
+  const bob = 'did:key:zDnaeBob';
+  /** A standard record, the field naming someone in it, and what it is about when it must be about something */
+  const tagged: ReadonlyArray<
+    readonly [string, Record<string, unknown>, string, (readonly [string, Record<string, unknown>])?]
+  > = [
+    ['std.reaction', { emoji: '👍', respondingTo: bob }, 'respondingTo'],
+    [
+      'std.rsvp',
+      { status: 'going', respondingTo: bob },
+      'respondingTo',
+      ['std.event', { title: 'Picnic', start: '2026-10-01T12:00:00Z' }],
+    ],
+    [
+      'std.vote',
+      { choice: 0, respondingTo: bob },
+      'respondingTo',
+      ['std.poll', { question: 'Where?', options: ['Park'] }],
+    ],
+    [
+      'std.order',
+      { items: [{ title: 'Bike', quantity: 1 }], respondingTo: bob },
+      'respondingTo',
+      ['std.listing', { title: 'Bike' }],
+    ],
+    ['std.note', { content: 'Ask @Bob', mentions: [bob] }, 'mentions'],
+    ['std.doc-block', { type: 'paragraph', text: '@Bob to review', mentions: [bob] }, 'mentions'],
+    ['std.follow', { did: bob }, 'did'],
+    ['std.list-item', { did: bob }, 'did'],
+    ['std.call', { status: 'missed', startedAt: '2026-09-29T10:00:00Z', to: bob }, 'to'],
+    [
+      'std.expense',
+      {
+        title: 'Pizza',
+        amount: { amount: '30', currency: 'EUR' },
+        paidBy: 'did:key:zDnaeAlice',
+        owedBy: [bob],
+      },
+      'owedBy',
+    ],
+  ];
+  for (const [name, body, field, target] of tagged) {
+    test(`a ${name} is tagged for the person in its ${field}, so they can be told`, async () => {
+      const hub = createFakeHub({ latencyMs: 1 });
+      const alice = await person(hub);
+      const { id: space } = await alice.node.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+      const definition = standardDefinition(name);
+      assert.ok(definition);
+      await alice.node.collections.define(space, definition);
+      const targetDefinition = target && standardDefinition(target[0]);
+      if (targetDefinition) await alice.node.collections.define(space, targetDefinition);
+      const since = new Date(Date.now() - 1000).toISOString();
+
+      // Each about something of its own, for those that are one per person per record.
+      const about = async () =>
+        definition.links && 'about' in definition.links
+          ? {
+              links: [
+                {
+                  rel: 'about',
+                  to: (await alice.node.records.put(space, target?.[0] ?? 'app.thing', target?.[1] ?? {}))
+                    .key,
+                },
+              ],
+            }
+          : {};
+      const carol = 'did:key:zDnaeCarol';
+      const written = await alice.node.records.put(space, name, body, await about());
+      const other = await alice.node.records.put(
+        space,
+        name,
+        { ...body, [field]: Array.isArray(body[field]) ? [carol] : carol },
+        await about(),
+      );
+      const stored = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(
+        written.key,
+      );
+      assert.ok(stored?.tags?.includes(await alice.node.collections.tag(space, name, field, bob)));
+
+      const matches = [written, other]
+        .filter((record) =>
+          matchesRecord(
+            { label: field, collection: name, spaces: 'all', topic: { field, value: bob }, since },
+            record,
+            bob,
+          ),
+        )
+        .map((record) => record.key);
+      assert.deepEqual(matches, [written.key]);
+    });
+  }
 });

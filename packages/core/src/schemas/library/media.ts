@@ -64,6 +64,7 @@ export const listItem = typed<ListItem>()({
     },
   },
   links: { in: one(['std.list'], 'The list it is on'), about: about('A record it stands for') },
+  topics: ['did'],
 });
 export interface ListItem {
   readonly text?: string;

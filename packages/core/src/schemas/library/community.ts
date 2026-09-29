@@ -62,6 +62,7 @@ export const vote = typed<Vote>()({
   schema: {
     type: 'object',
     properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
       choice: { type: 'integer', minimum: 0, 'x-choicesFrom': { rel: 'about', field: 'options' } },
       choices: {
         type: 'array',
@@ -76,10 +77,13 @@ export const vote = typed<Vote>()({
     about: { to: ['std.poll', 'std.proposal'], cardinality: 'one', description: 'The poll voted on' },
   },
   rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about'] },
+  topics: ['respondingTo'],
 });
 export interface Vote {
   readonly choice: number;
   readonly choices?: ReadonlyArray<number>;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
 /** Something put to the group to decide, voted on with `std.vote` over its options. */
@@ -153,15 +157,19 @@ export const ballot = typed<Ballot>()({
   schema: {
     type: 'object',
     properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
       choice: { type: 'integer', minimum: 0, 'x-choicesFrom': { rel: 'about', field: 'options' } },
     },
     required: ['choice'],
   },
   links: { about: one(['std.proposal'], 'The proposal') },
   rules: { ...own, onePer: ['@author', 'link:about'], fixed: ['choice'] },
+  topics: ['respondingTo'],
 });
 export interface Ballot {
   readonly choice: number;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
 const DECIDES: ReadonlyArray<Check> = [
@@ -269,15 +277,22 @@ export const pledge = typed<Pledge>()({
   description: 'A promise toward a goal: once per person, not changed once made.',
   schema: {
     type: 'object',
-    properties: { amount: count(1, 1_000_000_000, 'In the goal’s units'), note: text(1000) },
+    properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
+      amount: count(1, 1_000_000_000, 'In the goal’s units'),
+      note: text(1000),
+    },
     required: ['amount'],
   },
   links: { about: one(['std.goal'], 'The goal') },
   rules: { ...own, onePer: ['@author', 'link:about'], fixed: ['amount'] },
+  topics: ['respondingTo'],
 });
 export interface Pledge {
   readonly amount: number;
   readonly note?: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
 const PLEDGES = citedAbout('body.pledges', 'std.pledge');
@@ -377,6 +392,7 @@ export const award = typed<Award>()({
   links: { about: one(['std.badge'], 'The badge') },
   permissions: ['award'],
   rules: { create: 'can:award', edit: 'can:award', onePer: ['link:about', 'did'] },
+  topics: ['did'],
 });
 export interface Award {
   readonly did: string;

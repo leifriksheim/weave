@@ -99,6 +99,11 @@ export const APPS: ReadonlyArray<WeaveApp> = [
       { label: 'Replies to me', collection: message.name, topic: { field: 'replyingTo', me: true } },
       { label: 'Direct message to me', collection: direct.name, topic: { field: 'to', me: true } },
       { label: 'New message', collection: message.name },
+      {
+        label: 'Reactions to what I wrote',
+        collection: reaction.name,
+        topic: { field: 'respondingTo', me: true },
+      },
     ],
     fill: true,
     title: 'Chat',
@@ -133,7 +138,10 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     id: 'polls',
     icon: 'poll',
     hue: 268,
-    notify: [{ label: 'New poll', collection: poll.name }],
+    notify: [
+      { label: 'New poll', collection: poll.name },
+      { label: 'Votes on my polls', collection: vote.name, topic: { field: 'respondingTo', me: true } },
+    ],
     title: 'Polls',
     description: 'Ask the space a question. Everyone picks one option, and can change their mind.',
     needs: [poll, vote],
@@ -146,6 +154,11 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     notify: [
       { label: 'New proposal', collection: proposal.name },
       { label: 'Decided', collection: decision.name },
+      {
+        label: 'Ballots on my proposals',
+        collection: ballot.name,
+        topic: { field: 'respondingTo', me: true },
+      },
     ],
     title: 'Decisions',
     description:

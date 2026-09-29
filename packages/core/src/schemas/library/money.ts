@@ -21,6 +21,7 @@ import {
   type ImageRef,
   type Money,
   type Place,
+  people,
 } from '../fragments.js';
 
 /**
@@ -34,6 +35,7 @@ export const expense = typed<Expense>()({
   schema: {
     type: 'object',
     properties: {
+      owedBy: people(63, 'Who owes a share: the people in `split`, so they can be told'),
       title: words(200),
       amount: money(),
       paidBy: person('Who paid'),
@@ -56,6 +58,7 @@ export const expense = typed<Expense>()({
     required: ['title', 'amount', 'paidBy'],
   },
   history: 'all',
+  topics: ['paidBy', 'owedBy'],
 });
 export interface Expense {
   readonly title: string;
@@ -64,6 +67,8 @@ export interface Expense {
   readonly split?: ReadonlyArray<{ readonly did: string; readonly share?: string }>;
   readonly date?: string;
   readonly note?: string;
+  /** Accounts that owe a share: the people in `split` */
+  readonly owedBy?: ReadonlyArray<string>;
 }
 
 /** Money paid back between two people. Once written, who and how much stay as they are. */
@@ -83,6 +88,7 @@ export const settlement = typed<Settlement>()({
     required: ['from', 'to', 'amount'],
   },
   rules: { ...own, fixed: ['from', 'to', 'amount'] },
+  topics: ['from', 'to'],
 });
 export interface Settlement {
   readonly from: string;
@@ -181,6 +187,7 @@ export const order = typed<Order>()({
   schema: {
     type: 'object',
     properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
       items: {
         type: 'array',
         minItems: 1,
@@ -198,6 +205,7 @@ export const order = typed<Order>()({
   },
   links: { about: many(['std.listing'], 'The listings ordered') },
   rules: own,
+  topics: ['respondingTo'],
 });
 export interface Order {
   readonly items: ReadonlyArray<{
@@ -207,6 +215,8 @@ export interface Order {
   }>;
   readonly total?: Money;
   readonly note?: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
 /** A step in an order's life, from either side: accepted, paid, shipped. */
@@ -217,6 +227,7 @@ export const orderUpdate = typed<OrderUpdate>()({
   schema: {
     type: 'object',
     properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
       status: choice(['accepted', 'paid', 'shipped', 'delivered', 'cancelled', 'refunded']),
       note: text(2000),
     },
@@ -224,8 +235,11 @@ export const orderUpdate = typed<OrderUpdate>()({
   },
   links: { about: one(['std.order'], 'The order') },
   rules: own,
+  topics: ['respondingTo'],
 });
 export interface OrderUpdate {
   readonly status: 'accepted' | 'paid' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
   readonly note?: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }

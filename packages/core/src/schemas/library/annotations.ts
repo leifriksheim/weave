@@ -24,15 +24,21 @@ export const reaction = typed<Reaction>()({
   description: 'An emoji reaction to any record.',
   schema: {
     type: 'object',
-    properties: { emoji: { type: 'string', minLength: 1, maxLength: 16 } },
+    properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
+      emoji: { type: 'string', minLength: 1, maxLength: 16 },
+    },
     required: ['emoji'],
   },
   links: { about: about('The record reacted to') },
   // One of each emoji per person per record; only yours to take back.
   rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about', 'emoji'] },
+  topics: ['respondingTo'],
 });
 export interface Reaction {
   readonly emoji: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
 /**
@@ -49,13 +55,14 @@ export const comment = typed<Comment>()({
   schema: {
     type: 'object',
     properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
       text: { type: 'string', minLength: 1, maxLength: 10000 },
       mentions: people(64, 'Who it mentions, so they can be told'),
       replyingTo: person('Whose comment it replies to, so they can be told'),
     },
     required: ['text'],
   },
-  topics: ['mentions', 'replyingTo'],
+  topics: ['mentions', 'replyingTo', 'respondingTo'],
   links: {
     about: about('The record commented on'),
     replyTo: { to: ['std.comment'], cardinality: 'one', description: 'The comment this replies to' },
@@ -69,6 +76,8 @@ export interface Comment {
   readonly mentions?: ReadonlyArray<string>;
   /** The account whose comment it replies to */
   readonly replyingTo?: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
 /** A label on one or more records. */
@@ -268,11 +277,17 @@ export const claim = typed<Claim>()({
   name: 'std.claim',
   title: 'Claim',
   description: 'Someone taking something on: one claimer per thing, first come.',
-  schema: { type: 'object', properties: { note: text(500) } },
+  schema: {
+    type: 'object',
+    properties: { respondingTo: person('Whose record it responds to, so they can be told'), note: text(500) },
+  },
   links: { about: about('What is claimed') },
   permissions: ['moderate'],
   rules: { ...authored, onePer: ['link:about'] },
+  topics: ['respondingTo'],
 });
 export interface Claim {
   readonly note?: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
