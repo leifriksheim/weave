@@ -20,7 +20,13 @@
  * the remover never saw it — is passed over when reading, and the version
  * before it counts again, where the store still has one.
  */
-import { contactKeyPair, isContactPublicKey, openSealed, sealFor } from '../identity/contact-key.js';
+import {
+  contactKeyPair,
+  isContactPublicKey,
+  openSealed,
+  sealFor,
+  type ContactKeyPair,
+} from '../identity/contact-key.js';
 import type { Expression, CryptoProvider, StorageAdapter } from '../types.js';
 import type { Signer } from '../schema/signer.js';
 import type { SchemaEngine } from '../schema/schema-engine.js';
@@ -323,6 +329,10 @@ export interface SpaceRuntime {
   publishProfile(profile: { name: string; contactKey?: string }): Promise<void>;
   /** Gives a private space a new key now, sealed to every member but nobody else. Done by itself when someone is removed. */
   rotateKey(): Promise<void>;
+  /** Each member's member key here (`sys.memberkey`), by account: who something can be sealed to */
+  memberKeys(): Promise<ReadonlyMap<string, string>>;
+  /** This account's member key pair here, to open what was sealed to it — null when this node wasn't given it */
+  ownMemberKey(): ContactKeyPair | null;
   /** Who may read the space, for a node checking the peers that connect to it */
   readAccess(): ReadAccess | null;
   /** Names the relays the space's members meet on — for someone who manages it */
@@ -2601,6 +2611,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     },
 
     rotateKey,
+
+    memberKeys: memberKeyMap,
+
+    ownMemberKey: () => memberPair,
 
     readAccess: () => readAccess,
 

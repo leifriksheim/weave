@@ -2,7 +2,7 @@
 
 A DID is a name, not an address: it is on everything an account signs, so
 knowing it must not be enough to reach the account. Two people who share a
-space can become contacts through it ([03 — Spaces](03-spaces.md), Contacts).
+space can become contacts through it ([contacts](../packages/core/docs/contacts.md)).
 This part covers two people who share nothing yet.
 
 A **door** is an address its owner hands out on purpose, and can close:
@@ -238,7 +238,7 @@ sig    = ECDSA-P256-SHA256(session private key, UTF-8(canonicalJSON(body)))   �
 sealed = sealFor(door, { body, sig }, context = "weave/knock/v1|" + door)
 ```
 
-`sealFor` is the contact-key seal ([01 — Identity](01-identity.md)): a fresh
+`sealFor` is the contact-key seal ([01 §9.4](01-identity.md)): a fresh
 P-256 key pair per message, ECDH with the door key, HKDF-SHA-256 over the shared
 secret and the ephemeral point (info `weave/contact-seal/v1`), AES-256-GCM with
 a 12-byte IV and the context as additional data. The blob is

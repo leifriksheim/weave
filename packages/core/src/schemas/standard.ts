@@ -22,6 +22,7 @@ import { profile, card, follow, block, mute, status } from './library/social.js'
 import {
   message,
   channel,
+  direct,
   post,
   repost,
   article,
@@ -112,6 +113,7 @@ export const standardGroups: Readonly<Record<string, Definitions>> = Object.free
   'Messaging and publishing': [
     message,
     channel,
+    direct,
     post,
     repost,
     article,

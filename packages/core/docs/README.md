@@ -37,8 +37,11 @@ specified in `spec/` in the repository: https://github.com/leifriksheim/weave/tr
 
 ## Reference
 
-What the library does, in full. None of it is protocol: another
-implementation may do it differently and still work with this one.
+What the library does, in full. None of it is protocol: no peer checks it,
+and another implementation may do it differently and still sync with this
+one. Some of it is a convention apps share, like `std.*` bodies and direct
+messages: an app that does it differently still syncs, but can't read what
+the others wrote.
 
 | Page                                       | Covers                                                                                         |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
@@ -47,7 +50,10 @@ implementation may do it differently and still work with this one.
 | [actions.md](actions.md)                   | The node's actions, and the CLI, MCP and WebMCP tools made of them                             |
 | [query-format.md](query-format.md)         | The JSON query format: filters, operators, sort and cursor, include                            |
 | [standard-library.md](standard-library.md) | Every `std.*` collection, and the conventions they follow                                      |
+| [direct-messages.md](direct-messages.md)   | `std.direct` and `node.direct`: text sealed for some members of a space                        |
 | [apps-as-records.md](apps-as-records.md)   | `std.app`: the review, updates, notifications, compatibility, and how screens run              |
+| [calls.md](calls.md)                       | Voice and video calls in a space: the `call.*` messages, ringing, joining, leaving             |
+| [contacts.md](contacts.md)                 | `std.contact` and `std.contact-request`: the list, sealed requests, `node.contacts`            |
 | [doors.md](doors.md)                       | Doors kept as records, and how a knock becomes a contact: `std.door`, `std.knock`, the answer  |
 
 ## Rules of thumb

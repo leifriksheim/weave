@@ -1,9 +1,11 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useAccess, useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import { DEFINE, roleHolds } from '@weaveprotocol/core';
-import type { ResultOf } from '@weaveprotocol/core';
-import { message, poll, reaction, vote } from '@weaveprotocol/core/schemas';
-import { nameOf, peopleFrom, writerOf } from '../../derive/people';
+import type { DirectMessage, NodeRecord, ResultOf } from '@weaveprotocol/core';
+import { channel, message, poll, positionBetween, reaction, vote } from '@weaveprotocol/core/schemas';
+import type { Channel } from '@weaveprotocol/core/schemas';
+import { nameOf, peopleFrom, writerOf, type People } from '../../derive/people';
+import { Icon } from '../Icon';
 import { ago } from '../../derive/time';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { Reactions } from '../std/Reactions';
@@ -21,15 +23,151 @@ const RUN_MS = 5 * 60 * 1000;
 /** Typing this sends a poll instead of a message, when the space has polls */
 const POLL_COMMAND = /^\/poll(?:\s+(.*))?$/s;
 
+type ChannelRecord = NodeRecord<Channel>;
+
+/** Where the chat is open: the space's own room, one of its channels, or a conversation of direct messages */
+type Place =
+  | { readonly kind: 'room'; readonly channel: string | null }
+  | { readonly kind: 'direct'; readonly with: ReadonlyArray<string> };
+
+/** One conversation of direct messages: everyone in it but you, and what was said */
+interface Conversation {
+  readonly with: ReadonlyArray<string>;
+  readonly messages: ReadonlyArray<DirectMessage>;
+}
+
 /**
- * `std.message` as a chat: the whole space is one room, oldest at the top,
- * a box at the bottom. Reactions appear when the space has `std.reaction`.
+ * A chat the way a team uses one: the space's own room, the channels it adds
+ * (`std.channel`), and direct messages between members (`std.direct`) that
+ * only the people in them can read. A space with none of those is one room,
+ * with no list beside it.
+ */
+export function Chat(props: AppProps) {
+  const { space, collections } = props;
+  const node = useNode();
+  const { did: me } = useAccount();
+  const people = peopleFrom(useProfiles(space.id));
+  const access = useAccess(space.id);
+  const hasChannels = collections.some((c) => c.name === channel.name && c.version !== null);
+  const mayDefine = space.writable && roleHolds(access?.role, DEFINE);
+  const mayCreateChannel = useCan(space.id, 'create', channel.name);
+  const mayAddChannel = hasChannels ? mayCreateChannel : mayDefine;
+  // Direct messages are sealed to member keys, which members publish only in private spaces.
+  const directs = space.visibility === 'private';
+
+  const channels = useLive(
+    space.id,
+    async () =>
+      hasChannels
+        ? [...(await node.records.list<Channel>(space.id, { collection: channel.name }))].sort(
+            (a, b) =>
+              (a.body?.position ?? '').localeCompare(b.body?.position ?? '') ||
+              (a.body?.name ?? '').localeCompare(b.body?.name ?? ''),
+          )
+        : [],
+    [hasChannels],
+  );
+  const reachable = useLive(space.id, async () => (directs ? node.direct.reachable(space.id) : []), [
+    directs,
+  ]);
+  const conversations = useLive(
+    space.id,
+    async () => (directs ? conversationsOf(await node.direct.list(space.id), me) : []),
+    [directs, me],
+  );
+
+  const [place, setPlace] = useState<Place>({ kind: 'room', channel: null });
+  const open = place.kind === 'room' ? (channels?.find((c) => c.key === place.channel) ?? null) : null;
+  // Nothing to choose between: the space is the room, as it always was.
+  const listed = directs || mayAddChannel || (channels?.length ?? 0) > 0;
+
+  const addChannel = async (name: string) => {
+    if (!hasChannels) await node.collections.define(space.id, channel);
+    const last = channels?.at(-1)?.body?.position ?? null;
+    const made = await node.records.put(space.id, channel.name, { name, position: positionBetween(last) });
+    setPlace({ kind: 'room', channel: made.key });
+  };
+
+  return (
+    <div
+      className={listed ? 'chat-shell' : undefined}
+      style={{
+        display: listed ? undefined : 'flex',
+        flex: 1,
+        minHeight: 0,
+        border: `1px solid ${palette.surface.line}`,
+        borderRadius: 10,
+        overflow: 'hidden',
+      }}
+    >
+      {listed && (
+        <Places
+          space={space}
+          people={people}
+          channels={channels ?? []}
+          conversations={conversations ?? []}
+          reachable={directs ? (reachable ?? []) : null}
+          place={place}
+          onPlace={setPlace}
+          onAddChannel={mayAddChannel ? addChannel : undefined}
+        />
+      )}
+      {place.kind === 'room' ? (
+        <Room key={place.channel ?? ''} {...props} channel={open} titled={listed} />
+      ) : (
+        <DirectRoom
+          key={place.with.join(',')}
+          space={space}
+          people={people}
+          with={place.with}
+          messages={conversations?.find((c) => sameGroup(c.with, place.with))?.messages ?? []}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Everyone in a conversation but you, as one key: sorted, once each */
+const groupOf = (m: DirectMessage, me: string) =>
+  [...new Set([m.from, ...m.to])].filter((did) => did !== me).sort();
+const sameGroup = (a: ReadonlyArray<string>, b: ReadonlyArray<string>) => a.join(',') === b.join(',');
+
+/** Direct messages as conversations, the one spoken in most recently first */
+function conversationsOf(messages: ReadonlyArray<DirectMessage>, me: string): ReadonlyArray<Conversation> {
+  const byGroup = new Map<string, { with: string[]; messages: DirectMessage[] }>();
+  for (const m of messages) {
+    const group = groupOf(m, me);
+    const key = group.join(',');
+    const found = byGroup.get(key) ?? { with: group, messages: [] };
+    found.messages.push(m);
+    byGroup.set(key, found);
+  }
+  const last = (c: Conversation) => c.messages.at(-1)?.createdAt ?? '';
+  return [...byGroup.values()].sort((a, b) => last(b).localeCompare(last(a)));
+}
+
+/**
+ * `std.message` as a chat room: the space's own, or one channel's; oldest at
+ * the top, a box at the bottom. Reactions appear when the space has
+ * `std.reaction`.
  *
  * A message can share a record. When the space also has polls, `/poll` asks
  * the room one: the poll is an ordinary `std.poll`, and the message shares it,
  * so it can be voted on right here, in the Polls app, or anywhere else.
  */
-export function Chat({ space, collections, onOpen, since }: AppProps) {
+function Room({
+  space,
+  collections,
+  onOpen,
+  since,
+  channel: inChannel,
+  titled,
+}: AppProps & {
+  /** The channel it is, or null for the space's own room */
+  readonly channel: ChannelRecord | null;
+  /** Shows which room it is above the messages, when there are others to be in */
+  readonly titled: boolean;
+}) {
   const node = useNode();
   const { did: me } = useAccount();
   const people = peopleFrom(useProfiles(space.id));
@@ -55,7 +193,14 @@ export function Chat({ space, collections, onOpen, since }: AppProps) {
   const input = useRef<HTMLInputElement>(null);
   const stuck = useRef(true);
 
-  const messages = useLive(space.id, async () => (await node.records.query(space.id, CHAT)).records, []);
+  const where = { channel: inChannel ? inChannel.key : { $exists: false } };
+  const messages = useLive(
+    space.id,
+    async () => (await node.records.query(space.id, { ...CHAT, where })).records,
+    [inChannel?.key],
+  );
+  const roomName = inChannel?.body?.name ?? GENERAL;
+  const inRoom = inChannel ? { channel: inChannel.key } : {};
   // Where what arrived since you last looked begins: a line above it, the way chat apps mark it.
   // Fixed when the chat opens, so reading it doesn't move the line away.
   const [after] = useState(() => (since ? Date.parse(since) : Infinity));
@@ -128,6 +273,7 @@ export function Chat({ space, collections, onOpen, since }: AppProps) {
     setReplying(null);
     const body = {
       text,
+      ...inRoom,
       ...(mentions.length ? { mentions } : {}),
       ...(to?.root && to.root !== me ? { replyingTo: to.root } : {}),
     };
@@ -142,24 +288,20 @@ export function Chat({ space, collections, onOpen, since }: AppProps) {
     await node.records.put(
       space.id,
       message.name,
-      { text: `Poll: ${question}` },
+      { text: `Poll: ${question}`, ...inRoom },
       { links: [{ rel: 'shares', to: asked.key }] },
     );
     setAsking(null);
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        minHeight: 0,
-        border: `1px solid ${palette.surface.line}`,
-        borderRadius: 10,
-        overflow: 'hidden',
-      }}
-    >
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
+      {titled && (
+        <RoomTitle
+          name={`# ${roomName}`}
+          detail={inChannel?.body?.topic ?? (inChannel ? undefined : 'Everyone in the space')}
+        />
+      )}
       {outdated && (
         <div
           style={{
@@ -403,7 +545,11 @@ export function Chat({ space, collections, onOpen, since }: AppProps) {
                 setCaret(0);
               }
             }}
-            placeholder={replying ? 'Write a reply' : `Message ${space.name} · @ to mention someone`}
+            placeholder={
+              replying
+                ? 'Write a reply'
+                : `Message ${titled ? `#${roomName}` : space.name} · @ to mention someone`
+            }
             aria-label="Write a message"
             style={{ ...styles.input, flex: 1 }}
           />
@@ -614,6 +760,460 @@ function NewSince() {
     >
       <span style={{ flex: 1, height: 1, background: palette.accent.danger, opacity: 0.5 }} />
       New
+    </div>
+  );
+}
+
+/** What the space's own room is called beside its channels */
+const GENERAL = 'general';
+
+function RoomTitle({ name, detail }: { name: string; detail?: string | undefined }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: 10,
+        minWidth: 0,
+        padding: '10px 16px',
+        borderBottom: `1px solid ${palette.surface.line}`,
+      }}
+    >
+      <strong style={{ fontSize: 14, fontWeight: 600, color: palette.ink.strong, whiteSpace: 'nowrap' }}>
+        {name}
+      </strong>
+      {detail && (
+        <span
+          style={{
+            fontSize: 12,
+            color: palette.ink.muted,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {detail}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The list beside the chat: the space's own room and its channels, then
+ * conversations of direct messages. On a phone it is a row above the chat.
+ */
+function Places({
+  space,
+  people,
+  channels,
+  conversations,
+  reachable,
+  place,
+  onPlace,
+  onAddChannel,
+}: {
+  space: AppProps['space'];
+  people: People;
+  channels: ReadonlyArray<ChannelRecord>;
+  conversations: ReadonlyArray<Conversation>;
+  /** Who can be written to directly; null where there are no direct messages */
+  reachable: ReadonlyArray<string> | null;
+  place: Place;
+  onPlace: (place: Place) => void;
+  onAddChannel: ((name: string) => Promise<void>) | undefined;
+}) {
+  const [adding, setAdding] = useState<'channel' | 'direct' | null>(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const inRoom = (key: string | null) => place.kind === 'room' && place.channel === key;
+  const inDirect = (group: ReadonlyArray<string>) => place.kind === 'direct' && sameGroup(place.with, group);
+  // People you haven't written to yet, for starting a conversation.
+  const started = new Set(conversations.filter((c) => c.with.length === 1).map((c) => c.with[0]));
+
+  const submitChannel = async () => {
+    const trimmed = name.trim();
+    if (!trimmed || !onAddChannel) return;
+    setBusy(true);
+    try {
+      await onAddChannel(trimmed);
+      setName('');
+      setAdding(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <nav className="chat-places" aria-label={`Conversations in ${space.name}`}>
+      <Heading
+        label="Channels"
+        onAdd={onAddChannel ? () => setAdding(adding === 'channel' ? null : 'channel') : undefined}
+      />
+      <PlaceButton current={inRoom(null)} onClick={() => onPlace({ kind: 'room', channel: null })}>
+        <span style={{ color: palette.ink.faint }}>#</span> {GENERAL}
+      </PlaceButton>
+      {channels.map((c) => (
+        <PlaceButton
+          key={c.key}
+          current={inRoom(c.key)}
+          onClick={() => onPlace({ kind: 'room', channel: c.key })}
+        >
+          <span style={{ color: palette.ink.faint }}>#</span> {c.body?.name ?? 'Unreadable channel'}
+        </PlaceButton>
+      ))}
+      {adding === 'channel' && (
+        <form
+          className="chat-places-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitChannel();
+          }}
+          style={{ display: 'flex', gap: 6, padding: '4px 0' }}
+        >
+          <input
+            autoFocus
+            value={name}
+            maxLength={100}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && setAdding(null)}
+            placeholder="Channel name"
+            aria-label="New channel's name"
+            style={{ ...styles.input, height: 30, fontSize: 13, flex: 1, minWidth: 0 }}
+          />
+          <button
+            type="submit"
+            disabled={busy || !name.trim()}
+            data-variant="primary"
+            style={{ ...styles.smallButton, height: 30 }}
+          >
+            Add
+          </button>
+        </form>
+      )}
+
+      {reachable && (
+        <>
+          <Heading
+            label="Direct messages"
+            onAdd={reachable.length > 0 ? () => setAdding(adding === 'direct' ? null : 'direct') : undefined}
+          />
+          {conversations.map((c) => (
+            <PlaceButton
+              key={c.with.join(',')}
+              current={inDirect(c.with)}
+              onClick={() => onPlace({ kind: 'direct', with: c.with })}
+            >
+              <Avatar did={c.with[0] ?? ''} size={16} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {c.with.map((did) => nameOf(did, people)).join(', ')}
+              </span>
+            </PlaceButton>
+          ))}
+          {adding === 'direct' &&
+            reachable
+              .filter((did) => !started.has(did))
+              .map((did) => (
+                <PlaceButton
+                  key={did}
+                  current={false}
+                  onClick={() => {
+                    setAdding(null);
+                    onPlace({ kind: 'direct', with: [did] });
+                  }}
+                >
+                  <Icon name="plus" size={12} />
+                  <Avatar did={did} size={16} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{nameOf(did, people)}</span>
+                </PlaceButton>
+              ))}
+          {conversations.length === 0 && adding !== 'direct' && (
+            <p
+              className="chat-places-note"
+              style={{ fontSize: 12, color: palette.ink.faint, padding: '2px 8px' }}
+            >
+              {reachable.length > 0
+                ? 'Write to someone only they can read.'
+                : 'People show up here once they open the space in an up-to-date app.'}
+            </p>
+          )}
+        </>
+      )}
+    </nav>
+  );
+}
+
+function Heading({ label, onAdd }: { label: string; onAdd: (() => void) | undefined }) {
+  return (
+    <div
+      className="chat-places-heading"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '12px 8px 4px',
+      }}
+    >
+      <span
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '.05em',
+          color: palette.ink.muted,
+        }}
+      >
+        {label}
+      </span>
+      {onAdd && (
+        <button
+          type="button"
+          onClick={onAdd}
+          aria-label={label === 'Channels' ? 'Add a channel' : 'Write to someone'}
+          data-variant="ghost"
+          style={{
+            border: 'none',
+            background: 'none',
+            padding: 2,
+            color: palette.ink.muted,
+            display: 'flex',
+          }}
+        >
+          <Icon name="plus" size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PlaceButton({
+  current,
+  onClick,
+  children,
+}: {
+  current: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={current || undefined}
+      data-nav
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        width: '100%',
+        minWidth: 0,
+        height: 30,
+        padding: '0 8px',
+        border: 'none',
+        borderRadius: 6,
+        background: current ? palette.surface.sunken : 'none',
+        color: current ? palette.ink.strong : palette.ink.body,
+        fontWeight: current ? 600 : 400,
+        font: 'inherit',
+        fontSize: 13,
+        textAlign: 'left',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * A conversation of direct messages. What is written here is sealed for the
+ * people in it (`node.direct`): the rest of the space sees that you wrote to
+ * them, and when, but not what.
+ */
+function DirectRoom({
+  space,
+  people,
+  with: others,
+  messages,
+}: {
+  space: AppProps['space'];
+  people: People;
+  with: ReadonlyArray<string>;
+  messages: ReadonlyArray<DirectMessage>;
+}) {
+  const node = useNode();
+  const { did: me } = useAccount();
+  const [draft, setDraft] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const names = others.map((did) => nameOf(did, people)).join(', ');
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length]);
+
+  const send = () => {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft('');
+    setProblem(null);
+    node.direct.send(space.id, others, text).catch((error: unknown) => {
+      setDraft(text);
+      setProblem(error instanceof Error ? error.message : String(error));
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
+      <RoomTitle
+        name={names}
+        detail={
+          others.length === 1 ? 'Only the two of you can read this' : 'Only the people here can read this'
+        }
+      />
+      <div
+        ref={scroller}
+        style={{
+          flex: '1 1 0',
+          minHeight: 240,
+          overflowY: 'auto',
+          padding: '16px 16px 8px',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {messages.length === 0 && (
+          <p
+            style={{
+              margin: 'auto',
+              maxWidth: 320,
+              textAlign: 'center',
+              fontSize: 13,
+              color: palette.ink.faint,
+            }}
+          >
+            Messages here are sealed for {names} and you. Others in {space.name} see that you wrote, not what.
+          </p>
+        )}
+        {messages.map((m, i) => {
+          const prev = messages[i - 1];
+          const startsRun =
+            !prev || prev.from !== m.from || Date.parse(m.createdAt) - Date.parse(prev.createdAt) > RUN_MS;
+          return (
+            <div
+              key={m.key}
+              data-row
+              style={{
+                display: 'flex',
+                gap: 10,
+                padding: '2px 8px',
+                margin: `${startsRun ? 10 : 0}px -8px 0`,
+                borderRadius: 6,
+              }}
+            >
+              <div style={{ width: 28, flexShrink: 0 }}>{startsRun && <Avatar did={m.from} size={28} />}</div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                {startsRun && (
+                  <div style={{ fontSize: 13 }}>
+                    <strong style={{ fontWeight: 600, color: palette.ink.strong }}>
+                      {nameOf(m.from, people)}
+                    </strong>
+                    <span style={{ color: palette.ink.faint }}>
+                      {' '}
+                      · {ago(m.createdAt)}
+                      {m.viaAgent ? ' · via agent' : ''}
+                    </span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <p
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: 14,
+                      lineHeight: 1.5,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      color: m.text === null ? palette.ink.faint : palette.ink.body,
+                      fontStyle: m.text === null ? 'italic' : undefined,
+                    }}
+                  >
+                    {m.text ?? "This device can't open this message."}
+                  </p>
+                  {m.from === me && space.writable && (
+                    <button
+                      onClick={() => void node.records.delete(space.id, m.key)}
+                      data-row-action
+                      data-variant="ghost"
+                      aria-label="Delete message"
+                      style={{
+                        border: 'none',
+                        background: 'none',
+                        fontSize: 12,
+                        color: palette.ink.faint,
+                        padding: '2px 4px',
+                      }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {problem && (
+        <p
+          style={{
+            padding: '8px 12px',
+            fontSize: 13,
+            color: palette.accent.danger,
+            borderTop: `1px solid ${palette.surface.line}`,
+          }}
+        >
+          {problem}
+        </p>
+      )}
+      {space.writable ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+          style={{
+            display: 'flex',
+            gap: 8,
+            padding: 12,
+            borderTop: `1px solid ${palette.surface.line}`,
+            background: palette.surface.sunken,
+          }}
+        >
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={`Message ${names}`}
+            aria-label="Write a direct message"
+            style={{ ...styles.input, flex: 1 }}
+          />
+          <button type="submit" disabled={!draft.trim()} data-variant="primary" style={styles.addButton}>
+            Send
+          </button>
+        </form>
+      ) : (
+        <p
+          style={{
+            padding: 12,
+            fontSize: 13,
+            color: palette.ink.muted,
+            borderTop: `1px solid ${palette.surface.line}`,
+          }}
+        >
+          Your role here doesn't let you send messages.
+        </p>
+      )}
     </div>
   );
 }

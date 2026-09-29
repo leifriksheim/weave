@@ -116,6 +116,7 @@ and remove.
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `std.message`     | **`text`** string 1–10000; `channel` string ≤ 100; `mentions` DID[] (≤ 64); `replyingTo` DID; topics `channel`, `mentions`, `replyingTo`                                                                                      | `replyTo` → `std.message`, one; `root` → `std.message`, one; `shares` → `*`, one | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
 | `std.channel`     | **`name`** string 1–100; `topic` string ≤ 500; `position` string 1–200                                                                                                                                                        | —                                                                                | create: `can:moderate`; edit: `can:moderate`; permissions `moderate`       |
+| `std.direct`      | **`to`** DID[] (1–16); **`data`** string ≤ 60000; **`boxes`** `{to, sealed}`[] (≤ 17); topic `to`                                                                                                                             | —                                                                                | edit, delete: `creator`                                                    |
 | `std.post`        | `text` string ≤ 10000; `images` image[] (≤ 8); `langs` string 2–35[] (≤ 3)                                                                                                                                                    | `replyTo` → `std.post`, one; `root` → `std.post`, one; `shares` → `*`, one       | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
 | `std.repost`      | —                                                                                                                                                                                                                             | `about` → `*`, one                                                               | edit, delete: `creator`; `onePer: [@author, link:about]`                   |
 | `std.article`     | **`title`** string 1–300; `summary` string ≤ 1000; `content` string ≤ 200000; `cover` blob; `slug` string 1–200; `publishedAt` when; `draft` boolean                                                                          | `in` → `std.publication`, one                                                    | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
@@ -257,6 +258,22 @@ and a carrier can match it unread ([spec 02 §8](https://github.com/leifriksheim
 
 _Source: `packages/core/src/schemas/library/publishing.ts` (`message`), `apps/example/src/components/apps/Chat.tsx`. Tests: `packages/core/tests/topics.test.ts` ("mentions and replies are tagged, so “mentions me” and “replies to me” match only those")._
 
+**Channels.** A space with more than one conversation lists `std.channel`
+records, by `position` then name, and a message names its channel's record
+key in `channel`. A message with no `channel` is in the space's own room,
+which a chat shows first, as "general". Only someone with `moderate` makes or
+renames a channel. A channel is a label, not a boundary: every member reads
+every channel. Something only some members may read is a space of its own, or
+a direct message.
+
+**Direct messages.** A `std.direct` is sealed (`node.direct`, [direct-messages.md](direct-messages.md)):
+only the people in `to` and whoever wrote it can read `data`. A chat groups
+them into conversations by everyone in them, `to` plus the writer, and must
+show one it can't open as unreadable, not drop it. `to` is a topic, so
+"direct messages to me" is a subscription a keeper can match unread.
+
+_Source: `packages/core/src/schemas/library/publishing.ts` (`channel`, `direct`), `packages/core/src/privacy/direct.ts`, `apps/example/src/components/apps/Chat.tsx`. Tests: `packages/core/tests/direct.test.ts`._
+
 **Changes to earlier definitions.** `std.attachment`, `std.task`,
 `std.message`, `std.vote` and `std.proposal` existed before the library grew. Each gained
 only optional fields and link roles: `std.attachment` a `blob`; `std.task`
@@ -274,8 +291,8 @@ that reads votes may meet one on something that is not a poll.
 
 | Name                  | Body                                                                                                                            | Rules                                                                     | Where                                                                                                          |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `std.contact`         | `did` ≤ 256 and `name` ≤ 200, required; `space` ≤ 256; `note` ≤ 2000; `blocked` boolean                                         | `onePer: [did]`                                                           | [03 — Spaces](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md)                               |
-| `std.contact-request` | `to` ≤ 256 and `sealed` ≤ 16000, required                                                                                       | edit, delete: `creator`                                                   | [03 — Spaces](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md)                               |
+| `std.contact`         | `did` ≤ 256 and `name` ≤ 200, required; `space` ≤ 256; `note` ≤ 2000; `blocked` boolean                                         | `onePer: [did]`                                                           | [contacts](contacts.md)                                                                                        |
+| `std.contact-request` | `to` ≤ 256 and `sealed` ≤ 16000, required                                                                                       | edit, delete: `creator`                                                   | [contacts](contacts.md)                                                                                        |
 | `std.door`            | `id` 16–64 and `relays` (1–3, each ≤ 200), required; `name` ≤ 64; `label` ≤ 64                                                  | `onePer: [id]`                                                            | [doors.md](doors.md)                                                                                           |
 | `std.knock`           | `space` ≤ 256, `name` ≤ 64, `door` ≤ 64, `sign` ≤ 64 and `invite` ≤ 8000, all required                                          | `onePer: [space]`                                                         | [doors.md](doors.md)                                                                                           |
 | `std.knock-answer`    | `sig` ≤ 200, required                                                                                                           | edit, delete: `creator`                                                   | [doors.md](doors.md)                                                                                           |
@@ -307,8 +324,8 @@ _Source: `packages/core/src/schemas/fragments.ts`, `packages/core/src/schemas/li
 
 ## `std.call`
 
-Calls themselves are kept nowhere. Their history is a `std.call` record in the
-space, written only if the space defines `std.call`:
+Calls themselves are kept nowhere ([calls](calls.md)). Their history is a
+`std.call` record in the space, written only if the space defines `std.call`:
 
 | Field       | Type                            | Meaning                                      |
 | ----------- | ------------------------------- | -------------------------------------------- |
