@@ -8,6 +8,8 @@ import {
   choice,
   count,
   own,
+  people,
+  person,
   text,
   typed,
   url,
@@ -22,27 +24,45 @@ export const reaction = typed<Reaction>()({
   description: 'An emoji reaction to any record.',
   schema: {
     type: 'object',
-    properties: { emoji: { type: 'string', minLength: 1, maxLength: 16 } },
+    properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
+      emoji: { type: 'string', minLength: 1, maxLength: 16 },
+    },
     required: ['emoji'],
   },
   links: { about: about('The record reacted to') },
   // One of each emoji per person per record; only yours to take back.
   rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about', 'emoji'] },
+  topics: ['respondingTo'],
 });
 export interface Reaction {
   readonly emoji: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
-/** A comment on any record, optionally a reply to another comment. */
+/**
+ * A comment on any record, optionally a reply to another comment. As on a
+ * `std.message`, `mentions` names who it calls on and `replyingTo` whose
+ * comment it answers, and both are topics: "mentions me" and "replies to me"
+ * can be asked of a keeper that can't read it. Commenting is also how to
+ * mention someone on a record of any kind, whatever its own definition holds.
+ */
 export const comment = typed<Comment>()({
   name: 'std.comment',
   title: 'Comment',
   description: 'A comment on any record, optionally replying to another comment.',
   schema: {
     type: 'object',
-    properties: { text: { type: 'string', minLength: 1, maxLength: 10000 } },
+    properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
+      text: { type: 'string', minLength: 1, maxLength: 10000 },
+      mentions: people(64, 'Who it mentions, so they can be told'),
+      replyingTo: person('Whose comment it replies to, so they can be told'),
+    },
     required: ['text'],
   },
+  topics: ['mentions', 'replyingTo', 'respondingTo'],
   links: {
     about: about('The record commented on'),
     replyTo: { to: ['std.comment'], cardinality: 'one', description: 'The comment this replies to' },
@@ -52,6 +72,12 @@ export const comment = typed<Comment>()({
 });
 export interface Comment {
   readonly text: string;
+  /** Accounts it mentions */
+  readonly mentions?: ReadonlyArray<string>;
+  /** The account whose comment it replies to */
+  readonly replyingTo?: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
 /** A label on one or more records. */
@@ -251,11 +277,17 @@ export const claim = typed<Claim>()({
   name: 'std.claim',
   title: 'Claim',
   description: 'Someone taking something on: one claimer per thing, first come.',
-  schema: { type: 'object', properties: { note: text(500) } },
+  schema: {
+    type: 'object',
+    properties: { respondingTo: person('Whose record it responds to, so they can be told'), note: text(500) },
+  },
   links: { about: about('What is claimed') },
   permissions: ['moderate'],
   rules: { ...authored, onePer: ['link:about'] },
+  topics: ['respondingTo'],
 });
 export interface Claim {
   readonly note?: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }

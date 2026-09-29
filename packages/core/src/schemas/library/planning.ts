@@ -21,6 +21,7 @@ import {
   when,
   words,
   type Place,
+  person,
 } from '../fragments.js';
 
 /** A calendar that events are `in`. */
@@ -87,6 +88,7 @@ export const rsvp = typed<Rsvp>()({
   schema: {
     type: 'object',
     properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
       status: choice(['going', 'maybe', 'no']),
       guests: count(0, 100, 'People they bring along'),
       note: text(500),
@@ -95,11 +97,14 @@ export const rsvp = typed<Rsvp>()({
   },
   links: { about: one(['std.event'], 'The event') },
   rules: { ...own, onePer: ['@author', 'link:about'] },
+  topics: ['respondingTo'],
 });
 export interface Rsvp {
   readonly status: 'going' | 'maybe' | 'no';
   readonly guests?: number;
   readonly note?: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
 /** A time that can be booked. Bookings are `about` it, one each. */
@@ -128,13 +133,22 @@ export const booking = typed<Booking>()({
   name: 'std.booking',
   title: 'Booking',
   description: 'A booked slot: one booking per slot, first come.',
-  schema: { type: 'object', properties: { note: text(1000) } },
+  schema: {
+    type: 'object',
+    properties: {
+      respondingTo: person('Whose record it responds to, so they can be told'),
+      note: text(1000),
+    },
+  },
   links: { about: one(['std.slot'], 'The slot booked') },
   permissions: ['moderate'],
   rules: { ...authored, onePer: ['link:about'] },
+  topics: ['respondingTo'],
 });
 export interface Booking {
   readonly note?: string;
+  /** The account whose record it responds to */
+  readonly respondingTo?: string;
 }
 
 /** A column on a board — To do, Doing, Done — in the order it sits. */
@@ -161,6 +175,8 @@ const TASK_STATUS = ['todo', 'doing', 'done', 'cancelled'] as const;
 /**
  * A task: in a column of a board, under a parent task, in a project. `status`
  * is for lists without columns; a board's column says where the task is.
+ * `assignees` is its topic, so "assigned to me" can be asked of a keeper that
+ * can't read it.
  */
 export const task = typed<Task>()({
   name: 'std.task',
@@ -184,6 +200,7 @@ export const task = typed<Task>()({
     },
     required: ['title'],
   },
+  topics: ['assignees'],
   links: {
     column: { to: ['std.column'], cardinality: 'one', description: 'The column it sits in' },
     parent: one(['std.task'], 'The task it is part of'),

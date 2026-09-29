@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { IncludedOf, P2PNode, QueryRecord } from '@weaveprotocol/core';
 import { ballot, decision, proposal, type Proposal } from '@weaveprotocol/core/schemas';
-import { nameOf, peopleFrom, type People } from '../../derive/people';
+import { nameOf, peopleFrom, respondingTo, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { styles, palette } from '../../styles';
@@ -108,7 +108,11 @@ function ProposalView({
       writable={space.writable}
       problem={problem}
       onOpen={() => onOpen(record)}
-      onCast={(choice) => attempt(() => node.records.put(space.id, ballot, { choice }, { links: about }))}
+      onCast={(choice) =>
+        attempt(() =>
+          node.records.put(space.id, ballot, { choice, ...respondingTo(record.root, me) }, { links: about }),
+        )
+      }
       onDecide={(outcome, ballots) =>
         attempt(async () =>
           node.records.put(

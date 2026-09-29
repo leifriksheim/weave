@@ -117,6 +117,7 @@ export const follow = typed<Follow>()({
     required: ['did'],
   },
   rules: { ...own, onePer: ['@author', 'did'] },
+  topics: ['did'],
 });
 export interface Follow {
   readonly did: string;

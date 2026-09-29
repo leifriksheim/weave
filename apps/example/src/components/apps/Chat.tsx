@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAccess, useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import { DEFINE, roleHolds } from '@weaveprotocol/core';
 import type { DirectMessage, NodeRecord, ResultOf } from '@weaveprotocol/core';
@@ -11,6 +11,7 @@ import { Avatar } from '@weave/app-shared/Avatar';
 import { createPortal } from 'react-dom';
 import { Modal } from '@weave/app-shared/Modal';
 import { Reactions } from '../std/Reactions';
+import { MentionList, useMentions } from '../std/Mentions';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
 import { Ask, PollView, withVotes } from './Polls';
@@ -214,40 +215,10 @@ function Room({
     if (el && stuck.current) el.scrollTop = el.scrollHeight;
   }, [messages?.length]);
 
-  // Who the draft mentions, by the name it shows: whoever was picked after "@", and whoever's
-  // full name was typed after one. Names are shown unique (`nameOf`), so neither is a guess.
-  const picked = useRef(new Map<string, string>());
-  const [caret, setCaret] = useState(0);
-  const [choice, setChoice] = useState(0);
   const [replying, setReplying] = useState<ChatMessage | null>(null);
   // A space that defined messages before replies could link to what they answer has no such link to write.
   const linksReplies = !!defined(message.name)?.links?.replyTo;
-  const typed = /(?:^|\s)@([^\s@]*)$/.exec(draft.slice(0, caret));
-  const query = typed ? (typed[1] ?? '').toLowerCase() : null;
-  const suggestions =
-    query === null
-      ? []
-      : [...people.values()]
-          .filter((person) => person.did !== me && person.name.toLowerCase().includes(query))
-          .slice(0, 6);
-  const pick = (did: string) => {
-    const label = nameOf(did, people);
-    const before = draft.slice(0, caret).replace(/@[^\s@]*$/, `@${label} `);
-    picked.current.set(label, did);
-    setDraft(before + draft.slice(caret));
-    setChoice(0);
-    setCaret(before.length);
-    placeCaret.current = before.length;
-  };
-  // Straight after the new text is in the box, before the next key lands: later, and it lands in the wrong place.
-  const placeCaret = useRef<number | null>(null);
-  useLayoutEffect(() => {
-    const at = placeCaret.current;
-    if (at === null) return;
-    placeCaret.current = null;
-    input.current?.focus();
-    input.current?.setSelectionRange(at, at);
-  }, [draft]);
+  const mention = useMentions({ draft, setDraft, people, me, input });
   const reply = (m: ChatMessage) => {
     setReplying(m);
     input.current?.focus();
@@ -260,18 +231,8 @@ function Room({
     const command = polls ? POLL_COMMAND.exec(text) : null;
     if (command) return setAsking(command[1]?.trim() ?? '');
     stuck.current = true;
-    const named = (label: string) =>
-      new RegExp(`(?:^|\\s)@${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s.,!?:;)])`, 'i').test(
-        text,
-      );
-    const typed = [...people.keys()]
-      .filter((did) => did !== me)
-      .map((did) => [nameOf(did, people), did] as const);
-    const mentions = [
-      ...new Set([...picked.current, ...typed].filter(([label]) => named(label)).map(([, did]) => did)),
-    ];
+    const mentions = mention.take(text);
     const to = replying;
-    picked.current.clear();
     setReplying(null);
     const body = {
       text,
@@ -433,40 +394,14 @@ function Room({
             <span style={{ color: palette.ink.muted }}>Ask the room a question</span>
           </button>
         )}
-      {mayWrite && suggestions.length > 0 && (
-        <div
-          role="listbox"
-          aria-label="Mention someone"
+      {mayWrite && (
+        <MentionList
+          suggestions={mention.suggestions}
+          choice={mention.choice}
+          people={people}
+          onPick={mention.pick}
           style={{ borderTop: `1px solid ${palette.surface.line}` }}
-        >
-          {suggestions.map((person, i) => (
-            <button
-              key={person.did}
-              type="button"
-              role="option"
-              aria-selected={i === choice}
-              // Keep the cursor in the box.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(person.did)}
-              data-menu-item
-              style={{
-                width: '100%',
-                display: 'flex',
-                gap: 10,
-                alignItems: 'center',
-                padding: '8px 12px',
-                border: 'none',
-                background: i === choice ? palette.surface.sunken : palette.surface.card,
-                font: 'inherit',
-                fontSize: 13,
-                textAlign: 'left',
-              }}
-            >
-              <Avatar did={person.did} size={20} />
-              <span style={{ color: palette.ink.strong }}>{nameOf(person.did, people)}</span>
-            </button>
-          ))}
-        </div>
+        />
       )}
       {mayWrite && replying && (
         <div
@@ -526,26 +461,11 @@ function Room({
           <input
             ref={input}
             value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              setCaret(e.target.selectionStart ?? e.target.value.length);
-              setChoice(0);
-            }}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? draft.length)}
+            onChange={mention.onChange}
+            onSelect={mention.onSelect}
             onKeyDown={(e) => {
-              if (e.key === 'Escape' && replying && !suggestions.length) return setReplying(null);
-              if (!suggestions.length) return;
-              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                e.preventDefault();
-                const step = e.key === 'ArrowDown' ? 1 : -1;
-                setChoice((i) => (i + step + suggestions.length) % suggestions.length);
-              } else if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                const person = suggestions[choice] ?? suggestions[0];
-                if (person) pick(person.did);
-              } else if (e.key === 'Escape') {
-                setCaret(0);
-              }
+              if (e.key === 'Escape' && replying && !mention.suggestions.length) return setReplying(null);
+              mention.onKeyDown(e);
             }}
             placeholder={
               replying
@@ -734,7 +654,12 @@ function Line({
         </div>
         {showReactions && (
           <div style={{ margin: '4px 0 6px' }}>
-            <Reactions space={space} target={record.key} reactions={reactionsOf(record)} />
+            <Reactions
+              space={space}
+              target={record.key}
+              targetAuthor={record.root}
+              reactions={reactionsOf(record)}
+            />
           </div>
         )}
       </div>

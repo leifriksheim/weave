@@ -221,6 +221,7 @@ export function RecordPanel({
               <Reactions
                 space={space}
                 target={record.key}
+                targetAuthor={record.root}
                 reactions={linked.filter((r) => r.collection === reaction.name)}
               />
             )}
@@ -446,6 +447,7 @@ export function RecordPanel({
                 <Comments
                   space={space}
                   target={record.key}
+                  targetAuthor={record.root}
                   comments={linked.filter((r) => r.collection === comment.name)}
                 />
               </>

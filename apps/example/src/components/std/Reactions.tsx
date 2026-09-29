@@ -3,6 +3,7 @@ import { useNode, useAccount } from '@weaveprotocol/core/react';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { reaction } from '@weaveprotocol/core/schemas';
 import { bodyOf } from '../../derive/schema-ui';
+import { respondingTo } from '../../derive/people';
 import { palette } from '../../styles';
 
 const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];
@@ -14,10 +15,13 @@ const QUICK = ['👍', '❤️', '🎉', '😂', '👀', '🙏'];
 export function Reactions({
   space,
   target,
+  targetAuthor,
   reactions,
 }: {
   space: SpaceSummary;
   target: string;
+  /** Who wrote what is reacted to, told through `respondingTo` */
+  targetAuthor: string | null;
   reactions: ReadonlyArray<NodeRecord>;
 }) {
   const node = useNode();
@@ -34,7 +38,12 @@ export function Reactions({
     const mine = byEmoji.get(emoji)?.find((r) => r.root === rootDid);
     void (mine
       ? node.records.delete(space.id, mine.key)
-      : node.records.put(space.id, reaction.name, { emoji }, { links: [{ rel: 'about', to: target }] }));
+      : node.records.put(
+          space.id,
+          reaction.name,
+          { emoji, ...respondingTo(targetAuthor, rootDid) },
+          { links: [{ rel: 'about', to: target }] },
+        ));
   };
 
   return (

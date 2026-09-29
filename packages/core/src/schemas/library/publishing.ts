@@ -91,6 +91,7 @@ export const call = typed<Call>()({
     required: ['status', 'startedAt'],
   },
   rules: { edit: 'creator', delete: 'creator' },
+  topics: ['to', 'people'],
 });
 export interface Call {
   readonly status: 'missed' | 'ended';
@@ -166,6 +167,7 @@ export interface Direct {
 /**
  * A post to a feed: short text, pictures, a reply or a quote. `root` is the
  * first post of the thread, so a reader gathers a thread with one query.
+ * `mentions` and `replyingTo` are its topics, as on a `std.message`.
  */
 export const post = typed<Post>()({
   name: 'std.post',
@@ -177,8 +179,11 @@ export const post = typed<Post>()({
       text: text(10000),
       images: { type: 'array', maxItems: 8, items: image() },
       langs: { type: 'array', maxItems: 3, items: text(35, 'BCP 47, like "en"', 2) },
+      mentions: people(64, 'Who it mentions, so they can be told'),
+      replyingTo: person('Whose post it replies to, so they can be told'),
     },
   },
+  topics: ['mentions', 'replyingTo'],
   links: {
     replyTo: one(['std.post'], 'The post this replies to'),
     root: one(['std.post'], 'The first post of the thread'),
@@ -191,6 +196,10 @@ export interface Post {
   readonly text?: string;
   readonly images?: ReadonlyArray<ImageRef>;
   readonly langs?: ReadonlyArray<string>;
+  /** Accounts it mentions */
+  readonly mentions?: ReadonlyArray<string>;
+  /** The account whose post it replies to */
+  readonly replyingTo?: string;
 }
 
 /** Passing a post on as it is: one per person per post. */
@@ -198,11 +207,18 @@ export const repost = typed<Repost>()({
   name: 'std.repost',
   title: 'Repost',
   description: 'Passing a record on as it is: one per person per record.',
-  schema: { type: 'object', properties: {} },
+  schema: {
+    type: 'object',
+    properties: { respondingTo: person('Whose record it responds to, so they can be told') },
+  },
   links: { about: about('What is reposted') },
   rules: { ...own, onePer: ['@author', 'link:about'] },
+  topics: ['respondingTo'],
 });
-export type Repost = Readonly<Record<string, never>>;
+export interface Repost {
+  /** The account whose record it passes on */
+  readonly respondingTo?: string;
+}
 
 /** Long-form writing, optionally in a publication. `draft` keeps it unlisted. */
 export const article = typed<Article>()({
@@ -212,6 +228,7 @@ export const article = typed<Article>()({
   schema: {
     type: 'object',
     properties: {
+      mentions: people(64, 'Who it mentions, so they can be told'),
       title: words(300),
       summary: text(1000),
       content: markdown(200000),
@@ -225,6 +242,7 @@ export const article = typed<Article>()({
   links: { in: one(['std.publication'], 'The publication it is in') },
   permissions: ['moderate'],
   rules: authored,
+  topics: ['mentions'],
 });
 export interface Article {
   readonly title: string;
@@ -234,6 +252,8 @@ export interface Article {
   readonly slug?: string;
   readonly publishedAt?: string;
   readonly draft?: boolean;
+  /** Accounts it mentions */
+  readonly mentions?: ReadonlyArray<string>;
 }
 
 /** A blog, a newsletter: what articles are published in. */
@@ -289,6 +309,7 @@ export const docBlock = typed<DocBlock>()({
   schema: {
     type: 'object',
     properties: {
+      mentions: people(64, 'Who it mentions, so they can be told'),
       type: choice(BLOCK_TYPES),
       text: text(20000),
       checked: { type: 'boolean', description: 'For a todo' },
@@ -302,6 +323,7 @@ export const docBlock = typed<DocBlock>()({
     in: one(['std.doc'], 'The document it is in'),
     parent: one(['std.doc-block'], 'The block it is nested under'),
   },
+  topics: ['mentions'],
 });
 export interface DocBlock {
   readonly type: (typeof BLOCK_TYPES)[number];
@@ -310,6 +332,8 @@ export interface DocBlock {
   readonly language?: string;
   readonly image?: ImageRef;
   readonly position?: string;
+  /** Accounts it mentions */
+  readonly mentions?: ReadonlyArray<string>;
 }
 
 /**
@@ -346,16 +370,20 @@ export const note = typed<Note>()({
   schema: {
     type: 'object',
     properties: {
+      mentions: people(64, 'Who it mentions, so they can be told'),
       title: text(500),
       content: markdown(200000),
       pinned: { type: 'boolean' },
       color: text(32),
     },
   },
+  topics: ['mentions'],
 });
 export interface Note {
   readonly title?: string;
   readonly content?: string;
   readonly pinned?: boolean;
   readonly color?: string;
+  /** Accounts it mentions */
+  readonly mentions?: ReadonlyArray<string>;
 }
