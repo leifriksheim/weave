@@ -1041,7 +1041,7 @@ a lapsed subscription is dropped by a periodic sweep (reference: hourly), and
 its carry space with it unless another subscription carries it. Paying again
 in time carries again what the grace period kept. A host MAY carry only a
 configured list of accounts, and then MUST refuse any other before keeping
-anything. It runs the carrier of §4.1–6.2 for every carry space.
+anything. It runs the carrier of §4.1–4.2 for every carry space.
 
 How a device reaches a host's sockets is outside this protocol: the reference
 host takes peers at `wss://<host>/peer` ([04](04-network.md)), which a device
