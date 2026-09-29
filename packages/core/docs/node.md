@@ -75,8 +75,11 @@ Sign-in ([sign-in](sign-in.md)) uses `storesFor(account)`: IndexedDB with prefix
 `weave:<dataPath with : for />` in the browser, or `folderStores(pod,
 { basePath: account.dataPath, vaultKey })` in a pod, where `dataPath` is
 `accounts/<id>/stores`. A connected app uses `indexedDBStores('weave-app:<account DID>')`
-by default. These names are _implementation details_; a pod's layout is in
+by default. These names are _implementation details_ ([sync and storage](storage.md#indexeddb));
+a pod's layout is in
 [05](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md).
+A node also opens `mirrors/<spaceId>/<n>` for a mirror's writer state
+([mirrors](storage.md#mirrors)), and a host `host` for its subscriptions.
 
 `copyAccountData({ from, to, did, accountKey? })` copies every space an
 account holds, with its key and records, from one set of stores to another —
@@ -140,13 +143,49 @@ node's own choice; how it tells peers what it holds is in
 cache.copies ?? 0))` of the space's named keepers have them. A collection
   holding a pending write is never dropped.
 - A collection unused for `cache.unusedAfterDays` (default 30) days is dropped
-  when the space opens and every 6 hours while it stays open.
-- A space that names no keeper is held whole.
+  when the space opens and every 6 hours while it stays open. It stops being
+  held _before_ its versions are removed, so nothing syncs it back meanwhile.
+- A space that names no keeper is held whole, and the node may itself be one
+  of its copies.
+- When what it holds changes (whole or part, or a newly used collection), the
+  node says hello to every peer.
+
+A keeper confirms a write the way the spec says: by `stored`, or by being
+level with the writer on its collection. Only a peer named in `sys.keepers`
+counts ([spec 05 §9](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md)).
+
+This state is kept in the space's own store (`spaces/<spaceId>`):
+
+| Key                    | Value (UTF-8 JSON)                                                                                                                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cache`                | `{ "settled": boolean, "used": { [collection]: ms }, "level": { [collection]: ms } }`. `settled`: has synced with a whole-space peer; `used`: when a query last used it; `level`: when it was first level with a whole-space peer |
+| `pending/<version id>` | `{ "collection": string, "by": [keeper DID…] }`, deleted once `by` reaches the target                                                                                                                                             |
+
+Completeness rests on trust: a keeper that withholds versions, or a peer
+holding `"all"` that lost some, still counts as level, and a reader cannot
+tell. Signed writer logs will replace this definition of complete
+([spec 05 §9.1](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md)).
 
 The account registry, the contacts space and carry spaces are always held
 whole. Apps connected to an account home use `cache: {}` by default ([spec 06 §2.8](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
 
-_Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"). Tests: `packages/core/tests/caches.test.ts`._
+_Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"), `packages/core/src/node/types.ts` (`CacheConfig`). Tests: `packages/core/tests/caches.test.ts`, `packages/core/tests/reconcile.test.ts` ("holding part of a space")._
+
+### Planned: caches that widen and trim
+
+> **Planned.** None of it changes what other nodes see. Fetching linked
+> records by key, and holding less than a collection, need new messages and
+> are planned in [spec 05 §9.2](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md).
+
+- **Widening.** A node holding part of a space starts holding all of it when
+  too few keepers are online (Holochain's arcs: nodes grow their share when
+  others go missing). Opt-in only (`cache.widen: true`), since done on its own
+  it could fill a disk at a bad moment. Open: what "too few" is, and for how
+  long. Today a cache only widens as queries use collections.
+- **Trimming by size.** `cache.maxBytes`: above it, drop least recently used
+  collections first, undeclared ones before declared. Also trim when
+  `navigator.storage.estimate()` says room is low, before the browser clears
+  the site. Pending writes are never dropped.
 
 ## Events
 
@@ -193,7 +232,7 @@ A received live message is emitted as a `message` event:
 | `own`         | Of `peers`, the account's own other devices and apps: those also connected in the account registry, minus carriers. Empty without an account key.                                                                                                                                                                                                                                                                                                                                                                 |
 | `carriers`    | Of `peers`, the account's carriers, by the keys `sys.carrier` records name.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `accounts`    | Session DID → account, for each peer that showed a valid note.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `fingerprint` | A fingerprint of every version held; equal on two nodes means identical data ([05](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md)).                                                                                                                                                                                                                                                                                                                                                 |
+| `fingerprint` | A fingerprint of every version held; equal on two nodes means identical data ([the store in memory](storage.md#the-store-in-memory)).                                                                                                                                                                                                                                                                                                                                                                             |
 | `rejected`    | How many versions peers sent failed validation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `holds`       | `"all"`, or the sorted list of collections held ([holding part of a space](#holding-part-of-a-space)).                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `pending`     | This node's writes still waiting for keepers ([holding part of a space](#holding-part-of-a-space)).                                                                                                                                                                                                                                                                                                                                                                                                               |
