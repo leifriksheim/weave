@@ -23,6 +23,12 @@ export function PersonScopeProvider({ children, ...scope }: PersonScope & { chil
   return <Scope.Provider value={scope}>{children}</Scope.Provider>;
 }
 
+/** Who is in the space on screen, and which of them is you: null outside a space */
+export function usePeopleHere(): { readonly people: People; readonly me: string } | null {
+  const scope = useContext(Scope);
+  return scope ? { people: scope.people, me: scope.me } : null;
+}
+
 /**
  * Someone's name, which opens their card. Outside a space there is no card
  * to open, so it is only the name.
