@@ -1,6 +1,6 @@
 # The node
 
-`createNode` and what it returns: configuration, stores, holding spaces,
+`createNode` and what it returns: configuration, root signers and notes, stores, holding spaces,
 events, live messages, the rest of its surface, acting as an agent, the
 app-side client, doors, and the React and element conveniences.
 
@@ -53,6 +53,57 @@ and drops all event listeners. After `close()`, any call that needs a space
 fails with `Node is closed`. Closing twice does nothing.
 
 _Source: `packages/core/src/node/node.ts` (`createNode`, `close`). Tests: `packages/core/tests/node.test.ts`._
+
+## Root signers and notes
+
+A node never holds the root key. It is given a **root signer** (`RootSigner`),
+which hides where the key lives and is asked only for notes. This is an
+in-process interface, not a wire format; what a note must be is
+[spec 01 §7](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md).
+
+| Member                                                   | Type                    | Meaning                                                                                          |
+| -------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------ |
+| `did`                                                    | string                  | The account DID                                                                                  |
+| `custody`                                                | `'local'` \| `'remote'` | `local`: the seed is unlocked in this page. `remote`: another context (an account home) holds it |
+| `delegate({audience, capabilities, expiration, facts?})` | → UCAN                  | Issue a note from the account to `audience`                                                      |
+
+- The **local** signer (`createLocalRootSigner`) calls `issueUCAN` with the
+  root key. It includes `fct` only when `facts` is non-empty.
+- The **grant** signer an app uses returns the one note the account home
+  already issued to the app's key, unchanged, and refuses once the grant's
+  `expiresAt` has passed. It cannot mint new notes
+  ([spec 06 §2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+
+The **session note** a node asks for when it starts:
+
+```
+aud = session DID
+att = [{ "with": "*", "can": "expression/*" }]   (SESSION_CAPABILITY)
+exp = now + sessionTtlSeconds                     (default 3600)
+nbf = now − 300                                   (issueUCAN's default)
+fct = absent                                      (or [{"weave":"agent"}] for an agent's own node)
+prf = []
+```
+
+Peers check only that the note covers what each record needs, so `att` is
+this node's choice, not a rule. The note is renewed before it runs out
+([spec 06 §1.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+
+**Issuing.** `issueUCAN` defaults `exp` to now + 3600, `nbf` to now − 300
+(`UCAN_CLOCK_SKEW_SECONDS`, so a peer whose clock is a little behind still
+accepts it), `nnc` to 16 random hex characters, and `prf` to `[]`.
+`delegateCapabilities` issues a child of an existing note, with
+`prf = [CID(parent)]` and no facts, and refuses when:
+
+- the issuer is not the parent's `aud`;
+- a child capability is not covered by some parent capability
+  ([spec 01 §7.6](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md));
+- the requested `exp` is later than the parent's (default: the parent's `exp`).
+
+These refusals only save issuing a note that would not verify: a verifier
+checks the chain itself ([spec 01 §7.5](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md)).
+
+_Source: `packages/core/src/identity/root-signer.ts`, `packages/core/src/identity/ucan.ts` (`issueUCAN`, `delegateCapabilities`), `packages/core/src/node/node.ts` (`SESSION_CAPABILITY`, `delegate`), `packages/core/src/session/connect.ts` (`grantSigner`, `grantCapabilities`). Tests: `packages/core/tests/ucan.test.ts`, `packages/core/tests/node.test.ts`, `packages/core/tests/connect.test.ts`._
 
 ## Stores
 
@@ -182,6 +233,26 @@ function. A listener that throws does not stop the others.
 
 _Source: `packages/core/src/node/types.ts` (`NodeEvent`), `packages/core/src/node/node.ts` (`fromRuntime`, `checkRevoked`). Tests: `packages/core/tests/node.test.ts` ("events announce local writes"), `packages/core/tests/connect.test.ts` ("disconnecting revokes the note")._
 
+### Versions that wait or are refused
+
+A version from a peer stands, waits or is refused
+([spec 02 §9.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)).
+What the node does with each is its own:
+
+- A batch from a peer is admitted `sys.collection` versions first, then by
+  ascending `seq`, so definitions and first versions are in before what
+  depends on them and little has to wait.
+- A version that waits is held in memory, at most 1,000, the oldest dropped
+  when full, and judged again whenever something new is stored. A version
+  waiting for its first version, or the one before it, asks the peer for
+  them at once.
+- A refused version emits a `rejected` event with the peer and the reason,
+  and is remembered as (peer, id), at most 10,000, so it is not asked of that
+  peer again. Never by id alone: a copy with a mangled signature has the
+  genuine version's id.
+
+_Source: `packages/core/src/sync/sync-engine.ts` (`admit`, `admitAll`, `rank`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/reconcile.test.ts` ("a refused version is not asked for again", "a version that waits for its first version asks for it at once, and is acknowledged once in")._
+
 ## Live messages and status
 
 `spaces.send(id, message, to?)` sends a JSON value to the peers connected in
@@ -237,13 +308,15 @@ exposes them:
   `profile`, in the account registry, then republishes the profile in every
   open space), `revoke(token)` (in the account registry). All need the account
   key.
-- `node.contacts` — [03](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md). `ask` and `accept` make or join a space
+- `node.contacts` — [contacts.md](contacts.md). `ask` and `accept` make or join a space
   for two, so they need a session note with `with: "*"` (whole-account access).
-- `node.doors` — [07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md). Needs the contact key; knocking and
+- `node.direct` — [direct-messages.md](direct-messages.md): `reachable`, `send`
+  and `list`. Needs the account's member key for the space.
+- `node.doors` — [doors.md](doors.md), [07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md). Needs the contact key; knocking and
   accepting also need whole-account access.
 - `node.carriers`, `node.hosting`, `node.notifications` — [spec 06 §4](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md).
 - `node.iceServers()` — the configured ICE servers plus TURN servers a relay
-  offers ([04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)); what calls use ([spec 06 §5](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+  offers ([04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)); what [calls](calls.md#connections) use.
 - `node.network` — `status()`: each relay's state (open, or waiting to redial,
   when and why), the connections open and those still being made, and whether
   a relay offered TURN; `reconnect()` redials a waiting relay now
@@ -251,7 +324,7 @@ exposes them:
   Local only: nothing here goes over the wire.
 - `node.asAgent({ keys, note })` — [acting as an agent](#a-node-acting-as-an-agent).
 
-_Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/profiles.test.ts`._
+_Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/direct.test.ts`, `packages/core/tests/profiles.test.ts`._
 
 ## A node acting as an agent
 
@@ -277,7 +350,7 @@ Closing the agent leaves the underlying node running.
 An agent granted `scope: account` gets a `*` note and the account key in its
 grant ([spec 06 §2.5](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)), so the contact list is within its note to read. A home must not
 give an agent the contact key: with it, an agent could open contact requests
-and knocks on the account's doors ([07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md)).
+and knocks on the account's doors ([doors.md](doors.md)).
 
 _Source: `packages/core/src/node/node.ts` (`asAgent`). Tests: `packages/core/tests/agents.test.ts` ("an agent acting for a person")._
 
@@ -285,7 +358,8 @@ _Source: `packages/core/src/node/node.ts` (`asAgent`). Tests: `packages/core/tes
 
 `createWeaveConnection({ home, request, network?, storage?, stores? })` is the
 app's twin of [sign-in](sign-in.md): statuses `starting`, `disconnected`, `connecting`, `ready`,
-`expired`. It keeps the grant in `localStorage` under `weave.grant` and the
+`expired`. It keeps the app's key in IndexedDB database `weave-app-key`, the
+grant in `localStorage` under `weave.grant`, and the
 person's chosen home under `weave.home` (`home` in the config is only a
 default). `propose(notify)` sends a proposal to the grant's home ([spec 06 §2.11](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
 `watchNotifications(node, { origin?, onNotify })` hands the app each record
@@ -296,7 +370,7 @@ _Source: `packages/core/src/session/connection.ts`, `packages/core/src/node/watc
 
 ## Doors
 
-`node.doors` ([06 — Nodes, sessions and apps](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)):
+`node.doors` ([doors.md](doors.md), [spec 07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md)):
 
 | Call                               | Does                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -304,15 +378,15 @@ _Source: `packages/core/src/session/connection.ts`, `packages/core/src/node/watc
 | `open({ relays?, name?, label? })` | Opens a door. Relays default to this node's relays (up to 3); name to the account's name                                                                                                                                                                                                                           |
 | `close(id)`                        | Deletes the `std.door`                                                                                                                                                                                                                                                                                             |
 | `clear(id)`                        | Purges every knock at the door, from every relay it names                                                                                                                                                                                                                                                          |
-| `knock(code, { note? })`           | [spec 07 §7](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md), returns `{ space }`                                                                                                                                                                                                                |
+| `knock(code, { note? })`           | [the exchange](doors.md#the-exchange), returns `{ space }`                                                                                                                                                                                                                                                         |
 | `knocks()`                         | Fetches every open door's topic from every relay it names, opens and checks ([spec 07 §6](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md); opened results are cached by id), settles sent knocks and writes owed answers; returns `{ id, door, from, name, note?, pairSpace, at }`, newest first |
 | `sent()`                           | Your unanswered knocks: `{ space, name, at }`                                                                                                                                                                                                                                                                      |
-| `accept(id)`                       | [spec 07 §7](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md), returns the new `ContactView`                                                                                                                                                                                                      |
+| `accept(id)`                       | [the exchange](doors.md#the-exchange), returns the new `ContactView`                                                                                                                                                                                                                                               |
 | `dismiss(id)`                      | Purges one knock                                                                                                                                                                                                                                                                                                   |
 
 ## Client conveniences
 
-These are not protocol; another client may draw sign-in and calls however it
+These are not protocol; another client may draw sign-in and [calls](calls.md) however it
 likes.
 
 - **`<weave-auth>`** draws the flow of [sign-in](sign-in.md) into its own light DOM (so password
