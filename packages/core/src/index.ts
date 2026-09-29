@@ -185,6 +185,7 @@ export {
   collection,
 } from './schema/collection-def.js';
 export type { StoredCollection, JsonSchema, SchemaIssue } from './schema/collection-def.js';
+export { titleField, recordTitle, quickAddBody } from './schema/quick-add.js';
 export type { Membership } from './space/account-registry.js';
 export type {
   SpaceManager,

@@ -6,7 +6,20 @@
  * form, a table, a record page and the "add a vote to this poll" buttons.
  * Pure functions, so any renderer (DOM, native, a voice agent) could use them.
  */
-import type { JsonSchema, NodeCollection, NodeRecord } from '@weaveprotocol/core';
+import {
+  quickAddBody,
+  recordTitle,
+  titleField,
+  type JsonSchema,
+  type NodeCollection,
+  type NodeRecord,
+} from '@weaveprotocol/core';
+
+export { quickAddBody, titleField };
+
+/** A record in a few words */
+export const recordLabel = (record: NodeRecord, schema: JsonSchema | null): string =>
+  recordTitle(record, schema);
 
 /** How a field is edited and shown */
 export type FieldKind =
@@ -22,8 +35,6 @@ export interface Field {
 }
 
 const LONG_TEXT = 500;
-/** Fields that usually name a record, in the order to try them */
-const TITLE_NAMES = ['title', 'name', 'text', 'question', 'label', 'subject', 'emoji'];
 
 /** A JSON object: a record body, a schema, or one of their parts */
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -88,28 +99,6 @@ export function fieldsOf(schema: JsonSchema | null): ReadonlyArray<Field> {
   });
 }
 
-/** The field that names a record: a conventional name, else the first required text, else the first text */
-export function titleField(schema: JsonSchema | null): string | null {
-  const fields = fieldsOf(schema);
-  const text = fields.filter((f) => f.kind === 'text' || f.kind === 'longText');
-  return (
-    TITLE_NAMES.find((name) => text.some((f) => f.name === name)) ??
-    text.find((f) => f.required)?.name ??
-    text[0]?.name ??
-    null
-  );
-}
-
-/** A record in a few words */
-export function recordLabel(record: NodeRecord, schema: JsonSchema | null): string {
-  if (record.body === null) return '(cannot open)';
-  const body = bodyOf(record);
-  const field = titleField(schema) ?? TITLE_NAMES.find((name) => typeof body[name] === 'string');
-  const value = field ? body[field] : undefined;
-  if (typeof value === 'string' && value.trim()) return value.length > 80 ? `${value.slice(0, 80)}…` : value;
-  return `${record.collection.split('.').pop()} ${record.key.slice(0, 6)}`;
-}
-
 /** What a table shows: short fields, at most four */
 export function columnsOf(schema: JsonSchema | null): ReadonlyArray<Field> {
   const title = titleField(schema);
@@ -147,7 +136,7 @@ export function collectionLabel(collection: Pick<NodeCollection, 'name' | 'title
  * Collections the app already gives a place of their own (its reactions and
  * comments) are left out via `except`.
  */
-function attachable(
+export function attachable(
   collections: ReadonlyArray<NodeCollection>,
   target: string,
   except: ReadonlySet<string> = new Set(),
@@ -270,24 +259,6 @@ export function checkField(schema: JsonSchema | null): Field | null {
 /** The fields a board can make columns from: those with a fixed set of choices */
 export function groupFields(schema: JsonSchema | null): ReadonlyArray<Field> {
   return fieldsOf(schema).filter((f) => f.kind === 'choice' && !choicesFrom(f.schema));
-}
-
-/**
- * What a one-line "add" creates from its text: the title field filled in, the
- * rest at their empty values. Null when something else is required that has
- * no sensible empty value — then the full form is the honest way in.
- */
-export function quickAddBody(schema: JsonSchema | null, text: string): Record<string, unknown> | null {
-  const title = titleField(schema);
-  if (!title) return null;
-  const body: Record<string, unknown> = { [title]: text };
-  for (const field of fieldsOf(schema)) {
-    if (field.name === title) continue;
-    const empty = emptyValue(field);
-    if (empty !== undefined) body[field.name] = empty;
-    else if (field.required) return null;
-  }
-  return body;
 }
 
 /** The short fields worth showing beside a title in a list: not the title, not the checkbox */

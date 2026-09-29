@@ -12,7 +12,10 @@
  * it writes is written as them, so a rule can do nothing its maker couldn't
  * do by hand. Each time it acts it leaves a run (`std.rule-run`), one per
  * rule per record by construction (`onePer`): that is how it acts once for
- * each record, and the rule's history for anyone.
+ * each record, and the rule's history for anyone. A run names the record the
+ * rule wrote, and nothing a rule wrote sets off a rule: "when a message is
+ * added, post a message" would otherwise answer itself forever, and so would
+ * two rules that answer each other.
  *
  * Not protocol: a peer that has never heard of rules syncs and judges these
  * records like any other. See `packages/core/docs/rules.md`.
@@ -21,23 +24,31 @@ import type { DefineCollection, P2PNode } from '../node/types.js';
 import { nameOf, plainQuery, type Query, type QueryRecord, type Typed } from '../query/types.js';
 import { checkQuery } from '../query/filter.js';
 import { checkRecordCondition, recordHolds, type Condition } from '../records/checks.js';
+import { quickAddBody } from '../schema/quick-add.js';
 import { isObject } from '../utils/guards.js';
 import { about, one, when as moment, words } from './fragments.js';
-import { comment } from './library/annotations.js';
-import { message } from './library/publishing.js';
-import { task } from './library/planning.js';
+
+/** A link a rule's new record carries: to a record by key, or to `$it`, the record the rule holds for */
+export interface RuleLink {
+  readonly rel: string;
+  readonly to: string;
+}
 
 /**
  * What a rule does. In text, `{title}` is what the record is called,
- * `{<include>}` how many an include found. A message's `channel` is a
- * channel's key, or `$it`: the record the rule holds for, when that is one.
+ * `{<include>}` how many an include found. `add` makes a record in any
+ * collection one line of text can make one of (`quickAddBody`): a message, a
+ * comment, a task, or one someone defined yesterday, with the links it names.
  */
 export type RuleAction =
   | { readonly kind: 'notify'; readonly text: string }
-  | { readonly kind: 'message'; readonly text: string; readonly channel?: string }
-  | { readonly kind: 'comment'; readonly text: string }
-  | { readonly kind: 'set'; readonly field: string; readonly value: string | number | boolean }
-  | { readonly kind: 'task'; readonly text: string };
+  | {
+      readonly kind: 'add';
+      readonly collection: string;
+      readonly text: string;
+      readonly links?: ReadonlyArray<RuleLink>;
+    }
+  | { readonly kind: 'set'; readonly field: string; readonly value: string | number | boolean };
 
 /** What a rule is about: the records a query finds, those a condition holds for */
 export interface RuleWhen {
@@ -63,6 +74,8 @@ export interface RuleRun {
   readonly did: string;
   readonly ok: boolean;
   readonly at: string;
+  /** The record it wrote, when it wrote a new one: nothing a rule wrote sets off a rule */
+  readonly made?: string;
 }
 
 export const rule: DefineCollection & Typed<Rule> = {
@@ -91,7 +104,7 @@ export const ruleRun: DefineCollection & Typed<RuleRun> = {
   description: 'A rule acted on a record: once each, whichever device did it.',
   schema: {
     type: 'object',
-    properties: { did: words(500), ok: { type: 'boolean' }, at: moment() },
+    properties: { did: words(500), ok: { type: 'boolean' }, at: moment(), made: words(256) },
     required: ['did', 'ok', 'at'],
   },
   links: {
@@ -105,7 +118,7 @@ export const ruleRun: DefineCollection & Typed<RuleRun> = {
 /** In an action, the record the rule holds for */
 export const IT = '$it';
 
-const KINDS = new Set(['notify', 'message', 'comment', 'set', 'task']);
+const KINDS = new Set(['notify', 'add', 'set']);
 
 /** Why this can't be a rule's action, or null */
 function checkAction(then: unknown): string | null {
@@ -118,12 +131,21 @@ function checkAction(then: unknown): string | null {
     return null;
   }
   if (typeof then.text !== 'string' || !then.text.trim()) return 'then.text must say something';
-  if (
-    then.kind === 'message' &&
-    then.channel !== undefined &&
-    (typeof then.channel !== 'string' || !then.channel)
-  )
-    return `then.channel must be a channel's key, or "${IT}"`;
+  if (then.kind === 'add') {
+    if (typeof then.collection !== 'string' || !then.collection)
+      return 'then.collection must name a collection';
+    const links: unknown = then.links;
+    if (
+      links !== undefined &&
+      !(
+        Array.isArray(links) &&
+        links.every(
+          (l) => isObject(l) && typeof l.rel === 'string' && !!l.rel && typeof l.to === 'string' && !!l.to,
+        )
+      )
+    )
+      return `then.links must be a list of { rel, to }, where to is a record's key or "${IT}"`;
+  }
   return null;
 }
 
@@ -256,7 +278,6 @@ export async function act(
   const at = new Date().toISOString();
   const text = (template: string) => fillRuleText(template, match, options.title);
   const collections = await node.collections.list(space);
-  const has = (name: string) => collections.some((c) => c.name === name && c.version !== null);
   const then = body.then;
   try {
     switch (then.kind) {
@@ -264,38 +285,19 @@ export async function act(
         const shown = options.notify?.(body.name, text(then.text), match.record) ?? false;
         return { did: shown ? `Notified: ${text(then.text)}` : 'Nothing here could notify', ok: shown, at };
       }
-      case 'message': {
-        if (!has(message.name)) return { did: 'There is no chat in this space', ok: false, at };
-        const channel = then.channel === IT ? match.record.key : then.channel;
-        await node.records.put(
-          space,
-          message.name,
-          { text: text(then.text) },
-          {
-            links: [
-              ...(channel ? [{ rel: 'channel', to: channel }] : []),
-              // Posted in it, it needn't share it too.
-              ...(channel === match.record.key ? [] : [{ rel: 'shares', to: match.record.key }]),
-            ],
-          },
-        );
-        return { did: `Posted in chat: ${text(then.text)}`, ok: true, at };
+      case 'add': {
+        const target = collections.find((c) => c.name === then.collection && c.version !== null);
+        const thing = (target?.title ?? then.collection.split('.').pop() ?? then.collection).toLowerCase();
+        const fresh = target ? quickAddBody(target.schema, text(then.text)) : null;
+        if (!target || !fresh)
+          return { did: `This space can't add a ${thing} from a line of text`, ok: false, at };
+        const links = (then.links ?? []).map((l) => ({
+          rel: l.rel,
+          to: l.to === IT ? match.record.key : l.to,
+        }));
+        const made = await node.records.put(space, target.name, fresh, { links });
+        return { did: `Added a ${thing}: ${text(then.text)}`, ok: true, at, made: made.key };
       }
-      case 'comment':
-        if (!has(comment.name)) return { did: 'This space has no comments', ok: false, at };
-        await node.records.put(
-          space,
-          comment.name,
-          { text: text(then.text) },
-          {
-            links: [{ rel: 'about', to: match.record.key }],
-          },
-        );
-        return { did: `Commented: ${text(then.text)}`, ok: true, at };
-      case 'task':
-        if (!has(task.name)) return { did: 'This space has no tasks', ok: false, at };
-        await node.records.put(space, task.name, { title: text(then.text) });
-        return { did: `Added a task: ${text(then.text)}`, ok: true, at };
       case 'set': {
         const current = await node.records.get(space, match.record.key);
         const was = isObject(current?.body) ? current.body : null;
@@ -311,10 +313,15 @@ export async function act(
   }
 }
 
-/** The records each rule has run for, by rule key */
-async function runsIn(node: P2PNode, space: string): Promise<Map<string, Set<string>>> {
+/** The records each rule has run for, by rule key, and the records rules wrote */
+async function runsIn(
+  node: P2PNode,
+  space: string,
+): Promise<{ by: Map<string, Set<string>>; made: Set<string> }> {
   const by = new Map<string, Set<string>>();
+  const made = new Set<string>();
   for (const run of await node.records.list(space, { collection: ruleRun.name })) {
+    if (isObject(run.body) && typeof run.body.made === 'string') made.add(run.body.made);
     const ran = run.links.find((l) => l.rel === 'rule')?.to;
     const on = run.links.find((l) => l.rel === 'about')?.to;
     if (!ran || !on) continue;
@@ -322,7 +329,7 @@ async function runsIn(node: P2PNode, space: string): Promise<Map<string, Set<str
     seen.add(on);
     by.set(ran, seen);
   }
-  return by;
+  return { by, made };
 }
 
 /**
@@ -345,14 +352,20 @@ export async function runRules(
   );
   if (mine.length === 0) return;
   const busy = options.busy ?? new Set<string>();
-  const runs = await runsIn(node, space);
+  const { by: runs, made } = await runsIn(node, space);
   for (const record of mine) {
     const body = ruleOf(record);
     if (!body || body.paused || !defined(nameOf(body.when.query.collection))) continue;
     const since = Date.parse(body.since);
     for (const match of await matching(node, space, body.when)) {
       const claim = `${record.key} ${match.record.key}`;
-      if (match.moment < since || runs.get(record.key)?.has(match.record.key) || busy.has(claim)) continue;
+      if (
+        match.moment < since ||
+        made.has(match.record.key) ||
+        runs.get(record.key)?.has(match.record.key) ||
+        busy.has(claim)
+      )
+        continue;
       busy.add(claim);
       try {
         const links = [
@@ -367,6 +380,7 @@ export async function runRules(
           { links },
         );
         const done = await act(node, space, body, match, options);
+        if (done.made) made.add(done.made);
         await node.records.update(space, run.key, done, { links });
       } finally {
         busy.delete(claim);

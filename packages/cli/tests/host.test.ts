@@ -1171,6 +1171,12 @@ describe('a space paying for itself', () => {
     await bob.spaces.join(await laptop.spaces.invite(space));
     await hold(laptop, space);
     await joined(bob, space);
+    // Bob seeing his join isn't the laptop seeing it: removing him before then is "Not a member".
+    await until(
+      async () => (await laptop.spaces.access(space)).members.some((m) => m.did === bob.did),
+      6000,
+      'the laptop to see Bob join',
+    );
     const first = (await laptop.hosting.space(space))[0]?.status?.readKey;
     assert.ok(first);
 

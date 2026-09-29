@@ -19,12 +19,14 @@ import {
   type Rule,
   type RuleAction,
   type RuleMatch,
-  IT,
-  channel as channelCollection,
 } from '@weaveprotocol/core/schemas';
 import {
   ACTIONS,
   COUNT_OPS,
+  addAction,
+  addable,
+  linkToIt,
+  type AddTarget,
   compile,
   noun,
   pickedOf,
@@ -110,6 +112,10 @@ export function RuleBuilder({
 
   const has = (n: string) => collections.some((c) => c.name === n && c.version !== null);
   const settable = fields.filter((f) => ['choice', 'yesno', 'number', 'text'].includes(f.kind));
+  const targets = useMemo(
+    () => (collection ? addable(collections, collection) : []),
+    [collections, collection],
+  );
   const onlyTheirs = chosen?.rules.edit === 'creator';
 
   // What it holds for right now: shown, never acted on — a rule acts on what changes after it's made.
@@ -181,6 +187,16 @@ export function RuleBuilder({
                 setClauses([]);
                 setCount(null);
                 if (then.kind === 'set') setThen({ kind: 'notify', text: '{title}' });
+                // What a new record can point at depends on what the rule is about
+                if (then.kind === 'add') {
+                  const links = addable(collections, next).find(
+                    (t) => t.collection.name === then.collection,
+                  )?.links;
+                  const link = linkToIt(then);
+                  setThen(
+                    addAction(then.collection, then.text, link && links?.includes(link) ? link : links?.[0]),
+                  );
+                }
               }}
             />
             {count ? (
@@ -281,8 +297,9 @@ export function RuleBuilder({
             style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6 }}
           >
             {ACTIONS.map((action) => {
-              const missing = action.needs && !has(action.needs);
-              const unusable = missing || (action.kind === 'set' && settable.length === 0);
+              const unusable =
+                (action.kind === 'set' && settable.length === 0) ||
+                (action.kind === 'add' && targets.length === 0);
               const on = then.kind === action.kind;
               return (
                 <button
@@ -290,14 +307,14 @@ export function RuleBuilder({
                   type="button"
                   disabled={unusable}
                   title={
-                    missing
-                      ? `Needs ${noun(collections, action.needs!, true)} in this space`
-                      : unusable
-                        ? 'Nothing here it could change'
-                        : action.hint
+                    !unusable
+                      ? action.hint
+                      : action.kind === 'add'
+                        ? 'Nothing in this space can be added from a line of text'
+                        : 'Nothing here it could change'
                   }
                   aria-pressed={on}
-                  onClick={() => setThen(startAction(action.kind, settable, then))}
+                  onClick={() => setThen(startAction(action.kind, settable, targets, then))}
                   style={{
                     ...tile,
                     borderColor: on ? palette.ink.strong : palette.surface.line,
@@ -317,7 +334,8 @@ export function RuleBuilder({
             onChange={setThen}
             settable={settable}
             counting={!!count}
-            inChannel={collection === channelCollection.name}
+            targets={targets}
+            collections={collections}
             people={people}
             me={did}
           />
@@ -390,10 +408,15 @@ export function RuleBuilder({
 function startAction(
   kind: RuleAction['kind'],
   settable: ReadonlyArray<ClauseField>,
+  targets: ReadonlyArray<AddTarget>,
   was: RuleAction,
 ): RuleAction {
   const text = 'text' in was ? was.text : '{title}';
-  if (kind !== 'set') return { kind, text };
+  if (kind === 'notify') return { kind, text };
+  if (kind === 'add') {
+    const target = targets[0]!;
+    return addAction(target.collection.name, text, target.links[0]);
+  }
   const field = settable[0]!;
   const first = clauseOn(field);
   return { kind, field: field.name, value: first.value ?? (field.kind === 'number' ? 0 : '') };
@@ -405,7 +428,8 @@ function ActionDetail({
   onChange,
   settable,
   counting,
-  inChannel,
+  targets,
+  collections,
   people,
   me,
 }: {
@@ -413,8 +437,8 @@ function ActionDetail({
   onChange: (then: RuleAction) => void;
   settable: ReadonlyArray<ClauseField>;
   counting: boolean;
-  /** The rule is about channels, so a message can go in the one it holds for */
-  inChannel: boolean;
+  targets: ReadonlyArray<AddTarget>;
+  collections: ReadonlyArray<NodeCollection>;
   people: People;
   me: string;
 }) {
@@ -430,7 +454,7 @@ function ActionDetail({
           options={settable.map((f) => ({ value: f.name, label: f.label.toLowerCase() }))}
           onChange={(name) => {
             const next = settable.find((f) => f.name === name);
-            if (next) onChange(startAction('set', [next], then));
+            if (next) onChange(startAction('set', [next], [], then));
           }}
         />
         <span>to</span>
@@ -448,8 +472,43 @@ function ActionDetail({
   }
   const insert = (token: string) =>
     onChange({ ...then, text: `${then.text}${then.text.endsWith(' ') || !then.text ? '' : ' '}${token}` });
+  const target = then.kind === 'add' ? targets.find((t) => t.collection.name === then.collection) : undefined;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {then.kind === 'add' && (
+        <Sentence>
+          <span>Add a</span>
+          <Pill
+            label="What to add"
+            value={then.collection}
+            options={targets.map((t) => ({
+              value: t.collection.name,
+              label: collectionLabel(t.collection).toLowerCase(),
+            }))}
+            onChange={(name) => {
+              const next = targets.find((t) => t.collection.name === name);
+              if (next) onChange(startAction('add', [], [next], then));
+            }}
+          />
+          {target && target.links.length > 0 && (
+            <Pill
+              label="Linked"
+              strong={false}
+              value={linkToIt(then) ?? ''}
+              options={[
+                ...target.links.map((rel) => ({ value: rel, label: `about it (${rel})` })),
+                { value: '', label: 'on its own' },
+              ]}
+              onChange={(rel) => onChange(addAction(then.collection, then.text, rel || undefined))}
+            />
+          )}
+          {target === undefined && (
+            <span style={{ color: palette.ink.muted }}>
+              ({noun(collections, then.collection, true)} can’t be added here)
+            </span>
+          )}
+        </Sentence>
+      )}
       <input
         aria-label="What it says"
         value={then.text}
@@ -469,21 +528,6 @@ function ActionDetail({
           </button>
         )}
       </div>
-      {then.kind === 'message' && inChannel && (
-        <label
-          style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: palette.ink.muted }}
-        >
-          <input
-            type="checkbox"
-            checked={then.channel === IT}
-            onChange={(e) => {
-              const { channel: _channel, ...rest } = then;
-              onChange(e.target.checked ? { ...rest, channel: IT } : rest);
-            }}
-          />
-          In that channel, not the space’s own room
-        </label>
-      )}
     </div>
   );
 }
