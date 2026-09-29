@@ -37,6 +37,11 @@ Reverse-DNS, lower case, at least two parts: `app.poll`, `com.example.recipe`.
 Letters, digits and `-` in each part. `sys.*` is the protocol's own and
 `std.*` is the standard library.
 
+Names are local to a space: nothing registers or owns one across spaces. Two
+apps sharing a space settle a clash over a name before anything is defined,
+when a person reads what each would define
+([the app review](apps-as-records.md#the-app-review)).
+
 ## Schemas
 
 What gets stored is JSON Schema, in a small subset every app agrees on:
@@ -49,17 +54,33 @@ and two that say what a value means, so any app can show it well:
 
 - `oneOf: [{ const, title }]`: fixed choices with labels.
 - `x-choicesFrom: { rel, field }`: the value picks from a list in the record
-  this one links to. A vote's `choice` picks from its poll's `options`.
+  this one links to as `rel`, in its field `field`. A number is a position in
+  that list; anything else is the option itself. A vote's `choice` picks from
+  its poll's `options`. It is a display hint, never checked when validating.
 
 Anything else, like `pattern` or `format`, is refused when you define the
 collection, with the reason. A Zod `.regex()` or `.email()` fails for that
 reason. Validators that can describe themselves as JSON Schema work directly:
-Zod 4.2+, ArkType 2.1.28+, Valibot with `toStandardJsonSchema`.
+Zod 4.2+, ArkType 2.1.28+, Valibot with `toStandardJsonSchema`. They are
+converted with target `draft-2020-12` before storing, a `$schema` member is
+dropped, and the result is checked like any other.
+
+### Validating
+
+A body is checked against a stored schema as draft 2020-12 JSON Schema, with
+unknown keywords ignored, so a space written by a newer app that allows more
+stays readable by an older one. Every failing leaf is reported, not only the
+first, with a JSON Pointer to the value. The validator is
+`@cfworker/json-schema`, which interprets rather than compiles, so it runs
+under a strict CSP.
 
 A record that doesn't fit the schema is still kept and synced, and comes back
-with `conforms: false`. Shape is checked when you write, not enforced on
-arrival, because two peers may have seen different versions of a definition.
+with `conforms: false` and the issues. Shape is checked when you write, not
+enforced on arrival, because two peers may have seen different versions of a
+definition ([spec 02 §9.6](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)).
 Rules, below, are enforced everywhere.
+
+_Source: `packages/core/src/schema/collection-def.ts` (`validateJsonSchema`, `toJsonSchema`, `asStandardSchema`), `packages/core/src/node/space-runtime.ts` (`contentIssues`). Tests: `packages/core/tests/space-catalog.test.ts` ("validate and reject within the supported subset", "an unknown keyword is ignored when validating, so newer spaces stay readable", "choices can carry labels, or come from a linked record", "a record that does not fit is kept and flagged when it arrives, never rejected"), `packages/core/tests/schemas.test.ts` ("schemas from a validator you already use")._
 
 ## Links
 
@@ -75,6 +96,12 @@ links: {
 
 A link role is lower camel case. Queries follow links with `include`
 ([records-and-queries.md](records-and-queries.md)).
+
+Like a schema, link declarations are checked when you write: the node refuses
+to sign links that don't conform. A record that arrives with links that
+don't conform is kept and comes back with `conforms: false`.
+
+_Source: `packages/core/src/records/links.ts` (`checkLinks`), `packages/core/src/node/space-runtime.ts` (`linkIssues`, `write`). Tests: `packages/core/tests/links.test.ts` ("refused on write when they break the declaration; flagged, never rejected, when they arrive")._
 
 ## Rules
 
@@ -249,8 +276,21 @@ await node.spaces.setMember(space.id, did, 'host');
   records by that field's value, for notifications. At most 8.
 - `screen`: a small UI for the collection's records. See
   [screens-and-apps.md](screens-and-apps.md).
-- `version`: defining again bumps it. Records keep the version they were
-  written under.
+- `version`: see [below](#versions-of-a-definition).
+
+## Versions of a definition
+
+Defining a collection again writes the next version of its definition, one
+higher unless you give a `version`. The node refuses a `version` that is not
+higher than the one in force; peers don't check it. Records don't name the
+version they were written under: each is judged by the definition in force
+as of the access changes it saw.
+
+`node.collections.delete` removes a definition only once its collection has
+no records left, since records left behind would lose their shape and their
+rules.
+
+_Source: `packages/core/src/node/space-runtime.ts` (`define`, `undefine`), `packages/core/src/node/types.ts` (`NodeCollections`). Tests: `packages/core/tests/space-catalog.test.ts` ("redefining bumps the version, and only the definer or someone who can manage the space may", "a definition can be removed once its collection is empty, by whoever may change it")._
 
 ## The standard library
 
