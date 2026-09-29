@@ -270,12 +270,13 @@ this one own the use; this table is the registry.
 | `weave/contacts/nonce/v1`               | as above                                  | vault key bytes                                                                      | space nonce                | Contacts space                                                | `space/account-registry.ts:95,106` | 03     |
 | `weave/contacts/key/v1`                 | as above                                  | vault key bytes                                                                      | AES-256-GCM space key      | Contacts space                                                | `space/account-registry.ts:95,107` | 03     |
 | `weave/topic-tags/v1`                   | HKDF → HMAC-SHA256 key                    | raw space key (private) or the bytes of `weave/public-topics/v1\|<spaceId>` (public) | HMAC key                   | Topic tags                                                    | `records/topics.ts:67,74`          | 02     |
-| `weave-room/v1\|<spaceId>`              | SHA-256, first 20 bytes, base32 lowercase | —                                                                                    | relay room name            | A space's room on a relay                                     | `node/space-runtime.ts:221`        | 04     |
+| `weave-room/v1\|<spaceId>`              | SHA-256, first 20 bytes, base32 lowercase | —                                                                                    | relay room name            | A space's room on a relay                                     | `node/space-runtime.ts:224`        | 04     |
 | `weave-agent-link-room-v1`              | URI-encoded CID of prefix ‖ secret        | 16-byte connect-code secret                                                          | room id                    | Agent link room                                               | `session/agent-link.ts:43`         | 06     |
 | `weave-agent-link-key-v1`               | HKDF, L=32                                | 16-byte connect-code secret                                                          | AES-256-GCM key            | Agent link messages                                           | `session/agent-link.ts:44`         | 06     |
 
 Strings that separate _signed messages_ or _AEAD contexts_ rather than derive
-keys, listed so new labels do not collide with them:
+keys, listed so new labels do not collide with them. _docs_ marks a label used
+by a convention built on the protocol (`packages/core/docs/`), not by it:
 
 | String                                                           | Kind                                             | Defined in                                                    | Part   |
 | ---------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------- | ------ |
@@ -283,7 +284,9 @@ keys, listed so new labels do not collide with them:
 | `weave/space-key-box/v1\|<spaceId>\|<keyId>\|<to>`               | `sealFor` context                                | `space/space-access.ts:205`                                   | 03     |
 | `weave/space-earlier-keys/v1\|<spaceId>\|<keyId>`                | Sealing context                                  | `space/space-access.ts:192`                                   | 03     |
 | `weave/space-membership/v1\|<spaceId>`                           | Sealing context                                  | `space/space-access.ts:194`                                   | 03, 04 |
-| `weave/contact-request\|<spaceId>\|<from>\|<to>`                 | `sealFor` context                                | `node/node.ts:1336`                                           | docs   |
+| `weave/contact-request\|<spaceId>\|<from>\|<to>`                 | `sealFor` context                                | `node/node.ts:1340`                                           | docs   |
+| `weave/direct/v1\|<spaceId>\|<from>\|<to,…>`                     | Sealing context (the text)                       | `privacy/direct.ts:37`                                        | docs   |
+| `weave/direct/v1\|<spaceId>\|<from>\|<to,…>\|<reader>`           | `sealFor` context (one reader's box)             | `privacy/direct.ts:41`                                        | docs   |
 | `weave/knock/v1\|<doorKey>`                                      | `sealFor` context                                | `doors/doors.ts` (`sealKnock`)                                | 07     |
 | `weave/door-purge/v1\|<topic>\|<nonce>\|<ids>`                   | Signed by a door signing key, checked by a relay | `doors/doors.ts` (`purgeMessage`), `packages/relay/relay.mjs` | 07     |
 | `weave/knock-answer/v1\|<space>\|<account>`                      | Signed by a door signing key                     | `doors/doors.ts` (`signAnswer`)                               | 07     |
