@@ -151,7 +151,7 @@ export type {
   RunRulesOptions,
   StartRulesOptions,
 } from './rules.js';
-export { checkCron, cronMatches } from './cron.js';
+export { checkCron, cronMatches, SCHEDULES } from './cron.js';
 export { SCREEN_GUIDE, SCREEN_CLIENT, screenDocument, screenPolicy, createScreenBridge } from './screens.js';
 export type { ScreenBridge, ScreenRecord, ScreenViewer } from './screens.js';
 export type { App, AppDefinition, AppReview, AppNeedReview, ReviewContext } from './apps.js';

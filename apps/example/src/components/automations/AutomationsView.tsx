@@ -132,7 +132,7 @@ export function AutomationsView({
       <section style={section}>
         <SectionHead
           title="Rules"
-          about="Everyone here sees these. Each runs on its maker's devices, as them."
+          about="Everyone here sees these. Each runs as its maker, on their devices or agent, or as the bot it names."
           action="New rule"
           onAction={() => setOpen({ kind: 'rule' })}
           disabled={!space.writable}

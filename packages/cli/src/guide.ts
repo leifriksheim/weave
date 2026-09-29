@@ -7,7 +7,14 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DEFINE, roleHolds, type P2PNode } from '@weaveprotocol/core';
-import { checkCron, profile, rule, ruleRun, standardDefinition } from '@weaveprotocol/core/schemas';
+import {
+  SCHEDULES,
+  checkCron,
+  profile,
+  rule,
+  ruleRun,
+  standardDefinition,
+} from '@weaveprotocol/core/schemas';
 import * as ask from './ask.js';
 import { pickCollection, pickSpace } from './complete.js';
 import { errorCode, isRecord } from './json.js';
@@ -172,13 +179,6 @@ const CONDITIONS: Record<
     where: { respondingTo: '$me' },
   },
 };
-
-const SCHEDULES = [
-  { value: '0 8 * * 1-5', label: 'Weekday mornings at 8' },
-  { value: '0 9 * * 1', label: 'Mondays at 9' },
-  { value: '0 18 * * *', label: 'Every evening at 6' },
-  { value: '0 * * * *', label: 'Every hour' },
-] as const;
 
 export interface RuleFlags {
   readonly space?: string;

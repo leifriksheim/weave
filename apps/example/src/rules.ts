@@ -11,7 +11,15 @@
 import { useEffect } from 'react';
 import { useAccount, useNode } from '@weaveprotocol/core/react';
 import type { Condition, NodeCollection, QueryRecord } from '@weaveprotocol/core';
-import { IT, ME, startRules, type Rule, type RuleAction, type RuleWhen } from '@weaveprotocol/core/schemas';
+import {
+  IT,
+  ME,
+  SCHEDULES,
+  startRules,
+  type Rule,
+  type RuleAction,
+  type RuleWhen,
+} from '@weaveprotocol/core/schemas';
 import { attachable, isObject, quickAddBody } from './derive/schema-ui';
 import {
   clausesWords,
@@ -235,6 +243,39 @@ export function thenWords(
   }
 }
 
+const WEEKDAYS = [
+  'Sundays',
+  'Mondays',
+  'Tuesdays',
+  'Wednesdays',
+  'Thursdays',
+  'Fridays',
+  'Saturdays',
+  'Sundays',
+];
+
+/** The common shapes of five cron fields in words: a time each day, on weekdays, or on some days of the week */
+function cronWords(every: string): string | null {
+  const [minute, hour, day, month, weekday] = every.trim().split(/\s+/);
+  if (!minute || !hour || !weekday || day !== '*' || month !== '*') return null;
+  if (!/^\d+$/.test(minute)) return null;
+  const at = /^\d+$/.test(hour) ? `at ${hour}:${minute.padStart(2, '0')}` : null;
+  if (hour === '*' && minute === '0' && weekday === '*') return 'Every hour';
+  if (!at) return null;
+  if (weekday === '*') return `Every day ${at}`;
+  if (weekday === '1-5') return `Weekdays ${at}`;
+  if (weekday === '0,6' || weekday === '6,0') return `Weekends ${at}`;
+  const days = weekday.split(',').map((d) => (/^[0-7]$/.test(d) ? WEEKDAYS[Number(d)] : null));
+  if (days.some((d) => !d)) return null;
+  return `${days.length > 1 ? `${days.slice(0, -1).join(', ')} and ${days.at(-1)}` : days[0]} ${at}`;
+}
+
+/** "Weekday mornings at 8", "Weekdays at 7:30", or for a time it can’t say, the fields as they are */
+export function scheduleWords(every: string, start = true): string {
+  const words = SCHEDULES.find((s) => s.value === every.trim())?.label ?? cronWords(every) ?? `At “${every}”`;
+  return start ? words : words.charAt(0).toLowerCase() + words.slice(1);
+}
+
 /** A whole rule in words; one made elsewhere, by hand or by an agent, by what it looks at */
 export function ruleWords(
   rule: Rule,
@@ -249,7 +290,11 @@ export function ruleWords(
     : rule.when
       ? `When ${article(noun(collections, collection))} ${noun(collections, collection)} matches its query${rule.when.holds ? ' and condition' : ''}`
       : '';
-  const at = rule.every ? `${when ? `${when}, and at` : 'At'} “${rule.every}”` : when;
+  const at = rule.every
+    ? when
+      ? `${when}, and ${scheduleWords(rule.every, false)}`
+      : scheduleWords(rule.every)
+    : when;
   return `${at}, ${thenWords(rule.then, collections, collection)}.`;
 }
 
@@ -337,27 +382,6 @@ export function ideas(
               },
             },
       );
-    }
-    // A choice's last option is often where things end up: done, closed, shipped
-    const choice = fields.find((f) => f.kind === 'choice' && (f.choices?.length ?? 0) > 1);
-    const last = choice?.choices?.at(-1);
-    if (choice && last && (typeof last.value === 'string' || typeof last.value === 'number')) {
-      const tell = targets.find((t) => t.links.length > 0);
-      const where = tell ? noun(collections, tell.collection.name) : null;
-      const said = last.label.toLowerCase();
-      found.push({
-        title: `${tell && where ? `Add ${article(where)} ${where}` : 'Notify me'} when ${article(thing)} ${thing} is ${said}`,
-        rule: {
-          name: `${collectionLabel(collection)} ${said}`,
-          picked: {
-            collection: collection.name,
-            clauses: [{ field: choice.name, op: 'is', value: last.value }],
-          },
-          then: tell
-            ? addAction(tell.collection.name, `${last.label}: {title} 🎉`, tell.links[0])
-            : { kind: 'notify', text: `${last.label}: {title}` },
-        },
-      });
     }
     const person = fields.find((f) => f.kind === 'person' || f.kind === 'people');
     if (person)

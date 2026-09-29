@@ -58,3 +58,11 @@ export function cronMatches(expression: string, at: Date): boolean {
   if (anyWeekday) return onDay;
   return onDay || onWeekday;
 }
+
+/** Times people pick most, in words, for a builder to offer before five cron fields */
+export const SCHEDULES: ReadonlyArray<{ readonly value: string; readonly label: string }> = [
+  { value: '0 8 * * 1-5', label: 'Weekday mornings at 8' },
+  { value: '0 9 * * 1', label: 'Mondays at 9' },
+  { value: '0 18 * * *', label: 'Every evening at 6' },
+  { value: '0 * * * *', label: 'Every hour' },
+];
