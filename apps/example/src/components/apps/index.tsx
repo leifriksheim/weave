@@ -9,8 +9,10 @@ import type {
 import {
   ballot,
   call,
+  channel,
   column,
   decision,
+  direct,
   message,
   poll,
   proposal,
@@ -95,13 +97,15 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     notify: [
       { label: 'Mentions me', collection: message.name, topic: { field: 'mentions', me: true } },
       { label: 'Replies to me', collection: message.name, topic: { field: 'replyingTo', me: true } },
+      { label: 'Direct message to me', collection: direct.name, topic: { field: 'to', me: true } },
       { label: 'New message', collection: message.name },
     ],
     fill: true,
     title: 'Chat',
-    description: 'Talk with everyone in the space. The whole space is the room.',
+    description:
+      'Talk with everyone in the space, in channels, or directly with one person: only the two of you can read it.',
     needs: [message],
-    uses: [reaction],
+    uses: [reaction, channel, direct],
     View: Chat,
   },
   {
