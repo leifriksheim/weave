@@ -542,6 +542,21 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     return runAgent(homePath(globals.home), { model: values.model, dailyCap });
   }
 
+  // Named before the account is opened, so a mistyped command, or one this
+  // version doesn't have, says so instead of asking for an account.
+  const found =
+    command === 'mcp'
+      ? null
+      : command === 'whoami'
+        ? findAction(['node_info'])
+        : findAction([command, ...args]);
+  if (command !== 'mcp' && !found) {
+    stderr(
+      `Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "weave help" or "weave actions".`,
+    );
+    return 2;
+  }
+
   const unlocked = await openAccount(globals);
 
   if (command === 'mcp') {
@@ -558,13 +573,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     return 0;
   }
 
-  const found = command === 'whoami' ? findAction(['node_info']) : findAction([command, ...args]);
-  if (!found) {
-    stderr(
-      `Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "weave help" or "weave actions".`,
-    );
-    return 2;
-  }
+  if (!found) return 2;
 
   // One-shot commands run offline against the folder. With a daemon running on
   // the same folder, it picks the change up and syncs it.

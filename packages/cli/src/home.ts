@@ -94,7 +94,10 @@ export async function createAccount(
 export async function chooseAccount(home: Home, flag?: string): Promise<AccountSummary> {
   const which = flag ?? process.env.WEAVE_ACCOUNT;
   const accounts = await home.accounts.list();
-  if (accounts.length === 0) throw new Error(`No account in ${home.path}. Run "weave init" first.`);
+  if (accounts.length === 0)
+    throw new Error(
+      `No account in ${home.path}. Run "weave init" first. (Connecting an agent needs no account here: "weave connect <code>".)`,
+    );
   if (which) {
     const found = accounts.find(
       (account) => account.id === which || account.name === which || account.did === which,
