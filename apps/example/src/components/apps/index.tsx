@@ -112,7 +112,10 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     id: 'kanban',
     icon: 'board',
     hue: 28,
-    notify: [{ label: 'New task', collection: task.name }],
+    notify: [
+      { label: 'New task', collection: task.name },
+      { label: 'Assigned to me', collection: task.name, topic: { field: 'assignees', me: true } },
+    ],
     title: 'Kanban',
     description: 'Tasks on a board: drag them between columns, and into order.',
     needs: [task, column],

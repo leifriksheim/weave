@@ -26,7 +26,9 @@ import { hold, letGo } from './helpers/hold.js';
 import { team } from '../src/space/presets.js';
 import { until } from './helpers/until.js';
 import { matchesRecord } from '../src/space/notify.js';
-import { message } from '../src/schemas/library/publishing.js';
+import { message, post } from '../src/schemas/library/publishing.js';
+import { comment } from '../src/schemas/library/annotations.js';
+import { task } from '../src/schemas/library/planning.js';
 import { standardNeeds } from '../src/schemas/apps.js';
 import { toJsonSchema } from '../src/schema/collection-def.js';
 import { isRecord } from '../src/utils/guards.js';
@@ -246,11 +248,103 @@ describe('a standard message’s topics', () => {
     assert.deepEqual(matches('replyingTo'), [reply.key]);
   });
 
+  for (const definition of [comment, post]) {
+    test(`a ${definition.name} is tagged like a message, so it can mention and reply to someone`, async () => {
+      const hub = createFakeHub({ latencyMs: 1 });
+      const alice = await person(hub);
+      const { id: space } = await alice.node.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+      await alice.node.collections.define(space, definition);
+      const bob = 'did:key:zDnaeBob';
+      const since = new Date(Date.now() - 1000).toISOString();
+
+      const mention = await alice.node.records.put(space, definition.name, {
+        text: 'hi @Bob',
+        mentions: [bob],
+      });
+      const reply = await alice.node.records.put(space, definition.name, { text: 'yes', replyingTo: bob });
+      const plain = await alice.node.records.put(space, definition.name, { text: 'hello all' });
+
+      const stored = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(
+        mention.key,
+      );
+      assert.deepEqual(stored?.tags, [
+        await alice.node.collections.tag(space, definition.name, 'mentions', bob),
+      ]);
+
+      const matches = (field: string) =>
+        [mention, reply, plain]
+          .filter((record) =>
+            matchesRecord(
+              {
+                label: field,
+                collection: definition.name,
+                spaces: 'all',
+                topic: { field, value: bob },
+                since,
+              },
+              record,
+              bob,
+            ),
+          )
+          .map((record) => record.key);
+      assert.deepEqual(matches('mentions'), [mention.key]);
+      assert.deepEqual(matches('replyingTo'), [reply.key]);
+    });
+  }
+
+  test('a task carries a tag for each assignee, so “assigned to me” matches only tasks given to me', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const alice = await person(hub);
+    const { id: space } = await alice.node.spaces.create({ name: 'Board', ...team, visibility: 'private' });
+    await alice.node.collections.define(space, task);
+    const [bob, carol] = ['did:key:zDnaeBob', 'did:key:zDnaeCarol'];
+    const since = new Date(Date.now() - 1000).toISOString();
+
+    const both = await alice.node.records.put(space, task.name, {
+      title: 'Posters',
+      assignees: [bob, carol],
+    });
+    const carols = await alice.node.records.put(space, task.name, { title: 'Venue', assignees: [carol] });
+    const nobodys = await alice.node.records.put(space, task.name, { title: 'Snacks' });
+
+    const stored = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(both.key);
+    const tag = (did: string) => alice.node.collections.tag(space, task.name, 'assignees', did);
+    assert.deepEqual(stored?.tags, [await tag(bob), await tag(carol)].sort());
+
+    const assigned = (did: string) =>
+      [both, carols, nobodys]
+        .filter((record) =>
+          matchesRecord(
+            {
+              label: 'Assigned to me',
+              collection: task.name,
+              spaces: 'all',
+              topic: { field: 'assignees', value: did },
+              since,
+            },
+            record,
+            did,
+          ),
+        )
+        .map((record) => record.key);
+    assert.deepEqual(assigned(bob), [both.key]);
+    assert.deepEqual(assigned(carol), [both.key, carols.key]);
+  });
+
   test('an app that needs std.message gets its topics, and one without them is not the standard message', () => {
     const needs = standardNeeds(['std.message']);
     assert.ok(Array.isArray(needs) && isRecord(needs[0]));
     assert.deepEqual(needs[0].topics, ['channel', 'mentions', 'replyingTo']);
     const { topics: _topics, ...without } = { ...message, schema: toJsonSchema(message.schema) };
     assert.throws(() => standardNeeds([without]), /different shape/);
+  });
+
+  test('an app that needs std.comment, std.post or std.task gets their topics', () => {
+    const needs = standardNeeds(['std.comment', 'std.post', 'std.task']);
+    assert.ok(Array.isArray(needs));
+    assert.deepEqual(
+      needs.map((need) => (isRecord(need) ? need.topics : null)),
+      [['mentions', 'replyingTo'], ['mentions', 'replyingTo'], ['assignees']],
+    );
   });
 });

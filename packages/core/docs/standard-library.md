@@ -84,20 +84,20 @@ and remove.
 
 **Annotations**
 
-| Name             | Body                                                                                            | Links                                              | Rules                                                                                                       |
-| ---------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `std.reaction`   | **`emoji`** string 1–16                                                                         | `about` → `*`, one                                 | edit, delete: `creator`; `onePer: [@author, link:about, emoji]`                                             |
-| `std.comment`    | **`text`** string 1–10000                                                                       | `about` → `*`, one; `replyTo` → `std.comment`, one | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.tag`        | **`label`** string 1–100                                                                        | `about` → `*`, many                                | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.attachment` | **`name`** string ≥ 1; **`mime`** string ≥ 1; `size` integer ≥ 0; `url` string; `blob` blob     | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.reference`  | `note` string                                                                                   | `about` → `*`, one; `to` → `*`, one                | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.bookmark`   | `title` string ≤ 500; `url` string 1–2048; `note` string ≤ 2000                                 | `about` → `*`, one                                 | edit, delete: `creator`                                                                                     |
-| `std.rating`     | **`score`** integer 1–5; `review` string ≤ 10000                                                | `about` → `*`, one                                 | edit, delete: `creator`; `onePer: [@author, link:about]`                                                    |
-| `std.highlight`  | **`quote`** string 1–10000; `prefix` string ≤ 500; `suffix` string ≤ 500; `note` string ≤ 10000 | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
-| `std.pin`        | `note` string ≤ 500                                                                             | `about` → `*`, one                                 | create: `can:moderate`; edit: `can:moderate`; `onePer: [link:about]`; permissions `moderate`                |
-| `std.report`     | **`reason`** `spam`/`abuse`/`sexual`/`misleading`/`illegal`/`other`; `note` string ≤ 2000       | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; `onePer: [@author, link:about]`; permissions `moderate` |
-| `std.label`      | **`value`** string 1–64                                                                         | `about` → `*`, one                                 | create: `can:moderate`; edit: `can:moderate`; `onePer: [link:about, value]`; permissions `moderate`         |
-| `std.claim`      | `note` string ≤ 500                                                                             | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; `onePer: [link:about]`; permissions `moderate`          |
+| Name             | Body                                                                                                  | Links                                              | Rules                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `std.reaction`   | **`emoji`** string 1–16                                                                               | `about` → `*`, one                                 | edit, delete: `creator`; `onePer: [@author, link:about, emoji]`                                             |
+| `std.comment`    | **`text`** string 1–10000; `mentions` DID[] (≤ 64); `replyingTo` DID; topics `mentions`, `replyingTo` | `about` → `*`, one; `replyTo` → `std.comment`, one | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
+| `std.tag`        | **`label`** string 1–100                                                                              | `about` → `*`, many                                | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
+| `std.attachment` | **`name`** string ≥ 1; **`mime`** string ≥ 1; `size` integer ≥ 0; `url` string; `blob` blob           | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
+| `std.reference`  | `note` string                                                                                         | `about` → `*`, one; `to` → `*`, one                | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
+| `std.bookmark`   | `title` string ≤ 500; `url` string 1–2048; `note` string ≤ 2000                                       | `about` → `*`, one                                 | edit, delete: `creator`                                                                                     |
+| `std.rating`     | **`score`** integer 1–5; `review` string ≤ 10000                                                      | `about` → `*`, one                                 | edit, delete: `creator`; `onePer: [@author, link:about]`                                                    |
+| `std.highlight`  | **`quote`** string 1–10000; `prefix` string ≤ 500; `suffix` string ≤ 500; `note` string ≤ 10000       | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                                  |
+| `std.pin`        | `note` string ≤ 500                                                                                   | `about` → `*`, one                                 | create: `can:moderate`; edit: `can:moderate`; `onePer: [link:about]`; permissions `moderate`                |
+| `std.report`     | **`reason`** `spam`/`abuse`/`sexual`/`misleading`/`illegal`/`other`; `note` string ≤ 2000             | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; `onePer: [@author, link:about]`; permissions `moderate` |
+| `std.label`      | **`value`** string 1–64                                                                               | `about` → `*`, one                                 | create: `can:moderate`; edit: `can:moderate`; `onePer: [link:about, value]`; permissions `moderate`         |
+| `std.claim`      | `note` string ≤ 500                                                                                   | `about` → `*`, one                                 | edit: `creator`; delete: `creator`, `can:moderate`; `onePer: [link:about]`; permissions `moderate`          |
 
 **People**
 
@@ -117,7 +117,7 @@ and remove.
 | `std.message`     | **`text`** string 1–10000; `channel` string ≤ 100; `mentions` DID[] (≤ 64); `replyingTo` DID; topics `channel`, `mentions`, `replyingTo`                                                                                      | `replyTo` → `std.message`, one; `root` → `std.message`, one; `shares` → `*`, one | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
 | `std.channel`     | **`name`** string 1–100; `topic` string ≤ 500; `position` string 1–200                                                                                                                                                        | —                                                                                | create: `can:moderate`; edit: `can:moderate`; permissions `moderate`       |
 | `std.direct`      | **`to`** DID[] (1–16); **`data`** string ≤ 60000; **`boxes`** `{to, sealed}`[] (≤ 17); topic `to`                                                                                                                             | —                                                                                | edit, delete: `creator`                                                    |
-| `std.post`        | `text` string ≤ 10000; `images` image[] (≤ 8); `langs` string 2–35[] (≤ 3)                                                                                                                                                    | `replyTo` → `std.post`, one; `root` → `std.post`, one; `shares` → `*`, one       | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
+| `std.post`        | `text` string ≤ 10000; `images` image[] (≤ 8); `langs` string 2–35[] (≤ 3); `mentions` DID[] (≤ 64); `replyingTo` DID; topics `mentions`, `replyingTo`                                                                        | `replyTo` → `std.post`, one; `root` → `std.post`, one; `shares` → `*`, one       | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
 | `std.repost`      | —                                                                                                                                                                                                                             | `about` → `*`, one                                                               | edit, delete: `creator`; `onePer: [@author, link:about]`                   |
 | `std.article`     | **`title`** string 1–300; `summary` string ≤ 1000; `content` string ≤ 200000; `cover` blob; `slug` string 1–200; `publishedAt` when; `draft` boolean                                                                          | `in` → `std.publication`, one                                                    | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate` |
 | `std.publication` | **`title`** string 1–200; `description` string ≤ 2000; `icon` blob                                                                                                                                                            | —                                                                                | defaults                                                                   |
@@ -156,7 +156,7 @@ and remove.
 | `std.slot`       | **`start`** when; **`end`** when; `tz` string 1–64; `note` string ≤ 1000                                                                                                                                                          | `in` → `std.calendar`, one                                                               | edit: `creator`; delete: `creator`, `can:moderate`; permissions `moderate`                         |
 | `std.booking`    | `note` string ≤ 1000                                                                                                                                                                                                              | `about` → `std.slot`, one                                                                | edit: `creator`; delete: `creator`, `can:moderate`; `onePer: [link:about]`; permissions `moderate` |
 | `std.column`     | **`name`** string 1–200; `position` string 1–200                                                                                                                                                                                  | —                                                                                        | defaults                                                                                           |
-| `std.task`       | **`title`** string 1–500; `notes` string ≤ 10000; `position` string 1–200; `due` when; `status` `todo`/`doing`/`done`/`cancelled`; `assignees` DID[] (≤ 20); `priority` integer 0–4                                               | `column` → `std.column`, one; `parent` → `std.task`, one; `project` → `std.project`, one | defaults                                                                                           |
+| `std.task`       | **`title`** string 1–500; `notes` string ≤ 10000; `position` string 1–200; `due` when; `status` `todo`/`doing`/`done`/`cancelled`; `assignees` DID[] (≤ 20); `priority` integer 0–4; topic `assignees`                            | `column` → `std.column`, one; `parent` → `std.task`, one; `project` → `std.project`, one | defaults                                                                                           |
 | `std.project`    | **`name`** string 1–200; `description` string ≤ 10000; `status` `planned`/`active`/`paused`/`done`/`cancelled`; `due` when                                                                                                        | —                                                                                        | defaults                                                                                           |
 | `std.time-entry` | **`start`** when; `end` when; `note` string ≤ 1000                                                                                                                                                                                | `about` → `*`, one                                                                       | edit, delete: `creator`                                                                            |
 | `std.reminder`   | **`at`** when; `note` string ≤ 1000; `done` boolean                                                                                                                                                                               | `about` → `*`, one                                                                       | edit, delete: `creator`                                                                            |
@@ -243,20 +243,28 @@ _Source: `packages/core/src/schemas/library/community.ts` (`ballot`, `decision`,
 | ------------- | ----------------------------------------------------------- | ----- | ------------------------------------------------------ |
 | `std.setting` | **`app`** string 1–200; **`key`** string 1–200; `value` any | —     | edit, delete: `creator`; `onePer: [@author, app, key]` |
 
-**Mentions and replies.** A `std.message` names the accounts it calls on
-in `mentions` and, when it replies to someone's message, their account in
-`replyingTo`. A chat should fill them from what the person picked (an
-`@name` they chose, the message they replied to), never from matching text.
-They are topics with `channel`, so a subscription can ask for only messages
-that mention the account, or reply to it, or are in one channel
+**Mentions and replies.** A `std.message`, `std.comment` or `std.post` names
+the accounts it calls on in `mentions` and, when it replies to someone's
+message, comment or post, their account in `replyingTo`. An app should fill
+them from what the person picked (an `@name` they chose, the one they replied
+to), never from matching text. They are topics (with `channel` on a message),
+so a subscription can ask for only those that mention the account, or reply to
+it, or are in one channel
 ([spec 06 §2.11](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md), `topic: { field: "mentions", me: true }`),
 and a carrier can match it unread ([spec 02 §8](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)).
+A `std.task`'s `assignees` is a topic in the same way: "assigned to me" is
+`topic: { field: "assignees", me: true }`, with a tag for each assignee.
 
 ```json
 { "text": "@Sam are you coming?", "mentions": ["did:key:zDnae…Sam"], "replyingTo": "did:key:zDnae…Sam" }
 ```
 
-_Source: `packages/core/src/schemas/library/publishing.ts` (`message`), `apps/example/src/components/apps/Chat.tsx`. Tests: `packages/core/tests/topics.test.ts` ("mentions and replies are tagged, so “mentions me” and “replies to me” match only those")._
+A comment can be `about` a record of any kind, so commenting is how to
+mention someone on a record whose own definition has no `mentions`, without
+changing that definition. An app's own collection can name a `mentions` field
+as a topic the same way.
+
+_Source: `packages/core/src/schemas/library/publishing.ts` (`message`, `post`), `packages/core/src/schemas/library/annotations.ts` (`comment`), `packages/core/src/schemas/library/planning.ts` (`task`), `apps/example/src/components/std/Mentions.tsx`, `apps/example/src/components/apps/Chat.tsx`, `apps/example/src/components/std/Comments.tsx`. Tests: `packages/core/tests/topics.test.ts` ("mentions and replies are tagged, so “mentions me” and “replies to me” match only those", "a std.comment is tagged like a message…", "a std.post is tagged like a message…", "a task carries a tag for each assignee…", "an app that needs std.comment, std.post or std.task gets their topics")._
 
 **Channels.** A space with more than one conversation lists `std.channel`
 records, by `position` then name, and a message names its channel's record
@@ -286,6 +294,12 @@ holds an earlier definition keeps it until someone adds an app that needs the
 new one, which shows as a change. One of them is not additive in the sense of
 [spec 02 §6.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md): `std.vote`'s `about` may now also point at a `std.proposal`, so an app
 that reads votes may meet one on something that is not a poll.
+
+Since then, `std.comment` and `std.post` gained the same optional `mentions`
+and `replyingTo` as a message, as their topics, and `std.task` made
+`assignees` its topic ([#105](https://github.com/leifriksheim/weave/issues/105)). A new topic tags only what is
+written under the new definition: records written before it carry no tags,
+so "mentions me" and "assigned to me" match from then on.
 
 **Also exported** from the same module (specified with their features):
 

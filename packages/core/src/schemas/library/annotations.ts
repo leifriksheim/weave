@@ -8,6 +8,8 @@ import {
   choice,
   count,
   own,
+  people,
+  person,
   text,
   typed,
   url,
@@ -33,16 +35,27 @@ export interface Reaction {
   readonly emoji: string;
 }
 
-/** A comment on any record, optionally a reply to another comment. */
+/**
+ * A comment on any record, optionally a reply to another comment. As on a
+ * `std.message`, `mentions` names who it calls on and `replyingTo` whose
+ * comment it answers, and both are topics: "mentions me" and "replies to me"
+ * can be asked of a keeper that can't read it. Commenting is also how to
+ * mention someone on a record of any kind, whatever its own definition holds.
+ */
 export const comment = typed<Comment>()({
   name: 'std.comment',
   title: 'Comment',
   description: 'A comment on any record, optionally replying to another comment.',
   schema: {
     type: 'object',
-    properties: { text: { type: 'string', minLength: 1, maxLength: 10000 } },
+    properties: {
+      text: { type: 'string', minLength: 1, maxLength: 10000 },
+      mentions: people(64, 'Who it mentions, so they can be told'),
+      replyingTo: person('Whose comment it replies to, so they can be told'),
+    },
     required: ['text'],
   },
+  topics: ['mentions', 'replyingTo'],
   links: {
     about: about('The record commented on'),
     replyTo: { to: ['std.comment'], cardinality: 'one', description: 'The comment this replies to' },
@@ -52,6 +65,10 @@ export const comment = typed<Comment>()({
 });
 export interface Comment {
   readonly text: string;
+  /** Accounts it mentions */
+  readonly mentions?: ReadonlyArray<string>;
+  /** The account whose comment it replies to */
+  readonly replyingTo?: string;
 }
 
 /** A label on one or more records. */

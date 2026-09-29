@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNode } from '@weaveprotocol/core/react';
+import { useRef, useState } from 'react';
+import { useAccount, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { comment } from '@weaveprotocol/core/schemas';
 import { bodyOf } from '../../derive/schema-ui';
@@ -7,8 +7,13 @@ import { ago } from '../../derive/time';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { styles, palette } from '../../styles';
 import { Person } from '../Person';
+import { peopleFrom } from '../../derive/people';
+import { MentionList, useMentions } from './Mentions';
 
-/** `std.comment` on a record: a thread, oldest first, and a box to add to it. */
+/**
+ * `std.comment` on a record: a thread, oldest first, and a box to add to it.
+ * "@" mentions someone, as in chat, so they can be told.
+ */
 export function Comments({
   space,
   target,
@@ -19,7 +24,11 @@ export function Comments({
   comments: ReadonlyArray<NodeRecord>;
 }) {
   const node = useNode();
+  const { did: me } = useAccount();
+  const people = peopleFrom(useProfiles(space.id));
   const [draft, setDraft] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+  const mention = useMentions({ draft, setDraft, people, me, input });
   const sorted = [...comments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   return (
@@ -53,25 +62,38 @@ export function Comments({
         </div>
       ))}
       {space.writable && (
+        <MentionList
+          suggestions={mention.suggestions}
+          choice={mention.choice}
+          people={people}
+          onPick={mention.pick}
+          style={{ border: `1px solid ${palette.surface.line}`, borderRadius: 8, overflow: 'hidden' }}
+        />
+      )}
+      {space.writable && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
             const text = draft.trim();
             if (!text) return;
             setDraft('');
+            const mentions = mention.take(text);
             void node.records.put(
               space.id,
               comment.name,
-              { text },
+              { text, ...(mentions.length ? { mentions } : {}) },
               { links: [{ rel: 'about', to: target }] },
             );
           }}
           style={{ display: 'flex', gap: 8 }}
         >
           <input
+            ref={input}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Write a comment…"
+            onChange={mention.onChange}
+            onSelect={mention.onSelect}
+            onKeyDown={mention.onKeyDown}
+            placeholder="Write a comment… @ to mention someone"
             aria-label="Write a comment"
             style={{ ...styles.input, flex: 1 }}
           />

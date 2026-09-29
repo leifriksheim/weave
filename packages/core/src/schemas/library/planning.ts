@@ -161,6 +161,8 @@ const TASK_STATUS = ['todo', 'doing', 'done', 'cancelled'] as const;
 /**
  * A task: in a column of a board, under a parent task, in a project. `status`
  * is for lists without columns; a board's column says where the task is.
+ * `assignees` is its topic, so "assigned to me" can be asked of a keeper that
+ * can't read it.
  */
 export const task = typed<Task>()({
   name: 'std.task',
@@ -184,6 +186,7 @@ export const task = typed<Task>()({
     },
     required: ['title'],
   },
+  topics: ['assignees'],
   links: {
     column: { to: ['std.column'], cardinality: 'one', description: 'The column it sits in' },
     parent: one(['std.task'], 'The task it is part of'),

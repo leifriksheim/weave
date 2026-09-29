@@ -166,6 +166,7 @@ export interface Direct {
 /**
  * A post to a feed: short text, pictures, a reply or a quote. `root` is the
  * first post of the thread, so a reader gathers a thread with one query.
+ * `mentions` and `replyingTo` are its topics, as on a `std.message`.
  */
 export const post = typed<Post>()({
   name: 'std.post',
@@ -177,8 +178,11 @@ export const post = typed<Post>()({
       text: text(10000),
       images: { type: 'array', maxItems: 8, items: image() },
       langs: { type: 'array', maxItems: 3, items: text(35, 'BCP 47, like "en"', 2) },
+      mentions: people(64, 'Who it mentions, so they can be told'),
+      replyingTo: person('Whose post it replies to, so they can be told'),
     },
   },
+  topics: ['mentions', 'replyingTo'],
   links: {
     replyTo: one(['std.post'], 'The post this replies to'),
     root: one(['std.post'], 'The first post of the thread'),
@@ -191,6 +195,10 @@ export interface Post {
   readonly text?: string;
   readonly images?: ReadonlyArray<ImageRef>;
   readonly langs?: ReadonlyArray<string>;
+  /** Accounts it mentions */
+  readonly mentions?: ReadonlyArray<string>;
+  /** The account whose post it replies to */
+  readonly replyingTo?: string;
 }
 
 /** Passing a post on as it is: one per person per post. */
