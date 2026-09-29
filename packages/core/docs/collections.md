@@ -94,8 +94,17 @@ links: {
 },
 ```
 
-A link role is lower camel case. Queries follow links with `include`
-([records-and-queries.md](records-and-queries.md)).
+A link role is lower camel case. Queries follow links with `include`, and
+filter on them with `link:<rel>` ([records-and-queries.md](records-and-queries.md)).
+
+**A record that points at another record says so with a link**, never with
+the other record's key in a body field. Everything that follows relations
+works on links and only on links: declarations and conformance, `onePer`,
+checks, `include` and counts, rules ([rules.md](rules.md)), and the "what
+points here" a record's page shows. A key in a body field is a string to all
+of them. Fields are for values and for people (DIDs); links are for records.
+If a keeper must match on a link without reading, make it a topic:
+`topics: ['link:channel']`.
 
 Like a schema, link declarations are checked when you write: the node refuses
 to sign links that don't conform. A record that arrives with links that
@@ -272,8 +281,9 @@ await node.spaces.setMember(space.id, did, 'host');
   With `onePer` or `fixed` in the rules, a record's first version is kept
   whole too: those rules are checked against it. With `check`, every version
   is.
-- `topics: ['channel']` lets a node that can't read the space still match
-  records by that field's value, for notifications. At most 8.
+- `topics: ['mentions', 'link:channel']` lets a node that can't read the
+  space still match records by a field's value, or by where a link of that
+  role points, for notifications. At most 8.
 - `screen`: a small UI for the collection's records. See
   [screens-and-apps.md](screens-and-apps.md).
 - `version`: see [below](#versions-of-a-definition).

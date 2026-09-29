@@ -147,7 +147,7 @@ export function collectionLabel(collection: Pick<NodeCollection, 'name' | 'title
  * Collections the app already gives a place of their own (its reactions and
  * comments) are left out via `except`.
  */
-export function attachable(
+function attachable(
   collections: ReadonlyArray<NodeCollection>,
   target: string,
   except: ReadonlySet<string> = new Set(),
@@ -160,6 +160,22 @@ export function attachable(
     }
   }
   return found;
+}
+
+/**
+ * What belongs under a record of this collection: links that name it, like a
+ * message's `channel` or a vote's `about`, not links to anything at all, like
+ * a message that shares a record, which point at it only in passing. `about`
+ * to anything still counts: it is what an annotation is for.
+ */
+export function belonging(
+  collections: ReadonlyArray<NodeCollection>,
+  target: string,
+  except: ReadonlySet<string> = new Set(),
+): ReadonlyArray<{ collection: NodeCollection; rel: string }> {
+  return attachable(collections, target, except).filter(
+    (a) => a.collection.version !== null && (a.collection.links[a.rel]?.to !== '*' || a.rel === 'about'),
+  );
 }
 
 /** One choice for a field: what is stored, and what a person sees */

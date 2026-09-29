@@ -3,7 +3,7 @@ import { useNode, useLive, useProfiles, useCan } from '@weaveprotocol/core/react
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { reaction, comment, tag } from '@weaveprotocol/core/schemas';
 import {
-  attachable,
+  belonging,
   bodyOf,
   byRel,
   choicesFrom,
@@ -125,6 +125,7 @@ export function RecordPanel({
   };
 
   const linked = data?.linked ?? [];
+  const addable = belonging(collections, record?.collection ?? '', ANNOTATIONS);
   // Reactions, comments and tags appear once the space has added them from the library.
   const uses = (name: string) => collections.some((c) => c.name === name && c.version !== null);
   // Grouped by kind and by how they point here, so "Tasks · blocks" reads apart from "Tasks · about".
@@ -425,16 +426,20 @@ export function RecordPanel({
                   />
                 </section>
               ) : (
-                attachable(collections, record.collection, ANNOTATIONS).length > 0 && (
+                addable.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {attachable(collections, record.collection, ANNOTATIONS).map((a) => (
+                    {addable.map((a) => (
                       <button
                         key={`${a.collection.name}-${a.rel}`}
                         onClick={() => setAdding(a)}
+                        title={a.collection.links[a.rel]?.description}
                         data-variant="quiet"
                         style={styles.smallButton}
                       >
                         + Add {collectionLabel(a.collection).toLowerCase()}
+                        {/* One kind added two ways, like a task under a column or a project, says which */}
+                        {addable.filter((b) => b.collection.name === a.collection.name).length > 1 &&
+                          ` · ${humanize(a.rel).toLowerCase()}`}
                       </button>
                     ))}
                   </div>

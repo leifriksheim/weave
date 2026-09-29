@@ -26,7 +26,7 @@ import { hold, letGo } from './helpers/hold.js';
 import { team } from '../src/space/presets.js';
 import { until } from './helpers/until.js';
 import { carriedFor, checkNotify, checkProposal, matchesRecord, whereHolds } from '../src/space/notify.js';
-import { message, post } from '../src/schemas/library/publishing.js';
+import { channel, message, post } from '../src/schemas/library/publishing.js';
 import { comment } from '../src/schemas/library/annotations.js';
 import { task } from '../src/schemas/library/planning.js';
 import { standardNeeds } from '../src/schemas/apps.js';
@@ -40,6 +40,11 @@ describe('topic tags, worked out', () => {
     assert.match(checkTopics(['channel', 'channel'])!, /twice/);
     assert.match(checkTopics(['not a field'])!, /not a field name/);
     assert.match(checkTopics(Array.from({ length: 9 }, (_, i) => `f${i}`))!, /at most 8/);
+    // A link role, named as `onePer` names one.
+    assert.equal(checkTopics(['link:channel', 'mentions']), null);
+    assert.match(checkTopics(['link:'])!, /not a field name or link role/);
+    assert.match(checkTopics(['link:Channel'])!, /not a field name or link role/);
+    assert.match(checkTopics(['link:a.b'])!, /not a field name or link role/);
     assert.match(
       checkStoredCollection({ name: 'app.chat', version: 1, schema: { type: 'object' }, topics: [1] })!,
       /not a field name/,
@@ -52,6 +57,14 @@ describe('topic tags, worked out', () => {
     assert.deepEqual(topicValues({ where: { city: 'Oslo' } }, 'where.city'), ['Oslo']);
     assert.deepEqual(topicValues({ where: 'Oslo' }, 'where.city'), []);
     assert.deepEqual(topicValues({ n: 3, ok: true, gone: null }, 'n'), [3]);
+    // A link role's values are where each link of that role points, not the body.
+    const links = [
+      { rel: 'channel', to: 'k1' },
+      { rel: 'shares', to: 'k2' },
+      { rel: 'channel', to: 'k3' },
+    ];
+    assert.deepEqual(topicValues({ channel: 'body' }, 'link:channel', links), ['k1', 'k3']);
+    assert.deepEqual(topicValues({}, 'link:replyTo', links), []);
   });
 
   test('the same value gives the same tag; another field, collection, key or type gives another', async () => {
@@ -79,6 +92,15 @@ describe('topic tags, worked out', () => {
     });
     assert.equal(tags.length, 3);
     assert.deepEqual(tags, [...tags].sort());
+  });
+
+  test('the spec’s examples (02 §8.3)', async () => {
+    const key = await topicKey({ spaceId: 'bimjoifogypbqrtuich3e375d67y43znkjsjnp4q4qhe7gwf7u74a' });
+    assert.equal(await topicTag(key, 'app.chat.message', 'channel', 'design'), '77UGGhMoLC5C1rXEcsqWKw');
+    const [linked] = await tagsFor(key, 'std.message', ['link:channel'], { text: 'hi' }, [
+      { rel: 'channel', to: 'mfrggzdfmztwq2lknnwg23tpoa' },
+    ]);
+    assert.equal(linked, 'KmBza5PO__zHr48zfCH8Pw');
   });
 
   test('a public space’s tags come from its id: anyone can work them out, and they differ per space', async () => {
@@ -220,6 +242,134 @@ describe('topic tags on records', () => {
   });
 });
 
+describe('topic tags on links', () => {
+  const rooms = {
+    name: 'app.room',
+    schema: { type: 'object' },
+    links: { channel: { to: '*' as const, cardinality: 'one' as const } },
+    topics: ['link:channel'],
+  };
+
+  async function roomSpace(visibility: 'public' | 'private') {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const alice = await person(hub);
+    const bob = await person(hub);
+    const { id: space } = await alice.node.spaces.create({ name: 'Club', ...team, visibility });
+    await alice.node.collections.define(space, rooms);
+    await bob.node.spaces.join(await alice.node.spaces.invite(space));
+    await hold(alice.node, space);
+    await hold(bob.node, space);
+    await joined(bob.node, space);
+    await until(
+      async () => (await bob.node.collections.list(space)).some((c) => c.name === rooms.name),
+      4000,
+      'the definition to reach Bob',
+    );
+    return { alice, bob, space };
+  }
+
+  for (const visibility of ['private', 'public'] as const) {
+    test(`a record is tagged with where its link points, sealed or not — ${visibility}`, async () => {
+      const { alice, bob, space } = await roomSpace(visibility);
+      const channel = 'mfrggzdfmztwq2lknnwg23tpoa';
+      const said = await alice.node.records.put(
+        space,
+        rooms.name,
+        { text: 'hi' },
+        { links: [{ rel: 'channel', to: channel }] },
+      );
+      const stored = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(said.key);
+      const tag = await alice.node.collections.tag(space, rooms.name, 'link:channel', channel);
+      assert.deepEqual(stored?.tags, [tag]);
+      assert.equal(await bob.node.collections.tag(space, rooms.name, 'link:channel', channel), tag);
+      // Bob opens it, works the tag out from its links, and keeps it.
+      await until(
+        async () => (await bob.node.records.get(space, said.key)) !== null,
+        4000,
+        'the record to reach Bob',
+      );
+    });
+  }
+
+  test('a record tagged for one channel but linking another is refused', async () => {
+    const { alice, bob, space } = await roomSpace('public');
+    await letGo(bob.node, space);
+    const provider = alice.manager.getProvider();
+    const pair = await provider.generateKeyPair();
+    const keyDid = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
+    const ucan = await createLocalRootSigner(alice.me, provider).delegate({
+      audience: keyDid,
+      capabilities: [{ with: `space:${space}`, can: 'expression/write' }],
+      expiration: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const lying = await createSigner(provider).sign(
+      createExpression({
+        seen: await seenBy(alice.node, space),
+        author: keyDid,
+        space,
+        proof: ucan.encoded,
+        collection: rooms.name,
+        body: { text: 'psst' },
+        links: [{ rel: 'channel', to: 'randomrandomrandomrandom00' }],
+        tags: [
+          await alice.node.collections.tag(space, rooms.name, 'link:channel', 'designdesigndesigndesign00'),
+        ],
+      }),
+      pair.privateKey,
+    );
+    await createStorageProvider(await alice.stores(`spaces/${space}`)).addExpression(lying);
+
+    let rejected = '';
+    bob.node.subscribe((event) => {
+      if (event.type === 'rejected') rejected = event.reason;
+    });
+    await hold(bob.node, space);
+    await until(async () => rejected !== '', 4000, 'Bob to refuse it');
+    assert.match(rejected, /topic tags don’t match|topic tags don't match/);
+    assert.equal(await bob.node.records.get(space, lying.key), null);
+  });
+
+  test('a standard message in a channel is tagged with it, and “in #design” matches only those', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const alice = await person(hub);
+    const { id: space } = await alice.node.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await alice.node.collections.define(space, channel);
+    await alice.node.collections.define(space, message);
+    const design = await alice.node.records.put(space, channel.name, { name: 'design' });
+    const inDesign = await alice.node.records.put(
+      space,
+      message.name,
+      { text: 'mockups?' },
+      { links: [{ rel: 'channel', to: design.key }] },
+    );
+    const inRoom = await alice.node.records.put(space, message.name, { text: 'hello all' });
+    const stored = await createStorageProvider(await alice.stores(`spaces/${space}`)).getCurrent(
+      inDesign.key,
+    );
+    assert.deepEqual(stored?.tags, [
+      await alice.node.collections.tag(space, message.name, 'link:channel', design.key),
+    ]);
+    const since = new Date(Date.now() - 1000).toISOString();
+    const inChannel = [inDesign, inRoom].filter((record) =>
+      matchesRecord(
+        {
+          label: '#design',
+          collection: message.name,
+          spaces: 'all',
+          topic: { field: 'link:channel', value: design.key },
+          since,
+        },
+        record,
+        'did:key:zDnaeBob',
+      ),
+    );
+    assert.deepEqual(
+      inChannel.map((r) => r.key),
+      [inDesign.key],
+    );
+  });
+});
+
 describe('a standard message’s topics', () => {
   test('mentions and replies are tagged, so “mentions me” and “replies to me” match only those', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
@@ -335,14 +485,14 @@ describe('a standard message’s topics', () => {
   test('an app that needs std.message gets its topics, and one without them is not the standard message', () => {
     const needs = standardNeeds(['std.message']);
     assert.ok(Array.isArray(needs) && isRecord(needs[0]));
-    assert.deepEqual(needs[0].topics, ['channel', 'mentions', 'replyingTo']);
+    assert.deepEqual(needs[0].topics, ['link:channel', 'mentions', 'replyingTo']);
     const { topics: _topics, ...without } = { ...message, schema: toJsonSchema(message.schema) };
     assert.throws(() => standardNeeds([without]), /different shape/);
   });
 
   test('every standard collection that names people has them as topics, so a keeper can tell them', () => {
     const expected: Record<string, ReadonlyArray<string>> = {
-      'std.message': ['channel', 'mentions', 'replyingTo'],
+      'std.message': ['link:channel', 'mentions', 'replyingTo'],
       'std.comment': ['mentions', 'replyingTo', 'respondingTo'],
       'std.post': ['mentions', 'replyingTo'],
       'std.article': ['mentions'],

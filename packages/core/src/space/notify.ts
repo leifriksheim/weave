@@ -425,7 +425,8 @@ export function matchesRecord(
   if (!Number.isFinite(written) || written < Date.parse(when.since) || now - written > NOTIFY_WITHIN_MS)
     return false;
   if ((when.others ?? true) && record.createdBy === account) return false;
-  if (when.topic && !topicValues(record.body, when.topic.field).includes(when.topic.value)) return false;
+  if (when.topic && !topicValues(record.body, when.topic.field, record.links).includes(when.topic.value))
+    return false;
   return true;
 }
 
