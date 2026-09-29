@@ -226,7 +226,7 @@ exposes them:
   accepting also need whole-account access.
 - `node.carriers`, `node.hosting`, `node.notifications` — [spec 06 §4](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md).
 - `node.iceServers()` — the configured ICE servers plus TURN servers a relay
-  offers ([04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)); what calls use ([spec 06 §5](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+  offers ([04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)); what [calls](calls.md#connections) use.
 - `node.network` — `status()`: each relay's state (open, or waiting to redial,
   when and why), the connections open and those still being made, and whether
   a relay offered TURN; `reconnect()` redials a waiting relay now
@@ -295,7 +295,7 @@ _Source: `packages/core/src/session/connection.ts`, `packages/core/src/node/watc
 
 ## Client conveniences
 
-These are not protocol; another client may draw sign-in and calls however it
+These are not protocol; another client may draw sign-in and [calls](calls.md) however it
 likes.
 
 - **`<weave-auth>`** draws the flow of [sign-in](sign-in.md) into its own light DOM (so password

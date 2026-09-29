@@ -124,7 +124,6 @@ they are described; the smaller ones share
 | Web Push through carriers, to an app that is closed                               | [06 §4.4](06-nodes-and-sessions.md)                                                                                                      |
 | Subscriptions delivered per device, through receiver records                      | [03 §15](03-spaces.md), [06 §4.4](06-nodes-and-sessions.md), [#30](https://github.com/leifriksheim/weave/issues/30)                      |
 | Hosts: reachability, restore, user storage, quotas, reminders, private payments   | [06 §4.6](06-nodes-and-sessions.md)                                                                                                      |
-| Calls: blocked people don't ring, ringing a closed app, big calls, listen-only    | [06 §5](06-nodes-and-sessions.md), [#20](https://github.com/leifriksheim/weave/issues/20)                                                |
 | Names: handles that lead to a door                                                | [07 §9](07-doors.md)                                                                                                                     |
 
 Proposed in an issue but not yet designed into the spec, so listed under

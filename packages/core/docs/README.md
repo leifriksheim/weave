@@ -48,6 +48,7 @@ implementation may do it differently and still work with this one.
 | [query-format.md](query-format.md)         | The JSON query format: filters, operators, sort and cursor, include                            |
 | [standard-library.md](standard-library.md) | Every `std.*` collection, and the conventions they follow                                      |
 | [apps-as-records.md](apps-as-records.md)   | `std.app`: the review, updates, notifications, compatibility, and how screens run              |
+| [calls.md](calls.md)                       | Voice and video calls in a space: the `call.*` messages, ringing, joining, leaving             |
 
 ## Rules of thumb
 
