@@ -1,7 +1,7 @@
 # 06 — Nodes, sessions and apps
 
 This part covers what a **node** must do to act for an account: the session
-note it writes under, and following the account's list of spaces. Then the
+note it writes under, and what it keeps current for the account. Then the
 exchanges that let a program act without the seed: **connecting an app** to
 an account home, **connecting an agent**, and **carriers and hosts** that keep
 spaces online without reading them. It ends with **calls**, which are built
@@ -10,8 +10,10 @@ only from live messages.
 The node's programming interface is not protocol, and another implementation
 may shape its own however it likes. The reference one is described in the
 package docs: [the node](../packages/core/docs/node.md) (creating one, stores,
-holding spaces, events, the app-side client), [sign-in](../packages/core/docs/sign-in.md),
-and [actions](../packages/core/docs/actions.md) (the CLI, MCP and WebMCP tools).
+holding spaces, following the account, events, the app-side client, carriers
+and hosting), [sign-in](../packages/core/docs/sign-in.md) (including the
+account home's side of §2), [agents](../packages/core/docs/agents.md), and
+[actions](../packages/core/docs/actions.md) (the CLI, MCP and WebMCP tools).
 
 Material specified elsewhere is linked, not repeated:
 
@@ -44,17 +46,14 @@ Terms used here:
 
 ### 1.1 What a node is
 
-A node acts for exactly one account (`node.did`) and signs with exactly one
-session key (`node.sessionDid`) for its lifetime. It holds a set of spaces,
-each with its own store and its own peers, and exposes them as plain data: every
-value a node method returns is JSON-serialisable, so the same calls can be
-exposed over a command line, MCP and WebMCP ([actions](../packages/core/docs/actions.md)).
+A node acts for one account and signs with one session key at a time. It
+holds a set of spaces, each with its own store and its own peers.
 
 A node MAY hold the **account key** (the vault key bytes, [01](01-identity.md)).
 With it the node follows the account registry — the account's list of spaces,
 its name, its carriers, hosts and subscriptions — and joins and leaves spaces as
-the account does on any device. Without it, the node holds only the spaces it
-was given or joined itself.
+the account does on any device (§1.3). Without it, the node holds only the
+spaces it was given or joined itself.
 
 A node MAY hold the **contact key** (`deriveContactKeyBytes(seed)`). With it the
 node opens contact requests sent to the account and publishes the contact key's
@@ -71,113 +70,52 @@ lets the session key write everywhere the account can:
 { "aud": "<sessionDid>", "att": [{ "with": "*", "can": "expression/*" }], "exp": <now + ttl> }
 ```
 
-(`SESSION_CAPABILITY = { with: '*', can: 'expression/*' }`; the UCAN envelope
-and how peers verify it are in [01](01-identity.md).) Every record this node
-signs carries the current note as its `proof`, and every live connection opens
-with it (the `who` message, [04](04-network.md)).
+(The UCAN envelope and how peers verify it are in [01](01-identity.md).)
+Every record this node signs carries the current note as its `proof`, and every
+live connection opens with it (the `who` message, [04](04-network.md)).
 
-Renewal timing:
-
-- The first renewal is asked for at `0.75 × ttl` seconds after start (2700 s
-  with the default TTL), and each successful renewal schedules the next
-  `0.75 × ttl` later.
-- If the signer refuses or cannot be reached, the node keeps the note it has
-  and asks again after `min(60, ttl / 4)` seconds, repeating until it succeeds
-  or the node closes. Once the held note expires, peers (and the node's own
-  gates) refuse what it writes.
-- Records written under an earlier note stay valid after that note expires:
-  expiry limits when a note may be _used to write_, not how long its records
-  count ([01](01-identity.md), [02](02-records.md)).
-
-A signer need not be able to sign. `grantSigner(grant)` (§2.7) answers every
-`delegate` call with the one note an account home granted, unchanged, and
-refuses once `grant.expiresAt` has passed. A node started from a grant
-therefore never gets a fresh note: its "renewal" returns the same note, and when
-it runs out the app must connect again (§2.9).
+The node asks for a new note before the one it holds runs out. Once the held
+note expires, peers refuse what the node writes under it. Records written under
+an earlier note stay valid after that note expires: expiry limits when a note
+may be _used to write_, not how long its records count ([01](01-identity.md),
+[02](02-records.md)). An app's note from an account home is never renewed in
+place (§2.9).
 
 > Rationale: one root signature an hour, never one per write. The root — a seed
 > in a page, an account home, anything — can stay out of reach of the code that
 > writes.
 
-`node.delegate({ audience, capabilities, expiration? })` passes a narrower note
-from the session key on to another key. The capabilities MUST be no broader
-than the session note's, and `expiration` is capped at the session note's. It
-returns `{ token, proofs: [<session note>] }`.
+When and how the reference node renews, and how it passes a narrower note on,
+are in [the node](../packages/core/docs/node.md#the-session-note).
 
-`node.delegation()` returns the note the session key writes under now.
-
-_Source: `packages/core/src/node/node.ts` (`delegate`, `scheduleRenewal`, `SESSION_CAPABILITY`), `packages/core/src/session/connect.ts` (`grantSigner`). Tests: `packages/core/tests/node.test.ts` ("the delegation is renewed before it expires", "records outlive the session that wrote them")._
+_Source: `packages/core/src/node/node.ts` (`SESSION_CAPABILITY`, `scheduleRenewal`). Tests: `packages/core/tests/node.test.ts` ("the delegation is renewed before it expires", "records outlive the session that wrote them")._
 
 ### 1.3 The spaces a node keeps
 
-The node's **registry** store lists every space it holds, with its key(s), its
-invite secret while one is waiting to be used, its role as last seen, the
-relays the space names and, for an app without the account key, its member
-key. Its storage format is an _implementation detail_ of `packages/core/src/space/space-manager.ts`
-([03](03-spaces.md)).
+The account's list of spaces is the `sys.joined` records in its account
+registry, one per space, keyed `space:<id>` ([03](03-spaces.md)). Only
+`sys.joined` records that verify and whose root is the account itself count.
+A record whose space key changed is rewritten with an invite carrying the key
+in use now, so a new device joins with it.
 
-Three kinds of space are the account's own machinery and are **hidden** from
-`spaces.list`:
+A node holding the account key follows that list, and keeps what carriers
+depend on current: each live carrier's passes and `carry:closed` (§4.2), and
+the account's carriers named as keepers of the spaces it manages (§4.2). A
+carrier sees only what these devices write, so without them it carries stale
+passes or none.
 
-| Space                | Derived from                               | Notes                                                          |
-| -------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| The account registry | the account key                            | Never in the node's registry; opened directly. Cannot be left. |
-| The contacts space   | the account key, or `config.contactsSpace` | Held in the registry, hidden. Cannot be left.                  |
-| Carry spaces         | one per carrier the account uses (§4)      | Held in the registry, hidden.                                  |
-
-In these three kinds of space, a record signed under an agent's note never
-counts (§3.1), and they are always held whole ([05](05-sync-and-storage.md) §5).
-
-**Following the account.** With an account key, the node makes its spaces
-match the account's list — the `sys.joined` records in the account registry,
-one per space, keyed `space:<id>`, whose format is in [03](03-spaces.md). This
-_reconciliation_ runs at start and whenever records change in the account
-registry. It:
-
-1. joins every carry space a live `sys.carrier` record names, and closes and
-   forgets one whose carrier was removed more than 30 days ago (kept open until
-   then, so an offline carrier still hears it was removed);
-2. joins every space a live `sys.joined` record names that the node does not
-   hold, using the view-only invite in the record;
-3. leaves every space whose `sys.joined` record is deleted;
-4. writes a `sys.joined` record for any space held here that the account
-   registry has never heard of (joined before the registry existed, or on a
-   node without the account key);
-5. brings every carrier's passes and subscriptions up to date (§4.2);
-6. names the account's carriers as keepers of the open spaces it manages (§4.2);
-7. asks every host the account uses how it stands, handing it the spaces if it
-   has been paid since (§4.5) — without waiting for the answer.
-
-Only `sys.joined` records that verify and whose root is the account itself
-count. Creating or joining a space writes its `sys.joined` record; leaving
-deletes it. A record whose space key changed is rewritten with an invite
-carrying the key in use now, so a new device joins with it.
-
+The account registry, the contacts space and carry spaces are the account's
+own machinery. In them a record signed under an agent's note never counts
+(§3.1), and a node always holds them whole ([05](05-sync-and-storage.md) §5).
 A node writing under an agent's note never writes the account registry: no
 `sys.joined`, no passes, no name, no hosting receipts (every peer would ignore
-them; §3.1).
+them).
 
-**Profiles.** When a space opens, when the node's role in it becomes non-null,
-and when the account's name changes on any device, the node publishes the
-account's profile in that space: `{ name, contactKey? }`, with the name taken
-from the account registry's `sys.profile` record and `contactKey` only when
-the node holds the contact key. It does this only in spaces other than the
-account registry and the contacts space, only with an account name to publish,
-and never under an agent's note. The profile record format is in
-[03](03-spaces.md).
+When a node joins, leaves and reconciles, which spaces it hides from its own
+list, and when it publishes the account's profile are the node's own; the
+reference node is in [the node](../packages/core/docs/node.md#following-the-account).
 
-**Joining.** `spaces.join(invite)` accepts a bare invite or any link carrying
-`#invite=…`, `?invite=…` or `&invite=…`. It stores the space (and its key, for
-a private space), stores `memberKey` when given, writes the `sys.joined`
-record, then tries to use the invite's role secret at once. If the space's
-invite record has not reached this device yet, the space is held with
-`joining: true` and the node tries again each time records arrive in it.
-
-**Leaving.** `spaces.leave(id)` deletes the `sys.joined` record, closes the
-space and forgets it with its key. It does not give up the account's role in
-the space; to do that, `setMember(id, self, null)` first.
-
-_Source: `packages/core/src/node/node.ts` (`reconcileOnce`, `remember`, `forget`, `finishJoining`, `publishProfile`, `spaces`). Tests: `packages/core/tests/node.test.ts` ("the account registry"), `packages/core/tests/profiles.test.ts`, `packages/core/tests/space-access.test.ts`._
+_Source: `packages/core/src/node/node.ts` (`reconcileOnce`, `syncPasses`, `nameKeepers`), `packages/core/src/space/account-registry.ts`. Tests: `packages/core/tests/node.test.ts` ("the account registry"), `packages/core/tests/agents.test.ts` ("it never writes the account itself")._
 
 ## 2. The account home protocol
 
@@ -186,21 +124,20 @@ from the account to a key of its own, signed at the person's **account home**.
 
 ```
  app page                                   account home (popup)
-    │  window.open(home, 'weave-home')            │
+    │  opens the home in a popup                  │
     │ ◀──────────── { type: 'weave:hello' } ──────│  posted to '*'
     │── { type: 'weave:request', request } ─────▶ │  to the home's origin
     │                                             │  person unlocks, approves
     │ ◀──── { type: 'weave:grant', grant } ───────│  to the app's origin only
-    │    or { type: 'weave:denied', reason }      │  window closes 100 ms later
+    │    or { type: 'weave:denied', reason }      │  then closes
 ```
 
 ### 2.1 The app's key
 
 An app MUST make its own P-256 key and keep the private half non-extractable.
-The reference `appKey(name = 'default')` keeps it in the IndexedDB database
-`weave-app-key`, object store `keys`, under `name`. `forgetAppKey` deletes it;
-the next connection makes a new one. The key's DID is the grant's audience, and
-the app's node signs with this key (`sessionKey`), not a fresh one.
+The key's DID is the grant's audience, and the app's node signs with this key,
+not a fresh one. Where the reference keeps it:
+[the app-side client](../packages/core/docs/node.md#the-app-side-client).
 
 > **Known defect:** so every tab or window of one app is the same DID on the
 > relays, and only the first gets into a space's room; the others report
@@ -209,22 +146,17 @@ the app's node signs with this key (`sessionKey`), not a fresh one.
 
 ### 2.2 The home's address
 
-`homeAddress(input)` turns what a person typed into the home's connect page:
-
-- no scheme → `https://`, or `http://` for `localhost`, `127.0.0.1`, `[::1]`;
-- the host MUST be a loopback name or a domain name with a TLD of two or more
-  letters;
-- the scheme MUST be `https:`, or `http:` on loopback;
-- a path of `/` or empty becomes `/connect`; query and fragment are dropped.
-
-Example: `weave.example.com` → `https://weave.example.com/connect`.
+A home is found by its bare domain: an app given only an origin opens
+`<origin>/connect`, so a home serves its connect page there. Example:
+`weave.example.com` → `https://weave.example.com/connect`. How the reference
+client reads what a person typed is in
+[the app-side client](../packages/core/docs/node.md#the-app-side-client).
 
 ### 2.3 The exchange
 
 The app:
 
-1. MUST open the home in a popup from a user gesture, before awaiting anything
-   (reference: name `weave-home`, features `popup,width=460,height=720`).
+1. MUST open the home in a popup from a user gesture, before awaiting anything.
 2. Listens for `message` events and MUST ignore any whose `source` is not the
    popup it opened or whose `origin` is not the home's origin.
 3. On `{ type: "weave:hello" }`, posts `{ type: "weave:request", request }` to
@@ -232,10 +164,9 @@ The app:
 4. On `{ type: "weave:grant", grant }`, checks the grant (§2.6) and resolves
    (for a proposal, §2.11, `grant` is the `Proposed` answer instead). On
    `{ type: "weave:denied", reason? }`, fails with `reason`.
-5. Fails if the popup is closed first (polled every 500 ms) or after a timeout
-   (default 10 minutes).
+5. Fails if the popup is closed first, or after a timeout.
 
-The home (`receiveConnectRequest(timeoutMs = 10 000)`):
+The home:
 
 1. Does nothing unless `window.opener` is set.
 2. Posts `{ type: "weave:hello" }` to the opener with `targetOrigin` `*`. The
@@ -247,8 +178,12 @@ The home (`receiveConnectRequest(timeoutMs = 10 000)`):
 4. If the request is malformed (§2.4), answers `weave:denied` with a reason
    saying it did not understand, to that origin, and closes.
 5. Otherwise waits for the person, then posts exactly one of `weave:grant` or
-   `weave:denied` to that origin only, and closes itself 100 ms later.
+   `weave:denied` to that origin only, and closes itself.
 6. Gives up silently if no request arrives within the timeout.
+
+The reference timings (popup size, polling, timeouts) are in
+[the app-side client](../packages/core/docs/node.md#the-app-side-client) and
+[the account home's side](../packages/core/docs/sign-in.md#the-account-homes-side).
 
 _Source: `packages/core/src/session/connect.ts` (`connectToHome`, `askHome`, `receiveConnectRequest`, `homeAddress`). Tests: `packages/core/tests/connect.test.ts` ("the home receiving a request", "an account home typed by a person")._
 
@@ -299,7 +234,7 @@ Example:
 
 ### 2.5 The grant
 
-When the person approves, the home (`auth.grant({ origin, request, spaceIds, days? })`):
+When the person approves, the home:
 
 1. Makes the spaces in `create`, in the account (so they land in its list on
    every device).
@@ -312,7 +247,7 @@ When the person approves, the home (`auth.grant({ origin, request, spaceIds, day
    (`deriveMemberKeyBytes(accountKey, spaceId)`, [01](01-identity.md)), which
    opens that space's next key and nothing else.
 4. Computes the lifetime: `days` = the person's choice, else the request's,
-   else 7, clamped to [1/24, 365]; `expiresAt = now + round(days × 86400)`
+   else 7, within the home's own bounds; `expiresAt = now + round(days × 86400)`
    (unix seconds).
 5. Signs a note with the account's root key:
    `aud` = `request.audience`, `exp` = `expiresAt`, `att` =
@@ -395,23 +330,14 @@ the agent fact.
 
 ### 2.7 Starting a connected node
 
-`startConnectedNode({ grant, key?, network?, stores?, cache? })` starts a node
-with:
+The app's node signs with the app's own key (§2.1) under the granted note,
+joins the relays in `grant.relays` besides its own, and joins each granted
+space with its view-only invite and, when given, its `memberKey`. Without an
+account key it sees only the spaces it was given; with one it follows the
+whole account (§1.3). How the reference starts it is in
+[the app-side client](../packages/core/docs/node.md#the-app-side-client).
 
-- `signer = grantSigner(grant)`: `did` = `grant.did`, `custody: "remote"`,
-  `delegate()` returns the granted note (whatever was asked) and throws once
-  `expiresAt` has passed;
-- `sessionKey` = the app's key;
-- stores `indexedDBStores('weave-app:<grant.did>')` unless given;
-- `cache: {}` unless `cache: false` ([holding part of a space](../packages/core/docs/node.md#holding-part-of-a-space));
-- `accountKey`, `contactKey`, `contactsSpace` from the grant when present;
-- relays = the app's relays ∪ `grant.relays`.
-
-It then joins each granted space it does not hold yet, passing its `memberKey`.
-Without an account key it sees only the spaces it was given; with one it
-follows the whole account (§1.3).
-
-_Source: `packages/core/src/session/connect.ts` (`startConnectedNode`, `grantSigner`, `grantStore`). Tests: `packages/core/tests/connect.test.ts`._
+_Source: `packages/core/src/session/connect.ts` (`startConnectedNode`, `grantSigner`). Tests: `packages/core/tests/connect.test.ts`._
 
 ### 2.8 Scope
 
@@ -440,22 +366,16 @@ its password or passkeys, or keep access past `expiresAt`.
 
 A note is never renewed in place. When `expiresAt` passes, the app's writes stop
 counting everywhere. To continue, the app connects again, which produces a new
-note (and, at the home, replaces the old connection record). The reference
-client (`createWeaveConnection`, [node](../packages/core/docs/node.md#the-app-side-client)) switches to `expired` at `expiresAt`
-and does not load an expired grant from storage.
+note (and, at the home, replaces the old connection record).
 
 ### 2.10 Connections and revocation
 
-_Implementation detail:_ the home remembers each connection per account in its
-local storage (`Connection`: `origin`, `name`, `audience`, `access`, `scope`,
-`carrySpace?`, `spaces`, `grantedAt`, `expiresAt`, `token?`, `agent?`).
-Connecting the same origin again replaces its connection; an agent's connection
-is keyed by its audience instead, so each agent is its own.
+The home remembers each connection it grants: the app's origin, audience,
+access, scope and the spaces granted. Connecting the same origin again replaces
+its connection; an agent's connection is its own, apart from the app's.
 
-**Disconnecting** (`auth.disconnect(origin, { agent?, audience? })`) removes the
-app's connections (by default the app and every agent connected through it;
-`agent: true` only those agents; `audience` only that key) and, for each with
-`access: write`, revokes its note:
+**Disconnecting** an app or agent revokes the note of each connection removed
+that has `access: write`:
 
 - `scope: spaces`: in every space it was granted;
 - `scope: account`: in every space the account can write in, the contacts
@@ -466,19 +386,19 @@ whose `app.origin` is its origin (§2.11, §4.4).
 
 Revoking writes a `sys.revoke` record naming the note ([03](03-spaces.md)).
 From then on nothing written under the note counts, except versions the revoker
-had already seen. What the app could already read, it keeps. A node that sees
-its own note revoked in a space emits `revoked` ([events](../packages/core/docs/node.md#events)); the reference client
-then forgets the grant and the app key.
+had already seen. What the app could already read, it keeps. How the reference
+home stores connections and what the reference client does when it sees its
+note revoked are in [the account home's side](../packages/core/docs/sign-in.md#the-account-homes-side).
 
 _Source: `packages/core/src/session/auth.ts` (`disconnect`, `connections`), `packages/core/src/node/node.ts` (`checkRevoked`). Tests: `packages/core/tests/connect.test.ts` ("disconnecting …")._
 
 ### 2.11 Proposing subscriptions
 
-Only an app offers subscriptions, and only when the person asks it to, from
-something like a "Notify me" button: never while connecting (§2.4), never a
+Only an app offers subscriptions, and only when the person asks it to: never
+while connecting (§2.4), never a
 carrier or an agent, and never the home on its own. The home lets the person
 pause and remove what they kept, not add to it. The app uses the exchange of
-§2.3 (`proposeToHome`) with a `ProposeRequest` in place of the
+§2.3 with a `ProposeRequest` in place of the
 `ConnectRequest`:
 
 | Field    | Type                   | Meaning                                                      |
@@ -501,8 +421,7 @@ to 8 entries, each of which would be a valid `NotifyWhen` ([03](03-spaces.md)
 given (else `"all"`), and whose `open`, when given, is on the request's
 origin: a click on a notification leads only back to the app that proposed it.
 
-When the person approves (`auth.propose({ origin, request, notify? })`, where
-`notify` is the indices they kept, default all), the home:
+When the person approves some or all of the proposals, the home:
 
 1. Finds the connection it keeps for the request's origin (§2.10), other than
    an agent's or a carrier's. With none it MUST refuse.
@@ -570,13 +489,9 @@ answered with
 }
 ```
 
-The app shows the notifications itself. An app with `scope: account` holds
-the account key, so it reads the subscriptions naming its origin from the
-registry, and matches each record that arrives against them with the body in
-hand (`matchesRecord`): not paused, the collection, one of the spaces, created
-at or after `since` and within the last 24 hours, by another account when
-`others`, and holding the topic value when there is one. What it held before
-it started is never news. How it shows a match is the app's to decide.
+The app shows the notifications itself; how the reference matches records
+against its subscriptions is in
+[the app-side client](../packages/core/docs/node.md#the-app-side-client).
 
 > Rationale: the home writes the subscriptions, not the app. A subscription is
 > the person's intent: the app knows good collections and labels, the person
@@ -586,7 +501,7 @@ it started is never news. How it shows a match is the app's to decide.
 > chose from the kinds of record it sees go by would be a guess at the
 > person's words. An app they are looking at knows what its records mean.
 
-_Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`), `packages/core/src/session/connection.ts` (`propose`), `packages/core/src/node/node.ts` (`notifications.versions`, `notifications.take`), `packages/core/src/node/space-runtime.ts` (`versionsOf`, `take`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`, `matchesRecord`), `packages/core/src/node/watch-notifications.ts` (`watchNotifications`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions", "an app showing its own notifications", "the home receiving a request")._
+_Source: `packages/core/src/session/connect.ts` (`ProposeRequest`, `Proposed`, `proposeToHome`, `isRequest`), `packages/core/src/session/auth.ts` (`propose`, `subscriptionsFrom`), `packages/core/src/session/connection.ts` (`propose`), `packages/core/src/node/node.ts` (`notifications.versions`, `notifications.take`), `packages/core/src/node/space-runtime.ts` (`versionsOf`, `take`), `packages/core/src/space/notify.ts` (`checkProposal`, `proposalSpaces`, `fromProposal`, `sameSubscription`), `apps/home/src/components/ConnectPage.tsx` (`ApproveProposal`). Tests: `packages/core/tests/connect.test.ts` ("an app proposing subscriptions", "the home receiving a request")._
 
 > **Planned: a wallet as the account home.** The same job — hold the root and
 > hand an app's key a note — done by a credential wallet through the Digital
@@ -666,22 +581,19 @@ key is ignored.
 
 **Flow.**
 
-1. The app starts offering: makes a code, joins the room, shows the code.
+1. The app makes a code and joins the room.
 2. The terminal joins the room and, to each peer that connects, sends `ask`.
-3. The app takes the **first** valid `ask` only (a `did` starting `did:key:`),
-   answers `heard`, and shows the person the agent's name. Later asks are
-   ignored; the code is good for one agent.
-4. The person allows it, which opens the account home (§2) with
-   `audience` = the agent's DID and `agent: true` (the reference app asks
-   `access: write`, `scope: account`, `chooseSpaces: false`, and the person's
-   chosen `days`). The app checks the note is for the agent's key and sends
-   `answer { grant }`. Or the person declines: `answer { denied }`.
-5. The terminal checks the grant (`checkAgentGrant`: `v` is 1; the note
-   verifies; `aud` is the agent's key; `iss` is `grant.did`; the note is an
-   agent's), sends `done`, and keeps the grant. The app shows it connected when
-   `done` arrives.
+3. The app takes the **first** valid `ask` only (a `did` starting `did:key:`)
+   and answers `heard`. Later asks are ignored; the code is good for one agent.
+4. If the person allows it, the app asks the account home (§2) with
+   `audience` = the agent's DID and `agent: true`, checks the note is for the
+   agent's key, and sends `answer { grant }`. If not: `answer { denied }`.
+5. The terminal checks the grant (`v` is 1; the note verifies; `aud` is the
+   agent's key; `iss` is `grant.did`; the note is an agent's), sends `done`,
+   and keeps the grant.
 
-Timeouts on the terminal: 60 s to hear `heard`, then 10 minutes for the answer.
+What the reference app shows and asks for, and the terminal's timeouts, are in
+[agents](../packages/core/docs/agents.md#connecting-with-a-code).
 
 > Rationale: the relay introduces the two sides and could sit between them,
 > so everything is sealed with a key from the code. The code is pasted, not
@@ -740,10 +652,9 @@ _Source: `packages/core/src/space/pass.ts`, `packages/core/src/node/carrier.ts`.
 
 ### 4.2 Carry spaces and passes
 
-Using a carrier (`node.carriers.add({ did, name })`, needs the account key):
+Using a carrier needs the account key:
 
-1. The node makes a private space named `Carried by <name>` (name trimmed to 80,
-   default `Carrier`), with the account as its only writer.
+1. The node makes a private space, with the account as its only writer.
 2. It writes a `sys.carrier` record in the account registry, key
    `carrier:<hex of the first 20 bytes of SHA-256(utf8(carry space id))>`, body
    `{ space, invite, did, name, since }`, where `invite` is a view-only invite
@@ -752,8 +663,8 @@ Using a carrier (`node.carriers.add({ did, name })`, needs the account key):
    carrier joins with the invite.
 
 Every device holding the account key keeps each live carrier's carry space in
-step with the account, on every reconciliation (§1.3): one `sys.pass` record per
-space, and one `sys.subscription` per notification subscription.
+step with the account (§1.3): one `sys.pass` record per space, and one
+`sys.subscription` per notification subscription.
 
 **Pass records.** Collection `sys.pass`, key
 `pass:<hex of the first 20 bytes of SHA-256(utf8(space id))>`, body `SpacePass`:
@@ -776,19 +687,18 @@ private space, the read seed's DID equals `space.readKey` or the pass's
 When two accounts name one space, a pass for a later key wins over one for the
 first key.
 
-**Removing a carrier** (`carriers.remove(carrySpace)`): delete every pass, write
-`sys.pass` key `carry:closed` with body `{ "v": 1, "closed": true }`, then
-delete the `sys.carrier` record. A carrier that reads `carry:closed` from the
-account MUST stop carrying for it and forget what it held. The node keeps the
-carry space open for 30 days so the carrier hears it.
+**Removing a carrier**: delete every pass, write `sys.pass` key `carry:closed`
+with body `{ "v": 1, "closed": true }`, then delete the `sys.carrier` record. A
+carrier that reads `carry:closed` from the account MUST stop carrying for it and
+forget what it held. The node keeps the carry space open for a while after, so
+the carrier hears it ([the node](../packages/core/docs/node.md#carriers-hosting-and-notifications)).
 
 A pass cannot be taken back. A removed carrier that does not forget keeps the
 read key seeds it was given, so it can still prove itself to peers and fetch
 ciphertext until each space's key changes ([03](03-spaces.md), `changeKey`).
 Removing a carrier does not change any key by itself.
 
-**Keepers.** When a space opens, and on every reconciliation, a node holding
-the account key that may `manage` a space names the account's live carriers as
+**Keepers.** A node holding the account key that may `manage` a space names the account's live carriers as
 its keepers (`{ did, name }`, at most 16, [03](03-spaces.md)) and stops naming
 carriers the account removed. Other keepers stay. So apps holding part of a
 space ([05](05-sync-and-storage.md) §5) can rely on the carriers.
@@ -798,9 +708,9 @@ _Source: `packages/core/src/node/node.ts` (`carriers`, `syncPasses`, `nameKeeper
 ### 4.3 Connecting a carrier through the account home
 
 A carrier (a browser extension) asks the home with `access: "carry"` (§2.4),
-from a page that stays open until the answer comes. The home calls
-`auth.grantCarry`, which replaces any earlier carrier from the same origin,
-calls `carriers.add({ did: audience, name })`, and answers with a `CarryGrant`:
+from a page that stays open until the answer comes. The home replaces any
+earlier carrier from the same origin, adds the carrier (§4.2) with
+`did` = the request's `audience`, and answers with a `CarryGrant`:
 
 ```json
 {
@@ -818,21 +728,19 @@ calls `carriers.add({ did: audience, name })`, and answers with a `CarryGrant`:
 carrier MUST check that `kind` is `carry`, that the invite is to the named
 space, that the space is private, created by `did`, and that the invite carries
 its key; and that `pod.dataPath` has no empty or `..` segments. A carry
-connection has no expiry (`expiresAt: 0` in the home's record) and no note to
-revoke; disconnecting it removes the carrier (§4.2).
+connection has no expiry and no note to revoke; disconnecting it removes the
+carrier (§4.2).
 
 _Source: `packages/core/src/session/connect.ts` (`connectCarrier`, `checkCarryGrant`, `CarryGrant`), `packages/core/src/session/auth.ts` (`grantCarry`). Tests: `packages/core/tests/connect.test.ts` ("connecting a carrier to an account home")._
 
 ### 4.4 Subscriptions, and carriers
 
-"Let me know when…" subscriptions (`node.notifications`, needs the account
-key) are kept in the account registry as `sys.notify` records, key
+"Let me know when…" subscriptions are kept in the account registry as `sys.notify` records, key
 `notify:<base32 of 10 random bytes>`, body `NotifyWhen`:
 `{ label (≤ 120), collection (not sys.*), spaces ("all" or 1–256 ids), topic?: { field, value }, others? (default true), open? (https URL), paused?, since (ISO date), app?: { origin, name? } }`.
 
 An app proposes them when the person asks it to, and the home adds the ones
-the person keeps, naming the app (§2.11). The home lists them by app; the
-person pauses or removes them there. Disconnecting an app removes its
+the person keeps, naming the app (§2.11). Disconnecting an app removes its
 subscriptions (§2.10). The app shows what they match itself, while it runs
 (§2.11). A subscription without `app` was made by an earlier home and is kept.
 
@@ -842,14 +750,11 @@ in each space ([02](02-records.md)):
 `{ v: 1, label, collection, spaces, tags?: { <spaceId>: [<tag>] }, others, open?, paused, since }`.
 A private space whose key the device lacks gets no tag.
 
-A carrier node reports a record that arrives (`notify` on `CarrierNode`) when
-all hold: not paused; same collection; `seq` 0 and not deleted; the space is in
+A version matches a carried subscription when all hold: not paused; same collection; `seq` 0 and not deleted; the space is in
 `spaces`; `createdAt` is not before `since` and within the last 24 hours; with
 `others`, the record's root is not the account; with `tags`, the record
-carries one of that space's tags. What it reports is only the subscription, the
-space and the record's key, collection and `createdAt`. No carrier shows these
-today, the browser extension included: the copies are there for waking an app
-that is closed (below).
+carries one of that space's tags. No carrier acts on a match today: the copies
+are there for waking an app that is closed (below).
 
 _Source: `packages/core/src/space/notify.ts`, `packages/core/src/node/node.ts` (`notifications`, `syncPasses`), `packages/core/src/node/carrier.ts` (`arrived`). Tests: `packages/core/tests/carrier.test.ts` ("notifications through a carrier")._
 
@@ -913,8 +818,7 @@ uses it has a **subscription**: a key pair the account made, a date it is paid
 until, and, once a device hands it over, the account's carry space. Spaces
 several subscriptions name are held once.
 
-**The subscription key.** When an account first uses a host
-(`node.hosting.use(url)`), the node makes a 32-byte random seed, derives a
+**The subscription key.** When an account first uses a host, the node makes a 32-byte random seed, derives a
 P-256 key pair from it, and keeps a `sys.hosting` record in the account
 registry, key `hosting:<hex of the first 20 bytes of SHA-256(utf8(url))>`, body:
 
@@ -1005,8 +909,8 @@ its `host` equals that DID, and its `subscription` is the device's own. Example:
 }
 ```
 
-**Pay link.** A device never handles payment. `node.hosting.payPage(url)`
-returns the host's pay page with, in the fragment,
+**Pay link.** A device never handles payment. It opens the host's pay page
+with, in the fragment,
 `s=<subscription DID>&at=<unix seconds>&sig=<base64url>`, where `sig` is the
 subscription key's signature over `utf8("weave-pay/v1\n" + hostDid + "\n" + subscriptionDid + "\n" + at)`.
 The fragment is never sent to a server; the pay page reads it and calls the
@@ -1024,30 +928,28 @@ are the host's business and are _Not yet specified_. Example link:
 https://host.example/pay#s=did%3Akey%3AzDnaet57TmtMH7vQJT8HzNLSZV5sc5JGJub2ZzpX3oHshR2k2&at=1790422901&sig=-EIgo2A2JYBWDwiJdfQR4v6rBL2WFqw07YgOJqAQB9_FdmTuq0f9uR1f2DSCOM3xw4sqytIJQ4hfz29T-uAbPA
 ```
 
-**What a device does.** `hosting.list()` asks each host the account uses for its
+**What a device does.** A device asks each host the account uses for its
 status. When the status says it is not carrying and it is paid (`active`,
 `grace`, or a free host not `lapsed`), the device hands over the carry space
 with `PUT …/carry`, making the carrier (§4.2) for the host's DID first if the
-account has none (named after the host's address). It asks at most once a
-minute per host, and a second look waits for a handover already in flight. It
-writes the returned receipt into the `sys.hosting` record when the state,
-`paidUntil`, `renews` or name changed. Every device does this after each
-reconciliation. `hosting.stop(url)` sends `DELETE …/carry` (ignoring failure),
-removes the carrier and deletes the `sys.hosting` record.
+account has none. It writes the returned receipt into the `sys.hosting` record
+when the state, `paidUntil`, `renews` or name changed. To stop using a host it
+sends `DELETE …/carry`, removes the carrier and deletes the `sys.hosting`
+record. How often the reference asks is in
+[the node](../packages/core/docs/node.md#carriers-hosting-and-notifications).
 
 **What a host does.** Subscriptions are `active` while `paidUntil ≥ now` (or
-always, when free), `grace` for `graceDays` (default 30) after, then `lapsed`;
-a lapsed subscription is dropped by a periodic sweep (reference: hourly), and
-its carry space with it unless another subscription carries it. Paying again
+always, when free), `grace` for a grace period after (the host's policy), then
+`lapsed`; a lapsed subscription is dropped, and its carry space with it unless
+another subscription carries it. Paying again
 in time carries again what the grace period kept. A host MAY carry only a
 configured list of accounts, and then MUST refuse any other before keeping
 anything. It runs the carrier of §4.1–6.2 for every carry space.
 
 How a device reaches a host's sockets is outside this protocol: the reference
 host takes peers at `wss://<host>/peer` ([04](04-network.md)), which a device
-must be configured with as a node (`network.nodes`). _Not yet specified_: the
-host description does not advertise it, and `hosting.use` does not add it (see
-Planned, below).
+must be configured with. _Not yet specified_: the host description does not
+advertise it, and using a host does not add it (see Planned, below).
 
 _Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`), `packages/cli/src/host.ts`, `packages/cli/src/pay-page.ts`. Tests: `packages/cli/tests/host.test.ts`._
 
@@ -1056,7 +958,7 @@ _Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts
 > **Planned.** Not normative.
 >
 > **Reaching a host, and restoring through it.** The host description names
-> where it takes peers, and `hosting.use` adds that to the node's always-on
+> where it takes peers, and using a host adds that to the node's always-on
 > nodes, on every device of the account. A new device that has only the
 > recovery code then tries a host by default (one its home was built with), so
 > it finds the account registry there — the registry has a pass like every
@@ -1085,10 +987,9 @@ _Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts
 >
 > **A reminder before time runs out.** Time paid up front does not renew
 > itself (`renews: false`), so the host reminds the person 14 and 3 days before
-> `paidUntil` and once when the grace period starts, each once per date; a
-> payment moves the date and cancels reminders not yet sent. Email, opted into
-> on the pay page with double opt-in, is the host's own business. The other
-> route is Web Push through the carry space (§4.4, Planned): the home writes a
+> `paidUntil` and once when the grace period starts. Email is the host's own
+> business. The protocol route is Web Push through the carry space (§4.4,
+> Planned): the home writes a
 > `sys.subscription` with no filter and `purpose: "hosting"` when the person
 > allows it, and the host pushes `{ kind: "hosting", host, paidUntil }`,
 > signed like a status. No new call between home and host. Depends on Web Push.

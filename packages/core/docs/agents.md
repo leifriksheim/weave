@@ -33,6 +33,21 @@ their account home, and adds `weave mcp` to Claude Code, Claude Desktop and
 Cursor where it finds them. The agent is then a node of its own: it follows
 the account's spaces and keeps working with every tab closed.
 
+## Connecting with a code
+
+The code, the room and link key derived from it, and the messages the two
+sides trade are protocol ([spec 06 §3.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). What the reference sides add:
+
+- The app (`apps/example/src/components/ConnectAgent.tsx`) shows the code, then
+  the agent's name once `heard` is sent, and asks the person to allow it.
+- Allowing opens the account home with `access: write`, `scope: account`,
+  `chooseSpaces: false` and the lifetime the person chose.
+- The app shows the agent connected when `done` arrives.
+- The terminal (`weave connect`, `checkAgentGrant`) waits 60 s to hear `heard`,
+  then 10 minutes for the answer.
+
+_Source: `packages/core/src/session/agent-link.ts`, `apps/example/src/components/ConnectAgent.tsx`. Tests: `packages/core/tests/agents.test.ts` ("connecting an agent with a code")._
+
 ## Tools an agent gets
 
 `node_info`, `spaces_list`, `spaces_status`, `spaces_preview_invite`, `spaces_access`, `spaces_profiles`,
