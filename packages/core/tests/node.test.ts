@@ -418,14 +418,15 @@ describe('session', () => {
   test('records outlive the session that wrote them', async () => {
     const signer = await rootSigner();
     const stores = memoryStores();
-    const first = await createNode({ signer, stores, sessionTtlSeconds: 1, watchIntervalMs: 0 });
+    // Long enough that a slow machine still writes before the note runs out.
+    const first = await createNode({ signer, stores, sessionTtlSeconds: 3, watchIntervalMs: 0 });
     const { id: space } = await first.spaces.create({ name: 'Old', visibility: 'public' });
     const written = await first.records.put(space, 'app.note', { text: 'from an old session' });
     await first.close();
 
     // The delegation that authorised it has expired. A fresh node must still
     // accept it, or no peer could ever sync data older than an hour.
-    await new Promise((resolve) => setTimeout(resolve, 2100));
+    await new Promise((resolve) => setTimeout(resolve, 3100));
     const later = await createNode({ signer, stores, watchIntervalMs: 0 });
     open.push(later);
     const seen = await later.records.get(space, written.key);

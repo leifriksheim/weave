@@ -4,8 +4,9 @@ This part covers what a **node** must do to act for an account: the session
 note it writes under, and what it keeps current for the account. Then the
 exchanges that let a program act without the seed: **connecting an app** to
 an account home, **connecting an agent**, and **carriers and hosts** that keep
-spaces online without reading them. It ends with **calls**, which are built
-only from live messages.
+spaces online without reading them. Calls, built only from live messages, are
+a layer on it and described with the library
+([calls](../packages/core/docs/calls.md)).
 
 The node's programming interface is not protocol, and another implementation
 may shape its own however it likes. The reference one is described in the
@@ -17,14 +18,14 @@ account home's side of §2), [agents](../packages/core/docs/agents.md), and
 
 Material specified elsewhere is linked, not repeated:
 
-| Topic                                                                                                                                                                                                                                                      | Where                                           |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Seeds, recovery codes, DIDs, the account vault and its wraps, UCANs, `AGENT_FACT`, device keys, contact and member keys, phone pairing                                                                                                                     | [01 — Identity](01-identity.md)                 |
-| Records, versions, `seq`, rules, topics and tags                                                                                                                                                                                                           | [02 — Records](02-records.md)                   |
-| Spaces, roles, the access log (`sys.role`, `sys.member`, `sys.invite`, `sys.revoke`, `sys.collection`, `sys.key`, `sys.relays`, `sys.keepers`), invites, encryption, the account registry (`sys.joined`, `sys.profile`, `sys.carrier`), profiles, contacts | [03 — Spaces](03-spaces.md)                     |
-| Relays, rooms, peer authentication, the network message envelope, the `who` note exchange, live messages and their limits, TURN                                                                                                                            | [04 — Network](04-network.md)                   |
-| Negentropy, stores, storage adapters, data folders, mirrors, what a node that holds part of a space says it holds                                                                                                                                          | [05 — Sync and storage](05-sync-and-storage.md) |
-| Names, doors, the relay mailbox                                                                                                                                                                                                                            | [07 — Doors](07-doors.md)                       |
+| Topic                                                                                                                                                                                                                                            | Where                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| Seeds, recovery codes, DIDs, the account vault and its wraps, UCANs, `AGENT_FACT`, device keys, contact and member keys, phone pairing                                                                                                           | [01 — Identity](01-identity.md)                 |
+| Records, versions, `seq`, rules, topics and tags                                                                                                                                                                                                 | [02 — Records](02-records.md)                   |
+| Spaces, roles, the access log (`sys.role`, `sys.member`, `sys.invite`, `sys.revoke`, `sys.collection`, `sys.key`, `sys.relays`, `sys.keepers`), invites, encryption, the account registry (`sys.joined`, `sys.profile`, `sys.carrier`), profiles | [03 — Spaces](03-spaces.md)                     |
+| Relays, rooms, peer authentication, the network message envelope, the `who` note exchange, live messages and their limits, TURN                                                                                                                  | [04 — Network](04-network.md)                   |
+| Negentropy, stores, storage adapters, data folders, mirrors, what a node that holds part of a space says it holds                                                                                                                                | [05 — Sync and storage](05-sync-and-storage.md) |
+| Names, doors, the relay mailbox                                                                                                                                                                                                                  | [07 — Doors](07-doors.md)                       |
 
 Terms used here:
 
@@ -611,9 +612,6 @@ _Source: `packages/core/src/session/agent-link.ts`, `apps/example/src/components
 >   person's for a new note, while one is open. Open: how the agent reaches the
 >   tab (an agent sends no live messages: one carries no note to say "via agent"), and whether the person must
 >   approve each renewal.
-> - **Naming the agent.** Records show only "via agent". The note could carry
->   which agent it is (say "Claude in Chrome") as a second fact. That is the
->   agent's own word, not a proof; open whether it is worth showing.
 > - **Agents that cannot run a program** (a hosted chat's connectors, a phone
 >   app) would need an HTTPS MCP endpoint somewhere else, such as on a relay,
 >   which would then see the traffic. If offered at all, it is a separate,

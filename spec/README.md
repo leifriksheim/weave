@@ -18,7 +18,7 @@ the code disagree, that is a bug in one of them: open an issue, and say which.
 | [03 — Spaces](03-spaces.md)                               | Spaces, roles and the access log, invites, encryption and key distribution, the account registry, profiles                                                             |
 | [04 — Network](04-network.md)                             | Relays and the signaling protocol, several relays at once, peer authentication, WebRTC and WebSocket transports, the mesh, introductions, live messages, ICE and TURN  |
 | [05 — Sync and storage](05-sync-and-storage.md)           | Negentropy set reconciliation and its messages, what is stored and how, data folders, sealing at rest, segments, mirrors, blobs                                        |
-| [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) | The session note and following the account, the account home and app grants, agents, carriers and hosts, calls                                                         |
+| [06 — Nodes, sessions and apps](06-nodes-and-sessions.md) | The session note and following the account, the account home and app grants, agents, carriers and hosts                                                                |
 | [07 — Doors](07-doors.md)                                 | Names and doors: how someone you share no space with can ask to become your contact, and the relay mailbox that holds their knock                                      |
 
 ## What is not in it
@@ -45,11 +45,21 @@ change without touching this spec:
   and how an app runs their screens ([apps as records](../packages/core/docs/apps-as-records.md)).
 - **Contacts**: the contact list, contact requests and how they are sealed
   ([contacts](../packages/core/docs/contacts.md)).
+- **Direct messages**, sealed to members' keys ([direct messages](../packages/core/docs/direct-messages.md)).
+- **Doors kept as records**, and how a knock becomes a contact; the relay
+  mailbox and the knock itself are in [07](07-doors.md) ([doors](../packages/core/docs/doors.md)).
+- **Calls**, built from live messages ([calls](../packages/core/docs/calls.md)).
+- **What one node keeps for itself**: its stores and caches, how it paces
+  sync, its timers, retries and defaults ([storage](../packages/core/docs/storage.md),
+  [node](../packages/core/docs/node.md)).
 
-The test for a new rule: does a peer produce, accept, store, sign or check
-it, or do two parties exchange it? Then it belongs here. Is it what a body
-means, how a library is called, or how an app shows something? Then it
-belongs with the package.
+The test for a new rule: would a peer that has never heard of it still sync,
+store and judge every record the same way? Then it is a layer on the
+protocol and belongs with the package, even when it seals, signs or fixes
+exact bytes two apps must agree on. Does a peer have to check, refuse or send
+something new, or do two parties (an app and its account home, a carrier, a
+relay) exchange it? Then it belongs here. What only one node ever reads is
+not protocol either; a number is, only when the other side enforces it.
 
 ## Conventions
 

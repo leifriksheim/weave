@@ -468,7 +468,7 @@ same calls can be exposed over a command line, MCP and WebMCP
 - `node.network` — `status()`: each relay's state (open, or waiting to redial,
   when and why), the connections open and those still being made, and whether
   a relay offered TURN; `reconnect()` redials a waiting relay now
-  ([the network](#the-network), [spec 06 §5.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). A `network` event follows every change.
+  ([the network](#the-network), [spec 04 §2](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)). A `network` event follows every change.
   Local only: nothing here goes over the wire.
 - `node.asAgent({ keys, note })` — [acting as an agent](#a-node-acting-as-an-agent).
 
