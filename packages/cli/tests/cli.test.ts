@@ -455,4 +455,20 @@ describe('the weave command', () => {
 
     await assert.rejects(weave('records', 'put', '--space', space, '--nonsense', 'x'), /has no --nonsense/);
   });
+
+  test('an unknown command says so, without asking for an account first', async () => {
+    const main = fileURLToPath(new URL('../src/main.ts', import.meta.url));
+    const env = { ...process.env, WEAVE_HOME: await tempDir() };
+    await assert.rejects(
+      run(process.execPath, ['--conditions=@weaveprotocol/source', '--import', 'tsx', main, 'agnet'], {
+        env,
+      }),
+      (error: unknown) => {
+        const said = String(at(error, 'stderr'));
+        assert.match(said, /Unknown command "agnet"/);
+        assert.doesNotMatch(said, /weave init/);
+        return true;
+      },
+    );
+  });
 });

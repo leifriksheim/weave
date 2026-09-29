@@ -153,6 +153,11 @@ Elsewhere:
   no server.
 - `node-datachannel` in `packages/cli`: WebRTC for `weave mcp` and headless
   nodes.
+- `@anthropic-ai/sdk`, a dev dependency of `packages/cli`, bundled into
+  `weave agent` only and loaded when that command runs
+  (`packages/cli/src/agent-chat.ts`): the Messages API's streaming, tool use,
+  retries and error types. Anthropic's own client, released since 2023, with
+  two small dependencies. Never import it from `packages/core` or the apps.
 - `@reown/appkit`, a dev dependency of `packages/cli`, bundled into the host's
   pay page only (`packages/cli/pay/`). It brings ~250 packages, which fails the
   bar anywhere near a key; the pay page runs on the host's own address and can

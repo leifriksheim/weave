@@ -9,6 +9,7 @@
  *   weave host                         a hosting service: carry many accounts' spaces, blind
  *   weave connect <code>               connect this computer's agent, with the code from an app
  *   weave mcp                          serve the same operations to an agent over MCP (stdio)
+ *   weave agent                        the connected agent on its own, with your Anthropic API key
  *   weave actions                      every operation, with its input schema
  *
  * Every data command is generated from NODE_ACTIONS: `weave records put` is the
@@ -22,10 +23,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { createInterface as createPromiseInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import {
-  CLOSE_DID_TAKEN,
   createNode,
   isValidRecoveryCode,
   NODE_ACTIONS,
@@ -53,8 +54,12 @@ import {
   daysLeft,
   defaultAgentName,
   forgetAgent,
+  loadModelKey,
+  saveModelKey,
   startAgentNode,
+  watchRelayRefusal,
 } from './agent.js';
+import { createAgentChat, DEFAULT_MODEL, fileSpend, knownModel, streamingThink } from './agent-chat.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
 
 const VERSION = '0.1.0';
@@ -71,6 +76,7 @@ Usage:
   weave connect <code> [--name NAME] [--relay wss://…] [--no-configure]
   weave disconnect
   weave mcp [--account]
+  weave agent [--model claude-opus-5-5] [--daily-cap 2]
   weave actions
 
 Agents (Claude Code, Claude Desktop, Cursor):
@@ -79,6 +85,11 @@ Agents (Claude Code, Claude Desktop, Cursor):
   agents it finds. From then on they start "weave mcp" themselves: a node of
   its own, working with every tab closed. "weave mcp --account" serves the
   unlocked account instead, as you rather than as an agent.
+
+  "weave agent" runs the connected agent on its own instead, chatting in this
+  terminal, with your Anthropic API key (ANTHROPIC_API_KEY, or asked for once
+  and kept in the agent's folder). Deleting or overwriting asks you first, and
+  it stops for the day once --daily-cap dollars are spent.
 
 Common flags:
   --home DIR          data folder (default $WEAVE_HOME or ~/.weave) — can be the folder a browser uses
@@ -274,6 +285,86 @@ async function createIfEmpty(globals: Globals): Promise<void> {
   stderr('Copy it somewhere safe — a password manager — and then delete that file.');
 }
 
+/**
+ * `weave agent`: the connected agent's node, and a chat with it in this
+ * terminal. The model's words go to stdout; what it does goes to stderr.
+ */
+async function runAgent(home: string, options: { model: string; dailyCap: number }): Promise<number> {
+  const agent = await startAgentNode(home, {
+    nodes: (process.env.WEAVE_NODES ?? '')
+      .split(',')
+      .map((node) => node.trim())
+      .filter(Boolean),
+  });
+  watchRelayRefusal(agent.node, (refused) =>
+    stderr(
+      refused
+        ? 'The relay refused this agent: another `weave agent` or `weave mcp` with the same --home is connected. ' +
+            'Stop that one (`ps aux | grep weave`) and start this again.'
+        : 'Connected to the relay.',
+    ),
+  );
+
+  let apiKey = process.env.ANTHROPIC_API_KEY?.trim() || (await loadModelKey(home));
+  if (!apiKey) {
+    stderr(
+      'weave agent thinks with your own Anthropic API key. Make one at https://platform.claude.com/settings/keys',
+    );
+    apiKey = await askSecret('API key (kept in the agent folder, readable only by you): ');
+    if (!apiKey) throw new Error('weave agent needs an Anthropic API key');
+    await saveModelKey(home, apiKey);
+  }
+
+  // Loaded here, not at the top: it is most of the bundle, and only this command uses it.
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const spend = fileSpend(path.join(home, 'agent'));
+  const lines = createPromiseInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: process.stdin.isTTY,
+  });
+  const chat = createAgentChat({
+    node: agent.node,
+    think: streamingThink(new Anthropic({ apiKey }), (text) => process.stdout.write(text)),
+    model: options.model,
+    spend,
+    dailyCap: options.dailyCap,
+    // Piped input can't answer for the person, so it never allows what deletes.
+    confirm: async (question) => {
+      if (!process.stdin.isTTY) return false;
+      const answer = await lines.question(`\n${question} [y/N] `);
+      return /^y(es)?$/i.test(answer.trim());
+    },
+    log: (line) => stderr(`  ${line}`),
+  });
+
+  stderr(
+    `weave agent: an agent for ${agent.grant.name}, ${daysLeft(agent.grant)} days left. ${options.model}, ` +
+      `$${(await spend.today()).toFixed(2)} of $${options.dailyCap.toFixed(2)} spent today.`,
+  );
+  stderr('Say what you need. Ctrl-D to stop.');
+  lines.setPrompt('\n› ');
+  lines.prompt();
+  for await (const line of lines) {
+    if (line.trim()) {
+      try {
+        const { cost, tools } = await chat.say(line);
+        process.stdout.write('\n');
+        stderr(
+          `  ${tools} tool call${tools === 1 ? '' : 's'} · $${cost.toFixed(3)} · ` +
+            `$${(await spend.today()).toFixed(2)} of $${options.dailyCap.toFixed(2)} today`,
+        );
+      } catch (error) {
+        stderr(`  ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    lines.prompt();
+  }
+  await agent.close();
+  // WebRTC keeps the process alive; the person closed stdin, so it's done.
+  process.exit(0);
+}
+
 async function main(argv: ReadonlyArray<string>): Promise<number> {
   const { globals, rest } = splitGlobals(argv);
   const [command, ...args] = rest;
@@ -421,24 +512,49 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     );
     // Every agent process on this computer signs with the one agent key, and a relay lets one
     // of them in; the rest would otherwise sit there looking connected (#55).
-    let refused = false;
-    agent.node.subscribe((event) => {
-      if (event.type !== 'network') return;
-      const relays = agent.node.network.status().relays;
-      const now = relays.length > 0 && relays.every((relay) => relay.closeCode === CLOSE_DID_TAKEN);
-      if (now === refused) return;
-      refused = now;
+    watchRelayRefusal(agent.node, (refused) =>
       stderr(
-        now
-          ? 'weave mcp: the relay refused this agent: another `weave mcp` with the same --home is connected. ' +
-              'Writes are kept here and sync once that one stops (`ps aux | grep "weave mcp"`).'
+        refused
+          ? 'weave mcp: the relay refused this agent: another `weave mcp` or `weave agent` with the same --home ' +
+              'is connected. Writes are kept here and sync once that one stops (`ps aux | grep weave`).'
           : 'weave mcp: connected to the relay.',
-      );
-    });
+      ),
+    );
     await runMcpStdio(agent.node, { name: 'weave', version: VERSION }, { agent: true });
     await agent.close();
     // WebRTC keeps the process alive; the agent closed stdin, so it's done.
     process.exit(0);
+  }
+
+  if (command === 'agent') {
+    const { values } = parseArgs({
+      args,
+      options: {
+        model: { type: 'string', default: process.env.WEAVE_AGENT_MODEL ?? DEFAULT_MODEL },
+        'daily-cap': { type: 'string', default: '2' },
+      },
+    });
+    const dailyCap = Number(values['daily-cap']);
+    if (!Number.isFinite(dailyCap) || dailyCap <= 0)
+      throw new Error('--daily-cap is dollars a day, a number above 0');
+    if (!knownModel(values.model))
+      throw new Error(`weave agent doesn't know what ${values.model} costs, so it can't keep the daily cap`);
+    return runAgent(homePath(globals.home), { model: values.model, dailyCap });
+  }
+
+  // Named before the account is opened, so a mistyped command, or one this
+  // version doesn't have, says so instead of asking for an account.
+  const found =
+    command === 'mcp'
+      ? null
+      : command === 'whoami'
+        ? findAction(['node_info'])
+        : findAction([command, ...args]);
+  if (command !== 'mcp' && !found) {
+    stderr(
+      `Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "weave help" or "weave actions".`,
+    );
+    return 2;
   }
 
   const unlocked = await openAccount(globals);
@@ -457,13 +573,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     return 0;
   }
 
-  const found = command === 'whoami' ? findAction(['node_info']) : findAction([command, ...args]);
-  if (!found) {
-    stderr(
-      `Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "weave help" or "weave actions".`,
-    );
-    return 2;
-  }
+  if (!found) return 2;
 
   // One-shot commands run offline against the folder. With a daemon running on
   // the same folder, it picks the change up and syncs it.

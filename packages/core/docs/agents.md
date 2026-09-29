@@ -33,6 +33,10 @@ their account home, and adds `weave mcp` to Claude Code, Claude Desktop and
 Cursor where it finds them. The agent is then a node of its own: it follows
 the account's spaces and keeps working with every tab closed.
 
+`weave agent` runs the same agent without a chat client: it chats in the
+terminal and thinks with the person's own Anthropic API key, offering the model
+the same tools. See `packages/cli/README.md`.
+
 ## Connecting with a code
 
 The code, the room and link key derived from it, and the messages the two
