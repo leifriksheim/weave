@@ -19,18 +19,32 @@ export const hue = (h: number) => ({
   line: `hsl(${h} 50% 86%)`,
 });
 
+/** Standalone, Liquid owns the page: Weave's base styles, then its own */
+export function injectStandaloneStyles(): void {
+  if (!globalThis.document.getElementById('liquid-base')) {
+    const style = globalThis.document.createElement('style');
+    style.id = 'liquid-base';
+    style.textContent = `
+      ${baseCss}
+      @media (hover: hover) { ${hoverCss} }
+      body { background: ${surface.page}; }
+    `;
+    globalThis.document.head.appendChild(style);
+  }
+  injectAppStyles();
+}
+
 /**
- * Weave's vocabulary (white page, near-black ink, hairlines, Geist), and
- * what inline styles cannot say: hover, focus, motion and the phone layout.
+ * Liquid's own rules, all under `lq-`, for what inline styles cannot say:
+ * hover, focus, motion and the phone layout. A host that mounts Liquid
+ * already has Weave's base styles (`baseCss`), so this adds only these.
  */
-export function injectStyles(): void {
+export function injectAppStyles(): void {
   if (globalThis.document.getElementById('liquid-styles')) return;
   const style = globalThis.document.createElement('style');
   style.id = 'liquid-styles';
   style.textContent = `
-    ${baseCss}
     @media (hover: hover) {
-      ${hoverCss}
       .lq-card[data-interactive]:hover { border-color: ${surface.lineStrong}; box-shadow: 0 8px 24px -16px rgba(15, 17, 21, .22); }
       .lq-upvote:not([aria-pressed="true"]):not(:disabled):hover { border-color: ${ink.muted}; color: ${ink.strong}; }
       .lq-vote:not([aria-pressed="true"]):not(:disabled):hover { border-color: ${ink.muted}; }
@@ -40,9 +54,7 @@ export function injectStyles(): void {
       .lq-link:hover { color: ${ink.strong}; text-decoration-color: ${ink.muted}; }
     }
 
-    body { background: ${surface.page}; }
-    .modal { max-height: calc(100dvh - 40px); overflow-y: auto; }
-    .modal > * { flex-shrink: 0; }
+    .lq-tabbar { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid ${surface.line}; margin-bottom: 24px; }
 
     .lq-shell { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
     .lq-header {
@@ -184,7 +196,9 @@ export function injectStyles(): void {
     .lq-fade { animation: weave-fade .2s ease both; }
 
     .lq-hero-art { width: 100%; max-width: 440px; height: auto; }
-    .lq-aside { position: sticky; top: 128px; }
+    /* How far below the top a column sticks: under the standalone header, or at the top of a host's frame */
+    .lq-aside { position: sticky; top: var(--lq-sticky-top, 16px); }
+    .lq-shell { --lq-sticky-top: 84px; }
     .lq-two { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
     .lq-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .lq-scroll-x { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }

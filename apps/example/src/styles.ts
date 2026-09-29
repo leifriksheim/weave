@@ -143,7 +143,6 @@ export function injectBaseStyles(): void {
     .graph-canvas { height: 600px; }
     .collection-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .collection-search { width: 180px; }
-    .modal { max-height: calc(100dvh - 40px); overflow-y: auto; }
 
     /* Calls: over every page, never part of one (components/calls). */
     .call-panel {

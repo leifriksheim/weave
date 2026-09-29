@@ -1,4 +1,4 @@
-import { Icon, type IconName } from '../Icon';
+import { Icon, type Glyph } from '../Icon';
 import type { Unread } from '../../seen';
 
 /** An app's glyph on its own tint, the same wherever the app appears */
@@ -8,7 +8,7 @@ export function AppIcon({
   size,
   className,
 }: {
-  icon: IconName;
+  icon: Glyph;
   hue: number;
   size: number;
   className?: string;

@@ -1408,6 +1408,16 @@ its own (`apps/liquid/src/schema.ts`), and every device counts the votes the
 same way (`apps/liquid/src/tally.ts`, tested in `apps/liquid/tests/`). What it
 can't promise is on its own **?** page.
 
+**Mini apps.** Liquid is written once and runs two ways: as its own site, and
+as one of the example app's apps, on the same records. The contract is
+`MiniApp` in `apps/shared/src/mini-app.ts`: the collections the app needs, its
+icon, and a `Space` component that shows one space in whatever frame it gets.
+The mini app exports one (`@weave/liquid/app`, from
+`apps/liquid/src/mini-app.tsx`), its standalone shell wraps the same `Space` in a
+header of its own, and the example lists it with `fromMiniApp`
+(`apps/example/src/components/apps/index.tsx`). A new one is a workspace under
+`apps/` that exports a `MiniApp`, plus one line in the example's `APPS`.
+
 **Trying hosting and payments.** In the home: Settings, **Keep my spaces
 online**, **Keep online** (the dev host is filled in), then **Payment**, which
 opens the host's pay page in a new tab. What you can pay with there:

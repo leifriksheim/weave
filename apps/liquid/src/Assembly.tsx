@@ -23,12 +23,71 @@ const seenHow = () => {
   }
 };
 
+/** The standalone shell: back to the list, the name, who is here, invites. The assembly itself below. */
 export function AssemblyView({ space, onBack }: { space: SpaceSummary; onBack: () => void }) {
   useHoldSpace(space.id);
   const a = useAssembly(space.id);
+  const [inviting, setInviting] = useState(false);
+
+  return (
+    <div className="lq-shell">
+      <header className="lq-header">
+        <div className="lq-header-inner lq-bar">
+          <button
+            className="lq-icon-btn"
+            onClick={onBack}
+            aria-label="Your assemblies"
+            title="Your assemblies"
+          >
+            ←
+          </button>
+          <p
+            style={{
+              minWidth: 0,
+              flex: 1,
+              fontSize: 16,
+              fontWeight: 600,
+              letterSpacing: '-0.025em',
+              color: palette.ink.strong,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {space.name}
+          </p>
+          <span className="lq-stack lq-hide-phone" title="Who is here">
+            {a.members.slice(0, 5).map((m) => (
+              <Avatar key={m.did} did={m.did} size={24} />
+            ))}
+          </span>
+          {a.mayInvite && space.writable && (
+            <button className="lq-btn" data-size="sm" onClick={() => setInviting(true)}>
+              Invite
+            </button>
+          )}
+        </div>
+      </header>
+      <main className="lq-main">
+        <AssemblyBody space={space} a={a} />
+      </main>
+      {inviting && <Invite a={a} onClose={() => setInviting(false)} />}
+    </div>
+  );
+}
+
+/**
+ * One assembly, as a host shows it in its own frame (`app.tsx`): the host
+ * brings the space's name, its members and its invites.
+ */
+export function AssemblySpace({ space }: { space: SpaceSummary }) {
+  return <AssemblyBody space={space} a={useAssembly(space.id)} />;
+}
+
+/** The tabs, and what each shows: the same standalone and inside a host */
+function AssemblyBody({ space, a }: { space: SpaceSummary; a: Assembly }) {
   const [tab, setTab] = useState<Tab>('proposals');
   const [how, setHow] = useState(() => !seenHow());
-  const [inviting, setInviting] = useState(false);
   const [topics, setTopics] = useState(false);
 
   const closeHow = () => {
@@ -44,103 +103,59 @@ export function AssemblyView({ space, onBack }: { space: SpaceSummary; onBack: (
   const mine = a.mine.length;
 
   return (
-    <div className="lq-shell">
-      <header className="lq-header">
-        <div className="lq-header-inner">
-          <div className="lq-bar">
-            <button
-              className="lq-icon-btn"
-              onClick={onBack}
-              aria-label="Your assemblies"
-              title="Your assemblies"
-            >
-              ←
-            </button>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <p
-                style={{
-                  fontSize: 16,
-                  fontWeight: 600,
-                  letterSpacing: '-0.025em',
-                  color: palette.ink.strong,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {space.name}
-              </p>
-            </div>
-            <button
-              className="lq-stack lq-hide-phone"
-              onClick={() => setTab('people')}
-              title="Who is here"
-              style={{ border: 'none', background: 'none', padding: 0 }}
-            >
-              {a.members.slice(0, 5).map((m) => (
-                <Avatar key={m.did} did={m.did} size={24} />
-              ))}
-            </button>
-            {a.mayModerate && (
-              <button
-                className="lq-btn lq-hide-phone"
-                data-variant="quiet"
-                data-size="sm"
-                onClick={() => setTopics(true)}
-              >
-                Topics
-              </button>
-            )}
-            {a.mayInvite && space.writable && (
-              <button className="lq-btn" data-size="sm" onClick={() => setInviting(true)}>
-                Invite
-              </button>
-            )}
-            <button
-              className="lq-icon-btn"
-              onClick={() => setHow(true)}
-              aria-label="How Liquid works"
-              title="How it works"
-            >
-              ?
-            </button>
-          </div>
-          <nav className="lq-tabs" role="tablist" aria-label="Assembly">
-            <TabButton id="proposals" tab={tab} onPick={setTab} count={open}>
-              Proposals
-            </TabButton>
-            <TabButton id="trust" tab={tab} onPick={setTab} count={mine || undefined}>
-              Your vote
-            </TabButton>
-            <TabButton id="people" tab={tab} onPick={setTab} count={a.members.length}>
-              People
-            </TabButton>
-          </nav>
-        </div>
-      </header>
-
-      <main className="lq-main">
-        {space.joining ? (
-          <Waiting />
-        ) : !a.ready ? (
-          <p className="lq-faint lq-fade">Loading…</p>
-        ) : (
-          <>
-            {!space.writable && (
-              <div className="lq-note" style={{ marginBottom: 20 }}>
-                You can read this assembly, but you hold no role in it, so you can’t vote, propose or
-                delegate.
-              </div>
-            )}
-            {tab === 'proposals' && <Proposals a={a} writable={space.writable} />}
-            {tab === 'trust' && <Delegations a={a} writable={space.writable} />}
-            {tab === 'people' && <People a={a} writable={space.writable} />}
-          </>
+    <div className="lq-space">
+      <div className="lq-tabbar">
+        <nav className="lq-tabs" role="tablist" aria-label="Assembly">
+          <TabButton id="proposals" tab={tab} onPick={setTab} count={open}>
+            Proposals
+          </TabButton>
+          <TabButton id="trust" tab={tab} onPick={setTab} count={mine || undefined}>
+            Your vote
+          </TabButton>
+          <TabButton id="people" tab={tab} onPick={setTab} count={a.members.length}>
+            People
+          </TabButton>
+        </nav>
+        <span style={{ flex: 1 }} />
+        {a.mayModerate && (
+          <button
+            className="lq-btn lq-hide-phone"
+            data-variant="ghost"
+            data-size="sm"
+            onClick={() => setTopics(true)}
+          >
+            Topics
+          </button>
         )}
-      </main>
+        <button
+          className="lq-icon-btn"
+          style={{ width: 28, height: 28, fontSize: 13 }}
+          onClick={() => setHow(true)}
+          aria-label="How Liquid works"
+          title="How it works"
+        >
+          ?
+        </button>
+      </div>
+
+      {space.joining ? (
+        <Waiting />
+      ) : !a.ready ? (
+        <p className="lq-faint lq-fade">Loading…</p>
+      ) : (
+        <>
+          {!space.writable && (
+            <div className="lq-note" style={{ marginBottom: 20 }}>
+              You can read this assembly, but you hold no role in it, so you can’t vote, propose or delegate.
+            </div>
+          )}
+          {tab === 'proposals' && <Proposals a={a} writable={space.writable} />}
+          {tab === 'trust' && <Delegations a={a} writable={space.writable} />}
+          {tab === 'people' && <People a={a} writable={space.writable} />}
+        </>
+      )}
 
       {how && <HowItWorks onClose={closeHow} />}
-      {inviting && <Invite a={a} onClose={() => setInviting(false)} />}
       {topics && <Topics a={a} onClose={() => setTopics(false)} />}
     </div>
   );
@@ -361,8 +376,8 @@ function HowItWorks({ onClose }: { onClose: () => void }) {
           and as delegates.
         </Li>
         <Li>
-          <strong>Liquid asks for your whole Weave account.</strong> Making or joining an assembly after
-          connecting needs it. Liquid only shows the spaces that are assemblies.
+          <strong>Liquid on its own asks for your whole Weave account.</strong> Making or joining an assembly
+          after connecting needs it. It only shows the spaces that are assemblies.
         </Li>
         <Li>
           <strong>Private isn’t invisible.</strong> In a private assembly nobody outside can read the votes,

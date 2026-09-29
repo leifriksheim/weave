@@ -91,6 +91,9 @@ export const baseCss = `
     .space-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
     [data-tile] { transition: border-color .15s ease, box-shadow .15s ease; }
     @keyframes weave-rise { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+    /* A dialog taller than the window scrolls, and what is in it keeps its size rather than squashing. */
+    .modal { max-height: calc(100dvh - 40px); overflow-y: auto; }
+    .modal > * { flex-shrink: 0; }
 
     code { font-family: ${mono}; }
 `;

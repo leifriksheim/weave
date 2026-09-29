@@ -25,7 +25,9 @@ import { Decisions } from './Decisions';
 import { Kanban } from './Kanban';
 import { Polls } from './Polls';
 import type { AppNotify } from '@weaveprotocol/core/schemas';
-import type { IconName } from '../Icon';
+import type { Glyph } from '../Icon';
+import type { MiniApp } from '@weave/app-shared/mini-app';
+import { liquid } from '@weave/liquid/app';
 
 export interface AppProps {
   readonly space: SpaceSummary;
@@ -47,7 +49,7 @@ export interface WeaveApp {
   readonly title: string;
   readonly description: string;
   /** How its tile looks: a glyph on a tint of this hue */
-  readonly icon: IconName;
+  readonly icon: Glyph;
   readonly hue: number;
   /** What in it is worth hearing about: offered as notifications, and counted as new */
   readonly notify: ReadonlyArray<AppNotify>;
@@ -60,6 +62,29 @@ export interface WeaveApp {
   /** Runs once, right after someone adds the app — a board's first columns */
   readonly setup?: (node: P2PNode, spaceId: string) => Promise<void>;
   readonly View: ComponentType<AppProps>;
+}
+
+/**
+ * A mini app (`@weave/app-shared/mini-app`) as one of ours: the same code
+ * that runs as its own site, in a space's frame here. It brings its own
+ * stylesheet, put in the page the first time it is shown.
+ */
+function fromMiniApp(app: MiniApp): WeaveApp {
+  const Space = app.Space;
+  return {
+    id: app.id,
+    title: app.title,
+    description: app.description,
+    icon: { path: app.icon },
+    hue: app.hue,
+    notify: app.notify ?? [],
+    needs: app.needs,
+    ...(app.setup ? { setup: app.setup } : {}),
+    View: ({ space }) => {
+      app.injectStyles?.();
+      return <Space space={space} />;
+    },
+  };
 }
 
 export const APPS: ReadonlyArray<WeaveApp> = [
@@ -121,6 +146,7 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     needs: [proposal, ballot, decision],
     View: Decisions,
   },
+  fromMiniApp(liquid),
   {
     id: 'calls',
     icon: 'phone',

@@ -15,8 +15,8 @@ the docs, a change touches before changing the code.
 | `packages/cli`                                | `@weaveprotocol/cli`: `weave`, the always-on node, hosting, agents, MCP                       |
 | `packages/relay`                              | The signaling relay and its mailbox                                                           |
 | `apps/home`, `apps/example`, `apps/extension` | The account home, the website and example app, the Chrome extension                           |
-| `apps/liquid`                                 | Liquid, a standalone example app for liquid democracy                                         |
-| `apps/shared`                                 | What the home and the website share: styles, relay settings, components                       |
+| `apps/liquid`                                 | Liquid, a mini app: standalone, and inside the example (`apps/shared/src/mini-app.ts`)        |
+| `apps/shared`                                 | What the apps share: styles, relay settings, components, the mini app contract                |
 
 Everything imports the protocol as `@weaveprotocol/core`, only through what it
 exports. Inside the workspace the `@weaveprotocol/source` condition resolves it

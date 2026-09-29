@@ -1,8 +1,8 @@
 {
-  "name": "weave-liquid",
+  "name": "@weave/liquid",
   "private": true,
   "type": "module",
-  "description": "Liquid: an assembly that decides together, where anyone can vote or trust someone to vote for them, topic by topic. A standalone example app on Weave.",
+  "description": "Liquid: an assembly that decides together, where anyone can vote or trust someone to vote for them, topic by topic. A mini app: a standalone site, and ./app for a host like the example app.",
   "scripts": {
     "dev": "vite --port 5190 --strictPort",
     "build": "tsc && vite build",
@@ -23,5 +23,8 @@
     "typescript": "^7.0.2",
     "vite": "^6.0.0",
     "@types/node": "^26.6.3"
+  },
+  "exports": {
+    "./app": "./src/mini-app.tsx"
   }
 }
