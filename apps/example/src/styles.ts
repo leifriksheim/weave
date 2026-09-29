@@ -199,6 +199,7 @@ export function injectBaseStyles(): void {
       display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
       padding: 4px 8px 12px; border-right: 1px solid ${surface.line}; background: ${surface.sunken};
     }
+    .chat-places [data-nav]:not([aria-current]):hover { background: rgba(0,0,0,.04) !important; }
 
     @media (max-width: 900px) {
       .space-shell { grid-template-columns: 200px minmax(0, 1fr); }
