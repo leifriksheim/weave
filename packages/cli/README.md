@@ -4,7 +4,7 @@ One program, three jobs:
 
 - **Manage your spaces** — every command the Node API has, as `weave spaces …` and `weave records …`
 - **Run an always-on node** — `weave run` keeps every space syncing, serves sockets browsers dial into, and is a relay too
-- **Connect an agent** — `weave connect <code>`, then Claude Code, Claude Desktop or Cursor starts `weave mcp` by itself
+- **Connect an agent** — `weave connect <code>`, then Claude Code, Claude Desktop or Cursor starts `weave mcp` by itself, or `weave agent` runs it on its own
 
 It uses the same data folder layout a browser does. Point `--home` at the folder
 you picked in Chrome and the CLI, the daemon and the browser all share one
@@ -186,6 +186,30 @@ account home stops its note working everywhere.
 
 It works offline against the folder; with `weave run` on the same folder,
 whatever the agent writes is synced within seconds.
+
+### The agent on its own
+
+`weave agent` runs the connected agent without a chat client: its own node,
+and a chat with it in this terminal. It thinks with your own Anthropic API key,
+from `ANTHROPIC_API_KEY`, or asked for once and kept in
+`~/.weave/agent/anthropic-key`, readable only by you.
+
+```bash
+npx @weaveprotocol/cli connect wv_…      # once
+npx @weaveprotocol/cli agent             # in this repo: npm run weave -- agent
+```
+
+It has the tools `weave mcp` serves an agent, and the same limits. Anything
+that deletes or overwrites asks you first (and is refused when input is piped).
+Every model call is priced; after each answer it shows what it cost, and once
+today's spend reaches `--daily-cap` (dollars, default 2) it starts no more calls
+until tomorrow. `--model` picks the model (default `claude-opus-5-5`, or
+`$WEAVE_AGENT_MODEL`); it must be one whose price it knows.
+
+Only one of `weave agent` and `weave mcp` can use an agent at a time: they sign
+with the same key, and the relay lets one in.
+
+Next, in #103: answering you in spaces, and scheduled jobs.
 
 ## Who gets served
 

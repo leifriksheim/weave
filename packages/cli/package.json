@@ -34,6 +34,7 @@
     "README.md"
   ],
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
     "@reown/appkit": "^1.8.24",
     "@types/node": "^26.6.3",
     "@weaveprotocol/core": "*",

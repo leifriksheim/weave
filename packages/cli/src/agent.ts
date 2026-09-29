@@ -12,13 +12,15 @@
  * and keeps working with every tab closed. What it writes shows "via agent",
  * and every device refuses it changing collections, roles, or the account.
  *
- * Kept in `<home>/agent/`: `key.json` (the key), `grant.json` (the note) and
- * `data/` (the spaces). Only this user can read them.
+ * Kept in `<home>/agent/`: `key.json` (the key), `grant.json` (the note),
+ * `data/` (the spaces), and for `weave agent`, `anthropic-key` (the person's
+ * API key) and `spend.json` (what today cost). Only this user can read them.
  */
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  CLOSE_DID_TAKEN,
   createNode,
   folderStores,
   publicKeyToDid,
@@ -203,4 +205,39 @@ export async function startAgentNode(
 export async function forgetAgent(home: string): Promise<void> {
   await rm(path.join(agentDir(home), 'grant.json'), { force: true });
   await rm(path.join(agentDir(home), 'data'), { recursive: true, force: true });
+}
+
+const modelKeyFile = (home: string) => path.join(agentDir(home), 'anthropic-key');
+
+/** The Anthropic API key `weave agent` was given, or null before it asked */
+export async function loadModelKey(home: string): Promise<string | null> {
+  try {
+    return (await readFile(modelKeyFile(home), 'utf8')).trim() || null;
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+/** Keeps the API key next to the agent's own key, readable only by this user */
+export async function saveModelKey(home: string, key: string): Promise<void> {
+  await mkdir(agentDir(home), { recursive: true, mode: 0o700 });
+  await writeFile(modelKeyFile(home), `${key}\n`, { mode: 0o600 });
+}
+
+/**
+ * Calls `onChange(true)` when every relay refused this agent because another
+ * process with the same agent key holds the room, and `onChange(false)` once
+ * one lets it in again. Otherwise it would sit there looking connected (#55).
+ */
+export function watchRelayRefusal(node: P2PNode, onChange: (refused: boolean) => void): () => void {
+  let refused = false;
+  return node.subscribe((event) => {
+    if (event.type !== 'network') return;
+    const relays = node.network.status().relays;
+    const now = relays.length > 0 && relays.every((relay) => relay.closeCode === CLOSE_DID_TAKEN);
+    if (now === refused) return;
+    refused = now;
+    onChange(now);
+  });
 }
