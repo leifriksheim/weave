@@ -19,9 +19,11 @@ import {
   reaction,
   task,
   vote,
+  watch,
   positionBetween,
 } from '@weaveprotocol/core/schemas';
 import { CallHistory } from './CallHistory';
+import { Watches } from './Watches';
 import { Chat } from './Chat';
 import { Decisions } from './Decisions';
 import { Kanban } from './Kanban';
@@ -167,6 +169,16 @@ export const APPS: ReadonlyArray<WeaveApp> = [
     View: Decisions,
   },
   fromMiniApp(liquid),
+  {
+    id: 'watches',
+    icon: 'sparkle',
+    hue: 260,
+    notify: [],
+    title: 'Watches',
+    description: 'What your agent does when something happens here, or at set times, while weave agent runs.',
+    needs: [watch],
+    View: Watches,
+  },
   {
     id: 'calls',
     icon: 'phone',

@@ -209,7 +209,19 @@ until tomorrow. `--model` picks the model (default `claude-opus-5-5`, or
 Only one of `weave agent` and `weave mcp` can use an agent at a time: they sign
 with the same key, and the relay lets one in.
 
-Next, in #103: answering you in spaces, and scheduled jobs.
+It also runs your **watches**: `std.watch` records saying what to do when
+some records appear or change, or at set times, in any space ("when a task is
+given to me, add it to my weekly plan note"; "weekdays at 8, plan my day").
+Each run starts a fresh conversation, with nobody there to allow deleting or
+overwriting, so those are refused. Runs share the daily cap. Ask the agent to
+keep an eye on something and it writes a watch as a suggestion; it starts once
+you turn it on in an app that shows watches (the example app's **Watches**).
+What the agent writes never sets a watch off.
+
+`--no-chat` runs only the watches, until stopped: on a server, or in the
+background.
+
+The agent can't yet be addressed in a shared space as itself (#103).
 
 ## Who gets served
 
