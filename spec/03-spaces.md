@@ -1003,22 +1003,15 @@ An account tells a space who it is with one record:
 
 ```
 sys.profile at profile:<hex40(accountDid)>
-{ name: string, contactKey?: <compressed P-256 point, base64url>, bot?: true }
+{ name: string, contactKey?: <compressed P-256 point, base64url> }
 ```
 
 `sys.profile` is reserved for this. It is encrypted in a private space (§8.2).
 `contactKey` is the public half of the account's contact key
 ([01 §9.1](01-identity.md)), to which others seal what only the account may
-open, and by which they find it ([07](07-doors.md)). `bot: true` says the
-account is software someone runs, not a person: a bot a space added. It is the
-account's own word, like its name; a reader shows it and does nothing else
-with it. Any other value of `bot` is the same as none.
+open, and by which they find it ([07](07-doors.md)).
 
-```json
-{ "name": "Club Bot", "bot": true }
-```
-
-A reader **MUST** take a profile, and its `contactKey` and `bot`, only from a version of
+A reader **MUST** take a profile, and its `contactKey`, only from a version of
 `sys.profile` that verifies, stands, and whose root's `hex40` is the record
 key; anything else written at that key is ignored. So nobody can name, or
 plant a contact key for, another account.
@@ -1027,7 +1020,7 @@ How a reader picks among an account's versions, and when the library
 publishes a profile, is not protocol; see
 [its docs](../packages/core/docs/spaces.md#profiles).
 
-_Source: `packages/core/src/node/space-runtime.ts` (`profileKey`, `loadProfiles`, `publishProfile`), `packages/core/src/node/node.ts` (`setBot`). Tests: `packages/core/tests/profiles.test.ts` (including "an account can say it is a bot…" and "nobody can mark someone else as a bot…"), `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored")._
+_Source: `packages/core/src/node/space-runtime.ts` (`profileKey`, `loadProfiles`). Tests: `packages/core/tests/profiles.test.ts`, `packages/core/tests/contacts.test.ts` ("the contact key"), `packages/core/tests/attacks.test.ts` ("a contact key on a profile signed by another account is ignored")._
 
 ---
 

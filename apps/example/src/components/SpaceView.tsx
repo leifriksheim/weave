@@ -29,6 +29,7 @@ import { NetworkView } from './NetworkView';
 import { RelayDown } from './RelayNotice';
 import { CallButton } from './calls/Calls';
 import { peopleFrom } from '../derive/people';
+import { useBots } from '../bots';
 import { PersonScopeProvider } from './Person';
 import { markSeen, seenAt, totalOf, unreadOf, useSeen, useUnread, type Unread } from '../seen';
 
@@ -92,7 +93,7 @@ export function SpaceView({
   // are added only when someone picks them from the library.
   useHoldSpace(space.id);
   const collections = useCollections(space.id);
-  const people = peopleFrom(useProfiles(space.id));
+  const people = peopleFrom(useProfiles(space.id), useBots(space.id));
   const status = useSpaceStatus(space.id);
   const access = useAccess(space.id);
   const mayDefine = space.writable && roleHolds(access?.role, DEFINE);

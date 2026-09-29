@@ -417,8 +417,6 @@ export interface SpaceProfile {
    * on a profile signed under their own account, like the name.
    */
   readonly contactKey?: string;
-  /** The account says it is a bot: software someone runs, not a person */
-  readonly bot?: true;
 }
 
 export interface NodeSpaces {
@@ -605,8 +603,6 @@ export interface Delegated {
 
 export interface AccountProfileView {
   readonly name: string;
-  /** The account says it is a bot */
-  readonly bot?: true;
   /** When it was set, on whichever device set it */
   readonly updatedAt: string;
 }
@@ -737,12 +733,6 @@ export interface NodeAccount {
   profile(): Promise<AccountProfileView | null>;
   /** Renames the account on every device and app that opens it. Needs an account key. */
   setName(name: string): Promise<AccountProfileView>;
-  /**
-   * Says, in every space, that this account is a bot: software someone runs,
-   * not a person. Apps show it. Only the account says so about itself, so
-   * leaving it out is the only way to lie about it. Needs an account key.
-   */
-  setBot(bot: boolean): Promise<AccountProfileView>;
   /**
    * Revokes a note this account signed in the account registry, so a
    * whole-account app can no longer add spaces or rename it. Needs an account key.

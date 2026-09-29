@@ -378,17 +378,14 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     }
   };
 
-  /** The account's name, and whether it is a bot, from its registry — null without an account key, or before a name is set */
-  async function ownProfile(): Promise<AccountProfile | null> {
+  /** The account's name, from its registry — null without an account key, or before one is set */
+  async function ownName(): Promise<string | null> {
     if (!accountSpaceId) return null;
     const profile = await (await runtime(accountSpaceId)).get<AccountProfile>(PROFILE_KEY);
     return profile?.verified && profile.root === config.signer.did && typeof profile.body?.name === 'string'
-      ? { name: profile.body.name, ...(profile.body.bot === true ? { bot: true as const } : {}) }
+      ? profile.body.name
       : null;
   }
-
-  /** The account's name, from its registry — null without an account key, or before one is set */
-  const ownName = async (): Promise<string | null> => (await ownProfile())?.name ?? null;
 
   /**
    * Tells a space who this account is. Done when the space opens and when the
@@ -397,13 +394,9 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
    */
   async function publishProfile(spaceId: string, open: SpaceRuntime): Promise<void> {
     if (spaceId === accountSpaceId || spaceId === contactsSpaceId || agentSession) return;
-    const own = await ownProfile();
-    if (own)
-      await open.publishProfile({
-        name: own.name,
-        ...(contactKeys ? { contactKey: contactKeys.publicKey } : {}),
-        ...(own.bot ? { bot: true as const } : {}),
-      });
+    const name = await ownName();
+    if (name)
+      await open.publishProfile({ name, ...(contactKeys ? { contactKey: contactKeys.publicKey } : {}) });
   }
 
   async function publishProfileToOpenSpaces(): Promise<void> {
@@ -2085,37 +2078,18 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       const profile = await (await runtime(accountSpaceId)).get<AccountProfile>(PROFILE_KEY);
       if (!profile?.verified || profile.root !== config.signer.did || typeof profile.body?.name !== 'string')
         return null;
-      return {
-        name: profile.body.name,
-        updatedAt: profile.updatedAt,
-        ...(profile.body.bot === true ? { bot: true as const } : {}),
-      };
+      return { name: profile.body.name, updatedAt: profile.updatedAt };
     },
     async setName(name: string) {
       if (!accountSpaceId) throw new Error('Renaming across devices needs the account key');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('A name cannot be empty');
-      // A rename keeps saying what the account is.
-      const bot = (await ownProfile())?.bot;
-      const body: AccountProfile = { name: trimmed, ...(bot ? { bot } : {}) };
       const written = await (
         await runtime(accountSpaceId)
-      ).upsertSystem<AccountProfile>(PROFILE_COLLECTION, PROFILE_KEY, body);
+      ).upsertSystem<AccountProfile>(PROFILE_COLLECTION, PROFILE_KEY, { name: trimmed });
       emit({ type: 'account' });
       await publishProfileToOpenSpaces();
-      return { ...body, updatedAt: written.updatedAt };
-    },
-    async setBot(bot: boolean) {
-      if (!accountSpaceId) throw new Error('Saying the account is a bot needs the account key');
-      const own = await ownProfile();
-      if (!own) throw new Error('Give the account a name first');
-      const body: AccountProfile = { name: own.name, ...(bot ? { bot: true } : {}) };
-      const written = await (
-        await runtime(accountSpaceId)
-      ).upsertSystem<AccountProfile>(PROFILE_COLLECTION, PROFILE_KEY, body);
-      emit({ type: 'account' });
-      await publishProfileToOpenSpaces();
-      return { ...body, updatedAt: written.updatedAt };
+      return { name: trimmed, updatedAt: written.updatedAt };
     },
     async revoke(token: string) {
       if (!accountSpaceId) throw new Error('Revoking in the account registry needs the account key');
@@ -2360,7 +2334,6 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       account: Object.freeze({
         profile: () => accountApi.profile(),
         setName: person('rename the account'),
-        setBot: person('say the account is a bot'),
         revoke: person('revoke notes'),
       }),
       carriers: Object.freeze({

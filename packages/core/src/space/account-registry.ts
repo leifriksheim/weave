@@ -41,8 +41,6 @@ export const PROFILE_KEY = 'profile';
 
 export interface AccountProfile {
   readonly name: string;
-  /** The account is software, run by someone: a bot a space added (`NodeAccount.setBot`) */
-  readonly bot?: true;
 }
 
 /** A membership record's body. The invite carries a private space's key — the registry is encrypted. */

@@ -225,7 +225,8 @@ background.
 
 `weave agent --bot` runs an account of its own as a **bot**: something a
 community adds to its spaces to help everyone, rather than one person's
-agent. It says it is a bot in its profile, so apps show it as one; it writes
+agent. Where a space keeps `std.profile`, it sets `bot: true` on its own
+there, so apps can show it as one; elsewhere its name has to say so. It writes
 as itself, and every member's device checks what it writes against its role.
 People mention it by its own name.
 

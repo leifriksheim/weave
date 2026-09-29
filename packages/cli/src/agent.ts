@@ -209,9 +209,28 @@ export async function forgetAgent(home: string): Promise<void> {
 }
 
 /**
+ * Says a bot is one, in a space whose apps keep profiles: its `std.profile`
+ * there gets `bot: true`. A convention between apps, not something the
+ * protocol checks; where the space has no `std.profile`, the bot's name has to
+ * say it.
+ */
+export async function discloseBot(node: P2PNode, space: string): Promise<void> {
+  const collections = await node.collections.list(space);
+  if (!collections.some((c) => c.name === 'std.profile' && c.version !== null)) return;
+  const mine = (await node.records.list(space, { collection: 'std.profile' })).find(
+    (record) => record.root === node.did && !record.deleted,
+  );
+  const body = mine && isRecord(mine.body) ? mine.body : {};
+  if (body.bot === true) return;
+  await (mine
+    ? node.records.update(space, mine.key, { ...body, bot: true })
+    : node.records.put(space, 'std.profile', { bot: true }));
+}
+
+/**
  * A bot's node: an account of its own, unlocked here, online the way an
- * agent is (relays and WebRTC), and holding every space it is in. It says it
- * is a bot in every space (`account.setBot`).
+ * agent is (relays and WebRTC), and holding every space it is in, where it
+ * says it is a bot (`discloseBot`).
  */
 export async function startBotNode(
   unlocked: Unlocked,
@@ -225,9 +244,29 @@ export async function startBotNode(
     contactKey: unlocked.contactKey,
     network: { relays: configuredRelays(), ...(options.nodes?.length ? { nodes: options.nodes } : {}) },
   });
-  if (!(await node.account.profile())?.bot) await node.account.setBot(true);
-  for (const space of await node.spaces.list()) void node.spaces.hold(space.id).catch(() => {});
-  return { node, close: () => node.close() };
+  const held = new Set<string>();
+  const holdAll = async () => {
+    for (const space of await node.spaces.list()) {
+      if (held.has(space.id)) continue;
+      held.add(space.id);
+      void node.spaces
+        .hold(space.id)
+        .then(() => discloseBot(node, space.id))
+        .catch(() => {});
+    }
+  };
+  // A space joined while it runs is held, and told, too.
+  const unsubscribe = node.subscribe((event) => {
+    if (event.type === 'spaces') void holdAll();
+  });
+  await holdAll();
+  return {
+    node,
+    close: async () => {
+      unsubscribe();
+      await node.close();
+    },
+  };
 }
 
 const modelKeyFile = (home: string) => path.join(agentDir(home), 'anthropic-key');

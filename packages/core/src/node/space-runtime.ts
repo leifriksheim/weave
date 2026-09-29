@@ -326,7 +326,7 @@ export interface SpaceRuntime {
   profiles(): Promise<ReadonlyArray<SpaceProfile>>;
   /** For the node itself: says who this account is, here — when that changed and the space takes its writes */
   /** Without a contact key, the one this account's profile here already carries is kept */
-  publishProfile(profile: { name: string; contactKey?: string; bot?: true }): Promise<void>;
+  publishProfile(profile: { name: string; contactKey?: string }): Promise<void>;
   /** Gives a private space a new key now, sealed to every member but nobody else. Done by itself when someone is removed. */
   rotateKey(): Promise<void>;
   /** Each member's member key here (`sys.memberkey`), by account: who something can be sealed to */
@@ -1459,12 +1459,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         if (!found) {
           const name = body?.name;
           if (typeof name !== 'string' || !name.trim()) break;
-          found = {
-            did: verdict.root,
-            name: name.trim().slice(0, 64),
-            updatedAt: version.createdAt,
-            ...(body?.bot === true ? { bot: true as const } : {}),
-          };
+          found = { did: verdict.root, name: name.trim().slice(0, 64), updatedAt: version.createdAt };
         }
         // The contact key from the newest version that has one: it never changes, and an app
         // without it that wrote a newer version first must not hide it.
@@ -2601,19 +2596,17 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       );
     },
 
-    async publishProfile(profile: { name: string; contactKey?: string; bot?: true }) {
+    async publishProfile(profile: { name: string; contactKey?: string }) {
       // Someone following a space without a role in it cannot write there, and says nothing.
       if (await cannotWrite()) return;
       const name = profile.name.trim().slice(0, 64);
       const mine = (await profileMap()).get(deps.rootDid);
       // An app without the contact key must not take away the one another device published.
       const contactKey = profile.contactKey ?? mine?.contactKey;
-      if (!name || (mine?.name === name && mine.contactKey === contactKey && mine.bot === profile.bot))
-        return;
+      if (!name || (mine?.name === name && mine.contactKey === contactKey)) return;
       await upsert(PROFILE_COLLECTION, await profileKey(deps.rootDid), {
         name,
         ...(contactKey ? { contactKey } : {}),
-        ...(profile.bot ? { bot: true } : {}),
       });
     },
 

@@ -28,8 +28,9 @@ import { createFakeHub, type FakeHub } from '../../core/tests/helpers/fake-trans
 import { hold } from '../../core/tests/helpers/hold.js';
 import { joined } from '../../core/tests/helpers/joined.js';
 import { fileSpend, spendFor } from '../src/agent-chat.js';
+import { discloseBot } from '../src/agent.js';
 import { community } from '../../core/src/space/presets.js';
-import { message } from '../../core/src/schemas/index.js';
+import { message, profile } from '../../core/src/schemas/index.js';
 import { task, watch } from '../../core/src/schemas/index.js';
 
 const stops: Array<() => void> = [];
@@ -305,6 +306,26 @@ describe('a bot', () => {
       triggers.map((t) => t.record?.key),
       [fromAdmin.key],
     );
+  });
+
+  test('says it is a bot on its own std.profile, where the space keeps them, once', async () => {
+    const { admin, bot, space } = await club(61);
+    await discloseBot(bot, space);
+    assert.equal(
+      (await bot.records.list(space, { collection: profile.name })).length,
+      0,
+      'no std.profile here yet',
+    );
+
+    await admin.collections.define(space, profile);
+    await until(async () => (await bot.collections.list(space)).some((c) => c.name === profile.name), 6000);
+    await discloseBot(bot, space);
+    await discloseBot(bot, space);
+    const mine = (await bot.records.list(space, { collection: profile.name })).filter(
+      (r) => r.root === bot.did,
+    );
+    assert.equal(mine.length, 1);
+    assert.deepEqual(mine[0]?.body, { bot: true });
   });
 
   test('a personal agent does not run other people’s watches, whatever their role', async () => {

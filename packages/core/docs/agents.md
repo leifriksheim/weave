@@ -77,12 +77,12 @@ when asked, but it runs only once the person has saved it themselves; see
 ## Bots
 
 A bot is the same program running as an account of its own
-(`weave agent --bot`), which people invite to their spaces as a member. It says
-it is a bot in its profile (`node.account.setBot`), writes as itself, is
-checked against its role like any member, and can be mentioned by its own
-DID. It runs the watches of members holding `std.watch/instruct` in a space,
-in that space only. See [standard-library.md](standard-library.md) (Watches,
-Bots).
+(`weave agent --bot`), which people invite to their spaces as a member. It
+writes as itself, is checked against its role like any member, and can be
+mentioned by its own DID. It runs the watches of members holding
+`std.watch/instruct` in a space, in that space only. Where a space keeps
+`std.profile`, it says it is a bot there with `bot: true`. See
+[standard-library.md](standard-library.md) (Watches, Bots).
 
 ## In your own code
 

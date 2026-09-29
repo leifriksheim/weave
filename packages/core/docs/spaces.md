@@ -83,8 +83,7 @@ whose root's `hex40` is not the record key:
 
 - a deleted version ends the search: no profile;
 - the first remaining version gives `name` (trimmed, cut to 64 characters;
-  empty means no profile), `did` (its root), `updatedAt` (its `createdAt`),
-  and `bot` when its `bot` is `true`;
+  empty means no profile), `did` (its root) and `updatedAt` (its `createdAt`);
 - `contactKey` comes from the newest remaining version that carries a valid
   P-256 point, so a newer version written without one does not hide it.
 
@@ -93,9 +92,8 @@ writer that does not hold the contact key must carry forward the
 `contactKey` of its current profile.
 
 **The account's name.** The account keeps its name in the account registry,
-as `sys.profile` at key `profile` with body `{ name, bot? }`; the newest
-version wins. `node.account.setName` writes the name and keeps `bot`;
-`node.account.setBot` says the account is a bot, or not, and keeps the name. The node publishes that name into
+as `sys.profile` at key `profile` with body `{ name }`; the newest version
+wins. `node.account.setName` writes it. The node publishes that name into
 every space it opens, and again on a rename, except the registry, the
 contacts space and agent sessions; a non-member publishes nothing
 ([spec 06 §1.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).

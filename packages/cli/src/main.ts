@@ -106,9 +106,10 @@ Agents (Claude Code, Claude Desktop, Cursor):
 
   "weave agent --bot" runs the unlocked account itself as a bot instead: an
   account of its own that people invite to their spaces. It says it is a bot
-  in every space, and runs the watches of members holding std.watch/instruct
-  there, in that space only. --daily-cap-each limits what each person who
-  sets it off may spend a day (a quarter of --daily-cap unless given).
+  on its std.profile where a space keeps them, and runs the watches of
+  members holding std.watch/instruct there, in that space only.
+  --daily-cap-each limits what each person who sets it off may spend a day
+  (a quarter of --daily-cap unless given).
 
 Common flags:
   --home DIR          data folder (default $WEAVE_HOME or ~/.weave) — can be the folder a browser uses
