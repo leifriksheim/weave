@@ -47,7 +47,7 @@ import {
   presentationFromEnv,
   walletFromEnv,
 } from './host-setup.js';
-import { runMcpStdio } from './mcp.js';
+import { PEER_CONTENT_NOTE, runMcpStdio } from './mcp.js';
 import {
   configuredRelays,
   connectAgent,
@@ -60,6 +60,7 @@ import {
   watchRelayRefusal,
 } from './agent.js';
 import { createAgentChat, DEFAULT_MODEL, fileSpend, knownModel, streamingThink } from './agent-chat.js';
+import { startWatching, suggestedIn, triggerPrompt } from './agent-watch.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
 
 const VERSION = '0.1.0';
@@ -76,7 +77,7 @@ Usage:
   weave connect <code> [--name NAME] [--relay wss://…] [--no-configure]
   weave disconnect
   weave mcp [--account]
-  weave agent [--model claude-opus-5-5] [--daily-cap 2]
+  weave agent [--model claude-opus-5-5] [--daily-cap 2] [--no-chat]
   weave actions
 
 Agents (Claude Code, Claude Desktop, Cursor):
@@ -89,7 +90,9 @@ Agents (Claude Code, Claude Desktop, Cursor):
   "weave agent" runs the connected agent on its own instead, chatting in this
   terminal, with your Anthropic API key (ANTHROPIC_API_KEY, or asked for once
   and kept in the agent's folder). Deleting or overwriting asks you first, and
-  it stops for the day once --daily-cap dollars are spent.
+  it stops for the day once --daily-cap dollars are spent. It also runs your
+  watches (std.watch records): what to do when some records appear or change,
+  or at set times. --no-chat runs only those, until stopped.
 
 Common flags:
   --home DIR          data folder (default $WEAVE_HOME or ~/.weave) — can be the folder a browser uses
@@ -289,7 +292,10 @@ async function createIfEmpty(globals: Globals): Promise<void> {
  * `weave agent`: the connected agent's node, and a chat with it in this
  * terminal. The model's words go to stdout; what it does goes to stderr.
  */
-async function runAgent(home: string, options: { model: string; dailyCap: number }): Promise<number> {
+async function runAgent(
+  home: string,
+  options: { model: string; dailyCap: number; chat: boolean },
+): Promise<number> {
   const agent = await startAgentNode(home, {
     nodes: (process.env.WEAVE_NODES ?? '')
       .split(',')
@@ -318,6 +324,65 @@ async function runAgent(home: string, options: { model: string; dailyCap: number
   // Loaded here, not at the top: it is most of the bundle, and only this command uses it.
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const spend = fileSpend(path.join(home, 'agent'));
+  const client = new Anthropic({ apiKey });
+  const today = async () => `$${(await spend.today()).toFixed(2)} of $${options.dailyCap.toFixed(2)} today`;
+
+  // Watches: each set off runs on its own, one at a time, with nobody at the keyboard to allow deleting.
+  let queue = Promise.resolve();
+  const stopWatching = startWatching({
+    node: agent.node,
+    account: agent.grant.did,
+    onWatches: (watches) =>
+      stderr(
+        `  Watching: ${watches.length ? watches.map((w) => `“${w.body.name}”`).join(', ') : 'nothing yet'}`,
+      ),
+    onError: (error) => stderr(`  Watches: ${error instanceof Error ? error.message : String(error)}`),
+    onTrigger: (trigger) => {
+      const name = trigger.watch.body.name;
+      queue = queue.then(async () => {
+        stderr(`  [${name}] set off by ${trigger.record ? `a ${trigger.record.collection}` : 'the time'}`);
+        const run = createAgentChat({
+          node: agent.node,
+          think: streamingThink(client, () => {}),
+          model: options.model,
+          spend,
+          dailyCap: options.dailyCap,
+          confirm: async () => false,
+          log: (line) => stderr(`  [${name}] ${line}`),
+          maxSteps: 15,
+          unattended: true,
+        });
+        try {
+          const { cost, text } = await run.say(triggerPrompt(trigger, PEER_CONTENT_NOTE));
+          stderr(`  [${name}] ${text || 'Done.'} · $${cost.toFixed(3)} · ${await today()}`);
+        } catch (error) {
+          stderr(`  [${name}] ${error instanceof Error ? error.message : String(error)}`);
+        }
+      });
+    },
+  });
+  const waiting = (
+    await Promise.all(
+      (await agent.node.spaces.list()).map((space) => suggestedIn(agent.node, space.id, agent.grant.did)),
+    )
+  ).reduce((sum, count) => sum + count, 0);
+  if (waiting)
+    stderr(
+      `  ${waiting} watch${waiting === 1 ? '' : 'es'} the agent suggested ${waiting === 1 ? 'waits' : 'wait'} for you to save it in an app.`,
+    );
+
+  if (!options.chat) {
+    stderr(
+      `weave agent: an agent for ${agent.grant.name}, ${daysLeft(agent.grant)} days left, watching. ${options.model}, ${await today()}.`,
+    );
+    return untilStopped({
+      close: async () => {
+        stopWatching();
+        await agent.close();
+      },
+    });
+  }
+
   const lines = createPromiseInterface({
     input: process.stdin,
     output: process.stdout,
@@ -325,7 +390,7 @@ async function runAgent(home: string, options: { model: string; dailyCap: number
   });
   const chat = createAgentChat({
     node: agent.node,
-    think: streamingThink(new Anthropic({ apiKey }), (text) => process.stdout.write(text)),
+    think: streamingThink(client, (text) => process.stdout.write(text)),
     model: options.model,
     spend,
     dailyCap: options.dailyCap,
@@ -350,16 +415,14 @@ async function runAgent(home: string, options: { model: string; dailyCap: number
       try {
         const { cost, tools } = await chat.say(line);
         process.stdout.write('\n');
-        stderr(
-          `  ${tools} tool call${tools === 1 ? '' : 's'} · $${cost.toFixed(3)} · ` +
-            `$${(await spend.today()).toFixed(2)} of $${options.dailyCap.toFixed(2)} today`,
-        );
+        stderr(`  ${tools} tool call${tools === 1 ? '' : 's'} · $${cost.toFixed(3)} · ${await today()}`);
       } catch (error) {
         stderr(`  ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     lines.prompt();
   }
+  stopWatching();
   await agent.close();
   // WebRTC keeps the process alive; the person closed stdin, so it's done.
   process.exit(0);
@@ -532,6 +595,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       options: {
         model: { type: 'string', default: process.env.WEAVE_AGENT_MODEL ?? DEFAULT_MODEL },
         'daily-cap': { type: 'string', default: '2' },
+        'no-chat': { type: 'boolean' },
       },
     });
     const dailyCap = Number(values['daily-cap']);
@@ -539,7 +603,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       throw new Error('--daily-cap is dollars a day, a number above 0');
     if (!knownModel(values.model))
       throw new Error(`weave agent doesn't know what ${values.model} costs, so it can't keep the daily cap`);
-    return runAgent(homePath(globals.home), { model: values.model, dailyCap });
+    return runAgent(homePath(globals.home), { model: values.model, dailyCap, chat: !values['no-chat'] });
   }
 
   // Named before the account is opened, so a mistyped command, or one this

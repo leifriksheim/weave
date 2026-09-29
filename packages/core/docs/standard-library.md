@@ -243,6 +243,44 @@ _Source: `packages/core/src/schemas/library/community.ts` (`ballot`, `decision`,
 | ------------- | ----------------------------------------------------------- | ----- | ------------------------------------------------------ |
 | `std.setting` | **`app`** string 1–200; **`key`** string 1–200; `value` any | —     | edit, delete: `creator`; `onePer: [@author, app, key]` |
 
+**Agents**
+
+| Name        | Body                                                                                                                                                                          | Links | Rules                   |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ----------------------- |
+| `std.watch` | **`name`** string 1–200; `query` { **`collection`** string 1–200, `where` object }; `spaces` string[] (≤ 64); `every` string 9–100; **`do`** string 1–10000; `paused` boolean | —     | edit, delete: `creator` |
+
+**Watches.** A `std.watch` is what a person's own agent does without being
+asked each time: when records like `query` appear or change, or at the times
+`every` names, it does what `do` says, in the person's words.
+
+- `query` is a query in the [query format](query-format.md), its `collection`
+  and `where`; `"$me"` as a value stands for the account. Every new version of
+  a record counts, so a task moving to `"done"` sets off a watch for done
+  tasks. What was there when the watch was first seen does not.
+- `every` is five cron fields, minute hour day month weekday, in the agent's
+  local time: `*`, a number, a range `a-b`, a step `/n`, lists with commas;
+  weekday 0 or 7 is Sunday; a day and a weekday both given means either.
+- `spaces` limits the watch to some spaces; without it, every space the agent
+  follows. A watch can be kept in any space.
+
+A watch runs for the agent of the account that wrote it, and only while its
+current version was not written via an agent (`viaAgent`, which the account
+signed into the agent's note). So an agent can suggest a watch, and it waits
+until the person saves it themselves: an app shows it as suggested, with a way
+to turn it on. Nothing the agent itself writes sets a watch off, so it cannot
+set itself off. Whatever set a watch off reaches the model as data; only `do`
+is the person's.
+
+```json
+{
+  "name": "Tasks given to me",
+  "query": { "collection": "std.task", "where": { "assignees": { "$contains": "$me" } } },
+  "do": "Add it to my weekly plan note, and tell me if it is due this week."
+}
+```
+
+_Source: `packages/core/src/schemas/library/agents.ts` (`watch`), `packages/cli/src/agent-watch.ts` (`startWatching`, `watchesIn`, `cronMatches`, `withMe`, `triggerPrompt`), `apps/example/src/components/apps/Watches.tsx`. Tests: `packages/cli/tests/agent-watch.test.ts` (all)._
+
 **Mentions and replies.** A `std.message`, `std.comment` or `std.post` names
 the accounts it calls on in `mentions` (as do `std.note`, `std.doc-block` and
 `std.article`) and, when it replies to someone's

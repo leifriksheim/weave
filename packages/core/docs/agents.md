@@ -66,6 +66,14 @@ worth hearing about (`notify`: `[{ "label": "New ride", "collection":
 "carpool.ride" }]`), which people can then turn on with one click. The person
 reads what it would do and adds it. See [screens-and-apps.md](screens-and-apps.md).
 
+## Watches
+
+An agent that runs by itself (`weave agent`) also does what the person's
+`std.watch` records say: when some records appear or change, or at set times.
+Any collection, any filter the query format allows. An agent may write a watch
+when asked, but it runs only once the person has saved it themselves; see
+[standard-library.md](standard-library.md) (Watches).
+
 ## In your own code
 
 `node.asAgent({ keys, note })` gives the same node acting as an agent, from an
