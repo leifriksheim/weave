@@ -1,30 +1,43 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react';
-import type { SpaceSummary } from '@weaveprotocol/core';
+import type { NodeCollection, SpaceSummary } from '@weaveprotocol/core';
 import { useDismiss } from '@weave/app-shared/useDismiss';
 import { useNotifyFor } from '../../notifications';
 import { Icon } from '../Icon';
 import { styles, palette } from '../../styles';
 import type { AppEntry } from './entries';
+import { WatchBuilder } from '../automations/WatchBuilder';
 
 /**
  * The bell on an open app. It offers what the app says is worth hearing
  * about, in this space, at two levels when the app has both: everything new,
- * or only what names you ("Mentions me", "Replies to me"). Turning either
- * off, or pausing it, happens in the account home, which the menu opens.
+ * or only what names you ("Mentions me", "Replies to me"), and anything more
+ * particular built from the app's collections ("a task whose priority is at
+ * least 3"). Turning one off, or pausing it, happens in the account home,
+ * which the menu opens.
  */
-export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntry }) {
+export function NotifyButton({
+  space,
+  app,
+  collections,
+}: {
+  space: SpaceSummary;
+  app: AppEntry;
+  collections: ReadonlyArray<NodeCollection>;
+}) {
   const { everything, forMe, on, permission, error, asking, turnOn, allow, manage } = useNotifyFor(
     space.id,
     app.notify,
   );
   const [open, setOpen] = useState(false);
+  const [building, setBuilding] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   useDismiss(
     open,
     root,
     useCallback(() => setOpen(false), []),
   );
-  if (everything.length === 0 && forMe.length === 0) return null;
+  const own = [...new Set(app.notify.map((n) => n.collection))];
+  if (everything.length === 0 && forMe.length === 0 && own.length === 0) return null;
 
   const any = on.everything || on.forMe;
   // Asked in a step of its own: a browser prompt opened with the home's window easily goes unseen behind it.
@@ -122,6 +135,25 @@ export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntr
               To hear only what's for you, turn off “{labels(everything)}” in your account.
             </p>
           )}
+          {!blocked && !unasked && (
+            <button
+              role="menuitem"
+              data-menu-item
+              onClick={() => {
+                setOpen(false);
+                setBuilding(true);
+              }}
+              style={row}
+            >
+              <span aria-hidden style={{ width: 16, flexShrink: 0, color: palette.ink.muted }}>
+                +
+              </span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+                <span style={{ color: palette.ink.strong, fontWeight: 500 }}>Something more specific…</span>
+                <span style={{ fontSize: 12, color: palette.ink.muted }}>Pick what, and only when</span>
+              </span>
+            </button>
+          )}
           <div style={{ height: 1, background: palette.surface.line, margin: '6px 0' }} />
           <button
             role="menuitem"
@@ -138,6 +170,14 @@ export function NotifyButton({ space, app }: { space: SpaceSummary; app: AppEntr
             <p style={{ padding: '4px 12px 8px', fontSize: 12, color: palette.accent.danger }}>{error}</p>
           )}
         </div>
+      )}
+      {building && (
+        <WatchBuilder
+          space={space}
+          collections={collections}
+          prefer={own}
+          onClose={() => setBuilding(false)}
+        />
       )}
     </div>
   );

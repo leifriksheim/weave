@@ -9,6 +9,9 @@ import {
   type Field,
   type LinkedByRel,
 } from '../derive/schema-ui';
+import { fieldTypeOf } from '../derive/field-types';
+import { nameOf } from '../derive/people';
+import { usePeopleHere } from './Person';
 import { styles } from '../styles';
 
 /**
@@ -111,6 +114,8 @@ export function FieldInput({
   onChange: (value: unknown) => void;
   linked?: LinkedByRel;
 }) {
+  const here = usePeopleHere();
+  const type = fieldTypeOf(field.schema);
   const label = (
     <span>
       {field.label}
@@ -120,6 +125,76 @@ export function FieldInput({
       )}
     </span>
   );
+
+  // Strings the schema can't tell apart, spelled the way the standard library spells them.
+  if (type === 'date')
+    return (
+      <label style={labelStyle}>
+        {label}
+        <input
+          type="date"
+          value={typeof value === 'string' ? value.slice(0, 10) : ''}
+          onChange={(e) => onChange(e.target.value || undefined)}
+          style={styles.input}
+        />
+      </label>
+    );
+  if (type === 'web link')
+    return (
+      <label style={labelStyle}>
+        {label}
+        <input
+          type="url"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => onChange(e.target.value || undefined)}
+          placeholder="https://"
+          style={styles.input}
+        />
+      </label>
+    );
+  if ((type === 'person' || type === 'people') && here && here.people.size > 0) {
+    const everyone = [...here.people.keys()];
+    const name = (did: string) =>
+      did === here.me ? `${nameOf(did, here.people)} (you)` : nameOf(did, here.people);
+    if (type === 'person')
+      return (
+        <label style={labelStyle}>
+          {label}
+          <select
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => onChange(e.target.value || undefined)}
+            style={styles.input}
+          >
+            <option value="">—</option>
+            {everyone.map((did) => (
+              <option key={did} value={did}>
+                {name(did)}
+              </option>
+            ))}
+          </select>
+        </label>
+      );
+    const picked: ReadonlyArray<unknown> = Array.isArray(value) ? value : [];
+    return (
+      <fieldset style={{ ...labelStyle, border: 'none', padding: 0, margin: 0 }}>
+        <legend style={{ marginBottom: 4 }}>{label}</legend>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+          {everyone.map((did) => (
+            <label key={did} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={picked.includes(did)}
+                onChange={(e) =>
+                  onChange(e.target.checked ? [...picked, did] : picked.filter((p) => p !== did))
+                }
+              />
+              {name(did)}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+    );
+  }
 
   switch (field.kind) {
     case 'boolean':

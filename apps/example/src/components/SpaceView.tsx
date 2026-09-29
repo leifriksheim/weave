@@ -18,6 +18,7 @@ import { AppIcon, Count } from './apps/AppIcon';
 import { CreateApp } from './apps/CreateApp';
 import { MadeAppScreen } from './apps/MadeApps';
 import { NotifyButton } from './apps/NotifyButton';
+import { AutomationsView } from './automations/AutomationsView';
 import { fills, useSpaceApps, type AppEntry } from './apps/entries';
 import { DataView, NEW, type Place } from './DataView';
 import { SpaceMark } from './SpaceList';
@@ -62,6 +63,7 @@ type View =
   | { readonly kind: 'apps' }
   | { readonly kind: 'app'; readonly id: string; readonly since: string }
   | { readonly kind: 'people' }
+  | { readonly kind: 'automations' }
   | { readonly kind: 'hood'; readonly hood: Hood };
 
 /**
@@ -131,9 +133,11 @@ export function SpaceView({
     open?.title ??
     (view.kind === 'people'
       ? 'People'
-      : view.kind === 'hood'
-        ? HOOD.find((h) => h.id === view.hood)!.label
-        : space.name);
+      : view.kind === 'automations'
+        ? 'Automations'
+        : view.kind === 'hood'
+          ? HOOD.find((h) => h.id === view.hood)!.label
+          : space.name);
 
   return (
     <PersonScopeProvider
@@ -193,6 +197,12 @@ export function SpaceView({
               on={view.kind === 'people'}
               onClick={() => setView({ kind: 'people' })}
             />
+            <SideItem
+              icon={<Icon name="bolt" size={16} />}
+              label="Automations"
+              on={view.kind === 'automations'}
+              onClick={() => setView({ kind: 'automations' })}
+            />
             <SideHeading>Under the hood</SideHeading>
             {HOOD.map((h) => (
               <SideItem
@@ -225,7 +235,7 @@ export function SpaceView({
             )}
             {open && <AppIcon icon={open.icon} hue={open.hue} size={28} />}
             <h1 style={{ ...styles.appTitle, ...ellipsis, fontSize: 18, flex: 1, minWidth: 0 }}>{title}</h1>
-            {open && <NotifyButton space={space} app={open} />}
+            {open && <NotifyButton space={space} app={open} collections={collections} />}
             <CallButton space={space} />
             <AccountMenu />
           </header>
@@ -319,6 +329,7 @@ export function SpaceView({
                 <p style={styles.emptyState}>This app isn't in the space any more.</p>
               )}
               {view.kind === 'people' && <RolesView space={space} collections={collections} />}
+              {view.kind === 'automations' && <AutomationsView space={space} collections={collections} />}
               {view.kind === 'hood' && view.hood === 'data' && (
                 <DataView
                   space={space}

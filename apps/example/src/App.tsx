@@ -11,6 +11,7 @@ import {
 import { AccountMenu } from './components/AccountMenu';
 import { AgentCard } from './components/AgentCard';
 import { useShowNotifications } from './notifications';
+import { useRunRules } from './rules';
 import { ConnectScreen } from './components/ConnectScreen';
 import { ContactsView } from './components/ContactsView';
 import { RelayDown, RelayNotice } from './components/RelayNotice';
@@ -61,6 +62,7 @@ function Workspace() {
   };
   const joinLink = (link: string) => mine.join(inviteFromLink(link));
   useShowNotifications(openById);
+  useRunRules();
 
   /**
    * Leaving a space, after saying what it costs. A space for two goes through

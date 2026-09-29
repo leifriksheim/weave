@@ -78,6 +78,14 @@ export function injectBaseStyles(): void {
     .space-content[data-fill] > .space-inner { flex: 1; min-height: 0; width: 100%; max-width: none; display: flex; flex-direction: column; }
     .phone-only { display: none !important; }
 
+    /* Designing a collection: the form, and beside it a preview of what filling one in looks like. */
+    .designer { grid-template-columns: minmax(0, 1fr); }
+    .designer-preview { position: static !important; }
+    @media (min-width: 1500px) {
+      .designer { grid-template-columns: minmax(0, 1fr) 300px; }
+      .designer-preview { position: sticky !important; }
+    }
+
     /* How many new things there are: on an icon's corner, or at the end of a row. */
     .count {
       display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;

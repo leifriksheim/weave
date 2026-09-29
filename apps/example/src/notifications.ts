@@ -34,7 +34,7 @@ const supported = () => typeof globalThis.Notification === 'function';
 const manageUrl = (home: string) => `${new URL('.', home).href}#notifications`;
 
 /** This app's subscriptions, as the account keeps them */
-function useSubscriptions(): ReadonlyArray<NotifyView> {
+export function useSubscriptions(): ReadonlyArray<NotifyView> {
   const node = useNode();
   const [mine, setMine] = useState<ReadonlyArray<NotifyView>>([]);
   useEffect(() => {
@@ -58,14 +58,14 @@ function useSubscriptions(): ReadonlyArray<NotifyView> {
 
 /** One proposal, as the same thing asked for again would be */
 const proposalKey = (proposal: NotifyProposal) =>
-  `${proposal.collection} ${JSON.stringify(proposal.topic ?? null)} ${proposal.spaces?.join(',') ?? 'all'}`;
+  `${proposal.collection} ${JSON.stringify(proposal.topic ?? null)} ${JSON.stringify(proposal.where ?? null)} ${proposal.spaces?.join(',') ?? 'all'}`;
 
 /**
  * Asking the browser, then the home: both need the click that got here. What
  * the home said yes to counts as on at once: the account's copy of it reaches
  * this app only once the account space has synced.
  */
-function useAsk() {
+export function useAsk() {
   const { connection, state } = useConnection();
   const [permission, setPermission] = useState(() => (supported() ? Notification.permission : 'denied'));
   const [error, setError] = useState<string | null>(null);
@@ -86,14 +86,20 @@ function useAsk() {
     return () => status?.removeEventListener('change', follow);
   }, []);
 
+  /** Resolves to whether the person kept any of them */
   const ask = useCallback(
-    (proposals: ReadonlyArray<NotifyProposal>) => {
+    (proposals: ReadonlyArray<NotifyProposal>): Promise<boolean> => {
       setError(null);
       // Everything asked for is on already: nothing to open the home for.
-      if (proposals.length === 0) return;
-      if (!supported()) return setError('This browser can’t show notifications.');
-      if (Notification.permission === 'denied')
-        return setError('Notifications are blocked for this site in your browser’s settings.');
+      if (proposals.length === 0) return Promise.resolve(true);
+      if (!supported()) {
+        setError('This browser can’t show notifications.');
+        return Promise.resolve(false);
+      }
+      if (Notification.permission === 'denied') {
+        setError('Notifications are blocked for this site in your browser’s settings.');
+        return Promise.resolve(false);
+      }
       const asking =
         Notification.permission === 'granted'
           ? Promise.resolve('granted' as const)
@@ -101,13 +107,17 @@ function useAsk() {
       const proposing = connection.propose(proposals);
       void asking.then(setPermission);
       setAsking(true);
-      proposing
+      return proposing
         .then((answer) => {
           const labels = new Set(answer.notify.map((sub) => sub.label));
           const yes = proposals.filter((proposal) => labels.has(proposal.label.trim()));
           setKept((was) => new Set([...was, ...yes.map(proposalKey)]));
+          return yes.length > 0;
         })
-        .catch((failed: unknown) => setError(failed instanceof Error ? failed.message : String(failed)))
+        .catch((failed: unknown) => {
+          setError(failed instanceof Error ? failed.message : String(failed));
+          return false;
+        })
         .finally(() => setAsking(false));
     },
     [connection],
@@ -181,7 +191,7 @@ export function useAppNotifications() {
   // What is on everywhere already is not asked for again.
   const turnOn = useCallback(
     () =>
-      ask(
+      void ask(
         everything.filter(
           (offer) =>
             !kept.has(proposalKey(offer)) &&
@@ -226,12 +236,13 @@ export function useNotifyFor(spaceId: string, offers: ReadonlyArray<AppNotify>) 
         (offer.topic
           ? sub.topic?.field === offer.topic.field &&
             sub.topic.value === ('me' in offer.topic ? did : offer.topic.value)
-          : !sub.topic),
+          : !sub.topic) &&
+        JSON.stringify(sub.where ?? null) === JSON.stringify(offer.where ?? null),
     );
   const everything = offers.filter((offer) => !offer.topic);
   const forMe = offers.filter(isForMe);
   const turnOn = (which: ReadonlyArray<AppNotify>) =>
-    ask(which.filter((offer) => !covers(offer)).map((offer) => ({ ...offer, spaces: [spaceId] })));
+    void ask(which.filter((offer) => !covers(offer)).map((offer) => ({ ...offer, spaces: [spaceId] })));
   return {
     everything,
     forMe,

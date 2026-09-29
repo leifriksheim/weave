@@ -9,7 +9,7 @@
  * to the app — which decides how to show it. What was already there when it
  * started is never news.
  */
-import { matchesRecord } from '../space/notify.js';
+import { matchesRecord, whereHolds } from '../space/notify.js';
 import type { NodeRecord, NotifyView, P2PNode } from './types.js';
 
 /** A record one of the app's subscriptions asks about */
@@ -63,7 +63,8 @@ export function watchNotifications(node: P2PNode, options: WatchNotificationsOpt
       if (quiet || first) continue;
       for (const subscription of subscriptions) {
         if (stopped) return;
-        if (matchesRecord(subscription, record, node.did)) options.onNotify({ subscription, record });
+        if (matchesRecord(subscription, record, node.did) && (await whereHolds(subscription, record)))
+          options.onNotify({ subscription, record });
       }
     }
   }
