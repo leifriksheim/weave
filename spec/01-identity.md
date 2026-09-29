@@ -62,9 +62,7 @@ _Tests:_ `packages/core/tests/recovery-code.test.ts`, `packages/core/tests/ident
 ## 2. Recovery codes
 
 The **recovery code** is the seed written out. It is not a backup of the seed
-and does not unlock anything stored: it _is_ the seed. The interface shows it
-once, when the account is made, to be kept somewhere safe; everyday sign-in is
-a passkey or a password (§10.4).
+and does not unlock anything stored: it _is_ the seed.
 
 ### 2.1 Alphabet
 
@@ -167,9 +165,6 @@ d   = ScalarFrom(okm)
 The contact key and member keys (§9) use `ScalarFrom` directly, with their own
 labels, without the identity label.
 
-The resulting private key is imported non-extractable (JWK with `d`, `x`, `y`)
-for ECDSA signing; _implementation detail_.
-
 **Derivation is frozen.** Changing the label, the length, or the reduction
 changes every account's DID. The recorded vectors in `packages/core/tests/identity.test.ts`
 MUST keep passing.
@@ -270,12 +265,13 @@ this one own the use; this table is the registry.
 | `weave/contacts/nonce/v1`               | as above                                  | vault key bytes                                                                      | space nonce                | Contacts space                                                | `space/account-registry.ts:95,106` | 03     |
 | `weave/contacts/key/v1`                 | as above                                  | vault key bytes                                                                      | AES-256-GCM space key      | Contacts space                                                | `space/account-registry.ts:95,107` | 03     |
 | `weave/topic-tags/v1`                   | HKDF → HMAC-SHA256 key                    | raw space key (private) or the bytes of `weave/public-topics/v1\|<spaceId>` (public) | HMAC key                   | Topic tags                                                    | `records/topics.ts:67,74`          | 02     |
-| `weave-room/v1\|<spaceId>`              | SHA-256, first 20 bytes, base32 lowercase | —                                                                                    | relay room name            | A space's room on a relay                                     | `node/space-runtime.ts:221`        | 04     |
+| `weave-room/v1\|<spaceId>`              | SHA-256, first 20 bytes, base32 lowercase | —                                                                                    | relay room name            | A space's room on a relay                                     | `node/space-runtime.ts:224`        | 04     |
 | `weave-agent-link-room-v1`              | URI-encoded CID of prefix ‖ secret        | 16-byte connect-code secret                                                          | room id                    | Agent link room                                               | `session/agent-link.ts:43`         | 06     |
 | `weave-agent-link-key-v1`               | HKDF, L=32                                | 16-byte connect-code secret                                                          | AES-256-GCM key            | Agent link messages                                           | `session/agent-link.ts:44`         | 06     |
 
 Strings that separate _signed messages_ or _AEAD contexts_ rather than derive
-keys, listed so new labels do not collide with them:
+keys, listed so new labels do not collide with them. _docs_ marks a label used
+by a convention built on the protocol (`packages/core/docs/`), not by it:
 
 | String                                                           | Kind                                             | Defined in                                                    | Part   |
 | ---------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------- | ------ |
@@ -283,10 +279,12 @@ keys, listed so new labels do not collide with them:
 | `weave/space-key-box/v1\|<spaceId>\|<keyId>\|<to>`               | `sealFor` context                                | `space/space-access.ts:205`                                   | 03     |
 | `weave/space-earlier-keys/v1\|<spaceId>\|<keyId>`                | Sealing context                                  | `space/space-access.ts:192`                                   | 03     |
 | `weave/space-membership/v1\|<spaceId>`                           | Sealing context                                  | `space/space-access.ts:194`                                   | 03, 04 |
-| `weave/contact-request\|<spaceId>\|<from>\|<to>`                 | `sealFor` context                                | `node/node.ts:1324`                                           | 03     |
+| `weave/contact-request\|<spaceId>\|<from>\|<to>`                 | `sealFor` context                                | `node/node.ts:1340`                                           | docs   |
+| `weave/direct/v1\|<spaceId>\|<from>\|<to,…>`                     | Sealing context (the text)                       | `privacy/direct.ts:37`                                        | docs   |
+| `weave/direct/v1\|<spaceId>\|<from>\|<to,…>\|<reader>`           | `sealFor` context (one reader's box)             | `privacy/direct.ts:41`                                        | docs   |
 | `weave/knock/v1\|<doorKey>`                                      | `sealFor` context                                | `doors/doors.ts` (`sealKnock`)                                | 07     |
 | `weave/door-purge/v1\|<topic>\|<nonce>\|<ids>`                   | Signed by a door signing key, checked by a relay | `doors/doors.ts` (`purgeMessage`), `packages/relay/relay.mjs` | 07     |
-| `weave/knock-answer/v1\|<space>\|<account>`                      | Signed by a door signing key                     | `doors/doors.ts` (`signAnswer`)                               | 07     |
+| `weave/knock-answer/v1\|<space>\|<account>`                      | Signed by a door signing key                     | `doors/doors.ts` (`signAnswer`)                               | docs   |
 | `weave-peer/v3\|client\|…`, `weave-peer/v3\|server\|…`           | Signed peer-auth messages                        | `network/peer-auth.ts:191,193`                                | 04     |
 | `weave-mesh/v1\|…`                                               | Signed mesh proof                                | `network/peer-auth.ts:315`                                    | 04     |
 | `weave-host/v1\n…`, `weave-host-status/v1\n…`, `weave-pay/v1\n…` | Signed host requests                             | `session/hosting.ts:75,190,192`                               | 06     |
@@ -306,16 +304,16 @@ Notes:
 
 ## 6. Keys and signers
 
-| Key                  | How made                                                               | Lifetime                   | Signs                                   |
-| -------------------- | ---------------------------------------------------------------------- | -------------------------- | --------------------------------------- |
-| **Root key**         | `P256KeyFrom(seed)`                                                    | The account's              | UCANs only (§7)                         |
-| **Session key**      | Fresh random P-256 key pair, non-extractable, per node start           | One node run               | Records, peer-auth messages             |
-| **App key**          | Fresh random P-256 key pair kept by an app (IndexedDB `weave-app-key`) | Until the app forgets it   | Records, under a grant                  |
-| **Agent key**        | Fresh random P-256 key pair kept by an agent                           | Until the agent forgets it | Records, under an agent note (§8)       |
-| **Contact key**      | `ScalarFrom(HKDF(seed, contact label, 48))`                            | The account's              | Nothing; ECDH only (§9)                 |
-| **Member key**       | `ScalarFrom(HKDF(vaultKey, member label, 48))`                         | The account's              | Nothing; ECDH only (§9)                 |
-| **Door key**         | `ScalarFrom(HKDF(contactKey, door label, 48))`                         | Until the door is closed   | Nothing; ECDH only (§9)                 |
-| **Door signing key** | `ScalarFrom(HKDF(contactKey, door sign label, 48))`                    | Until the door is closed   | Purge challenges and knock answers (07) |
+| Key                  | How made                                            | Lifetime                   | Signs                                   |
+| -------------------- | --------------------------------------------------- | -------------------------- | --------------------------------------- |
+| **Root key**         | `P256KeyFrom(seed)`                                 | The account's              | UCANs only (§7)                         |
+| **Session key**      | Fresh random P-256 key pair                         | One node run               | Records, peer-auth messages             |
+| **App key**          | Fresh random P-256 key pair kept by an app          | Until the app forgets it   | Records, under a grant                  |
+| **Agent key**        | Fresh random P-256 key pair kept by an agent        | Until the agent forgets it | Records, under an agent note (§8)       |
+| **Contact key**      | `ScalarFrom(HKDF(seed, contact label, 48))`         | The account's              | Nothing; ECDH only (§9)                 |
+| **Member key**       | `ScalarFrom(HKDF(vaultKey, member label, 48))`      | The account's              | Nothing; ECDH only (§9)                 |
+| **Door key**         | `ScalarFrom(HKDF(contactKey, door label, 48))`      | Until the door is closed   | Nothing; ECDH only (§9)                 |
+| **Door signing key** | `ScalarFrom(HKDF(contactKey, door sign label, 48))` | Until the door is closed   | Purge challenges and knock answers (07) |
 
 The root key signs exactly one kind of thing: a UCAN delegating to another key.
 It MUST NOT be used to sign records directly in normal operation. (A record
@@ -324,43 +322,24 @@ with no `proof` is judged as written by its `author` key itself — see
 
 ### 6.1 Root signers
 
-A **root signer** abstracts where the root key lives. It exposes:
-
-| Member                                                   | Type                    | Meaning                                                                                          |
-| -------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------ |
-| `did`                                                    | string                  | The account DID                                                                                  |
-| `custody`                                                | `'local'` \| `'remote'` | `local`: the seed is unlocked in this page. `remote`: another context (an account home) holds it |
-| `delegate({audience, capabilities, expiration, facts?})` | → UCAN                  | Issue a UCAN from the account to `audience`                                                      |
-
-- The **local** signer calls `issueUCAN` (§7.3) with the root key. It includes
-  `fct` only when `facts` is non-empty.
-- The **grant** (remote) signer used by apps returns the one note the account
-  home already issued to the app key, unchanged, and refuses once the grant's
-  `expiresAt` has passed. It cannot mint new notes. See
-  [06 — Nodes, sessions and apps](06-nodes-and-sessions.md).
-
-_Implementation detail:_ this is an in-process interface, not a wire format.
+Not protocol. Where the root key lives, and the interface a node asks for
+notes through, are the library's: see
+[Root signers and notes](../packages/core/docs/node.md#root-signers-and-notes).
 
 ### 6.2 The session delegation
 
-When a node starts it creates a session key and asks the root signer for:
+A node signs records with a session key (§6) under a note from the root
+(§7) made out to it: `aud` is the session DID, `prf` is `[]`, and `fct` is
+absent, or `[{"weave":"agent"}]` for an agent's own node (§8). Every record the
+session key signs carries that leaf token, encoded, as its `proof`
+([02 — Records](02-records.md)). Peers check only that the note verifies and
+covers what each record needs (§7.4–§7.6); which capabilities it grants, how
+long it lasts and when it is renewed are the node's choice
+([Root signers and notes](../packages/core/docs/node.md#root-signers-and-notes),
+[06](06-nodes-and-sessions.md)).
 
-```
-aud = session DID
-att = [{ "with": "*", "can": "expression/*" }]
-exp = now + ttl          (ttl default 3600 s)
-nbf = now − 300          (issueUCAN default)
-fct = absent             (or [{"weave":"agent"}] for an agent's own node)
-prf = []
-```
-
-The node renews it at 0.75 × ttl and, on failure, retries after
-min(60, ttl/4) seconds. Every record the session key signs carries the
-encoded token as its `proof` ([02 — Records](02-records.md)). The node, its
-TTL, and app grants are specified in [06](06-nodes-and-sessions.md).
-
-_Source:_ `packages/core/src/identity/root-signer.ts`, `packages/core/src/node/node.ts` (`SESSION_CAPABILITY`, `delegate`), `packages/core/src/session/connect.ts` (`grantSigner`, `grantCapabilities`).
-_Tests:_ `packages/core/tests/node.test.ts`, `packages/core/tests/connect.test.ts`.
+_Source:_ `packages/core/src/node/node.ts` (`delegate`).
+_Tests:_ `packages/core/tests/node.test.ts` ("records outlive the session that wrote them").
 
 ---
 
@@ -467,17 +446,10 @@ included.
 
 ### 7.3 Issuing
 
-`issueUCAN` defaults: `exp = now + 3600`, `nbf = now − 300`
-(`UCAN_CLOCK_SKEW_SECONDS`), `nnc` = 16 random hex characters, `prf = []`.
-`delegateCapabilities` issues a child of an existing token and MUST refuse
-when:
-
-- the issuer is not the parent's `aud`;
-- any child capability is not covered by some parent capability (§7.6);
-- the requested `exp` is later than the parent's `exp` (default: the parent's
-  `exp`).
-
-A child made by `delegateCapabilities` has `prf = [CID(parent)]` and no facts.
+An issuer produces a token of the form in §7.1; what a verifier checks is
+§7.4–§7.6. The reference issuer's defaults, and what it refuses to issue, are
+the library's: see
+[Root signers and notes](../packages/core/docs/node.md#root-signers-and-notes).
 
 ### 7.4 Verifying one token
 
@@ -657,19 +629,13 @@ account signs into the note:
   object whose `weave` member is the string `"agent"`. Anything unparseable is
   not an agent note.
 - The fact is only meaningful in a note whose signature and chain verify
-  (§7); `isAgentNote` itself only parses.
+  (§7); on its own it proves nothing.
 - The fact is set by the account (the root signer) when it issues the note.
   Nothing about the key itself says "agent".
 
 What agents may not do (change collections, roles, membership) and how peers
 enforce it is specified in [02 — Records](02-records.md),
 [03 — Spaces](03-spaces.md) and [06](06-nodes-and-sessions.md).
-
-> **Planned (open question): naming the agent.** Records show as "via agent",
-> without saying which. The note could carry a name (say
-> `{ "weave": "agent", "name": "Claude in Chrome" }`), but that is the
-> agent's own word, signed by the account on its say-so, not a proof. Not
-> decided whether that is worth showing.
 
 _Source:_ `packages/core/src/identity/agent-note.ts`, `packages/core/src/session/auth.ts` (issuing with `AGENT_FACT`).
 _Tests:_ `packages/core/tests/agents.test.ts`.
@@ -787,8 +753,7 @@ vaultKey = HKDF(seed, "weave-vault-key-v1", 32)      // AES-256-GCM
 The vault key encrypts space keys and space records at rest
 ([05 — Sync and storage](05-sync-and-storage.md)). Its raw 32 bytes are also
 the **account key**: input for member keys (§9.2) and the account's own spaces
-([03 — Spaces](03-spaces.md)). A page SHOULD hold it as a non-extractable
-`CryptoKey`; only a node that must derive from it gets the bytes.
+([03 — Spaces](03-spaces.md)).
 
 Example (seed of §3.3): `f505285e87582af18ea47617b97d6b408f3032c3fd1dabf87b39ef8885d77e3a`.
 
@@ -892,110 +857,61 @@ Every wrap:
 - A vault holds at most one device wrap per `rpId`: adding one replaces any
   existing device wrap for the same `rpId`, and the replaced wraps' device keys
   SHOULD be deleted.
-- A client offers only device wraps whose `rpId` is its own (another origin's
-  device key is unreachable from here).
 - Removing wraps, including the last, is allowed; the account remains openable
   by its recovery code.
 - When two copies of a vault are merged, wraps are unioned by `id`, subject to
   the one-device-wrap-per-`rpId` rule.
 
-- The web flow keeps one passphrase wrap as the account's password: setting
-  one replaces any other, except the CLI's (label `CLI passphrase`), which is
-  for unattended unlocking and kept. A client opening by passphrase tries
-  every passphrase wrap.
+A passphrase wrap is not tied to an origin: anything that can read the vault
+can try it, and a copy of the vault can be attacked offline. Which wraps a
+client offers, and how it manages passwords, are the library's: see
+[Ways in](../packages/core/docs/sign-in.md#ways-in).
 
-A passphrase wrap is the account's **password**. The web sign-in flow asks for
-it, or a passkey, right after showing a new account's recovery code, and the
-CLI account home (`packages/cli/src/home.ts`) creates them too. Unlike a device
-wrap it is not tied to an origin: any origin that can read the vault — every
-app pointed at a pod — can open it. That is also its weakness: a copy of the
-vault can be attacked offline, so clients SHOULD require a minimum length (the
-web flow requires 10 characters).
-
-_Source:_ `packages/core/src/identity/account-vault.ts`, `packages/core/src/identity/folder-account.ts` (`createVault`), `packages/core/src/session/auth.ts`.
-_Tests:_ `packages/core/tests/account-vault.test.ts`, `packages/core/tests/auth.test.ts`.
+_Source:_ `packages/core/src/identity/account-vault.ts`, `packages/core/src/identity/folder-account.ts` (`createVault`).
+_Tests:_ `packages/core/tests/account-vault.test.ts`.
 
 ---
 
 ## 11. Device keys
 
-A **device key** is a random AES-256-GCM key, generated **non-extractable**,
-kept in the origin's IndexedDB. It opens the device wrap that names it.
+A **device key** is a random AES-256-GCM key kept by one origin (the wrap's
+`rpId`). It opens the device wrap whose `deviceKeyId` names it.
 
-|                                   |                                                                                                |
-| --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Algorithm                         | AES-GCM, 256 bits, usages `encrypt`, `decrypt`, `extractable: false`                           |
-| Id                                | base64url of 12 random bytes (16 characters)                                                   |
-| Storage (_implementation detail_) | IndexedDB database `weave-device-keys`, object store `keys`, key = id, value = the `CryptoKey` |
+|           |                                              |
+| --------- | -------------------------------------------- |
+| Algorithm | AES-GCM, 256 bits                            |
+| Id        | base64url of 12 random bytes (16 characters) |
 
 - A missing device key is a normal state (other browser, cleared storage): the
   wrap is unopenable here and the account falls back to its recovery code or a
   passphrase.
 - Deleting the device key makes its wrap permanently unopenable.
 
-**What it protects, and what it does not.** Someone holding a copy of the
-folder or of the vault gets ciphertext and no key. Anything that can run script
-in the origin can use the key in place without the passkey: the passkey in
-front of it (§12) is enforced by this code, not by cryptography. Because the
-key is non-extractable, it cannot be carried off and used elsewhere.
+How a device key is kept, and what that protects against, are the library's:
+see [Device keys and passkeys](../packages/core/docs/sign-in.md#device-keys-and-passkeys).
 
 ### 11.1 Staying signed in (_implementation detail_)
 
-"Stay signed in" is a device wrap with a fresh device key and label
-`stay signed in`, kept in `localStorage` (not in any vault), under
-`weave.remembered-session` as
-`{ accountId, place: "browser"|"folder", wrap, expiresAt }` (`expiresAt` in
-Unix ms). The chosen duration (`never`, `1d`, `7d` (default), `30d`) is
-under `weave.stay-signed-in`. Each use pushes `expiresAt` forward; expiry or
-signing out deletes the record and its device key.
+Not protocol: see [Staying signed in](../packages/core/docs/sign-in.md#staying-signed-in).
 
-_Source:_ `packages/core/src/identity/device-key.ts`, `packages/core/src/session/stay-signed-in.ts`.
-_Tests:_ `packages/core/tests/account-vault.test.ts` ("wrapping a seed"), `packages/core/tests/auth.test.ts`.
+_Source:_ `packages/core/src/identity/device-key.ts`.
+_Tests:_ `packages/core/tests/account-vault.test.ts` ("wrapping a seed").
 
 ---
 
 ## 12. Passkeys and other ways to a root key
 
+A passkey yields no key material: it is a gate in front of a device key (§11),
+enforced by the client, not by cryptography. A device wrap records the passkey
+that gates it in `credentialId` and `userHandle` (§10.2).
+
 ### 12.1 Passkeys are a gate
 
-In the account model, a passkey does **not** yield key material. A WebAuthn
-ceremony is required before the client reaches for a device key (§11); the
-seed comes from the device wrap.
-
-> Rationale: a passkey can return a secret only through the PRF extension,
-> which several major credential providers do not implement or report
-> inconsistently, and a passkey is bound to one relying party, so a derived
-> identity would differ per origin.
-
-There is no server, so the assertion's challenge and signature are not
-verified by anyone; the gate is that the browser completed a
-user-verified ceremony for the recorded credential.
+Not protocol: see [Device keys and passkeys](../packages/core/docs/sign-in.md#device-keys-and-passkeys).
 
 ### 12.2 WebAuthn parameters
 
-Registration (`navigator.credentials.create`):
-
-| Option                          | Value                                                                                                                                                             |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rp`                            | `{ id: rpId, name: appName }` (default name `Weave`)                                                                                                              |
-| `user.id`                       | 32 random bytes (kept, base64url, as the wrap's `userHandle`)                                                                                                     |
-| `user.name`, `user.displayName` | The account's name                                                                                                                                                |
-| `challenge`                     | 32 random bytes                                                                                                                                                   |
-| `pubKeyCredParams`              | ES256 (−7), RS256 (−257)                                                                                                                                          |
-| `authenticatorSelection`        | `residentKey: "required"`, `requireResidentKey: true`, `userVerification: "required"`; `authenticatorAttachment: "platform"` when a platform authenticator exists |
-| `hints`                         | `["client-device"]` when preferring the platform authenticator                                                                                                    |
-| `extensions.prf.eval.first`     | UTF-8 `weave-protocol-key-v1`                                                                                                                                     |
-
-Assertion (`navigator.credentials.get`): random 32-byte challenge,
-`userVerification: "required"`, `allowCredentials` = the wrap's `credentialId`
-when known, and the same PRF request.
-
-Renaming an account asks the provider to relabel the passkey through the
-WebAuthn Signal API (`PublicKeyCredential.signalCurrentUserDetails` with the
-`userHandle`); best effort.
-
-_Source:_ `packages/core/src/identity/webauthn.ts`, `packages/core/src/session/auth.ts` (`passkeyGate`).
-_Tests:_ WebAuthn itself is not exercised by tests.
+Not protocol: see [Device keys and passkeys](../packages/core/docs/sign-in.md#device-keys-and-passkeys).
 
 ---
 
@@ -1047,39 +963,23 @@ Rules:
   neither `stores` nor `accounts/<valid id>/stores` exactly (the list is a
   plain file in a folder that may be shared; a path like `../..` is an
   attack).
-- The list is shown most recently used first (`lastUsedAt`, else
-  `createdAt`), with at most one row per DID (the most recent wins).
+- A reader keeps at most one row per DID: the most recently used
+  (`lastUsedAt`, else `createdAt`).
 - Writing an account replaces any row with the same `id` or the same `did`.
 - Removing an account removes its row and its `accounts/<id>` directory.
-- Files are written as pretty-printed JSON (2-space indent) plus a trailing
-  newline (_implementation detail_).
 
 The list reveals how many accounts a folder holds, their names and DIDs; not
 their seeds.
 
 ### 13.2 Browser store (_implementation detail_)
 
-With no folder, the same shape lives in IndexedDB database `weave-accounts`,
-object store `accounts`: key `__list` → array of summaries, key `<id>` → vault.
+Not protocol: see [Account stores](../packages/core/docs/sign-in.md#account-stores).
 
 ### 13.3 Legacy single-account folder
 
-Before the list, a folder held one account at its root:
-
-```
-<folder>/
-  weave-account.json     the vault (§10.2), or the version-1 form below
-  README.txt             explanation for humans, rewritten on each save
-  stores/…               the spaces
-```
-
-- If `weave-account.json` has `version: 2` and a `wraps` array, it is a vault.
-  A reader that finds one not yet in `accounts.json` adopts it: new id, name =
-  its `label` (default `My data`), `dataPath: "stores"`. Data is not moved.
-- **Version 1** stored the seed in the clear as `{ "recoveryCode": "…",
-"label"?: …, "did"?: … }`. A reader MAY accept it to migrate, and MUST NOT
-  write it; it is not adopted silently — the user is asked to lock it.
-- Anything else is `FOLDER_ACCOUNT_UNREADABLE`.
+Not protocol: how the reference library reads a folder from before
+`accounts.json`, and adopts its account, is in
+[Account stores](../packages/core/docs/sign-in.md#account-stores).
 
 _Source:_ `packages/core/src/identity/account-store.ts`, `packages/core/src/identity/folder-account.ts`.
 _Tests:_ `packages/core/tests/account-store.test.ts`, `packages/core/tests/account-vault.test.ts` ("the account file"), `packages/cli/tests/path-safety.test.ts`.
@@ -1155,17 +1055,16 @@ Offering device                                     Phone
 ```
 
 - **Plaintext:** UTF-8 JSON `{ "spaces": [<invite>, …] }`, where each invite
-  is the space's invite as produced by `spaces.invite(spaceId)` with default
-  options — it carries whatever a peer needs to open the space, including a
-  private space's key ([03 — Spaces](03-spaces.md)).
+  is an invite to the space ([03 — Spaces](03-spaces.md)), carrying whatever a
+  peer needs to open it, including a private space's key.
 - **Offering device:** on every peer that connects, sends the handover to that
-  peer. It keeps listening until the user stops the offer; stopping
-  disconnects it.
+  peer.
 - **Phone:** ignores messages whose `type` is not `pair` or whose `payload` is
   not an array. On the first `pair` message it opens the payload, joins every
   invite in order, and finishes. If opening or parsing fails it finishes with
-  a failure. If nothing arrives within 30 seconds it finishes with zero spaces;
-  the identity is already correct, only the spaces are missing.
+  a failure. If nothing arrives before it stops waiting, it finishes with zero
+  spaces; the identity is already correct, only the spaces are missing
+  ([Pairing a phone](../packages/core/docs/sign-in.md#pairing-a-phone)).
 - There is no reply message and no authentication of the phone beyond knowing
   the room and key, which require the seed.
 

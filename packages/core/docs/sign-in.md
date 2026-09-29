@@ -26,6 +26,39 @@ recently used first. Account files and vault formats are in [01](https://github.
 
 _Source: `packages/core/src/session/places.ts`. Tests: `packages/core/tests/account-store.test.ts`._
 
+## Account stores
+
+A folder's `accounts.json` and vault files are
+[spec 01 §13.1](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md).
+The library lists them most recently used first (`lastUsedAt`, else
+`createdAt`), and writes each file as JSON with a 2-space indent and a trailing
+newline.
+
+**In the browser**, with no folder, the same shape lives in IndexedDB database
+`weave-accounts`, object store `accounts`: key `__list` holds the array of
+summaries, and key `<id>` that account's vault. No other origin can edit it.
+
+**A folder from before `accounts.json`** held one account at its root:
+
+```
+<folder>/
+  weave-account.json     the vault (spec 01 §10.2), or the version-1 form below
+  README.txt             explanation for humans, rewritten on each save
+  stores/…               the spaces
+```
+
+- If `weave-account.json` has `version: 2` and a `wraps` array, it is a vault.
+  Opening the folder adopts it when `accounts.json` does not list its DID: a
+  new id, name = its `label` (default `My data`), `dataPath: "stores"`. The
+  data is not moved.
+- **Version 1** stored the seed in the clear as
+  `{ "recoveryCode": "…", "label"?: …, "did"?: … }`. It is read only to
+  migrate, never written, and never adopted silently: the person is asked to
+  lock it.
+- Anything else fails with `FOLDER_ACCOUNT_UNREADABLE`.
+
+_Source: `packages/core/src/identity/account-store.ts`, `packages/core/src/identity/folder-account.ts`. Tests: `packages/core/tests/account-store.test.ts`, `packages/core/tests/account-vault.test.ts` ("the account file")._
+
 ## Stages
 
 `AuthState.stage` is one of:
@@ -81,15 +114,22 @@ _Source: `packages/core/src/session/auth.ts`. Tests: `packages/core/tests/auth.t
   account is new to this place, it is filed there with an empty vault (no
   wraps) under the selected account's name or `My account`.
 - **A password** unwraps the seed from the vault's `passphrase` wrap. It
-  works wherever that vault is: this browser, or a pod on any origin. Setting
-  one replaces the last (but not the CLI's passphrase, which also opens it here). At least
-  `MIN_PASSWORD_LENGTH` (10) characters, since a copied pod can be attacked
-  offline. `signInWithPassword` also accepts a recovery code, which password
-  managers may hold as this site's login from before passwords existed.
+  works wherever that vault is: this browser, or a pod on any origin. The flow
+  keeps one passphrase wrap as the account's password: setting one replaces
+  any other, except the CLI's (label `CLI passphrase`, `CLI_PASSPHRASE_LABEL`),
+  which is for unattended unlocking and is kept; the CLI account home
+  (`packages/cli/src/home.ts`) makes those. Signing in by password tries every
+  passphrase wrap. At least `MIN_PASSWORD_LENGTH` (10) characters, since a
+  copied pod can be attacked offline. `signInWithPassword` also accepts a
+  recovery code, which password managers may hold as this site's login from
+  before passwords existed.
 - **A passkey** is a gate, not a key: the WebAuthn ceremony proves presence,
   and the seed is unwrapped with a non-extractable device key kept in this
-  site's storage, named by the vault's `device` wrap for this `rpId`. Only a
-  wrap whose device key is present in this browser is offered.
+  site's storage, named by the vault's `device` wrap for this `rpId`
+  ([device keys and passkeys](#device-keys-and-passkeys)). Only device wraps
+  whose `rpId` is this site's are offered, since another origin's device key
+  is unreachable from here, and only one whose device key is present in this
+  browser.
 
 A new account's seed is random. Creating one writes its vault with no wraps,
 asks the browser to persist its storage (when kept in the browser), starts its
@@ -100,13 +140,60 @@ with its recovery code every time, which is the habit this avoids. A page that
 waits for `ready` does not see the session during `recovery`, `unlock` or
 `pod`.
 
-_Source: `packages/core/src/session/auth.ts`, `packages/core/src/session/credentials.ts`. Tests: `packages/core/tests/auth.test.ts`, `packages/core/tests/account-vault.test.ts`._
+_Source: `packages/core/src/session/auth.ts`, `packages/core/src/session/credentials.ts`, `packages/core/src/identity/account-vault.ts` (`CLI_PASSPHRASE_LABEL`). Tests: `packages/core/tests/auth.test.ts`, `packages/core/tests/account-vault.test.ts`._
+
+## Device keys and passkeys
+
+A device key ([spec 01 §11](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md))
+is generated non-extractable, with usages `encrypt` and `decrypt`, and kept in
+IndexedDB database `weave-device-keys`, object store `keys`, key = its id,
+value = the `CryptoKey`.
+
+What that protects: someone holding a copy of the folder or the vault gets
+ciphertext and no key, and because the key is non-extractable it cannot be
+carried off and used elsewhere. What it does not: anything that can run script
+in the origin can use the key in place without the passkey. The passkey in
+front of it is enforced by this code, not by cryptography.
+
+**Passkeys are a gate.** A passkey yields no key material here. A WebAuthn
+ceremony is required before the flow reaches for a device key, and the seed
+comes from the device wrap. A passkey can return a secret only through the PRF
+extension, which several major credential providers do not implement or report
+inconsistently, and a passkey is bound to one relying party, so an identity
+derived from it would differ per origin. There is no server, so nobody verifies
+the assertion's challenge or signature; the gate is that the browser completed
+a user-verified ceremony for the recorded credential.
+
+Registration (`navigator.credentials.create`):
+
+| Option                          | Value                                                                                                                                                             |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rp`                            | `{ id: rpId, name: appName }` (default name `Weave`)                                                                                                              |
+| `user.id`                       | 32 random bytes (kept, base64url, as the wrap's `userHandle`)                                                                                                     |
+| `user.name`, `user.displayName` | The account's name                                                                                                                                                |
+| `challenge`                     | 32 random bytes                                                                                                                                                   |
+| `pubKeyCredParams`              | ES256 (−7), RS256 (−257)                                                                                                                                          |
+| `authenticatorSelection`        | `residentKey: "required"`, `requireResidentKey: true`, `userVerification: "required"`; `authenticatorAttachment: "platform"` when a platform authenticator exists |
+| `hints`                         | `["client-device"]` when preferring the platform authenticator                                                                                                    |
+| `extensions.prf.eval.first`     | UTF-8 `weave-protocol-key-v1`                                                                                                                                     |
+
+Assertion (`navigator.credentials.get`): random 32-byte challenge,
+`userVerification: "required"`, `allowCredentials` = the wrap's `credentialId`
+when known, and the same PRF request. Nothing reads the PRF output.
+
+Renaming an account asks the provider to relabel the passkey through the
+WebAuthn Signal API (`PublicKeyCredential.signalCurrentUserDetails` with the
+`userHandle`); best effort.
+
+_Source: `packages/core/src/identity/device-key.ts`, `packages/core/src/identity/webauthn.ts`, `packages/core/src/session/auth.ts` (`passkeyGate`). Tests: `packages/core/tests/account-vault.test.ts` ("wrapping a seed"); WebAuthn itself is not exercised by tests._
 
 ## The session a sign-in starts
 
 A sign-in starts a node with the local root signer from the seed, the account
 key (`deriveVaultKeyBytes(seed)`), the contact key (`deriveContactKeyBytes(seed)`),
-the place's stores for that account ([stores](node.md#stores)) and the configured network. The
+the place's stores for that account ([stores](node.md#stores)) and the configured network. A
+page holds the vault key as a non-extractable `CryptoKey`; only a node that
+must derive from it gets its bytes. The
 session (`WeaveSession`) is `{ account, did, sessionDid, node }`. The seed stays
 inside the auth object; `accountPassword()` returns it as a recovery code.
 
@@ -118,7 +205,8 @@ and on `rename`, never on a plain start.
 ## Staying signed in
 
 After an unlock, the seed may be kept on the device so a reload does not ask
-again. It is wrapped with a fresh non-extractable device key and stored with an
+again. It is wrapped with a fresh non-extractable device key, as a device wrap
+labelled `stay signed in` that is kept outside any vault, and stored with an
 expiry that is pushed forward each time it is used. Choices: `never`, `1d`,
 `7d` (default), `30d`. A kept sign-in resumes only for the same kind of place
 it was made in (`browser` or `folder`). Signing out, choosing `never`, or
@@ -153,6 +241,23 @@ restarts the session there. `forgetBrowserCopy()` then deletes the browser's
 copy. Other accounts in the pod are never touched.
 
 _Source: `packages/core/src/session/auth.ts` (`confirmPod`), `packages/core/src/session/places.ts`. Tests: `packages/core/tests/account.test.ts`._
+
+## Pairing a phone
+
+The ticket, the room and the exchange are
+[spec 01 §14](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md).
+`offerToPhone(onStage)` starts an offer on the first configured relay and
+returns `{ url, stop }`: the link for the QR code, and a way to stop. The
+offer keeps listening, and hands over to every peer that joins, until `stop()`
+disconnects it. Each space goes in the handover as `node.spaces.invite(id)`
+with default options.
+
+On the phone, the `pair` stage signs in with the ticket's code and then
+collects from the desktop (`collectFromDesktop`). It waits 30 seconds by
+default; if nothing arrives by then it finishes with zero spaces, since the
+identity is already correct and only the spaces are missing.
+
+_Source: `packages/core/src/session/pairing.ts` (`offerToPhone`, `collectFromDesktop`), `packages/core/src/session/auth.ts` (`offerToPhone`, `acceptPairing`). Tests: `packages/core/tests/pairing.test.ts`._
 
 ## The account home's side
 

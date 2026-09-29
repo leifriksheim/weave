@@ -1,9 +1,10 @@
 # The node
 
-`createNode` and what it returns: configuration, the session note, stores,
-holding spaces, following the account, events, live messages, the rest of its
-surface, acting as an agent, the app-side client, carriers and hosting, doors,
-and the React and element conveniences.
+`createNode` and what it returns: configuration, root signers and notes, renewing
+the session note, stores, holding spaces, following the account, events, live
+messages, the rest of its surface, the network, acting as an agent, the
+app-side client, carriers and hosting, doors, and the React and element
+conveniences.
 
 > Not protocol. This page describes the reference library, and another
 > implementation may do it differently and still interoperate. What peers must
@@ -39,7 +40,7 @@ Starting a node does the following, in order:
    (`did:key`, P-256 multicodec) is `sessionDid`.
 2. Asks `config.signer.delegate` for a session note ([spec 06 §1.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)) and waits for it.
    If the signer refuses, `createNode` fails.
-3. Schedules renewal of the note ([the session note](#the-session-note)).
+3. Schedules renewal of the note ([renewing the session note](#renewing-the-session-note)).
 4. Opens the `registry` store, sealed ([stores](#stores)).
 5. With an account key: derives the account registry space and the contacts
    space ([03](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md)). The contacts space is added to the node's own
@@ -59,7 +60,58 @@ fails with `Node is closed`. Closing twice does nothing.
 
 _Source: `packages/core/src/node/node.ts` (`createNode`, `close`). Tests: `packages/core/tests/node.test.ts`._
 
-## The session note
+## Root signers and notes
+
+A node never holds the root key. It is given a **root signer** (`RootSigner`),
+which hides where the key lives and is asked only for notes. This is an
+in-process interface, not a wire format; what a note must be is
+[spec 01 §7](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md).
+
+| Member                                                   | Type                    | Meaning                                                                                          |
+| -------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------ |
+| `did`                                                    | string                  | The account DID                                                                                  |
+| `custody`                                                | `'local'` \| `'remote'` | `local`: the seed is unlocked in this page. `remote`: another context (an account home) holds it |
+| `delegate({audience, capabilities, expiration, facts?})` | → UCAN                  | Issue a note from the account to `audience`                                                      |
+
+- The **local** signer (`createLocalRootSigner`) calls `issueUCAN` with the
+  root key. It includes `fct` only when `facts` is non-empty.
+- The **grant** signer an app uses returns the one note the account home
+  already issued to the app's key, unchanged, and refuses once the grant's
+  `expiresAt` has passed. It cannot mint new notes
+  ([spec 06 §2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+
+The **session note** a node asks for when it starts:
+
+```
+aud = session DID
+att = [{ "with": "*", "can": "expression/*" }]   (SESSION_CAPABILITY)
+exp = now + sessionTtlSeconds                     (default 3600)
+nbf = now − 300                                   (issueUCAN's default)
+fct = absent                                      (or [{"weave":"agent"}] for an agent's own node)
+prf = []
+```
+
+Peers check only that the note covers what each record needs, so `att` is
+this node's choice, not a rule. The note is renewed before it runs out
+([spec 06 §1.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+
+**Issuing.** `issueUCAN` defaults `exp` to now + 3600, `nbf` to now − 300
+(`UCAN_CLOCK_SKEW_SECONDS`, so a peer whose clock is a little behind still
+accepts it), `nnc` to 16 random hex characters, and `prf` to `[]`.
+`delegateCapabilities` issues a child of an existing note, with
+`prf = [CID(parent)]` and no facts, and refuses when:
+
+- the issuer is not the parent's `aud`;
+- a child capability is not covered by some parent capability
+  ([spec 01 §7.6](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md));
+- the requested `exp` is later than the parent's (default: the parent's `exp`).
+
+These refusals only save issuing a note that would not verify: a verifier
+checks the chain itself ([spec 01 §7.5](https://github.com/leifriksheim/weave/blob/main/spec/01-identity.md)).
+
+_Source: `packages/core/src/identity/root-signer.ts`, `packages/core/src/identity/ucan.ts` (`issueUCAN`, `delegateCapabilities`), `packages/core/src/node/node.ts` (`SESSION_CAPABILITY`, `delegate`), `packages/core/src/session/connect.ts` (`grantSigner`, `grantCapabilities`). Tests: `packages/core/tests/ucan.test.ts`, `packages/core/tests/node.test.ts`, `packages/core/tests/connect.test.ts`._
+
+## Renewing the session note
 
 The note format, and that every record carries it, are protocol
 ([spec 06 §1.2](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). When to renew it is the node's own:
@@ -108,8 +160,11 @@ Sign-in ([sign-in](sign-in.md)) uses `storesFor(account)`: IndexedDB with prefix
 `weave:<dataPath with : for />` in the browser, or `folderStores(pod,
 { basePath: account.dataPath, vaultKey })` in a pod, where `dataPath` is
 `accounts/<id>/stores`. A connected app uses `indexedDBStores('weave-app:<account DID>')`
-by default. These names are _implementation details_; a pod's layout is in
+by default. These names are _implementation details_ ([sync and storage](storage.md#indexeddb));
+a pod's layout is in
 [05](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md).
+A node also opens `mirrors/<spaceId>/<n>` for a mirror's writer state
+([mirrors](storage.md#mirrors)), and a host `host` for its subscriptions.
 
 `copyAccountData({ from, to, did, accountKey? })` copies every space an
 account holds, with its key and records, from one set of stores to another —
@@ -153,6 +208,23 @@ that lets go of that one hold:
 
 _Source: `packages/core/src/node/node.ts` (`runtime`, `hold`, `closeRuntime`). Tests: `packages/core/tests/live.test.ts` ("holding a space")._
 
+## Leaving a space
+
+`spaces.leave(id)` deletes the space's `sys.joined` record in the account
+registry, closes the space and forgets it with its keys. It is local: it
+writes no `sys.member` self-removal, so the space's history still lists the
+account, keeps it a reader, and no key change becomes due. To give up the
+role too, call `setMember(id, self, null)` first. The account registry and
+the contacts space cannot be left.
+
+> **Known defect:** a leave should also give up the account's place in the
+> space ([spec 03 §6.2](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md),
+> planned there). The fix makes `spaces.leave` write the account's own
+> `sys.member` with `role: null` first, then forget the space as today.
+> Tracked in [#15](https://github.com/leifriksheim/weave/issues/15).
+
+_Source: `packages/core/src/node/node.ts` (`spaces.leave`, `forget`). Tests: `packages/core/tests/node.test.ts` ("the account registry")._
+
 ## Holding part of a space
 
 With `config.cache`, and once a space names at least one keeper
@@ -173,13 +245,49 @@ node's own choice; how it tells peers what it holds is in
 cache.copies ?? 0))` of the space's named keepers have them. A collection
   holding a pending write is never dropped.
 - A collection unused for `cache.unusedAfterDays` (default 30) days is dropped
-  when the space opens and every 6 hours while it stays open.
-- A space that names no keeper is held whole.
+  when the space opens and every 6 hours while it stays open. It stops being
+  held _before_ its versions are removed, so nothing syncs it back meanwhile.
+- A space that names no keeper is held whole, and the node may itself be one
+  of its copies.
+- When what it holds changes (whole or part, or a newly used collection), the
+  node says hello to every peer.
+
+A keeper confirms a write the way the spec says: by `stored`, or by being
+level with the writer on its collection. Only a peer named in `sys.keepers`
+counts ([spec 05 §9](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md)).
+
+This state is kept in the space's own store (`spaces/<spaceId>`):
+
+| Key                    | Value (UTF-8 JSON)                                                                                                                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cache`                | `{ "settled": boolean, "used": { [collection]: ms }, "level": { [collection]: ms } }`. `settled`: has synced with a whole-space peer; `used`: when a query last used it; `level`: when it was first level with a whole-space peer |
+| `pending/<version id>` | `{ "collection": string, "by": [keeper DID…] }`, deleted once `by` reaches the target                                                                                                                                             |
+
+Completeness rests on trust: a keeper that withholds versions, or a peer
+holding `"all"` that lost some, still counts as level, and a reader cannot
+tell. Signed writer logs will replace this definition of complete
+([spec 05 §9.1](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md)).
 
 The account registry, the contacts space and carry spaces are always held
 whole. Apps connected to an account home use `cache: {}` by default ([the app-side client](#the-app-side-client)).
 
-_Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"). Tests: `packages/core/tests/caches.test.ts`._
+_Source: `packages/core/src/node/space-runtime.ts` ("Holding part of the space"), `packages/core/src/node/types.ts` (`CacheConfig`). Tests: `packages/core/tests/caches.test.ts`, `packages/core/tests/reconcile.test.ts` ("holding part of a space")._
+
+### Planned: caches that widen and trim
+
+> **Planned.** None of it changes what other nodes see. Fetching linked
+> records by key, and holding less than a collection, need new messages and
+> are planned in [spec 05 §9.2](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md).
+
+- **Widening.** A node holding part of a space starts holding all of it when
+  too few keepers are online (Holochain's arcs: nodes grow their share when
+  others go missing). Opt-in only (`cache.widen: true`), since done on its own
+  it could fill a disk at a bad moment. Open: what "too few" is, and for how
+  long. Today a cache only widens as queries use collections.
+- **Trimming by size.** `cache.maxBytes`: above it, drop least recently used
+  collections first, undeclared ones before declared. Also trim when
+  `navigator.storage.estimate()` says room is low, before the browser clears
+  the site. Pending writes are never dropped.
 
 ## Following the account
 
@@ -264,17 +372,44 @@ function. A listener that throws does not stop the others.
 
 _Source: `packages/core/src/node/types.ts` (`NodeEvent`), `packages/core/src/node/node.ts` (`fromRuntime`, `checkRevoked`). Tests: `packages/core/tests/node.test.ts` ("events announce local writes"), `packages/core/tests/connect.test.ts` ("disconnecting revokes the note")._
 
+### Versions that wait or are refused
+
+A version from a peer stands, waits or is refused
+([spec 02 §9.5](https://github.com/leifriksheim/weave/blob/main/spec/02-records.md)).
+What the node does with each is its own:
+
+- A batch from a peer is admitted `sys.collection` versions first, then by
+  ascending `seq`, so definitions and first versions are in before what
+  depends on them and little has to wait.
+- A version that waits is held in memory, at most 1,000, the oldest dropped
+  when full, and judged again whenever something new is stored. A version
+  waiting for its first version, or the one before it, asks the peer for
+  them at once.
+- A refused version emits a `rejected` event with the peer and the reason,
+  and is remembered as (peer, id), at most 10,000, so it is not asked of that
+  peer again. Never by id alone: a copy with a mangled signature has the
+  genuine version's id.
+
+_Source: `packages/core/src/sync/sync-engine.ts` (`admit`, `admitAll`, `rank`, `MAX_WAITING`, `MAX_REFUSED`). Tests: `packages/core/tests/reconcile.test.ts` ("a refused version is not asked for again", "a version that waits for its first version asks for it at once, and is acknowledged once in")._
+
 ## Live messages and status
 
 `spaces.send(id, message, to?)` sends a JSON value to the peers connected in
-the space right now, kept nowhere and signed as nothing. `to` is either an
-account DID (every connected device that showed a note from that account) or a
-session DID (one device). The encoded message must be at most 64 KiB; larger
-is refused locally. The wire format, the per-peer allowance (a burst of 60,
-then 20 per second) and how the sender's account is established are in
-[04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md).
+the space right now, kept nowhere and signed as nothing. The message is
+`JSON.stringify(message ?? null)`; if that is longer than 65 536 characters
+the call throws "A live message can be at most 64 KB". It goes as a `live`
+message to every connected peer of the space, once per peer, over whichever
+network that peer was last connected on. With `to`, it goes only to peers
+whose session DID equals `to` (one device), or whose account DID, as learned
+from their `who`, equals `to` (every device of that account); a peer whose
+`who` has not been checked yet is matched by session DID only. An agent's node
+refuses `send` ([acting as an agent](#a-node-acting-as-an-agent)). The wire
+format, the per-peer allowance (a burst of 60, then 20 per second) and how the
+sender's account is established are in
+[spec 04 §9](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md).
 
-A received live message is emitted as a `message` event:
+A received live message is emitted as a `message` event,
+`{ type: "message", space, from, peer, agent, message }`:
 
 | Field     | Meaning                                                                                                                                                                                    |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -292,7 +427,7 @@ A received live message is emitted as a `message` event:
 | `own`         | Of `peers`, the account's own other devices and apps: those also connected in the account registry, minus carriers. Empty without an account key.                                                                                                                                                                                                                                                                                                                                                                 |
 | `carriers`    | Of `peers`, the account's carriers, by the keys `sys.carrier` records name.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `accounts`    | Session DID → account, for each peer that showed a valid note.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `fingerprint` | A fingerprint of every version held; equal on two nodes means identical data ([05](https://github.com/leifriksheim/weave/blob/main/spec/05-sync-and-storage.md)).                                                                                                                                                                                                                                                                                                                                                 |
+| `fingerprint` | A fingerprint of every version held; equal on two nodes means identical data ([the store in memory](storage.md#the-store-in-memory)).                                                                                                                                                                                                                                                                                                                                                                             |
 | `rejected`    | How many versions peers sent failed validation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `holds`       | `"all"`, or the sorted list of collections held ([holding part of a space](#holding-part-of-a-space)).                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `pending`     | This node's writes still waiting for keepers ([holding part of a space](#holding-part-of-a-space)).                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -321,21 +456,83 @@ same calls can be exposed over a command line, MCP and WebMCP
   `profile`, in the account registry, then republishes the profile in every
   open space), `revoke(token)` (in the account registry). All need the account
   key.
-- `node.contacts` — [03](https://github.com/leifriksheim/weave/blob/main/spec/03-spaces.md). `ask` and `accept` make or join a space
+- `node.contacts` — [contacts.md](contacts.md). `ask` and `accept` make or join a space
   for two, so they need a session note with `with: "*"` (whole-account access).
-- `node.doors` — [07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md). Needs the contact key; knocking and
+- `node.direct` — [direct-messages.md](direct-messages.md): `reachable`, `send`
+  and `list`. Needs the account's member key for the space.
+- `node.doors` — [doors.md](doors.md), [07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md). Needs the contact key; knocking and
   accepting also need whole-account access.
 - `node.carriers`, `node.hosting`, `node.notifications` — [carriers and hosting](#carriers-hosting-and-notifications), [spec 06 §4](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md).
 - `node.iceServers()` — the configured ICE servers plus TURN servers a relay
-  offers ([04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)); what calls use ([spec 06 §5](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+  offers ([the network](#the-network)); what [calls](calls.md#connections) use.
 - `node.network` — `status()`: each relay's state (open, or waiting to redial,
   when and why), the connections open and those still being made, and whether
   a relay offered TURN; `reconnect()` redials a waiting relay now
-  ([spec 04 §2](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md), [spec 06 §5.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). A `network` event follows every change.
+  ([the network](#the-network), [spec 06 §5.3](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)). A `network` event follows every change.
   Local only: nothing here goes over the wire.
 - `node.asAgent({ keys, note })` — [acting as an agent](#a-node-acting-as-an-agent).
 
-_Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/profiles.test.ts`._
+_Source: `packages/core/src/node/types.ts`, `packages/core/src/node/node.ts`. Tests: `packages/core/tests/node.test.ts`, `packages/core/tests/contacts.test.ts`, `packages/core/tests/direct.test.ts`, `packages/core/tests/profiles.test.ts`._
+
+## The network
+
+How the node uses relays, always-on nodes and WebRTC, where
+[spec 04](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)
+leaves it the choice. Another implementation may pick other values and still
+meet this one.
+
+**Redialling a relay** (spec 04 §2). The client waits 1, 2, 4, 8, 16 s and
+then 30 s between attempts, each ±20% so peers that dropped together do not
+return together, and never stops until `disconnect`. After a `4009` it emits
+`refused` and waits 10 s, doubling with each refusal in a row up to 60 s. It
+tries at once when the browser reports `online` or the page becomes visible
+again, since both follow a network change or a sleep, and when asked
+(`reconnect`). A successful open resets the count. Each relay's state
+(`connecting`, `open`, `waiting` with the time of the next attempt and why the
+last one failed, `stopped`) is readable as `RelayStatus`, and through a node
+as `network.status()`.
+
+**Several relays** (spec 04 §3). The signaling layer raises `peer-joined`
+when a peer's set of relays in a room becomes non-empty, and `peer-left` when
+it empties. `requestIce` asks every connected relay for TURN.
+
+**A space's relays** (spec 04 §4). A relay socket opened only for spaces'
+own relays is closed once no room needs it. A node that holds `manage` in a
+space that names no relays names its own configured relays (the valid ones,
+at most 8) by itself.
+
+**Always-on nodes** (spec 04 §5.2). `network.nodes` lists the node URLs to
+dial, one socket per node per space. After an unexpected close the client
+redials without limit, waiting `base/2 + random·base/2` where
+`base = min(1 s · 2ⁿ, 30 s)`; a deliberate close is never redialled. The
+`/peer` endpoint waits 10 s for the hello (configurable).
+
+**In-process links** (spec 04 §5.4). `createLocalHub()` links every
+transport made from it that has connected, delivering on a later task with
+the bytes copied, as on a real wire. It performs no handshake. A carrier uses
+it to link its own copy of a space with the copy in the person's pod folder,
+so the usual sync keeps the two level.
+
+**The mesh** (spec 04 §7). Admission raises `peer-connected` for the room. A
+newly opened connection that no room takes up within 10 s is closed. A
+connection attempt is given 20 s, doubling with each failed attempt at the
+same peer up to 5 min. The node remembers the last 512 relayed-signal ids.
+When a node that must prove read access holds no read key, the handshake
+throws and the room times out.
+
+**ICE servers** (spec 04 §10). The defaults are STUN only:
+`stun:stun.l.google.com:19302` and `stun:stun1.l.google.com:19302`.
+`network.iceServers` replaces them. Each new WebRTC connection uses the
+configured servers plus the TURN servers relays offered, the latter only while
+`expiresAt` is in the future. `node.iceServers()` returns the same list for
+the application's own connections (a call's). Before answering it refreshes:
+if any relay is connected and the TURN passwords held are missing or expire
+within 10 minutes, and it has not asked in the last 10 minutes, it sends `ice`
+to every connected relay and waits up to 1.5 s for an answer (relays without
+TURN never answer), then returns what it has. A node with no relays returns
+the configured servers.
+
+_Source: `packages/core/src/network/signaling.ts` (`createSignalingClient`, `RelayStatus`), `packages/core/src/network/multi-signaling.ts` (`release`), `packages/core/src/network/ws-transport.ts`, `packages/core/src/network/local-transport.ts` (`createLocalHub`), `packages/core/src/node/carrier.ts` (`carry`), `packages/core/src/network/mesh.ts` (`CONNECT_TIMEOUT_MS`, `closeIfIdle`, `iceServers`, `ICE_REFRESH_MS`, `ICE_WAIT_MS`), `packages/core/src/network/introductions.ts` (`createSeenSignals`), `packages/core/src/network/rtc-transport.ts` (`DEFAULT_ICE_SERVERS`), `packages/core/src/node/space-runtime.ts` (`nameRelays`), `packages/core/src/node/node.ts` (`iceServers`), `packages/cli/src/serve.ts` (`onPeer`). Tests: `packages/core/tests/signaling.test.ts` ("signaling reconnects"), `packages/core/tests/relay-refusal.test.ts`, `packages/core/tests/introductions.test.ts`, `packages/core/tests/space-relays.test.ts`, `packages/core/tests/ws-transport.test.ts`, `packages/core/tests/carrier.test.ts`; the client-side ICE refresh is untested._
 
 ## A node acting as an agent
 
@@ -361,7 +558,7 @@ Closing the agent leaves the underlying node running.
 An agent granted `scope: account` gets a `*` note and the account key in its
 grant ([spec 06 §2.5](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)), so the contact list is within its note to read. A home must not
 give an agent the contact key: with it, an agent could open contact requests
-and knocks on the account's doors ([07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md)).
+and knocks on the account's doors ([doors.md](doors.md)).
 
 _Source: `packages/core/src/node/node.ts` (`asAgent`). Tests: `packages/core/tests/agents.test.ts` ("an agent acting for a person")._
 
@@ -394,7 +591,7 @@ closed it, and gives up after 10 minutes by default.
 **Starting the node.** `startConnectedNode({ grant, key?, network?, stores?, cache? })`
 starts a node with:
 
-- `signer = grantSigner(grant)` ([the session note](#the-session-note)):
+- `signer = grantSigner(grant)` ([renewing the session note](#renewing-the-session-note)):
   `did` = `grant.did`, `custody: "remote"`;
 - `sessionKey` = the app's key;
 - stores `indexedDBStores('weave-app:<grant.did>')` unless given;
@@ -469,7 +666,7 @@ _Source: `packages/core/src/node/node.ts` (`carriers`, `notifications`, `hosting
 
 ## Doors
 
-`node.doors` ([06 — Nodes, sessions and apps](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)):
+`node.doors` ([doors.md](doors.md), [spec 07](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md)):
 
 | Call                               | Does                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -477,15 +674,15 @@ _Source: `packages/core/src/node/node.ts` (`carriers`, `notifications`, `hosting
 | `open({ relays?, name?, label? })` | Opens a door. Relays default to this node's relays (up to 3); name to the account's name                                                                                                                                                                                                                           |
 | `close(id)`                        | Deletes the `std.door`                                                                                                                                                                                                                                                                                             |
 | `clear(id)`                        | Purges every knock at the door, from every relay it names                                                                                                                                                                                                                                                          |
-| `knock(code, { note? })`           | [spec 07 §7](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md), returns `{ space }`                                                                                                                                                                                                                |
+| `knock(code, { note? })`           | [the exchange](doors.md#the-exchange), returns `{ space }`                                                                                                                                                                                                                                                         |
 | `knocks()`                         | Fetches every open door's topic from every relay it names, opens and checks ([spec 07 §6](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md); opened results are cached by id), settles sent knocks and writes owed answers; returns `{ id, door, from, name, note?, pairSpace, at }`, newest first |
 | `sent()`                           | Your unanswered knocks: `{ space, name, at }`                                                                                                                                                                                                                                                                      |
-| `accept(id)`                       | [spec 07 §7](https://github.com/leifriksheim/weave/blob/main/spec/07-doors.md), returns the new `ContactView`                                                                                                                                                                                                      |
+| `accept(id)`                       | [the exchange](doors.md#the-exchange), returns the new `ContactView`                                                                                                                                                                                                                                               |
 | `dismiss(id)`                      | Purges one knock                                                                                                                                                                                                                                                                                                   |
 
 ## Client conveniences
 
-These are not protocol; another client may draw sign-in and calls however it
+These are not protocol; another client may draw sign-in and [calls](calls.md) however it
 likes.
 
 - **`<weave-auth>`** draws the flow of [sign-in](sign-in.md) into its own light DOM (so password

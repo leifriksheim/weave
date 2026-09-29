@@ -191,6 +191,14 @@ describe('an agent acting for a person', () => {
     await assert.rejects(() => helper.records.put(other, 'app.note', { text: 'x' }), /not given this space/);
   });
 
+  test('it can see who can be written to directly, but neither sends nor reads direct messages', async () => {
+    const { alice, bob, space } = await setup();
+    const agent = await agentFor(alice, [space]);
+    const helper = await alice.node.asAgent({ keys: agent.keys, note: agent.note });
+    await assert.rejects(() => helper.direct.send(space, [bob.node.did], 'hi'), /Ask the person/);
+    await assert.rejects(() => helper.direct.list(space), /Ask the person/);
+  });
+
   test('it cannot define collections, change roles, invite, or join — those need a person', async () => {
     const { alice, bob, space } = await setup();
     const agent = await agentFor(alice, [space]);

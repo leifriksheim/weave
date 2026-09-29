@@ -68,6 +68,13 @@ reads what it would do and adds it. See [screens-and-apps.md](screens-and-apps.m
 agent's note issued by the account home. Everything it writes is signed under
 that note.
 
+> **Planned (open question): naming the agent.** Records show as "via agent",
+> without saying which. The note could carry a name (say
+> `{ "weave": "agent", "name": "Claude in Chrome" }`), but that is the
+> agent's own word, signed by the account on its say-so, not a proof. Peers
+> would judge records the same either way, so it is a matter of display. Not
+> decided whether that is worth showing.
+
 ## Working on a Weave app with a coding agent
 
 These guides ship inside the package so an agent in your repository can read
