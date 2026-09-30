@@ -132,6 +132,7 @@ import {
   type HostClient,
   type HostDescription,
   type HostPlan,
+  type FundPayment,
   type HostStatus,
   type Hosting,
   type SignedStatus,
@@ -1266,10 +1267,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   }
 
   /** The plans a host describes for an account's subscription, or a space's own */
-  const plansFor = (
-    description: HostDescription,
-    who: 'account' | 'space' | 'bot',
-  ): ReadonlyArray<HostPlan> =>
+  const plansFor = (description: HostDescription, who: 'account'): ReadonlyArray<HostPlan> =>
     (description.plans ?? []).filter((plan) => Array.isArray(plan.for) && plan.for.includes(who));
 
   /** Every device keeps its hosts carrying: after the registry changes, ask each once more */
@@ -1348,11 +1346,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           name,
           host: null,
           status: null,
-          plans: [],
+          fund: null,
           reminds: false,
           runsBots: false,
           bots: [],
-          botPlans: [],
           error: 'The host’s key changed',
         };
       const client = createSpaceHostClient(named.url, description.did, provider);
@@ -1373,12 +1370,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         name: named.name ?? description.name,
         host: description.did,
         status,
-        plans: plansFor(description, 'space'),
+        fund: description.free ? null : (description.fund ?? null),
         reminds: description.remind === true,
         runsBots: description.bots === true,
-        // A host that runs no bots is not asked about them.
-        bots: description.bots === true ? await client.bots(spaceId).catch(() => []) : [],
-        botPlans: plansFor(description, 'bot'),
+        bots: status.bots ?? [],
       };
     } catch (error) {
       return {
@@ -1386,11 +1381,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         name,
         host: null,
         status: null,
-        plans: [],
+        fund: null,
         reminds: false,
         runsBots: false,
         bots: [],
-        botPlans: [],
         error: error instanceof Error ? error.message : String(error),
       };
     }
@@ -1518,8 +1512,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       await (await hostClient(await requireHosting(url))).client.remind(email);
     },
 
-    async payForSpace(spaceId: string, url: string, plan: string) {
-      return (await spaceHostClient(spaceId, url)).pay(spaceId, plan);
+    async payForSpace(spaceId: string, url: string, payment: FundPayment) {
+      return (await spaceHostClient(spaceId, url)).pay(spaceId, payment);
     },
 
     async remindForSpace(spaceId: string, url: string, email: string) {
@@ -1529,11 +1523,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     async startBot(spaceId: string, url: string, bot: { readonly name: string; readonly role?: string }) {
       const client = await spaceHostClient(spaceId, url);
       const invite = await spaces.invite(spaceId, bot.role ? { role: bot.role } : {});
-      return client.startBot(spaceId, bot.name, invite);
-    },
-
-    async payForBot(spaceId: string, url: string, bot: string, plan: string) {
-      return (await spaceHostClient(spaceId, url)).payBot(bot, plan);
+      const { bot: did, status } = await client.startBot(spaceId, bot.name, invite);
+      return { bot: did, status };
     },
 
     async stop(url: string) {
@@ -2587,7 +2578,6 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         payForSpace: person('pay for hosting'),
         remindForSpace: person('pay for hosting'),
         startBot: person('start a bot'),
-        payForBot: person('pay for hosting'),
         stop: person('stop using a host'),
         // Open to an agent in a space it was given, as reading the space is.
         space: async (spaceId: string) => {

@@ -8,10 +8,11 @@
  * reaches the space through the host's own socket, since the host carries it:
  * no relays, no WebRTC.
  *
- * Its rules run while its subscription (`bot:<did>`) is paid, on the host's
- * model key, within a daily cap per bot. Unpaid, it stays a member and does
- * nothing. Removing it from the space is how it stops: it then has no rules
- * there to run.
+ * Its rules run while its community's fund has money in it, on the host's
+ * model key, within a daily cap per bot; what it spends is taken from that
+ * fund (`charge`). With the fund empty, it stays a member and does nothing.
+ * Removing it from the space is how it stops: it then has no rules there to
+ * run.
  *
  * Unlike carrying, this is not blind: the host holds the bot's keys, so it
  * can read what the bot may read. That is what running a bot means, and the
@@ -56,8 +57,8 @@ export interface HostedBots {
   list(spaceId: string): Promise<ReadonlyArray<{ readonly did: string; readonly name: string }>>;
   /** Whether a bot is running its rules now */
   running(did: string): boolean;
-  /** Starts or stops each bot's rules as its subscription says it is paid */
-  sync(paid: (did: string) => Promise<boolean>): Promise<void>;
+  /** Starts or stops each bot's rules as its community's fund says: `funded` is asked with the space's id */
+  sync(funded: (spaceId: string) => Promise<boolean>): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -74,6 +75,8 @@ export function createHostedBots(options: {
   /** Whether the host carries a space: a bot is started only in one it does */
   readonly carries: (spaceId: string) => Promise<boolean>;
   readonly model: BotModel;
+  /** Takes what a bot spent, in dollars, from the fund of the space it runs in */
+  readonly charge?: (spaceId: string, usd: number) => Promise<void>;
   readonly log: (line: string) => void;
 }): HostedBots {
   const { store, log } = options;
@@ -99,9 +102,11 @@ export function createHostedBots(options: {
   };
 
   /** A bot's node, opened once and kept open: it holds its spaces whether or not it is paid */
+  let closed = false;
   const open = async (kept: Kept) => {
     const known = nodes.get(kept.did);
     if (known) return known.node;
+    if (closed) throw new Error('The host is closing');
     const home = await openHome(kept.folder);
     const [account] = await home.accounts.list();
     if (!account) throw new Error(`No account in ${kept.folder}`);
@@ -165,15 +170,24 @@ export function createHostedBots(options: {
 
     running: (did: string) => runners.has(did),
 
-    async sync(paid: (did: string) => Promise<boolean>) {
+    async sync(funded: (spaceId: string) => Promise<boolean>) {
       await reopening;
       for (const kept of await all()) {
-        const should = await paid(kept.did);
+        const space = kept.spaces[0];
+        const should = !!space && (await funded(space));
         const stop = runners.get(kept.did);
         if (should && !stop) {
           const node = await open(kept).catch(() => null);
           if (!node) continue;
-          const spend = fileSpend(path.join(kept.folder, 'agent'));
+          const own = fileSpend(path.join(kept.folder, 'agent'));
+          // What it spends counts against its daily cap, and is taken from its community's fund.
+          const spend = {
+            today: (who?: string) => own.today(who),
+            add: async (usd: number, who?: string) => {
+              await own.add(usd, who);
+              if (space) await options.charge?.(space, usd);
+            },
+          };
           runners.set(
             kept.did,
             runRules({
@@ -194,12 +208,14 @@ export function createHostedBots(options: {
         } else if (!should && stop) {
           stop();
           runners.delete(kept.did);
-          log(`bot ${kept.name} stopped: not paid for`);
+          log(`bot ${kept.name} stopped: its community's fund is empty`);
         }
       }
     },
 
     async close() {
+      closed = true;
+      await reopening.catch(() => {});
       for (const stop of runners.values()) stop();
       runners.clear();
       await Promise.all([...nodes.values()].map((started) => started.close().catch(() => {})));

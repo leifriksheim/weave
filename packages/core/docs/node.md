@@ -648,18 +648,17 @@ extension included.
 
 **Hosting.** `node.hosting`:
 
-| Call                                                           | Does                                                                                                                                                                                                                                                                                      |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `use(url)`                                                     | Reads the host's description, makes the subscription key and writes the `sys.hosting` record.                                                                                                                                                                                             |
-| `list()`                                                       | Asks each host for its status and hands over the carry space when paid and not carrying, making the carrier first if needed (named after the host's address). At most once a minute per host; a second look waits for a handover in flight.                                               |
-| `pay(url, plan)`                                               | Asks the host to start one of its plans (`HostingView.plans`): a pay answer, `checkout` (a page to open in a new tab with no opener) or `request` (a payment for a wallet, shown by the app). Call `list()` until the status moves.                                                       |
-| `manage(url)`                                                  | The payment provider's page to change a card or cancel it, as a `checkout` answer.                                                                                                                                                                                                        |
-| `remind(url, email)`                                           | Asks the host to email a reminder before paid time runs out; it mails a link to confirm first.                                                                                                                                                                                            |
-| `stop(url)`                                                    | Sends `DELETE …/carry` (ignoring failure), removes the carrier and deletes the `sys.hosting` record.                                                                                                                                                                                      |
-| `space(id)`                                                    | The hosts a space names in `std.host`, each asked how the space's own subscription stands, with its plans for spaces (below).                                                                                                                                                             |
-| `payForSpace(id, url, plan)`, `remindForSpace(id, url, email)` | The same as `pay` and `remind`, for a space's own subscription at a host it names. Anyone in it may.                                                                                                                                                                                      |
-| `startBot(id, url, { name, role? })`                           | Asks a host the space names to run a bot there ([spec 06 §4.7](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)): makes an invite for `role` (default the lowest below your own) and hands it over. The host holds the bot's keys, so an app says so first. |
-| `payForBot(id, url, bot, plan)`                                | Starts paying for a bot a host runs, with a plan `for` bots. Anyone in the space may. `space(id)` lists each host's `bots`, with their statuses, and `botPlans`.                                                                                                                          |
+| Call                                                                                   | Does                                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `use(url)`                                                                             | Reads the host's description, makes the subscription key and writes the `sys.hosting` record.                                                                                                                                                                                             |
+| `list()`                                                                               | Asks each host for its status and hands over the carry space when paid and not carrying, making the carrier first if needed (named after the host's address). At most once a minute per host; a second look waits for a handover in flight.                                               |
+| `pay(url, plan)`                                                                       | Asks the host to start one of its plans (`HostingView.plans`): a pay answer, `checkout` (a page to open in a new tab with no opener) or `request` (a payment for a wallet, shown by the app). Call `list()` until the status moves.                                                       |
+| `manage(url)`                                                                          | The payment provider's page to change a card or cancel it, as a `checkout` answer.                                                                                                                                                                                                        |
+| `remind(url, email)`                                                                   | Asks the host to email a reminder before paid time runs out; it mails a link to confirm first.                                                                                                                                                                                            |
+| `stop(url)`                                                                            | Sends `DELETE …/carry` (ignoring failure), removes the carrier and deletes the `sys.hosting` record.                                                                                                                                                                                      |
+| `space(id)`                                                                            | The hosts a space names in `std.host`, each asked how the space's own subscription stands, with its plans for spaces (below).                                                                                                                                                             |
+| `payForSpace(id, url, { amount, method, monthly? })`, `remindForSpace(id, url, email)` | Adds to a space's fund at a host it names (dollars, by `checkout` or `request`, monthly by card), and asks for reminders before it runs out. Anyone in it may. `space(id)` gives each host's `fund` offer, and in its status the `balance`, `daily` spend and `bots`.                     |
+| `startBot(id, url, { name, role? })`                                                   | Asks a host the space names to run a bot there ([spec 06 §4.7](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)): makes an invite for `role` (default the lowest below your own) and hands it over. The host holds the bot's keys, so an app says so first. |
 
 Every device runs `list()` after each reconciliation ([following the account](#following-the-account)).
 A device reaches a host at the socket its description names (`peer`,
@@ -686,8 +685,9 @@ _Source: `packages/core/src/node/node.ts` (`carriers`, `notifications`, `hosting
 
 A space names the hosts it pays in `std.host` records ([standard library](standard-library.md)),
 which only members holding `std.host/manage` may write. The host keeps the
-space for the space itself: its own subscription, `space:<id>`, which anyone
-may pay into ([spec 06 §4.6](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
+space for the space itself: its own subscription, `space:<id>`, with a fund
+anyone adds to, which pays for keeping it online and for its bots
+([spec 06 §4.6](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)).
 
 Every device holding the space's key (not an agent's note alone, nor a
 carrier) looks at the hosts its space names when it takes a role there and
@@ -699,8 +699,9 @@ not carry the space or carries it with an older read key. It looks only where
 the space defines `std.host`, so a space held in part is not made to hold it.
 
 `node.hosting.space(id)` does the same at once and returns each host's view:
-its name, key, status, and `plans`, which an app shows anyone who wants to
-chip in, paying with `payForSpace`. An agent may call `space` for a space it
+its name, key, status (with the fund's `balance`, its `daily` spend, and
+the `bots` running), and `fund`, how money goes in, which an app shows anyone
+who wants to chip in, paying with `payForSpace`. An agent may call `space` for a space it
 was given; paying is a person's.
 
 _Source: `packages/core/src/node/node.ts` (`keepSpaceHosts`, `askSpaceHost`, `hosting.space`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself")._

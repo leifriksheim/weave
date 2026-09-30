@@ -39,9 +39,6 @@ const SPACE_SUBSCRIPTION_PREFIX = 'space:';
 /** A space's own subscription id: `space:<space id>` */
 export const spaceSubscription = (spaceId: string) => `${SPACE_SUBSCRIPTION_PREFIX}${spaceId}`;
 
-/** A bot the host runs has a subscription of its own, `bot:<its DID>`, which anyone may pay for */
-const botSubscription = /^bot:did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$/;
-
 /** Someone paying for hosting, as the host knows them */
 export interface Subscription {
   /**
@@ -117,6 +114,8 @@ export interface HostNode {
   state(subscription: Subscription): SubscriptionState;
   /** Moves a subscription's paid-until date — the one thing payments do */
   extend(id: string, until: number, customer?: string): Promise<Subscription>;
+  /** Sets a paid-until date outright, earlier too: what a fund's estimate says as it is spent */
+  setPaidUntil(id: string, until: number): Promise<Subscription>;
   /** Keeps a wallet payment asked for, or drops it (null) once it arrived */
   setInvoice(id: string, invoice: Invoice | null): Promise<Subscription>;
   /**
@@ -279,8 +278,8 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     did: core.did,
 
     async subscribe(id: string) {
-      if (!id.startsWith('did:key:') && !spaceIdOf(id) && !botSubscription.test(id))
-        throw new Error('A subscription is named by its key, by the space it is for, or by the bot it runs');
+      if (!id.startsWith('did:key:') && !spaceIdOf(id))
+        throw new Error('A subscription is named by its key, or by the space it is for');
       return (await read(id)) ?? write({ id, paidUntil: 0, since: now() });
     },
 
@@ -302,6 +301,16 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       }
       if (extended.pass !== undefined) await core.addPass(extended.pass).catch(() => {});
       return extended;
+    },
+
+    async setPaidUntil(id: string, until: number) {
+      const subscription = await host.subscribe(id);
+      if (subscription.paidUntil === until) return subscription;
+      const set = { ...subscription, paidUntil: until };
+      await write(set);
+      // Money came back in time: carry again what the grace period had kept.
+      if (set.pass !== undefined && state(set) !== 'lapsed') await core.addPass(set.pass).catch(() => {});
+      return set;
     },
 
     async setInvoice(id: string, invoice: Invoice | null) {

@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { DEFINE, MANAGE, describeHost, roleHolds } from '@weaveprotocol/core';
-import type { HostDescription, HostedBot, SpaceHostingView } from '@weaveprotocol/core';
+import type { HostDescription, SpaceHostingView } from '@weaveprotocol/core';
 import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
 import { profile } from '@weaveprotocol/core/schemas';
 import { DEFAULT_HOST } from './relay';
 import { Modal } from './Modal';
-import { PayFlow } from './Payment';
 import { Benefit, FeatureIcon, Glyph, StatusPill } from './Feature';
-import { KeepOnlineDialog, darkSmall, onlineHost, standing, useSpaceHosts } from './SpaceHosting';
+import { KeepOnline, KeepOnlineDialog, darkSmall, onlineHost, standing, useSpaceHosts } from './SpaceHosting';
 import { styles, palette } from './styles';
 
 /** Where running a bot on a server is explained */
@@ -79,17 +78,17 @@ export function CommunitySetup({
   const online = onlineHost(hosts);
   const host = hosts[0];
   const hosted = online?.bots ?? [];
-  const running = hosted.filter((bot) => bot.status.carrying);
+  const running = hosted.filter((bot) => bot.running);
   const botNames = [
     ...running.map((bot) => bot.name),
     ...bots.filter((bot) => !hosted.some((h) => h.bot === bot.did)).map((bot) => bot.name),
   ];
   const onlineView = host ? standing(host) : null;
-  const botPrice = online?.botPlans[0]
-    ? splitPrice(online.botPlans[0].label)
-    : online?.runsBots
-      ? 'Free'
-      : null;
+  // Where a bot would run: the community's host, or before it has one, the host this build offers.
+  const runsBots = host ? host.runsBots : offer?.bots === true;
+  const cap = (host?.fund ?? offer?.fund)?.botDailyCap;
+  const free = host ? !host.fund : offer?.free === true;
+  const monthly = offer?.fund?.monthly;
 
   const close = () => {
     setDialog(null);
@@ -126,11 +125,19 @@ export function CommunitySetup({
             ) : null
           }
           detail="Reachable when everyone's offline. Encrypted, so the host can't read it."
-          meta={online ? onlineView?.line : offer ? (offer.free ? 'Free' : offer.price) : undefined}
+          meta={
+            online
+              ? onlineView?.line
+              : offer?.free
+                ? 'Free'
+                : monthly
+                  ? `$${monthly} a month, from a fund anyone can add to`
+                  : undefined
+          }
           action={
             online ? (
               <button onClick={() => setDialog('online')} data-variant="quiet" style={styles.smallButton}>
-                Manage
+                Chip in
               </button>
             ) : (
               <button onClick={() => setDialog('online')} data-variant="primary" style={darkSmall}>
@@ -148,39 +155,36 @@ export function CommunitySetup({
                 {botNames.length === 1 ? `${botNames[0]} is on` : `${botNames.length} on`}
               </StatusPill>
             ) : hosted.length ? (
-              <StatusPill tone="warn">Waiting for payment</StatusPill>
+              <StatusPill tone="warn">Fund empty</StatusPill>
             ) : null
           }
           detail="A bot that answers questions, sums up long threads and posts reminders."
           meta={
-            !online ? (
-              <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                <Glyph name="lock" size={12} /> Needs Always online
-              </span>
-            ) : botPrice ? (
-              `${botPrice}, AI use included`
-            ) : (
-              `${online.name} doesn't run bots`
-            )
+            !runsBots
+              ? `${host?.name ?? 'This host'} doesn't run bots yet`
+              : free
+                ? 'Free, AI use included'
+                : `From the same fund, up to $${cap ?? '1'} a day`
           }
           action={
             <button
               onClick={() => setDialog('bot')}
-              disabled={!online}
-              data-variant={botNames.length || !online ? 'quiet' : 'primary'}
-              style={botNames.length || !online ? styles.smallButton : darkSmall}
+              disabled={!runsBots && botNames.length === 0}
+              data-variant={botNames.length ? 'quiet' : 'primary'}
+              style={botNames.length ? styles.smallButton : darkSmall}
             >
-              {botNames.length ? 'Manage' : hosted.length ? 'Finish' : 'Add a bot'}
+              {botNames.length ? 'Manage' : 'Add a bot'}
             </button>
           }
         />
       </div>
 
       {dialog === 'online' && <KeepOnlineDialog spaceId={spaceId} writable={writable} onClose={close} />}
-      {dialog === 'bot' && online && (
+      {dialog === 'bot' && (
         <AddBotDialog
           spaceId={spaceId}
-          host={online}
+          writable={writable}
+          host={online ?? null}
           cli={cli}
           running={botNames}
           onAutomations={
@@ -252,29 +256,25 @@ function Tile({
   );
 }
 
-/** "$10 a month, from a wallet (USDC on Base)" as its price: "$10 a month" */
-function splitPrice(label: string): string {
-  const comma = label.indexOf(', ');
-  return comma < 0 ? label : label.slice(0, comma);
-}
-
 /**
- * Adding a bot, hosting first. Its name and role, what it costs, and Add;
- * then, on a host that charges for it, paying for its first month; then what
- * to tell it to do. The trust it takes is said plainly but small: the host
- * runs the bot's account, so it can read what the bot can read. Running it
- * yourself is a link at the bottom, for those who want to.
+ * Adding a bot, hosting first. A bot runs where the community is kept online,
+ * from the same fund, so a community without one starts there: choosing the
+ * host and adding to the fund, in this dialog. Then its name and role, and
+ * Add; then what to tell it to do. The trust it takes is said plainly but
+ * small: the host runs the bot's account, so it can read what the bot can
+ * read. Running it yourself is a link at the bottom, for those who want to.
  */
 function AddBotDialog({
   spaceId,
-  host,
+  writable,
   cli,
   running,
   onAutomations,
   onClose,
 }: {
   spaceId: string;
-  host: SpaceHostingView;
+  writable: boolean;
+  host: SpaceHostingView | null;
   cli: string;
   running: ReadonlyArray<string>;
   onAutomations: (() => void) | undefined;
@@ -283,6 +283,8 @@ function AddBotDialog({
   const node = useNode();
   const access = useAccess(spaceId);
   const collections = useCollections(spaceId);
+  const { hosts, look } = useSpaceHosts(spaceId, writable);
+  const host = onlineHost(hosts);
   const profiles = collections.some((c) => c.name === profile.name && c.version !== null);
   const mayDefine = roleHolds(access?.role, DEFINE);
   // Roles below one's own, lowest first: what an invite may give. A bot needs no more than it must.
@@ -292,26 +294,25 @@ function AddBotDialog({
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [started, setStarted] = useState<HostedBot | null>(
-    () => host.bots.find((bot) => !bot.status.carrying && host.botPlans.length > 0) ?? null,
-  );
-  const [view, setView] = useState<'add' | 'pay' | 'done' | 'yourself'>(
-    started ? 'pay' : running.length ? 'done' : 'add',
-  );
+  const [started, setStarted] = useState<{ bot: string; name: string } | null>(null);
+  const [chosenView, setView] = useState<'add' | 'done' | 'yourself'>(running.length ? 'done' : 'add');
   const chosen = role ?? roles[0]?.name ?? null;
   const called = name.trim() || 'Club Bot';
-  const price = host.botPlans[0] ? splitPrice(host.botPlans[0].label) : null;
+  // Until the community is kept online, adding to its fund comes first.
+  const view = hosts === null ? 'wait' : !host && chosenView === 'add' ? 'fund' : chosenView;
+  const cap = host?.fund?.botDailyCap;
 
   const add = async () => {
+    if (!host) return;
     setBusy(true);
     setProblem(null);
     try {
-      const bot = await node.hosting.startBot(spaceId, host.url, {
+      const { bot } = await node.hosting.startBot(spaceId, host.url, {
         name: called,
         ...(chosen ? { role: chosen } : {}),
       });
-      setStarted(bot);
-      setView(bot.status.carrying || host.botPlans.length === 0 ? 'done' : 'pay');
+      setStarted({ bot, name: called });
+      setView('done');
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
@@ -326,17 +327,29 @@ function AddBotDialog({
           <FeatureIcon kind="bot" glyph="sparkle" size={44} />
           <div>
             <p style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong }}>
-              {view === 'pay' && started ? `Start ${started.name}` : started ? started.name : called}
+              {started ? started.name : called}
             </p>
             <p style={{ fontSize: 13, color: palette.ink.muted }}>
-              {view === 'pay'
-                ? 'It has joined. It starts working once its first month is paid.'
-                : `Runs at ${host.name}${price ? ` · ${price}, AI use included` : ', at no cost'}`}
+              {view === 'fund'
+                ? 'Runs from the community fund'
+                : host
+                  ? `Runs at ${host.name}${host.fund ? `, from the community fund` : ', at no cost'}`
+                  : 'Runs where the community is kept online'}
             </p>
           </div>
         </div>
 
-        {view === 'add' && (
+        {view === 'fund' && (
+          <>
+            <p style={{ fontSize: 14, color: palette.ink.body, lineHeight: 1.5 }}>
+              One fund keeps the community online and runs its bots. Add to it to start; anyone in the
+              community can top it up.
+            </p>
+            <KeepOnline spaceId={spaceId} writable={writable} onClose={look} hero={false} />
+          </>
+        )}
+
+        {view === 'add' && host && (
           <>
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <Benefit glyph="chat">Answers when someone mentions it</Benefit>
@@ -393,8 +406,10 @@ function AddBotDialog({
             {problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{problem}</p>}
             <p style={{ display: 'flex', gap: 8, fontSize: 12, color: palette.ink.faint, lineHeight: 1.5 }}>
               <Glyph name="lock" size={12} style={{ marginTop: 2 }} />
-              {host.name} runs the bot's account, so it can read what the bot can read. The rest of the
-              community stays encrypted to it.
+              {host.fund
+                ? `Its AI use comes from the community fund, up to $${cap ?? '1'} a day and usually far less. `
+                : ''}
+              {host.name} runs the bot's account, so it can read what the bot can read.
             </p>
             <button
               onClick={() => setView('yourself')}
@@ -403,19 +418,6 @@ function AddBotDialog({
               Run it on your own computer instead
             </button>
           </>
-        )}
-
-        {view === 'pay' && started && (
-          <PayFlow
-            plans={host.botPlans}
-            start={(plan) => node.hosting.payForBot(spaceId, host.url, started.bot, plan)}
-            paid={async () =>
-              !!(await node.hosting.space(spaceId))
-                .find((known) => known.url === host.url)
-                ?.bots.some((bot) => bot.bot === started.bot && bot.status.carrying)
-            }
-            onDone={() => setView('done')}
-          />
         )}
 
         {view === 'done' && (
@@ -481,7 +483,7 @@ function AddBotDialog({
               onClick={() => setView('add')}
               style={{ ...styles.linkButton, alignSelf: 'center', fontSize: 12 }}
             >
-              Let {host.name} run it instead
+              Let the community's host run it instead
             </button>
           </>
         )}

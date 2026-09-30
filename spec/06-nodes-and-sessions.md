@@ -847,6 +847,7 @@ account's key: the host learns a subscription, not who pays.
 | `plans`  | Optional: what can be paid for, and how (below). Absent or empty: it takes no payments.                                                                              |
 | `remind` | Optional: `true` when it sends reminders by email before paid time runs out (`…/remind`).                                                                            |
 | `bots`   | Optional: `true` when it runs bots for the spaces it carries (§4.7).                                                                                                 |
+| `fund`   | Optional: how communities pay here, through a fund (§4.6). Absent: they can't.                                                                                       |
 
 A device MUST refuse a description whose `weave` is not `host/1` or whose `did`
 is not a `did:key`, and MUST treat a host whose `did` changed since it was first
@@ -860,7 +861,7 @@ A **plan** is one way to pay:
 | `label`  | For people, with the price: `"$4 a month, by card"`.                                                                    |
 | `method` | `checkout`: the host answers with a page at a payment provider. `request`: with a payment request for a wallet to send. |
 | `renews` | Charged again by itself until cancelled (a card). `false` for time paid up front.                                       |
-| `for`    | Who may use it, in a list: `"account"`, `"space"` (§4.6), `"bot"` (§4.7).                                               |
+| `for`    | Who may use it: `["account"]`. A space pays through its fund instead (§4.6).                                            |
 
 A device shows only plans whose `for` names the subscription it pays for, and
 ignores a plan whose `method` it does not know. Example:
@@ -874,6 +875,14 @@ ignores a plan whose `method` it does not know. Example:
   "price": "$4 a month or $36 a year",
   "peer": "/peer",
   "remind": true,
+  "bots": true,
+  "fund": {
+    "monthly": "4",
+    "min": "1",
+    "methods": ["checkout", "request"],
+    "recurring": true,
+    "botDailyCap": "1.50"
+  },
   "plans": [
     {
       "id": "card-monthly",
@@ -883,18 +892,11 @@ ignores a plan whose `method` it does not know. Example:
       "for": ["account"]
     },
     {
-      "id": "once-monthly",
-      "label": "$4 for a month, by card",
-      "method": "checkout",
-      "renews": false,
-      "for": ["space"]
-    },
-    {
       "id": "wallet-yearly",
       "label": "$36 a year, from a wallet (USDC on Base)",
       "method": "request",
       "renews": false,
-      "for": ["account", "space"]
+      "for": ["account"]
     }
   ]
 }
@@ -1047,27 +1049,56 @@ it. The reference reaches those hosts for the registry alone.
 
 _Source: `packages/core/src/session/hosting.ts` (`hostPeerAddress`), `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`, `reachHosts`), `packages/core/src/node/space-runtime.ts` (`useNodes`), `packages/cli/src/host.ts` (`startPayment`, `watch`), `packages/cli/src/wallet.ts` (`request`, `scan`), `packages/cli/src/reminders.ts`. Tests: `packages/cli/tests/host.test.ts` ("the host API": all; "pay answers": all; "reaching a host at the address it names": all; "a host’s room": all; "wallet payments": all), `packages/cli/tests/reminders.test.ts`._
 
-### 4.6 A space paying for itself
+### 4.6 A space paying for itself: its fund
 
-A space can also be a host's subscriber: its **own subscription** there,
-which anyone may pay into, so a community keeps its space online together.
-The host carries that one space as a carrier would (§4.1), from a pass
-(§4.2) any member's device hands over, and can read no more of it than any
-carrier.
+A space can also be a host's subscriber: its **own subscription** there, with
+a **fund** anyone adds to, so a community keeps itself online together. The
+host carries that one space as a carrier would (§4.1), from a pass (§4.2) any
+member's device hands over, and can read no more of it than any carrier.
 
 **The subscription.** It is named `space:<space id>`. It has no key: anyone
-may ask how it stands and pay for it, and a pass proves itself, so nothing
-about it is signed but the host's answers. A host MUST refuse a space id that
-does not match `^[A-Za-z0-9_-]{1,120}$`.
+may ask how it stands and add to its fund, and a pass proves itself, so
+nothing about it is signed but the host's answers. A host MUST refuse a space
+id that does not match `^[A-Za-z0-9_-]{1,120}$`.
+
+**The fund.** One balance, in millionths of a US dollar. Every payment into
+it adds what was paid, whoever pays and however (once, or every month). The
+host takes from it only what it says it will: keeping the space online at its
+`fund.monthly` rate, for the time it does, and what the bots it runs in that
+space spend (§4.7). The subscription is `active` while the balance is above
+zero, then `grace`, then `lapsed`, as in §4.5. `paidUntil` is not a date that
+was bought: it is the host's estimate of when the balance reaches zero at
+what the fund spends now, and it MUST move as that changes (sooner as bots
+spend more, later with each payment).
+
+A host that takes payments for communities says how in its description
+(§4.5), as `fund`:
+
+| Field         | Meaning                                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------------------- |
+| `monthly`     | Dollars a month that keeping the space online takes from the fund: `"4"`.                                |
+| `min`         | Dollars: the least one payment may add.                                                                  |
+| `methods`     | How money is added: `checkout` (a page at a payment provider) and/or `request` (a payment for a wallet). |
+| `recurring`   | Whether a `checkout` payment may be every month.                                                         |
+| `manage`      | Optional: the payment provider's page where someone stops paying every month.                            |
+| `botDailyCap` | Optional, when it runs bots: dollars a bot may take from the fund a day at most.                         |
+
+```json
+{ "monthly": "4", "min": "1", "methods": ["checkout", "request"], "recurring": true, "botDailyCap": "1.50" }
+```
 
 **Calls.** No `Authorization`.
 
-| Call                                  | Body                            | Answer                                                                                                                                                                                        |
-| ------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /host/spaces/<space id>`         | —                               | `SignedStatus` (§4.5), `subscription` `space:<space id>`; `state` `none` before anyone paid or handed a pass                                                                                  |
-| `PUT /host/spaces/<space id>/pass`    | `{ "pass": <SpacePass, §4.2> }` | `SignedStatus`. 402 when not paid (or lapsed); 403 when the host carries only named accounts; 400 when the pass does not open, or is for another space. A later pass replaces the one before. |
-| `POST /host/spaces/<space id>/pay`    | `{ "plan": "<plan id>" }`       | A pay answer (§4.5), for a plan `for` spaces. Anyone may: what is paid adds time to what is paid already, whoever pays. 403 when the host carries only named accounts.                        |
-| `POST /host/spaces/<space id>/remind` | `{ "email": "<address>" }`      | `{}`, as for an account (§4.5).                                                                                                                                                               |
+| Call                                  | Body                                                                             | Answer                                                                                                                                                                                        |
+| ------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /host/spaces/<space id>`         | —                                                                                | `SignedStatus` (§4.5), `subscription` `space:<space id>`; `state` `none` before anyone paid or handed a pass                                                                                  |
+| `PUT /host/spaces/<space id>/pass`    | `{ "pass": <SpacePass, §4.2> }`                                                  | `SignedStatus`. 402 when not paid (or lapsed); 403 when the host carries only named accounts; 400 when the pass does not open, or is for another space. A later pass replaces the one before. |
+| `POST /host/spaces/<space id>/pay`    | `{ "amount": "<dollars>", "method": "checkout" \| "request", "monthly"?: true }` | A pay answer (§4.5) that adds `amount` to the fund. Anyone may. 400 for an amount below `min`, or a method it doesn't take; 403 when the host carries only named accounts.                    |
+| `POST /host/spaces/<space id>/remind` | `{ "email": "<address>" }`                                                       | `{}`, as for an account (§4.5).                                                                                                                                                               |
+
+`amount` matches `^\d{1,5}(\.\d{1,2})?$`. A `request` for a wallet asks for
+the amount plus a fraction of a cent that tells it apart (the reference host
+adds 1 to 9 999 millionths); what arrives is added in full.
 
 A host MUST check a pass as a carrier checks one from a carry space (§4.2):
 its space must verify and hash to the id in the path, and a private space's
@@ -1077,13 +1108,34 @@ account's carry space also names it.
 
 For a space's own subscription, `HostStatus` also has:
 
-| Field     | Meaning                                                                                      |
-| --------- | -------------------------------------------------------------------------------------------- |
-| `readKey` | For a private space it carries: the read key it carries it with, as a DID. Absent otherwise. |
+| Field     | Meaning                                                                                             |
+| --------- | --------------------------------------------------------------------------------------------------- |
+| `readKey` | For a private space it carries: the read key it carries it with, as a DID. Absent otherwise.        |
+| `balance` | What is in the fund, in millionths of a dollar. Absent on a free host.                              |
+| `daily`   | What the fund spends a day as things go, in millionths of a dollar: the hosting rate and its bots'. |
+| `bots`    | The bots it runs in the space (§4.7): `[{ "bot": "<DID>", "name": "<name>", "running": true }]`.    |
 
 `carrying` is whether it carries the space now, and `spaces` is 1 when it
 does. A device compares `readKey` with the space's current read key to know
-whether the host needs a newer pass, after the space's key changed.
+whether the host needs a newer pass, after the space's key changed. Example
+payload:
+
+```json
+{
+  "subscription": "space:b3kq7zp2f4mhx6ydwa5rtc9n1e",
+  "host": "did:key:zDnaeXL64…",
+  "state": "active",
+  "paidUntil": 1801387701,
+  "renews": false,
+  "carrying": true,
+  "spaces": 1,
+  "readKey": "did:key:zDnaejutRdfJ47…",
+  "balance": 23400000,
+  "daily": 196000,
+  "bots": [{ "bot": "did:key:zDnaeYffVz7N…", "name": "Club Bot", "running": true }],
+  "at": 1791027701
+}
+```
 
 **Which host a space uses** is not protocol: the library keeps it in a
 `std.host` record that only those who may manage the space write, and every
@@ -1091,11 +1143,12 @@ member's device holding the space key hands that host the pass once the
 space is paid for there, and again when its key changes. See
 [the node](../packages/core/docs/node.md#a-space-paying-for-itself).
 
-Anyone who knows a space's id can learn whether a host carries it and until
-when, as its status is open. A pass lets its holder download the space's
-records sealed, as a carrier does; any member could hand one over already.
+Anyone who knows a space's id can learn whether a host carries it, what is in
+its fund and until when, as its status is open. A pass lets its holder
+download the space's records sealed, as a carrier does; any member could hand
+one over already.
 
-_Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `packages/core/src/node/carrier.ts` (`addPass`, `removePass`), `packages/core/src/session/hosting.ts` (`createSpaceHostClient`, `readPayAnswer`), `packages/cli/src/host.ts` (`answerSpace`), `packages/cli/src/stripe.ts` (`once`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself": all)._
+_Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`, `setPaidUntil`), `packages/core/src/node/carrier.ts` (`addPass`, `removePass`), `packages/core/src/session/hosting.ts` (`createSpaceHostClient`, `readPayAnswer`, `FundOffer`), `packages/cli/src/host.ts` (`answerSpace`, `startFund`, `refreshFund`), `packages/cli/src/fund.ts`, `packages/cli/src/stripe.ts` (`fund`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself": all), `packages/cli/tests/fund.test.ts`._
 
 ### 4.7 Bots a host runs
 
@@ -1109,47 +1162,32 @@ true` on its profile, [the standard library](../packages/core/docs/standard-libr
 This is not carrying: a host holding a bot's keys reads what the bot may
 read. A device MUST say so to the person before it asks a host for a bot.
 
-**The subscription.** Each bot has one, `bot:<the bot's DID>`, which anyone
-may ask about and pay for, like a space's own (§4.6); nothing about it is
-signed but the host's answers. The host runs the bot's work only while it is
-`active` or `grace`, or always on a free host; unpaid, the bot stays a member
-and does nothing. What a bot does is the space's rules naming it
-([rules](../packages/core/docs/rules.md)); how the host thinks for it and
-limits its spending is the host's business.
+**Paid from the space's fund.** A bot has no subscription of its own. It runs
+while its space's fund (§4.6) has money in it, or always on a free host, and
+what it spends is taken from that fund, at most `fund.botDailyCap` a day.
+With the fund empty, it stays a member and does nothing. What a bot does is
+the space's rules naming it ([rules](../packages/core/docs/rules.md)); how
+the host thinks for it is the host's business.
 
 **Calls.** No `Authorization`: an invite is all it takes to add a bot, as it
 is to add anyone, and its role is all the bot may do.
 
-| Call                               | Body                                                       | Answer                                                                                                                                                                     |
-| ---------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /host/bots`                  | `{ "name": "<≤ 60 chars>", "invite": "<≤ 16 000 chars>" }` | A bot (below). 404 when it runs no bots; 400 for an invite it can't read; 409 when it does not carry the invite's space, or the space has as many bots as the host allows. |
-| `GET /host/spaces/<space id>/bots` | —                                                          | A list of the bots it runs in that space; `[]` when none.                                                                                                                  |
-| `GET /host/bots/<bot DID>`         | —                                                          | `SignedStatus` (§4.5), `subscription` `bot:<bot DID>`; `carrying` is whether it runs the bot's work now. 404 for a bot it doesn't run.                                     |
-| `POST /host/bots/<bot DID>/pay`    | `{ "plan": "<plan id>" }`                                  | A pay answer (§4.5), for a plan `for` bots. Anyone may: what is paid adds time, whoever pays.                                                                              |
+| Call              | Body                                                       | Answer                                                                                                                                                                                                                                               |
+| ----------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /host/bots` | `{ "name": "<≤ 60 chars>", "invite": "<≤ 16 000 chars>" }` | `{ "bot": "<its DID>", "receipt": <SignedStatus> }`, the receipt the invite's space's own (§4.6). 404 when it runs no bots; 400 for an invite it can't read; 409 when it does not carry the space, or the space has as many bots as the host allows. |
 
-A **bot** is `{ "bot": "<its DID>", "name": "<its name>", "receipt": <SignedStatus> }`.
-A device MUST accept one only if the receipt verifies under the host's DID
-and its `subscription` is `bot:` followed by the bot's DID. Example:
-
-```json
-{
-  "bot": "did:key:zDnaeYffVz7NDhG3Rt327UtxvJVmhdMY5btVJawF1PsFdypUU",
-  "name": "Club Bot",
-  "receipt": {
-    "payload": "{\"subscription\":\"bot:did:key:zDnaeYffVz7N…\",\"host\":\"did:key:zDnaeXL64…\",\"state\":\"active\",\"paidUntil\":1793619701,\"renews\":false,\"carrying\":true,\"spaces\":1,\"at\":1791027701}",
-    "sig": "uQ3fT0-…"
-  }
-}
-```
+A device MUST accept the answer only if the receipt verifies under the
+host's DID and its `subscription` is `space:` and the invite's space id. The
+bots a host runs in a space, and whether each is running, are in that
+space's status (`bots`, §4.6), so they are signed with it.
 
 **Stopping a bot** is removing it from the space: it then holds no role
-there, and every peer refuses what it writes. A host drops a bot's
-subscription when it lapses, as any other.
+there, and every peer refuses what it writes.
 
 The reference host runs bots only in spaces it carries, each reaching the
 space through the host's own socket, so it needs no relay.
 
-_Source: `packages/core/src/session/hosting.ts` (`createSpaceHostClient`: `bots`, `startBot`, `payBot`), `packages/core/src/node/node.ts` (`hosting.startBot`, `hosting.payForBot`), `packages/cli/src/hosted-bots.ts`, `packages/cli/src/host.ts` (`answerBot`), `packages/cli/src/bot-runner.ts`. Tests: `packages/cli/tests/host.test.ts` ("bots a host runs": all)._
+_Source: `packages/core/src/session/hosting.ts` (`createSpaceHostClient`: `startBot`), `packages/core/src/node/node.ts` (`hosting.startBot`), `packages/cli/src/hosted-bots.ts`, `packages/cli/src/host.ts` (`answerBot`, `fundOf`), `packages/cli/src/bot-runner.ts`. Tests: `packages/cli/tests/host.test.ts` ("bots a host runs": all)._
 
 ### 4.8 Planned: hosts
 

@@ -649,8 +649,15 @@ describe('reaching a host at the address it names', () => {
 
 describe('bots a host runs', () => {
   const folders: string[] = [];
+  const hosts: Array<{ close(): Promise<void> }> = [];
   afterEach(async () => {
-    await Promise.all(folders.splice(0).map((folder) => rm(folder, { recursive: true, force: true })));
+    // The hosts first: their bots write into these folders until they stop.
+    await Promise.all(hosts.splice(0).map((served) => served.close()));
+    await Promise.all(
+      folders
+        .splice(0)
+        .map((folder) => rm(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })),
+    );
   });
 
   /** A model that is never asked: these bots have no rules to run */
@@ -671,7 +678,7 @@ describe('bots a host runs', () => {
       bots: { folder, model },
       ...options,
     });
-    open.push(served);
+    hosts.push(served);
     return { served, url: `http://127.0.0.1:${served.port}` };
   }
   /** A community whose admin keeps it online at the host, on a laptop that reaches only what it learns */
@@ -699,8 +706,7 @@ describe('bots a host runs', () => {
     await until(carries(served.node, space), 6000, 'the host to carry the space');
 
     const bot = await laptop.hosting.startBot(space, url, { name: 'Club Bot' });
-    assert.equal(bot.name, 'Club Bot');
-    assert.equal(bot.status.subscription, `bot:${bot.bot}`);
+    assert.equal(bot.status.subscription, `space:${space}`, 'the answer is the space’s status');
     await until(
       async () =>
         (await laptop.spaces.access(space)).members.some((m) => m.did === bot.bot && m.role !== 'admin'),
@@ -709,77 +715,77 @@ describe('bots a host runs', () => {
     );
     await until(
       async () =>
-        (await laptop.hosting.space(space))[0]?.bots.some((b) => b.bot === bot.bot && b.status.carrying) ??
-        false,
+        (await laptop.hosting.space(space))[0]?.bots.some(
+          (b) => b.bot === bot.bot && b.name === 'Club Bot' && b.running,
+        ) ?? false,
       8000,
-      'the host to say the bot runs',
+      'the space’s signed status to say the bot runs',
     );
-    // A bot is taken only as signed by the host the space uses, for that bot's own subscription.
-    await assert.rejects(createSpaceHostClient(url, 'did:key:zDnaeSomeoneElse').bots(space), /isn't signed/);
   });
 
-  test('only in a space it keeps online; on a paying host, a bot runs once someone pays for it', async () => {
+  test('a bot runs from its community’s fund: only where the host keeps the space, and while there is money in it', async () => {
     const { chain, wallet } = fakeChain();
-    const botWallet = createWalletPayments({
-      network: 'base-sepolia',
-      to: '0x1111111111111111111111111111111111111111',
-      monthly: '4',
-      bot: '10',
-      fetch: chain.fetch,
-    });
-    void wallet;
-    const { url } = await hostWithBots({ wallet: botWallet, watchMs: 20 });
+    const { url } = await hostWithBots({ wallet, watchMs: 20, fundMs: 50 });
     const info = await describeHost(url);
     assert.equal(info.bots, true);
-    assert.deepEqual(
-      info.plans?.filter((plan) => plan.for.includes('bot')).map((plan) => plan.id),
-      ['wallet-bot'],
-    );
+    assert.deepEqual(info.fund, {
+      monthly: '4',
+      min: '1',
+      methods: ['request'],
+      recurring: false,
+      botDailyCap: '1.50',
+    });
     const { laptop, space } = await community(url);
     await assert.rejects(
       laptop.hosting.startBot(space, url, { name: 'Early Bot' }),
       /keep the space online here first/,
     );
 
-    // Chip in for the space, then the bot: each is paid on its own.
-    const spacePay = await laptop.hosting.payForSpace(space, url, 'wallet-monthly');
-    assert.ok('request' in spacePay);
+    // Anyone chips in any amount; the fund keeps the space online and runs its bots.
+    const paying = await laptop.hosting.payForSpace(space, url, { amount: '10', method: 'request' });
+    assert.ok('request' in paying);
+    assert.match(paying.request.amount, /^10\.\d+ USDC/);
     chain.latest = 150;
-    chain.send(BigInt(spacePay.request.evm!.units), { block: 147 });
+    chain.send(BigInt(paying.request.evm!.units), { block: 147 });
     await until(
       async () => (await laptop.hosting.space(space))[0]?.status?.carrying === true,
       8000,
       'the space to be kept online',
     );
-    const bot = await laptop.hosting.startBot(space, url, { name: 'Club Bot' });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(
-      (await laptop.hosting.space(space))[0]?.bots[0]?.status.carrying,
-      false,
-      'not before it is paid',
+    const [view] = await laptop.hosting.space(space);
+    assert.ok((view?.status?.balance ?? 0) > 9_990_000, 'what was paid is in the fund');
+    assert.ok(
+      Math.abs((view?.status?.daily ?? 0) - 4e6 / 30) < 1000,
+      'spent at the monthly rate, a day at a time',
     );
-    await assert.rejects(laptop.hosting.payForBot(space, url, bot.bot, 'wallet-monthly'), /no such plan/);
-    const botPay = await laptop.hosting.payForBot(space, url, bot.bot, 'wallet-bot');
-    assert.ok('request' in botPay);
-    assert.match(botPay.request.amount, /^10\.\d+ USDC/);
-    chain.latest = 160;
-    chain.send(BigInt(botPay.request.evm!.units), { block: 157 });
+    const lasts = ((view?.status?.paidUntil ?? 0) - nowSeconds()) / 86_400;
+    assert.ok(lasts > 74 && lasts < 76, `$10 at $4 a month lasts about 75 days, not ${lasts}`);
+
+    const bot = await laptop.hosting.startBot(space, url, { name: 'Club Bot' });
     await until(
-      async () => (await laptop.hosting.space(space))[0]?.bots[0]?.status.carrying === true,
+      async () =>
+        (await laptop.hosting.space(space))[0]?.bots.some((b) => b.bot === bot.bot && b.running) ?? false,
       10_000,
-      'the bot to run once paid',
+      'the bot to run, its community funded',
     );
   });
 
-  test('a host with no bot price, or no model, runs none', async () => {
-    const { url } = await hostWithBots({
+  test('a host with no model runs no bots, though communities fund themselves there', async () => {
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
       wallet: createWalletPayments({
         network: 'base-sepolia',
         to: '0x1111111111111111111111111111111111111111',
         monthly: '4',
       }),
     });
-    assert.equal((await describeHost(url)).bots, undefined);
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const info = await describeHost(url);
+    assert.equal(info.bots, undefined);
+    assert.equal(info.fund?.monthly, '4');
     const response = await fetch(`${url}/host/bots`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1138,8 +1144,8 @@ describe('wallet payments', () => {
     assert.deepEqual(
       info.plans?.map((plan) => [plan.id, plan.method, plan.renews, plan.for]),
       [
-        ['wallet-yearly', 'request', false, ['account', 'space']],
-        ['wallet-monthly', 'request', false, ['account', 'space']],
+        ['wallet-yearly', 'request', false, ['account']],
+        ['wallet-monthly', 'request', false, ['account']],
       ],
     );
 
@@ -1284,7 +1290,7 @@ describe('a space paying for itself', () => {
     assert.equal(view?.status?.subscription, `space:${space}`);
     assert.equal(view?.status?.carrying, true);
     assert.ok(view?.status?.readKey?.startsWith('did:key:'), 'it holds the read key, which opens nothing');
-    assert.deepEqual(view?.plans, [], 'a free host takes no payments');
+    assert.equal(view?.fund, null, 'a free host takes no payments');
     await until(carries(served.node, space), 4000, 'the host to carry the space');
 
     // Anyone may ask how a space stands, and gets the host's signed word.
@@ -1307,31 +1313,32 @@ describe('a space paying for itself', () => {
     assert.match(String(at(await wrong.json(), 'error')), /not a pass for this space/);
   });
 
-  test('a paying host carries nothing until someone chips in; a one-off card payment adds its time once', async () => {
+  test('a paying host carries nothing until someone chips in; a card adds any amount to the fund, once or monthly', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const bodies: string[] = [];
     const billing = createStripeBilling({
       secretKey: 'sk_test_x',
       webhookSecret: 'whsec_test',
       monthlyPrice: 'price_month',
-      onceMonthlyPrice: 'price_once_month',
       fetch: async (input: string | URL | Request, init?: RequestInit) => {
         if (urlOf(input).endsWith('/v1/checkout/sessions')) bodies.push(bodyOf(init));
         return new Response(JSON.stringify({ url: 'https://checkout.stripe.test/c/1' }));
       },
     });
-    const served = await running({ billing });
+    const served = await running({ billing, fundMs: 50, manageFunds: 'https://billing.stripe.test/p/login' });
     const url = `http://127.0.0.1:${served.port}`;
     const { laptop, space } = await community(hub, url);
 
     const [before] = await laptop.hosting.space(space);
     assert.equal(before?.status?.state, 'none');
     assert.equal(before?.status?.carrying, false);
-    assert.deepEqual(
-      before?.plans.map((plan) => plan.id),
-      ['once-monthly'],
-      'one-off plans, not renewing ones',
-    );
+    assert.deepEqual(before?.fund, {
+      monthly: '4',
+      min: '1',
+      methods: ['checkout'],
+      recurring: true,
+      manage: 'https://billing.stripe.test/p/login',
+    });
     const put = await fetch(`${url}/host/spaces/${space}/pass`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
@@ -1340,17 +1347,30 @@ describe('a space paying for itself', () => {
     assert.equal(put.status, 402, 'not before someone pays');
 
     // Anyone in the space chips in from the app: the host answers with Stripe's page, nothing of its own.
-    assert.deepEqual(await laptop.hosting.payForSpace(space, url, 'once-monthly'), {
+    assert.deepEqual(await laptop.hosting.payForSpace(space, url, { amount: '12.50', method: 'checkout' }), {
       checkout: 'https://checkout.stripe.test/c/1',
     });
-    await assert.rejects(laptop.hosting.payForSpace(space, url, 'card-monthly'), /no such plan/);
     await assert.rejects(
-      laptop.hosting.payForSpace(space, 'https://elsewhere.test', 'once-monthly'),
+      laptop.hosting.payForSpace(space, url, { amount: '0.50', method: 'checkout' }),
+      /at least 1/,
+    );
+    await assert.rejects(
+      laptop.hosting.payForSpace(space, url, { amount: '5', method: 'request' }),
+      /no such payment/,
+    );
+    await assert.rejects(
+      laptop.hosting.payForSpace(space, 'https://elsewhere.test', { amount: '5', method: 'checkout' }),
       /doesn’t use/,
     );
-    const checkout = new URLSearchParams(bodies[0]);
-    assert.equal(checkout.get('mode'), 'payment');
-    assert.equal(checkout.get('metadata[weave_subscription]'), `space:${space}`);
+    const once = new URLSearchParams(bodies[0]);
+    assert.equal(once.get('mode'), 'payment');
+    assert.equal(once.get('line_items[0][price_data][unit_amount]'), '1250');
+    assert.equal(once.get('metadata[weave_fund]'), `space:${space}`);
+    await laptop.hosting.payForSpace(space, url, { amount: '5', method: 'checkout', monthly: true });
+    const monthly = new URLSearchParams(bodies[1]);
+    assert.equal(monthly.get('mode'), 'subscription');
+    assert.equal(monthly.get('line_items[0][price_data][recurring][interval]'), 'month');
+    assert.equal(monthly.get('subscription_data[metadata][weave_fund]'), `space:${space}`);
 
     const webhook = (body: string) => {
       const t = nowSeconds();
@@ -1361,7 +1381,7 @@ describe('a space paying for itself', () => {
         body,
       });
     };
-    const paid = (id: string) =>
+    const paidOnce = (id: string, cents: number) =>
       JSON.stringify({
         type: 'checkout.session.completed',
         data: {
@@ -1369,21 +1389,36 @@ describe('a space paying for itself', () => {
             id,
             mode: 'payment',
             payment_status: 'paid',
-            metadata: { weave_subscription: `space:${space}`, weave_plan: 'monthly' },
+            amount_total: cents,
+            metadata: { weave_fund: `space:${space}` },
           },
         },
       });
-    await webhook(paid('cs_1'));
-    await webhook(paid('cs_1'));
+    const paidMonthly = (id: string, cents: number) =>
+      JSON.stringify({
+        type: 'invoice.paid',
+        data: {
+          object: {
+            id,
+            amount_paid: cents,
+            parent: {
+              subscription_details: { subscription: 'sub_9', metadata: { weave_fund: `space:${space}` } },
+            },
+          },
+        },
+      });
     const client = createSpaceHostClient(url, served.node.did);
-    const once = (await client.status(space)).status.paidUntil;
-    assert.ok(
-      once > nowSeconds() + 27 * 24 * 3600 && once < nowSeconds() + 32 * 24 * 3600,
-      'a month, counted once',
-    );
-    // Someone else chips in: their month is added to the first.
-    await webhook(paid('cs_2'));
-    assert.ok((await client.status(space)).status.paidUntil > once + 27 * 24 * 3600, 'time adds up');
+    const balance = async () => (await client.status(space)).status.balance ?? 0;
+    await webhook(paidOnce('cs_1', 1250));
+    await webhook(paidOnce('cs_1', 1250));
+    assert.ok(Math.abs((await balance()) - 12_500_000) < 1000, 'counted once');
+    // Someone else adds every month: each month's invoice adds to the same fund.
+    await webhook(paidMonthly('in_1', 500));
+    await webhook(paidMonthly('in_1', 500));
+    assert.ok(Math.abs((await balance()) - 17_500_000) < 1000, 'the monthly one too, once');
+    const paidUntil = (await client.status(space)).status.paidUntil;
+    const days = (paidUntil - nowSeconds()) / 86_400;
+    assert.ok(days > 129 && days < 132, `$17.50 at $4 a month lasts about 131 days, not ${days}`);
 
     const [after] = await laptop.hosting.space(space);
     assert.equal(after?.status?.carrying, true);

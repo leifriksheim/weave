@@ -97,8 +97,6 @@ export interface WalletConfig {
   /** Prices in dollars ("4", "36"); a plan without one isn't offered */
   readonly monthly?: string;
   readonly yearly?: string;
-  /** A month of a bot the host runs, AI use included; absent when the host runs none */
-  readonly bot?: string;
   /** The node the host reads the network from. Default: the network's public one. */
   readonly rpcUrl?: string;
   /** Blocks on top of the payment's before it counts. Default 3 (a few seconds on Base). */
@@ -120,6 +118,8 @@ export interface WalletPayments {
   readonly offer: WalletOffer;
   /** A new payment for a plan, marked with an amount that is not in `taken` */
   payment(plan: string, taken: ReadonlySet<string>): WalletPayment;
+  /** A new payment into a fund: `units` of the token (6 decimals: millionths of a dollar), marked the same way */
+  fundPayment(units: bigint, taken: ReadonlySet<string>): WalletPayment;
   /** A payment as a link a wallet opens (EIP-681), and as people read it */
   request(amount: string): { readonly uri: string; readonly amount: string };
   /**
@@ -203,9 +203,6 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
     ...(config.monthly
       ? [{ id: 'monthly', label: 'Monthly', price: config.monthly.trim(), units: toUnits(config.monthly) }]
       : []),
-    ...(config.bot
-      ? [{ id: 'bot', label: 'A bot', price: config.bot.trim(), units: toUnits(config.bot) }]
-      : []),
   ];
   if (plans.length === 0) throw new Error('A wallet price is needed: monthly, yearly, or both');
 
@@ -237,27 +234,36 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
     plans: plans.map(({ id, label, price }) => ({ id, label, price })),
   });
 
+  /** A payment of `units` plus a fraction of a cent no open payment has: how its transfer is known as this one */
+  const marked = (plan: string, units: bigint, taken: ReadonlySet<string>): WalletPayment => {
+    // Random, so the amount says nothing about how many others are paying.
+    for (let tries = 0; tries < 200; tries++) {
+      const marker = BigInt(1 + (globalThis.crypto.getRandomValues(new Uint32Array(1))[0]! % MARKERS));
+      const amount = (units + marker).toString();
+      if (!taken.has(amount))
+        return {
+          plan,
+          chainId: network.chainId,
+          token: network.usdc,
+          to: config.to,
+          amount,
+          decimals: USDC_DECIMALS,
+        };
+    }
+    throw new Error('Too many payments are open right now; try again in a while');
+  };
+
   const payments: WalletPayments = {
     offer,
 
     payment(planId, taken) {
       const plan = plans.find((known) => known.id === planId);
       if (!plan) throw new Error(`No such plan: ${planId}`);
-      // Random, so the amount says nothing about how many others are paying.
-      for (let tries = 0; tries < 200; tries++) {
-        const marker = BigInt(1 + (globalThis.crypto.getRandomValues(new Uint32Array(1))[0]! % MARKERS));
-        const amount = (plan.units + marker).toString();
-        if (!taken.has(amount))
-          return {
-            plan: plan.id,
-            chainId: network.chainId,
-            token: network.usdc,
-            to: config.to,
-            amount,
-            decimals: USDC_DECIMALS,
-          };
-      }
-      throw new Error('Too many payments are open right now; try again in a while');
+      return marked(plan.id, plan.units, taken);
+    },
+
+    fundPayment(units, taken) {
+      return marked('fund', units, taken);
     },
 
     request(amount) {
@@ -302,7 +308,7 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
     extend(planId, from) {
       const date = new Date(from * 1000);
       if (planId === 'yearly') date.setUTCFullYear(date.getUTCFullYear() + 1);
-      else if (planId === 'monthly' || planId === 'bot') date.setUTCMonth(date.getUTCMonth() + 1);
+      else if (planId === 'monthly') date.setUTCMonth(date.getUTCMonth() + 1);
       else throw new Error(`No such plan: ${planId}`);
       return Math.floor(date.getTime() / 1000);
     },

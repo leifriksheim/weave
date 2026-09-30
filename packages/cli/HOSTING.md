@@ -63,10 +63,10 @@ WebRTC. It matters only for devices meeting each other.
 ## Bots
 
 A bot costs its model's tokens: with `WEAVE_BOT_DAILY_CAP=1` a bot spends at
-most $1 a day, about $30 a month if it is busy every day, and most are far
-under that. Price a month of one above what you expect a typical bot to
-spend (`WEAVE_WALLET_BOT`, `STRIPE_ONCE_PRICE_BOT`), and watch spending per
-bot in the host's log. Each bot is also a node in the host's process, about
+most $1 a day of the host's key, about $30 a month if it is busy every day,
+and most are far under that. Its community's fund pays for it at
+`WEAVE_BOT_MARKUP` times that (default 1.5), which covers what the host pays
+and leaves a margin; watch spending per bot in the host's log. Each bot is also a node in the host's process, about
 the memory of the spaces it holds. Unlike the spaces a host carries, a bot's
 keys are on the host's disk, in `bots/`: keep that volume as private as the
 host's own key.

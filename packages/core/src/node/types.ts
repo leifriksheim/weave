@@ -744,28 +744,25 @@ export interface NodeHosting {
    * open to chip in. Hands a host the space's pass when it was paid since.
    */
   space(spaceId: string): Promise<ReadonlyArray<SpaceHostingView>>;
-  /** Starts paying for a space's own subscription at one of the hosts it names: anyone in it may */
-  payForSpace(spaceId: string, url: string, plan: string): Promise<import('../session/hosting.js').PayAnswer>;
+  /** Starts adding to a space's fund at one of the hosts it names: an amount, once or monthly. Anyone in it may. */
+  payForSpace(
+    spaceId: string,
+    url: string,
+    payment: import('../session/hosting.js').FundPayment,
+  ): Promise<import('../session/hosting.js').PayAnswer>;
   /** Asks a host a space names for reminders by email before the space's paid time runs out */
   remindForSpace(spaceId: string, url: string, email: string): Promise<void>;
   /**
    * Asks a host the space names to run a bot there: an invite for `role` is
    * made here and handed to the host, which makes the bot's account and joins.
-   * The host holds that account's keys, so it reads what the bot may read.
-   * Removing the bot from the space stops it.
+   * It runs from the space's fund. The host holds that account's keys, so it
+   * reads what the bot may read. Removing the bot from the space stops it.
    */
   startBot(
     spaceId: string,
     url: string,
     bot: { readonly name: string; readonly role?: string },
-  ): Promise<import('../session/hosting.js').HostedBot>;
-  /** Starts paying for a bot a host runs in the space: anyone in it may */
-  payForBot(
-    spaceId: string,
-    url: string,
-    bot: string,
-    plan: string,
-  ): Promise<import('../session/hosting.js').PayAnswer>;
+  ): Promise<{ readonly bot: string; readonly status: import('../session/hosting.js').HostStatus }>;
 }
 
 /** A host a space pays for itself, as `hosting.space` sees it */
@@ -777,16 +774,14 @@ export interface SpaceHostingView {
   readonly host: string | null;
   /** How the space's subscription stands there, signed by the host; null when it could not be asked */
   readonly status: import('../session/hosting.js').HostStatus | null;
-  /** Its plans a space may be paid with, which anyone in it may use; none when it takes no payments */
-  readonly plans: ReadonlyArray<import('../session/hosting.js').HostPlan>;
+  /** How the space's fund is added to there, by anyone in it; null when it takes no payments (a free host) */
+  readonly fund: import('../session/hosting.js').FundOffer | null;
   /** Whether it sends reminders by email (`remindForSpace`) */
   readonly reminds: boolean;
   /** Whether it runs bots for the spaces it carries (`startBot`) */
   readonly runsBots: boolean;
-  /** The bots it runs in this space, each with how its subscription stands */
+  /** The bots it runs in this space, and whether each is running, as its signed status says */
   readonly bots: ReadonlyArray<import('../session/hosting.js').HostedBot>;
-  /** Its plans a bot may be paid with; none when bots are free there, or it runs none */
-  readonly botPlans: ReadonlyArray<import('../session/hosting.js').HostPlan>;
   /** Why it could not be asked, when it couldn't */
   readonly error?: string;
 }

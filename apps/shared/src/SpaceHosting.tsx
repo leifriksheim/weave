@@ -5,7 +5,7 @@ import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
 import { host as hostSchema } from '@weaveprotocol/core/schemas';
 import { DEFAULT_HOST } from './relay';
 import { Modal } from './Modal';
-import { PayFlow, RemindMe } from './Payment';
+import { ChipIn, RemindMe, dollars, lastsFor } from './Payment';
 import { Benefit, FeatureIcon, StatusPill, shortDate, timeLeft, type Tone } from './Feature';
 import { styles, palette } from './styles';
 
@@ -46,26 +46,33 @@ export const onlineHost = (hosts: ReadonlyArray<SpaceHostingView> | null) =>
     (host) => host.status?.carrying && (host.status.state === 'active' || host.status.state === 'grace'),
   );
 
-/** How a space stands at a host, as a pill and one line */
+/** How a space stands at a host, as a pill and one line: what is in its fund, and how long that lasts */
 export function standing(view: SpaceHostingView): { tone: Tone; pill: string; line: string } {
   if (view.error) return { tone: 'bad', pill: "Can't reach host", line: view.error };
   const status = view.status;
   if (!status || status.state === 'none')
-    return { tone: 'neutral', pill: 'Off', line: `${view.name} keeps it online once it is paid for` };
-  if (status.state === 'lapsed')
-    return { tone: 'bad', pill: 'Off', line: `The time paid at ${view.name} ran out` };
+    return {
+      tone: 'neutral',
+      pill: 'Off',
+      line: view.fund
+        ? `Chip in to keep it online at ${view.name}`
+        : `Online at ${view.name} once handed over`,
+    };
+  if (!view.fund && status.state === 'active')
+    return { tone: 'good', pill: 'Online', line: `Free at ${view.name}` };
+  if (status.state === 'lapsed') return { tone: 'bad', pill: 'Off', line: 'The fund ran out' };
   if (status.state === 'grace')
     return {
       tone: 'bad',
-      pill: 'Needs payment',
+      pill: 'Fund empty',
       line: `Ran out ${shortDate(status.paidUntil)}; kept a little longer`,
     };
-  if (status.paidUntil === 0) return { tone: 'good', pill: 'Online', line: `Free at ${view.name}` };
-  const soon = status.paidUntil - Date.now() / 1000 < 14 * DAY;
+  const days = (status.paidUntil - Date.now() / 1000) / DAY;
+  const lasts = `lasts about ${lastsFor(days / 30)}`;
   return {
-    tone: soon ? 'warn' : 'good',
-    pill: soon ? `Runs out ${timeLeft(status.paidUntil)}` : 'Online',
-    line: `Kept by ${view.name} · funded until ${shortDate(status.paidUntil)}`,
+    tone: days < 14 ? 'warn' : 'good',
+    pill: days < 14 ? `Runs out ${timeLeft(status.paidUntil)}` : 'Online',
+    line: `${dollars(status.balance ?? 0)} in the fund · ${lasts}`,
   };
 }
 
@@ -105,7 +112,7 @@ export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable:
             {view ? view.line : 'A host can keep it reachable when everyone is offline, without reading it.'}
           </p>
         </div>
-        {host && host.plans.length > 0 ? (
+        {host && host.fund ? (
           <button onClick={() => setOpen(true)} data-variant="quiet" style={styles.smallButton}>
             Chip in
           </button>
@@ -155,6 +162,29 @@ export function KeepOnlineDialog({
   writable: boolean;
   onClose: () => void;
 }) {
+  return (
+    <Modal title="Keep it online" onClose={onClose} width={460}>
+      <KeepOnline spaceId={spaceId} writable={writable} onClose={onClose} />
+    </Modal>
+  );
+}
+
+/**
+ * What the dialog shows, for other dialogs to show too (adding a bot starts
+ * here when the community has no fund yet): without `hero`, no heading of its
+ * own.
+ */
+export function KeepOnline({
+  spaceId,
+  writable,
+  onClose,
+  hero = true,
+}: {
+  spaceId: string;
+  writable: boolean;
+  onClose: () => void;
+  hero?: boolean;
+}) {
   const node = useNode();
   const { hosts, look, defined, mayChoose } = useSpaceHosts(spaceId, writable);
   const [offer, setOffer] = useState<HostDescription | null>(null);
@@ -195,10 +225,10 @@ export function KeepOnlineDialog({
   };
 
   const host = hosts?.[0];
-  const paidUntil = host?.status?.paidUntil ?? 0;
+  const balance = host?.status?.balance ?? 0;
   return (
-    <Modal title="Keep it online" onClose={onClose} width={460}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {hero && (
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           <FeatureIcon kind="online" glyph="cloud" size={44} />
           <div>
@@ -206,117 +236,131 @@ export function KeepOnlineDialog({
               {host ? host.name : 'Around the clock'}
             </p>
             <p style={{ fontSize: 13, color: palette.ink.muted }}>
-              {host ? standing(host).line : 'Your community, reachable even when everyone is offline'}
+              {host ? standing(host).line : 'Paid from a fund anyone in the community can add to'}
             </p>
           </div>
         </div>
+      )}
 
-        {hosts === null ? (
-          <p style={{ fontSize: 13, color: palette.ink.muted }}>One moment…</p>
-        ) : !host ? (
-          <>
+      {hosts === null ? (
+        <p style={{ fontSize: 13, color: palette.ink.muted }}>One moment…</p>
+      ) : !host ? (
+        <>
+          {hero && (
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <Benefit glyph="clock">
                 Reachable when everyone is offline, so new members get in at once
               </Benefit>
               <Benefit glyph="shield">Encrypted end to end: the host keeps it and can't read it</Benefit>
-              <Benefit glyph="users">Shared: anyone in the community can chip in</Benefit>
+              <Benefit glyph="users">One shared fund: anyone chips in any amount, once or monthly</Benefit>
             </ul>
-            {!mayChoose ? (
-              <p style={{ fontSize: 13, color: palette.ink.muted }}>
-                An admin of this community can turn it on.
-              </p>
-            ) : other || !offer ? (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void choose(address);
-                }}
-                style={{ display: 'flex', gap: 8 }}
-              >
-                <input
-                  value={address}
-                  onChange={(event) => setAddress(event.target.value)}
-                  placeholder="https://host.example"
-                  aria-label="A host's address"
-                  style={{ ...styles.input, flex: 1 }}
-                />
-                <button
-                  type="submit"
-                  disabled={busy || !address.trim()}
-                  data-variant="primary"
-                  style={styles.addButton}
-                >
-                  Use it
-                </button>
-              </form>
-            ) : (
-              <>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'baseline',
-                    gap: 12,
-                    padding: '12px 14px',
-                    borderRadius: 10,
-                    background: palette.surface.sunken,
-                  }}
-                >
-                  <span style={{ fontSize: 14, color: palette.ink.strong, fontWeight: 500 }}>
-                    {offer.name}
-                  </span>
-                  <span style={{ fontSize: 13, color: palette.ink.muted }}>
-                    {offer.free ? 'Free' : (offer.price ?? '')}
-                  </span>
-                </div>
-                <button
-                  onClick={() => void choose(DEFAULT_HOST ?? '')}
-                  disabled={busy}
-                  data-variant="primary"
-                  style={styles.button}
-                >
-                  {busy ? 'One moment…' : 'Continue'}
-                </button>
-                <button onClick={() => setOther(true)} style={{ ...styles.linkButton, alignSelf: 'center' }}>
-                  Use another host
-                </button>
-              </>
-            )}
-          </>
-        ) : host.plans.length > 0 ? (
-          <>
-            <PayFlow
-              plans={host.plans}
-              start={(plan) => node.hosting.payForSpace(spaceId, host.url, plan)}
-              paid={async () => {
-                const now = await node.hosting.space(spaceId);
-                return (now.find((known) => known.url === host.url)?.status?.paidUntil ?? 0) > paidUntil;
+          )}
+          {!mayChoose ? (
+            <p style={{ fontSize: 13, color: palette.ink.muted }}>
+              An admin of this community can turn it on.
+            </p>
+          ) : other || !offer ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void choose(address);
               }}
-              onDone={onClose}
-            />
-            {host.reminds && (
-              <div style={{ alignSelf: 'center' }}>
-                <RemindMe remind={(email) => node.hosting.remindForSpace(spaceId, host.url, email)} />
+              style={{ display: 'flex', gap: 8 }}
+            >
+              <input
+                value={address}
+                onChange={(event) => setAddress(event.target.value)}
+                placeholder="https://host.example"
+                aria-label="A host's address"
+                style={{ ...styles.input, flex: 1 }}
+              />
+              <button
+                type="submit"
+                disabled={busy || !address.trim()}
+                data-variant="primary"
+                style={styles.addButton}
+              >
+                Use it
+              </button>
+            </form>
+          ) : (
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  gap: 12,
+                  padding: '12px 14px',
+                  borderRadius: 10,
+                  background: palette.surface.sunken,
+                }}
+              >
+                <span style={{ fontSize: 14, color: palette.ink.strong, fontWeight: 500 }}>{offer.name}</span>
+                <span style={{ fontSize: 13, color: palette.ink.muted }}>
+                  {offer.free
+                    ? 'Free'
+                    : offer.fund
+                      ? `$${offer.fund.monthly} a month, from the fund`
+                      : (offer.price ?? '')}
+                </span>
               </div>
+              <button
+                onClick={() => void choose(DEFAULT_HOST ?? '')}
+                disabled={busy}
+                data-variant="primary"
+                style={styles.button}
+              >
+                {busy ? 'One moment…' : 'Continue'}
+              </button>
+              <button onClick={() => setOther(true)} style={{ ...styles.linkButton, alignSelf: 'center' }}>
+                Use another host
+              </button>
+            </>
+          )}
+        </>
+      ) : host.fund ? (
+        <>
+          <ChipIn
+            fund={host.fund}
+            start={(payment) => node.hosting.payForSpace(spaceId, host.url, payment)}
+            paid={async () => {
+              const now = await node.hosting.space(spaceId);
+              return (now.find((known) => known.url === host.url)?.status?.balance ?? 0) > balance;
+            }}
+            onDone={onClose}
+          />
+          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
+            {host.reminds && (
+              <RemindMe remind={(email) => node.hosting.remindForSpace(spaceId, host.url, email)} />
             )}
-          </>
-        ) : (
-          <button onClick={onClose} data-variant="primary" style={styles.button}>
-            Done
-          </button>
-        )}
+            {host.fund.manage && (
+              <a
+                href={host.fund.manage}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ ...styles.linkButton, padding: 0, textDecoration: 'none' }}
+              >
+                Stop adding every month
+              </a>
+            )}
+          </div>
+        </>
+      ) : (
+        <button onClick={onClose} data-variant="primary" style={styles.button}>
+          Done
+        </button>
+      )}
 
-        {problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{problem}</p>}
-        {host && mayChoose && (
-          <button
-            onClick={() => void stop(host.url).then(onClose)}
-            style={{ ...styles.linkButton, alignSelf: 'center', fontSize: 12, color: palette.ink.faint }}
-          >
-            Stop using {host.name}
-          </button>
-        )}
-      </div>
-    </Modal>
+      {problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{problem}</p>}
+      {host && mayChoose && (
+        <button
+          onClick={() => void stop(host.url).then(onClose)}
+          style={{ ...styles.linkButton, alignSelf: 'center', fontSize: 12, color: palette.ink.faint }}
+        >
+          Stop using {host.name}
+        </button>
+      )}
+    </div>
   );
 }

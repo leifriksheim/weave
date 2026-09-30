@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import qrcode from 'qrcode-generator';
-import type { HostPlan, PayAnswer } from '@weaveprotocol/core';
+import type { FundOffer, FundPayment, HostPlan, PayAnswer } from '@weaveprotocol/core';
 import { Glyph } from './Feature';
 import { styles, palette } from './styles';
 
@@ -30,87 +30,15 @@ export function PayFlow({
   onDone?: () => void;
 }) {
   const [chosen, setChosen] = useState(plans[0]?.id ?? '');
-  const [step, setStep] = useState<'choose' | 'checkout' | 'done' | Request>('choose');
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  // Once paying has started, the host's word is what moves it on.
-  useEffect(() => {
-    if (step === 'choose' || step === 'done') return;
-    const timer = setInterval(() => {
-      void paid().then(
-        (yes) => yes && setStep('done'),
-        () => {},
-      );
-    }, 4000);
-    return () => clearInterval(timer);
-  }, [paid, step]);
+  const paying = usePaying(paid);
+  const { busy, problem } = paying;
 
   const pay = () => {
     const plan = plans.find((known) => known.id === chosen);
-    if (!plan) return;
-    // Opened at once, inside the click, so no popup blocker stops it; the page follows.
-    const tab = plan.method === 'checkout' ? window.open('about:blank', '_blank') : null;
-    setBusy(true);
-    setProblem(null);
-    void start(plan.id)
-      .then((answer) => {
-        if ('request' in answer) {
-          tab?.close();
-          return setStep(answer.request);
-        }
-        setStep('checkout');
-        if (!tab) return void window.open(answer.checkout, '_blank', 'noopener');
-        // Cut the tab loose first: the provider's page can't reach back into this one.
-        tab.opener = null;
-        tab.location.href = answer.checkout;
-      })
-      .catch((error: unknown) => {
-        tab?.close();
-        setProblem(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => setBusy(false));
+    if (plan) paying.begin(plan.method, () => start(plan.id));
   };
 
-  if (step === 'done')
-    return (
-      <div
-        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '12px 0' }}
-      >
-        <span
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: '#eef8f0',
-            color: palette.accent.good,
-          }}
-        >
-          <Glyph name="check" size={22} style={{ strokeWidth: 2 }} />
-        </span>
-        <p style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong }}>Payment received</p>
-        <p style={{ fontSize: 13, color: palette.ink.muted }}>Thank you. It's already working.</p>
-        {onDone && (
-          <button onClick={onDone} data-variant="primary" style={{ ...styles.button, marginTop: 8 }}>
-            Done
-          </button>
-        )}
-      </div>
-    );
-
-  if (step === 'checkout')
-    return (
-      <Waiting
-        title="Finish paying in the new tab"
-        detail="This updates by itself once the payment goes through."
-        onBack={() => setStep('choose')}
-      />
-    );
-
-  if (step !== 'choose') return <PaymentRequest request={step} onBack={() => setStep('choose')} />;
+  if (paying.step !== 'choose') return <PayingSteps paying={paying} onDone={onDone} />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -181,6 +109,256 @@ export function PayFlow({
       {problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{problem}</p>}
     </div>
   );
+}
+
+type Step = 'choose' | 'checkout' | 'done' | Request;
+
+/**
+ * Paying, once a way to pay is chosen: opens the checkout page (inside the
+ * click, so no popup blocker stops it) or shows the payment request, then
+ * asks the host every few seconds until it says the money arrived.
+ */
+function usePaying(paid: () => Promise<boolean>) {
+  const [step, setStep] = useState<Step>('choose');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  // Once paying has started, the host's word is what moves it on.
+  useEffect(() => {
+    if (step === 'choose' || step === 'done') return;
+    const timer = setInterval(() => {
+      void paid().then(
+        (yes) => yes && setStep('done'),
+        () => {},
+      );
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [paid, step]);
+
+  const begin = (method: 'checkout' | 'request', start: () => Promise<PayAnswer>) => {
+    const tab = method === 'checkout' ? window.open('about:blank', '_blank') : null;
+    setBusy(true);
+    setProblem(null);
+    void start()
+      .then((answer) => {
+        if ('request' in answer) {
+          tab?.close();
+          return setStep(answer.request);
+        }
+        setStep('checkout');
+        if (!tab) return void window.open(answer.checkout, '_blank', 'noopener');
+        // Cut the tab loose first: the provider's page can't reach back into this one.
+        tab.opener = null;
+        tab.location.href = answer.checkout;
+      })
+      .catch((error: unknown) => {
+        tab?.close();
+        setProblem(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setBusy(false));
+  };
+  return { step, setStep, busy, problem, begin };
+}
+
+/** What follows choosing: the checkout tab, the payment request, or done */
+function PayingSteps({ paying, onDone }: { paying: ReturnType<typeof usePaying>; onDone?: () => void }) {
+  const { step, setStep } = paying;
+  if (step === 'done')
+    return (
+      <div
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '12px 0' }}
+      >
+        <span
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#eef8f0',
+            color: palette.accent.good,
+          }}
+        >
+          <Glyph name="check" size={22} style={{ strokeWidth: 2 }} />
+        </span>
+        <p style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong }}>Payment received</p>
+        <p style={{ fontSize: 13, color: palette.ink.muted }}>Thank you. It's already working.</p>
+        {onDone && (
+          <button onClick={onDone} data-variant="primary" style={{ ...styles.button, marginTop: 8 }}>
+            Done
+          </button>
+        )}
+      </div>
+    );
+  if (step === 'checkout')
+    return (
+      <Waiting
+        title="Finish paying in the new tab"
+        detail="This updates by itself once the payment goes through."
+        onBack={() => setStep('choose')}
+      />
+    );
+  if (step === 'choose') return null;
+  return <PaymentRequest request={step} onBack={() => setStep('choose')} />;
+}
+
+/** Amounts people pick most, in dollars */
+const AMOUNTS = ['5', '10', '25'] as const;
+
+/**
+ * Adding to a community's fund: an amount (a few to pick, or any other),
+ * by card or from a wallet, and by card every month if the host offers it.
+ * One fund pays for keeping the community online and for its bots, so this
+ * is the one way anyone pays for either.
+ */
+export function ChipIn({
+  fund,
+  start,
+  paid,
+  onDone,
+  cta,
+}: {
+  fund: FundOffer;
+  start: (payment: FundPayment) => Promise<PayAnswer>;
+  paid: () => Promise<boolean>;
+  onDone?: () => void;
+  /** The button's words before the amount: "Add" */
+  cta?: string;
+}) {
+  const [preset, setPreset] = useState<string>(AMOUNTS[1]);
+  const [other, setOther] = useState('');
+  const [method, setMethod] = useState<'checkout' | 'request'>(fund.methods[0] ?? 'checkout');
+  const [monthly, setMonthly] = useState(false);
+  const paying = usePaying(paid);
+  const amount = preset === 'other' ? other.trim() : preset;
+  const valid = /^\d{1,5}(\.\d{1,2})?$/.test(amount) && Number(amount) >= Number(fund.min);
+  const months = valid ? Number(amount) / Number(fund.monthly) : 0;
+
+  if (paying.step !== 'choose') return <PayingSteps paying={paying} onDone={onDone} />;
+  const chip = (on: boolean) => ({
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    fontSize: 15,
+    fontWeight: 600,
+    background: on ? palette.surface.sunken : palette.surface.card,
+    color: palette.ink.strong,
+    border: `1px solid ${on ? palette.ink.strong : palette.surface.line}`,
+    boxShadow: on ? `0 0 0 1px ${palette.ink.strong}` : 'none',
+  });
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div role="radiogroup" aria-label="Amount" style={{ display: 'flex', gap: 8 }}>
+        {AMOUNTS.map((dollars) => (
+          <button
+            key={dollars}
+            role="radio"
+            aria-checked={preset === dollars}
+            onClick={() => setPreset(dollars)}
+            style={chip(preset === dollars)}
+          >
+            ${dollars}
+          </button>
+        ))}
+        <button
+          role="radio"
+          aria-checked={preset === 'other'}
+          onClick={() => setPreset('other')}
+          style={{ ...chip(preset === 'other'), fontWeight: 500 }}
+        >
+          Other
+        </button>
+      </div>
+      {preset === 'other' && (
+        <input
+          value={other}
+          onChange={(event) => setOther(event.target.value.replace(/^\$/, ''))}
+          inputMode="decimal"
+          placeholder={`Dollars, at least ${fund.min}`}
+          aria-label="Amount in dollars"
+          autoFocus
+          style={styles.input}
+        />
+      )}
+      {fund.methods.length > 1 && (
+        <div
+          role="radiogroup"
+          aria-label="Pay with"
+          style={{ display: 'flex', padding: 3, borderRadius: 10, background: palette.surface.sunken }}
+        >
+          {fund.methods.map((known) => (
+            <button
+              key={known}
+              role="radio"
+              aria-checked={method === known}
+              onClick={() => setMethod(known)}
+              style={{
+                flex: 1,
+                height: 34,
+                borderRadius: 8,
+                border: 'none',
+                fontSize: 13,
+                fontWeight: 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                background: method === known ? palette.surface.card : 'transparent',
+                color: method === known ? palette.ink.strong : palette.ink.muted,
+                boxShadow: method === known ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
+              }}
+            >
+              <Glyph name={known === 'checkout' ? 'card' : 'wallet'} size={14} />
+              {known === 'checkout' ? 'Card' : 'Crypto'}
+            </button>
+          ))}
+        </div>
+      )}
+      {fund.recurring && method === 'checkout' && (
+        <label
+          style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: palette.ink.body }}
+        >
+          <input type="checkbox" checked={monthly} onChange={(event) => setMonthly(event.target.checked)} />
+          Add this every month
+        </label>
+      )}
+      <button
+        onClick={() =>
+          paying.begin(method, () =>
+            start({ amount, method, ...(monthly && method === 'checkout' ? { monthly: true } : {}) }),
+          )
+        }
+        disabled={paying.busy || !valid}
+        data-variant="primary"
+        style={styles.button}
+      >
+        {paying.busy
+          ? 'One moment…'
+          : `${cta ?? 'Add'} ${valid ? `$${amount}` : ''}${monthly && method === 'checkout' ? ' a month' : ''}`}
+      </button>
+      <p style={{ fontSize: 12, color: palette.ink.faint, textAlign: 'center' }}>
+        {valid
+          ? `Keeps it online for about ${lastsFor(months)}, less with busy bots.`
+          : `At least $${fund.min}.`}
+      </p>
+      {paying.problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{paying.problem}</p>}
+    </div>
+  );
+}
+
+/** Months as people say them: "3 weeks", "2 months", "a year" */
+export function lastsFor(months: number): string {
+  const days = months * 30;
+  if (days < 14) return `${Math.max(1, Math.round(days))} days`;
+  if (days < 60) return `${Math.round(days / 7)} weeks`;
+  if (months < 23) return `${Math.round(months)} months`;
+  return `${Math.round(months / 12)} years`;
+}
+
+/** Millionths of a dollar as dollars: $23.40 */
+export function dollars(micros: number): string {
+  return `$${(micros / 1e6).toFixed(2)}`;
 }
 
 /** "$4 a month, by card" as its price and how it is paid */

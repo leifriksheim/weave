@@ -170,6 +170,7 @@ describe('reminders asked of a host', () => {
         plans: [{ id: 'monthly', label: 'Monthly' }],
         checkout: async () => 'https://checkout.test',
         manage: async () => 'https://manage.test',
+        fund: async () => 'https://checkout.test',
         webhook: async () => null,
       },
       publicUrl: 'http://127.0.0.1',

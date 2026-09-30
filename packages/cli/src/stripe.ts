@@ -11,9 +11,10 @@
  * on each event — so a webhook delivered twice, late or out of order moves the
  * date to the same place.
  *
- * A space's own subscription is paid once at a time instead, by whoever chips
- * in: Checkout in payment mode, with a one-off price. Its webhook says which
- * plan, and the session's id, which the host counts once.
+ * A community's fund takes any amount instead, from whoever chips in: Checkout
+ * with the amount inline (`price_data`), once, or every month as a
+ * subscription of the contributor's own. Its webhook says how much reached
+ * which fund, with the session's or invoice's id, which the host counts once.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
@@ -26,11 +27,6 @@ export interface StripeConfig {
   /** Price ids, from the Stripe dashboard */
   readonly monthlyPrice?: string;
   readonly yearlyPrice?: string;
-  /** One-off price ids, for chipping in for a space: a month's or a year's time, paid once */
-  readonly onceMonthlyPrice?: string;
-  readonly onceYearlyPrice?: string;
-  /** A one-off price for a month of a bot the host runs */
-  readonly botPrice?: string;
   /** For tests */
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
@@ -39,6 +35,8 @@ export interface StripeConfig {
 
 /** Where the subscription's id travels inside Stripe */
 const METADATA_KEY = 'weave_subscription';
+/** Where the fund a payment goes into travels inside Stripe */
+const FUND_KEY = 'weave_fund';
 /** How old a webhook's signature may be, as Stripe's own libraries allow */
 const TOLERANCE_SECONDS = 300;
 
@@ -112,12 +110,6 @@ export function createStripeBilling(config: StripeConfig): Billing {
     ...(config.yearlyPrice ? [{ id: 'yearly', label: 'Yearly', price: config.yearlyPrice }] : []),
   ];
 
-  const oncePlans = [
-    ...(config.onceMonthlyPrice ? [{ id: 'monthly', label: 'A month', price: config.onceMonthlyPrice }] : []),
-    ...(config.onceYearlyPrice ? [{ id: 'yearly', label: 'A year', price: config.onceYearlyPrice }] : []),
-    ...(config.botPrice ? [{ id: 'bot', label: 'A month', price: config.botPrice }] : []),
-  ];
-
   /** What a Stripe subscription says: whose it is here, and paid until when */
   async function paidBy(subscriptionId: string) {
     const subscription = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`);
@@ -149,14 +141,9 @@ export function createStripeBilling(config: StripeConfig): Billing {
 
     async labels() {
       const found: Record<string, string> = {};
-      for (const [prefix, list] of [
-        ['', plans],
-        ['once-', oncePlans],
-      ] as const) {
-        for (const plan of list) {
-          const text = await priceText(plan.price).catch(() => null);
-          if (text) found[`${prefix}${plan.id}`] = text;
-        }
+      for (const plan of plans) {
+        const text = await priceText(plan.price).catch(() => null);
+        if (text) found[plan.id] = text;
       }
       return found;
     },
@@ -176,35 +163,22 @@ export function createStripeBilling(config: StripeConfig): Billing {
       });
     },
 
-    ...(oncePlans.length
-      ? {
-          once: {
-            plans: oncePlans.map(({ id, label }) => ({ id, label })),
-            async checkout({
-              subscription,
-              plan,
-              returnUrl,
-            }: {
-              subscription: string;
-              plan: string;
-              returnUrl: string;
-            }) {
-              const price = oncePlans.find((known) => known.id === plan)?.price;
-              if (!price) throw new Error(`No such plan: ${plan}`);
-              return sessionUrl('/v1/checkout/sessions', {
-                mode: 'payment',
-                'line_items[0][price]': price,
-                'line_items[0][quantity]': '1',
-                success_url: returnUrl,
-                cancel_url: returnUrl,
-                client_reference_id: subscription,
-                'metadata[weave_subscription]': subscription,
-                'metadata[weave_plan]': plan,
-              });
-            },
-          },
-        }
-      : {}),
+    async fund({ fund, cents, monthly, returnUrl }) {
+      const recurring = monthly ? { 'line_items[0][price_data][recurring][interval]': 'month' } : {};
+      return sessionUrl('/v1/checkout/sessions', {
+        mode: monthly ? 'subscription' : 'payment',
+        'line_items[0][price_data][currency]': 'usd',
+        'line_items[0][price_data][unit_amount]': String(cents),
+        'line_items[0][price_data][product_data][name]': 'Community fund',
+        ...recurring,
+        'line_items[0][quantity]': '1',
+        success_url: returnUrl,
+        cancel_url: returnUrl,
+        client_reference_id: fund,
+        // Where Stripe keeps it: on the session when paid once, on the contributor's subscription when monthly.
+        ...(monthly ? { 'subscription_data[metadata][weave_fund]': fund } : { 'metadata[weave_fund]': fund }),
+      });
+    },
 
     async manage({ customer, returnUrl }) {
       return sessionUrl('/v1/billing_portal/sessions', { customer, return_url: returnUrl });
@@ -224,25 +198,34 @@ export function createStripeBilling(config: StripeConfig): Billing {
       const event: unknown = JSON.parse(body);
       if (!isRecord(event)) return null;
       const object = isRecord(event.data) && isRecord(event.data.object) ? event.data.object : {};
-      // Paid once: which plan, and the session, so the host adds its time once.
+      // Into a fund, once: how much, and the session, so the host adds it once.
       if (event.type === 'checkout.session.completed' && object.mode === 'payment') {
         const metadata = isRecord(object.metadata) ? object.metadata : {};
-        const subscription = metadata[METADATA_KEY];
-        const plan = metadata.weave_plan;
+        const fund = metadata[FUND_KEY];
         if (
           object.payment_status !== 'paid' ||
-          typeof subscription !== 'string' ||
-          typeof plan !== 'string' ||
+          typeof fund !== 'string' ||
+          typeof object.amount_total !== 'number' ||
           typeof object.id !== 'string'
         )
           return null;
-        return { subscription, plan, id: object.id };
+        return { subscription: fund, cents: object.amount_total, id: object.id };
       }
       // Paying the first time, and every renewal: both lead to the subscription, whose period says until when.
       if (event.type === 'checkout.session.completed' && typeof object.subscription === 'string')
         return paidBy(object.subscription);
       if (event.type === 'invoice.paid') {
         const { parent } = object;
+        // Into a fund, every month: the contributor's subscription says which fund, the invoice how much.
+        const details =
+          isRecord(parent) && isRecord(parent.subscription_details) ? parent.subscription_details : null;
+        const older = isRecord(object.subscription_details) ? object.subscription_details : null;
+        const metadata = [details?.metadata, older?.metadata].find(isRecord);
+        const fund = metadata?.[FUND_KEY];
+        if (typeof fund === 'string') {
+          if (typeof object.amount_paid !== 'number' || typeof object.id !== 'string') return null;
+          return { subscription: fund, cents: object.amount_paid, id: object.id };
+        }
         const id =
           typeof object.subscription === 'string'
             ? object.subscription

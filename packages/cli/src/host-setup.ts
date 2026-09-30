@@ -86,9 +86,6 @@ export function billingFromEnv(env: NodeJS.ProcessEnv): Billing | null {
     webhookSecret: env.STRIPE_WEBHOOK_SECRET,
     ...(env.STRIPE_PRICE_MONTHLY ? { monthlyPrice: env.STRIPE_PRICE_MONTHLY } : {}),
     ...(env.STRIPE_PRICE_YEARLY ? { yearlyPrice: env.STRIPE_PRICE_YEARLY } : {}),
-    ...(env.STRIPE_ONCE_PRICE_MONTHLY ? { onceMonthlyPrice: env.STRIPE_ONCE_PRICE_MONTHLY } : {}),
-    ...(env.STRIPE_ONCE_PRICE_YEARLY ? { onceYearlyPrice: env.STRIPE_ONCE_PRICE_YEARLY } : {}),
-    ...(env.STRIPE_ONCE_PRICE_BOT ? { botPrice: env.STRIPE_ONCE_PRICE_BOT } : {}),
   });
 }
 
@@ -113,7 +110,6 @@ export function walletFromEnv(env: NodeJS.ProcessEnv): WalletPayments | null {
     to: env.WEAVE_WALLET_ADDRESS,
     ...(env.WEAVE_WALLET_MONTHLY ? { monthly: env.WEAVE_WALLET_MONTHLY } : {}),
     ...(env.WEAVE_WALLET_YEARLY ? { yearly: env.WEAVE_WALLET_YEARLY } : {}),
-    ...(env.WEAVE_WALLET_BOT ? { bot: env.WEAVE_WALLET_BOT } : {}),
     ...(env.WEAVE_WALLET_RPC ? { rpcUrl: env.WEAVE_WALLET_RPC } : {}),
   });
 }
@@ -203,9 +199,9 @@ export function checkExposure(options: {
 /**
  * Bots the host runs for the spaces it carries, when WEAVE_HOST_BOTS=1: they
  * think with the host's own key (ANTHROPIC_API_KEY) and WEAVE_BOT_MODEL
- * (default claude-sonnet-5-5), and each may spend WEAVE_BOT_DAILY_CAP dollars
- * a day (default 1). What people pay for a month of one is WEAVE_WALLET_BOT
- * and STRIPE_ONCE_PRICE_BOT. None otherwise.
+ * (default claude-sonnet-5-5), each spends WEAVE_BOT_DAILY_CAP dollars a day
+ * at most (default 1), and what they spend is taken from their community's
+ * fund (`fundFromEnv`). None otherwise.
  */
 export async function botsFromEnv(
   env: NodeJS.ProcessEnv,
@@ -226,5 +222,31 @@ export async function botsFromEnv(
   return {
     folder: path.join(data, 'bots'),
     model: { name, price, dailyCap, think: () => streamingThink(client, () => {}) },
+  };
+}
+
+/**
+ * Community funds: what keeping one online takes a month (WEAVE_FUND_MONTHLY,
+ * dollars, default the wallet's monthly price or 4), what a bot's AI use
+ * costs as a multiple of what the host pays (WEAVE_BOT_MARKUP, default 1.5),
+ * and where someone who adds every month by card stops it
+ * (STRIPE_PORTAL_LINK, Stripe's no-code customer portal link).
+ */
+export function fundFromEnv(env: NodeJS.ProcessEnv): {
+  fundMonthly?: string;
+  botMarkup?: number;
+  manageFunds?: string;
+} {
+  const monthly = (env.WEAVE_FUND_MONTHLY ?? env.WEAVE_WALLET_MONTHLY)?.trim();
+  if (monthly && !/^\d{1,5}(\.\d{1,2})?$/.test(monthly))
+    throw new Error(`WEAVE_FUND_MONTHLY must be dollars a month, like 4, not "${monthly}"`);
+  const markup = env.WEAVE_BOT_MARKUP ? Number(env.WEAVE_BOT_MARKUP) : undefined;
+  if (markup !== undefined && (!Number.isFinite(markup) || markup < 1))
+    throw new Error(`WEAVE_BOT_MARKUP must be 1 or more, not "${env.WEAVE_BOT_MARKUP}"`);
+  const portal = env.STRIPE_PORTAL_LINK?.trim();
+  return {
+    ...(monthly ? { fundMonthly: monthly } : {}),
+    ...(markup !== undefined ? { botMarkup: markup } : {}),
+    ...(portal ? { manageFunds: portal } : {}),
   };
 }

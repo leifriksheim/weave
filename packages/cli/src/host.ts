@@ -55,6 +55,7 @@ import { createInboundPeers, serve, type Served } from './serve.js';
 import type { WalletPayments } from './wallet.js';
 import { isEmail, type Reminders } from './reminders.js';
 import { createHostedBots, type BotModel } from './hosted-bots.js';
+import { createFunds } from './fund.js';
 
 /** What the host needs from a payment provider */
 export interface Billing {
@@ -69,19 +70,15 @@ export interface Billing {
   /** The provider's page for managing what a customer pays */
   manage(params: { customer: string; returnUrl: string }): Promise<string>;
   /**
-   * Each plan's price as people read it ("$4 a month"), by plan id, and by
-   * `once-<id>` for one-off plans: what the host's description shows. Asked
-   * once, at start.
+   * Each plan's price as people read it ("$4 a month"), by plan id: what the
+   * host's description shows. Asked once, at start.
    */
   labels?(): Promise<Record<string, string>>;
   /**
-   * Paying once, not renewing: what anyone chipping in for a space pays with.
-   * Absent when the provider has no one-off prices.
+   * A payment page for adding `cents` to a community's fund, once or every
+   * month; paying leads to a webhook call that says how much reached it.
    */
-  readonly once?: {
-    readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
-    checkout(params: { subscription: string; plan: string; returnUrl: string }): Promise<string>;
-  };
+  fund(params: { fund: string; cents: number; monthly: boolean; returnUrl: string }): Promise<string>;
   /**
    * A webhook call, checked as the provider's. What it says about a
    * subscription: paid until when, and by which customer. Null for anything
@@ -92,8 +89,8 @@ export interface Billing {
     headers: IncomingMessage['headers'],
   ): Promise<
     | { subscription: string; until: number; customer?: string }
-    /** A payment made once: a plan's time added to what is paid already, counted once by `id` */
-    | { subscription: string; plan: string; id: string }
+    /** Money into a community's fund, counted once by `id` */
+    | { subscription: string; cents: number; id: string }
     | null
   >;
 }
@@ -143,6 +140,14 @@ export interface HostOptions {
   readonly bots?: { readonly folder: string; readonly model: BotModel } | null;
   /** Bots one space may have here, paid or not. Default 5. */
   readonly botsPerSpace?: number;
+  /** What keeping a community online takes from its fund a month, in dollars. Default "4". */
+  readonly fundMonthly?: string;
+  /** What a bot's AI use costs its fund, as a multiple of what the host pays for it. Default 1.5. */
+  readonly botMarkup?: number;
+  /** The payment provider's page where someone stops adding to a fund every month */
+  readonly manageFunds?: string;
+  /** How often each fund pays for the time since, and its bots start or stop. Default a minute. */
+  readonly fundMs?: number;
   readonly log?: (line: string) => void;
 }
 
@@ -157,18 +162,7 @@ const MAX_BODY = 64 * 1024;
 const SUBSCRIPTION_PATH =
   /^\/host\/subscriptions\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(?:\/(carry|pay|manage|remind))?$/;
 /** A space's own subscription, open to anyone */
-const SPACE_PATH = /^\/host\/spaces\/([A-Za-z0-9_-]{1,120})(?:\/(pass|pay|remind|bots))?$/;
-/** A bot the host runs: its subscription, open to anyone, as a space's is */
-const BOT_PATH =
-  /^\/host\/bots(?:\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(?:\/(pay))?)?$/;
-/** A plan's time, for payments that add it to what is paid already */
-function addPlan(plan: string, from: number): number {
-  const date = new Date(from * 1000);
-  if (plan === 'yearly') date.setUTCFullYear(date.getUTCFullYear() + 1);
-  else if (plan === 'monthly' || plan === 'bot') date.setUTCMonth(date.getUTCMonth() + 1);
-  else throw new Error(`No such plan: ${plan}`);
-  return Math.floor(date.getTime() / 1000);
-}
+const SPACE_PATH = /^\/host\/spaces\/([A-Za-z0-9_-]{1,120})(?:\/(pass|pay|remind))?$/;
 /**
  * How long a wallet payment stays open: asked again within it, the same
  * amount; its amount isn't given to anyone else; and only a transfer made
@@ -334,19 +328,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         spaces: 0,
         at,
       };
-    if (id.startsWith('bot:')) {
-      const running = !!bots?.running(id.slice('bot:'.length));
-      return {
-        subscription: id,
-        host: node.did,
-        state: options.free ? 'active' : node.state(subscription),
-        paidUntil: subscription.paidUntil,
-        renews: subscription.customer !== undefined,
-        carrying: running,
-        spaces: running ? 1 : 0,
-        at,
-      };
-    }
     if (id.startsWith('space:')) {
       const readKey = node.readKeyOf(id);
       const carrying = subscription.pass !== undefined && node.state(subscription) !== 'lapsed';
@@ -361,6 +342,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         at,
         ...(readKey ? { readKey } : {}),
         ...(await usageOf(id)),
+        ...(await fundOf(id)),
       };
     }
     return {
@@ -373,6 +355,24 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       spaces: await node.carriedFor(id),
       at,
       ...(await usageOf(id)),
+    };
+  };
+  /** A community's fund and bots, as its status says them: nothing of a fund on a free host */
+  const fundOf = async (id: string) => {
+    const spaceId = id.slice('space:'.length);
+    const running = bots
+      ? (await bots.list(spaceId)).map((bot) => ({
+          bot: bot.did,
+          name: bot.name,
+          running: bots.running(bot.did),
+        }))
+      : [];
+    if (options.free) return running.length ? { bots: running } : {};
+    const state = await funds.get(id);
+    return {
+      balance: Math.max(0, Math.round(state.balance)),
+      daily: Math.round(funds.daily(state)),
+      ...(running.length ? { bots: running } : {}),
     };
   };
   /** A status as the home gets it: signed with the host's key, so the person holds the host's word */
@@ -393,21 +393,33 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
           renews: true,
           for: ['account'],
         })),
-        ...(billing?.once?.plans ?? []).map((plan): HostPlan => ({
-          id: `once-${plan.id}`,
-          label: `${labels[`once-${plan.id}`] ?? plan.label} for ${period(plan.id)}, by card`,
-          method: 'checkout',
-          renews: false,
-          for: plan.id === 'bot' ? ['bot'] : ['space'],
-        })),
         ...(wallet ? wallet.offer.plans : []).map((plan): HostPlan => ({
           id: `wallet-${plan.id}`,
           label: `$${plan.price} ${period(plan.id)}, from a wallet (${wallet?.offer.symbol} on ${wallet?.offer.chainName})`,
           method: 'request',
           renews: false,
-          for: plan.id === 'bot' ? ['bot'] : ['account', 'space'],
+          for: ['account'],
         })),
       ];
+  /** Communities pay through a fund: what online costs a month, and how money goes in */
+  const monthly = options.fundMonthly ?? '4';
+  const markup = options.botMarkup ?? 1.5;
+  const fundOffer =
+    !options.free && (billing || wallet)
+      ? {
+          monthly,
+          min: '1',
+          methods: [...(billing ? (['checkout'] as const) : []), ...(wallet ? (['request'] as const) : [])],
+          recurring: !!billing,
+          ...(options.manageFunds ? { manage: options.manageFunds } : {}),
+          ...(options.bots ? { botDailyCap: (options.bots.model.dailyCap * markup).toFixed(2) } : {}),
+        }
+      : null;
+  const funds = createFunds({
+    store: await options.stores('host-funds'),
+    monthly: Number(monthly) * 1e6,
+    mirror: options.mirror ?? null,
+  });
   const description: HostDescription = {
     weave: 'host/1',
     did: node.did,
@@ -417,11 +429,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // Where devices hold a socket to it: the one `serve` takes peers at.
     peer: '/peer',
     ...(plans.length ? { plans } : {}),
+    ...(fundOffer ? { fund: fundOffer } : {}),
     ...(reminders ? { remind: true } : {}),
-    // Only where a bot can be paid for, or costs nothing: a paying host with no bot price runs none.
-    ...(options.bots && (options.free || plans.some((plan) => plan.for.includes('bot')))
-      ? { bots: true }
-      : {}),
+    // Only where a bot can be paid for, from a fund, or costs nothing.
+    ...(options.bots && (options.free || fundOffer) ? { bots: true } : {}),
     ...(options.terms ? { terms: options.terms } : {}),
   };
 
@@ -436,38 +447,50 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
           carries: async (spaceId) =>
             (await node.spaces()).some((space) => space.id === spaceId && !space.carry),
           model: options.bots.model,
+          // What a bot spends is taken from its community's fund, with the host's markup.
+          charge: async (spaceId, usd) => {
+            if (options.free) return;
+            const state = await funds.charge(`space:${spaceId}`, usd * markup * 1e6);
+            if (state.balance <= 0) await refreshFund(`space:${spaceId}`);
+          },
           log,
         })
       : null;
-  /** Whether a bot's subscription is paid: on a free host, always */
-  const botPaid = async (did: string) => {
-    if (options.free) return true;
-    const subscription = await node.get(`bot:${did}`);
-    return !!subscription && node.state(subscription) !== 'lapsed';
-  };
+  /** Whether a community's fund has money in it: on a free host, always */
+  const funded = async (spaceId: string) => options.free || (await funds.get(`space:${spaceId}`)).balance > 0;
   const syncBots = () =>
     bots
-      ?.sync(botPaid)
+      ?.sync(funded)
       .catch((error: unknown) => log(`bots: ${error instanceof Error ? error.message : String(error)}`));
-  /** A bot as the app gets it: its DID, its name, and its subscription's status, signed */
-  const botView = async (did: string, name: string) => ({
-    bot: did,
-    name,
-    receipt: await signedStatusOf(`bot:${did}`),
-  });
+  /**
+   * Takes the hosting fee from a fund for the time since, and moves its
+   * paid-until date to what it lasts at the rate it is spent: later after a
+   * payment, earlier as its bots spend. Bots stop when it is empty.
+   */
+  const refreshFund = async (id: string) => {
+    if (options.free) return;
+    const state = await funds.settle(id);
+    await node.setPaidUntil(id, funds.until(state));
+    void syncBots();
+  };
 
-  /** Adds a wallet payment's time to a subscription, once: its transaction is counted first */
-  const credit = async (id: string, tx: string, plan: string): Promise<void> => {
+  /** Adds a wallet payment to what it paid for, once: its transaction is counted first */
+  const credit = async (id: string, tx: string, plan: string, amount: string): Promise<void> => {
     if (!wallet) return;
     const subscription = await node.get(id);
     if (!subscription) return;
     // Counted first: should anything after fail, the payment is lost to a restart, never counted twice.
     await markSpent(tx, id);
+    await node.setInvoice(id, null);
+    if (plan === 'fund') {
+      await funds.add(id, Number(amount));
+      await refreshFund(id);
+      log(`fund ${id} got ${(Number(amount) / 1e6).toFixed(2)} USDC from a wallet`);
+      return;
+    }
     const until = wallet.extend(plan, Math.max(now(), subscription.paidUntil));
     await node.extend(id, until);
-    await node.setInvoice(id, null);
     log(`subscription ${id} paid from a wallet until ${new Date(until * 1000).toISOString()}`);
-    if (id.startsWith('bot:')) void syncBots();
   };
 
   /**
@@ -492,16 +515,15 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
             transfer.at >= subscription.invoice.at - CLOCK_SKEW_SECONDS &&
             transfer.at <= subscription.invoice.at + INVOICE_SECONDS,
         );
-        if (paying?.invoice) await credit(paying.id, transfer.tx, paying.invoice.plan);
+        if (paying?.invoice) await credit(paying.id, transfer.tx, paying.invoice.plan, paying.invoice.amount);
       }
       await spentStore.put(SCANNED_KEY, new TextEncoder().encode(upTo.toString()));
     });
 
   /** Starts one of the host's plans for a subscription: a checkout page to open, or a payment request */
   async function startPayment(req: IncomingMessage, id: string, planId: unknown): Promise<PayAnswer> {
-    const who = id.startsWith('space:') ? 'space' : id.startsWith('bot:') ? 'bot' : 'account';
     const plan = plans.find((known) => known.id === planId);
-    if (!plan || !plan.for.includes(who)) throw new Refusal(400, 'This host has no such plan for this');
+    if (!plan) throw new Refusal(400, 'This host has no such plan for this');
     const returnUrl = `${originOf(req, options.publicUrl)}/host/paid`;
     const [kind, period] = [plan.id.slice(0, plan.id.indexOf('-')), plan.id.slice(plan.id.indexOf('-') + 1)];
     const subscription = await node.subscribe(id);
@@ -514,8 +536,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       });
       return { checkout };
     }
-    if (kind === 'once' && billing?.once)
-      return { checkout: await billing.once.checkout({ subscription: id, plan: period, returnUrl }) };
     if (kind !== 'wallet' || !wallet) throw new Refusal(400, 'This host has no such plan for this');
     const open = subscription.invoice;
     // Asked again — a reload, a second try — the same amount, so a payment already on its way still counts.
@@ -530,6 +550,59 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
             );
             const payment = wallet.payment(period, taken);
             const made = { plan: payment.plan, amount: payment.amount, at: now() };
+            await node.setInvoice(id, made);
+            return made;
+          })();
+    const { chainId, chainName, token, to } = wallet.offer;
+    return {
+      request: {
+        ...wallet.request(invoice.amount),
+        expires: invoice.at + INVOICE_SECONDS,
+        evm: { chainId, chainName, token, to, units: invoice.amount },
+      },
+    };
+  }
+
+  /**
+   * Starts adding to a community's fund: an amount in dollars, by card (once,
+   * or every month) or from a wallet. The fund's subscription is made on the
+   * way, so a community's first payment is also how it starts.
+   */
+  async function startFund(
+    req: IncomingMessage,
+    id: string,
+    input: Record<string, unknown>,
+  ): Promise<PayAnswer> {
+    if (!fundOffer) throw new Refusal(404, 'This host takes no payments for communities');
+    const amount = typeof input.amount === 'string' ? input.amount.trim() : '';
+    if (!/^\d{1,5}(\.\d{1,2})?$/.test(amount) || Number(amount) < Number(fundOffer.min))
+      throw new Refusal(400, `An amount in dollars is needed, at least ${fundOffer.min}`);
+    const cents = Math.round(Number(amount) * 100);
+    const monthly = input.monthly === true;
+    await node.subscribe(id);
+    if (input.method === 'checkout' && billing) {
+      const returnUrl = `${originOf(req, options.publicUrl)}/host/paid`;
+      return { checkout: await billing.fund({ fund: id, cents, monthly, returnUrl }) };
+    }
+    if (input.method !== 'request' || !wallet || monthly)
+      throw new Refusal(400, 'This host takes no such payment');
+    const subscription = await node.subscribe(id);
+    const open = subscription.invoice;
+    // Asked again for the same amount — a reload, a second try — the same payment, so one on its way still counts.
+    const invoice =
+      open &&
+      open.plan === 'fund' &&
+      Math.floor(Number(open.amount) / 10_000) === cents &&
+      now() - open.at < INVOICE_SECONDS
+        ? open
+        : await (async () => {
+            const taken = new Set(
+              (await node.list()).flatMap((other) =>
+                other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [],
+              ),
+            );
+            const payment = wallet.fundPayment(BigInt(cents) * 10_000n, taken);
+            const made = { plan: 'fund', amount: payment.amount, at: now() };
             await node.setInvoice(id, made);
             return made;
           })();
@@ -612,29 +685,20 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         await node.extend(paid.subscription, paid.until, paid.customer);
         log(`subscription ${paid.subscription} paid until ${new Date(paid.until * 1000).toISOString()}`);
       } else if (paid) {
-        // Paid once: its time is added, and a webhook delivered twice adds it once.
+        // Into a fund: added once, however often the webhook comes.
         await oneAtATime(async () => {
           if (await isSpent(`card:${paid.id}`)) return;
           await markSpent(`card:${paid.id}`, paid.subscription);
-          const subscription = await node.subscribe(paid.subscription);
-          const until = addPlan(paid.plan, Math.max(now(), subscription.paidUntil));
-          await node.extend(paid.subscription, until);
-          log(`subscription ${paid.subscription} paid once, until ${new Date(until * 1000).toISOString()}`);
+          await node.subscribe(paid.subscription);
+          await funds.add(paid.subscription, paid.cents * 10_000);
+          log(`fund ${paid.subscription} got $${(paid.cents / 100).toFixed(2)} by card`);
         });
-        if (paid.subscription.startsWith('bot:')) void syncBots();
+        await refreshFund(paid.subscription);
       }
       return send(res, 200, { received: true });
     }
 
-    const botMatch = BOT_PATH.exec(url.pathname);
-    if (botMatch)
-      return answerBot(
-        req,
-        res,
-        method,
-        botMatch[1] ? decodeURIComponent(botMatch[1]) : null,
-        botMatch[2] ?? null,
-      );
+    if (url.pathname === '/host/bots') return answerBot(req, res, method);
 
     const spaceMatch = SPACE_PATH.exec(url.pathname);
     if (spaceMatch) return answerSpace(req, res, method, spaceMatch[1]!, spaceMatch[2] ?? null);
@@ -708,45 +772,31 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
   /**
    * Bots: anyone holding an invite to a space this host carries may ask for
-   * one, as the invite's role is all it may do there; anyone may pay for one.
+   * one, as the invite's role is all it may do there. It runs from the
+   * space's fund, and the answer is the space's status, which lists it.
    */
-  async function answerBot(
-    req: IncomingMessage,
-    res: ServerResponse,
-    method: string,
-    did: string | null,
-    action: string | null,
-  ): Promise<void> {
+  async function answerBot(req: IncomingMessage, res: ServerResponse, method: string): Promise<void> {
     if (!bots) throw new Refusal(404, 'This host runs no bots');
-    if (did === null && method === 'POST') {
-      const input = jsonFields(await readBody(req));
-      if (typeof input.name !== 'string' || typeof input.invite !== 'string' || input.invite.length > 16_000)
-        throw new Refusal(400, 'A name and an invite are needed');
-      let spaceId: string;
-      try {
-        spaceId = parseSpaceInvite(input.invite).space.id;
-      } catch {
-        throw new Refusal(400, 'That invite could not be read');
-      }
-      if ((await bots.list(spaceId)).length >= (options.botsPerSpace ?? 5))
-        throw new Refusal(409, 'This space has as many bots here as it may');
-      let bot: { did: string; name: string };
-      try {
-        bot = await bots.start(input.name, input.invite);
-      } catch (error) {
-        throw new Refusal(409, error instanceof Error ? error.message : 'The bot could not start');
-      }
-      await node.subscribe(`bot:${bot.did}`);
-      void syncBots();
-      return send(res, 200, await botView(bot.did, bot.name));
+    if (method !== 'POST') throw new Refusal(405, 'That call does not take that method');
+    const input = jsonFields(await readBody(req));
+    if (typeof input.name !== 'string' || typeof input.invite !== 'string' || input.invite.length > 16_000)
+      throw new Refusal(400, 'A name and an invite are needed');
+    let spaceId: string;
+    try {
+      spaceId = parseSpaceInvite(input.invite).space.id;
+    } catch {
+      throw new Refusal(400, 'That invite could not be read');
     }
-    if (did === null) throw new Refusal(405, 'That call does not take that method');
-    const id = `bot:${did}`;
-    if (!(await node.get(id))) throw new Refusal(404, 'This host runs no such bot');
-    if (action === null && method === 'GET') return send(res, 200, await signedStatusOf(id));
-    if (action === 'pay' && method === 'POST')
-      return send(res, 200, await startPayment(req, id, jsonFields(await readBody(req)).plan));
-    throw new Refusal(405, 'That call does not take that method');
+    if ((await bots.list(spaceId)).length >= (options.botsPerSpace ?? 5))
+      throw new Refusal(409, 'This space has as many bots here as it may');
+    let bot: { did: string; name: string };
+    try {
+      bot = await bots.start(input.name, input.invite);
+    } catch (error) {
+      throw new Refusal(409, error instanceof Error ? error.message : 'The bot could not start');
+    }
+    await syncBots();
+    return send(res, 200, { bot: bot.did, receipt: await signedStatusOf(`space:${spaceId}`) });
   }
 
   /**
@@ -763,18 +813,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   ): Promise<void> {
     const id = `space:${space}`;
     if (action === null && method === 'GET') return send(res, 200, await signedStatusOf(id));
-    if (action === 'bots' && method === 'GET') {
-      if (!bots) return send(res, 200, []);
-      return send(
-        res,
-        200,
-        await Promise.all((await bots.list(space)).map((bot) => botView(bot.did, bot.name))),
-      );
-    }
     // A host carrying only named accounts carries no space for itself, so takes nothing for one.
     if (options.allow && action !== null) throw new Refusal(403, new NotAllowedError().message);
     if (action === 'pay' && method === 'POST')
-      return send(res, 200, await startPayment(req, id, jsonFields(await readBody(req)).plan));
+      return send(res, 200, await startFund(req, id, jsonFields(await readBody(req))));
     if (action === 'remind' && method === 'POST') {
       await askReminders(req, id, jsonFields(await readBody(req)).email);
       return send(res, 200, { reminders: await reminders?.state(id) });
@@ -817,9 +859,22 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
   listening = served.port;
   void syncBots();
-  // Each bot runs while it is paid: its time may run out between payments.
-  const botSweeping = bots ? setInterval(() => void syncBots(), 60_000) : null;
-  botSweeping?.unref();
+  // Every minute, each community's fund pays for the time since, and its date and bots follow.
+  const fundTick = async () => {
+    if (!options.free)
+      for (const subscription of await node.list())
+        if (subscription.id.startsWith('space:')) await refreshFund(subscription.id);
+    await syncBots();
+  };
+  void fundTick().catch(() => {});
+  const botSweeping = setInterval(
+    () =>
+      void fundTick().catch((error: unknown) =>
+        log(`funds: ${error instanceof Error ? error.message : String(error)}`),
+      ),
+    options.fundMs ?? 60_000,
+  );
+  botSweeping.unref();
 
   // Who is over their room, known before the first account adds a space.
   void measureAll().catch((error: unknown) =>
@@ -865,7 +920,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     async close() {
       clearInterval(sweeping);
       if (watching) clearInterval(watching);
-      if (botSweeping) clearInterval(botSweeping);
+      clearInterval(botSweeping);
       await bots?.close();
       await claiming;
       await served.close();

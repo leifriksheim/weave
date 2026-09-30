@@ -160,15 +160,19 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   provider's (default: the network's public one). Keep the address's private
   key off the host — it only needs to receive.
 
-- **Spaces pay for themselves too.** A community names the host in its space
-  (`std.host`), and anyone in it chips in from the app, no sign-in at the
-  host. Each payment adds its time to what is paid already, from a
-  wallet, or by card once `STRIPE_ONCE_PRICE_MONTHLY` and/or
-  `STRIPE_ONCE_PRICE_YEARLY` name one-off prices in your Stripe dashboard
-  (a card that renews stays for accounts). Members' devices hand the host the
-  space's pass once it is paid, and it carries the space blind, like an
-  account's. `GET /host/spaces/<id>` says how a space stands, to anyone.
-  A host with `--allow` carries no space for itself.
+- **Communities pay through a fund.** A community names the host in its
+  space (`std.host`), and anyone in it adds to its fund from the app, any
+  amount, by card or wallet, once or (by card) every month, with no sign-in at
+  the host. Keeping the space online takes `WEAVE_FUND_MONTHLY` dollars a
+  month from it (default the wallet's monthly price, or 4), by the second, and
+  its bots take what they spend. Every status says what is in it, what it
+  spends a day, and when it will run out at that rate. Card payments need no
+  prices in Stripe: the amount goes in the Checkout session. For those who add
+  every month, set `STRIPE_PORTAL_LINK` to Stripe's no-code customer portal
+  link, which the app offers as "Stop adding every month". Members' devices
+  hand the host the space's pass once there is money in the fund, and it
+  carries the space blind, like an account's. A host with `--allow` carries no
+  space for itself.
 - Each account's spaces may take `WEAVE_HOST_QUOTA_GB` (default 10 on a
   paying host, no limit on a free one; 0 is none). Every status says what
   they take, and the home shows it. At the limit the host takes no new space
@@ -177,11 +181,11 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   bots for the spaces it carries: an admin adds one from the app ("Set up this
   community", Add a bot), the host makes its account in `--data`'s `bots/`
   and joins with the invite, and it runs the space's rules that name it while
-  it is paid. `WEAVE_WALLET_BOT` and `STRIPE_ONCE_PRICE_BOT` price a month of
-  one (a bot is paid for on its own, and anyone may chip in); on a free host
-  bots cost nothing. `WEAVE_BOT_MODEL` (default `claude-sonnet-5-5`) and
+  its community's fund has money in it. What a bot spends is taken from that
+  fund at `WEAVE_BOT_MARKUP` times what the host pays (default 1.5); on a
+  free host bots cost nothing. `WEAVE_BOT_MODEL` (default `claude-sonnet-5-5`) and
   `WEAVE_BOT_DAILY_CAP` (dollars a day each, default 1) set what they think
-  with and may spend. A paying host with no bot price runs none. The host
+  with and may spend. The host
   holds each bot's keys, so it reads what the bot can read: the app says so.
 - **Reminders by email**, for time paid up front: set `WEAVE_MAIL_API_KEY`
   and `WEAVE_MAIL_FROM` (Resend's API; `WEAVE_MAIL_URL` for another that takes

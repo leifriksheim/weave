@@ -460,6 +460,8 @@ export type {
   HostDescription,
   HostPlan,
   HostedBot,
+  FundOffer,
+  FundPayment,
   PayAnswer,
   HostClient,
   SpaceHostClient,
