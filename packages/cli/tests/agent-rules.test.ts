@@ -105,7 +105,7 @@ describe('a rule that asks the model', () => {
 });
 
 describe('while a rule runs', () => {
-  test('the runner says on what set it off that it is working, then done', async () => {
+  test('the runner says on what set it off that it is working, the model says what at, then done', async () => {
     const node = await member(createFakeHub({ latencyMs: 1 }), 95);
     const { id: space } = await node.spaces.create({ name: 'Club', ...community, visibility: 'private' });
     for (const definition of [message, rule, ruleRun, activity])
@@ -117,23 +117,49 @@ describe('while a rule runs', () => {
       since: new Date(Date.now() - 1000).toISOString(),
     };
     await node.records.put(space, rule.name, body);
-    const stateOf = async (key: string) => {
-      const [found] = await node.records.linked<{ state: string }>(space, key, {
+    const activityOf = async (key: string) => {
+      const [found] = await node.records.linked<{ state: string; label?: string }>(space, key, {
         rel: 'about',
         collection: activity.name,
       });
-      return found?.body?.state ?? null;
+      return found?.body ?? null;
     };
+    const stateOf = async (key: string) => (await activityOf(key))?.state ?? null;
     let seen: string | null = null;
     let asked = '';
+    let prompt = '';
+    let turn = 0;
     const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-run-'));
     const stop = runRules({
       node,
       account: node.did,
       model: 'scripted',
       price: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
-      think: () => async () => {
-        seen = await stateOf(asked);
+      think: () => async (params) => {
+        const usage = {
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        };
+        // First it says what it is doing, as it was told it may; then it answers.
+        if (turn++ === 0) {
+          seen = await stateOf(asked);
+          prompt = JSON.stringify(params.messages[0]?.content);
+          return {
+            model: 'scripted',
+            stop_reason: 'tool_use',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'call-0',
+                name: 'activity_set',
+                input: { space, about: asked, label: 'Reading the thread' },
+              },
+            ],
+            usage,
+          };
+        }
         return {
           model: 'scripted',
           stop_reason: 'end_turn',
@@ -155,6 +181,8 @@ describe('while a rule runs', () => {
       asked = (await node.records.put(space, message.name, { text: 'Hello?' })).key;
       await until(async () => (await stateOf(asked)) === 'done', 10_000, 'the activity to say done');
       assert.equal(seen, 'working', 'working while the model thinks');
+      assert.match(prompt, new RegExp(`activity_set \\(about: ${asked}\\)`), 'told where it may say so');
+      assert.equal((await activityOf(asked))?.label, 'Reading the thread', 'its own words, kept when done');
     } finally {
       stop();
       await rm(dir, { recursive: true, force: true });

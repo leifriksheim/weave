@@ -56,7 +56,8 @@ export function runRules(options: RuleRunnerOptions): () => void {
       trigger.rule.space,
       trigger.match?.record.key ?? trigger.rule.key,
       state,
-      trigger.rule.body.name.slice(0, 120),
+      // The rule's name to begin with; at the end, whatever the model said it was doing stays.
+      state === 'done' || state === 'failed' ? undefined : trigger.rule.body.name.slice(0, 120),
     ).catch(() => null);
 
   let queue: Promise<unknown> = Promise.resolve();
@@ -90,12 +91,13 @@ export function runRules(options: RuleRunnerOptions): () => void {
       unattended: true,
       ...(options.bot ? { bot: options.bot } : {}),
     });
-    await mark(sealed, 'working');
+    const shown = await mark(sealed, 'working');
     const context = await ruleContext(node, trigger).catch(() => undefined);
     try {
       const { cost, text } = await run.say(
         triggerPrompt(trigger, PEER_CONTENT_NOTE, {
           ...(context ? { context } : {}),
+          ...(shown ? { activityOn: sealed.match?.record.key ?? sealed.rule.key } : {}),
           writerInstructs: await writerInstructs(node, trigger, {
             account: options.account,
             bot: !!options.bot,

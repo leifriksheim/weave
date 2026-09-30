@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import * as z from 'zod';
 
 import { createNode } from '../src/node/node.js';
+import { runAction } from '../src/node/actions.js';
 import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
@@ -390,6 +391,31 @@ describe('std.activity', () => {
       activeNow({ state: 'working', at: at(ACTIVITY_STALE_SECONDS + 1) }, now),
       false,
       'gone stale',
+    );
+  });
+
+  test('anyone at work says what they are doing with activity_set, and the label stays to the end', async () => {
+    const { person, space } = await personAndAgent(98);
+    const on = await person.records.put(space, task.name, { title: 'Plan the trip' });
+    await assert.rejects(
+      runAction(person, 'activity_set', { space, about: on.key, label: 'Reading' }),
+      /keeps no std\.activity/,
+    );
+    await person.collections.define(space, activity);
+    const set = z
+      .object({ state: z.string(), label: z.string() })
+      .parse(await runAction(person, 'activity_set', { space, about: on.key, label: 'Making an app' }));
+    assert.deepEqual(set, { state: 'working', label: 'Making an app' });
+    await setActivity(person, space, on.key, 'done');
+    const [kept] = await person.records.linked(space, on.key, { rel: 'about', collection: activity.name });
+    assert.deepEqual(
+      z.object({ state: z.string(), label: z.string() }).parse(kept?.body),
+      { state: 'done', label: 'Making an app' },
+      'done, still saying what it did',
+    );
+    await assert.rejects(
+      runAction(person, 'activity_set', { space, about: on.key, label: 'x', state: 'thinking' }),
+      /state/,
     );
   });
 });

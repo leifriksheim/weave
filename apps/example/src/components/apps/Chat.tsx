@@ -684,9 +684,10 @@ function Working({ on, people }: { on: ReadonlyArray<AtWork> | undefined; people
       style={{ margin: '2px 0 4px 38px', fontSize: 12.5, color: palette.ink.faint, fontStyle: 'italic' }}
     >
       {on
-        .map(
-          (w) =>
-            `${nameOf(w.did, people)} ${w.state === 'waiting' ? 'will get to this shortly' : 'is working on it…'}`,
+        .map((w) =>
+          w.state === 'waiting'
+            ? `${nameOf(w.did, people)} will get to this shortly`
+            : `${nameOf(w.did, people)} · ${w.label ?? 'working on it'}…`,
         )
         .join(' · ')}
     </p>

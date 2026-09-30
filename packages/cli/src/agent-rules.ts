@@ -11,14 +11,19 @@ import { INSTRUCT, type RuleTrigger } from '@weaveprotocol/core/schemas';
  * its maker's, and what set it off, marked as data (`note`). With `context`
  * (`ruleContext`), what it would look up first; with `writerInstructs`, that
  * whoever wrote the record may instruct it (`writerInstructs`), so what they
- * ask in it may be done.
+ * ask in it may be done; with `activityOn`, where it may say what it is doing.
  */
 export function triggerPrompt(
   trigger: RuleTrigger,
   note: string,
-  extra: { readonly context?: string; readonly writerInstructs?: boolean } = {},
+  extra: {
+    readonly context?: string;
+    readonly writerInstructs?: boolean;
+    /** The record the runner's `std.activity` is about, where people see the work going on */
+    readonly activityOn?: string;
+  } = {},
 ): string {
-  const { context, writerInstructs } = extra;
+  const { context, writerInstructs, activityOn } = extra;
   const { rule, match, at } = trigger;
   const then = rule.body.then;
   const record = match?.record;
@@ -56,7 +61,10 @@ export function triggerPrompt(
     record?.collection === DIRECT
       ? '\n\nIt is a direct message, opened for you: answer it with direct_send, to its writer and the others it was for, never in the open.'
       : '';
-  return `${cause}${writer}${direct}\n\nWhat the rule says to do, in the words of ${rule.maker}, who made it:\n${says}`;
+  const shown = activityOn
+    ? `\n\nPeople see that you are working on it under record ${activityOn}. As the work changes, say what you are doing in a few words with activity_set (about: ${activityOn}), like "Reading the thread" or "Making an app"; you need not say when you are done.`
+    : '';
+  return `${cause}${writer}${direct}${shown}\n\nWhat the rule says to do, in the words of ${rule.maker}, who made it:\n${says}`;
 }
 
 const DIRECT = 'std.direct';

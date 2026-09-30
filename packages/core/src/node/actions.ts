@@ -28,6 +28,7 @@ import {
 import { standardDefinition, standardGroups } from '../schemas/standard.js';
 import { toJsonSchema } from '../schema/collection-def.js';
 import { SCREEN_GUIDE } from '../schemas/screens.js';
+import { ACTIVITY_STATES, setActivity } from '../schemas/rules.js';
 import { describeCollection } from '../records/describe.js';
 import { isRecord } from '../utils/guards.js';
 
@@ -767,6 +768,31 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: async (node, input) => {
       await node.records.delete(str(input, 'space'), str(input, 'key'));
       return { deleted: str(input, 'key') };
+    },
+  },
+  {
+    name: 'activity_set',
+    description:
+      'Say what you are doing on a record, for people to see while it lasts, like "Reading the thread" or ' +
+      '"Making an app": your std.activity about it, one per record, changed in place. Set it again as the work ' +
+      'changes, and "done" or "failed" when it ends. Needs the space to keep std.activity.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        about: { type: 'string', description: 'The key of the record the work is on' },
+        label: { type: 'string', description: 'What you are doing, in a few words (≤ 120)' },
+        state: { type: 'string', enum: [...ACTIVITY_STATES], description: 'Default working' },
+      },
+      required: ['space', 'about', 'label'],
+    },
+    readOnly: false,
+    run: async (node, input) => {
+      const state = input.state === undefined ? 'working' : oneOf(input, 'state', ACTIVITY_STATES);
+      const label = str(input, 'label').slice(0, 120);
+      const set = await setActivity(node, str(input, 'space'), str(input, 'about'), state, label);
+      if (!set) throw new Error('This space keeps no std.activity, so there is nowhere to say it');
+      return { key: set.key, state, label };
     },
   },
   {

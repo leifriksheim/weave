@@ -182,7 +182,8 @@ export function activeNow(body: Activity | null | undefined, now: number = Date.
 
 /**
  * Says where this account's work on a record stands: its one `std.activity`
- * about it, made or changed. Null where the space keeps no `std.activity`.
+ * about it, made or changed. Without a label, the one it had stays. Null
+ * where the space keeps no `std.activity`.
  */
 export async function setActivity(
   node: P2PNode,
@@ -193,7 +194,16 @@ export async function setActivity(
 ): Promise<NodeRecord | null> {
   if (!(await node.collections.list(space)).some((c) => c.name === activity.name && c.version !== null))
     return null;
-  const body: Activity = { state, ...(label ? { label } : {}), at: new Date().toISOString() };
+  const kept =
+    label ??
+    (await node.records.linked<Activity>(space, on, { rel: 'about', collection: activity.name })).find(
+      (record) => record.root === node.did && !record.deleted,
+    )?.body?.label;
+  const body: Activity = {
+    state,
+    ...(kept ? { label: kept.slice(0, 120) } : {}),
+    at: new Date().toISOString(),
+  };
   // One per account per record: a put for one it already has is that record's next version.
   return node.records.put(space, activity.name, body, { links: [{ rel: 'about', to: on }] });
 }

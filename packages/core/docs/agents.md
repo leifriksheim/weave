@@ -57,8 +57,9 @@ _Source: `packages/core/src/session/agent-link.ts`, `apps/example/src/components
 `node_info`, `spaces_list`, `spaces_status`, `spaces_preview_invite`, `spaces_access`, `spaces_profiles`,
 `collections_list`, `records_query`, `records_list`, `records_get`,
 `records_linked`, `records_history`, `records_can`, `records_put`,
-`records_update`, `records_delete`, and for new tools: `apps_list`,
-`apps_propose`, `apps_screen_guide`. A bot, an account of its own, also gets
+`records_update`, `records_delete`, `activity_set` (what it is doing, for
+people to see), and for new tools: `apps_list`, `apps_propose`,
+`apps_screen_guide`. A bot, an account of its own, also gets
 `direct_list` and `direct_send`: it holds its own member key, and an agent
 isn't given the person's ([direct messages](direct-messages.md)).
 

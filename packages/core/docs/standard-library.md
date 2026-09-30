@@ -273,8 +273,12 @@ next version, so the work moves from `waiting` to `working` to `done` or
 than five minutes old (`ACTIVITY_STALE_SECONDS`) must be shown as over: its
 writer may have gone away mid-way. `setActivity(node, space, key, state,
 label?)` writes one, and `activeNow(body)` says whether one is going on now.
-A bot's rule runner marks what set each rule off: `waiting` when queued,
-`working` when it starts, then `done` or `failed`
+A setting without a label keeps the label it had. The action
+`activity_set` ([actions](actions.md)) lets an agent or bot say what it is
+doing in its own words ("Reading the thread", "Making an app"). A bot's rule
+runner marks what set each rule off: `waiting` when queued, `working` with
+the rule's name when it starts, then `done` or `failed`, keeping whatever the
+model last said it was doing; it tells the model which record to say it on
 ([rules.md](rules.md#running)).
 
 _Source: `packages/core/src/schemas/rules.ts` (`activity`, `setActivity`, `activeNow`), `packages/cli/src/bot-runner.ts` (`runRules`), `apps/example/src/activity.ts`, `apps/example/src/components/apps/Chat.tsx` (`Working`). Tests: `packages/core/tests/rule-runners.test.ts` ("std.activity"), `packages/cli/tests/agent-rules.test.ts` ("while a rule runs")._
