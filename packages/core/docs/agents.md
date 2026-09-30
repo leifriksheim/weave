@@ -58,7 +58,9 @@ _Source: `packages/core/src/session/agent-link.ts`, `apps/example/src/components
 `collections_list`, `records_query`, `records_list`, `records_get`,
 `records_linked`, `records_history`, `records_can`, `records_put`,
 `records_update`, `records_delete`, and for new tools: `apps_list`,
-`apps_propose`, `apps_screen_guide`.
+`apps_propose`, `apps_screen_guide`. A bot, an account of its own, also gets
+`direct_list` and `direct_send`: it holds its own member key, and an agent
+isn't given the person's ([direct messages](direct-messages.md)).
 
 To make something new, an agent proposes an app (`apps_propose`): the
 collections it needs, optionally a screen for each, and optionally what is

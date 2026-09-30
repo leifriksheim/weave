@@ -86,7 +86,15 @@ moved to another reader's slot.
   with `text: null` for one this node can't open.
 
 They need the account's member key for the space. An agent isn't given it, so
-an agent may only ask `reachable`.
+an agent may only ask `reachable`. A bot is an account of its own and holds
+one, so it reads and sends them like anyone: the actions `direct_list` and
+`direct_send` ([actions](actions.md)) are offered to bots, not to agents,
+and a rule set off by a direct message hands the bot the message opened.
+
+_Source:_ `packages/core/src/node/actions.ts` (`direct_list`, `direct_send`),
+`packages/cli/src/mcp.ts` (`offered`), `packages/cli/src/agent-rules.ts`
+(`openTrigger`, `ruleContext`). Tests: `packages/core/tests/direct.test.ts`
+("the direct message actions"), `packages/cli/tests/agent-rules.test.ts`.
 
 _Source: `packages/core/src/privacy/direct.ts` (`sealDirect`, `openDirect`, `directContext`), `packages/core/src/schemas/library/publishing.ts` (`direct`), `packages/core/src/node/node.ts` (`direct`, `directView`), `packages/core/src/node/space-runtime.ts` (`memberKeys`, `ownMemberKey`), `apps/example/src/components/apps/Chat.tsx`. Tests: `packages/core/tests/direct.test.ts`, `packages/core/tests/agents.test.ts` ("neither sends nor reads direct messages")._
 

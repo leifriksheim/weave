@@ -9,7 +9,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ruleContext, triggerPrompt, writerInstructs } from '../src/agent-rules.js';
+import { openTrigger, ruleContext, triggerPrompt, writerInstructs } from '../src/agent-rules.js';
+import { offered } from '../src/mcp.js';
 import { createNode } from '../../core/src/node/node.js';
 import type { P2PNode } from '../../core/src/node/types.js';
 import { createIdentityManager } from '../../core/src/identity/identity-manager.js';
@@ -23,7 +24,7 @@ import { fileSpend, spendFor } from '../src/agent-chat.js';
 import { discloseBot, nameBot } from '../src/agent.js';
 import { deriveVaultKeyBytes } from '../../core/src/identity/account-vault.js';
 import { community } from '../../core/src/space/presets.js';
-import { message, profile, task, type Rule } from '../../core/src/schemas/index.js';
+import { direct, message, profile, task, type Rule } from '../../core/src/schemas/index.js';
 
 const nodes: P2PNode[] = [];
 after(async () => {
@@ -92,6 +93,59 @@ describe('a rule that asks the model', () => {
 });
 
 describe('a bot', () => {
+  test('reads a direct message that sets a rule off, with the conversation before it, and answers in private', async () => {
+    const names = (options: { agent?: boolean; bot?: boolean }) => offered(options).map((a) => a.name);
+    assert.ok(names({ bot: true }).includes('direct_send'), 'a bot holds its own member key');
+    assert.ok(!names({ agent: true }).includes('direct_send'), 'an agent is given none');
+
+    const hub = createFakeHub({ latencyMs: 1 });
+    const admin = await member(hub, 81, { account: true });
+    const bot = await member(hub, 83, { account: true });
+    const { id: space } = await admin.spaces.create({ name: 'Club', ...community, visibility: 'private' });
+    await bot.spaces.join(await admin.spaces.invite(space, { role: 'member' }));
+    await joined(bot, space);
+    for (const node of [admin, bot]) await hold(node, space);
+    await until(
+      async () => (await admin.direct.reachable(space)).includes(bot.did),
+      6000,
+      'the bot’s member key',
+    );
+    await admin.direct.send(space, [bot.did], 'Hi bot');
+    await until(
+      async () => (await bot.direct.reachable(space)).includes(admin.did),
+      6000,
+      'the admin’s member key',
+    );
+    await bot.direct.send(space, [admin.did], 'Hello!');
+    const asked = await admin.direct.send(space, [bot.did], 'Make us an expenses app');
+    await until(async () => (await bot.direct.list(space)).length === 3, 6000, 'all three to reach the bot');
+
+    const record = await bot.records.get(space, asked.key);
+    assert.ok(record && record.collection === direct.name);
+    const body: Rule = {
+      name: 'DMs',
+      when: { query: { collection: direct.name } },
+      then: { kind: 'ask', text: 'Answer them' },
+      by: bot.did,
+      since: new Date().toISOString(),
+    };
+    const trigger = await openTrigger(bot, {
+      rule: { space, key: 'rule-key', maker: admin.did, body },
+      match: { record: { ...record, included: {} }, included: {}, moment: 0 },
+    });
+    assert.deepEqual(trigger.match?.record.body, {
+      from: admin.did,
+      to: [bot.did],
+      text: 'Make us an expenses app',
+    });
+    const context = await ruleContext(bot, trigger);
+    assert.match(context, /Hi bot[\s\S]*Hello!/, 'the conversation before it, oldest first');
+    assert.doesNotMatch(context, /"text": "Make us an expenses app"/, 'not the message itself again');
+    const prompt = triggerPrompt(trigger, 'NOTE', { context, writerInstructs: true });
+    assert.match(prompt, /Make us an expenses app/);
+    assert.match(prompt, /answer it with direct_send/);
+  });
+
   test('does what a message asks when its writer may instruct it, and follows the thread before it', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const admin = await member(hub, 71);

@@ -735,6 +735,52 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
       return { deleted: str(input, 'key') };
     },
   },
+  {
+    name: 'direct_list',
+    description:
+      'Direct messages in a space written by you or to you, opened, oldest first: { key, from, to, text, createdAt }. ' +
+      'With "with", only those between you and that member. "text" is null for one you cannot open. ' +
+      'Only the people in a conversation can read it: keep what it says there.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        with: { type: 'string', description: 'A member’s DID: only the messages between you and them' },
+        limit: { type: 'integer', description: 'The newest this many, default 30' },
+      },
+      required: ['space'],
+    },
+    readOnly: true,
+    peerContent: true,
+    run: async (node, input) => {
+      const all = await node.direct.list(str(input, 'space'));
+      const other = typeof input.with === 'string' ? input.with : null;
+      const found = other ? all.filter((m) => m.from === other || m.to.includes(other)) : all;
+      return found.slice(-(typeof input.limit === 'number' && input.limit > 0 ? input.limit : 30));
+    },
+  },
+  {
+    name: 'direct_send',
+    description:
+      'Send a direct message: text only the members in "to" and you can read. The others in the space see who wrote ' +
+      'to whom and when, not what. Answer a direct message this way, to its writer and whoever else it was for, never in the open.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        to: { type: 'array', items: { type: 'string' }, description: 'The members’ DIDs, not your own' },
+        text: { type: 'string', description: '1–10000 characters' },
+      },
+      required: ['space', 'to', 'text'],
+    },
+    readOnly: false,
+    run: (node, input) => {
+      const to = input.to;
+      if (!Array.isArray(to) || !to.every((did): did is string => typeof did === 'string'))
+        throw new TypeError('"to" must be a list of DIDs');
+      return node.direct.send(str(input, 'space'), to, str(input, 'text'));
+    },
+  },
 ]);
 
 /** Why an input does not fit an action's schema, or null when it does. */

@@ -7,6 +7,7 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createNode } from '../src/node/node.js';
+import { runAction } from '../src/node/actions.js';
 import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
@@ -199,5 +200,26 @@ describe('node.direct', () => {
     await joined(anna.node, id);
     assert.deepEqual(await leif.node.direct.reachable(id), []);
     await assert.rejects(leif.node.direct.send(id, [anna.node.did], 'hello'), /no member key/);
+  });
+});
+
+describe('the direct message actions', () => {
+  test('direct_send seals for its readers; direct_list opens them, one conversation at a time', async () => {
+    const { leif, anna, carol, club } = await bookClub();
+    await runAction(anna.node, 'direct_send', { space: club, to: [leif.node.did], text: 'Chapter 3?' });
+    await runAction(carol.node, 'direct_send', { space: club, to: [leif.node.did], text: 'Pizza?' });
+    await until(async () => (await leif.node.direct.list(club)).length === 2, 5000, 'both to reach Leif');
+    const withAnna: unknown = await runAction(leif.node, 'direct_list', { space: club, with: anna.node.did });
+    assert.ok(Array.isArray(withAnna));
+    assert.deepEqual(
+      withAnna.map((m: unknown) => (typeof m === 'object' && m !== null && 'text' in m ? m.text : null)),
+      ['Chapter 3?'],
+    );
+    const newest: unknown = await runAction(leif.node, 'direct_list', { space: club, limit: 1 });
+    assert.ok(Array.isArray(newest) && newest.length === 1);
+    await assert.rejects(
+      runAction(anna.node, 'direct_send', { space: club, to: 'not a list', text: 'x' }),
+      /"to"/,
+    );
   });
 });

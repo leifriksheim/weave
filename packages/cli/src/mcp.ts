@@ -55,6 +55,13 @@ export const PERSON_ONLY = new Set([
   'collections_delete',
 ]);
 
+/**
+ * What an agent can't do but a bot can: direct messages open with the
+ * account's own member key, which an agent isn't given, and a bot, an account
+ * of its own, holds.
+ */
+const ACCOUNT_ONLY = new Set(['direct_list', 'direct_send']);
+
 export interface McpOptions {
   /** Serving an agent's node (`weave connect`), not the account itself */
   readonly agent?: boolean;
@@ -62,9 +69,13 @@ export interface McpOptions {
   readonly bot?: boolean;
 }
 
-/** The actions served as tools: all of them, or for an agent, all but the person-only ones */
+/** The actions served as tools: all of them; for a bot, all but the person-only ones; for an agent, not direct messages either */
 export const offered = (options: McpOptions) =>
-  NODE_ACTIONS.filter((action) => !(options.agent || options.bot) || !PERSON_ONLY.has(action.name));
+  NODE_ACTIONS.filter(
+    (action) =>
+      !(options.agent || options.bot) ||
+      (!PERSON_ONLY.has(action.name) && (options.bot || !ACCOUNT_ONLY.has(action.name))),
+  );
 
 /** An action's description as a tool, with a warning when its result grants access */
 export const toolDescription = (action: NodeAction) =>

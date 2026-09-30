@@ -220,8 +220,8 @@ const botSystem = (name: string, unattended: boolean) =>
       'naming you in by.');
 
 /** A tool per action an agent is offered, in a fixed order so the prompt caches */
-function agentTools(): BetaTool[] {
-  return offered({ agent: true }).map((action) => ({
+function agentTools(bot: boolean): BetaTool[] {
+  return offered(bot ? { bot: true } : { agent: true }).map((action) => ({
     name: action.name,
     description: toolDescription(action),
     input_schema: { ...action.input },
@@ -233,7 +233,7 @@ function agentTools(): BetaTool[] {
 async function runTool(
   node: P2PNode,
   call: { readonly id: string; readonly name: string; readonly input: unknown },
-  options: Pick<AgentChatOptions, 'confirm' | 'log'>,
+  options: Pick<AgentChatOptions, 'confirm' | 'log' | 'bot'>,
 ): Promise<BetaToolResultBlockParam> {
   const result = (text: string, isError = false): BetaToolResultBlockParam => ({
     type: 'tool_result',
@@ -241,7 +241,9 @@ async function runTool(
     content: text,
     ...(isError ? { is_error: true } : {}),
   });
-  const action = offered({ agent: true }).find((candidate) => candidate.name === call.name);
+  const action = offered(options.bot ? { bot: true } : { agent: true }).find(
+    (candidate) => candidate.name === call.name,
+  );
   if (!action) return result(`Unknown tool: ${call.name}`, true);
 
   const shown = JSON.stringify(call.input);
@@ -269,7 +271,7 @@ export function createAgentChat(options: AgentChatOptions): AgentChat {
   if (!price) throw new Error(`No price known for ${model}, so the daily cap can't be kept`);
   const plain = options.plain === true;
   const maxSteps = options.maxSteps ?? 30;
-  const tools = agentTools();
+  const tools = agentTools(!!options.bot);
   const system = options.bot
     ? `${toolInstructions(node, { bot: true })}\n\n${botSystem(options.bot, options.unattended === true)}`
     : `${toolInstructions(node, { agent: true })}\n\n${options.unattended ? UNATTENDED : SYSTEM}`;
