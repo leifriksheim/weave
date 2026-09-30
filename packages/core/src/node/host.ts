@@ -96,6 +96,12 @@ export interface HostConfig {
    */
   readonly mirror?: BlobStore;
   readonly watchIntervalMs?: number;
+  /**
+   * Whether the subscription an account's carry space belongs to may take no
+   * more spaces: what it carries stays, and a space its account adds later
+   * waits until this says no. The host's storage limit, its own policy.
+   */
+  readonly full?: (carrySpace: string) => boolean;
 }
 
 export interface HostNode {
@@ -128,10 +134,14 @@ export interface HostNode {
   readKeyOf(id: string): string | null;
   /** Drops what lapsed past its grace period. Run now and then. */
   sweep(): Promise<ReadonlyArray<string>>;
+  /** Reads every account's passes again, taking a space that waited for room: after what `full` says changed */
+  recheck(): Promise<void>;
   /** Every space carried, for every subscription */
   spaces(): Promise<ReadonlyArray<CarriedSpace>>;
   /** How many spaces a subscription's account asks the host to carry */
   carriedFor(id: string): Promise<number>;
+  /** The spaces a subscription is carried for now: its carry space and those its passes name, or a space's own */
+  spacesOf(id: string): Promise<ReadonlyArray<string>>;
   /** For a server taking sockets: checks a connecting peer against the space's history. Null for a space not carried. */
   authenticator(spaceId: string): Promise<ServerAuth | null>;
   subscribeEvents(listener: (event: CarrierEvent) => void): () => void;
@@ -225,6 +235,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     provider,
     ...(config.watchIntervalMs !== undefined ? { watchIntervalMs: config.watchIntervalMs } : {}),
     emit,
+    ...(config.full ? { full: config.full } : {}),
     ...(config.mirror
       ? { mirror: config.mirror, onRelease: (spaceId: string) => deleteMirrored(config.mirror!, spaceId) }
       : {}),
@@ -349,10 +360,19 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     },
 
     spaces: () => core.spaces(),
+    recheck: () => core.refresh(),
 
     async carriedFor(id: string) {
       const space = (await read(id))?.carry?.space;
       return space ? (core.carries.get(space)?.wants.size ?? 0) : 0;
+    },
+
+    async spacesOf(id: string) {
+      const subscription = await read(id);
+      const own = spaceIdOf(id);
+      if (own) return subscription?.pass !== undefined ? [own] : [];
+      const space = subscription?.carry?.space;
+      return space ? [space, ...(core.carries.get(space)?.wants ?? [])] : [];
     },
 
     async authenticator(spaceId: string) {

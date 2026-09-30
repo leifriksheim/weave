@@ -658,6 +658,42 @@ describe('reaching a host at the address it names', () => {
   });
 });
 
+describe('a host’s room', () => {
+  test('a status says what the spaces take; at its limit an account keeps its spaces and takes no new one', async () => {
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      free: true,
+      measure: async () => 1000,
+      quotaBytes: 2500,
+    });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const me = await account();
+    const laptop = await createNode({
+      signer: me.signer,
+      stores: memoryStores(),
+      accountKey: me.accountKey,
+      watchIntervalMs: 0,
+      network: {},
+    });
+    open.push(laptop);
+    const one = await laptop.spaces.create({ name: 'One', visibility: 'private' });
+    await laptop.hosting.use(url);
+    await until(carries(served.node, one.id), 8000, 'the host to carry the first space');
+
+    const [view] = await laptop.hosting.list();
+    assert.equal(view?.status?.quota, 2500);
+    assert.ok((view?.status?.bytes ?? 0) >= 2500, 'the carry space, the registry and the space: over it now');
+
+    const two = await laptop.spaces.create({ name: 'Two', visibility: 'private' });
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    assert.equal(await carries(served.node, two.id)(), false, 'no room for a new space');
+    assert.equal(await carries(served.node, one.id)(), true, 'what it had stays');
+  });
+});
+
 describe('a host whose disk is only a cache', () => {
   test('lose the disk, start again on the same bucket: every subscription and space comes back, still sealed', async () => {
     const bucket = createMemoryBlobStore();

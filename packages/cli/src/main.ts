@@ -53,6 +53,8 @@ import {
   hostStores,
   mirrorFromEnv,
   presentationFromEnv,
+  quotaFromEnv,
+  spaceSize,
   walletFromEnv,
 } from './host-setup.js';
 import { PEER_CONTENT_NOTE, runMcpStdio } from './mcp.js';
@@ -756,9 +758,12 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         'weave host needs a way to take payments — Stripe (STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET), a wallet (WEAVE_WALLET_ADDRESS), or both — or --free to host without them.',
       );
     }
+    const quotaBytes = quotaFromEnv(process.env, !!values.free);
     const running = await startHost({
       key: await hostKey(data),
       stores: await hostStores(data),
+      measure: spaceSize(data),
+      ...(quotaBytes ? { quotaBytes } : {}),
       port: Number(values.port),
       ...(values.host ? { host: values.host } : {}),
       ...(values.free ? { free: true } : {}),

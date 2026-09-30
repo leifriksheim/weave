@@ -154,6 +154,10 @@ export interface HostStatus {
   readonly spaces: number;
   /** For a space's own subscription, a private one: the read key it carries the space with, as a DID */
   readonly readKey?: string;
+  /** Bytes the host keeps for this subscription's spaces, as it last measured; absent when it doesn't say */
+  readonly bytes?: number;
+  /** Bytes it keeps at most before it takes no more spaces for this subscription; absent: no limit */
+  readonly quota?: number;
   /** When the host said it, unix seconds */
   readonly at: number;
 }

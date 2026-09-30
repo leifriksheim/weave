@@ -174,6 +174,10 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   space's pass once it is paid, and it carries the space blind, like an
   account's. `GET /host/spaces/<id>` says how a space stands, to anyone.
   A host with `--allow` carries no space for itself.
+- Each account's spaces may take `WEAVE_HOST_QUOTA_GB` (default 10 on a
+  paying host, no limit on a free one; 0 is none). Every status says what
+  they take, and the home shows it. At the limit the host takes no new space
+  for that account; what it carries stays and keeps syncing.
 - With a bucket, the disk is only a cache: lose it, start on the same key and
   bucket, and every subscription and space comes back.
 - Put it behind something that terminates TLS (Caddy does it in two lines).

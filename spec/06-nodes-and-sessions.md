@@ -898,6 +898,8 @@ text of a `HostStatus` and `sig` is the host key's signature (base64url) over
 | `carrying`     | Whether it carries the account's spaces now.                                                                                   |
 | `spaces`       | How many spaces the carry space's passes name.                                                                                 |
 | `at`           | When the host said it, unix seconds.                                                                                           |
+| `bytes`        | Optional: what the subscription's spaces take at the host, as it last measured.                                                |
+| `quota`        | Optional: what they may take. Past it the host takes no new space for the subscription; those it carries stay.                 |
 
 A device MUST accept a status only if it verifies under the host's recorded DID,
 its `host` equals that DID, and its `subscription` is the device's own. Example:
@@ -965,7 +967,7 @@ code finds its registry, and every space from it. The host learns the
 registry's id and the device's session key, and serves it only if it carries
 it. The reference reaches those hosts for the registry alone.
 
-_Source: `packages/core/src/session/hosting.ts` (`hostPeerAddress`), `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`, `reachHosts`), `packages/core/src/node/space-runtime.ts` (`useNodes`), `packages/cli/src/host.ts`, `packages/cli/src/pay-page.ts`. Tests: `packages/cli/tests/host.test.ts` ("reaching a host at the address it names": all)._
+_Source: `packages/core/src/session/hosting.ts` (`hostPeerAddress`), `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`, `reachHosts`), `packages/core/src/node/space-runtime.ts` (`useNodes`), `packages/cli/src/host.ts`, `packages/cli/src/pay-page.ts`. Tests: `packages/cli/tests/host.test.ts` ("reaching a host at the address it names": all; "a host’s room": all)._
 
 ### 4.6 A space paying for itself
 
@@ -1048,10 +1050,10 @@ _Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `
 > disconnects both when revoked at the provider, unless the host gets its own
 > consent.
 >
-> **Quotas.** A subscription has a storage quota (the reference plan: 10 GB),
-> and the host meters bytes stored, requests and bandwidth per subscription.
-> Open: how a device learns usage and the quota (a field of `HostStatus` is
-> the obvious place) and what a host answers when a subscription is over it.
+> **Metering beyond storage.** A host that meters requests and bandwidth per
+> subscription says so in `HostStatus` as it says `bytes`. Open: the fields,
+> and whether a host may stop syncing a space that keeps growing past `quota`
+> rather than only taking no new one.
 >
 > **A reminder before time runs out.** Time paid up front does not renew
 > itself (`renews: false`), so the host reminds the person 14 and 3 days before

@@ -188,6 +188,12 @@ export function Hosting({ node }: { node: P2PNode }) {
           {host.pays && needsPaying(host) && host.price && (
             <p style={styles.errorHint}>{host.price}, paid on the host's own page.</p>
           )}
+          {host.status?.quota !== undefined && (host.status.bytes ?? 0) >= host.status.quota && (
+            <p style={styles.errorHint}>
+              Your spaces take all the room this host gives you. What it keeps stays online; a new space waits
+              until there is room.
+            </p>
+          )}
           {host.status?.state === 'grace' && (
             <p style={styles.errorHint}>
               The last payment ran out. Your spaces stay online for a while longer; pay again before then, or
@@ -223,13 +229,29 @@ function describe(host: HostingView): string {
   });
   // No count: the host also carries the account's hidden spaces (its registry, its contacts), so any number would look wrong.
   const spaces = host.live && status.carrying ? ' · your spaces are online' : '';
+  const room =
+    status.bytes === undefined
+      ? ''
+      : ` · ${size(status.bytes)}${status.quota === undefined ? '' : ` of ${size(status.quota)}`}`;
   switch (status.state) {
     case 'active':
-      if (status.paidUntil === 0) return `free${spaces}${offline}`;
-      return `${status.renews ? 'renews' : 'paid until'} ${until}${spaces}${offline}`;
+      if (status.paidUntil === 0) return `free${spaces}${room}${offline}`;
+      return `${status.renews ? 'renews' : 'paid until'} ${until}${spaces}${room}${offline}`;
     case 'grace':
       return `payment ran out on ${until}${spaces}${offline}`;
     default:
       return host.pays ? `not paid for yet${offline}` : `this host isn't taking new accounts${offline}`;
   }
+}
+
+/** Bytes as people read them: 12 KB, 3.4 MB, 10 GB */
+function size(bytes: number): string {
+  const units = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${unit === 0 || value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }

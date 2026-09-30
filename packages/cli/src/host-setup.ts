@@ -2,7 +2,7 @@
  * What `weave host` starts from: a data folder, the host's key in it, and a
  * payment provider from the environment.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -45,6 +45,35 @@ export async function hostKey(data: string): Promise<CryptoKeyPair> {
 /** The host's stores, in the data folder: its subscriptions, and a copy of every space it carries */
 export async function hostStores(data: string): Promise<StoreFactory> {
   return folderStores(await openFsDirectory(path.join(data, 'store')));
+}
+
+/** What a carried space takes on disk, in bytes: its folder under `hostStores`, walked */
+export function spaceSize(data: string): (spaceId: string) => Promise<number> {
+  const walk = async (dir: string): Promise<number> => {
+    let bytes = 0;
+    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const at = path.join(dir, entry.name);
+      if (entry.isDirectory()) bytes += await walk(at);
+      else if (entry.isFile()) bytes += (await stat(at)).size;
+    }
+    return bytes;
+  };
+  return (spaceId) =>
+    /^[A-Za-z0-9_-]{1,120}$/.test(spaceId)
+      ? walk(path.join(data, 'store', 'spaces', spaceId))
+      : Promise.resolve(0);
+}
+
+/**
+ * How much a subscription's spaces may take, from WEAVE_HOST_QUOTA_GB: 10 on
+ * a host that takes payments, none on a free one unless set. 0 is none.
+ */
+export function quotaFromEnv(env: NodeJS.ProcessEnv, free: boolean): number | undefined {
+  const text = env.WEAVE_HOST_QUOTA_GB?.trim();
+  const gb = text ? Number(text) : free ? 0 : 10;
+  if (!Number.isFinite(gb) || gb < 0)
+    throw new Error(`WEAVE_HOST_QUOTA_GB must be a number of gigabytes, not "${text}"`);
+  return gb > 0 ? Math.round(gb * 1e9) : undefined;
 }
 
 /** Stripe, when STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are set; otherwise none */

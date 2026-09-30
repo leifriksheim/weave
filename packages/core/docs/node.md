@@ -667,7 +667,13 @@ alone. `network.nodes` still adds sockets of its own, to every space.
 
 The reference host (`weave host`, `packages/cli/src/host.ts`) keeps a lapsed
 subscription for `graceDays` (default 30) after `paidUntil`, and drops lapsed
-ones in a sweep every hour (`sweepMs`). Both are the host's own policy.
+ones in a sweep every hour (`sweepMs`). It measures each carried space's
+folder at most every ten minutes, and each status gives the sum as `bytes`,
+with `quotaBytes` as `quota` (`WEAVE_HOST_QUOTA_GB`: 10 on a paying host, none
+on a free one). At its quota, an account's carry space takes no new space
+(`full`, in `createCarryCore`): what it carries stays and keeps syncing, and a
+space that waited is taken once a later measure finds room. All of this is the
+host's own policy.
 
 _Source: `packages/core/src/node/node.ts` (`carriers`, `notifications`, `hosting`), `packages/core/src/node/carrier.ts` (`arrived`), `packages/core/src/session/hosting.ts`, `packages/cli/src/host.ts`. Tests: `packages/core/tests/carrier.test.ts`, `packages/cli/tests/host.test.ts`._
 

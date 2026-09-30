@@ -109,6 +109,15 @@ export interface HostOptions {
   /** Only these accounts are carried for */
   readonly allow?: ReadonlyArray<string>;
   readonly graceDays?: number;
+  /**
+   * Bytes an account's spaces may take before the host takes no more new
+   * spaces for it. What it carries already stays, and keeps syncing: a soft
+   * limit, shown to the person in every status. Needs `measure`. Absent: no
+   * limit.
+   */
+  readonly quotaBytes?: number;
+  /** How many bytes a carried space takes on the host's disk: what `bytes` in a status adds up */
+  readonly measure?: (spaceId: string) => Promise<number>;
   /** How often lapsed subscriptions are dropped. Default hourly. */
   readonly sweepMs?: number;
   readonly log?: (line: string) => void;
@@ -233,7 +242,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     claiming = next.catch(() => {});
     return next;
   };
+  /** Carry spaces whose account's spaces take all the room it has: they take no new space */
+  const full = new Set<string>();
   const node = await createHostNode({
+    full: (carrySpace) => full.has(carrySpace),
     key: options.key,
     stores: options.stores,
     provider,
@@ -244,6 +256,35 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...(options.graceDays !== undefined ? { graceDays: options.graceDays } : {}),
     ...(options.mirror ? { mirror: options.mirror } : {}),
   });
+
+  /** Each space's size, measured at most every ten minutes: a disk walk is not free */
+  const sizes = new Map<string, { bytes: number; at: number }>();
+  const MEASURE_EVERY_SECONDS = 600;
+  const sizeOf = async (measure: (spaceId: string) => Promise<number>, spaceId: string): Promise<number> => {
+    const known = sizes.get(spaceId);
+    if (known && now() - known.at < MEASURE_EVERY_SECONDS) return known.bytes;
+    const bytes = await measure(spaceId).catch(() => known?.bytes ?? 0);
+    sizes.set(spaceId, { bytes, at: now() });
+    return bytes;
+  };
+  /** What a subscription's spaces take, and its limit: null when this host doesn't measure */
+  const usageOf = async (id: string): Promise<{ bytes: number; quota?: number } | null> => {
+    const measure = options.measure;
+    if (!measure) return null;
+    let bytes = 0;
+    for (const spaceId of await node.spacesOf(id)) bytes += await sizeOf(measure, spaceId);
+    const carry = (await node.get(id))?.carry?.space;
+    if (carry && options.quotaBytes && bytes >= options.quotaBytes) full.add(carry);
+    else if (carry) full.delete(carry);
+    return { bytes, ...(options.quotaBytes ? { quota: options.quotaBytes } : {}) };
+  };
+  /** Measures every subscription, and lets a carry space that has room again take the spaces it waited with */
+  const measureAll = async (): Promise<void> => {
+    if (!options.measure || !options.quotaBytes) return;
+    const before = [...full].sort().join(' ');
+    for (const subscription of await node.list()) await usageOf(subscription.id);
+    if ([...full].sort().join(' ') !== before) await node.recheck();
+  };
 
   const statusOf = async (id: string): Promise<HostStatus> => {
     const subscription = await node.get(id);
@@ -272,6 +313,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         spaces: carrying ? 1 : 0,
         at,
         ...(readKey ? { readKey } : {}),
+        ...(await usageOf(id)),
       };
     }
     return {
@@ -283,6 +325,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       carrying: subscription.carry !== undefined,
       spaces: await node.carriedFor(id),
       at,
+      ...(await usageOf(id)),
     };
   };
   /** A status as the home gets it: signed with the host's key, so the person holds the host's word */
@@ -606,11 +649,16 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     throw error;
   });
 
+  // Who is over their room, known before the first account adds a space.
+  void measureAll().catch((error: unknown) =>
+    log(`measuring failed: ${error instanceof Error ? error.message : String(error)}`),
+  );
   const sweeping = setInterval(() => {
     void node
       .sweep()
-      .then((dropped) => {
+      .then(async (dropped) => {
         for (const id of dropped) log(`subscription ${id} lapsed past its grace period, and was dropped`);
+        await measureAll();
       })
       .catch((error: unknown) =>
         log(`sweep failed: ${error instanceof Error ? error.message : String(error)}`),
