@@ -14,7 +14,7 @@ account.
 
 Run `weave` alone at a terminal and pick what to do: set up an account,
 invite someone, join a space, connect or run an agent, run a bot, add a
-watch. Any command asks for what it still needs there: a space picked from
+rule. Any command asks for what it still needs there: a space picked from
 your spaces, a role, a collection, a record, a yes before something that
 can't be undone.
 
@@ -240,16 +240,17 @@ until tomorrow. `--model` picks the model (default `claude-opus-5-5`, or
 Only one of `weave agent` and `weave mcp` can use an agent at a time: they sign
 with the same key, and the relay lets one in.
 
-It also runs your **watches**: `std.watch` records saying what to do when
-some records appear or change, or at set times, in any space ("when a task is
-given to me, add it to my weekly plan note"; "weekdays at 8, plan my day").
-Each run starts a fresh conversation, with nobody there to allow deleting or
-overwriting, so those are refused. Runs share the daily cap. Ask the agent to
-keep an eye on something and it writes a watch as a suggestion; it starts once
-you turn it on in an app that shows watches (the example app's **Watches**).
-What the agent writes never sets a watch off.
+It also runs your **rules** (`std.rule`, see
+`packages/core/docs/rules.md`): what to do when some records come to be a
+certain way, or at set times ("when a task is given to me, add it to my weekly
+plan note"; "weekdays at 8, plan my day"). Those that ask an agent start a
+fresh conversation each time, with nobody there to allow deleting or
+overwriting, so those are refused; they share the daily cap. Ask the agent to
+keep an eye on something and it writes a rule as a suggestion; it starts once
+you turn it on in an app (the example app's **Automations**). What the agent
+writes never sets a rule off.
 
-`--no-chat` runs only the watches, until stopped: on a server, or in the
+`--no-chat` runs only the rules, until stopped: on a server, or in the
 background.
 
 ### Other models
@@ -262,7 +263,7 @@ and at what price, and keeps the answer in `~/.weave/agent/model.json`.
 `weave agent` thinks with Anthropic's models by default. `--provider openai`
 talks to any server that speaks OpenAI's Chat Completions instead: OpenAI,
 OpenRouter, DeepSeek, Kimi, Groq, Mistral, or a model on your own machine.
-The tools, the confirmations, the caps and the watches are the same whichever
+The tools, the confirmations, the caps and the rules are the same whichever
 model answers.
 
 ```bash
@@ -313,23 +314,25 @@ weave --home ~/club-bot spaces join --invite 'https://…#invite=…'
 weave --home ~/club-bot agent --bot --no-chat
 ```
 
-Someone who may instruct it adds what it watches for, as themselves:
+Someone who may instruct it adds rules for it, as themselves, naming it in
+`by`:
 
 ```bash
-weave watch add        # at a terminal: space, what sets it off, from whom, what to do
-weave watch add --space <id> --name "Answer when mentioned" --collection std.message \
-  --where '{"mentions":{"$contains":"$me"}}' --from member --do "Answer them briefly"
-weave watch add --space <id> --name Mornings --every "0 8 * * 1-5" --do "Post today's plan"
+weave rule add         # at a terminal: space, what sets it off, from whom, what to do, who does it
+weave rule add --space <id> --name "Answer when mentioned" --collection std.message \
+  --where '{"mentions":{"$contains":"$me"}}' --from member --do "Answer them briefly" --by <bot DID>
+weave rule add --space <id> --name Mornings --every "0 8 * * 1-5" --do "Post today's plan" --by me
 ```
 
-`weave watch add` defines `std.watch` in the space first when it has none and
+`weave rule add` defines `std.rule` in the space first when it has none and
 you may add collections; `weave collections define --standard <std.name>`
-does that for any collection in the library.
+does that for any collection in the library. `$me` is whoever runs the rule:
+the bot, or you.
 
-It runs the watches in a space written by members holding
-`std.watch/instruct` there (admins and moderators in the community preset),
-in that space only. A watch's `from` narrows what sets it off to records by
-some roles, so `"from": ["member"]` is "a mention from anyone with a role".
+It runs the rules in a space that name it in `by`, made by members holding
+`std.rule/instruct` there (admins and moderators in the community preset).
+A rule's `from` narrows what sets it off to records by some roles, so
+`"from": ["member"]` is "a mention from anyone with a role".
 `--daily-cap-each` limits what each person who sets it off may spend in a
 day, a quarter of `--daily-cap` unless given, so nobody can spend the day for
 everyone.

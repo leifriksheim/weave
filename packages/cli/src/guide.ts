@@ -1,16 +1,22 @@
 /**
  * The flows a person follows once, walked through at a terminal: which model
- * an agent thinks with, a watch, a standard collection. Each is also a set of
+ * an agent thinks with, a rule, a standard collection. Each is also a set of
  * flags, so an agent or a script gets there without being asked anything
  * (`ask.ts`).
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DEFINE, roleHolds, type P2PNode } from '@weaveprotocol/core';
-import { standardDefinition, watch as watchSchema } from '@weaveprotocol/core/schemas';
+import {
+  SCHEDULES,
+  checkCron,
+  profile,
+  rule,
+  ruleRun,
+  standardDefinition,
+} from '@weaveprotocol/core/schemas';
 import * as ask from './ask.js';
 import { pickCollection, pickSpace } from './complete.js';
-import { checkCron } from './agent-watch.js';
 import { errorCode, isRecord } from './json.js';
 
 // ─── Which model an agent thinks with ─────────────────────────────────
@@ -174,14 +180,7 @@ const CONDITIONS: Record<
   },
 };
 
-const SCHEDULES = [
-  { value: '0 8 * * 1-5', label: 'Weekday mornings at 8' },
-  { value: '0 9 * * 1', label: 'Mondays at 9' },
-  { value: '0 18 * * *', label: 'Every evening at 6' },
-  { value: '0 * * * *', label: 'Every hour' },
-] as const;
-
-export interface WatchFlags {
+export interface RuleFlags {
   readonly space?: string;
   readonly name?: string;
   readonly collection?: string;
@@ -191,6 +190,8 @@ export interface WatchFlags {
   readonly do?: string;
   /** Roles whose records set it off, comma separated; `member` is anyone with a role */
   readonly from?: string;
+  /** The bot that runs it, by DID; `me`, or left out with no bot here, is the account's own agent */
+  readonly by?: string;
 }
 
 const readJson = (text: string, flag: string): Record<string, unknown> => {
@@ -205,20 +206,22 @@ const readJson = (text: string, flag: string): Record<string, unknown> => {
 };
 
 /**
- * Adds a `std.watch` to a space: what an agent or a bot there does when some
- * records appear or change, or at set times. Defines `std.watch` first when
- * the space lacks it and this account may add collections.
+ * Adds a `std.rule` to a space that asks an agent: what the account's own
+ * agent, or a bot there, does when some records appear or change, or at set
+ * times. Defines `std.rule` first when the space lacks it and this account may
+ * add collections.
  */
-export async function addWatch(node: P2PNode, flags: WatchFlags): Promise<unknown> {
-  ask.intro('A new watch');
-  const space = flags.space ?? (await pickSpace(node, 'Which space should it watch?'));
+export async function addRule(node: P2PNode, flags: RuleFlags): Promise<unknown> {
+  ask.intro('A new rule');
+  const space = flags.space ?? (await pickSpace(node, 'Which space is it for?'));
   const collections = await node.collections.list(space);
-  if (!collections.some((c) => c.name === watchSchema.name && c.version !== null)) {
+  for (const definition of [rule, ruleRun]) {
+    if (collections.some((c) => c.name === definition.name && c.version !== null)) continue;
     if (!roleHolds((await node.spaces.access(space)).role, DEFINE))
       throw new Error(
-        'This space has no watches yet, and you may not add collections to it. Ask someone who can to add the Watches app, or `weave collections define --standard std.watch`.',
+        'This space has no rules yet, and you may not add collections to it. Ask someone who can, or `weave collections define --standard std.rule`.',
       );
-    await node.collections.define(space, watchSchema);
+    await node.collections.define(space, definition);
   }
   const name =
     flags.name ??
@@ -262,7 +265,7 @@ export async function addWatch(node: P2PNode, flags: WatchFlags): Promise<unknow
             .map(([value, condition]) => ({
               value,
               label: condition.label,
-              hint: '"me" is whoever runs the agent',
+              hint: '"me" is whoever runs it',
             })),
           { value: custom, label: 'A condition of my own', hint: 'the query format, as JSON' },
         ],
@@ -329,16 +332,43 @@ export async function addWatch(node: P2PNode, flags: WatchFlags): Promise<unknow
       message: 'What should the agent do?',
       placeholder: 'Answer them briefly, in the same channel',
     }));
+  const by = flags.by === 'me' ? undefined : (flags.by ?? (await pickRunner(node, space)));
   const body = {
     name,
-    do: what,
-    ...(query ? { query } : {}),
+    ...(query ? { when: { query, ...(from?.length ? { from } : {}) } } : {}),
     ...(every ? { every } : {}),
-    ...(from?.length ? { from } : {}),
+    then: { kind: 'ask', text: what },
+    ...(by ? { by } : {}),
+    since: new Date().toISOString(),
   };
-  const written = await node.records.put(space, watchSchema.name, body);
-  ask.outro(`“${name}” is on. An agent or bot for this space runs it while \`weave agent\` does.`);
+  const written = await node.records.put(space, rule.name, body);
+  ask.outro(
+    `“${name}” is on. ${by ? 'The bot' : 'Your agent'} runs it while \`weave agent${by ? ' --bot' : ''}\` does.`,
+  );
   return { key: written.key, space, ...body };
+}
+
+/** Who runs a rule: the account's own agent, or a bot that says so on its profile here */
+async function pickRunner(node: P2PNode, space: string): Promise<string | undefined> {
+  const bots = (await node.records.list(space, { collection: profile.name }).catch(() => [])).filter(
+    (record) => isRecord(record.body) && record.body.bot === true && !!record.createdBy,
+  );
+  if (bots.length === 0) return undefined;
+  const mine = '\u0000mine';
+  const names = new Map((await node.spaces.profiles(space)).map((p) => [p.did, p.name]));
+  const picked = await ask.select({
+    flag: 'by',
+    message: 'Who runs it?',
+    options: [
+      { value: mine, label: 'My own agent', hint: 'weave agent' },
+      ...bots.map((record) => ({
+        value: record.createdBy!,
+        label: names.get(record.createdBy!) ?? record.createdBy!,
+        hint: 'a bot here',
+      })),
+    ],
+  });
+  return picked === mine ? undefined : picked;
 }
 
 // ─── A standard collection ────────────────────────────────────────────

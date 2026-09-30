@@ -45,7 +45,6 @@ export * from './library/planning.js';
 export * from './library/life.js';
 export * from './library/money.js';
 export * from './library/community.js';
-export * from './library/agents.js';
 /** The pieces the definitions are built from — a time, money, a place, a file — for definitions of your own */
 export * as fragments from './fragments.js';
 export type { Money, Address, Place, BlobRef, ImageRef } from './fragments.js';
@@ -123,16 +122,36 @@ export {
   copyApp,
   MAX_APP_COLLECTIONS,
 } from './apps.js';
-export { rule, ruleRun, IT, checkRule, ruleOf, matching, act, runRules, fillRuleText } from './rules.js';
+export {
+  rule,
+  ruleRun,
+  IT,
+  ME,
+  INSTRUCT,
+  checkRule,
+  ruleOf,
+  matching,
+  act,
+  runRules,
+  startRules,
+  rulesFor,
+  suggestedRules,
+  fillRuleText,
+} from './rules.js';
 export type {
+  ActiveRule,
   Rule,
-  RuleRun,
-  RuleWhen,
   RuleAction,
+  RuleLink,
   RuleMatch,
+  RuleRun,
+  RuleTrigger,
+  RuleWhen,
   RuleNotifier,
   RunRulesOptions,
+  StartRulesOptions,
 } from './rules.js';
+export { checkCron, cronMatches, SCHEDULES } from './cron.js';
 export { SCREEN_GUIDE, SCREEN_CLIENT, screenDocument, screenPolicy, createScreenBridge } from './screens.js';
 export type { ScreenBridge, ScreenRecord, ScreenViewer } from './screens.js';
 export type { App, AppDefinition, AppReview, AppNeedReview, ReviewContext } from './apps.js';

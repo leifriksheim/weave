@@ -85,7 +85,7 @@ import {
   setting,
   host,
 } from './library/community.js';
-import { watch } from './library/agents.js';
+import { rule, ruleRun } from '../schemas/rules.js';
 
 type Definitions = ReadonlyArray<DefineCollection>;
 
@@ -159,7 +159,7 @@ export const standardGroups: Readonly<Record<string, Definitions>> = Object.free
     award,
   ],
   Settings: [setting, host],
-  Agents: [watch],
+  Rules: [rule, ruleRun],
 });
 
 /** Common nouns apps share: everything but the annotations */

@@ -32,6 +32,7 @@ import {
   type NodeAction,
   type P2PNode,
 } from '@weaveprotocol/core';
+import { startRules, suggestedRules, type RuleTrigger } from '@weaveprotocol/core/schemas';
 import {
   chooseAccount,
   createAccount,
@@ -78,10 +79,10 @@ import {
   spendFor,
   streamingThink,
 } from './agent-chat.js';
-import { startWatching, suggestedIn, triggerPrompt } from './agent-watch.js';
+import { triggerPrompt } from './agent-rules.js';
 import { openAIThink } from './agent-openai.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
-import { addWatch, defineStandard, loadModelSetting, setUpModel } from './guide.js';
+import { addRule, defineStandard, loadModelSetting, setUpModel } from './guide.js';
 import * as ask from './ask.js';
 import { isRecord } from './json.js';
 import { completeInput } from './complete.js';
@@ -108,9 +109,9 @@ Usage:
   weave agent [--setup] [--model claude-opus-5-5] [--daily-cap 2] [--no-chat]
               [--provider anthropic|openai] [--base-url URL] [--price IN/OUT]
   weave agent --bot [--daily-cap-each 0.5]   an account of its own, as a bot in its spaces
-  weave watch add [--space ID] [--name N] [--collection C] [--where JSON] [--every CRON]
-                  [--from ROLES] [--do TEXT]
-  weave collections define --standard std.watch [--space ID]
+  weave rule add [--space ID] [--name N] [--collection C] [--where JSON] [--every CRON]
+                 [--from ROLES] [--do TEXT] [--by BOT|me]
+  weave collections define --standard std.rule [--space ID]
   weave actions
 
 Agents (Claude Code, Claude Desktop, Cursor):
@@ -124,7 +125,7 @@ Agents (Claude Code, Claude Desktop, Cursor):
   terminal, with your Anthropic API key (ANTHROPIC_API_KEY, or asked for once
   and kept in the agent's folder). Deleting or overwriting asks you first, and
   it stops for the day once --daily-cap dollars are spent. It also runs your
-  watches (std.watch records): what to do when some records appear or change,
+  rules (std.rule records): what to do when some records appear or change,
   or at set times. --no-chat runs only those, until stopped.
 
   Any server that speaks OpenAI's Chat Completions works with --provider
@@ -135,8 +136,8 @@ Agents (Claude Code, Claude Desktop, Cursor):
 
   "weave agent --bot" runs the unlocked account itself as a bot instead: an
   account of its own that people invite to their spaces. It says it is a bot
-  on its std.profile where a space keeps them, and runs the watches of
-  members holding std.watch/instruct there, in that space only.
+  on its std.profile where a space keeps them, and runs the rules that name
+  it (by) of members holding std.rule/instruct there.
   --daily-cap-each limits what each person who sets it off may spend a day
   (a quarter of --daily-cap unless given).
 
@@ -195,7 +196,7 @@ const MENU: ReadonlyArray<{
   { label: 'Connect an agent to my account', hint: 'weave connect', words: ['connect'] },
   { label: 'Run my agent', hint: 'weave agent', words: ['agent'] },
   { label: 'Run a bot for a community', hint: 'weave agent --bot', words: ['agent', '--bot'] },
-  { label: 'Tell an agent or bot what to watch for', hint: 'weave watch add', words: ['watch', 'add'] },
+  { label: 'Tell an agent or bot what to do, and when', hint: 'weave rule add', words: ['rule', 'add'] },
   { label: 'Every command', hint: 'weave help', words: null },
 ];
 
@@ -420,7 +421,7 @@ async function joinFirstSpace(node: P2PNode): Promise<void> {
     return;
   await node.spaces.join(invite);
   ask.note(
-    `It answers what the space's watches ask. Someone who may instruct it there adds them:\nweave watch add, or the Watches app.`,
+    `It does what the space's rules naming it ask. Someone who may instruct it there adds them:\nweave rule add --by ${node.did}, or Automations in an app.`,
     `Joined ${preview.space.name}`,
   );
 }
@@ -487,7 +488,7 @@ interface Runner {
 }
 
 /**
- * `weave agent`: a node, a chat in this terminal, and the watches it runs. The
+ * `weave agent`: a node, a chat in this terminal, and the rules it runs. The
  * model's words go to stdout; what it does goes to stderr.
  */
 async function runAgent(
@@ -552,70 +553,80 @@ async function runAgent(
     return names.get(did) ?? did.slice(-6);
   };
 
-  // Watches: each set off runs on its own, one at a time, with nobody at the keyboard to allow deleting.
-  let queue = Promise.resolve();
-  const stopWatching = startWatching({
-    node,
+  // Rules that ask: each set off runs on its own, one at a time, with nobody at the keyboard to allow deleting.
+  let queue: Promise<unknown> = Promise.resolve();
+  const answer = async (trigger: RuleTrigger): Promise<{ did: string; ok: boolean }> => {
+    const name = trigger.rule.body.name;
+    const space = trigger.rule.space;
+    // What someone set off is counted against them, so one person can't spend the day for everyone.
+    const who = trigger.match?.record.createdBy ?? null;
+    const by = who ? ` by ${await nameOf(space, who)}` : '';
+    if (who && who !== runner.account && options.capEach !== null) {
+      const spent = await spend.today(who);
+      if (spent >= options.capEach) {
+        const did = `Set off${by}, who has used their $${options.capEach.toFixed(2)} for today`;
+        stderr(`  [${name}] ${did}`);
+        return { did, ok: false };
+      }
+    }
+    stderr(`  [${name}] set off${by}${trigger.match ? '' : ' by the time'}`);
+    const run = createAgentChat({
+      node,
+      think: thinking(() => {}),
+      ...modelOptions,
+      spend: who ? spendFor(spend, who) : spend,
+      dailyCap: options.dailyCap,
+      confirm: async () => false,
+      log: (line) => stderr(`  [${name}] ${line}`),
+      maxSteps: 15,
+      unattended: true,
+      ...(runner.bot ? { bot: runner.bot } : {}),
+    });
+    try {
+      const { cost, text } = await run.say(triggerPrompt(trigger, PEER_CONTENT_NOTE));
+      stderr(`  [${name}] ${text || 'Done.'} · $${cost.toFixed(3)} · ${await today()}`);
+      return { did: text || 'Done.', ok: true };
+    } catch (error) {
+      const did = error instanceof Error ? error.message : String(error);
+      stderr(`  [${name}] ${did}`);
+      return { did, ok: false };
+    }
+  };
+  const stopRules = startRules(node, {
     account: runner.account,
     ...(runner.bot ? { bot: true } : {}),
-    onWatches: (watches) =>
-      stderr(
-        `  Watching: ${watches.length ? watches.map((w) => `“${w.body.name}”`).join(', ') : 'nothing yet'}`,
-      ),
-    onError: (error) => stderr(`  Watches: ${error instanceof Error ? error.message : String(error)}`),
-    onTrigger: (trigger) => {
-      const name = trigger.watch.body.name;
-      // What someone set off is counted against them, so one person can't spend the day for everyone.
-      const who = trigger.record?.root ?? null;
-      queue = queue.then(async () => {
-        const by = who && trigger.space ? ` by ${await nameOf(trigger.space, who)}` : '';
-        if (who && who !== runner.account && options.capEach !== null) {
-          const spent = await spend.today(who);
-          if (spent >= options.capEach) {
-            stderr(`  [${name}] set off${by}, who has used their $${options.capEach.toFixed(2)} for today`);
-            return;
-          }
-        }
-        stderr(`  [${name}] set off${by}${trigger.record ? '' : ' by the time'}`);
-        const run = createAgentChat({
-          node,
-          think: thinking(() => {}),
-          ...modelOptions,
-          spend: who ? spendFor(spend, who) : spend,
-          dailyCap: options.dailyCap,
-          confirm: async () => false,
-          log: (line) => stderr(`  [${name}] ${line}`),
-          maxSteps: 15,
-          unattended: true,
-          ...(runner.bot ? { bot: runner.bot } : {}),
-        });
-        try {
-          const { cost, text } = await run.say(triggerPrompt(trigger, PEER_CONTENT_NOTE));
-          stderr(`  [${name}] ${text || 'Done.'} · $${cost.toFixed(3)} · ${await today()}`);
-        } catch (error) {
-          stderr(`  [${name}] ${error instanceof Error ? error.message : String(error)}`);
-        }
-      });
+    // A person's app may run the same rules; the earlier of two claims acts.
+    claimMs: 1500,
+    ask: (trigger) => {
+      const turn = queue.then(() => answer(trigger));
+      queue = turn.catch(() => {});
+      return turn;
     },
+    onRules: (rules) =>
+      stderr(`  Rules: ${rules.length ? rules.map((r) => `“${r.body.name}”`).join(', ') : 'none yet'}`),
+    onRun: (trigger, run) => {
+      if (trigger.rule.body.then.kind !== 'ask') stderr(`  [${trigger.rule.body.name}] ${run.did}`);
+    },
+    onError: (error) => stderr(`  Rules: ${error instanceof Error ? error.message : String(error)}`),
   });
   if (!runner.bot) {
     const waiting = (
       await Promise.all(
-        (await node.spaces.list()).map((space) => suggestedIn(node, space.id, runner.account)),
+        (await node.spaces.list()).map((space) => suggestedRules(node, space.id, runner.account)),
       )
     ).reduce((sum, count) => sum + count, 0);
     if (waiting)
       stderr(
-        `  ${waiting} watch${waiting === 1 ? '' : 'es'} the agent suggested ${waiting === 1 ? 'waits' : 'wait'} for you to save it in an app.`,
+        `  ${waiting} rule${waiting === 1 ? '' : 's'} the agent suggested ${waiting === 1 ? 'waits' : 'wait'} for you to save it in an app.`,
       );
   }
 
   const close = async () => {
-    stopWatching();
+    stopRules();
     await runner.close();
   };
   if (!options.chat) {
-    stderr(`weave agent: ${runner.intro}, watching. ${options.model.name}, ${await today()}.`);
+    stderr(`weave agent: ${runner.intro}, running rules. ${options.model.name}, ${await today()}.`);
     return untilStopped({ close });
   }
 
@@ -941,7 +952,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     return runAgent(home, runner, { model, dailyCap, capEach, chat: !values['no-chat'] });
   }
 
-  if (command === 'watch' && args[0] === 'add') {
+  if (command === 'rule' && args[0] === 'add') {
     const { values } = parseArgs({
       args: args.slice(1),
       options: {
@@ -952,14 +963,15 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         every: { type: 'string' },
         do: { type: 'string' },
         from: { type: 'string' },
+        by: { type: 'string' },
       },
     });
-    return withNode(globals, async (node) => addWatch(node, values));
+    return withNode(globals, async (node) => addRule(node, values));
   }
   const standard = command === 'collections' && args[0] === 'define' ? args.indexOf('--standard') : -1;
   if (standard !== -1) {
     const name = args[standard + 1];
-    if (!name) throw new Error('--standard needs a name, like std.watch');
+    if (!name) throw new Error('--standard needs a name, like std.rule');
     const spaceAt = args.indexOf('--space');
     return withNode(globals, (node) =>
       defineStandard(node, name, spaceAt === -1 ? undefined : args[spaceAt + 1]),

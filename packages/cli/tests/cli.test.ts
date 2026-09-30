@@ -499,19 +499,19 @@ describe('the weave command', () => {
     assert.ok(typeof space === 'string');
     await refused(['records', 'get', '--space', space], /Missing --key/);
 
-    // A standard collection by its name, and a watch by flags alone.
+    // A standard collection by its name, and a rule by flags alone.
     const defined: unknown = JSON.parse(
-      (await weave('collections', 'define', '--standard', 'std.watch', '--space', space)).stdout,
+      (await weave('collections', 'define', '--standard', 'std.rule', '--space', space)).stdout,
     );
-    assert.equal(at(defined, 'name'), 'std.watch');
+    assert.equal(at(defined, 'name'), 'std.rule');
     await refused(
-      ['watch', 'add', '--space', space, '--name', 'Mentions', '--collection', 'std.message'],
+      ['rule', 'add', '--space', space, '--name', 'Mentions', '--collection', 'std.message'],
       /Missing --do/,
     );
-    const watch: unknown = JSON.parse(
+    const mentions: unknown = JSON.parse(
       (
         await weave(
-          'watch',
+          'rule',
           'add',
           '--space',
           space,
@@ -528,15 +528,15 @@ describe('the weave command', () => {
         )
       ).stdout,
     );
-    assert.deepEqual(at(watch, 'query'), {
-      collection: 'std.message',
-      where: { mentions: { $contains: '$me' } },
+    assert.deepEqual(at(mentions, 'when'), {
+      query: { collection: 'std.message', where: { mentions: { $contains: '$me' } } },
+      from: ['member'],
     });
-    assert.deepEqual(at(watch, 'from'), ['member']);
+    assert.deepEqual(at(mentions, 'then'), { kind: 'ask', text: 'Answer them briefly' });
     const scheduled: unknown = JSON.parse(
       (
         await weave(
-          'watch',
+          'rule',
           'add',
           '--space',
           space,
@@ -551,7 +551,7 @@ describe('the weave command', () => {
     );
     assert.equal(at(scheduled, 'every'), '0 8 * * 1-5');
     await refused(
-      ['watch', 'add', '--space', space, '--name', 'Bad', '--every', 'at noon daily', '--do', 'x'],
+      ['rule', 'add', '--space', space, '--name', 'Bad', '--every', 'at noon daily', '--do', 'x'],
       /--every: /,
     );
     await refused(

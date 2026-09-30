@@ -252,36 +252,11 @@ space do it; in the `community` preset, admins and moderators.
 
 _Source: `packages/core/src/schemas/library/community.ts` (`host`)._
 
-**Agents**
+**Rules**
 
-| Name        | Body                                                                                                                                                                                                        | Links | Rules                                           |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ----------------------------------------------- |
-| `std.watch` | **`name`** string 1–200; `query` { **`collection`** string 1–200, `where` object }; `spaces` string[] (≤ 64); `every` string 9–100; `from` string 1–100[] (≤ 16); **`do`** string 1–10000; `paused` boolean | —     | edit, delete: `creator`; permissions `instruct` |
-
-**Watches.** A `std.watch` is what a person's own agent does without being
-asked each time: when records like `query` appear or change, or at the times
-`every` names, it does what `do` says, in the person's words.
-
-- `query` is a query in the [query format](query-format.md), its `collection`
-  and `where`; `"$me"` as a value stands for the account. Every new version of
-  a record counts, so a task moving to `"done"` sets off a watch for done
-  tasks. What was there when the watch was first seen does not.
-- `every` is five cron fields, minute hour day month weekday, in the agent's
-  local time: `*`, a number, a range `a-b`, a step `/n`, lists with commas;
-  weekday 0 or 7 is Sunday; a day and a weekday both given means either.
-- `spaces` limits the watch to some spaces; without it, every space the agent
-  follows. A watch can be kept in any space.
-- `from` limits what sets it off to records written by someone holding one of
-  these roles in their space, by role name; `"member"` is anyone holding a
-  role at all, so not someone who can only read.
-
-A watch runs for the agent of the account that wrote it, and only while its
-current version was not written via an agent (`viaAgent`, which the account
-signed into the agent's note). So an agent can suggest a watch, and it waits
-until the person saves it themselves: an app shows it as suggested, with a way
-to turn it on. Nothing the agent itself writes sets a watch off, so it cannot
-set itself off. Whatever set a watch off reaches the model as data; only `do`
-is the person's.
+`std.rule` and `std.rule-run`: what a space does by itself when records come
+to be a certain way, or at set times, and what each rule did. Described in
+[rules.md](rules.md).
 
 **Bots.** A bot is an account of its own that people invite to their spaces
 as a member. The protocol does not tell bots and people apart, and has no way
@@ -289,34 +264,15 @@ to: an account is an account. Disclosing is a convention. A bot says so with
 `bot: true` on its own `std.profile` in a space, which only it can write, and
 apps may show it; it is the account's word, like its name, so it proves
 nothing about an account that leaves it out.
-Besides its own watches, it runs the watches in a space written by members
-holding `std.watch/instruct` there, and only in that space, whatever their
-`spaces` says: the space's roles decide who may direct it. In the `community`
-preset, admins (`*`) and moderators (`*/*`) hold it. Nothing the bot writes
-sets a watch off. What it writes shows as the bot, and every member's device
-checks it against the bot's role, so a role that may post messages but not
-delete keeps a misled bot from deleting.
+Besides its own rules, it runs the rules in a space that name it in `by`,
+made by members holding `std.rule/instruct` there
+([rules.md](rules.md#who-runs-a-rule)). In the `community` preset, admins
+(`*`) and moderators (`*/*`) hold it. Nothing the bot writes sets a rule off.
+What it writes shows as the bot, and every member's device checks it against
+the bot's role, so a role that may post messages but not delete keeps a
+misled bot from deleting.
 
-```json
-{
-  "name": "Answer when mentioned",
-  "query": { "collection": "std.message", "where": { "mentions": { "$contains": "$me" } } },
-  "from": ["member"],
-  "do": "Answer them in the same channel, briefly."
-}
-```
-
-Here `$me` is the bot, so this is "someone with a role mentions the bot".
-
-```json
-{
-  "name": "Tasks given to me",
-  "query": { "collection": "std.task", "where": { "assignees": { "$contains": "$me" } } },
-  "do": "Add it to my weekly plan note, and tell me if it is due this week."
-}
-```
-
-_Source: `packages/core/src/schemas/library/agents.ts` (`watch`), `packages/cli/src/agent-watch.ts` (`startWatching`, `watchesIn`, `cronMatches`, `withMe`, `triggerPrompt`), `apps/example/src/components/apps/Watches.tsx`. Tests: `packages/cli/tests/agent-watch.test.ts` (all, including "a bot runs the watches of members allowed to instruct it…" and "a watch with `from`…")._
+_Source: `packages/core/src/schemas/library/social.ts` (`profile`), `packages/core/src/schemas/rules.ts` (`rulesFor`), `packages/cli/src/agent.ts` (`discloseBot`). Tests: `packages/cli/tests/agent-rules.test.ts` ("says it is a bot…"), `packages/core/tests/rule-runners.test.ts` ("a bot")._
 
 **Mentions and replies.** A `std.message`, `std.comment` or `std.post` names
 the accounts it calls on in `mentions` (as do `std.note`, `std.doc-block` and

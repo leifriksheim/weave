@@ -11,6 +11,9 @@ produced by an agent. It runs against the records one node holds of one space.
 > small filter a screen's `weave.list(collection, { where })` takes (field
 > equality and `link:<rel>`, `packages/core/src/schemas/screens.ts`), which
 > apps that run [screens](apps-as-records.md#screens) have to agree on.
+> A [rule](rules.md) keeps a query in a record, so everything that runs rules
+> has to read this format the same way; peers that only sync and judge the
+> record still never read it.
 
 ## Grammar
 

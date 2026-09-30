@@ -1,17 +1,25 @@
 /**
  * Rules, as this app builds them: "when a poll has more than 10 votes, close
  * it", picked from what the space's collections say their records hold. What
- * runs is the library's (`std.rule`, `runRules` in `@weaveprotocol/core/schemas`):
+ * runs is the library's (`std.rule`, `startRules` in `@weaveprotocol/core/schemas`):
  * a query and a condition. What was picked is kept beside it (`picked`), so
  * the rule can be shown in words and changed again.
  *
- * It runs on its maker's devices while this app is open on one of them;
- * running rules on one always-on node instead is issue #109.
+ * This app runs its maker's rules while it is open, except those that ask an
+ * agent or run at set times: `weave agent`, or a bot, runs those.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useAccount, useNode } from '@weaveprotocol/core/react';
 import type { Condition, NodeCollection, QueryRecord } from '@weaveprotocol/core';
-import { IT, runRules, type Rule, type RuleAction, type RuleWhen } from '@weaveprotocol/core/schemas';
+import {
+  IT,
+  ME,
+  SCHEDULES,
+  startRules,
+  type Rule,
+  type RuleAction,
+  type RuleWhen,
+} from '@weaveprotocol/core/schemas';
 import { attachable, isObject, quickAddBody } from './derive/schema-ui';
 import {
   clausesWords,
@@ -87,16 +95,16 @@ const COUNT_OPERATOR: Readonly<Record<CountClause['op'], string>> = {
 
 /**
  * What was picked, as the rule runs it: the collection as a query, counting
- * what links to it as an include, and every condition as one. `me` becomes
- * the maker, who alone runs it.
+ * what links to it as an include, and every condition as one. "Me" is
+ * `$me`: whoever runs it, the maker or the bot they name.
  */
-export function compile(picked: Picked, me: string): RuleWhen {
+export function compile(picked: Picked): RuleWhen {
   const parts: Condition[] = [];
-  const own = whereOf(picked.clauses, me);
+  const own = whereOf(picked.clauses, ME);
   if (own !== undefined) parts.push(own);
   const count = picked.count;
   if (count) parts.push({ [COUNT_OPERATOR[count.op]]: [{ var: `included.${COUNTED}` }, count.value] });
-  const only = count ? filterFrom(count.clauses ?? [], me) : undefined;
+  const only = count ? filterFrom(count.clauses ?? [], ME) : undefined;
   return {
     query: {
       collection: picked.collection,
@@ -121,6 +129,7 @@ export const ACTIONS: ReadonlyArray<{ kind: RuleAction['kind']; label: string; h
   { kind: 'notify', label: 'Notify me', hint: 'A notification on this device' },
   { kind: 'add', label: 'Add something', hint: 'A record in any collection here, about it' },
   { kind: 'set', label: 'Change it', hint: 'Set one of its fields' },
+  { kind: 'ask', label: 'Ask an agent', hint: 'Your agent, or a bot here, does what you say' },
 ];
 
 /** Where a rule can add a record, and the links a new one could point at the record it is about by */
@@ -214,6 +223,8 @@ export function thenWords(
   switch (then.kind) {
     case 'notify':
       return `notify me: “${then.text}”`;
+    case 'ask':
+      return `ask: “${then.text}”`;
     case 'add': {
       const thing = noun(collections, then.collection);
       return `add ${article(thing)} ${thing}${linkToIt(then) ? ' about it' : ''}: “${then.text}”`;
@@ -232,6 +243,39 @@ export function thenWords(
   }
 }
 
+const WEEKDAYS = [
+  'Sundays',
+  'Mondays',
+  'Tuesdays',
+  'Wednesdays',
+  'Thursdays',
+  'Fridays',
+  'Saturdays',
+  'Sundays',
+];
+
+/** The common shapes of five cron fields in words: a time each day, on weekdays, or on some days of the week */
+function cronWords(every: string): string | null {
+  const [minute, hour, day, month, weekday] = every.trim().split(/\s+/);
+  if (!minute || !hour || !weekday || day !== '*' || month !== '*') return null;
+  if (!/^\d+$/.test(minute)) return null;
+  const at = /^\d+$/.test(hour) ? `at ${hour}:${minute.padStart(2, '0')}` : null;
+  if (hour === '*' && minute === '0' && weekday === '*') return 'Every hour';
+  if (!at) return null;
+  if (weekday === '*') return `Every day ${at}`;
+  if (weekday === '1-5') return `Weekdays ${at}`;
+  if (weekday === '0,6' || weekday === '6,0') return `Weekends ${at}`;
+  const days = weekday.split(',').map((d) => (/^[0-7]$/.test(d) ? WEEKDAYS[Number(d)] : null));
+  if (days.some((d) => !d)) return null;
+  return `${days.length > 1 ? `${days.slice(0, -1).join(', ')} and ${days.at(-1)}` : days[0]} ${at}`;
+}
+
+/** "Weekday mornings at 8", "Weekdays at 7:30", or for a time it can’t say, the fields as they are */
+export function scheduleWords(every: string, start = true): string {
+  const words = SCHEDULES.find((s) => s.value === every.trim())?.label ?? cronWords(every) ?? `At “${every}”`;
+  return start ? words : words.charAt(0).toLowerCase() + words.slice(1);
+}
+
 /** A whole rule in words; one made elsewhere, by hand or by an agent, by what it looks at */
 export function ruleWords(
   rule: Rule,
@@ -239,12 +283,19 @@ export function ruleWords(
   nameOf?: (did: string) => string,
 ): string {
   const picked = pickedOf(rule);
-  const queried = rule.when.query.collection;
-  const collection = picked?.collection ?? (typeof queried === 'string' ? queried : queried.name);
+  const queried = rule.when?.query.collection;
+  const collection = picked?.collection ?? (typeof queried === 'object' ? queried.name : (queried ?? ''));
   const when = picked
     ? whenWords(picked, collections, nameOf)
-    : `When ${article(noun(collections, collection))} ${noun(collections, collection)} matches its query${rule.when.holds ? ' and condition' : ''}`;
-  return `${when}, ${thenWords(rule.then, collections, collection)}.`;
+    : rule.when
+      ? `When ${article(noun(collections, collection))} ${noun(collections, collection)} matches its query${rule.when.holds ? ' and condition' : ''}`
+      : '';
+  const at = rule.every
+    ? when
+      ? `${when}, and ${scheduleWords(rule.every, false)}`
+      : scheduleWords(rule.every)
+    : when;
+  return `${at}, ${thenWords(rule.then, collections, collection)}.`;
 }
 
 function fieldsFor(collections: ReadonlyArray<NodeCollection>, name: string): ReadonlyArray<ClauseField> {
@@ -253,54 +304,21 @@ function fieldsFor(collections: ReadonlyArray<NodeCollection>, name: string): Re
 }
 
 /** A rule's `notify`, on this device: a browser notification, when they are on */
-function notify(title: string, text: string, record: QueryRecord): boolean {
+function notify(title: string, text: string, record?: QueryRecord): boolean {
   if (typeof globalThis.Notification !== 'function' || Notification.permission !== 'granted') return false;
-  new Notification(title, { body: text, tag: `${title}:${record.key}` });
+  new Notification(title, { body: text, tag: `${title}:${record?.key ?? ''}` });
   return true;
 }
 
-/** How long after a burst of changes in a space its rules are looked at */
-const SETTLE_MS = 800;
-
 /**
- * Runs the rules this account made, in every space, while the app is open:
- * once at the start, and again after each burst of changes in a space.
+ * Runs the rules this account made, in every space, while the app is open.
+ * Rules that ask an agent, or run at set times, are left to `weave agent`.
  */
 export function useRunRules(): void {
   const node = useNode();
   const { did } = useAccount();
-  const busy = useRef(new Set<string>());
-  useEffect(() => {
-    let live = true;
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const running = new Map<string, Promise<void>>();
-    const run = (space: string) => {
-      const before = running.get(space) ?? Promise.resolve();
-      const next = before
-        .then(() => (live ? runRules(node, space, did, { busy: busy.current, notify }) : undefined))
-        .catch(() => {});
-      running.set(space, next);
-    };
-    const soon = (space: string) => {
-      clearTimeout(timers.get(space));
-      timers.set(
-        space,
-        setTimeout(() => run(space), SETTLE_MS),
-      );
-    };
-    void node.spaces.list().then(
-      (spaces) => spaces.forEach((space) => soon(space.id)),
-      () => {},
-    );
-    const stop = node.subscribe((event) => {
-      if (event.type === 'records') soon(event.space);
-    });
-    return () => {
-      live = false;
-      stop();
-      for (const timer of timers.values()) clearTimeout(timer);
-    };
-  }, [node, did]);
+  // Their agent may run the same rules; the earlier of two claims acts.
+  useEffect(() => startRules(node, { account: did, notify, timed: false, claimMs: 1500 }), [node, did]);
 }
 
 /**
@@ -364,27 +382,6 @@ export function ideas(
               },
             },
       );
-    }
-    // A choice's last option is often where things end up: done, closed, shipped
-    const choice = fields.find((f) => f.kind === 'choice' && (f.choices?.length ?? 0) > 1);
-    const last = choice?.choices?.at(-1);
-    if (choice && last && (typeof last.value === 'string' || typeof last.value === 'number')) {
-      const tell = targets.find((t) => t.links.length > 0);
-      const where = tell ? noun(collections, tell.collection.name) : null;
-      const said = last.label.toLowerCase();
-      found.push({
-        title: `${tell && where ? `Add ${article(where)} ${where}` : 'Notify me'} when ${article(thing)} ${thing} is ${said}`,
-        rule: {
-          name: `${collectionLabel(collection)} ${said}`,
-          picked: {
-            collection: collection.name,
-            clauses: [{ field: choice.name, op: 'is', value: last.value }],
-          },
-          then: tell
-            ? addAction(tell.collection.name, `${last.label}: {title} 🎉`, tell.links[0])
-            : { kind: 'notify', text: `${last.label}: {title}` },
-        },
-      });
     }
     const person = fields.find((f) => f.kind === 'person' || f.kind === 'people');
     if (person)
