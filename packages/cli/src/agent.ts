@@ -217,30 +217,46 @@ export async function forgetAgent(home: string): Promise<void> {
 /**
  * Says a bot is one, in a space whose apps keep profiles: its `std.profile`
  * there gets `bot: true`. A convention between apps, not something the
- * protocol checks; where the space has no `std.profile`, the bot's name has to
- * say it.
+ * protocol checks. False while the space keeps no `std.profile`: there apps
+ * can't tell the bot from a person, and its name has to say it.
  */
-export async function discloseBot(node: P2PNode, space: string): Promise<void> {
+export async function discloseBot(node: P2PNode, space: string): Promise<boolean> {
   const collections = await node.collections.list(space);
-  if (!collections.some((c) => c.name === 'std.profile' && c.version !== null)) return;
+  if (!collections.some((c) => c.name === 'std.profile' && c.version !== null)) return false;
   const mine = (await node.records.list(space, { collection: 'std.profile' })).find(
     (record) => record.root === node.did && !record.deleted,
   );
   const body = mine && isRecord(mine.body) ? mine.body : {};
-  if (body.bot === true) return;
+  if (body.bot === true) return true;
   await (mine
     ? node.records.update(space, mine.key, { ...body, bot: true })
     : node.records.put(space, 'std.profile', { bot: true }));
+  return true;
+}
+
+/**
+ * Gives a bot's account the name it was made with, when the account says
+ * none. A space knows a member by the name their account says, and people
+ * type it after "@"; the name given at `weave agent --bot` is kept only in
+ * the bot's folder until then, and without it every space shows the bot by
+ * the tail of its DID. A name the account already says is left alone.
+ */
+export async function nameBot(node: P2PNode, name: string): Promise<void> {
+  if (!(await node.account.profile())) await node.account.setName(name);
 }
 
 /**
  * A bot's node: an account of its own, unlocked here, online the way an
- * agent is (relays and WebRTC), and holding every space it is in, where it
- * says it is a bot (`discloseBot`).
+ * agent is (relays and WebRTC), named (`nameBot`), and holding every space it
+ * is in, where it says it is a bot (`discloseBot`).
  */
 export async function startBotNode(
   unlocked: Unlocked,
-  options: { readonly nodes?: ReadonlyArray<string> } = {},
+  options: {
+    readonly nodes?: ReadonlyArray<string>;
+    /** Once for each space it can't say it is a bot in yet, since the space keeps no `std.profile` */
+    readonly undisclosed?: (space: string) => void;
+  } = {},
 ): Promise<{ node: P2PNode; close(): Promise<void> }> {
   await enableWebRTC();
   const node = await createNode({
@@ -250,30 +266,53 @@ export async function startBotNode(
     contactKey: unlocked.contactKey,
     network: { relays: configuredRelays(), ...(options.nodes?.length ? { nodes: options.nodes } : {}) },
   });
+  await nameBot(node, unlocked.account.name);
   const held = new Set<string>();
+  // Spaces it has not said it is a bot in: tried again as their records change, since `std.profile` may arrive later.
+  const untold = new Set<string>();
+  const trying = new Set<string>();
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const tell = (space: string) => {
+    if (trying.has(space)) return;
+    trying.add(space);
+    void discloseBot(node, space)
+      .then((told) => told && untold.delete(space))
+      .catch(() => {})
+      .finally(() => trying.delete(space));
+  };
   const holdAll = async () => {
     for (const space of await node.spaces.list()) {
       if (held.has(space.id)) continue;
       held.add(space.id);
+      untold.add(space.id);
       void node.spaces
         .hold(space.id)
-        .then(() => discloseBot(node, space.id))
+        .then(() => tell(space.id))
         .catch(() => {});
+      // Said only once the space has had time to arrive: a `std.profile` still on its way is no reason to.
+      timers.push(
+        setTimeout(() => untold.has(space.id) && options.undisclosed?.(space.id), UNDISCLOSED_AFTER_MS),
+      );
     }
   };
   // A space joined while it runs is held, and told, too.
   const unsubscribe = node.subscribe((event) => {
     if (event.type === 'spaces') void holdAll();
+    if (event.type === 'records' && untold.has(event.space)) tell(event.space);
   });
   await holdAll();
   return {
     node,
     close: async () => {
+      timers.forEach(clearTimeout);
       unsubscribe();
       await node.close();
     },
   };
 }
+
+/** How long a bot waits for a space's `std.profile` before saying it can't disclose itself there */
+const UNDISCLOSED_AFTER_MS = 20_000;
 
 /** Where a provider's API key is kept: `anthropic-key`, `openai-key` */
 const modelKeyFile = (home: string, provider: string) => path.join(agentDir(home), `${provider}-key`);

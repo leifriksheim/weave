@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useAccount, useNode, useProfiles } from '@weaveprotocol/core/react';
+import { useAccess, useAccount, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { comment } from '@weaveprotocol/core/schemas';
 import { bodyOf } from '../../derive/schema-ui';
@@ -29,9 +29,11 @@ export function Comments({
   const node = useNode();
   const { did: me } = useAccount();
   const people = peopleFrom(useProfiles(space.id));
+  const access = useAccess(space.id);
   const [draft, setDraft] = useState('');
   const input = useRef<HTMLInputElement>(null);
-  const mention = useMentions({ draft, setDraft, people, me, input });
+  const members = access?.members.map((m) => m.did);
+  const mention = useMentions({ draft, setDraft, people, members, me, input });
   const sorted = [...comments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   return (
