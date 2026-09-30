@@ -124,7 +124,12 @@ describe('the contact key', () => {
       'the other device to join',
     );
     await bare.spaces.hold(id);
-    await until(async () => (await bare.spaces.profiles(id)).length === 1, 5000, 'the profile to reach it');
+    // The profile with its key, not just a profile: a rename can only keep a key this device has seen.
+    await until(
+      async () => !!(await bare.spaces.profiles(id))[0]?.contactKey,
+      5000,
+      'the profile, with its key, to reach it',
+    );
     await bare.account.setName('Leif R');
     await until(async () => (await bare.spaces.profiles(id))[0]?.name === 'Leif R', 5000, 'the rename');
     assert.equal(
