@@ -51,7 +51,25 @@ describe('a community fund', () => {
     const daily = t.funds.daily(state);
     assert.ok(Math.abs(daily - (4e6 / 30 + 1e6)) < 20_000, `about $1.13 a day, not ${daily / 1e6}`);
     const left = (t.funds.until(state) - t.now()) / DAY;
+    assert.equal(t.funds.botDaily(state, 'did:key:zBot'), 0, 'spent by no bot in particular');
     assert.ok(left > 19 && left < 21, `$22 or so at $1.13 a day: about 20 days, not ${left}`);
+  });
+
+  test('each bot’s spending is counted apart, to show what the fund pays for', async () => {
+    const t = await setUp();
+    await t.funds.add('space:club', 30e6);
+    for (let day = 0; day < 7; day++) {
+      t.pass(1);
+      await t.funds.charge('space:club', 700_000, 'did:key:zBusy');
+      await t.funds.charge('space:club', 70_000, 'did:key:zQuiet');
+    }
+    const state = await t.funds.get('space:club');
+    assert.ok(Math.abs(t.funds.botDaily(state, 'did:key:zBusy') - 700_000) < 1);
+    assert.ok(Math.abs(t.funds.botDaily(state, 'did:key:zQuiet') - 70_000) < 1);
+    assert.ok(
+      Math.abs(t.funds.daily(state) - (4e6 / 30 + 770_000)) < 1,
+      'and together, in the fund’s own rate',
+    );
   });
 
   test('an empty fund stays empty until paid into, and says when it ran out', async () => {

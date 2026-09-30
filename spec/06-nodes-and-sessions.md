@@ -1108,12 +1108,12 @@ account's carry space also names it.
 
 For a space's own subscription, `HostStatus` also has:
 
-| Field     | Meaning                                                                                             |
-| --------- | --------------------------------------------------------------------------------------------------- |
-| `readKey` | For a private space it carries: the read key it carries it with, as a DID. Absent otherwise.        |
-| `balance` | What is in the fund, in millionths of a dollar. Absent on a free host.                              |
-| `daily`   | What the fund spends a day as things go, in millionths of a dollar: the hosting rate and its bots'. |
-| `bots`    | The bots it runs in the space (§4.7): `[{ "bot": "<DID>", "name": "<name>", "running": true }]`.    |
+| Field     | Meaning                                                                                                                                                                                                                            |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `readKey` | For a private space it carries: the read key it carries it with, as a DID. Absent otherwise.                                                                                                                                       |
+| `balance` | What is in the fund, in millionths of a dollar. Absent on a free host.                                                                                                                                                             |
+| `daily`   | What the fund spends a day as things go, in millionths of a dollar: the hosting rate and its bots'.                                                                                                                                |
+| `bots`    | The bots it runs in the space (§4.7): `[{ "bot": "<DID>", "name": "<name>", "running": true, "daily": 65000 }]`, `daily` what each took from the fund a day over the last week, in millionths of a dollar (absent on a free host). |
 
 `carrying` is whether it carries the space now, and `spaces` is 1 when it
 does. A device compares `readKey` with the space's current read key to know
@@ -1132,7 +1132,7 @@ payload:
   "readKey": "did:key:zDnaejutRdfJ47…",
   "balance": 23400000,
   "daily": 196000,
-  "bots": [{ "bot": "did:key:zDnaeYffVz7N…", "name": "Club Bot", "running": true }],
+  "bots": [{ "bot": "did:key:zDnaeYffVz7N…", "name": "Club Bot", "running": true, "daily": 62000 }],
   "at": 1791027701
 }
 ```

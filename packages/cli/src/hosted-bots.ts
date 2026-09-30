@@ -76,7 +76,7 @@ export function createHostedBots(options: {
   readonly carries: (spaceId: string) => Promise<boolean>;
   readonly model: BotModel;
   /** Takes what a bot spent, in dollars, from the fund of the space it runs in */
-  readonly charge?: (spaceId: string, usd: number) => Promise<void>;
+  readonly charge?: (spaceId: string, usd: number, bot: string) => Promise<void>;
   readonly log: (line: string) => void;
 }): HostedBots {
   const { store, log } = options;
@@ -185,7 +185,7 @@ export function createHostedBots(options: {
             today: (who?: string) => own.today(who),
             add: async (usd: number, who?: string) => {
               await own.add(usd, who);
-              if (space) await options.charge?.(space, usd);
+              if (space) await options.charge?.(space, usd, kept.did);
             },
           };
           runners.set(

@@ -22,20 +22,24 @@ export interface FundState {
   readonly at: number;
   /** What bots spent, by UTC day (`2026-09-30`), for the last two weeks */
   readonly spent: Readonly<Record<string, number>>;
+  /** The same, for each bot by its DID: what the fund shows people it pays for */
+  readonly byBot?: Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 
 export interface Funds {
   get(id: string): Promise<FundState>;
   /** Adds what someone paid */
   add(id: string, micros: number): Promise<FundState>;
-  /** Takes what a bot spent */
-  charge(id: string, micros: number): Promise<FundState>;
+  /** Takes what a bot spent; with its DID, counted as that bot's too */
+  charge(id: string, micros: number, bot?: string): Promise<FundState>;
   /** Takes the hosting fee for the time since it was last taken */
   settle(id: string): Promise<FundState>;
   /** What the fund spends in a day, as things go: the hosting fee, and what its bots spent a day this last week */
   daily(state: FundState): number;
   /** Until when it lasts at that rate, unix seconds; when it ran out, for an empty fund */
   until(state: FundState): number;
+  /** What one bot spent a day this last week */
+  botDaily(state: FundState, bot: string): number;
 }
 
 const PREFIX = 'fund:';
@@ -61,11 +65,16 @@ export function createFunds(options: {
     if (!bytes) return empty();
     const kept: unknown = JSON.parse(new TextDecoder().decode(bytes));
     if (!isRecord(kept) || typeof kept.balance !== 'number' || typeof kept.at !== 'number') return empty();
-    const spent: Record<string, number> = {};
-    if (isRecord(kept.spent))
-      for (const [day, micros] of Object.entries(kept.spent))
-        if (typeof micros === 'number') spent[day] = micros;
-    return { balance: kept.balance, at: kept.at, spent };
+    const days = (value: unknown): Record<string, number> => {
+      const found: Record<string, number> = {};
+      if (isRecord(value))
+        for (const [day, micros] of Object.entries(value))
+          if (typeof micros === 'number') found[day] = micros;
+      return found;
+    };
+    const byBot: Record<string, Record<string, number>> = {};
+    if (isRecord(kept.byBot)) for (const [bot, spent] of Object.entries(kept.byBot)) byBot[bot] = days(spent);
+    return { balance: kept.balance, at: kept.at, spent: days(kept.spent), byBot };
   };
   const write = async (id: string, state: FundState): Promise<FundState> => {
     const bytes = new TextEncoder().encode(JSON.stringify(state));
@@ -80,12 +89,15 @@ export function createFunds(options: {
     return { ...state, balance: state.balance > 0 ? Math.max(0, state.balance - owed) : state.balance, at };
   };
   const day = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 10);
-  const daily = (state: FundState) => {
-    const week = Object.entries(state.spent)
+  /** What a record of spending by day adds up to this last week, a day */
+  const week = (spent: Readonly<Record<string, number>>) =>
+    Object.entries(spent)
       .filter(([when]) => now() - Date.parse(when) / 1000 < 7 * DAY)
-      .reduce((sum, [, micros]) => sum + micros, 0);
-    return fee * DAY + week / 7;
-  };
+      .reduce((sum, [, micros]) => sum + micros, 0) / 7;
+  const daily = (state: FundState) => fee * DAY + week(state.spent);
+  /** Two weeks of spending is all the estimate needs */
+  const recent = (spent: Readonly<Record<string, number>>) =>
+    Object.fromEntries(Object.entries(spent).filter(([when]) => now() - Date.parse(when) / 1000 < 14 * DAY));
 
   // One change at a time: two payments landing together must both count.
   let queue: Promise<unknown> = Promise.resolve();
@@ -99,21 +111,26 @@ export function createFunds(options: {
     get: read,
     add: (id: string, micros: number) =>
       change(id, (state) => ({ ...state, balance: Math.max(0, state.balance) + Math.round(micros) })),
-    charge: (id: string, micros: number) =>
+    charge: (id: string, micros: number, bot?: string) =>
       change(id, (state) => {
         const today = day(now());
-        // Two weeks of spending is all the estimate needs.
-        const kept = Object.fromEntries(
-          Object.entries(state.spent).filter(([when]) => now() - Date.parse(when) / 1000 < 14 * DAY),
-        );
+        const cost = Math.round(micros);
+        const kept = recent(state.spent);
+        const byBot = { ...state.byBot };
+        if (bot) {
+          const its = recent(byBot[bot] ?? {});
+          byBot[bot] = { ...its, [today]: (its[today] ?? 0) + cost };
+        }
         return {
           ...state,
-          balance: state.balance - Math.round(micros),
-          spent: { ...kept, [today]: (kept[today] ?? 0) + Math.round(micros) },
+          balance: state.balance - cost,
+          spent: { ...kept, [today]: (kept[today] ?? 0) + cost },
+          byBot,
         };
       }),
     settle: (id: string) => change(id, (state) => state),
     daily,
+    botDaily: (state: FundState, bot: string) => week(state.byBot?.[bot] ?? {}),
     until(state: FundState) {
       const rate = daily(state);
       if (state.balance <= 0 || rate <= 0) return state.balance > 0 ? now() + 10 * 365 * DAY : state.at;

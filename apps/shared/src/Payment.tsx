@@ -218,6 +218,7 @@ export function ChipIn({
   paid,
   onDone,
   cta,
+  rate,
 }: {
   fund: FundOffer;
   start: (payment: FundPayment) => Promise<PayAnswer>;
@@ -225,6 +226,12 @@ export function ChipIn({
   onDone?: () => void;
   /** The button's words before the amount: "Add" */
   cta?: string;
+  /**
+   * What the fund spends now, from the host's status: its daily rate in
+   * millionths of a dollar, and the bots it pays for. Without it, the rate is
+   * keeping the space online alone.
+   */
+  rate?: { readonly daily?: number; readonly bots?: ReadonlyArray<{ readonly name: string }> };
 }) {
   const [preset, setPreset] = useState<string>(AMOUNTS[1]);
   const [other, setOther] = useState('');
@@ -233,7 +240,10 @@ export function ChipIn({
   const paying = usePaying(paid);
   const amount = preset === 'other' ? other.trim() : preset;
   const valid = /^\d{1,5}(\.\d{1,2})?$/.test(amount) && Number(amount) >= Number(fund.min);
-  const months = valid ? Number(amount) / Number(fund.monthly) : 0;
+  // At the rate it spends now: keeping it online, and its bots as they have been spending.
+  const daily = rate?.daily && rate.daily > 0 ? rate.daily : (Number(fund.monthly) * 1e6) / 30;
+  const months = valid ? (Number(amount) * 1e6) / daily / 30 : 0;
+  const bots = rate?.bots ?? [];
 
   if (paying.step !== 'choose') return <PayingSteps paying={paying} onDone={onDone} />;
   const chip = (on: boolean) => ({
@@ -339,7 +349,9 @@ export function ChipIn({
       </button>
       <p style={{ fontSize: 12, color: palette.ink.faint, textAlign: 'center' }}>
         {valid
-          ? `Keeps it online for about ${lastsFor(months)}, less with busy bots.`
+          ? bots.length
+            ? `Lasts about ${lastsFor(months)} at the current rate, with ${bots.map((bot) => bot.name).join(' and ')}.`
+            : `Keeps it online for about ${lastsFor(months)}.`
           : `At least $${fund.min}.`}
       </p>
       {paying.problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{paying.problem}</p>}
@@ -351,7 +363,8 @@ export function ChipIn({
 export function lastsFor(months: number): string {
   const days = months * 30;
   if (days < 14) return `${Math.max(1, Math.round(days))} days`;
-  if (days < 60) return `${Math.round(days / 7)} weeks`;
+  // Weeks up to three months: two and a half months is neither 2 nor 3, and two estimates must not disagree.
+  if (days < 91) return `${Math.round(days / 7)} weeks`;
   if (months < 23) return `${Math.round(months)} months`;
   return `${Math.round(months / 12)} years`;
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { DEFINE, MANAGE, describeHost, roleHolds } from '@weaveprotocol/core';
-import type { HostDescription, SpaceHostingView } from '@weaveprotocol/core';
+import type { HostDescription } from '@weaveprotocol/core';
 import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
 import { profile } from '@weaveprotocol/core/schemas';
 import { DEFAULT_HOST } from './relay';
@@ -184,7 +184,6 @@ export function CommunitySetup({
         <AddBotDialog
           spaceId={spaceId}
           writable={writable}
-          host={online ?? null}
           cli={cli}
           running={botNames}
           onAutomations={
@@ -264,20 +263,20 @@ function Tile({
  * small: the host runs the bot's account, so it can read what the bot can
  * read. Running it yourself is a link at the bottom, for those who want to.
  */
-function AddBotDialog({
+export function AddBotDialog({
   spaceId,
   writable,
-  cli,
-  running,
+  cli = CLI,
+  running = [],
   onAutomations,
   onClose,
 }: {
   spaceId: string;
   writable: boolean;
-  host: SpaceHostingView | null;
-  cli: string;
-  running: ReadonlyArray<string>;
-  onAutomations: (() => void) | undefined;
+  cli?: string;
+  /** Names of the bots already there: the dialog then opens on what to tell them */
+  running?: ReadonlyArray<string>;
+  onAutomations?: (() => void) | undefined;
   onClose: () => void;
 }) {
   const node = useNode();
@@ -600,6 +599,123 @@ function Copyable({ text, secret = false }: { text: string; secret?: boolean }) 
         {copied ? 'Copied' : 'Copy'}
       </button>
     </div>
+  );
+}
+
+/**
+ * The community's AI helpers, in its People tab: always there, whatever the
+ * card at the top says. Each bot with how it stands (running, or waiting for
+ * the fund), and for those who may manage the space, Add a bot.
+ */
+export function SpaceBots({
+  spaceId,
+  writable,
+  cli = CLI,
+  onAutomations,
+}: {
+  spaceId: string;
+  writable: boolean;
+  cli?: string;
+  onAutomations?: () => void;
+}) {
+  const node = useNode();
+  const access = useAccess(spaceId);
+  const { hosts, look } = useSpaceHosts(spaceId, writable);
+  const [bots, setBots] = useState<ReadonlyArray<{ did: string; name: string }>>([]);
+  const [adding, setAdding] = useState(false);
+  const mayManage = writable && roleHolds(access?.role, MANAGE);
+  const lookBots = useCallback(() => {
+    void botsIn(node, spaceId).then(setBots, () => setBots([]));
+  }, [node, spaceId]);
+  useEffect(() => lookBots(), [lookBots]);
+
+  const hosted = hosts?.flatMap((host) => host.bots) ?? [];
+  const listed = [
+    ...hosted.map((bot) => ({ did: bot.bot, name: bot.name, state: bot.running ? 'on' : 'waiting' })),
+    ...bots.filter((bot) => !hosted.some((h) => h.bot === bot.did)).map((bot) => ({ ...bot, state: 'own' })),
+  ];
+  if (!listed.length && !mayManage) return null;
+  return (
+    <section aria-label="AI helpers" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <h3 style={styles.sectionTitle}>AI helpers</h3>
+        {mayManage && (
+          <button onClick={() => setAdding(true)} data-variant="quiet" style={styles.smallButton}>
+            Add a bot
+          </button>
+        )}
+      </div>
+      {listed.length === 0 ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            padding: 14,
+            borderRadius: 12,
+            border: `1px dashed ${palette.surface.lineStrong}`,
+          }}
+        >
+          <FeatureIcon kind="bot" glyph="sparkle" size={36} />
+          <p style={{ fontSize: 13, color: palette.ink.muted, lineHeight: 1.45 }}>
+            A bot answers when mentioned, sums up long threads and posts reminders. It holds a role like any
+            member.
+          </p>
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            borderRadius: 12,
+            border: `1px solid ${palette.surface.line}`,
+          }}
+        >
+          {listed.map((bot, i) => (
+            <div
+              key={bot.did}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '10px 14px',
+                borderTop: i ? `1px solid ${palette.surface.line}` : 'none',
+              }}
+            >
+              <FeatureIcon kind="bot" glyph="sparkle" size={28} />
+              <strong style={{ flex: 1, fontSize: 14, color: palette.ink.strong }}>{bot.name}</strong>
+              {bot.state === 'on' ? (
+                <StatusPill tone="good">Running</StatusPill>
+              ) : bot.state === 'waiting' ? (
+                <StatusPill tone="warn">Fund empty</StatusPill>
+              ) : (
+                <StatusPill tone="neutral">Run by a member</StatusPill>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {adding && (
+        <AddBotDialog
+          spaceId={spaceId}
+          writable={writable}
+          cli={cli}
+          {...(onAutomations
+            ? {
+                onAutomations: () => {
+                  setAdding(false);
+                  onAutomations();
+                },
+              }
+            : {})}
+          onClose={() => {
+            setAdding(false);
+            look();
+            lookBots();
+          }}
+        />
+      )}
+    </section>
   );
 }
 

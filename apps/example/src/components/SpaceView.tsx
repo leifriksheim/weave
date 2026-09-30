@@ -336,7 +336,13 @@ export function SpaceView({
               {view.kind === 'app' && !open && (
                 <p style={styles.emptyState}>This app isn't in the space any more.</p>
               )}
-              {view.kind === 'people' && <RolesView space={space} collections={collections} />}
+              {view.kind === 'people' && (
+                <RolesView
+                  space={space}
+                  collections={collections}
+                  onAutomations={() => setView({ kind: 'automations' })}
+                />
+              )}
               {view.kind === 'automations' && <AutomationsView space={space} collections={collections} />}
               {view.kind === 'hood' && view.hood === 'data' && (
                 <DataView

@@ -20,6 +20,7 @@ import { createInviteLink } from '../spaces';
 import { styles, palette, variants } from '../styles';
 import { Person } from './Person';
 import { SpaceHosting } from '@weave/app-shared/SpaceHosting';
+import { SpaceBots } from '@weave/app-shared/CommunitySetup';
 
 /**
  * Your own name, renamed in place. It goes on the account, and the node
@@ -73,9 +74,12 @@ type SpaceAccess = NonNullable<ReturnType<typeof useAccess>>;
 export function RolesView({
   space,
   collections,
+  onAutomations,
 }: {
   space: SpaceSummary;
   collections: ReadonlyArray<NodeCollection>;
+  /** Opens the space's automations, where a bot is told what to do */
+  onAutomations?: () => void;
 }) {
   const access = useAccess(space.id);
   const account = useAccount();
@@ -85,6 +89,7 @@ export function RolesView({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
       <Members space={space} access={access} me={account.did} people={people} collections={collections} />
       <SpaceHosting spaceId={space.id} writable={space.writable} />
+      <SpaceBots spaceId={space.id} writable={space.writable} {...(onAutomations ? { onAutomations } : {})} />
       <Roles space={space} access={access} collections={collections} />
       <WhatYouCanDo access={access} collections={collections} />
     </div>

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DEFINE, describeHost, roleHolds } from '@weaveprotocol/core';
-import type { HostDescription, SpaceHostingView } from '@weaveprotocol/core';
+import type { FundOffer, HostDescription, SpaceHostingView } from '@weaveprotocol/core';
 import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
 import { host as hostSchema } from '@weaveprotocol/core/schemas';
 import { DEFAULT_HOST } from './relay';
 import { Modal } from './Modal';
 import { ChipIn, RemindMe, dollars, lastsFor } from './Payment';
-import { Benefit, FeatureIcon, StatusPill, shortDate, timeLeft, type Tone } from './Feature';
+import { Benefit, FeatureIcon, Glyph, StatusPill, shortDate, timeLeft, type Tone } from './Feature';
 import { styles, palette } from './styles';
 
 /** Who may choose the space's host: `std.host` asks for this permission */
@@ -321,8 +321,10 @@ export function KeepOnline({
         </>
       ) : host.fund ? (
         <>
+          <FundPaysFor fund={host.fund} bots={host.bots} />
           <ChipIn
             fund={host.fund}
+            rate={{ ...(host.status?.daily ? { daily: host.status.daily } : {}), bots: host.bots }}
             start={(payment) => node.hosting.payForSpace(spaceId, host.url, payment)}
             paid={async () => {
               const now = await node.hosting.space(spaceId);
@@ -361,6 +363,64 @@ export function KeepOnline({
           Stop using {host.name}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * What a community's fund pays for, with a check for each: keeping it online
+ * at the host's monthly rate, and each bot at what it has been spending. A
+ * community without bots sees one line.
+ */
+export function FundPaysFor({
+  fund,
+  bots,
+}: {
+  fund: FundOffer;
+  bots: ReadonlyArray<{ readonly name: string; readonly daily?: number }>;
+}) {
+  const line = (label: string, price: string) => (
+    <li key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14 }}>
+      <span
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 10,
+          flexShrink: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#eef8f0',
+          color: palette.accent.good,
+        }}
+      >
+        <Glyph name="check" size={12} style={{ strokeWidth: 2 }} />
+      </span>
+      <span style={{ flex: 1, color: palette.ink.body }}>{label}</span>
+      <span style={{ fontSize: 13, color: palette.ink.muted }}>{price}</span>
+    </li>
+  );
+  return (
+    <div style={{ padding: '12px 14px', borderRadius: 10, background: palette.surface.sunken }}>
+      <p style={{ fontSize: 12, fontWeight: 500, color: palette.ink.muted, marginBottom: 8 }}>
+        This fund pays for
+      </p>
+      <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {line('Always online, encrypted end to end', `$${fund.monthly} a month`)}
+        {bots.map((bot) =>
+          line(
+            bot.name,
+            bot.daily === undefined
+              ? 'as it is used'
+              : bot.daily * 30 < 250_000
+                ? 'under $0.25 a month so far'
+                : `about $${((bot.daily * 30) / 1e6).toFixed(2)} a month`,
+          ),
+        )}
+      </ul>
+      <p style={{ fontSize: 12, color: palette.ink.faint, marginTop: 10 }}>
+        Anyone in the community can chip in, once or every month.
+      </p>
     </div>
   );
 }

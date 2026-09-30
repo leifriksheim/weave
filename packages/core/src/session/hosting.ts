@@ -235,6 +235,8 @@ export interface HostedBot {
   readonly name: string;
   /** Whether it runs its rules now: while its community's fund has money in it */
   readonly running: boolean;
+  /** What it took from the fund a day this last week, in millionths of a dollar; absent on a free host */
+  readonly daily?: number;
 }
 
 /** One way to pay a host, as its description lists it */

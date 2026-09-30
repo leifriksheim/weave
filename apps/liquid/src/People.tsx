@@ -3,6 +3,7 @@ import { useNode } from '@weaveprotocol/core/react';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { Modal } from '@weave/app-shared/Modal';
 import { SpaceHosting } from '@weave/app-shared/SpaceHosting';
+import { SpaceBots } from '@weave/app-shared/CommunitySetup';
 import type { Assembly, PartyFull } from './model';
 import { EVERYTHING, delegation, membership, party as partyCollection } from './schema';
 import { PartyChip, PartyMark, Problem, Who, useAction } from './ui';
@@ -68,6 +69,7 @@ export function People({ a, writable }: { a: Assembly; writable: boolean }) {
       </section>
 
       <SpaceHosting spaceId={a.spaceId} writable={writable} />
+      <SpaceBots spaceId={a.spaceId} writable={writable} />
 
       {founding && <PartyForm a={a} onClose={() => setFounding(false)} />}
       {editing && <PartyForm a={a} editing={editing} onClose={() => setEditing(null)} />}

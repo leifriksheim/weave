@@ -369,10 +369,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       : [];
     if (options.free) return running.length ? { bots: running } : {};
     const state = await funds.get(id);
+    // What each bot spent a day this last week: what people see the fund pays for.
+    const priced = running.map((bot) => ({ ...bot, daily: Math.round(funds.botDaily(state, bot.bot)) }));
     return {
       balance: Math.max(0, Math.round(state.balance)),
       daily: Math.round(funds.daily(state)),
-      ...(running.length ? { bots: running } : {}),
+      ...(priced.length ? { bots: priced } : {}),
     };
   };
   /** A status as the home gets it: signed with the host's key, so the person holds the host's word */
@@ -448,9 +450,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
             (await node.spaces()).some((space) => space.id === spaceId && !space.carry),
           model: options.bots.model,
           // What a bot spends is taken from its community's fund, with the host's markup.
-          charge: async (spaceId, usd) => {
+          charge: async (spaceId, usd, bot) => {
             if (options.free) return;
-            const state = await funds.charge(`space:${spaceId}`, usd * markup * 1e6);
+            const state = await funds.charge(`space:${spaceId}`, usd * markup * 1e6, bot);
             if (state.balance <= 0) await refreshFund(`space:${spaceId}`);
           },
           log,
