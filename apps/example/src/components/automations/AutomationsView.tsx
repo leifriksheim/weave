@@ -16,6 +16,7 @@ import { styles, palette } from '../../styles';
 import { RuleBuilder } from './RuleBuilder';
 import { Empty, SectionHead, iconDot, list, section } from './parts';
 import { SpaceBots } from '@weave/app-shared/CommunitySetup';
+import { useActivityOff } from '../../activity';
 
 type Open = { readonly kind: 'rule'; readonly editing?: NodeRecord; readonly start?: PickedRule } | null;
 
@@ -63,6 +64,7 @@ export function AutomationsView({
   const starters = ideas(collections).filter((idea) => !made.has(idea.rule.name));
   const who = (d: string) => nameOf(d, people);
 
+  const shows = useActivityOff(space.id, space.writable);
   const act = (work: () => Promise<unknown>) => {
     setError(null);
     work().catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
@@ -79,6 +81,37 @@ export function AutomationsView({
       </header>
 
       <SpaceBots spaceId={space.id} writable={space.writable} />
+      {shows.off && (
+        <p
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 12px',
+            borderRadius: 10,
+            background: palette.surface.sunken,
+            fontSize: 13,
+            color: palette.ink.muted,
+          }}
+        >
+          <span style={{ flex: 1, minWidth: 200 }}>
+            Nobody sees when a bot or agent is working on something here, so its answers arrive unannounced.
+          </span>
+          {shows.turnOn ? (
+            <button
+              type="button"
+              data-variant="ghost"
+              style={styles.linkButton}
+              onClick={() => shows.turnOn && act(shows.turnOn)}
+            >
+              Show it
+            </button>
+          ) : (
+            <span>Someone who may add collections can show it.</span>
+          )}
+        </p>
+      )}
 
       <section style={section}>
         <SectionHead

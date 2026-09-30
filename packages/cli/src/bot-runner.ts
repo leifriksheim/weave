@@ -50,6 +50,8 @@ export function runRules(options: RuleRunnerOptions): () => void {
    * Says on the record that set a rule off (or the rule, for one set off by
    * the time) where the work stands, for apps to show. Never in the way of it.
    */
+  // Once for each space where nobody can see it at work, since the space keeps no std.activity.
+  const unseen = new Set<string>();
   const mark = (trigger: RuleTrigger, state: ActivityState) =>
     setActivity(
       node,
@@ -58,7 +60,18 @@ export function runRules(options: RuleRunnerOptions): () => void {
       state,
       // The rule's name to begin with; at the end, whatever the model said it was doing stays.
       state === 'done' || state === 'failed' ? undefined : trigger.rule.body.name.slice(0, 120),
-    ).catch(() => null);
+    )
+      .then((set) => {
+        if (!set && !unseen.has(trigger.rule.space)) {
+          unseen.add(trigger.rule.space);
+          log(
+            `  ${trigger.rule.space} keeps no std.activity, so nobody sees it at work there. ` +
+              'Someone who may add collections can show it: in the app, Automations, “Show it”.',
+          );
+        }
+        return set;
+      })
+      .catch(() => null);
 
   let queue: Promise<unknown> = Promise.resolve();
   const answer = async (sealed: RuleTrigger): Promise<{ did: string; ok: boolean }> => {
