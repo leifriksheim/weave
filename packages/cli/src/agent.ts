@@ -48,6 +48,19 @@ export function configuredRelays(): string[] {
 }
 
 /**
+ * Hosts from `$WEAVE_HOSTS` (comma separated, `https://host`): where the
+ * node looks for the account before it knows which host the account uses,
+ * so on a server it finds its spaces over a host's socket without meeting a
+ * device first.
+ */
+function configuredHosts(): string[] {
+  return (process.env.WEAVE_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
+}
+
+/**
  * WebRTC, which Node doesn't have: the same API over libdatachannel. Loaded
  * only here — it is a native module, and the other commands don't need it.
  */
@@ -188,7 +201,11 @@ export async function startAgentNode(
     sessionKey: key.keys,
     stores: folderStores(data),
     ...(grant.accountKey ? { accountKey: base64UrlDecode(grant.accountKey) } : {}),
-    network: { relays, ...(options.nodes?.length ? { nodes: options.nodes } : {}) },
+    network: {
+      relays,
+      hosts: configuredHosts(),
+      ...(options.nodes?.length ? { nodes: options.nodes } : {}),
+    },
   });
   // Spaces granted by name, when the grant wasn't for the whole account.
   const held = new Set((await base.spaces.list()).map((space) => space.id));
@@ -248,7 +265,11 @@ export async function startBotNode(
     stores: unlocked.stores,
     accountKey: unlocked.accountKey,
     contactKey: unlocked.contactKey,
-    network: { relays: configuredRelays(), ...(options.nodes?.length ? { nodes: options.nodes } : {}) },
+    network: {
+      relays: configuredRelays(),
+      hosts: configuredHosts(),
+      ...(options.nodes?.length ? { nodes: options.nodes } : {}),
+    },
   });
   const held = new Set<string>();
   const holdAll = async () => {

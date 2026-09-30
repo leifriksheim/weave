@@ -1,0 +1,44 @@
+# `weave agent --no-chat` as an image: your agent, or a community's bot, always
+# on. Built from the repository root, like the host's image:
+#
+#   docker build -f packages/cli/Dockerfile.agent .
+#
+# (fly.agent.toml next to this file does that for Fly.)
+
+FROM node:22-alpine AS build
+WORKDIR /repo
+COPY package.json package-lock.json ./
+COPY packages/core/package.json packages/core/
+COPY packages/relay/package.json packages/relay/
+COPY packages/cli/package.json packages/cli/
+COPY apps/home/package.json apps/home/
+COPY apps/example/package.json apps/example/
+COPY apps/extension/package.json apps/extension/
+# Optional dependencies stay in: node-datachannel's prebuilt binary for this platform is one.
+RUN npm ci --ignore-scripts --workspace @weaveprotocol/cli
+COPY packages/core packages/core
+COPY packages/relay packages/relay
+COPY packages/cli packages/cli
+RUN npm run bundle -w @weaveprotocol/cli
+
+# The runtime: Node, the bundle, and its two outside dependencies: `ws`, and
+# node-datachannel (WebRTC, to meet the account's devices) with its binary.
+FROM node:22-alpine
+RUN apk add --no-cache su-exec
+WORKDIR /app
+COPY --from=build /repo/node_modules/ws node_modules/ws
+COPY --from=build /repo/node_modules/node-datachannel node_modules/node-datachannel
+COPY --from=build /repo/node_modules/@node-datachannel node_modules/@node-datachannel
+COPY --from=build /repo/node_modules/detect-libc node_modules/detect-libc
+COPY --from=build /repo/packages/cli/dist/weave.mjs dist/weave.mjs
+# `weave` for `fly ssh console`, as the user the agent runs as.
+RUN printf '#!/bin/sh\nexec su-exec node node /app/dist/weave.mjs "$@"\n' > /usr/local/bin/weave && chmod +x /usr/local/bin/weave
+
+# The agent's key, its note and its copy of the spaces live here: a volume.
+ENV WEAVE_HOME=/data
+# `--bot` for a community's bot (an account of its own), or empty for your agent.
+ENV WEAVE_AGENT_ARGS=""
+
+# Waits until the agent is connected (`weave connect` over `fly ssh console`),
+# then runs it; restarts bring it back.
+CMD ["sh", "-c", "mkdir -p \"$WEAVE_HOME\" && chown -R node:node \"$WEAVE_HOME\" && until [ -f \"$WEAVE_HOME/agent/grant.json\" ] || [ -f \"$WEAVE_HOME/accounts.json\" ]; do echo 'Not connected yet: fly ssh console -C \"weave connect wv_…\"'; sleep 30; done; exec su-exec node node dist/weave.mjs agent --no-chat $WEAVE_AGENT_ARGS"]

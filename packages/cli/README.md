@@ -186,6 +186,7 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   when the grace period starts, each with a link that stops them.
 - With a bucket, the disk is only a cache: lose it, start on the same key and
   bucket, and every subscription and space comes back.
+- Before it takes anyone's money: [HOSTING.md](HOSTING.md).
 - Put it behind something that terminates TLS (Caddy does it in two lines).
   The account home offers it under **Keep my spaces online** when built with
   `VITE_WEAVE_HOST=https://<host>`, and every app built with it looks there
@@ -287,6 +288,24 @@ writes never sets a rule off.
 
 `--no-chat` runs only the rules, until stopped: on a server, or in the
 background.
+
+### Always on, on a server
+
+`weave agent --no-chat` runs your rules with every device of yours closed; on
+a server it stays that way. `fly.agent.toml` and `Dockerfile.agent` do it on
+Fly (the commands are at the top of the toml):
+
+1. Deploy it with your model's key as a secret (`ANTHROPIC_API_KEY`, or
+   `OPENAI_API_KEY` with `--provider openai …` in `WEAVE_AGENT_ARGS`).
+2. In an app, choose **Connect an agent**, and run the command it shows over
+   `fly ssh console`, with `--no-configure`. Allow it at your account home.
+3. It starts within half a minute, and after every restart.
+
+`WEAVE_HOSTS=https://<host>` lets it find your spaces through the host your
+account uses, with none of your devices online. The same image runs a
+community's bot: `WEAVE_AGENT_ARGS="--bot"`, the bot's passphrase as
+`WEAVE_PASSPHRASE`, then `weave init` and `weave spaces join` over
+`fly ssh console`. Its daily cap (`--daily-cap`) is the most it can cost you.
 
 ### Other models
 
@@ -410,10 +429,9 @@ space anywhere leaves it everywhere.
   plugs into the same transport seam if measurement says it is needed.
 - **Publishing.** `weave-protocol-cli` on npm (or a built JS package), and
   trying the Bun binary with `node-datachannel`.
-- **Hosting, before it's offered to anyone.**
-  - A load test with 1,000 spaces, with metrics. Check the pricing against those numbers, and decide on TURN from them.
-  - A real Stripe test-mode run end to end, and a decision on Stripe Tax or a merchant of record.
-  - A breach plan.
+- **Hosting, before it's offered to anyone.** The checklist, what it costs
+  to run and the breach plan are in [HOSTING.md](HOSTING.md): a real Stripe
+  test-mode run, and a decision on tax, are still to do.
 - **The pay page.**
   - A real Base Sepolia wallet payment.
   - A Lightning route (BTCPay), and gasless USDC (EIP-3009).

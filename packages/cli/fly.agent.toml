@@ -1,0 +1,46 @@
+# Your agent on Fly, always on: `weave agent --no-chat` runs your rules
+# (std.rule) with every device closed. Or a community's bot, with its own account.
+# Change `app` to a name of your own, then, from the repository root:
+#
+#   fly launch --no-deploy --copy-config --config packages/cli/fly.agent.toml --name my-agent
+#   fly volumes create agent_data --size 1 --region ams --config packages/cli/fly.agent.toml
+#   fly secrets set --config packages/cli/fly.agent.toml ANTHROPIC_API_KEY=sk-ant-…
+#   fly deploy . --config packages/cli/fly.agent.toml
+#
+# Your agent: in an app, choose "Connect an agent", copy the wv_… code, and
+#
+#   fly ssh console --config packages/cli/fly.agent.toml -C "weave connect wv_… --no-configure --name 'Agent on Fly'"
+#
+# then allow it at your account home. It starts within half a minute.
+#
+# A community's bot instead: set WEAVE_AGENT_ARGS = "--bot" below, add the
+# bot's passphrase as a secret (WEAVE_PASSPHRASE), and over `fly ssh console`:
+#
+#   weave init --name "Club Bot" --passphrase
+#   weave spaces join --invite 'https://…#invite=…'      # an invite an admin made, with the bot's role
+#
+# If the account uses a host, name it in WEAVE_HOSTS: the agent then finds
+# every space through the host's socket, even with none of your devices on.
+
+app = "my-agent"
+primary_region = "ams"
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile.agent"
+
+[env]
+  # Flags for `weave agent --no-chat`: "--bot", "--daily-cap 5", "--model claude-sonnet-5-5"
+  WEAVE_AGENT_ARGS = ""
+  # WEAVE_HOSTS = "https://weave-host.fly.dev"
+
+# The agent's key, its note and its copy of your spaces.
+[mounts]
+  source = "agent_data"
+  destination = "/data"
+
+# No http_service: nothing reaches in. The agent dials out to relays and hosts.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
