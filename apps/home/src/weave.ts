@@ -5,11 +5,11 @@
  * access (`/connect`), and link to it for account settings (`/`).
  */
 import { createWeaveAuth } from '@weaveprotocol/core/session';
-import { CONFIGURED_NODES, relayUrls } from '@weave/app-shared/relay';
+import { CONFIGURED_HOSTS, CONFIGURED_NODES, relayUrls } from '@weave/app-shared/relay';
 
 export const auth = createWeaveAuth({
   appName: 'Weave',
-  network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
+  network: { relays: relayUrls(), nodes: CONFIGURED_NODES, hosts: CONFIGURED_HOSTS },
   // Checking, decrypting and syncing happen there, so the page never stutters; the seed stays here.
   // One worker for every tab, where there are shared workers (not Chrome on Android).
   worker: () =>

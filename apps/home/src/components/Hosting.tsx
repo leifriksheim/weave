@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
+import { describeHost, type HostDescription } from '@weaveprotocol/core';
 import type { HostingView, P2PNode } from '@weaveprotocol/core/node';
+import { DEFAULT_HOST } from '@weave/app-shared/relay';
 import { message } from '../message';
 import { styles, palette } from '../styles';
-
-/** The host this home offers by default; any other can be typed in */
-const DEFAULT_HOST = import.meta.env.VITE_WEAVE_HOST ?? '';
 
 /** Time paid up front can be topped up this long before it runs out */
 const TOP_UP_DAYS = 30;
@@ -19,12 +18,25 @@ const TOP_UP_DAYS = 30;
  * home stays in its own tab, and never follows a link the host hands it, so
  * no host can send the person to a lookalike. Coming back to this tab, the
  * list asks the host again — and what the host signs is kept in the registry.
+ *
+ * With a host this build offers (`VITE_WEAVE_HOST`), starting is one button:
+ * its name and price, and the pay page opening straight after when it wants
+ * paying. Any other host is folded away under "Use another host".
  */
 export function Hosting({ node }: { node: P2PNode }) {
+  const offered = DEFAULT_HOST;
   const [hosts, setHosts] = useState<ReadonlyArray<HostingView> | null>(null);
-  const [address, setAddress] = useState(DEFAULT_HOST);
+  const [offer, setOffer] = useState<HostDescription | null>(null);
+  const [other, setOther] = useState(!DEFAULT_HOST);
+  const [address, setAddress] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!DEFAULT_HOST) return;
+    // A default host that doesn't answer is offered as a field to type another into.
+    void describeHost(DEFAULT_HOST).then(setOffer, () => setOther(true));
+  }, []);
 
   useEffect(() => {
     const load = () =>
@@ -50,21 +62,37 @@ export function Hosting({ node }: { node: P2PNode }) {
     }
   };
 
-  const start = () =>
-    act('start', async () => {
-      await node.hosting.use(address.trim());
-      setHosts(await node.hosting.list());
+  /**
+   * Starts with a host, and opens its pay page at once when it wants paying.
+   * The tab is opened inside the click, so no popup blocker stops it; the
+   * link follows, or the tab closes when there's nothing to pay.
+   */
+  const start = (url: string, pays: boolean) => {
+    const tab = pays ? window.open('about:blank', '_blank') : null;
+    void act('start', async () => {
+      try {
+        const view = await node.hosting.use(url);
+        setHosts(await node.hosting.list());
+        if (!pays || !view.pays || !needsPaying(view)) return void tab?.close();
+        await openPayPage(view, tab);
+      } catch (reason) {
+        tab?.close();
+        throw reason;
+      }
     });
+  };
+  const openPayPage = async (host: HostingView, tab: Window | null) => {
+    const link = await node.hosting.payPage(host.url);
+    if (!tab) return void window.open(link, '_blank', 'noopener');
+    // Cut the tab loose first: the host's page can't reach back into this one.
+    tab.opener = null;
+    tab.location.href = link;
+  };
   const pay = (host: HostingView) => {
-    // Opened at once, inside the click, so no popup blocker stops it; the link follows.
     const tab = window.open('about:blank', '_blank');
     void act('pay', async () => {
       try {
-        const link = await node.hosting.payPage(host.url);
-        if (!tab) return void window.open(link, '_blank', 'noopener');
-        // Cut the tab loose first: the host's page can't reach back into this one.
-        tab.opener = null;
-        tab.location.href = link;
+        await openPayPage(host, tab);
       } catch (reason) {
         tab?.close();
         throw reason;
@@ -90,7 +118,28 @@ export function Hosting({ node }: { node: P2PNode }) {
 
       {hosts === null && !error && <p style={styles.errorHint}>Asking your host…</p>}
 
-      {hosts?.length === 0 && (
+      {hosts?.length === 0 && offer && offered && !other && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+          <div style={{ ...styles.settingsRow, alignSelf: 'stretch' }}>
+            <span>
+              {offer.name}
+              {offer.free ? ' · free' : offer.price ? ` · ${offer.price}` : ''}
+            </span>
+            <button
+              onClick={() => start(offered, !offer.free && offer.pay !== undefined)}
+              disabled={busy !== null}
+              style={styles.addButton}
+            >
+              {busy === 'start' ? 'Starting…' : 'Keep online'}
+            </button>
+          </div>
+          <button onClick={() => setOther(true)} data-variant="quiet" style={styles.smallButton}>
+            Use another host
+          </button>
+        </div>
+      )}
+
+      {hosts?.length === 0 && other && (
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={address}
@@ -100,7 +149,7 @@ export function Hosting({ node }: { node: P2PNode }) {
             style={{ ...styles.input, flex: 1 }}
           />
           <button
-            onClick={() => void start()}
+            onClick={() => start(address.trim(), false)}
             disabled={busy !== null || !address.trim()}
             style={styles.addButton}
           >
