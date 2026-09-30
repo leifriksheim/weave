@@ -1050,6 +1050,14 @@ _Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `
 > disconnects both when revoked at the provider, unless the host gets its own
 > consent.
 >
+> **Invites that name the space's hosts.** A joining device finds a space's
+> own hosts (§4.6) only once it holds the space's records, so with no other
+> member online it cannot join through the host that holds the space. An
+> invite will name the `peer` addresses of the hosts the space uses, as it
+> names relays, and the joining device holds a socket to them until the
+> space's records take over. Tracked in
+> [#117](https://github.com/leifriksheim/weave/issues/117).
+>
 > **Metering beyond storage.** A host that meters requests and bandwidth per
 > subscription says so in `HostStatus` as it says `bytes`. Open: the fields,
 > and whether a host may stop syncing a space that keeps growing past `quota`
