@@ -167,9 +167,18 @@ const isMinedLog = (value: unknown): value is MinedLog =>
   TX_HASH.test(value.transactionHash) &&
   typeof value.blockNumber === 'string';
 
-/** Blocks looked at, at most, in one scan; and how far back a first scan looks (an hour of Base's 2 s blocks) */
-const SCAN_BLOCKS = 2000n;
+/**
+ * Blocks looked at, at most, in one scan, to begin with: the most a public
+ * Base node gives in one eth_getLogs. A node that allows fewer is asked for
+ * half as many until it answers. And how far back a first scan looks (an
+ * hour of Base's 2 s blocks).
+ */
+const SCAN_BLOCKS = 1000n;
+const FEWEST_SCAN_BLOCKS = 10n;
 const FIRST_SCAN_BLOCKS = 1800n;
+
+/** How nodes say a range is more than they give: "limited to a 1,000 range", "query exceeds max block range 500", … */
+const TOO_WIDE = /range|too many|limit|exceed/i;
 
 /** Units of the token as people read them: 4003217 → "4.003217" */
 function unitsText(units: bigint): string {
@@ -195,6 +204,7 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
   const confirmations = config.confirmations ?? 3;
   const to = config.to.toLowerCase();
   const token = network.usdc.toLowerCase();
+  let span = SCAN_BLOCKS;
 
   const plans = [
     ...(config.yearly
@@ -277,16 +287,28 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
       const latest = BigInt(quantity(await rpc('eth_blockNumber', []))) - BigInt(confirmations - 1);
       const from = after !== null ? after + 1n : latest > FIRST_SCAN_BLOCKS ? latest - FIRST_SCAN_BLOCKS : 0n;
       if (from > latest) return { upTo: after ?? latest, transfers: [] };
-      const upTo = from + SCAN_BLOCKS - 1n < latest ? from + SCAN_BLOCKS - 1n : latest;
-      const logs = await rpc('eth_getLogs', [
-        {
-          address: token,
-          // topics[2] is the receiver, as a 32-byte word
-          topics: [TRANSFER_TOPIC, null, `0x${to.slice(2).padStart(64, '0')}`],
-          fromBlock: `0x${from.toString(16)}`,
-          toBlock: `0x${upTo.toString(16)}`,
-        },
-      ]);
+      let upTo: bigint;
+      let logs: unknown;
+      for (;;) {
+        upTo = from + span - 1n < latest ? from + span - 1n : latest;
+        try {
+          logs = await rpc('eth_getLogs', [
+            {
+              address: token,
+              // topics[2] is the receiver, as a 32-byte word
+              topics: [TRANSFER_TOPIC, null, `0x${to.slice(2).padStart(64, '0')}`],
+              fromBlock: `0x${from.toString(16)}`,
+              toBlock: `0x${upTo.toString(16)}`,
+            },
+          ]);
+          break;
+        } catch (error) {
+          // Kept smaller from then on: the next scan asks for what this node gives.
+          if (!(error instanceof Error) || !TOO_WIDE.test(error.message) || span <= FEWEST_SCAN_BLOCKS)
+            throw error;
+          span = span / 2n > FEWEST_SCAN_BLOCKS ? span / 2n : FEWEST_SCAN_BLOCKS;
+        }
+      }
       if (!Array.isArray(logs) || !logs.every(isMinedLog))
         throw new Error('The network node: logs that do not read as logs');
       const times = new Map<string, number>();

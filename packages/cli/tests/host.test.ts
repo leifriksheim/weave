@@ -1004,6 +1004,8 @@ function fakeChain() {
       }
     >(),
     calls: 0,
+    /** The most blocks one eth_getLogs may ask for, as a public node limits it */
+    maxRange: Infinity,
     /** A transfer of `amount` (smallest units) to `to`, in block `block` */
     send(
       amount: bigint | string,
@@ -1036,6 +1038,12 @@ function fakeChain() {
       if (method === 'eth_blockNumber') return answer(`0x${chain.latest.toString(16)}`);
       if (method === 'eth_getLogs') {
         const [from, to] = [Number(at(first, 'fromBlock')), Number(at(first, 'toBlock'))];
+        if (to - from + 1 > chain.maxRange)
+          return Response.json({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32614, message: `eth_getLogs is limited to a ${chain.maxRange} range` },
+          });
         const address = String(at(first, 'address')).toLowerCase();
         const receiver = String(at(first, 'topics', 2)).toLowerCase();
         return answer(
@@ -1113,6 +1121,21 @@ describe('wallet payments', () => {
       'only USDC, to this host, that went through',
     );
     assert.deepEqual((await wallet.scan(scan.upTo)).transfers, [], 'and each block once');
+
+    // A node that gives fewer blocks at a time than asked: the host asks for fewer, and remembers.
+    chain.maxRange = 300;
+    chain.latest = 5000;
+    const far = chain.send(4_000_000n, { block: 200 });
+    const wide = await wallet.scan(scan.upTo);
+    assert.ok(wide.upTo - scan.upTo <= 300n, `no more than the node gives, not ${wide.upTo - scan.upTo}`);
+    assert.deepEqual(
+      wide.transfers.map((transfer) => transfer.tx),
+      [far],
+      'and still each block, from where it left off',
+    );
+    const asked = chain.calls;
+    await wallet.scan(wide.upTo);
+    assert.equal(chain.calls - asked, 2, 'the next scan asks the smaller range at once');
 
     // What the home shows: a link any wallet opens, and the amount in words.
     const request = wallet.request('36004217');
