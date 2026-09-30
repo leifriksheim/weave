@@ -505,7 +505,7 @@ export function RuleBuilder({
                         Add a bot
                       </button>
                     ) : (
-                      'Someone who manages it can add one, under People.'
+                      'Someone who manages it can add one, under Hosting.'
                     )}
                   </>
                 ) : (

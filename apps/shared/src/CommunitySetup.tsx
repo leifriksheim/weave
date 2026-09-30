@@ -603,8 +603,9 @@ function Copyable({ text, secret = false }: { text: string; secret?: boolean }) 
 }
 
 /**
- * The community's AI helpers, in its People tab: always there, whatever the
- * card at the top says. Each bot with how it stands (running, or waiting for
+ * The community's AI helpers, wherever an app shows them (the example's
+ * Hosting and Automations, Liquid's People): always there, whatever the card
+ * at the top says. Each bot with how it stands (running, or waiting for
  * the fund), and for those who may manage the space, Add a bot.
  */
 export function SpaceBots({

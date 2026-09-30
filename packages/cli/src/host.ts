@@ -469,11 +469,20 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
    * paid-until date to what it lasts at the rate it is spent: later after a
    * payment, earlier as its bots spend. Bots stop when it is empty.
    */
-  const refreshFund = async (id: string) => {
-    if (options.free) return;
-    const state = await funds.settle(id);
-    await node.setPaidUntil(id, funds.until(state));
-    void syncBots();
+  let refreshing: Promise<unknown> = Promise.resolve();
+  const refreshFund = (id: string): Promise<void> => {
+    if (options.free) return Promise.resolve();
+    // One at a time: a timer's refresh read before a payment must not write its date after it.
+    const next = refreshing.then(async () => {
+      const state = await funds.settle(id);
+      const until = funds.until(state);
+      // An empty fund never moves its date later: its grace runs from when it ran out, or never starts.
+      const was = (await node.get(id))?.paidUntil ?? 0;
+      await node.setPaidUntil(id, state.balance > 0 ? until : Math.min(until, was));
+    });
+    refreshing = next.catch(() => {});
+    void next.then(syncBots, () => {});
+    return next;
   };
 
   /** Adds a wallet payment to what it paid for, once: its transaction is counted first */

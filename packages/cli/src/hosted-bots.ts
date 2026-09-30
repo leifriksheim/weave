@@ -80,7 +80,7 @@ export function createHostedBots(options: {
   readonly log: (line: string) => void;
 }): HostedBots {
   const { store, log } = options;
-  const nodes = new Map<string, { node: P2PNode; close(): Promise<void> }>();
+  const nodes = new Map<string, Promise<{ node: P2PNode; close(): Promise<void> }>>();
   const runners = new Map<string, () => void>();
 
   const read = async (did: string): Promise<Kept | null> => {
@@ -104,16 +104,21 @@ export function createHostedBots(options: {
   /** A bot's node, opened once and kept open: it holds its spaces whether or not it is paid */
   let closed = false;
   const open = async (kept: Kept) => {
-    const known = nodes.get(kept.did);
-    if (known) return known.node;
-    if (closed) throw new Error('The host is closing');
-    const home = await openHome(kept.folder);
-    const [account] = await home.accounts.list();
-    if (!account) throw new Error(`No account in ${kept.folder}`);
-    const unlocked = await unlock(home, account, { passphrase: kept.passphrase });
-    const started = await startBotNode(unlocked, { nodes: [options.peer()], relays: [] });
-    nodes.set(kept.did, started);
-    return started.node;
+    // The opening is kept, not only its result: a start and a sync reaching one bot together share one node.
+    let opening = nodes.get(kept.did);
+    if (!opening) {
+      if (closed) throw new Error('The host is closing');
+      opening = (async () => {
+        const home = await openHome(kept.folder);
+        const [account] = await home.accounts.list();
+        if (!account) throw new Error(`No account in ${kept.folder}`);
+        const unlocked = await unlock(home, account, { passphrase: kept.passphrase });
+        return startBotNode(unlocked, { nodes: [options.peer()], relays: [] });
+      })();
+      nodes.set(kept.did, opening);
+      opening.catch(() => nodes.delete(kept.did));
+    }
+    return (await opening).node;
   };
 
   // The bots made before a restart come back online.
@@ -218,7 +223,9 @@ export function createHostedBots(options: {
       await reopening.catch(() => {});
       for (const stop of runners.values()) stop();
       runners.clear();
-      await Promise.all([...nodes.values()].map((started) => started.close().catch(() => {})));
+      await Promise.all(
+        [...nodes.values()].map((opening) => opening.then((started) => started.close()).catch(() => {})),
+      );
       nodes.clear();
     },
   });

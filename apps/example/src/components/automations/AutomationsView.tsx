@@ -1,9 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
-import { useAccount, useConnection, useLive, useNode } from '@weaveprotocol/core/react';
+import { useAccount, useLive, useNode } from '@weaveprotocol/core/react';
 import { nameOf } from '../../derive/people';
 import { ago } from '../../derive/time';
-import { useSubscriptions } from '../../notifications';
 import {
   rule as ruleCollection,
   ruleOf,
@@ -15,18 +14,17 @@ import { Person, usePeopleHere } from '../Person';
 import { Icon } from '../Icon';
 import { styles, palette } from '../../styles';
 import { RuleBuilder } from './RuleBuilder';
-import { WatchBuilder } from './WatchBuilder';
+import { Empty, SectionHead, iconDot, list, section } from './parts';
+import { SpaceBots } from '@weave/app-shared/CommunitySetup';
 
-type Open =
-  | { readonly kind: 'watch' }
-  | { readonly kind: 'rule'; readonly editing?: NodeRecord; readonly start?: PickedRule }
-  | null;
+type Open = { readonly kind: 'rule'; readonly editing?: NodeRecord; readonly start?: PickedRule } | null;
 
 /**
- * What the space does without anyone doing it: the notifications you asked
- * for here, and the rules people made — each in a sentence, with what it
- * did lately. Everyone sees every rule; only its maker changes it, and only
- * their devices run it.
+ * What the space does without anyone doing it: the rules people made, each
+ * in a sentence, with what it did lately, and the bots that can run them.
+ * Everyone sees every rule; only its maker changes it, and only their devices
+ * run it, or the bot it names. What you asked to hear about is yours alone,
+ * under Notifications.
  */
 export function AutomationsView({
   space,
@@ -37,13 +35,11 @@ export function AutomationsView({
 }) {
   const node = useNode();
   const { did } = useAccount();
-  const { state } = useConnection();
   const here = usePeopleHere();
   const people = here?.people ?? new Map();
   const [open, setOpen] = useState<Open>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const watches = useSubscriptions().filter((sub) => sub.spaces === 'all' || sub.spaces.includes(space.id));
   const defined = collections.some((c) => c.name === ruleCollection.name && c.version !== null);
   const rules = useLive(
     space.id,
@@ -77,57 +73,12 @@ export function AutomationsView({
       <header style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <h2 style={{ ...styles.appTitle, fontSize: 22 }}>Automations</h2>
         <p style={{ fontSize: 14, color: palette.ink.muted, lineHeight: 1.55 }}>
-          Hear about what matters to you in {space.name}, and let the space look after the rest: close a poll
-          once enough people voted, tell the chat when a task is done.
+          Let {space.name} look after itself: close a poll once enough people voted, tell the chat when a task
+          is done, have a bot sum up the week.
         </p>
       </header>
 
-      <section style={section}>
-        <SectionHead
-          title="Notify me"
-          about="Only you see these. This app lets you know while it's open."
-          action="New notification"
-          onAction={() => setOpen({ kind: 'watch' })}
-        />
-        {watches.length === 0 ? (
-          <Empty>You haven't asked to hear about anything here yet.</Empty>
-        ) : (
-          <ul style={list}>
-            {watches.map((sub) => (
-              <li key={sub.id} style={row}>
-                <span style={iconDot}>
-                  <Icon name={sub.paused ? 'bell' : 'bellOn'} size={14} />
-                </span>
-                <span style={{ flex: 1, minWidth: 0, opacity: sub.paused ? 0.55 : 1 }}>
-                  <span style={{ display: 'block', color: palette.ink.strong, fontWeight: 500 }}>
-                    {sub.label}
-                  </span>
-                  <span style={{ fontSize: 12.5, color: palette.ink.muted }}>
-                    {sub.spaces === 'all' ? 'In all your spaces' : `In ${space.name}`}
-                    {sub.where !== undefined ? ' · with conditions' : ''}
-                    {sub.paused ? ' · paused' : ''}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {watches.length > 0 && (
-          <button
-            onClick={() =>
-              globalThis.open(
-                `${new URL('.', state.home).href}#notifications`,
-                'weave-account',
-                'popup,width=720,height=820',
-              )
-            }
-            data-variant="ghost"
-            style={{ ...styles.linkButton, alignSelf: 'flex-start' }}
-          >
-            Pause or remove them in your account ↗
-          </button>
-        )}
-      </section>
+      <SpaceBots spaceId={space.id} writable={space.writable} />
 
       <section style={section}>
         <SectionHead
@@ -284,9 +235,6 @@ export function AutomationsView({
         )}
       </section>
 
-      {open?.kind === 'watch' && (
-        <WatchBuilder space={space} collections={collections} onClose={() => setOpen(null)} />
-      )}
       {open?.kind === 'rule' && (
         <RuleBuilder
           space={space}
@@ -300,71 +248,6 @@ export function AutomationsView({
   );
 }
 
-function SectionHead({
-  title,
-  about,
-  action,
-  onAction,
-  disabled,
-}: {
-  title: string;
-  about: string;
-  action: string;
-  onAction: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-      <div style={{ flex: 1, minWidth: 200 }}>
-        <h3 style={{ ...styles.sectionTitle, fontSize: 16 }}>{title}</h3>
-        <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>{about}</p>
-      </div>
-      <button
-        onClick={onAction}
-        disabled={disabled}
-        data-variant="primary"
-        style={{
-          ...styles.addButton,
-          height: 34,
-          fontSize: 13,
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-        }}
-      >
-        <Icon name="plus" size={13} /> {action}
-      </button>
-    </div>
-  );
-}
-
-function Empty({ children }: { children: ReactNode }) {
-  return (
-    <p
-      style={{
-        padding: '18px 16px',
-        borderRadius: 10,
-        border: `1px dashed ${palette.surface.lineStrong}`,
-        color: palette.ink.muted,
-        fontSize: 13.5,
-        textAlign: 'center',
-      }}
-    >
-      {children}
-    </p>
-  );
-}
-
-const section = { display: 'flex', flexDirection: 'column', gap: 12 } as const;
-const list = { listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 } as const;
-const row = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-  padding: '10px 12px',
-  border: `1px solid ${palette.surface.line}`,
-  borderRadius: 10,
-} as const;
 const ruleCard = {
   display: 'flex',
   flexDirection: 'column',
@@ -372,17 +255,6 @@ const ruleCard = {
   padding: 14,
   border: `1px solid ${palette.surface.line}`,
   borderRadius: 12,
-} as const;
-const iconDot = {
-  width: 28,
-  height: 28,
-  borderRadius: 8,
-  flexShrink: 0,
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: palette.surface.sunken,
-  color: palette.ink.body,
 } as const;
 const ideaTile = {
   display: 'flex',

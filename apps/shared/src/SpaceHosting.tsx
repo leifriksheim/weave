@@ -77,8 +77,9 @@ export function standing(view: SpaceHostingView): { tone: Tone; pill: string; li
 }
 
 /**
- * Keeping a space online, in the People tab of any app: how it stands, and
- * Chip in for anyone. Whoever may manage the space turns it on here too.
+ * Keeping a space online, wherever an app shows it (the example's Hosting
+ * tab, Liquid's People): how it stands, and Chip in for anyone. Whoever may
+ * manage the space turns it on here too.
  */
 export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable: boolean }) {
   const { hosts, look, mayChoose } = useSpaceHosts(spaceId, writable);

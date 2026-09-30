@@ -9,6 +9,7 @@ import {
 } from '../../derive/conditions';
 import { nameOf, type People } from '../../derive/people';
 import { styles, palette } from '../../styles';
+import { Icon } from '../Icon';
 
 /**
  * The pieces the notification and rule builders share: a sentence made of
@@ -404,3 +405,81 @@ const stepLabel: CSSProperties = {
   color: palette.ink.faint,
   paddingTop: 8,
 };
+
+/** What a list of automations or notifications is made of, headed and empty alike */
+export function SectionHead({
+  title,
+  about,
+  action,
+  onAction,
+  disabled,
+}: {
+  title: string;
+  about: string;
+  action: string;
+  onAction: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <h3 style={{ ...styles.sectionTitle, fontSize: 16 }}>{title}</h3>
+        <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>{about}</p>
+      </div>
+      <button
+        onClick={onAction}
+        disabled={disabled}
+        data-variant="primary"
+        style={{
+          ...styles.addButton,
+          height: 34,
+          fontSize: 13,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <Icon name="plus" size={13} /> {action}
+      </button>
+    </div>
+  );
+}
+
+export function Empty({ children }: { children: ReactNode }) {
+  return (
+    <p
+      style={{
+        padding: '18px 16px',
+        borderRadius: 10,
+        border: `1px dashed ${palette.surface.lineStrong}`,
+        color: palette.ink.muted,
+        fontSize: 13.5,
+        textAlign: 'center',
+      }}
+    >
+      {children}
+    </p>
+  );
+}
+
+export const section = { display: 'flex', flexDirection: 'column', gap: 12 } as const;
+export const list = { listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 } as const;
+export const row = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '10px 12px',
+  border: `1px solid ${palette.surface.line}`,
+  borderRadius: 10,
+} as const;
+export const iconDot = {
+  width: 28,
+  height: 28,
+  borderRadius: 8,
+  flexShrink: 0,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: palette.surface.sunken,
+  color: palette.ink.body,
+} as const;

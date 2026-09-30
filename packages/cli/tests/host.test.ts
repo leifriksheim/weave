@@ -745,6 +745,10 @@ describe('bots a host runs', () => {
     const paying = await laptop.hosting.payForSpace(space, url, { amount: '10', method: 'request' });
     assert.ok('request' in paying);
     assert.match(paying.request.amount, /^10\.\d+ USDC/);
+    // Asked for is not paid: however often the host settles the empty fund, it carries nothing.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const [asked] = await laptop.hosting.space(space);
+    assert.equal(asked?.status?.carrying, false, 'an empty fund starts no grace');
     chain.latest = 150;
     chain.send(BigInt(paying.request.evm!.units), { block: 147 });
     await until(

@@ -1,6 +1,7 @@
 /** Line icons on a 16px grid, drawn in the text colour around them */
 export const ICONS = {
   lock: 'M4.5 7V5a3.5 3.5 0 0 1 7 0v2M3 7h10v7H3z',
+  cloud: 'M4.5 12.5h7a3 3 0 0 0 .4-6A4 4 0 0 0 4.3 6 3.25 3.25 0 0 0 4.5 12.5Z',
   globe:
     'M8 1.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13ZM1.5 8h13M8 1.5c1.8 1.8 2.6 4 2.6 6.5S9.8 12.7 8 14.5M8 1.5C6.2 3.3 5.4 5.5 5.4 8s.8 4.7 2.6 6.5',
   mic: 'M8 1.5a2 2 0 0 1 2 2V8a2 2 0 0 1-4 0V3.5a2 2 0 0 1 2-2ZM3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5',
