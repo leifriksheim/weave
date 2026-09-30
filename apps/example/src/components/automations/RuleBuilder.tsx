@@ -103,14 +103,16 @@ export function RuleBuilder({
   const [every, setEvery] = useState(stored?.every ?? SCHEDULES[0]!.value);
   const [ownTime, setOwnTime] = useState(!SCHEDULES.some((s) => s.value === every));
   const everyProblem = timed ? checkCron(every) : null;
-  // Who does it, for a rule that asks or runs at set times: their own agent, or a bot here.
-  const [by, setBy] = useState<string>(stored?.by ?? '');
   // The bots the space's host runs, whoever says so on their own profile here, and the one a rule being changed names.
   const saidBots = useBots(space.id);
   const { bots: known } = useSpaceBots(space.id, space.writable);
   const bots = [
     ...new Set([...known.map((bot) => bot.did), ...saidBots, ...(stored?.by ? [stored.by] : [])]),
   ].map((d) => ({ did: d, name: known.find((bot) => bot.did === d)?.name ?? nameOf(d, people) }));
+  // Who does it, for a rule that asks or runs at set times: their own agent, or a bot here. A new
+  // rule starts with the space's bot, one the host runs first: the agent needs a computer left on.
+  const [chosenBy, setBy] = useState<string | null>(stored ? (stored.by ?? '') : null);
+  const by = chosenBy ?? known.find((bot) => bot.state === 'on')?.did ?? bots[0]?.did ?? '';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
