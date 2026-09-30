@@ -287,7 +287,7 @@ by a convention built on the protocol (`packages/core/docs/`), not by it:
 | `weave/knock-answer/v1\|<space>\|<account>`            | Signed by a door signing key                     | `doors/doors.ts` (`signAnswer`)                               | docs   |
 | `weave-peer/v3\|client\|…`, `weave-peer/v3\|server\|…` | Signed peer-auth messages                        | `network/peer-auth.ts:191,193`                                | 04     |
 | `weave-mesh/v1\|…`                                     | Signed mesh proof                                | `network/peer-auth.ts:315`                                    | 04     |
-| `weave-host/v1\n…`, `weave-host-status/v1\n…`          | Signed host requests and statuses                | `session/hosting.ts:78,357`                                   | 06     |
+| `weave-host/v1\n…`, `weave-host-status/v1\n…`          | Signed host requests and statuses                | `session/hosting.ts:78,359`                                   | 06     |
 
 Notes:
 
