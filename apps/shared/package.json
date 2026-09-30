@@ -8,6 +8,7 @@
     "./relay": "./src/relay.ts",
     "./Avatar": "./src/Avatar.tsx",
     "./Info": "./src/Info.tsx",
+    "./SpaceHosting": "./src/SpaceHosting.tsx",
     "./Modal": "./src/Modal.tsx",
     "./Wordmark": "./src/Wordmark.tsx",
     "./useDismiss": "./src/useDismiss.ts",

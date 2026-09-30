@@ -1,42 +1,43 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DEFINE, describeHost, roleHolds } from '@weaveprotocol/core';
-import type { NodeCollection, SpaceHostingView, SpaceSummary } from '@weaveprotocol/core';
-import { useAccess, useNode } from '@weaveprotocol/core/react';
+import type { HostDescription, SpaceHostingView } from '@weaveprotocol/core';
+import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
 import { host as hostSchema } from '@weaveprotocol/core/schemas';
-import { styles, palette } from '../styles';
+import { DEFAULT_HOST } from './relay';
+import { styles, palette } from './styles';
 
 /** Who may choose the space's host: `std.host` asks for this permission */
 const MANAGE_HOST = `${hostSchema.name}/manage`;
 const DAY = 24 * 3600;
 
 /**
- * Keeping a space online by paying for it together: the hosts it names in
- * `std.host`, how long each is paid for, and a Chip in button anyone may use.
- * Whoever may manage it picks the host. Members' devices hand the host the
- * space's pass once it is paid, so it keeps the space without reading it.
+ * Keeping a space online by paying for it together, in any app: the hosts the
+ * space names in `std.host`, how long each is paid for, and a Chip in button
+ * anyone may use. Whoever may manage it picks the host, the build's own
+ * (`VITE_WEAVE_HOST`) in one click, any other by its address. Members' devices
+ * hand the host the space's pass once it is paid, so it keeps the space
+ * without reading it, and reach it over its socket.
  */
-export function SpaceHosting({
-  space,
-  collections,
-}: {
-  space: SpaceSummary;
-  collections: ReadonlyArray<NodeCollection>;
-}) {
+export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable: boolean }) {
   const node = useNode();
-  const access = useAccess(space.id);
+  const access = useAccess(spaceId);
+  const collections = useCollections(spaceId);
   const [hosts, setHosts] = useState<ReadonlyArray<SpaceHostingView> | null>(null);
+  const [offer, setOffer] = useState<HostDescription | null>(null);
+  const [other, setOther] = useState(!DEFAULT_HOST);
   const [adding, setAdding] = useState('');
+  const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const defined = collections.some((c) => c.name === hostSchema.name && c.version !== null);
   // A space that never named a host has none to ask about.
   const shown = defined ? hosts : [];
-  const mayChoose = space.writable && roleHolds(access?.role, MANAGE_HOST);
-  const mayDefine = space.writable && roleHolds(access?.role, DEFINE);
+  const mayChoose = writable && roleHolds(access?.role, MANAGE_HOST);
+  const mayDefine = writable && roleHolds(access?.role, DEFINE);
 
   const look = useCallback(() => {
     if (!defined) return;
-    void node.hosting.space(space.id).then(setHosts, () => setHosts([]));
-  }, [node, space.id, defined]);
+    void node.hosting.space(spaceId).then(setHosts, () => setHosts([]));
+  }, [node, spaceId, defined]);
   useEffect(() => {
     look();
     // Back from the pay page in another tab: the date has moved.
@@ -44,14 +45,19 @@ export function SpaceHosting({
     document.addEventListener('visibilitychange', again);
     return () => document.removeEventListener('visibilitychange', again);
   }, [look]);
+  useEffect(() => {
+    if (!DEFAULT_HOST || !mayChoose) return;
+    void describeHost(DEFAULT_HOST).then(setOffer, () => setOther(true));
+  }, [mayChoose]);
 
-  const choose = async () => {
+  const choose = async (address: string) => {
     setProblem(null);
+    setBusy(true);
     try {
-      const url = new URL(adding.trim()).origin;
+      const url = new URL(address.trim()).origin;
       const description = await describeHost(url);
-      if (!defined) await node.collections.define(space.id, hostSchema);
-      await node.records.put(space.id, hostSchema.name, {
+      if (!defined) await node.collections.define(spaceId, hostSchema);
+      await node.records.put(spaceId, hostSchema.name, {
         url,
         did: description.did,
         name: description.name,
@@ -60,14 +66,18 @@ export function SpaceHosting({
       look();
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
     }
   };
   const remove = async (url: string) => {
-    const records = await node.records.list<{ url?: string }>(space.id, { collection: hostSchema.name });
+    const records = await node.records.list<{ url?: string }>(spaceId, { collection: hostSchema.name });
     for (const record of records)
-      if (record.body?.url === url) await node.records.delete(space.id, record.key);
+      if (record.body?.url === url) await node.records.delete(spaceId, record.key);
     look();
   };
+
+  const mayStart = mayChoose && (defined || mayDefine) && shown?.length === 0;
 
   return (
     <section aria-label="Keeping it online" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -76,7 +86,7 @@ export function SpaceHosting({
         A host keeps the space online when nobody has it open, without being able to read it. The space pays
         for it together: anyone here can chip in, and what they pay adds time.
       </p>
-      {shown?.length === 0 && (
+      {shown?.length === 0 && !mayStart && (
         <div style={{ ...styles.emptyState, padding: '16px' }}>
           No host keeps this space online yet. It is online while someone in it is.
         </div>
@@ -109,17 +119,42 @@ export function SpaceHosting({
             </button>
           )}
           {mayChoose && (
-            <button data-variant="danger" style={styles.smallButton} onClick={() => void remove(view.url)}>
+            <button data-variant="quiet" style={styles.smallButton} onClick={() => void remove(view.url)}>
               Stop using
             </button>
           )}
         </article>
       ))}
-      {mayChoose && (defined || mayDefine) && (
+      {mayStart && offer && DEFAULT_HOST && !other && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 12,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              alignSelf: 'stretch',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span style={{ fontSize: 14, color: palette.ink.strong }}>
+              {offer.name}
+              {offer.free ? ' · free' : offer.price ? ` · ${offer.price}` : ''}
+            </span>
+            <button disabled={busy} style={styles.addButton} onClick={() => void choose(DEFAULT_HOST ?? '')}>
+              {busy ? 'Starting…' : 'Keep it online'}
+            </button>
+          </div>
+          <button data-variant="quiet" style={styles.smallButton} onClick={() => setOther(true)}>
+            Use another host
+          </button>
+        </div>
+      )}
+      {mayStart && other && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void choose();
+            void choose(adding);
           }}
           style={{ display: 'flex', gap: 8 }}
         >
@@ -130,7 +165,7 @@ export function SpaceHosting({
             aria-label="A host’s address"
             style={{ ...styles.input, flex: 1 }}
           />
-          <button type="submit" disabled={!adding.trim()} style={styles.addButton}>
+          <button type="submit" disabled={busy || !adding.trim()} style={styles.addButton}>
             Use this host
           </button>
         </form>
@@ -145,10 +180,15 @@ function standing(view: SpaceHostingView): string {
   if (view.error) return `Could not reach it: ${view.error}`;
   const status = view.status;
   if (!status || status.state === 'none') return 'Not paid for yet. Chip in to start.';
+  const until = new Date(status.paidUntil * 1000).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+  });
   const left = Math.ceil((status.paidUntil - Date.now() / 1000) / DAY);
-  const kept = status.carrying ? '' : ' Waiting for a member’s device to hand it over.';
-  if (status.state === 'active' && status.paidUntil === 0) return `Free on this host.${kept}`;
-  if (status.state === 'active') return `${left} day${left === 1 ? '' : 's'} left.${kept}`;
+  const kept = status.carrying ? 'Online' : 'Waiting for a member’s device to hand it over';
+  if (status.state === 'active' && status.paidUntil === 0) return `${kept} · free on this host`;
+  if (status.state === 'active')
+    return `${kept} · funded until ${until}${left <= 14 ? `, ${left} day${left === 1 ? '' : 's'} left` : ''}`;
   if (status.state === 'grace')
     return 'The time ran out; it is kept a little longer. Chip in to keep it online.';
   return 'The time ran out. Chip in to bring it back online.';
