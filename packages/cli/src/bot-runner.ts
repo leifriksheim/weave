@@ -8,7 +8,7 @@
 import type { P2PNode } from '@weaveprotocol/core';
 import { startRules, type RuleTrigger } from '@weaveprotocol/core/schemas';
 import { createAgentChat, spendFor, type Price, type Spend, type Think } from './agent-chat.js';
-import { ruleContext, triggerPrompt } from './agent-rules.js';
+import { ruleContext, triggerPrompt, writerInstructs } from './agent-rules.js';
 import { PEER_CONTENT_NOTE } from './mcp.js';
 
 export interface RuleRunnerOptions {
@@ -75,9 +75,16 @@ export function runRules(options: RuleRunnerOptions): () => void {
       unattended: true,
       ...(options.bot ? { bot: options.bot } : {}),
     });
+    const context = await ruleContext(node, trigger).catch(() => undefined);
     try {
       const { cost, text } = await run.say(
-        triggerPrompt(trigger, PEER_CONTENT_NOTE, await ruleContext(node, trigger).catch(() => undefined)),
+        triggerPrompt(trigger, PEER_CONTENT_NOTE, {
+          ...(context ? { context } : {}),
+          writerInstructs: await writerInstructs(node, trigger, {
+            account: options.account,
+            bot: !!options.bot,
+          }).catch(() => false),
+        }),
       );
       log(`  [${name}] ${text || 'Done.'} · $${cost.toFixed(3)} · ${await today()}`);
       return { did: text || 'Done.', ok: true };

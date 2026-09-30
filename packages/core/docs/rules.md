@@ -95,8 +95,15 @@ In `text`, `{title}` is what the record is called (its `title`, `name`,
 that include found: `{messages}` above.
 
 `ask` is for an agent: `weave agent`, or a bot. It is told the rule's words
-as its maker's, and what set it off as data, never as instructions. A runner
-without one leaves rules that ask to one that has.
+as its maker's, and what set it off as data, never as instructions, with one
+exception: when whoever wrote that record may instruct it (for a bot, the
+rule's maker or anyone holding `std.rule/instruct` in the space; for a
+person's own agent, only the person), the runner says so, and what they ask
+in it may be done. What it quotes, and the messages before it, stay data. A
+runner without one leaves rules that ask to one that has.
+
+_Source:_ `packages/cli/src/agent-rules.ts` (`triggerPrompt`, `ruleContext`,
+`writerInstructs`); `packages/cli/tests/agent-rules.test.ts`.
 
 ## Running
 
