@@ -33,8 +33,9 @@ const MAGIC = new Uint8Array([0x77, 0x65, 0x61, 0x76, 0x65, 0x65, 0x02, 0x00]); 
 const IV_BYTES = 12;
 
 /**
- * What gets sealed by default: the space registry — each space, its key, and
- * the write secret of a shared one — and nothing else.
+ * What gets sealed by default: every entry of the space registry — each
+ * space, its key, the write secret of a shared one, this account's member key
+ * for it and its relays — and nothing else.
  *
  * A prefix match, so each must end in its colon: `space:` does not cover
  * `spaceinvite:`, and an invite secret left out here is anyone-with-the-folder
@@ -45,7 +46,19 @@ export const DEFAULT_ENCRYPTED_PREFIXES: ReadonlyArray<string> = [
   'spacekey:',
   'spaceinvite:',
   'spacerole:',
+  'spacememberkey:',
+  'spacerelays:',
 ];
+
+/**
+ * Prefixes older folders wrote in the clear. Their entries are sealed the
+ * first time the folder is read with this adapter; after that, one in the
+ * clear is refused like any other.
+ */
+const SEALED_LATER: ReadonlyArray<string> = ['spacememberkey:', 'spacerelays:'];
+
+/** Written, sealed, once a folder's older entries are sealed */
+const SEALED_LATER_DONE = 'sealed:v1';
 
 export interface EncryptedAdapterOptions {
   /** Key prefixes whose values are sealed. Defaults to {@link DEFAULT_ENCRYPTED_PREFIXES}. */
@@ -84,6 +97,31 @@ export function createEncryptedAdapter(
 
   const bound = (storageKey: string) => new TextEncoder().encode(storageKey);
 
+  /**
+   * Seals what an older folder left in the clear, once: every entry under a
+   * prefix sealed only since, then the mark that it is done. Until the mark
+   * is there, nothing under those prefixes is read.
+   */
+  const later = SEALED_LATER.filter((prefix) => prefixes.includes(prefix));
+  let catchingUp: Promise<void> | null = null;
+  const caughtUp = (storageKey: string): Promise<void> | null => {
+    if (!later.some((prefix) => storageKey.startsWith(prefix))) return null;
+    catchingUp ??= (async () => {
+      if (await inner.has(SEALED_LATER_DONE)) return;
+      for (const prefix of later) {
+        for (const entry of await inner.list(prefix)) {
+          const bytes = await inner.get(entry);
+          if (bytes && !isSealed(bytes)) await inner.put(entry, await seal(entry, bytes));
+        }
+      }
+      await inner.put(SEALED_LATER_DONE, await seal(SEALED_LATER_DONE, new Uint8Array([1])));
+    })().catch((error: unknown) => {
+      catchingUp = null;
+      throw error;
+    });
+    return catchingUp;
+  };
+
   async function seal(storageKey: string, value: Uint8Array): Promise<Uint8Array> {
     const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
     const ciphertext = await globalThis.crypto.subtle.encrypt(
@@ -109,16 +147,19 @@ export function createEncryptedAdapter(
 
   return Object.freeze({
     async get(storageKey: string): Promise<Uint8Array | null> {
+      await caughtUp(storageKey);
       const bytes = await inner.get(storageKey);
       if (!bytes || !shouldSeal(storageKey)) return bytes;
       return unseal(storageKey, bytes);
     },
 
     async put(storageKey: string, value: Uint8Array): Promise<void> {
+      await caughtUp(storageKey);
       return inner.put(storageKey, shouldSeal(storageKey) ? await seal(storageKey, value) : value);
     },
 
     async batch(ops: ReadonlyArray<BatchOp>): Promise<void> {
+      for (const op of ops) await caughtUp(op.key);
       const prepared = await Promise.all(
         ops.map(async (op): Promise<BatchOp> =>
           op.type === 'put' && shouldSeal(op.key)

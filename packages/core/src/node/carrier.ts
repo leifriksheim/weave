@@ -159,6 +159,12 @@ export interface CarryCoreConfig {
   readonly mirror?: BlobStore;
   /** A space nobody asks for any more was let go — not one opened again after a key change */
   readonly onRelease?: (spaceId: string) => Promise<void>;
+  /**
+   * Whether an account's carry space may name no more spaces: those it names
+   * already stay, and a new one is taken only once this says no — a host's
+   * storage limit
+   */
+  readonly full?: (carrySpace: string) => boolean;
 }
 
 /**
@@ -333,6 +339,9 @@ export async function createCarryCore(config: CarryCoreConfig) {
         if (!record.key.startsWith('pass:')) continue;
         const pass = await openPass(record.body, provider);
         if (!pass || carries.has(pass.space.id)) continue;
+        // Over its limit: no new space, though one held already for someone else costs nothing more.
+        const more = !entry.wants.has(pass.space.id) && !carried.has(pass.space.id);
+        if (more && config.full?.(carrySpace)) continue;
         wants.add(pass.space.id);
         // Two accounts naming one space: a pass for a later key beats one for the space's first,
         // since an account whose pass is behind just hasn't caught up yet.
@@ -373,6 +382,8 @@ export async function createCarryCore(config: CarryCoreConfig) {
     podDid,
     carried: carriedView,
     carries: carriesView,
+    /** Reads every carry space's passes again: after what `full` says changed */
+    refresh,
 
     /**
      * Starts carrying for an account: joins its carry space and every space

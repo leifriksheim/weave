@@ -122,16 +122,17 @@ import {
 import {
   createHostClient,
   createSpaceHostClient,
-  spacePayLink,
   describeHost,
+  hostPeerAddress,
   HOSTING_COLLECTION,
   HostError,
   newSubscriptionSeed,
-  payLink,
   readStatus,
   subscriptionKey,
   type HostClient,
   type HostDescription,
+  type HostPlan,
+  type FundPayment,
   type HostStatus,
   type Hosting,
   type SignedStatus,
@@ -477,6 +478,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       // Carriers added since this space was last open.
       void open.then((rt) => nameKeepers(spaceId, rt)).catch(() => {});
       runtimes.set(spaceId, open);
+      // The hosts the account or the space uses, reached over their sockets.
+      void open.then(() => reachHosts(spaceId)).catch(() => {});
     }
     return open;
   }
@@ -523,6 +526,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   async function closeRuntime(spaceId: string): Promise<void> {
     holds.delete(spaceId);
+    reaching.delete(spaceId);
     const open = runtimes.get(spaceId);
     if (!open) return;
     runtimes.delete(spaceId);
@@ -813,6 +817,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     for (const [spaceId, open] of runtimes) void open.then((rt) => nameKeepers(spaceId, rt)).catch(() => {});
     // Not awaited: a host that is slow to answer must not hold up the rest.
     void keepHosted().catch(() => {});
+    // Hosts came or went: every open space holds a socket to those the account uses now.
+    for (const spaceId of runtimes.keys()) void reachHosts(spaceId).catch(() => {});
 
     if (changed) emit({ type: 'spaces' });
   }
@@ -1186,17 +1192,21 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     kept: HostStatus | null,
     status: HostStatus,
     receipt: SignedStatus,
-    name: string,
+    description: HostDescription,
   ): Promise<void> {
     if (agentSession || !accountSpaceId) return;
+    const { name } = description;
+    const peer = hostPeerAddress(hosting.url, description) ?? undefined;
     const same =
       kept &&
       kept.state === status.state &&
       kept.paidUntil === status.paidUntil &&
       kept.renews === status.renews &&
-      hosting.name === name;
+      hosting.name === name &&
+      hosting.peer === peer;
     if (same) return;
-    const record: Hosting = { ...hosting, name, receipt };
+    const { peer: _before, ...rest } = hosting;
+    const record: Hosting = { ...rest, name, receipt, ...(peer ? { peer } : {}) };
     await (
       await runtime(accountSpaceId)
     ).upsertSystem<Hosting>(HOSTING_COLLECTION, await hostingKey(hosting.url), record);
@@ -1234,14 +1244,14 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           handing.delete(hosting.url);
         }
       }
-      await keepReceipt(hosting, kept, status, receipt, description.name);
+      await keepReceipt(hosting, kept, status, receipt, description);
       return {
         ...base,
         name: description.name,
         status,
         live: true,
-        pays: description.pay !== undefined,
-        ...(description.price ? { price: description.price } : {}),
+        plans: plansFor(description, 'account'),
+        reminds: description.remind === true,
       };
     } catch (error) {
       return {
@@ -1249,11 +1259,16 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         name: hosting.name ?? new URL(hosting.url).host,
         status: kept,
         live: false,
-        pays: false,
+        plans: [],
+        reminds: false,
         error: error instanceof Error ? error.message : String(error),
       };
     }
   }
+
+  /** The plans a host describes for an account's subscription, or a space's own */
+  const plansFor = (description: HostDescription, who: 'account'): ReadonlyArray<HostPlan> =>
+    (description.plans ?? []).filter((plan) => Array.isArray(plan.for) && plan.for.includes(who));
 
   /** Every device keeps its hosts carrying: after the registry changes, ask each once more */
   async function keepHosted(): Promise<void> {
@@ -1326,7 +1341,17 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       const description = await describeHost(named.url);
       // A host whose key changed since the space chose it is not the host it chose.
       if (named.did && named.did !== description.did)
-        return { url: named.url, name, host: null, status: null, pay: null, error: 'The host’s key changed' };
+        return {
+          url: named.url,
+          name,
+          host: null,
+          status: null,
+          fund: null,
+          reminds: false,
+          runsBots: false,
+          bots: [],
+          error: 'The host’s key changed',
+        };
       const client = createSpaceHostClient(named.url, description.did, provider);
       let { status } = await client.status(spaceId);
       // Paid, or a free host that hasn't let it lapse, as for an account's subscription.
@@ -1340,33 +1365,104 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         if (!status.carrying || (pass.read && status.readKey !== currentReadKey(pass)))
           ({ status } = await client.hand(spaceId, pass));
       }
-      const pay =
-        description.pay === undefined
-          ? null
-          : spacePayLink(new URL(description.pay, `${named.url}/`).toString(), spaceId);
-      return { url: named.url, name: named.name ?? description.name, host: description.did, status, pay };
+      return {
+        url: named.url,
+        name: named.name ?? description.name,
+        host: description.did,
+        status,
+        fund: description.free ? null : (description.fund ?? null),
+        reminds: description.remind === true,
+        runsBots: description.bots === true,
+        bots: status.bots ?? [],
+      };
     } catch (error) {
       return {
         url: named.url,
         name,
         host: null,
         status: null,
-        pay: null,
+        fund: null,
+        reminds: false,
+        runsBots: false,
+        bots: [],
         error: error instanceof Error ? error.message : String(error),
       };
     }
   }
 
+  /** A client for a host a space names, checked to be the host it chose */
+  async function spaceHostClient(spaceId: string, url: string) {
+    const named = (await namedHosts(spaceId)).find((known) => known.url === url);
+    if (!named) throw new Error('This space doesn’t use the host at that address');
+    const description = await describeHost(named.url);
+    if (named.did && named.did !== description.did) throw new Error('The host’s key changed');
+    return createSpaceHostClient(named.url, description.did, provider);
+  }
+
   /** Hands the hosts a space names its pass, when they were paid and don't carry it with its key yet */
   async function keepSpaceHosts(spaceId: string): Promise<void> {
-    if (agentSession || spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId))
-      return;
+    if (spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId)) return;
     const hosts = await namedHosts(spaceId);
+    await reachHosts(spaceId, hosts);
+    if (agentSession) return;
     const named = hosts.map((h) => h.url).join(' ');
     const asked = spaceHostsAsked.get(spaceId);
     if (!hosts.length || (asked?.named === named && Date.now() - asked.at < SPACE_HOSTS_EVERY_MS)) return;
     spaceHostsAsked.set(spaceId, { at: Date.now(), named });
     for (const known of hosts) await askSpaceHost(spaceId, known, true);
+  }
+
+  // ─── Reaching hosts ────────────────────────────────────────────────
+  //
+  // A host is reached over its socket, at the address its description names
+  // (`peer`). Every space holds one to each host the account uses, as the
+  // account's carry space names them all; a space also holds one to each host
+  // it pays itself (`std.host`). The account registry also tries the hosts
+  // the node was built with (`network.hosts`), so a new device with only the
+  // recovery code finds its registry there, and every space from it.
+
+  /** Each host's socket address, as its description said: asked once, and again after a failure */
+  const describedPeers = new Map<string, Promise<string | null>>();
+  function describedPeer(url: string): Promise<string | null> {
+    let found = describedPeers.get(url);
+    if (!found) {
+      found = describeHost(url).then(
+        (description) => hostPeerAddress(url, description),
+        () => {
+          describedPeers.delete(url);
+          return null;
+        },
+      );
+      describedPeers.set(url, found);
+    }
+    return found;
+  }
+  /** A host's socket address: the one written down with it, or its description's */
+  const peerOf = async (host: { url: string; peer?: string }): Promise<string | null> =>
+    (host.peer ? hostPeerAddress(host.url, { peer: host.peer }) : null) ?? describedPeer(host.url);
+
+  /** What each space was last told to reach, so nothing reconnects when nothing changed */
+  const reaching = new Map<string, string>();
+
+  /** Gives a space's runtime the hosts to hold sockets to: the account's, and those it pays itself */
+  async function reachHosts(
+    spaceId: string,
+    spaceHosts?: ReadonlyArray<{ url: string; peer?: string }>,
+  ): Promise<void> {
+    if (!config.network) return;
+    const open = runtimes.get(spaceId);
+    if (!open) return;
+    const hosts: Array<{ url: string; peer?: string }> = [...(await hostingRecords())];
+    if (spaceId === accountSpaceId) hosts.push(...(config.network.hosts ?? []).map((url) => ({ url })));
+    const own = spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId);
+    if (!own) hosts.push(...(spaceHosts ?? (await namedHosts(spaceId))));
+    const peers = [
+      ...new Set((await Promise.all(hosts.map(peerOf))).filter((peer): peer is string => peer !== null)),
+    ].sort();
+    const said = peers.join(' ');
+    if (reaching.get(spaceId) === said || runtimes.get(spaceId) !== open) return;
+    reaching.set(spaceId, said);
+    (await open).useNodes(peers);
   }
 
   const hosting: NodeHosting = Object.freeze({
@@ -1389,10 +1485,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       const known = (await hostingRecords()).find((existing) => existing.url === base);
       if (known) return viewHosting(known, true);
       const description = await describeHost(base);
+      const peer = hostPeerAddress(base, description);
       const record: Hosting = {
         url: base,
         host: description.did,
         name: description.name,
+        ...(peer ? { peer } : {}),
         seed: base64UrlEncode(newSubscriptionSeed()),
         since: new Date().toISOString(),
       };
@@ -1402,17 +1500,31 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return viewHosting(record, true);
     },
 
-    async payPage(url: string) {
-      const known = await requireHosting(url);
-      const description = await describeKnown(known);
-      if (description.pay === undefined) throw new Error('This host takes no payments');
-      const page = checkAddress(new URL(description.pay, `${known.url}/`).toString(), 'A pay page');
-      return payLink(
-        page.toString(),
-        known.host,
-        await subscriptionKey(base64UrlDecode(known.seed), provider),
-        provider,
-      );
+    async pay(url: string, plan: string) {
+      return (await hostClient(await requireHosting(url))).client.pay(plan);
+    },
+
+    async manage(url: string) {
+      return (await hostClient(await requireHosting(url))).client.manage();
+    },
+
+    async remind(url: string, email: string) {
+      await (await hostClient(await requireHosting(url))).client.remind(email);
+    },
+
+    async payForSpace(spaceId: string, url: string, payment: FundPayment) {
+      return (await spaceHostClient(spaceId, url)).pay(spaceId, payment);
+    },
+
+    async remindForSpace(spaceId: string, url: string, email: string) {
+      await (await spaceHostClient(spaceId, url)).remind(spaceId, email);
+    },
+
+    async startBot(spaceId: string, url: string, bot: { readonly name: string; readonly role?: string }) {
+      const client = await spaceHostClient(spaceId, url);
+      const invite = await spaces.invite(spaceId, bot.role ? { role: bot.role } : {});
+      const { bot: did, status } = await client.startBot(spaceId, bot.name, invite);
+      return { bot: did, status };
     },
 
     async stop(url: string) {
@@ -2460,7 +2572,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       hosting: Object.freeze({
         list: person('look at hosting'),
         use: person('start using a host'),
-        payPage: person('pay for hosting'),
+        pay: person('pay for hosting'),
+        manage: person('pay for hosting'),
+        remind: person('pay for hosting'),
+        payForSpace: person('pay for hosting'),
+        remindForSpace: person('pay for hosting'),
+        startBot: person('start a bot'),
         stop: person('stop using a host'),
         // Open to an agent in a space it was given, as reading the space is.
         space: async (spaceId: string) => {

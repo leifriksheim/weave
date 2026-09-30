@@ -8,8 +8,7 @@
 #     WEAVE_S3_BUCKET=… WEAVE_S3_ACCESS_KEY_ID=… WEAVE_S3_SECRET_ACCESS_KEY=… \
 #     WEAVE_WALLET_ADDRESS=0x… \
 #     STRIPE_SECRET_KEY=sk_live_… STRIPE_WEBHOOK_SECRET=whsec_… \
-#     STRIPE_PRICE_MONTHLY=price_… STRIPE_PRICE_YEARLY=price_… \
-#     WEAVE_WALLETCONNECT_PROJECT_ID=…
+#     STRIPE_PRICE_MONTHLY=price_… STRIPE_PRICE_YEARLY=price_…
 #   fly deploy . --config packages/cli/fly.toml
 #
 # It needs at least one way to be paid: Stripe (both STRIPE_ keys) or a wallet

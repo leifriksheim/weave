@@ -14,11 +14,12 @@
  * way a signed HTTP request is (AWS SigV4, RFC 9421), and a host refuses one
  * more than five minutes off.
  *
- * What a device knows about paying is nothing (spec/06-nodes-and-sessions.md, Hosts). A host describes
- * itself at a well-known address (like a Nostr relay's NIP-11 document), signs
- * every status it gives, and takes payments on its own page, which the device
- * opens with a link signed by the subscription key — the way an S3 link is
- * pre-signed.
+ * A device never handles a payment (spec/06-nodes-and-sessions.md, Hosts). A host describes itself
+ * and its plans at a well-known address (like a Nostr relay's NIP-11
+ * document), and signs every status it gives. Asked to start a plan, it
+ * answers with a page at a payment provider to open, or a payment request for
+ * a wallet, whose arrival it sees by itself; the home shows either, so paying
+ * never means visiting the host's own site.
  */
 import type { CryptoProvider } from '../types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
@@ -40,6 +41,8 @@ export interface Hosting {
   readonly since: string;
   /** The host's name, as it described itself */
   readonly name?: string;
+  /** Where the host takes peers, `wss://…`, as its description said: every device of the account connects there */
+  readonly peer?: string;
   /** The latest status the host signed — what every device shows, and the person's proof */
   readonly receipt?: SignedStatus;
 }
@@ -152,6 +155,16 @@ export interface HostStatus {
   readonly spaces: number;
   /** For a space's own subscription, a private one: the read key it carries the space with, as a DID */
   readonly readKey?: string;
+  /** Bytes the host keeps for this subscription's spaces, as it last measured; absent when it doesn't say */
+  readonly bytes?: number;
+  /** Bytes it keeps at most before it takes no more spaces for this subscription; absent: no limit */
+  readonly quota?: number;
+  /** For a space's own subscription, its fund: what is in it, in millionths of a dollar */
+  readonly balance?: number;
+  /** For a space's own subscription: what its fund spends a day as things go, in millionths of a dollar */
+  readonly daily?: number;
+  /** For a space's own subscription: the bots the host runs there, and whether each is running */
+  readonly bots?: ReadonlyArray<HostedBot>;
   /** When the host said it, unix seconds */
   readonly at: number;
 }
@@ -166,7 +179,7 @@ export interface SignedStatus {
 
 /**
  * What a host says about itself, to anyone, at `/.well-known/weave-host`.
- * Nothing in it is about how the host is paid: that's on its pay page.
+ * Its plans say what can be paid for; how a payment is taken is the host's own.
  */
 export interface HostDescription {
   readonly weave: 'host/1';
@@ -177,21 +190,173 @@ export interface HostDescription {
   readonly free: boolean;
   /** For people, as the host puts it: "$4 a month or $36 a year" */
   readonly price?: string;
-  /** Its pay page, relative to the host's address or absolute; absent when it takes no payments */
-  readonly pay?: string;
   /** Its terms, for people */
   readonly terms?: string;
+  /** Where it takes peers: a WebSocket address, relative to the host's address or absolute */
+  readonly peer?: string;
+  /** What can be paid for, and how: a home offers these itself, and asks the host to start one. Absent: it takes no payments. */
+  readonly plans?: ReadonlyArray<HostPlan>;
+  /** Whether it sends reminders by email before paid time runs out, to an address given with `remind` */
+  readonly remind?: boolean;
+  /** Whether it runs bots for the spaces it carries (`startBot`), from their fund */
+  readonly bots?: boolean;
+  /** How a community pays for itself here: a fund anyone adds to. Absent: communities can't pay here. */
+  readonly fund?: FundOffer;
+}
+
+/** What a host says about community funds: what keeping one online costs, and how people add to it */
+export interface FundOffer {
+  /** What keeping a space online takes from its fund a month, in dollars: `"4"` */
+  readonly monthly: string;
+  /** The least one payment may add, in dollars */
+  readonly min: string;
+  /** How money is added: at a payment provider, or as a request for a wallet */
+  readonly methods: ReadonlyArray<'checkout' | 'request'>;
+  /** Whether a card may add the same amount every month */
+  readonly recurring: boolean;
+  /** Where someone who adds every month stops it: the payment provider's own page */
+  readonly manage?: string;
+  /** What a bot takes from the fund a day at most, in dollars, when the host runs bots */
+  readonly botDailyCap?: string;
+}
+
+/** How someone adds to a community's fund */
+export interface FundPayment {
+  /** Dollars: `"10"` or `"12.50"` */
+  readonly amount: string;
+  readonly method: 'checkout' | 'request';
+  /** The same amount every month, by card */
+  readonly monthly?: boolean;
+}
+
+/** A bot a host runs in a space, as the host says: its DID, its name, and how its subscription stands */
+export interface HostedBot {
+  readonly bot: string;
+  readonly name: string;
+  /** Whether it runs its rules now: while its community's fund has money in it */
+  readonly running: boolean;
+  /** What it took from the fund a day this last week, in millionths of a dollar; absent on a free host */
+  readonly daily?: number;
+}
+
+/** One way to pay a host, as its description lists it */
+export interface HostPlan {
+  /** What a home sends to start it */
+  readonly id: string;
+  /** For people, with the price: "$4 a month, by card" */
+  readonly label: string;
+  /** `checkout`: a page at a payment provider. `request`: a payment request to send from a wallet. */
+  readonly method: 'checkout' | 'request';
+  /** Charged again by itself until cancelled (a card); false for time paid up front */
+  readonly renews: boolean;
+  /** Who may use it: `account` (a space pays through its fund instead) */
+  readonly for: ReadonlyArray<'account'>;
+}
+
+/**
+ * What a host answers when asked to start a plan: a page to open, at a
+ * payment provider; or a request for a wallet to pay, whose arrival the host
+ * sees by itself.
+ */
+export type PayAnswer =
+  | { readonly checkout: string }
+  | {
+      readonly request: {
+        /** A payment URI a wallet opens: `ethereum:` (EIP-681) */
+        readonly uri: string;
+        /** What is asked for, for people: "4.003217 USDC on Base" */
+        readonly amount: string;
+        /** Until when a payment counts, unix seconds */
+        readonly expires: number;
+        /** For a wallet in the browser (EIP-1193), the same transfer spelled out */
+        readonly evm?: {
+          readonly chainId: number;
+          readonly chainName: string;
+          readonly token: string;
+          readonly to: string;
+          /** In the token's smallest unit, as a decimal string */
+          readonly units: string;
+        };
+      };
+    };
+
+/** A pay answer from a host, or null when it doesn't read as one: a checkout page must be https:// */
+export function readPayAnswer(answer: unknown): PayAnswer | null {
+  if (typeof answer !== 'object' || answer === null) return null;
+  if ('checkout' in answer && typeof answer.checkout === 'string') {
+    try {
+      const url = new URL(answer.checkout);
+      const local = ['localhost', '127.0.0.1'].includes(url.hostname);
+      return url.protocol === 'https:' || (url.protocol === 'http:' && local)
+        ? { checkout: url.toString() }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  if (!('request' in answer) || typeof answer.request !== 'object' || answer.request === null) return null;
+  const request: { uri?: unknown; amount?: unknown; expires?: unknown; evm?: unknown } = answer.request;
+  if (
+    typeof request.uri !== 'string' ||
+    !/^(ethereum|lightning|bitcoin):/i.test(request.uri) ||
+    typeof request.amount !== 'string' ||
+    typeof request.expires !== 'number'
+  )
+    return null;
+  const evm = request.evm;
+  const spelled =
+    typeof evm === 'object' &&
+    evm !== null &&
+    'chainId' in evm &&
+    typeof evm.chainId === 'number' &&
+    'chainName' in evm &&
+    typeof evm.chainName === 'string' &&
+    'token' in evm &&
+    typeof evm.token === 'string' &&
+    /^0x[0-9a-fA-F]{40}$/.test(evm.token) &&
+    'to' in evm &&
+    typeof evm.to === 'string' &&
+    /^0x[0-9a-fA-F]{40}$/.test(evm.to) &&
+    'units' in evm &&
+    typeof evm.units === 'string' &&
+    /^\d{1,40}$/.test(evm.units)
+      ? { chainId: evm.chainId, chainName: evm.chainName, token: evm.token, to: evm.to, units: evm.units }
+      : undefined;
+  return {
+    request: {
+      uri: request.uri,
+      amount: request.amount,
+      expires: request.expires,
+      ...(spelled ? { evm: spelled } : {}),
+    },
+  };
+}
+
+/**
+ * The socket address a host takes peers at, from its description: `peer`
+ * resolved against the host's address, with https:// read as wss://. Null
+ * when it names none, or one that isn't wss:// (ws:// only on this machine).
+ * @param url The host's address
+ */
+export function hostPeerAddress(url: string, description: Pick<HostDescription, 'peer'>): string | null {
+  if (typeof description.peer !== 'string') return null;
+  try {
+    const address = new URL(description.peer, `${url.replace(/\/+$/, '')}/`);
+    if (address.protocol === 'https:') address.protocol = 'wss:';
+    else if (address.protocol === 'http:') address.protocol = 'ws:';
+    const local = ['localhost', '127.0.0.1'].includes(address.hostname);
+    if (address.protocol !== 'wss:' && !(address.protocol === 'ws:' && local)) return null;
+    address.hash = '';
+    return address.toString();
+  } catch {
+    return null;
+  }
 }
 
 /** Where a host's description is */
 export const HOST_DESCRIPTION_PATH = '/.well-known/weave-host';
 
-/** How long a pay link works, in seconds */
-export const PAY_LINK_SECONDS = 3600;
-
 const statusText = (payload: string) => utf8Encode(`weave-host-status/v1\n${payload}`);
-const payText = (host: string, subscription: string, at: number) =>
-  utf8Encode(`weave-pay/v1\n${host}\n${subscription}\n${at}`);
 
 /** Signs a status with the host's key */
 export async function signStatus(
@@ -219,63 +384,6 @@ export async function readStatus(
   } catch {
     return null;
   }
-}
-
-/**
- * A link to a host's pay page that lets whoever opens it pay for one
- * subscription, at that host only, for an hour. The signature is in the
- * fragment, which browsers never send to a server.
- * @param pay The pay page's address, absolute
- * @param host The host's key
- */
-export async function payLink(
-  pay: string,
-  host: string,
-  key: SubscriptionKey,
-  provider: CryptoProvider = createP256Provider(),
-  at = Math.floor(Date.now() / 1000),
-): Promise<string> {
-  const sig = base64UrlEncode(await provider.sign(key.privateKey, payText(host, key.did, at)));
-  const url = new URL(pay);
-  url.hash = new URLSearchParams({ s: key.did, at: String(at), sig }).toString();
-  return url.toString();
-}
-
-/** A space id as it may appear in a pay link or a host's path */
-const SPACE_ID = /^[A-Za-z0-9_-]{1,120}$/;
-
-/**
- * A link to a host's pay page for a space's own subscription. Anyone may pay
- * for a space, so it needs no signature and never runs out.
- * @param pay The pay page's address, absolute
- */
-export function spacePayLink(pay: string, spaceId: string): string {
-  const url = new URL(pay);
-  url.hash = new URLSearchParams({ space: spaceId }).toString();
-  return url.toString();
-}
-
-/**
- * The subscription a pay page's call is for: from `Authorization: WeavePay
- * s=…, at=…, sig=…`, a pay link to this host (`host`, its key) less than an
- * hour old; or from `WeavePay space=<id>`, that space's own subscription
- * (`space:<id>`), which anyone may pay for. Null otherwise.
- */
-export async function verifyPayLink(
-  header: string | undefined,
-  host: string,
-  provider: CryptoProvider = createP256Provider(),
-  now = Math.floor(Date.now() / 1000),
-): Promise<string | null> {
-  const space = /^WeavePay space=([A-Za-z0-9_-]{1,120})$/.exec(header ?? '')?.[1];
-  if (space) return `space:${space}`;
-  return headerSigner(
-    header,
-    /^WeavePay s=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/,
-    (at) => now - at <= PAY_LINK_SECONDS && at - now <= REQUEST_WINDOW_SECONDS,
-    (did, at) => payText(host, did, at),
-    provider,
-  );
 }
 
 /** Why a host said no: its status code, and what it said */
@@ -313,6 +421,24 @@ export async function describeHost(url: string): Promise<HostDescription> {
   return description;
 }
 
+/** A space id as it may appear in a host's path */
+const SPACE_ID = /^[A-Za-z0-9_-]{1,120}$/;
+
+const post = async (url: string, body: unknown): Promise<unknown> =>
+  answerOf<unknown>(
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  );
+
+function payAnswer(answer: unknown): PayAnswer {
+  const read = readPayAnswer(answer);
+  if (!read) throw new Error("The host's answer isn't a way to pay");
+  return read;
+}
+
 /** A host's calls about a space's own subscription: open to anyone, as paying for a space is */
 export interface SpaceHostClient {
   /** How the space's subscription stands, checked as signed by the host */
@@ -322,6 +448,20 @@ export interface SpaceHostClient {
     spaceId: string,
     pass: unknown,
   ): Promise<{ readonly status: HostStatus; readonly receipt: SignedStatus }>;
+  /** Starts adding to the space's fund: anyone may */
+  pay(spaceId: string, payment: FundPayment): Promise<PayAnswer>;
+  /** Asks for reminders by email before the space's fund runs out; the host mails a link to confirm first */
+  remind(spaceId: string, email: string): Promise<void>;
+  /**
+   * Asks the host to run a bot in a space it carries: it makes the bot's
+   * account and joins with the invite, whose role is what the bot may do. It
+   * runs from the space's fund. Answers the bot's DID and the space's status.
+   */
+  startBot(
+    spaceId: string,
+    name: string,
+    invite: string,
+  ): Promise<{ readonly bot: string; readonly status: HostStatus; readonly receipt: SignedStatus }>;
 }
 
 /**
@@ -359,6 +499,26 @@ export function createSpaceHostClient(
           }),
         ),
       ),
+    pay: async (spaceId: string, payment: FundPayment) =>
+      payAnswer(await post(`${path(spaceId)}/pay`, payment)),
+    remind: async (spaceId: string, email: string) => void (await post(`${path(spaceId)}/remind`, { email })),
+    startBot: async (spaceId: string, name: string, invite: string) => {
+      const answer = await post(`${base}/host/bots`, { name, invite });
+      const fields = typeof answer === 'object' && answer !== null ? answer : {};
+      const bot = 'bot' in fields ? fields.bot : undefined;
+      const receipt = 'receipt' in fields ? fields.receipt : undefined;
+      if (
+        typeof bot !== 'string' ||
+        typeof receipt !== 'object' ||
+        receipt === null ||
+        !('payload' in receipt) ||
+        !('sig' in receipt) ||
+        typeof receipt.payload !== 'string' ||
+        typeof receipt.sig !== 'string'
+      )
+        throw new Error("The host's answer isn't a bot");
+      return { bot, ...(await checked(spaceId, { payload: receipt.payload, sig: receipt.sig })) };
+    },
   });
 }
 
@@ -372,6 +532,12 @@ export interface HostClient {
     invite: string,
   ): Promise<{ readonly status: HostStatus; readonly receipt: SignedStatus }>;
   detach(): Promise<void>;
+  /** Starts paying with one of the host's plans */
+  pay(plan: string): Promise<PayAnswer>;
+  /** The payment provider's page for changing a card or cancelling: a checkout answer */
+  manage(): Promise<PayAnswer>;
+  /** Asks for reminders by email before paid time runs out; the host mails a link to confirm first */
+  remind(email: string): Promise<void>;
 }
 
 /**
@@ -408,5 +574,8 @@ export function createHostClient(
     attach: async (account: string, invite: string) =>
       checked(await call<SignedStatus>('PUT', `${mine}/carry`, { account, invite })),
     detach: async () => void (await call('DELETE', `${mine}/carry`)),
+    pay: async (plan: string) => payAnswer(await call<unknown>('POST', `${mine}/pay`, { plan })),
+    manage: async () => payAnswer(await call<unknown>('POST', `${mine}/manage`, {})),
+    remind: async (email: string) => void (await call<unknown>('POST', `${mine}/remind`, { email })),
   });
 }

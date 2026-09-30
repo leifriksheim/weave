@@ -48,6 +48,19 @@ export function configuredRelays(): string[] {
 }
 
 /**
+ * Hosts from `$WEAVE_HOSTS` (comma separated, `https://host`): where the
+ * node looks for the account before it knows which host the account uses,
+ * so on a server it finds its spaces over a host's socket without meeting a
+ * device first.
+ */
+function configuredHosts(): string[] {
+  return (process.env.WEAVE_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
+}
+
+/**
  * WebRTC, which Node doesn't have: the same API over libdatachannel. Loaded
  * only here — it is a native module, and the other commands don't need it.
  */
@@ -188,7 +201,11 @@ export async function startAgentNode(
     sessionKey: key.keys,
     stores: folderStores(data),
     ...(grant.accountKey ? { accountKey: base64UrlDecode(grant.accountKey) } : {}),
-    network: { relays, ...(options.nodes?.length ? { nodes: options.nodes } : {}) },
+    network: {
+      relays,
+      hosts: configuredHosts(),
+      ...(options.nodes?.length ? { nodes: options.nodes } : {}),
+    },
   });
   // Spaces granted by name, when the grant wasn't for the whole account.
   const held = new Set((await base.spaces.list()).map((space) => space.id));
@@ -254,17 +271,25 @@ export async function startBotNode(
   unlocked: Unlocked,
   options: {
     readonly nodes?: ReadonlyArray<string>;
+    /** Relays to meet devices on, over WebRTC. Default `$WEAVE_RELAYS`; none, and it reaches only `nodes`. */
+    readonly relays?: ReadonlyArray<string>;
     /** Once for each space it can't say it is a bot in yet, since the space keeps no `std.profile` */
     readonly undisclosed?: (space: string) => void;
   } = {},
 ): Promise<{ node: P2PNode; close(): Promise<void> }> {
-  await enableWebRTC();
+  const relays = options.relays ?? configuredRelays();
+  // Only a node that meets devices through relays needs WebRTC, a native module a host doesn't ship.
+  if (relays.length) await enableWebRTC();
   const node = await createNode({
     signer: unlocked.signer,
     stores: unlocked.stores,
     accountKey: unlocked.accountKey,
     contactKey: unlocked.contactKey,
-    network: { relays: configuredRelays(), ...(options.nodes?.length ? { nodes: options.nodes } : {}) },
+    network: {
+      relays,
+      hosts: configuredHosts(),
+      ...(options.nodes?.length ? { nodes: options.nodes } : {}),
+    },
   });
   await nameBot(node, unlocked.account.name);
   const held = new Set<string>();

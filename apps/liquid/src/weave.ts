@@ -11,14 +11,14 @@
  * `having`).
  */
 import { createWeaveConnection } from '@weaveprotocol/core/session';
-import { CONFIGURED_NODES, relayUrls } from '@weave/app-shared/relay';
+import { CONFIGURED_HOSTS, CONFIGURED_NODES, relayUrls } from '@weave/app-shared/relay';
 
 const HOME = import.meta.env.VITE_WEAVE_HOME ?? 'https://weave-home.netlify.app/connect';
 
 export const connection = createWeaveConnection({
   home: HOME,
   request: { name: 'Liquid', access: 'write', scope: 'account' },
-  network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
+  network: { relays: relayUrls(), nodes: CONFIGURED_NODES, hosts: CONFIGURED_HOSTS },
   worker: () =>
     typeof SharedWorker === 'function'
       ? new SharedWorker(new URL('./weave-worker.ts', import.meta.url), {

@@ -12,7 +12,7 @@
  * Inputs and outputs are plain JSON. Nothing here may return a key, a handle or
  * a function.
  */
-import type { P2PNode } from './types.js';
+import type { NodeCollection, P2PNode } from './types.js';
 import { rolePresets } from '../space/presets.js';
 import type { Query } from '../query/types.js';
 import {
@@ -28,6 +28,7 @@ import {
 import { standardDefinition, standardGroups } from '../schemas/standard.js';
 import { toJsonSchema } from '../schema/collection-def.js';
 import { SCREEN_GUIDE } from '../schemas/screens.js';
+import { ACTIVITY_STATES, setActivity } from '../schemas/rules.js';
 import { describeCollection } from '../records/describe.js';
 import { isRecord } from '../utils/guards.js';
 
@@ -77,6 +78,15 @@ export interface NodeAction {
 }
 
 const space = { type: 'string', description: 'Space id, from spaces_list' } as const;
+
+/** A collection in a line, as `collections_list` gives it without names: enough to pick which to read in full */
+const collectionLine = (c: NodeCollection) => ({
+  name: c.name,
+  ...(c.title ? { title: c.title } : {}),
+  ...(c.description ? { description: c.description } : {}),
+  records: c.records,
+  links: Object.keys(c.links),
+});
 const key = { type: 'string', description: 'Record key — stays the same when the record is edited' } as const;
 
 // Inputs reach `run` only after `checkActionInput`, so these find what the schema promised.
@@ -279,13 +289,38 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
   {
     name: 'collections_list',
     description:
-      'What a space holds and how it connects: each collection with its title, description, JSON Schema, declared ' +
-      'link roles and record count. Read this before writing, to match the shapes and links others use. ' +
-      'Standard shapes (std.*) appear only once a space defines them; collections_standard lists them all.',
-    input: { type: 'object', properties: { space }, required: ['space'] },
+      'What a space holds and how it connects. Without names, each collection in a line: name, title, description, ' +
+      'record count and the names of its link roles. With names, those in full: JSON Schema, links, rules, ' +
+      'permissions. Read the ones you will write to before writing, to match the shapes and links others use; ' +
+      'ask for several at once. Standard shapes (std.*) appear only once a space defines them; ' +
+      'collections_standard lists them all.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        names: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'The collections to give in full, like ["std.message", "std.task"]',
+        },
+      },
+      required: ['space'],
+    },
     readOnly: true,
     peerContent: true,
-    run: (node, input) => node.collections.list(str(input, 'space')),
+    run: async (node, input) => {
+      const listed = await node.collections.list(str(input, 'space'));
+      const names = Array.isArray(input.names)
+        ? input.names.filter((n): n is string => typeof n === 'string')
+        : [];
+      if (!names.length) return listed.map(collectionLine);
+      return names.map((name) => {
+        const found = listed.find((c) => c.name === name);
+        if (!found)
+          throw new Error(`This space has no collection ${name}: collections_list without names lists them`);
+        return found;
+      });
+    },
   },
   {
     name: 'collections_standard',
@@ -733,6 +768,77 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
     run: async (node, input) => {
       await node.records.delete(str(input, 'space'), str(input, 'key'));
       return { deleted: str(input, 'key') };
+    },
+  },
+  {
+    name: 'activity_set',
+    description:
+      'Say what you are doing on a record, for people to see while it lasts, like "Reading the thread" or ' +
+      '"Making an app": your std.activity about it, one per record, changed in place. Set it again as the work ' +
+      'changes, and "done" or "failed" when it ends. Needs the space to keep std.activity.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        about: { type: 'string', description: 'The key of the record the work is on' },
+        label: { type: 'string', description: 'What you are doing, in a few words (≤ 120)' },
+        state: { type: 'string', enum: [...ACTIVITY_STATES], description: 'Default working' },
+      },
+      required: ['space', 'about', 'label'],
+    },
+    readOnly: false,
+    run: async (node, input) => {
+      const state = input.state === undefined ? 'working' : oneOf(input, 'state', ACTIVITY_STATES);
+      const label = str(input, 'label').slice(0, 120);
+      const set = await setActivity(node, str(input, 'space'), str(input, 'about'), state, label);
+      if (!set) throw new Error('This space keeps no std.activity, so there is nowhere to say it');
+      return { key: set.key, state, label };
+    },
+  },
+  {
+    name: 'direct_list',
+    description:
+      'Direct messages in a space written by you or to you, opened, oldest first: { key, from, to, text, createdAt }. ' +
+      'With "with", only those between you and that member. "text" is null for one you cannot open. ' +
+      'Only the people in a conversation can read it: keep what it says there.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        with: { type: 'string', description: 'A member’s DID: only the messages between you and them' },
+        limit: { type: 'integer', description: 'The newest this many, default 30' },
+      },
+      required: ['space'],
+    },
+    readOnly: true,
+    peerContent: true,
+    run: async (node, input) => {
+      const all = await node.direct.list(str(input, 'space'));
+      const other = typeof input.with === 'string' ? input.with : null;
+      const found = other ? all.filter((m) => m.from === other || m.to.includes(other)) : all;
+      return found.slice(-(typeof input.limit === 'number' && input.limit > 0 ? input.limit : 30));
+    },
+  },
+  {
+    name: 'direct_send',
+    description:
+      'Send a direct message: text only the members in "to" and you can read. The others in the space see who wrote ' +
+      'to whom and when, not what. Answer a direct message this way, to its writer and whoever else it was for, never in the open.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        to: { type: 'array', items: { type: 'string' }, description: 'The members’ DIDs, not your own' },
+        text: { type: 'string', description: '1–10000 characters' },
+      },
+      required: ['space', 'to', 'text'],
+    },
+    readOnly: false,
+    run: (node, input) => {
+      const to = input.to;
+      if (!Array.isArray(to) || !to.every((did): did is string => typeof did === 'string'))
+        throw new TypeError('"to" must be a list of DIDs');
+      return node.direct.send(str(input, 'space'), to, str(input, 'text'));
     },
   },
 ]);

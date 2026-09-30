@@ -35,6 +35,13 @@ export interface NodeNetworkConfig {
   readonly relays?: ReadonlyArray<string>;
   /** Always-on nodes to hold a socket to, `ws(s)://host/peer`. The space id is appended. */
   readonly nodes?: ReadonlyArray<string>;
+  /**
+   * Hosts to look for the account registry at, `https://host`, before the
+   * account says which it uses: how a new device with only the recovery code
+   * finds its spaces. Each is asked where it takes peers. The hosts the
+   * account or a space uses are reached anyway, without being named here.
+   */
+  readonly hosts?: ReadonlyArray<string>;
   readonly iceServers?: ReadonlyArray<RTCIceServer>;
   /**
    * How WebRTC connections through the relays are made, given the ICE servers
@@ -692,10 +699,10 @@ export interface HostingView {
   readonly live: boolean;
   /** Why it could not be reached */
   readonly error?: string;
-  /** Its price, for people, as it puts it */
-  readonly price?: string;
-  /** Whether it takes payments, on its own page (`payPage`) */
-  readonly pays: boolean;
+  /** Its plans an account may pay with, from its description; none when it takes no payments or can't be reached */
+  readonly plans: ReadonlyArray<import('../session/hosting.js').HostPlan>;
+  /** Whether it sends reminders by email (`remind`) */
+  readonly reminds: boolean;
 }
 
 /**
@@ -704,9 +711,10 @@ export interface HostingView {
  * host is a carrier (`carriers`) the account pays for; every device of the
  * account hands it the spaces, with nothing to set up.
  *
- * Nothing here knows how a host is paid (spec/06-nodes-and-sessions.md, Hosts): a host takes payments on
- * its own page, which `payPage` links to, and says how the subscription stands
- * in a status it signs.
+ * A device never handles a payment (spec/06-nodes-and-sessions.md, Hosts): asked to start one of its
+ * plans (`pay`), a host answers with a page at a payment provider or a
+ * payment request for a wallet, and says how the subscription stands in a
+ * status it signs.
  */
 export interface NodeHosting {
   /** The hosts the account uses, each asked how it stands. Hands a host the spaces if it was paid since. */
@@ -718,13 +726,17 @@ export interface NodeHosting {
    */
   use(url: string): Promise<HostingView>;
   /**
-   * A link to the host's own pay page, signed with the subscription key: it
-   * lets whoever opens it pay for this subscription, at that host, for an
-   * hour. Open it in a new tab (`noopener`), and call `list` when the person
-   * comes back.
+   * Starts paying a host the account uses with one of its plans: a
+   * `checkout` page at the payment provider to open in a new tab
+   * (`noopener`), or a `request` for a wallet to pay. Call `list` after: the
+   * status moves once the payment arrives.
    */
-  payPage(url: string): Promise<string>;
-  /** Stops using a host: it forgets the spaces, and the subscription is let go. A card that renews is cancelled on the host's pay page. */
+  pay(url: string, plan: string): Promise<import('../session/hosting.js').PayAnswer>;
+  /** The payment provider's page for changing a card or cancelling it, as a `checkout` answer */
+  manage(url: string): Promise<import('../session/hosting.js').PayAnswer>;
+  /** Asks a host for reminders by email before paid time runs out; it mails a link to confirm first */
+  remind(url: string, email: string): Promise<void>;
+  /** Stops using a host: it forgets the spaces, and the subscription is let go. Cancel a card that renews first (`manage`). */
   stop(url: string): Promise<void>;
   /**
    * The hosts a space pays to keep it online (its `std.host` records), each
@@ -732,6 +744,25 @@ export interface NodeHosting {
    * open to chip in. Hands a host the space's pass when it was paid since.
    */
   space(spaceId: string): Promise<ReadonlyArray<SpaceHostingView>>;
+  /** Starts adding to a space's fund at one of the hosts it names: an amount, once or monthly. Anyone in it may. */
+  payForSpace(
+    spaceId: string,
+    url: string,
+    payment: import('../session/hosting.js').FundPayment,
+  ): Promise<import('../session/hosting.js').PayAnswer>;
+  /** Asks a host a space names for reminders by email before the space's paid time runs out */
+  remindForSpace(spaceId: string, url: string, email: string): Promise<void>;
+  /**
+   * Asks a host the space names to run a bot there: an invite for `role` is
+   * made here and handed to the host, which makes the bot's account and joins.
+   * It runs from the space's fund. The host holds that account's keys, so it
+   * reads what the bot may read. Removing the bot from the space stops it.
+   */
+  startBot(
+    spaceId: string,
+    url: string,
+    bot: { readonly name: string; readonly role?: string },
+  ): Promise<{ readonly bot: string; readonly status: import('../session/hosting.js').HostStatus }>;
 }
 
 /** A host a space pays for itself, as `hosting.space` sees it */
@@ -743,8 +774,14 @@ export interface SpaceHostingView {
   readonly host: string | null;
   /** How the space's subscription stands there, signed by the host; null when it could not be asked */
   readonly status: import('../session/hosting.js').HostStatus | null;
-  /** The host's pay page for this space, which anyone may open; null when it takes no payments */
-  readonly pay: string | null;
+  /** How the space's fund is added to there, by anyone in it; null when it takes no payments (a free host) */
+  readonly fund: import('../session/hosting.js').FundOffer | null;
+  /** Whether it sends reminders by email (`remindForSpace`) */
+  readonly reminds: boolean;
+  /** Whether it runs bots for the spaces it carries (`startBot`) */
+  readonly runsBots: boolean;
+  /** The bots it runs in this space, and whether each is running, as its signed status says */
+  readonly bots: ReadonlyArray<import('../session/hosting.js').HostedBot>;
   /** Why it could not be asked, when it couldn't */
   readonly error?: string;
 }

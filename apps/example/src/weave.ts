@@ -8,7 +8,7 @@
  * hooks in `@weaveprotocol/core/react`.
  */
 import { createWeaveConnection } from '@weaveprotocol/core/session';
-import { CONFIGURED_NODES, relayUrls } from '@weave/app-shared/relay';
+import { CONFIGURED_HOSTS, CONFIGURED_NODES, relayUrls } from '@weave/app-shared/relay';
 
 /** The account home's connect page — ours by default; anyone can run their own */
 const HOME = import.meta.env.VITE_WEAVE_HOME ?? 'https://weave-home.netlify.app/connect';
@@ -23,7 +23,7 @@ export const connection = createWeaveConnection({
     scope: 'account',
     // No notifications here: connecting asks for none. The person turns them on later (notifications.ts).
   },
-  network: { relays: relayUrls(), nodes: CONFIGURED_NODES },
+  network: { relays: relayUrls(), nodes: CONFIGURED_NODES, hosts: CONFIGURED_HOSTS },
   // Checking, decrypting and syncing happen there, so the page never stutters. One worker for
   // every tab where there are shared workers (not Chrome on Android): the tabs share one node.
   worker: () =>

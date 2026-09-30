@@ -3,8 +3,8 @@
  *
  * - node (8787): the always-on node with the throwaway identity in
  *   packages/cli/.env.dev (created on first run); it serves the relay and /peer.
- * - host (8788): `weave host`, what "Keep my spaces online" talks to, with
- *   its pay page at http://localhost:8788/pay. Settings in packages/cli/.env.host.dev,
+ * - host (8788): `weave host`, what "Keep my spaces online" talks to, and
+ *   what spaces chip in for. Settings in packages/cli/.env.host.dev,
  *   yours in packages/cli/.env.host.local. Wallet payments on Base Sepolia by default.
  * - stripe: when .env.host.local has a Stripe test key, the Stripe CLI
  *   forwards Stripe's webhooks to the host, and the host gets its secret.
@@ -13,7 +13,7 @@
  *
  * Ctrl-C stops them all.
  */
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -71,15 +71,6 @@ const hostPort = hostSettings.PORT ?? '8788';
 const hostEnv = {};
 const extra = [];
 
-// Phone wallets: the WalletConnect bundle, built once.
-if (
-  hostSettings.WEAVE_WALLETCONNECT_PROJECT_ID &&
-  !existsSync(`${root}packages/cli/pay/dist/walletconnect.js`)
-) {
-  say('host', 'building the WalletConnect bundle for the pay page…');
-  spawnSync('npm', ['run', 'bundle:pay', '-w', '@weaveprotocol/cli'], { cwd: root, stdio: 'inherit' });
-}
-
 // Cards: Stripe in test mode, its webhooks forwarded here by the Stripe CLI.
 if (hostSettings.STRIPE_SECRET_KEY && !hostSettings.STRIPE_WEBHOOK_SECRET) {
   const key = hostSettings.STRIPE_SECRET_KEY;
@@ -134,10 +125,7 @@ const children = [
   start('app', 'npm', ['run', 'dev'], `${root}apps/example`),
   start('liquid', 'npm', ['run', 'dev'], `${root}apps/liquid`),
 ];
-say(
-  'host',
-  `pay page: http://localhost:${hostPort}/pay (open it from the home: Settings, Keep my spaces online, Payment)`,
-);
+say('host', `http://localhost:${hostPort}: pay it from the home (Settings, Keep my spaces online)`);
 
 let stopping = false;
 function stopAll(code) {

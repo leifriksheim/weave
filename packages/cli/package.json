@@ -11,9 +11,8 @@
     "test": "node --conditions=@weaveprotocol/source --import tsx --test --test-concurrency=4 --test-timeout=60000 --test-force-exit tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "bundle": "esbuild src/main.ts --bundle --platform=node --format=esm --target=node22 --conditions=@weaveprotocol/source --outfile=dist/weave.mjs --external:ws --external:node-datachannel --banner:js='#!/usr/bin/env node'",
-    "bundle:pay": "esbuild pay/walletconnect.ts --bundle --format=esm --minify --platform=browser --target=es2022 --outfile=pay/dist/walletconnect.js --define:process.env.NODE_ENV='\"production\"'",
     "build": "bun build.ts",
-    "prepublishOnly": "npm run bundle && npm run bundle:pay"
+    "prepublishOnly": "npm run bundle"
   },
   "dependencies": {
     "node-datachannel": "^0.33.4",
@@ -30,13 +29,11 @@
   },
   "files": [
     "dist/weave.mjs",
-    "pay/dist/walletconnect.js",
     "README.md"
   ],
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
     "@clack/prompts": "^1.8.1",
-    "@reown/appkit": "^1.8.24",
     "@types/node": "^26.6.3",
     "@weaveprotocol/core": "*",
     "@weaveprotocol/relay": "*",

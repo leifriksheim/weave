@@ -2,7 +2,7 @@
  * What `weave host` starts from: a data folder, the host's key in it, and a
  * payment provider from the environment.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -16,6 +16,9 @@ import { openFsDirectory } from './fs-directory.js';
 import type { Billing } from './host.js';
 import { createStripeBilling } from './stripe.js';
 import { createWalletPayments, isNetworkName, NETWORKS, type WalletPayments } from './wallet.js';
+import { parsePrice, priceOf, streamingThink } from './agent-chat.js';
+import { openAIThink } from './agent-openai.js';
+import type { BotModel } from './hosted-bots.js';
 
 /** Where a host keeps its data unless told: `~/.weave-host` */
 export function defaultHostData(): string {
@@ -47,6 +50,35 @@ export async function hostStores(data: string): Promise<StoreFactory> {
   return folderStores(await openFsDirectory(path.join(data, 'store')));
 }
 
+/** What a carried space takes on disk, in bytes: its folder under `hostStores`, walked */
+export function spaceSize(data: string): (spaceId: string) => Promise<number> {
+  const walk = async (dir: string): Promise<number> => {
+    let bytes = 0;
+    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const at = path.join(dir, entry.name);
+      if (entry.isDirectory()) bytes += await walk(at);
+      else if (entry.isFile()) bytes += (await stat(at)).size;
+    }
+    return bytes;
+  };
+  return (spaceId) =>
+    /^[A-Za-z0-9_-]{1,120}$/.test(spaceId)
+      ? walk(path.join(data, 'store', 'spaces', spaceId))
+      : Promise.resolve(0);
+}
+
+/**
+ * How much a subscription's spaces may take, from WEAVE_HOST_QUOTA_GB: 10 on
+ * a host that takes payments, none on a free one unless set. 0 is none.
+ */
+export function quotaFromEnv(env: NodeJS.ProcessEnv, free: boolean): number | undefined {
+  const text = env.WEAVE_HOST_QUOTA_GB?.trim();
+  const gb = text ? Number(text) : free ? 0 : 10;
+  if (!Number.isFinite(gb) || gb < 0)
+    throw new Error(`WEAVE_HOST_QUOTA_GB must be a number of gigabytes, not "${text}"`);
+  return gb > 0 ? Math.round(gb * 1e9) : undefined;
+}
+
 /** Stripe, when STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are set; otherwise none */
 export function billingFromEnv(env: NodeJS.ProcessEnv): Billing | null {
   if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET) return null;
@@ -55,8 +87,6 @@ export function billingFromEnv(env: NodeJS.ProcessEnv): Billing | null {
     webhookSecret: env.STRIPE_WEBHOOK_SECRET,
     ...(env.STRIPE_PRICE_MONTHLY ? { monthlyPrice: env.STRIPE_PRICE_MONTHLY } : {}),
     ...(env.STRIPE_PRICE_YEARLY ? { yearlyPrice: env.STRIPE_PRICE_YEARLY } : {}),
-    ...(env.STRIPE_ONCE_PRICE_MONTHLY ? { onceMonthlyPrice: env.STRIPE_ONCE_PRICE_MONTHLY } : {}),
-    ...(env.STRIPE_ONCE_PRICE_YEARLY ? { onceYearlyPrice: env.STRIPE_ONCE_PRICE_YEARLY } : {}),
   });
 }
 
@@ -88,16 +118,14 @@ export function walletFromEnv(env: NodeJS.ProcessEnv): WalletPayments | null {
 /**
  * How the host presents itself, from WEAVE_HOST_NAME, WEAVE_HOST_PRICE (text
  * for people; default from the wallet prices), WEAVE_HOST_TERMS (an address),
- * WEAVE_HOST_URL (its public https:// address, where Stripe sends people back
- * to; default from each request) and WEAVE_WALLETCONNECT_PROJECT_ID (the pay
- * page then reaches every wallet, not only the browser's).
+ * and WEAVE_HOST_URL (its public https:// address, where Stripe sends people
+ * back to and reminder mails link to; default from each request).
  */
 export function presentationFromEnv(env: NodeJS.ProcessEnv): {
   name?: string;
   price?: string;
   terms?: string;
   publicUrl?: string;
-  walletConnectProjectId?: string;
 } {
   const url = env.WEAVE_HOST_URL?.trim();
   if (url && !/^https?:\/\/[^/]+\/?$/.test(url))
@@ -107,9 +135,6 @@ export function presentationFromEnv(env: NodeJS.ProcessEnv): {
     ...(env.WEAVE_HOST_PRICE ? { price: env.WEAVE_HOST_PRICE } : {}),
     ...(env.WEAVE_HOST_TERMS ? { terms: env.WEAVE_HOST_TERMS } : {}),
     ...(url ? { publicUrl: url.replace(/\/$/, '') } : {}),
-    ...(env.WEAVE_WALLETCONNECT_PROJECT_ID
-      ? { walletConnectProjectId: env.WEAVE_WALLETCONNECT_PROJECT_ID }
-      : {}),
   };
 }
 
@@ -170,4 +195,83 @@ export function checkExposure(options: {
   throw new Error(
     `A free host on ${options.host} would carry spaces for anyone who finds it. Name the accounts it is for with --allow did:key:… (or WEAVE_HOST_ALLOW), or keep it on this machine.`,
   );
+}
+
+/**
+ * Bots the host runs for the spaces it carries, when WEAVE_HOST_BOTS=1: they
+ * think with the host's own key and WEAVE_BOT_MODEL, each spends
+ * WEAVE_BOT_DAILY_CAP dollars a day at most (default 1), and what they spend
+ * is taken from their community's fund (`fundFromEnv`). None otherwise.
+ *
+ * WEAVE_BOT_PROVIDER is `anthropic` (the default: ANTHROPIC_API_KEY, model
+ * claude-sonnet-5-5) or `openai`, for any server that speaks Chat
+ * Completions (OPENAI_API_KEY, WEAVE_BOT_BASE_URL, default OpenAI's; the
+ * model is named). A model whose price isn't known here needs
+ * WEAVE_BOT_PRICE, dollars per million tokens like `1.25/10`, as
+ * `weave agent --price` takes it: the daily cap and the fund are counted in it.
+ */
+export async function botsFromEnv(
+  env: NodeJS.ProcessEnv,
+  data: string,
+  fetch: typeof globalThis.fetch = globalThis.fetch,
+): Promise<{ folder: string; model: BotModel } | null> {
+  if (env.WEAVE_HOST_BOTS !== '1') return null;
+  const provider = env.WEAVE_BOT_PROVIDER?.trim() || 'anthropic';
+  if (provider !== 'anthropic' && provider !== 'openai')
+    throw new Error(`WEAVE_BOT_PROVIDER is anthropic or openai, not "${provider}"`);
+  const name = env.WEAVE_BOT_MODEL?.trim() || (provider === 'anthropic' ? 'claude-sonnet-5-5' : '');
+  if (!name) throw new Error('WEAVE_BOT_PROVIDER=openai needs WEAVE_BOT_MODEL: gpt-5.5, deepseek-v4-pro, …');
+  const priceText = env.WEAVE_BOT_PRICE?.trim();
+  const price = priceText ? parsePrice(priceText) : priceOf(name);
+  if (priceText && !price)
+    throw new Error(`WEAVE_BOT_PRICE is dollars per million tokens, like 1.25/10, not "${priceText}"`);
+  if (!price)
+    throw new Error(
+      `WEAVE_BOT_PRICE: no price is known for ${name}, and the daily cap and the fund need one. Give dollars per million tokens, input/output, like 1.25/10.`,
+    );
+  const dailyCap = Number(env.WEAVE_BOT_DAILY_CAP ?? '1');
+  if (!Number.isFinite(dailyCap) || dailyCap <= 0)
+    throw new Error(`WEAVE_BOT_DAILY_CAP must be dollars a day, like 1, not "${env.WEAVE_BOT_DAILY_CAP}"`);
+  const folder = path.join(data, 'bots');
+  if (provider === 'openai') {
+    const baseUrl = env.WEAVE_BOT_BASE_URL?.trim() || 'https://api.openai.com/v1';
+    const apiKey = env.OPENAI_API_KEY?.trim() ?? '';
+    // A server on this machine may ask for no key; OpenAI's always does.
+    if (!apiKey && !isLoopback(new URL(baseUrl).hostname))
+      throw new Error(`WEAVE_BOT_PROVIDER=openai needs OPENAI_API_KEY for ${baseUrl}`);
+    const think = openAIThink({ baseUrl, apiKey, write: () => {}, fetch });
+    return { folder, model: { name, price, dailyCap, plain: true, think: () => think } };
+  }
+  const apiKey = env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) throw new Error('WEAVE_HOST_BOTS needs ANTHROPIC_API_KEY: the bots think with the host’s key');
+  // The SDK is loaded only when bots run: it is most of the bundle.
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey });
+  return { folder, model: { name, price, dailyCap, think: () => streamingThink(client, () => {}) } };
+}
+
+/**
+ * Community funds: what keeping one online takes a month (WEAVE_FUND_MONTHLY,
+ * dollars, default the wallet's monthly price or 4), what a bot's AI use
+ * costs as a multiple of what the host pays (WEAVE_BOT_MARKUP, default 1.5),
+ * and where someone who adds every month by card stops it
+ * (STRIPE_PORTAL_LINK, Stripe's no-code customer portal link).
+ */
+export function fundFromEnv(env: NodeJS.ProcessEnv): {
+  fundMonthly?: string;
+  botMarkup?: number;
+  manageFunds?: string;
+} {
+  const monthly = (env.WEAVE_FUND_MONTHLY ?? env.WEAVE_WALLET_MONTHLY)?.trim();
+  if (monthly && !/^\d{1,5}(\.\d{1,2})?$/.test(monthly))
+    throw new Error(`WEAVE_FUND_MONTHLY must be dollars a month, like 4, not "${monthly}"`);
+  const markup = env.WEAVE_BOT_MARKUP ? Number(env.WEAVE_BOT_MARKUP) : undefined;
+  if (markup !== undefined && (!Number.isFinite(markup) || markup < 1))
+    throw new Error(`WEAVE_BOT_MARKUP must be 1 or more, not "${env.WEAVE_BOT_MARKUP}"`);
+  const portal = env.STRIPE_PORTAL_LINK?.trim();
+  return {
+    ...(monthly ? { fundMonthly: monthly } : {}),
+    ...(markup !== undefined ? { botMarkup: markup } : {}),
+    ...(portal ? { manageFunds: portal } : {}),
+  };
 }

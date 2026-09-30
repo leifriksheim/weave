@@ -8,11 +8,15 @@
     "./relay": "./src/relay.ts",
     "./Avatar": "./src/Avatar.tsx",
     "./Info": "./src/Info.tsx",
+    "./SpaceHosting": "./src/SpaceHosting.tsx",
     "./Modal": "./src/Modal.tsx",
     "./Wordmark": "./src/Wordmark.tsx",
     "./useDismiss": "./src/useDismiss.ts",
     "./hash": "./src/hash.ts",
-    "./mini-app": "./src/mini-app.ts"
+    "./mini-app": "./src/mini-app.ts",
+    "./Payment": "./src/Payment.tsx",
+    "./CommunitySetup": "./src/CommunitySetup.tsx",
+    "./Feature": "./src/Feature.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -26,6 +30,7 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
-    "@weaveprotocol/core": "*"
+    "@weaveprotocol/core": "*",
+    "qrcode-generator": "^2.0.4"
   }
 }

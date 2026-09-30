@@ -10,6 +10,7 @@ import { People } from './People';
 import { topic as topicCollection } from './schema';
 import { Problem, TopicChip, useAction } from './ui';
 import { palette } from './styles';
+import { CommunitySetup } from '@weave/app-shared/CommunitySetup';
 
 type Tab = 'proposals' | 'trust' | 'people';
 
@@ -149,6 +150,7 @@ function AssemblyBody({ space, a }: { space: SpaceSummary; a: Assembly }) {
               You can read this assembly, but you hold no role in it, so you can’t vote, propose or delegate.
             </div>
           )}
+          {tab === 'proposals' && <CommunitySetup spaceId={a.spaceId} writable={space.writable} />}
           {tab === 'proposals' && <Proposals a={a} writable={space.writable} />}
           {tab === 'trust' && <Delegations a={a} writable={space.writable} />}
           {tab === 'people' && <People a={a} writable={space.writable} />}

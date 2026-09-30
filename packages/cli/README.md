@@ -136,15 +136,13 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   Settings, with a Copy button. `--allow` works on a paying host too.
 - The host's key is made once, in `--data` (`host-key`, readable by you alone).
   A new key is a new host: every account would hand its spaces over again.
+- **No pages of its own.** The host lists its plans in its description, and
+  the account home (or the app, for a space) shows them and pays: a card
+  opens Stripe's own checkout page, a wallet gets a payment request as a QR
+  code and a link. Stripe sends people back to `/host/paid`, which says done.
 - Point Stripe's webhook at `https://<host>/host/billing/webhook`, sending
-  `checkout.session.completed` and `invoice.paid`.
-- Every host serves its own **pay page** at `/pay`. Homes know nothing about
-  payment: they open that page in a new tab with a link signed for the
-  subscription, and read the status the host signs. Say who you are with
-  `WEAVE_HOST_NAME`, `WEAVE_HOST_PRICE` (text, like "$4 a month"),
-  `WEAVE_HOST_TERMS` and `WEAVE_HOST_URL` (your public https:// address,
-  where Stripe sends people back to). It's all at
-  `/.well-known/weave-host`.
+  `checkout.session.completed` and `invoice.paid`. Plan labels come from the
+  prices in Stripe ("$4 a month, by card").
 - Crypto wallets pay with no company in between: USDC on Base, sent straight
   to your address. Next to Stripe, or instead of it:
 
@@ -153,32 +151,83 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   ```
 
-  The pay page asks the person's browser wallet (MetaMask, Coinbase Wallet,
-  Rabby…) to send the plan's price plus a fraction of a cent that marks it as
-  theirs; the host reads the network to see it arrive, then adds a month or a
-  year. Time is paid up front. `WEAVE_WALLET_NETWORK=base-sepolia` tries it
+  The home shows a payment request for the plan's price plus a fraction of a
+  cent that marks it as theirs: a QR code for a phone wallet, a link, and one
+  click for a wallet in the browser (MetaMask, Coinbase Wallet, Rabby…). The
+  host reads the network every 10 s while a payment is open, sees it arrive,
+  then adds a month or a year. Time is paid up front. `WEAVE_WALLET_NETWORK=base-sepolia` tries it
   with test USDC; `WEAVE_WALLET_RPC` points at a network node of your own or a
   provider's (default: the network's public one). Keep the address's private
   key off the host — it only needs to receive.
 
-- Phone wallets and every other wallet, by QR code: set
-  `WEAVE_WALLETCONNECT_PROJECT_ID` (free at dashboard.reown.com) and build the
-  WalletConnect bundle once with `npm run bundle:pay` in `cli/` (the published
-  package has it built).
-- **Spaces pay for themselves too.** A community names the host in its space
-  (`std.host`), and anyone in it chips in: `https://<host>/pay#space=<id>`,
-  no sign-in. Each payment adds its time to what is paid already, from a
-  wallet, or by card once `STRIPE_ONCE_PRICE_MONTHLY` and/or
-  `STRIPE_ONCE_PRICE_YEARLY` name one-off prices in your Stripe dashboard
-  (a card that renews stays for accounts). Members' devices hand the host the
-  space's pass once it is paid, and it carries the space blind, like an
-  account's. `GET /host/spaces/<id>` says how a space stands, to anyone.
-  A host with `--allow` carries no space for itself.
+- **Communities pay through a fund.** A community names the host in its
+  space (`std.host`), and anyone in it adds to its fund from the app, any
+  amount, by card or wallet, once or (by card) every month, with no sign-in at
+  the host. Keeping the space online takes `WEAVE_FUND_MONTHLY` dollars a
+  month from it (default the wallet's monthly price, or 4), by the second, and
+  its bots take what they spend. Every status says what is in it, what it
+  spends a day, and when it will run out at that rate. Card payments need no
+  prices in Stripe: the amount goes in the Checkout session. For those who add
+  every month, set `STRIPE_PORTAL_LINK` to Stripe's no-code customer portal
+  link, which the app offers as "Stop adding every month". Members' devices
+  hand the host the space's pass once there is money in the fund, and it
+  carries the space blind, like an account's. A host with `--allow` carries no
+  space for itself.
+- Each account's spaces may take `WEAVE_HOST_QUOTA_GB` (default 10 on a
+  paying host, no limit on a free one; 0 is none). Every status says what
+  they take, and the home shows it. At the limit the host takes no new space
+  for that account; what it carries stays and keeps syncing.
+- **Bots.** With `WEAVE_HOST_BOTS=1` and a model's key, the host runs
+  bots for the spaces it carries: an admin adds one from the app ("Set up this
+  community", Add a bot), the host makes its account in `--data`'s `bots/`
+  and joins with the invite, and it runs the space's rules that name it while
+  its community's fund has money in it. What a bot spends is taken from that
+  fund at `WEAVE_BOT_MARKUP` times what the host pays (default 1.5); on a
+  free host bots cost nothing. `WEAVE_BOT_MODEL` (default `claude-sonnet-5-5`) and
+  `WEAVE_BOT_DAILY_CAP` (dollars a day each, default 1) set what they think
+  with and may spend. The key is `ANTHROPIC_API_KEY`; or, with
+  `WEAVE_BOT_PROVIDER=openai`, `OPENAI_API_KEY` and any Chat Completions server
+  (`WEAVE_BOT_BASE_URL`, default OpenAI's), naming the model. A model whose
+  price isn't built in needs `WEAVE_BOT_PRICE`, dollars per million tokens
+  like `1.25/10`, as `weave agent --price` takes it. The host
+  holds each bot's keys, so it reads what the bot can read: the app says so.
+- **Reminders by email**, for time paid up front: set `WEAVE_MAIL_API_KEY`
+  and `WEAVE_MAIL_FROM` (Resend's API; `WEAVE_MAIL_URL` for another that takes
+  the same JSON), and `WEAVE_HOST_URL` for the links. The home and the apps
+  then offer "Email me before it runs out". Nothing but a link to confirm reaches an address until
+  it is confirmed; then a mail 14 and 3 days before the time runs out and one
+  when the grace period starts, each with a link that stops them.
 - With a bucket, the disk is only a cache: lose it, start on the same key and
   bucket, and every subscription and space comes back.
+- Before it takes anyone's money: [HOSTING.md](HOSTING.md).
 - Put it behind something that terminates TLS (Caddy does it in two lines).
   The account home offers it under **Keep my spaces online** when built with
-  `VITE_WEAVE_HOST=https://<host>`.
+  `VITE_WEAVE_HOST=https://<host>`, and every app built with it looks there
+  for an account's registry, so a new device restores from the recovery code
+  alone.
+- Devices reach it at the socket its description names (`"peer": "/peer"`),
+  as soon as the account or a space uses it: nothing to configure in the apps.
+
+## Your own host
+
+To keep your own spaces online, run a host for yourself rather than a node
+that holds your account: `weave host --free` limited to your account. It
+carries your spaces sealed, like any host, so the server never holds your
+recovery code or a key to your spaces, and the account home uses it like any
+other host.
+
+```bash
+weave host --free --host 0.0.0.0 --allow did:key:zDnae…   # behind TLS
+```
+
+On Fly, `fly.self.toml` does it (the commands are at its top): set
+`WEAVE_HOST_ALLOW` to your account's DID (Settings, under your name), deploy,
+then in the account home choose **Keep my spaces online**, **Use another
+host**, and paste its address. `WEAVE_HOST_FREE=1` stands for `--free`, so the
+image needs no flags. A few dollars a month on a small machine.
+
+`weave run` is still there for a node that acts as your account (writes, runs
+rules): it needs the account unlocked on the server, a host never does.
 
 ## Agents
 
@@ -252,6 +301,25 @@ writes never sets a rule off.
 
 `--no-chat` runs only the rules, until stopped: on a server, or in the
 background.
+
+### Always on, on a server
+
+`weave agent --no-chat` runs your rules with every device of yours closed; on
+a server it stays that way. `fly.agent.toml` and `Dockerfile.agent` do it on
+Fly (the commands are at the top of the toml):
+
+1. Deploy it with your model's key as a secret (`ANTHROPIC_API_KEY`, or
+   `OPENAI_API_KEY` with `--provider openai …` in `WEAVE_AGENT_ARGS`).
+2. In an app, choose **Connect an agent**, and run the command it shows over
+   `fly ssh console`, with `--no-configure`. Allow it at your account home.
+3. It starts within half a minute, and after every restart.
+
+`WEAVE_HOSTS=https://<host>` lets it find your spaces through the host your
+account uses, with none of your devices online. The same image runs a
+community's bot: `WEAVE_AGENT_ARGS="--bot"`, then the command the app shows
+under **Set up this community**, **Add a bot** (`weave agent --bot --name …
+--invite …`) over `fly ssh console`, and the bot's password as the secret
+`WEAVE_PASSPHRASE`. Its daily cap (`--daily-cap`) is the most it can cost you.
 
 ### Other models
 
@@ -340,6 +408,9 @@ the bot, or you.
 
 It runs the rules in a space that name it in `by`, made by members holding
 `std.rule/instruct` there (admins and moderators in the community preset).
+What sets a rule off is data to it, except when its writer holds that
+permission too: then an "Answer when mentioned" rule lets them ask it for
+things ("make us an expenses app"), and it sees the replies before it.
 A rule's `from` narrows what sets it off to records by some roles, so
 `"from": ["member"]` is "a mention from anyone with a role".
 `--daily-cap-each` limits what each person who sets it off may spend in a
@@ -384,14 +455,12 @@ space anywhere leaves it everywhere.
   plugs into the same transport seam if measurement says it is needed.
 - **Publishing.** `weave-protocol-cli` on npm (or a built JS package), and
   trying the Bun binary with `node-datachannel`.
-- **Hosting, before it's offered to anyone.**
-  - A load test with 1,000 spaces, with metrics. Check the pricing against those numbers, and decide on TURN from them.
-  - A real Stripe test-mode run end to end, and a decision on Stripe Tax or a merchant of record.
-  - A breach plan.
-- **The pay page.**
+- **Hosting, before it's offered to anyone.** The checklist, what it costs
+  to run and the breach plan are in [HOSTING.md](HOSTING.md): a real Stripe
+  test-mode run, and a decision on tax, are still to do.
+- **Paying.**
   - A real Base Sepolia wallet payment.
   - A Lightning route (BTCPay), and gasless USDC (EIP-3009).
-  - An optional email for reminders: SMTP, with double opt-in.
 - **TURN.** Run coturn with `use-auth-secret` and quotas, and set
   `TURN_SECRET` and `TURN_URLS` on the relay and the node. Then test calls
   across real networks, behind a strict NAT, in Safari, and on a phone

@@ -132,6 +132,82 @@ export const ruleRun: DefineCollection & Typed<RuleRun> = {
   rules: { onePer: ['link:rule', 'link:about'], edit: 'creator', delete: ['creator', 'can:moderate'] },
 };
 
+/** Where a bot, an agent or anyone's work on something stands */
+export type ActivityState = 'working' | 'waiting' | 'done' | 'failed';
+export const ACTIVITY_STATES: ReadonlyArray<ActivityState> = ['working', 'waiting', 'done', 'failed'];
+
+export interface Activity {
+  readonly state: ActivityState;
+  /** What it is doing, in a few words: "Replying", "Making an app" */
+  readonly label?: string;
+  /** When it came to this state */
+  readonly at: string;
+}
+
+/**
+ * Someone at work on a record, for apps to show while it lasts: "My bot is
+ * replying…" under a message, a spinner on a task. One per account per
+ * record, changed in place as the work goes on. Its writer's word, like a
+ * status, and only theirs to change.
+ */
+export const activity: DefineCollection & Typed<Activity> = {
+  name: 'std.activity',
+  title: 'Activity',
+  description: 'Someone at work on a record: working, waiting, done or failed.',
+  schema: {
+    type: 'object',
+    properties: {
+      state: { type: 'string', enum: [...ACTIVITY_STATES] },
+      label: words(120),
+      at: moment('When it came to this state'),
+    },
+    required: ['state', 'at'],
+  },
+  links: { about: about('What the work is on') },
+  rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about'] },
+};
+
+/**
+ * How long a `working` or `waiting` activity is believed without a change:
+ * one whose writer went away mid-way would otherwise show forever.
+ */
+export const ACTIVITY_STALE_SECONDS = 300;
+
+/** Whether an activity says someone is at work on it now: working or waiting, and not gone stale */
+export function activeNow(body: Activity | null | undefined, now: number = Date.now()): boolean {
+  if (!body || (body.state !== 'working' && body.state !== 'waiting')) return false;
+  const at = Date.parse(body.at);
+  return Number.isFinite(at) && now - at < ACTIVITY_STALE_SECONDS * 1000;
+}
+
+/**
+ * Says where this account's work on a record stands: its one `std.activity`
+ * about it, made or changed. Without a label, the one it had stays. Null
+ * where the space keeps no `std.activity`.
+ */
+export async function setActivity(
+  node: P2PNode,
+  space: string,
+  on: string,
+  state: ActivityState,
+  label?: string,
+): Promise<NodeRecord | null> {
+  if (!(await node.collections.list(space)).some((c) => c.name === activity.name && c.version !== null))
+    return null;
+  const kept =
+    label ??
+    (await node.records.linked<Activity>(space, on, { rel: 'about', collection: activity.name })).find(
+      (record) => record.root === node.did && !record.deleted,
+    )?.body?.label;
+  const body: Activity = {
+    state,
+    ...(kept ? { label: kept.slice(0, 120) } : {}),
+    at: new Date().toISOString(),
+  };
+  // One per account per record: a put for one it already has is that record's next version.
+  return node.records.put(space, activity.name, body, { links: [{ rel: 'about', to: on }] });
+}
+
 /** In an action, the record the rule holds for */
 export const IT = '$it';
 

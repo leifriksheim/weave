@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   DEFINE,
+  MANAGE,
   roleHolds,
   type NodeCollection,
   type NodeRecord,
@@ -8,6 +9,7 @@ import {
 } from '@weaveprotocol/core';
 import { useAccess, useAccount, useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
+import { AddBotDialog, useSpaceBots } from '@weave/app-shared/CommunitySetup';
 import { clauseFields, clauseOn, type Clause, type ClauseField } from '../../derive/conditions';
 import { belonging, collectionLabel, recordLabel } from '../../derive/schema-ui';
 import { useBots } from '../../bots';
@@ -16,8 +18,8 @@ import {
   INSTRUCT,
   SCHEDULES,
   checkCron,
+  activity as activityCollection,
   matching,
-  profile,
   rule as ruleCollection,
   ruleOf,
   ruleRun as runCollection,
@@ -92,6 +94,7 @@ export function RuleBuilder({
     [collections],
   );
   const [collection, setCollection] = useState(picked?.collection ?? offered[0]?.name ?? '');
+  const [addingBot, setAddingBot] = useState(false);
   const [clauses, setClauses] = useState<ReadonlyArray<Clause>>(picked?.clauses ?? []);
   const [count, setCount] = useState<CountClause | null>(picked?.count ?? null);
   const [then, setThen] = useState<RuleAction>(initial?.then ?? { kind: 'notify', text: '{title}' });
@@ -101,14 +104,16 @@ export function RuleBuilder({
   const [every, setEvery] = useState(stored?.every ?? SCHEDULES[0]!.value);
   const [ownTime, setOwnTime] = useState(!SCHEDULES.some((s) => s.value === every));
   const everyProblem = timed ? checkCron(every) : null;
-  // Who does it, for a rule that asks or runs at set times: their own agent, or a bot here.
-  const [by, setBy] = useState<string>(stored?.by ?? '');
-  // Whoever says so on their own profile here, named or not; and the one a rule being changed names.
+  // The bots the space's host runs, whoever says so on their own profile here, and the one a rule being changed names.
   const saidBots = useBots(space.id);
-  const bots = [...new Set([...saidBots, ...(stored?.by ? [stored.by] : [])])].map((d) => ({
-    did: d,
-    name: nameOf(d, people),
-  }));
+  const { bots: known } = useSpaceBots(space.id, space.writable);
+  const bots = [
+    ...new Set([...known.map((bot) => bot.did), ...saidBots, ...(stored?.by ? [stored.by] : [])]),
+  ].map((d) => ({ did: d, name: known.find((bot) => bot.did === d)?.name ?? nameOf(d, people) }));
+  // Who does it, for a rule that asks or runs at set times: their own agent, or a bot here. A new
+  // rule starts with the space's bot, one the host runs first: the agent needs a computer left on.
+  const [chosenBy, setBy] = useState<string | null>(stored ? (stored.by ?? '') : null);
+  const by = chosenBy ?? known.find((bot) => bot.state === 'on')?.did ?? bots[0]?.did ?? '';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -189,6 +194,9 @@ export function RuleBuilder({
           );
         await node.collections.define(space.id, definition);
       }
+      // Where the agent or bot says it is working on what set the rule off, for apps to show; not needed to run.
+      if (agentDoes && !has(activityCollection.name) && roleHolds(access?.role, DEFINE))
+        await node.collections.define(space.id, activityCollection).catch(() => {});
       const body: Rule = {
         name: shownName.trim() || 'Rule',
         ...(timed ? { every: every.trim() } : { when: compile(when), picked: when }),
@@ -210,387 +218,380 @@ export function RuleBuilder({
   };
 
   return (
-    <Modal title={editing ? 'Change rule' : 'New rule'} onClose={onClose} width={680}>
-      <p style={{ fontSize: 14, color: palette.ink.muted, lineHeight: 1.5, marginTop: -6 }}>
-        Something happens in {space.name}, or the time comes, and something is done about it — as you, or by a
-        bot you name.
-      </p>
+    <>
+      <Modal title={editing ? 'Change rule' : 'New rule'} onClose={onClose} width={680}>
+        <p style={{ fontSize: 14, color: palette.ink.muted, lineHeight: 1.5, marginTop: -6 }}>
+          Something happens in {space.name}, or the time comes, and something is done about it — as you, or by
+          a bot you name.
+        </p>
 
-      <div style={card}>
-        <Step label="When">
-          <div style={{ display: 'flex', gap: 6 }}>
-            {[
-              { value: false, label: 'Something happens' },
-              { value: true, label: 'At set times' },
-            ].map((choice) => (
-              <button
-                key={choice.label}
-                type="button"
-                aria-pressed={timed === choice.value}
-                onClick={() => {
-                  setTimed(choice.value);
-                  // Nothing set it off, so nothing to notify about on this device, nor to change.
-                  if (choice.value && (then.kind === 'set' || then.kind === 'notify'))
-                    setThen({ kind: 'ask', text: '' });
-                  if (choice.value && then.kind === 'add') setThen(addAction(then.collection, then.text));
-                }}
-                data-variant="quiet"
-                style={{
-                  ...chip,
-                  color: timed === choice.value ? palette.ink.strong : palette.ink.muted,
-                  fontWeight: timed === choice.value ? 600 : 400,
-                  borderColor: timed === choice.value ? palette.ink.strong : palette.surface.line,
-                  boxShadow: timed === choice.value ? `0 0 0 1px ${palette.ink.strong}` : 'none',
-                }}
-              >
-                {choice.label}
-              </button>
-            ))}
-          </div>
-          {timed ? (
-            <>
-              <Sentence>
-                <Pill
-                  label="When"
-                  value={ownTime ? OTHER : every}
-                  options={[
-                    ...SCHEDULES.map((s) => ({ value: s.value, label: s.label.toLowerCase() })),
-                    { value: OTHER, label: 'at a time of my own' },
-                  ]}
-                  onChange={(picked) => {
-                    setOwnTime(picked === OTHER);
-                    if (picked !== OTHER) setEvery(picked);
-                  }}
-                />
-              </Sentence>
-              {ownTime && (
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <input
-                    aria-label="Minute hour day month weekday"
-                    value={every}
-                    onChange={(e) => setEvery(e.target.value)}
-                    placeholder="30 7 * * 1-5"
-                    style={{ ...styles.input, fontFamily: 'ui-monospace, monospace' }}
-                  />
-                  <span
-                    style={{ fontSize: 12, color: everyProblem ? palette.accent.danger : palette.ink.faint }}
-                  >
-                    {everyProblem ??
-                      'Minute, hour, day, month, weekday, in the runner’s local time: 30 7 * * 1-5 is weekdays at 7:30.'}
-                  </span>
-                </label>
-              )}
-            </>
-          ) : (
-            <>
-              <Sentence>
-                <span>a</span>
-                <Pill
-                  label="What"
-                  value={collection}
-                  options={offered.map((c) => ({ value: c.name, label: collectionLabel(c).toLowerCase() }))}
-                  onChange={(next) => {
-                    setCollection(next);
-                    setClauses([]);
-                    setCount(null);
-                    if (then.kind === 'set') setThen({ kind: 'notify', text: '{title}' });
-                    // What a new record can point at depends on what the rule is about
-                    if (then.kind === 'add') {
-                      const links = addable(collections, next).find(
-                        (t) => t.collection.name === then.collection,
-                      )?.links;
-                      const link = linkToIt(then);
-                      setThen(
-                        addAction(
-                          then.collection,
-                          then.text,
-                          link && links?.includes(link) ? link : links?.[0],
-                        ),
-                      );
-                    }
-                  }}
-                />
-                {count ? (
-                  <>
-                    <span>has</span>
-                    <Pill
-                      label="How many"
-                      strong={false}
-                      value={count.op}
-                      options={COUNT_OPS.map((o) => ({ value: o.op, label: o.label }))}
-                      onChange={(op) => setCount({ ...count, op })}
-                    />
-                    <input
-                      aria-label="Number"
-                      type="number"
-                      min={0}
-                      value={Number.isFinite(count.value) ? count.value : ''}
-                      onChange={(e) =>
-                        setCount({ ...count, value: e.target.value === '' ? NaN : Number(e.target.value) })
-                      }
-                      style={numberBox}
-                    />
-                    <Pill
-                      label="Of what"
-                      value={`${count.collection} ${count.rel}`}
-                      options={countable.map((a) => ({
-                        value: `${a.collection.name} ${a.rel}`,
-                        label: noun(collections, a.collection.name, true),
-                      }))}
-                      onChange={(picked) => {
-                        const [c, rel] = picked.split(' ');
-                        if (c && rel) setCount({ ...count, collection: c, rel, clauses: [] });
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setCount(null)}
-                      aria-label="Stop counting"
-                      data-variant="ghost"
-                      style={styles.rowAction}
-                    >
-                      ✕
-                    </button>
-                  </>
-                ) : (
-                  <span style={{ color: palette.ink.muted }}>is added or changed</span>
-                )}
-              </Sentence>
-              {!count && countable.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {countable.slice(0, 3).map((a) => (
-                    <button
-                      key={`${a.collection.name} ${a.rel}`}
-                      type="button"
-                      onClick={() =>
-                        setCount({ collection: a.collection.name, rel: a.rel, op: 'atLeast', value: 10 })
-                      }
-                      data-variant="quiet"
-                      style={chip}
-                    >
-                      + gets a number of {noun(collections, a.collection.name, true)}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {count && countFields.length > 0 && (
-                <details open={!!count.clauses?.length}>
-                  <summary style={{ fontSize: 13, color: palette.ink.muted }}>
-                    Count only some {noun(collections, count.collection, true)}
-                  </summary>
-                  <div style={{ marginTop: 8 }}>
-                    <ClauseList
-                      fields={countFields}
-                      clauses={count.clauses ?? []}
-                      onChange={(next) => setCount({ ...count, clauses: next })}
-                      people={people}
-                      me={did}
-                      suggest={false}
-                    />
-                  </div>
-                </details>
-              )}
-            </>
-          )}
-        </Step>
-
-        {!timed && (
-          <Step label="Only if">
-            <ClauseList
-              fields={fields}
-              clauses={clauses}
-              onChange={setClauses}
-              people={people}
-              me={did}
-              empty={`Any ${chosen ? collectionLabel(chosen).toLowerCase() : 'record'}, or narrow it down:`}
-            />
-          </Step>
-        )}
-
-        <Step label="Then">
-          <div
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6 }}
-          >
-            {ACTIONS.map((action) => {
-              const untimed = timed && (action.kind === 'set' || action.kind === 'notify');
-              const unusable =
-                untimed ||
-                (action.kind === 'set' && settable.length === 0) ||
-                (action.kind === 'add' && targets.length === 0);
-              const on = then.kind === action.kind;
-              return (
+        <div style={card}>
+          <Step label="When">
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[
+                { value: false, label: 'Something happens' },
+                { value: true, label: 'At set times' },
+              ].map((choice) => (
                 <button
-                  key={action.kind}
+                  key={choice.label}
                   type="button"
-                  disabled={unusable}
-                  title={
-                    !unusable
-                      ? action.hint
-                      : untimed
-                        ? 'At set times nothing set it off, and an agent, not this device, runs it'
-                        : action.kind === 'add'
-                          ? 'Nothing in this space can be added from a line of text'
-                          : 'Nothing here it could change'
-                  }
-                  aria-pressed={on}
-                  onClick={() => setThen(startAction(action.kind, settable, targets, then))}
+                  aria-pressed={timed === choice.value}
+                  onClick={() => {
+                    setTimed(choice.value);
+                    // Nothing set it off, so nothing to notify about on this device, nor to change.
+                    if (choice.value && (then.kind === 'set' || then.kind === 'notify'))
+                      setThen({ kind: 'ask', text: '' });
+                    if (choice.value && then.kind === 'add') setThen(addAction(then.collection, then.text));
+                  }}
+                  data-variant="quiet"
                   style={{
-                    ...tile,
-                    borderColor: on ? palette.ink.strong : palette.surface.line,
-                    boxShadow: on ? `0 0 0 1px ${palette.ink.strong}` : 'none',
+                    ...chip,
+                    color: timed === choice.value ? palette.ink.strong : palette.ink.muted,
+                    fontWeight: timed === choice.value ? 600 : 400,
+                    borderColor: timed === choice.value ? palette.ink.strong : palette.surface.line,
+                    boxShadow: timed === choice.value ? `0 0 0 1px ${palette.ink.strong}` : 'none',
                   }}
                 >
-                  <strong style={{ fontSize: 13, color: palette.ink.strong }}>{action.label}</strong>
-                  <span style={{ fontSize: 12, color: palette.ink.muted, lineHeight: 1.35 }}>
-                    {timed && action.kind === 'add' ? 'A record in any collection here' : action.hint}
-                  </span>
+                  {choice.label}
                 </button>
-              );
-            })}
-          </div>
-          <ActionDetail
-            then={then}
-            onChange={setThen}
-            settable={settable}
-            counting={!!count}
-            about={!timed}
-            targets={targets}
-            collections={collections}
-            people={people}
-            me={did}
-          />
-          {then.kind === 'set' && onlyTheirs && chosen && (
-            <p style={{ fontSize: 12.5, color: palette.ink.muted }}>
-              Only whoever made a {collectionLabel(chosen).toLowerCase()} can change it, so this works on the
-              ones you made.
-            </p>
-          )}
-          {agentDoes && (
-            <Sentence>
-              <span>Done by</span>
-              <Pill
-                label="Who does it"
-                value={by}
-                options={[
-                  { value: '', label: 'my own agent' },
-                  ...bots.map((bot) => ({ value: bot.did, label: bot.name })),
-                ]}
-                onChange={setBy}
-              />
-              <span style={{ color: palette.ink.muted }}>
-                {by ? 'as itself, while it runs' : 'as you, while weave agent runs on one of your computers'}
-              </span>
-            </Sentence>
-          )}
-          {agentDoes && bots.length === 0 && (
-            <p style={{ fontSize: 12.5, color: palette.ink.muted }}>
-              {has(profile.name) ? (
-                <>
-                  No bots in {space.name} yet. One shows up here once it has joined: someone who manages the
-                  space invites it from People &amp; roles, and runs it with <code>weave agent --bot</code>.
-                </>
-              ) : (
-                <>
-                  A bot says it is one on its profile, and {space.name} keeps no profiles yet, so none can
-                  show up here.{' '}
-                  {roleHolds(access?.role, DEFINE) ? (
-                    <button
-                      type="button"
-                      style={styles.linkButton}
-                      disabled={busy}
-                      onClick={() => {
-                        setBusy(true);
-                        void node.collections
-                          .define(space.id, profile)
-                          .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-                          .finally(() => setBusy(false));
+              ))}
+            </div>
+            {timed ? (
+              <>
+                <Sentence>
+                  <Pill
+                    label="When"
+                    value={ownTime ? OTHER : every}
+                    options={[
+                      ...SCHEDULES.map((s) => ({ value: s.value, label: s.label.toLowerCase() })),
+                      { value: OTHER, label: 'at a time of my own' },
+                    ]}
+                    onChange={(picked) => {
+                      setOwnTime(picked === OTHER);
+                      if (picked !== OTHER) setEvery(picked);
+                    }}
+                  />
+                </Sentence>
+                {ownTime && (
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <input
+                      aria-label="Minute hour day month weekday"
+                      value={every}
+                      onChange={(e) => setEvery(e.target.value)}
+                      placeholder="30 7 * * 1-5"
+                      style={{ ...styles.input, fontFamily: 'ui-monospace, monospace' }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: everyProblem ? palette.accent.danger : palette.ink.faint,
                       }}
                     >
-                      Keep profiles here
-                    </button>
+                      {everyProblem ??
+                        'Minute, hour, day, month, weekday, in the runner’s local time: 30 7 * * 1-5 is weekdays at 7:30.'}
+                    </span>
+                  </label>
+                )}
+              </>
+            ) : (
+              <>
+                <Sentence>
+                  <span>a</span>
+                  <Pill
+                    label="What"
+                    value={collection}
+                    options={offered.map((c) => ({ value: c.name, label: collectionLabel(c).toLowerCase() }))}
+                    onChange={(next) => {
+                      setCollection(next);
+                      setClauses([]);
+                      setCount(null);
+                      if (then.kind === 'set') setThen({ kind: 'notify', text: '{title}' });
+                      // What a new record can point at depends on what the rule is about
+                      if (then.kind === 'add') {
+                        const links = addable(collections, next).find(
+                          (t) => t.collection.name === then.collection,
+                        )?.links;
+                        const link = linkToIt(then);
+                        setThen(
+                          addAction(
+                            then.collection,
+                            then.text,
+                            link && links?.includes(link) ? link : links?.[0],
+                          ),
+                        );
+                      }
+                    }}
+                  />
+                  {count ? (
+                    <>
+                      <span>has</span>
+                      <Pill
+                        label="How many"
+                        strong={false}
+                        value={count.op}
+                        options={COUNT_OPS.map((o) => ({ value: o.op, label: o.label }))}
+                        onChange={(op) => setCount({ ...count, op })}
+                      />
+                      <input
+                        aria-label="Number"
+                        type="number"
+                        min={0}
+                        value={Number.isFinite(count.value) ? count.value : ''}
+                        onChange={(e) =>
+                          setCount({ ...count, value: e.target.value === '' ? NaN : Number(e.target.value) })
+                        }
+                        style={numberBox}
+                      />
+                      <Pill
+                        label="Of what"
+                        value={`${count.collection} ${count.rel}`}
+                        options={countable.map((a) => ({
+                          value: `${a.collection.name} ${a.rel}`,
+                          label: noun(collections, a.collection.name, true),
+                        }))}
+                        onChange={(picked) => {
+                          const [c, rel] = picked.split(' ');
+                          if (c && rel) setCount({ ...count, collection: c, rel, clauses: [] });
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCount(null)}
+                        aria-label="Stop counting"
+                        data-variant="ghost"
+                        style={styles.rowAction}
+                      >
+                        ✕
+                      </button>
+                    </>
                   ) : (
-                    'Someone who may add collections here can add them.'
+                    <span style={{ color: palette.ink.muted }}>is added or changed</span>
                   )}
-                </>
-              )}
-            </p>
-          )}
-          {agentDoes && by && !mayInstruct && (
-            <p style={{ fontSize: 12.5, color: palette.accent.danger }}>
-              {botName} only runs the rules of people who may instruct it here, and you may not. Someone who
-              manages {space.name} can let your role, or make this rule themselves.
-            </p>
-          )}
-        </Step>
-      </div>
+                </Sentence>
+                {!count && countable.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {countable.slice(0, 3).map((a) => (
+                      <button
+                        key={`${a.collection.name} ${a.rel}`}
+                        type="button"
+                        onClick={() =>
+                          setCount({ collection: a.collection.name, rel: a.rel, op: 'atLeast', value: 10 })
+                        }
+                        data-variant="quiet"
+                        style={chip}
+                      >
+                        + gets a number of {noun(collections, a.collection.name, true)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {count && countFields.length > 0 && (
+                  <details open={!!count.clauses?.length}>
+                    <summary style={{ fontSize: 13, color: palette.ink.muted }}>
+                      Count only some {noun(collections, count.collection, true)}
+                    </summary>
+                    <div style={{ marginTop: 8 }}>
+                      <ClauseList
+                        fields={countFields}
+                        clauses={count.clauses ?? []}
+                        onChange={(next) => setCount({ ...count, clauses: next })}
+                        people={people}
+                        me={did}
+                        suggest={false}
+                      />
+                    </div>
+                  </details>
+                )}
+              </>
+            )}
+          </Step>
 
-      {timed ? (
-        <div style={previewBox}>
-          <span style={{ color: palette.ink.strong, fontWeight: 500 }}>{sentence}</span>
-          <span style={{ color: palette.ink.muted }}>
-            {by ? `${botName} does it` : 'Your agent does it'} at those times, in its local time, while it
-            runs. This app doesn’t run rules at set times.
-          </span>
+          {!timed && (
+            <Step label="Only if">
+              <ClauseList
+                fields={fields}
+                clauses={clauses}
+                onChange={setClauses}
+                people={people}
+                me={did}
+                empty={`Any ${chosen ? collectionLabel(chosen).toLowerCase() : 'record'}, or narrow it down:`}
+              />
+            </Step>
+          )}
+
+          <Step label="Then">
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                gap: 6,
+              }}
+            >
+              {ACTIONS.map((action) => {
+                const untimed = timed && (action.kind === 'set' || action.kind === 'notify');
+                const unusable =
+                  untimed ||
+                  (action.kind === 'set' && settable.length === 0) ||
+                  (action.kind === 'add' && targets.length === 0);
+                const on = then.kind === action.kind;
+                return (
+                  <button
+                    key={action.kind}
+                    type="button"
+                    disabled={unusable}
+                    title={
+                      !unusable
+                        ? action.hint
+                        : untimed
+                          ? 'At set times nothing set it off, and an agent, not this device, runs it'
+                          : action.kind === 'add'
+                            ? 'Nothing in this space can be added from a line of text'
+                            : 'Nothing here it could change'
+                    }
+                    aria-pressed={on}
+                    onClick={() => setThen(startAction(action.kind, settable, targets, then))}
+                    style={{
+                      ...tile,
+                      borderColor: on ? palette.ink.strong : palette.surface.line,
+                      boxShadow: on ? `0 0 0 1px ${palette.ink.strong}` : 'none',
+                    }}
+                  >
+                    <strong style={{ fontSize: 13, color: palette.ink.strong }}>{action.label}</strong>
+                    <span style={{ fontSize: 12, color: palette.ink.muted, lineHeight: 1.35 }}>
+                      {timed && action.kind === 'add' ? 'A record in any collection here' : action.hint}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <ActionDetail
+              then={then}
+              onChange={setThen}
+              settable={settable}
+              counting={!!count}
+              about={!timed}
+              targets={targets}
+              collections={collections}
+              people={people}
+              me={did}
+            />
+            {then.kind === 'set' && onlyTheirs && chosen && (
+              <p style={{ fontSize: 12.5, color: palette.ink.muted }}>
+                Only whoever made a {collectionLabel(chosen).toLowerCase()} can change it, so this works on
+                the ones you made.
+              </p>
+            )}
+            {agentDoes && (
+              <Sentence>
+                <span>Done by</span>
+                <Pill
+                  label="Who does it"
+                  value={by}
+                  options={[
+                    { value: '', label: 'my own agent' },
+                    ...bots.map((bot) => ({ value: bot.did, label: bot.name })),
+                  ]}
+                  onChange={setBy}
+                />
+                <span style={{ color: palette.ink.muted }}>
+                  {by
+                    ? 'as itself, while it runs'
+                    : 'as you, while weave agent runs on one of your computers'}
+                </span>
+              </Sentence>
+            )}
+            {agentDoes && bots.length === 0 && (
+              <p style={{ fontSize: 12.5, color: palette.ink.muted }}>
+                No bots in {space.name} yet.{' '}
+                {space.writable && roleHolds(access?.role, MANAGE) ? (
+                  <button type="button" style={styles.linkButton} onClick={() => setAddingBot(true)}>
+                    Add a bot
+                  </button>
+                ) : (
+                  'Someone who manages it can add one, under Hosting.'
+                )}
+              </p>
+            )}
+            {agentDoes && by && !mayInstruct && (
+              <p style={{ fontSize: 12.5, color: palette.accent.danger }}>
+                {botName} only runs the rules of people who may instruct it here, and you may not. Someone who
+                manages {space.name} can let your role, or make this rule themselves.
+              </p>
+            )}
+          </Step>
         </div>
-      ) : (
-        chosen && (
+
+        {timed ? (
           <div style={previewBox}>
             <span style={{ color: palette.ink.strong, fontWeight: 500 }}>{sentence}</span>
-            {preview === null ? (
-              <span style={{ color: palette.ink.faint }}>Looking at what's here…</span>
-            ) : preview.length === 0 ? (
-              <span style={{ color: palette.ink.muted }}>Nothing here matches yet.</span>
-            ) : (
-              <span style={{ color: palette.ink.muted }}>
-                Right now {preview.length === 1 ? 'one matches' : `${preview.length} match`}:{' '}
-                {preview
-                  .slice(0, 3)
-                  .map(
-                    (m) =>
-                      `“${recordLabel(m.record, chosen.schema)}”${typeof m.included.count === 'number' ? ` (${m.included.count})` : ''}`,
-                  )
-                  .join(', ')}
-                {preview.length > 3 ? '…' : ''}. It acts only on what changes from now on.
-              </span>
-            )}
+            <span style={{ color: palette.ink.muted }}>
+              {by ? `${botName} does it` : 'Your agent does it'} at those times, in its local time, while it
+              runs. This app doesn’t run rules at set times.
+            </span>
           </div>
-        )
+        ) : (
+          chosen && (
+            <div style={previewBox}>
+              <span style={{ color: palette.ink.strong, fontWeight: 500 }}>{sentence}</span>
+              {preview === null ? (
+                <span style={{ color: palette.ink.faint }}>Looking at what's here…</span>
+              ) : preview.length === 0 ? (
+                <span style={{ color: palette.ink.muted }}>Nothing here matches yet.</span>
+              ) : (
+                <span style={{ color: palette.ink.muted }}>
+                  Right now {preview.length === 1 ? 'one matches' : `${preview.length} match`}:{' '}
+                  {preview
+                    .slice(0, 3)
+                    .map(
+                      (m) =>
+                        `“${recordLabel(m.record, chosen.schema)}”${typeof m.included.count === 'number' ? ` (${m.included.count})` : ''}`,
+                    )
+                    .join(', ')}
+                  {preview.length > 3 ? '…' : ''}. It acts only on what changes from now on.
+                </span>
+              )}
+            </div>
+          )
+        )}
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={styles.fieldLabel}>Name</span>
+          <input
+            value={shownName}
+            maxLength={120}
+            onChange={(e) => setName(e.target.value)}
+            style={styles.input}
+          />
+        </label>
+
+        <p style={{ fontSize: 12.5, color: palette.ink.faint, lineHeight: 1.5 }}>
+          {agentDoes
+            ? by
+              ? `${botName} runs it, as itself.`
+              : 'Your agent runs it, as you, while weave agent runs on one of your computers.'
+            : 'It runs on your devices while this app is open on one of them.'}{' '}
+          Everyone in {space.name} can see the rule and what it did.
+        </p>
+        {error && <p style={{ ...styles.error, fontSize: 13 }}>{error}</p>}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} data-variant="quiet" style={{ ...styles.smallButton, height: 40 }}>
+            Cancel
+          </button>
+          <button
+            onClick={() => void save()}
+            disabled={(!chosen && !timed) || busy}
+            data-variant="primary"
+            style={{ ...styles.button, width: 'auto' }}
+          >
+            {busy ? 'Saving…' : editing ? 'Save rule' : 'Turn on rule'}
+          </button>
+        </div>
+      </Modal>
+      {addingBot && (
+        <AddBotDialog spaceId={space.id} writable={space.writable} onClose={() => setAddingBot(false)} />
       )}
-
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span style={styles.fieldLabel}>Name</span>
-        <input
-          value={shownName}
-          maxLength={120}
-          onChange={(e) => setName(e.target.value)}
-          style={styles.input}
-        />
-      </label>
-
-      <p style={{ fontSize: 12.5, color: palette.ink.faint, lineHeight: 1.5 }}>
-        {agentDoes
-          ? by
-            ? `${botName} runs it, as itself.`
-            : 'Your agent runs it, as you, while weave agent runs on one of your computers.'
-          : 'It runs on your devices while this app is open on one of them.'}{' '}
-        Everyone in {space.name} can see the rule and what it did.
-      </p>
-      {error && <p style={{ ...styles.error, fontSize: 13 }}>{error}</p>}
-
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button onClick={onClose} data-variant="quiet" style={{ ...styles.smallButton, height: 40 }}>
-          Cancel
-        </button>
-        <button
-          onClick={() => void save()}
-          disabled={(!chosen && !timed) || busy}
-          data-variant="primary"
-          style={{ ...styles.button, width: 'auto' }}
-        >
-          {busy ? 'Saving…' : editing ? 'Save rule' : 'Turn on rule'}
-        </button>
-      </div>
-    </Modal>
+    </>
   );
 }
 

@@ -5,6 +5,7 @@ import type { DirectMessage, NodeRecord, ResultOf } from '@weaveprotocol/core';
 import { channel, message, poll, positionBetween, reaction, vote } from '@weaveprotocol/core/schemas';
 import type { Channel } from '@weaveprotocol/core/schemas';
 import { nameOf, peopleFrom, writerOf, type People } from '../../derive/people';
+import { useActivity, type AtWork } from '../../activity';
 import { Icon } from '../Icon';
 import { ago } from '../../derive/time';
 import { Avatar } from '@weave/app-shared/Avatar';
@@ -220,6 +221,7 @@ function Room({
   }, [messages?.length]);
 
   const [replying, setReplying] = useState<ChatMessage | null>(null);
+  const atWork = useActivity(space.id);
   // A space that defined messages before replies could link to what they answer has no such link to write.
   const linksReplies = !!defined(message.name)?.links?.replyTo;
   const members = access?.members.map((m) => m.did);
@@ -353,6 +355,7 @@ function Room({
                 onOpen={onOpen}
                 space={space}
               />
+              <Working on={atWork.get(m.key)} people={people} />
             </Fragment>
           );
         })}
@@ -672,6 +675,25 @@ function Line({
 }
 
 /** The line above the first message that arrived since you last looked */
+/** Who is at work on a message now: a bot replying, an agent on it */
+function Working({ on, people }: { on: ReadonlyArray<AtWork> | undefined; people: People }) {
+  if (!on?.length) return null;
+  return (
+    <p
+      role="status"
+      style={{ margin: '2px 0 4px 38px', fontSize: 12.5, color: palette.ink.faint, fontStyle: 'italic' }}
+    >
+      {on
+        .map((w) =>
+          w.state === 'waiting'
+            ? `${nameOf(w.did, people)} will get to this shortly`
+            : `${nameOf(w.did, people)} · ${w.label ?? 'working on it'}…`,
+        )
+        .join(' · ')}
+    </p>
+  );
+}
+
 function NewSince() {
   return (
     <div
@@ -1079,6 +1101,7 @@ function DirectRoom({
 }) {
   const node = useNode();
   const { did: me } = useAccount();
+  const atWork = useActivity(space.id);
   const [draft, setDraft] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -1137,66 +1160,70 @@ function DirectRoom({
           const startsRun =
             !prev || prev.from !== m.from || Date.parse(m.createdAt) - Date.parse(prev.createdAt) > RUN_MS;
           return (
-            <div
-              key={m.key}
-              data-row
-              style={{
-                display: 'flex',
-                gap: 10,
-                padding: '2px 8px',
-                margin: `${startsRun ? 10 : 0}px -8px 0`,
-                borderRadius: 6,
-              }}
-            >
-              <div style={{ width: 28, flexShrink: 0 }}>{startsRun && <Avatar did={m.from} size={28} />}</div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                {startsRun && (
-                  <div style={{ fontSize: 13 }}>
-                    <strong style={{ fontWeight: 600, color: palette.ink.strong }}>
-                      {nameOf(m.from, people)}
-                    </strong>
-                    <span style={{ color: palette.ink.faint }}>
-                      {' '}
-                      · {ago(m.createdAt)}
-                      {m.viaAgent ? ' · via agent' : ''}
-                    </span>
-                  </div>
-                )}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <p
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      fontSize: 14,
-                      lineHeight: 1.5,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      color: m.text === null ? palette.ink.faint : palette.ink.body,
-                      fontStyle: m.text === null ? 'italic' : undefined,
-                    }}
-                  >
-                    {m.text ?? "This device can't open this message."}
-                  </p>
-                  {m.from === me && space.writable && (
-                    <button
-                      onClick={() => void node.records.delete(space.id, m.key)}
-                      data-row-action
-                      data-variant="ghost"
-                      aria-label="Delete message"
+            <Fragment key={m.key}>
+              <div
+                data-row
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  padding: '2px 8px',
+                  margin: `${startsRun ? 10 : 0}px -8px 0`,
+                  borderRadius: 6,
+                }}
+              >
+                <div style={{ width: 28, flexShrink: 0 }}>
+                  {startsRun && <Avatar did={m.from} size={28} />}
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  {startsRun && (
+                    <div style={{ fontSize: 13 }}>
+                      <strong style={{ fontWeight: 600, color: palette.ink.strong }}>
+                        {nameOf(m.from, people)}
+                      </strong>
+                      <span style={{ color: palette.ink.faint }}>
+                        {' '}
+                        · {ago(m.createdAt)}
+                        {m.viaAgent ? ' · via agent' : ''}
+                      </span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <p
                       style={{
-                        border: 'none',
-                        background: 'none',
-                        fontSize: 12,
-                        color: palette.ink.faint,
-                        padding: '2px 4px',
+                        flex: 1,
+                        minWidth: 0,
+                        fontSize: 14,
+                        lineHeight: 1.5,
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        color: m.text === null ? palette.ink.faint : palette.ink.body,
+                        fontStyle: m.text === null ? 'italic' : undefined,
                       }}
                     >
-                      Delete
-                    </button>
-                  )}
+                      {m.text ?? "This device can't open this message."}
+                    </p>
+                    {m.from === me && space.writable && (
+                      <button
+                        onClick={() => void node.records.delete(space.id, m.key)}
+                        data-row-action
+                        data-variant="ghost"
+                        aria-label="Delete message"
+                        style={{
+                          border: 'none',
+                          background: 'none',
+                          fontSize: 12,
+                          color: palette.ink.faint,
+                          padding: '2px 4px',
+                        }}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+              <Working on={atWork.get(m.key)} people={people} />
+            </Fragment>
           );
         })}
       </div>

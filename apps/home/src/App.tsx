@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { WeaveAuth, useWeave } from '@weaveprotocol/core/react';
 import { AccountNotices } from './components/AccountNotices';
 import { Settings } from './components/Settings';
+import { HostingDue } from './components/Hosting';
 import { Wordmark } from '@weave/app-shared/Wordmark';
 import { styles } from './styles';
 
@@ -24,6 +25,7 @@ export function App() {
         <span style={{ fontSize: 13, color: '#666' }}>Your account home</span>
       </header>
       <AccountNotices />
+      <HostingDue />
       <Settings />
     </Page>
   );

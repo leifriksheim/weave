@@ -5,53 +5,62 @@
  * the way `weave run` serves: sockets at `/peer?space=`, the relay on every
  * other path. Plus what a home and a person need (spec/06-nodes-and-sessions.md, Hosts):
  *
- *   GET    /.well-known/weave-host                who the host is: key, name, price, pay page
+ *   GET    /.well-known/weave-host                who the host is: key, name, plans, where it takes peers
  *   GET    /host/subscriptions/:id                its status, signed by the host
- *   GET    /host/spaces/:space                    a space's own subscription: its status, to anyone
- *   PUT    /host/spaces/:space/pass               { pass } — carry the space, once someone paid for it
  *   PUT    /host/subscriptions/:id/carry          { account, invite } — the account's carry space
  *   DELETE /host/subscriptions/:id/carry
+ *   POST   /host/subscriptions/:id/pay            { plan } → { checkout } or { request }
+ *   POST   /host/subscriptions/:id/manage         → { checkout }: the card provider's portal
+ *   POST   /host/subscriptions/:id/remind         { email } — a mail to confirm reminders with
+ *   GET    /host/spaces/:space                    a space's own subscription: its status, to anyone
+ *   PUT    /host/spaces/:space/pass               { pass } — carry the space, once someone paid for it
+ *   POST   /host/spaces/:space/pay                { plan } — anyone may chip in
+ *   POST   /host/spaces/:space/remind             { email }
+ *   POST   /host/bots                             { name, invite } — run a bot in a space this host carries
+ *   GET    /host/spaces/:space/bots               the bots it runs there, each with its signed status
+ *   GET    /host/bots/:did                        a bot's subscription: its status, to anyone
+ *   POST   /host/bots/:did/pay                    { plan } — anyone may pay for a bot
  *   POST   /host/billing/webhook                  the payment provider, telling us someone paid
+ *   GET    /host/paid                             where a checkout page sends people back to
+ *   GET    /host/remind/confirm?t=…, /host/remind/stop?t=…   the links in reminder mails
  *
- *   GET    /pay                                   the pay page, opened from a home with a signed link
- *   GET    /pay/api                               status and what can be paid with
- *   POST   /pay/api/card                          { plan } → Stripe Checkout
- *   POST   /pay/api/manage                        → Stripe's portal: change the card, cancel
- *   POST   /pay/api/wallet                        { plan } → the exact amount to send
- *   POST   /pay/api/wallet/claim                  { tx } → counted, or 202 while unconfirmed
- *
- * `/host/subscriptions` calls are signed with the subscription key; `/pay/api`
- * calls carry the pay link's signature instead. Homes know nothing about how
- * a host is paid: they open its pay page. Payment providers are behind small
- * interfaces (`Billing`, `WalletPayments`), so the host only ever learns
- * "this subscription is paid until …". Without either, and with `free`, every
+ * `/host/subscriptions` calls are signed with the subscription key. A home
+ * shows the plans and what `pay` answers itself: a page at the payment
+ * provider to open, or a payment request for a wallet, which the host sees
+ * arrive by watching its address. So the host has no pages of its own but
+ * two that say "done". Payment providers are behind small interfaces
+ * (`Billing`, `WalletPayments`), so the host only ever learns "this
+ * subscription is paid until …". Without either, and with `free`, every
  * subscription counts as paid — someone hosting only themselves.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readFile } from 'node:fs/promises';
 import {
   createHostNode,
   createP256Provider,
   HOST_DESCRIPTION_PATH,
   NotAllowedError,
+  parseSpaceInvite,
   signStatus,
-  verifyPayLink,
   verifyRequest,
   type BlobStore,
   type HostDescription,
+  type HostPlan,
   type HostNode,
   type HostStatus,
+  type PayAnswer,
   type StoreFactory,
 } from '@weaveprotocol/core';
-import { PAY_PAGE_CSP, PAY_SCRIPT, payPageHtml } from './pay-page.js';
 import { isRecord } from './json.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 import type { WalletPayments } from './wallet.js';
+import { isEmail, type Reminders } from './reminders.js';
+import { createHostedBots, type BotModel } from './hosted-bots.js';
+import { createFunds } from './fund.js';
 
 /** What the host needs from a payment provider */
 export interface Billing {
   readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
-  /** A payment page for a subscription; paying it leads to a webhook call. `returnUrl` is the host's own pay page. */
+  /** A payment page for a subscription; paying it leads to a webhook call. `returnUrl` is where it sends people back. */
   checkout(params: {
     subscription: string;
     plan: string;
@@ -61,13 +70,15 @@ export interface Billing {
   /** The provider's page for managing what a customer pays */
   manage(params: { customer: string; returnUrl: string }): Promise<string>;
   /**
-   * Paying once, not renewing: what anyone chipping in for a space pays with.
-   * Absent when the provider has no one-off prices.
+   * Each plan's price as people read it ("$4 a month"), by plan id: what the
+   * host's description shows. Asked once, at start.
    */
-  readonly once?: {
-    readonly plans: ReadonlyArray<{ readonly id: string; readonly label: string }>;
-    checkout(params: { subscription: string; plan: string; returnUrl: string }): Promise<string>;
-  };
+  labels?(): Promise<Record<string, string>>;
+  /**
+   * A payment page for adding `cents` to a community's fund, once or every
+   * month; paying leads to a webhook call that says how much reached it.
+   */
+  fund(params: { fund: string; cents: number; monthly: boolean; returnUrl: string }): Promise<string>;
   /**
    * A webhook call, checked as the provider's. What it says about a
    * subscription: paid until when, and by which customer. Null for anything
@@ -78,8 +89,8 @@ export interface Billing {
     headers: IncomingMessage['headers'],
   ): Promise<
     | { subscription: string; until: number; customer?: string }
-    /** A payment made once: a plan's time added to what is paid already, counted once by `id` */
-    | { subscription: string; plan: string; id: string }
+    /** Money into a community's fund, counted once by `id` */
+    | { subscription: string; cents: number; id: string }
     | null
   >;
 }
@@ -97,11 +108,11 @@ export interface HostOptions {
   readonly terms?: string;
   /** Its address as people reach it, https:// — where Stripe sends people back to. Default: from each request. */
   readonly publicUrl?: string;
-  /** A WalletConnect project id: the pay page then reaches every wallet, not only the browser's */
-  readonly walletConnectProjectId?: string | null;
   readonly billing?: Billing | null;
   /** Payments straight from a crypto wallet, next to (or instead of) `billing` */
   readonly wallet?: WalletPayments | null;
+  /** Reminders by email before paid time runs out, for those who ask (`remind`). Needs `publicUrl`. */
+  readonly reminders?: Reminders | null;
   /** The bucket every carried space, and the subscription list, are kept in too */
   readonly mirror?: BlobStore | null;
   /** Every subscription counts as paid */
@@ -109,8 +120,34 @@ export interface HostOptions {
   /** Only these accounts are carried for */
   readonly allow?: ReadonlyArray<string>;
   readonly graceDays?: number;
+  /**
+   * Bytes an account's spaces may take before the host takes no more new
+   * spaces for it. What it carries already stays, and keeps syncing: a soft
+   * limit, shown to the person in every status. Needs `measure`. Absent: no
+   * limit.
+   */
+  readonly quotaBytes?: number;
+  /** How many bytes a carried space takes on the host's disk: what `bytes` in a status adds up */
+  readonly measure?: (spaceId: string) => Promise<number>;
   /** How often lapsed subscriptions are dropped. Default hourly. */
   readonly sweepMs?: number;
+  /** How often the network is read for wallet payments, while any is open. Default 10 s. */
+  readonly watchMs?: number;
+  /**
+   * Runs bots for the spaces it carries: each an account of its own in a
+   * folder under `folder`, thinking with `model`. Absent: it runs none.
+   */
+  readonly bots?: { readonly folder: string; readonly model: BotModel } | null;
+  /** Bots one space may have here, paid or not. Default 5. */
+  readonly botsPerSpace?: number;
+  /** What keeping a community online takes from its fund a month, in dollars. Default "4". */
+  readonly fundMonthly?: string;
+  /** What a bot's AI use costs its fund, as a multiple of what the host pays for it. Default 1.5. */
+  readonly botMarkup?: number;
+  /** The payment provider's page where someone stops adding to a fund every month */
+  readonly manageFunds?: string;
+  /** How often each fund pays for the time since, and its bots start or stop. Default a minute. */
+  readonly fundMs?: number;
   readonly log?: (line: string) => void;
 }
 
@@ -123,20 +160,9 @@ export interface RunningHost {
 /** Largest request body the API reads */
 const MAX_BODY = 64 * 1024;
 const SUBSCRIPTION_PATH =
-  /^\/host\/subscriptions\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(\/carry)?$/;
-const PAY_API = /^\/pay\/api(\/(card|manage|wallet|wallet\/claim))?$/;
+  /^\/host\/subscriptions\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(?:\/(carry|pay|manage|remind))?$/;
 /** A space's own subscription, open to anyone */
-const SPACE_PATH = /^\/host\/spaces\/([A-Za-z0-9_-]{1,120})(\/pass)?$/;
-/** A plan's time, for payments that add it to what is paid already */
-function addPlan(plan: string, from: number): number {
-  const date = new Date(from * 1000);
-  if (plan === 'yearly') date.setUTCFullYear(date.getUTCFullYear() + 1);
-  else if (plan === 'monthly') date.setUTCMonth(date.getUTCMonth() + 1);
-  else throw new Error(`No such plan: ${plan}`);
-  return Math.floor(date.getTime() / 1000);
-}
-/** The WalletConnect bundle, next to this file both in the source tree and in the published package */
-const WALLETCONNECT_BUNDLE = new URL('../pay/dist/walletconnect.js', import.meta.url);
+const SPACE_PATH = /^\/host\/spaces\/([A-Za-z0-9_-]{1,120})(?:\/(pass|pay|remind))?$/;
 /**
  * How long a wallet payment stays open: asked again within it, the same
  * amount; its amount isn't given to anyone else; and only a transfer made
@@ -147,6 +173,8 @@ const INVOICE_SECONDS = 7 * 24 * 3600;
 const CLOCK_SKEW_SECONDS = 60;
 /** Where the transactions already counted are kept in the bucket */
 const SPENT_PREFIX = 'host/wallet/spent/';
+/** Where the last block read for wallet payments is kept */
+const SCANNED_KEY = 'scanned';
 
 class Refusal extends Error {
   readonly status: number;
@@ -203,9 +231,15 @@ function originOf(req: IncomingMessage, configured?: string): string {
   return `${proto}://${req.headers.host ?? 'localhost'}`;
 }
 
+/** A page that says one thing: that a payment went through, or what a link in a reminder mail did */
+function noticeHtml(name: string, said: string): string {
+  const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(name)}</title><style>:root{color-scheme:light dark}body{margin:0;font:15px/1.5 system-ui,sans-serif}main{max-width:480px;margin:0 auto;padding:48px 16px}h1{font-size:22px;margin:0 0 12px}</style></head><body><main><h1>${escape(name)}</h1><p>${escape(said)}</p></main></body></html>`;
+}
+
 /** "$4 a month or $36 a year", from the wallet's prices */
 function priceText(wallet: WalletPayments | null): string | undefined {
-  const plans = wallet?.offer.plans ?? [];
+  const plans = (wallet?.offer.plans ?? []).filter((plan) => plan.id !== 'bot');
   const parts = plans.map((plan) => `$${plan.price} a ${plan.id === 'yearly' ? 'year' : 'month'}`);
   return parts.length ? parts.reverse().join(' or ') : undefined;
 }
@@ -216,8 +250,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const inbound = createInboundPeers();
   const billing = options.billing ?? null;
   const wallet = options.wallet ?? null;
+  const reminders = options.reminders && options.publicUrl ? options.reminders : null;
+  if (options.reminders && !options.publicUrl)
+    throw new Error('Reminders by email need the host’s public address (WEAVE_HOST_URL) for their links');
   // The transactions already counted, so none pays twice — on disk, and in the bucket when there is one.
-  const spentStore = wallet || billing?.once ? await options.stores('host-wallet') : null;
+  const spentStore = wallet || billing ? await options.stores('host-wallet') : null;
   const isSpent = async (tx: string) =>
     !!(await spentStore?.has(`spent:${tx}`)) || !!(await options.mirror?.get(`${SPENT_PREFIX}${tx}`));
   const markSpent = async (tx: string, subscription: string) => {
@@ -233,7 +270,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     claiming = next.catch(() => {});
     return next;
   };
+  /** Carry spaces whose account's spaces take all the room it has: they take no new space */
+  const full = new Set<string>();
   const node = await createHostNode({
+    full: (carrySpace) => full.has(carrySpace),
     key: options.key,
     stores: options.stores,
     provider,
@@ -244,6 +284,35 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...(options.graceDays !== undefined ? { graceDays: options.graceDays } : {}),
     ...(options.mirror ? { mirror: options.mirror } : {}),
   });
+
+  /** Each space's size, measured at most every ten minutes: a disk walk is not free */
+  const sizes = new Map<string, { bytes: number; at: number }>();
+  const MEASURE_EVERY_SECONDS = 600;
+  const sizeOf = async (measure: (spaceId: string) => Promise<number>, spaceId: string): Promise<number> => {
+    const known = sizes.get(spaceId);
+    if (known && now() - known.at < MEASURE_EVERY_SECONDS) return known.bytes;
+    const bytes = await measure(spaceId).catch(() => known?.bytes ?? 0);
+    sizes.set(spaceId, { bytes, at: now() });
+    return bytes;
+  };
+  /** What a subscription's spaces take, and its limit: null when this host doesn't measure */
+  const usageOf = async (id: string): Promise<{ bytes: number; quota?: number } | null> => {
+    const measure = options.measure;
+    if (!measure) return null;
+    let bytes = 0;
+    for (const spaceId of await node.spacesOf(id)) bytes += await sizeOf(measure, spaceId);
+    const carry = (await node.get(id))?.carry?.space;
+    if (carry && options.quotaBytes && bytes >= options.quotaBytes) full.add(carry);
+    else if (carry) full.delete(carry);
+    return { bytes, ...(options.quotaBytes ? { quota: options.quotaBytes } : {}) };
+  };
+  /** Measures every subscription, and lets a carry space that has room again take the spaces it waited with */
+  const measureAll = async (): Promise<void> => {
+    if (!options.measure || !options.quotaBytes) return;
+    const before = [...full].sort().join(' ');
+    for (const subscription of await node.list()) await usageOf(subscription.id);
+    if ([...full].sort().join(' ') !== before) await node.recheck();
+  };
 
   const statusOf = async (id: string): Promise<HostStatus> => {
     const subscription = await node.get(id);
@@ -272,6 +341,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         spaces: carrying ? 1 : 0,
         at,
         ...(readKey ? { readKey } : {}),
+        ...(await usageOf(id)),
+        ...(await fundOf(id)),
       };
     }
     return {
@@ -283,6 +354,27 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       carrying: subscription.carry !== undefined,
       spaces: await node.carriedFor(id),
       at,
+      ...(await usageOf(id)),
+    };
+  };
+  /** A community's fund and bots, as its status says them: nothing of a fund on a free host */
+  const fundOf = async (id: string) => {
+    const spaceId = id.slice('space:'.length);
+    const running = bots
+      ? (await bots.list(spaceId)).map((bot) => ({
+          bot: bot.did,
+          name: bot.name,
+          running: bots.running(bot.did),
+        }))
+      : [];
+    if (options.free) return running.length ? { bots: running } : {};
+    const state = await funds.get(id);
+    // What each bot spent a day this last week: what people see the fund pays for.
+    const priced = running.map((bot) => ({ ...bot, daily: Math.round(funds.botDaily(state, bot.bot)) }));
+    return {
+      balance: Math.max(0, Math.round(state.balance)),
+      daily: Math.round(funds.daily(state)),
+      ...(priced.length ? { bots: priced } : {}),
     };
   };
   /** A status as the home gets it: signed with the host's key, so the person holds the host's word */
@@ -290,32 +382,263 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     signStatus(await statusOf(id), options.key.privateKey, provider);
 
   const name = options.name?.trim() || 'Weave host';
-  const pays = billing !== null || wallet !== null;
+  // Card prices as people read them, asked of the provider once; its plan names without them.
+  const labels: Record<string, string> = (await billing?.labels?.().catch(() => ({}))) ?? {};
+  const period = (id: string) => (id === 'yearly' ? 'a year' : 'a month');
+  const plans: ReadonlyArray<HostPlan> = options.free
+    ? []
+    : [
+        ...(billing?.plans ?? []).map((plan): HostPlan => ({
+          id: `card-${plan.id}`,
+          label: `${labels[plan.id] ?? plan.label}, by card`,
+          method: 'checkout',
+          renews: true,
+          for: ['account'],
+        })),
+        ...(wallet ? wallet.offer.plans : []).map((plan): HostPlan => ({
+          id: `wallet-${plan.id}`,
+          label: `$${plan.price} ${period(plan.id)}, from a wallet (${wallet?.offer.symbol} on ${wallet?.offer.chainName})`,
+          method: 'request',
+          renews: false,
+          for: ['account'],
+        })),
+      ];
+  /** Communities pay through a fund: what online costs a month, and how money goes in */
+  const monthly = options.fundMonthly ?? '4';
+  const markup = options.botMarkup ?? 1.5;
+  const fundOffer =
+    !options.free && (billing || wallet)
+      ? {
+          monthly,
+          min: '1',
+          methods: [...(billing ? (['checkout'] as const) : []), ...(wallet ? (['request'] as const) : [])],
+          recurring: !!billing,
+          ...(options.manageFunds ? { manage: options.manageFunds } : {}),
+          ...(options.bots ? { botDailyCap: (options.bots.model.dailyCap * markup).toFixed(2) } : {}),
+        }
+      : null;
+  const funds = createFunds({
+    store: await options.stores('host-funds'),
+    monthly: Number(monthly) * 1e6,
+    mirror: options.mirror ?? null,
+  });
   const description: HostDescription = {
     weave: 'host/1',
     did: node.did,
     name,
     free: !!options.free,
     ...((options.price ?? priceText(wallet)) ? { price: options.price ?? priceText(wallet)! } : {}),
-    ...(pays ? { pay: '/pay' } : {}),
+    // Where devices hold a socket to it: the one `serve` takes peers at.
+    peer: '/peer',
+    ...(plans.length ? { plans } : {}),
+    ...(fundOffer ? { fund: fundOffer } : {}),
+    ...(reminders ? { remind: true } : {}),
+    // Only where a bot can be paid for, from a fund, or costs nothing.
+    ...(options.bots && (options.free || fundOffer) ? { bots: true } : {}),
     ...(options.terms ? { terms: options.terms } : {}),
   };
 
-  // Reaching every wallet needs the WalletConnect bundle, built by `npm run bundle:pay`.
-  const walletConnectBundle =
-    wallet && options.walletConnectProjectId ? await readFile(WALLETCONNECT_BUNDLE).catch(() => null) : null;
-  if (wallet && options.walletConnectProjectId && !walletConnectBundle) {
-    log(
-      'WalletConnect is off: its bundle is missing (run `npm run bundle:pay` in cli/). Browser wallets still work.',
-    );
+  // Bots reach the spaces this host carries through its own socket, known once it listens.
+  let listening = 0;
+  const bots =
+    options.bots && description.bots
+      ? createHostedBots({
+          folder: options.bots.folder,
+          store: await options.stores('host-bots'),
+          peer: () => `ws://127.0.0.1:${listening}/peer`,
+          carries: async (spaceId) =>
+            (await node.spaces()).some((space) => space.id === spaceId && !space.carry),
+          model: options.bots.model,
+          // What a bot spends is taken from its community's fund, with the host's markup.
+          charge: async (spaceId, usd, bot) => {
+            if (options.free) return;
+            const state = await funds.charge(`space:${spaceId}`, usd * markup * 1e6, bot);
+            if (state.balance <= 0) await refreshFund(`space:${spaceId}`);
+          },
+          log,
+        })
+      : null;
+  /** Whether a community's fund has money in it: on a free host, always */
+  const funded = async (spaceId: string) => options.free || (await funds.get(`space:${spaceId}`)).balance > 0;
+  const syncBots = () =>
+    bots
+      ?.sync(funded)
+      .catch((error: unknown) => log(`bots: ${error instanceof Error ? error.message : String(error)}`));
+  /**
+   * Takes the hosting fee from a fund for the time since, and moves its
+   * paid-until date to what it lasts at the rate it is spent: later after a
+   * payment, earlier as its bots spend. Bots stop when it is empty.
+   */
+  let refreshing: Promise<unknown> = Promise.resolve();
+  const refreshFund = (id: string): Promise<void> => {
+    if (options.free) return Promise.resolve();
+    // One at a time: a timer's refresh read before a payment must not write its date after it.
+    const next = refreshing.then(async () => {
+      const state = await funds.settle(id);
+      const until = funds.until(state);
+      // An empty fund never moves its date later: its grace runs from when it ran out, or never starts.
+      const was = (await node.get(id))?.paidUntil ?? 0;
+      await node.setPaidUntil(id, state.balance > 0 ? until : Math.min(until, was));
+    });
+    refreshing = next.catch(() => {});
+    void next.then(syncBots, () => {});
+    return next;
+  };
+
+  /** Adds a wallet payment to what it paid for, once: its transaction is counted first */
+  const credit = async (id: string, tx: string, plan: string, amount: string): Promise<void> => {
+    if (!wallet) return;
+    const subscription = await node.get(id);
+    if (!subscription) return;
+    // Counted first: should anything after fail, the payment is lost to a restart, never counted twice.
+    await markSpent(tx, id);
+    await node.setInvoice(id, null);
+    if (plan === 'fund') {
+      await funds.add(id, Number(amount));
+      await refreshFund(id);
+      log(`fund ${id} got ${(Number(amount) / 1e6).toFixed(2)} USDC from a wallet`);
+      return;
+    }
+    const until = wallet.extend(plan, Math.max(now(), subscription.paidUntil));
+    await node.extend(id, until);
+    log(`subscription ${id} paid from a wallet until ${new Date(until * 1000).toISOString()}`);
+  };
+
+  /**
+   * Reads the network for transfers to the host's address, and counts each
+   * one whose amount an open payment asked for, made while it was open. Only
+   * while some payment is open: otherwise nothing could match.
+   */
+  const watch = () =>
+    oneAtATime(async () => {
+      if (!wallet || !spentStore) return;
+      const open = (await node.list()).filter(
+        (subscription) => subscription.invoice && now() - subscription.invoice.at < INVOICE_SECONDS,
+      );
+      if (open.length === 0) return;
+      const kept = await spentStore.get(SCANNED_KEY);
+      const { upTo, transfers } = await wallet.scan(kept ? BigInt(new TextDecoder().decode(kept)) : null);
+      for (const transfer of transfers) {
+        if (await isSpent(transfer.tx)) continue;
+        const paying = open.find(
+          (subscription) =>
+            subscription.invoice?.amount === transfer.amount &&
+            transfer.at >= subscription.invoice.at - CLOCK_SKEW_SECONDS &&
+            transfer.at <= subscription.invoice.at + INVOICE_SECONDS,
+        );
+        if (paying?.invoice) await credit(paying.id, transfer.tx, paying.invoice.plan, paying.invoice.amount);
+      }
+      await spentStore.put(SCANNED_KEY, new TextEncoder().encode(upTo.toString()));
+    });
+
+  /** Starts one of the host's plans for a subscription: a checkout page to open, or a payment request */
+  async function startPayment(req: IncomingMessage, id: string, planId: unknown): Promise<PayAnswer> {
+    const plan = plans.find((known) => known.id === planId);
+    if (!plan) throw new Refusal(400, 'This host has no such plan for this');
+    const returnUrl = `${originOf(req, options.publicUrl)}/host/paid`;
+    const [kind, period] = [plan.id.slice(0, plan.id.indexOf('-')), plan.id.slice(plan.id.indexOf('-') + 1)];
+    const subscription = await node.subscribe(id);
+    if (kind === 'card' && billing) {
+      const checkout = await billing.checkout({
+        subscription: id,
+        plan: period,
+        returnUrl,
+        ...(subscription.customer ? { customer: subscription.customer } : {}),
+      });
+      return { checkout };
+    }
+    if (kind !== 'wallet' || !wallet) throw new Refusal(400, 'This host has no such plan for this');
+    const open = subscription.invoice;
+    // Asked again — a reload, a second try — the same amount, so a payment already on its way still counts.
+    const invoice =
+      open && open.plan === period && now() - open.at < INVOICE_SECONDS
+        ? open
+        : await (async () => {
+            const taken = new Set(
+              (await node.list()).flatMap((other) =>
+                other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [],
+              ),
+            );
+            const payment = wallet.payment(period, taken);
+            const made = { plan: payment.plan, amount: payment.amount, at: now() };
+            await node.setInvoice(id, made);
+            return made;
+          })();
+    const { chainId, chainName, token, to } = wallet.offer;
+    return {
+      request: {
+        ...wallet.request(invoice.amount),
+        expires: invoice.at + INVOICE_SECONDS,
+        evm: { chainId, chainName, token, to, units: invoice.amount },
+      },
+    };
   }
-  const walletConnect = walletConnectBundle ? options.walletConnectProjectId! : null;
+
+  /**
+   * Starts adding to a community's fund: an amount in dollars, by card (once,
+   * or every month) or from a wallet. The fund's subscription is made on the
+   * way, so a community's first payment is also how it starts.
+   */
+  async function startFund(
+    req: IncomingMessage,
+    id: string,
+    input: Record<string, unknown>,
+  ): Promise<PayAnswer> {
+    if (!fundOffer) throw new Refusal(404, 'This host takes no payments for communities');
+    const amount = typeof input.amount === 'string' ? input.amount.trim() : '';
+    if (!/^\d{1,5}(\.\d{1,2})?$/.test(amount) || Number(amount) < Number(fundOffer.min))
+      throw new Refusal(400, `An amount in dollars is needed, at least ${fundOffer.min}`);
+    const cents = Math.round(Number(amount) * 100);
+    const monthly = input.monthly === true;
+    await node.subscribe(id);
+    if (input.method === 'checkout' && billing) {
+      const returnUrl = `${originOf(req, options.publicUrl)}/host/paid`;
+      return { checkout: await billing.fund({ fund: id, cents, monthly, returnUrl }) };
+    }
+    if (input.method !== 'request' || !wallet || monthly)
+      throw new Refusal(400, 'This host takes no such payment');
+    const subscription = await node.subscribe(id);
+    const open = subscription.invoice;
+    // Asked again for the same amount — a reload, a second try — the same payment, so one on its way still counts.
+    const invoice =
+      open &&
+      open.plan === 'fund' &&
+      Math.floor(Number(open.amount) / 10_000) === cents &&
+      now() - open.at < INVOICE_SECONDS
+        ? open
+        : await (async () => {
+            const taken = new Set(
+              (await node.list()).flatMap((other) =>
+                other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [],
+              ),
+            );
+            const payment = wallet.fundPayment(BigInt(cents) * 10_000n, taken);
+            const made = { plan: 'fund', amount: payment.amount, at: now() };
+            await node.setInvoice(id, made);
+            return made;
+          })();
+    const { chainId, chainName, token, to } = wallet.offer;
+    return {
+      request: {
+        ...wallet.request(invoice.amount),
+        expires: invoice.at + INVOICE_SECONDS,
+        evm: { chainId, chainName, token, to, units: invoice.amount },
+      },
+    };
+  }
+
+  /** Keeps an address for reminders about a subscription, and mails it a link to confirm */
+  async function askReminders(req: IncomingMessage, id: string, email: unknown): Promise<void> {
+    if (!reminders) throw new Refusal(404, 'This host sends no reminders');
+    if (!isEmail(email)) throw new Refusal(400, 'That doesn’t look like an email address');
+    await reminders.ask(id, email, originOf(req, options.publicUrl));
+  }
 
   async function routes(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://host');
     const open = url.pathname === HOST_DESCRIPTION_PATH || url.pathname.startsWith('/host');
-    if (!open && url.pathname !== '/pay' && !url.pathname.startsWith('/pay/')) return false;
-    if (open) {
+    if (!open) return false;
+    {
       // Signed calls carry no cookie and no ambient authority, so any page may make them.
       res.setHeader('access-control-allow-origin', '*');
       if (req.method === 'OPTIONS') {
@@ -344,7 +667,27 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     const method = req.method ?? 'GET';
     if (url.pathname === HOST_DESCRIPTION_PATH && method === 'GET') return send(res, 200, description);
 
-    if (url.pathname.startsWith('/pay')) return answerPay(req, res, url, method);
+    const page = { 'referrer-policy': 'no-referrer', 'cache-control': 'no-store' };
+    if (url.pathname === '/host/paid' && method === 'GET') {
+      const said = 'Done. You can close this tab: your Weave app shows the new date when you go back to it.';
+      return sendText(res, 'text/html; charset=utf-8', noticeHtml(name, said), page);
+    }
+    // The links in a reminder mail: whoever holds the mail holds the token.
+    if (
+      (url.pathname === '/host/remind/confirm' || url.pathname === '/host/remind/stop') &&
+      method === 'GET'
+    ) {
+      if (!reminders) throw new Refusal(404, 'This host sends no reminders');
+      const token = url.searchParams.get('t') ?? '';
+      const confirming = url.pathname.endsWith('/confirm');
+      const done = confirming ? await reminders.confirm(token) : await reminders.stop(token);
+      const said = !done
+        ? 'This link has run out.'
+        : confirming
+          ? 'Done: you’ll get a reminder before the time runs out, and a link in each to stop them.'
+          : 'Done: no more reminders go to this address.';
+      return sendText(res, 'text/html; charset=utf-8', noticeHtml(name, said), page);
+    }
 
     if (url.pathname === '/host/billing/webhook' && method === 'POST') {
       if (!billing) throw new Refusal(404, 'This host takes no payments');
@@ -353,26 +696,29 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         await node.extend(paid.subscription, paid.until, paid.customer);
         log(`subscription ${paid.subscription} paid until ${new Date(paid.until * 1000).toISOString()}`);
       } else if (paid) {
-        // Paid once: its time is added, and a webhook delivered twice adds it once.
+        // Into a fund: added once, however often the webhook comes.
         await oneAtATime(async () => {
           if (await isSpent(`card:${paid.id}`)) return;
           await markSpent(`card:${paid.id}`, paid.subscription);
-          const subscription = await node.subscribe(paid.subscription);
-          const until = addPlan(paid.plan, Math.max(now(), subscription.paidUntil));
-          await node.extend(paid.subscription, until);
-          log(`subscription ${paid.subscription} paid once, until ${new Date(until * 1000).toISOString()}`);
+          await node.subscribe(paid.subscription);
+          await funds.add(paid.subscription, paid.cents * 10_000);
+          log(`fund ${paid.subscription} got $${(paid.cents / 100).toFixed(2)} by card`);
         });
+        await refreshFund(paid.subscription);
       }
       return send(res, 200, { received: true });
     }
 
+    if (url.pathname === '/host/bots') return answerBot(req, res, method);
+
     const spaceMatch = SPACE_PATH.exec(url.pathname);
-    if (spaceMatch) return answerSpace(req, res, method, spaceMatch[1]!, spaceMatch[2] !== undefined);
+    if (spaceMatch) return answerSpace(req, res, method, spaceMatch[1]!, spaceMatch[2] ?? null);
 
     const match = SUBSCRIPTION_PATH.exec(url.pathname);
     if (!match) throw new Refusal(404, 'No such call');
     const id = decodeURIComponent(match[1]!);
-    const carry = match[2] !== undefined;
+    const action = match[2] ?? null;
+    const carry = action === 'carry';
     const body = await readBody(req);
     // Only the subscription's own key may ask about it or change it.
     const signer = await verifyRequest(
@@ -385,7 +731,22 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     if (signer !== id) throw new Refusal(401, 'That call is not signed by the subscription');
     const input = jsonFields(body);
 
-    if (!carry && method === 'GET') return send(res, 200, await signedStatusOf(id));
+    if (action === null && method === 'GET') return send(res, 200, await signedStatusOf(id));
+
+    if (action === 'pay' && method === 'POST') return send(res, 200, await startPayment(req, id, input.plan));
+
+    if (action === 'manage' && method === 'POST') {
+      const customer = (await node.get(id))?.customer;
+      if (!billing || !customer)
+        throw new Refusal(404, 'Nothing has been paid by card for this subscription');
+      const returnUrl = `${originOf(req, options.publicUrl)}/host/paid`;
+      return send(res, 200, { checkout: await billing.manage({ customer, returnUrl }) });
+    }
+
+    if (action === 'remind' && method === 'POST') {
+      await askReminders(req, id, input.email);
+      return send(res, 200, { reminders: await reminders?.state(id) });
+    }
 
     if (carry && method === 'PUT') {
       if (
@@ -421,6 +782,35 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   }
 
   /**
+   * Bots: anyone holding an invite to a space this host carries may ask for
+   * one, as the invite's role is all it may do there. It runs from the
+   * space's fund, and the answer is the space's status, which lists it.
+   */
+  async function answerBot(req: IncomingMessage, res: ServerResponse, method: string): Promise<void> {
+    if (!bots) throw new Refusal(404, 'This host runs no bots');
+    if (method !== 'POST') throw new Refusal(405, 'That call does not take that method');
+    const input = jsonFields(await readBody(req));
+    if (typeof input.name !== 'string' || typeof input.invite !== 'string' || input.invite.length > 16_000)
+      throw new Refusal(400, 'A name and an invite are needed');
+    let spaceId: string;
+    try {
+      spaceId = parseSpaceInvite(input.invite).space.id;
+    } catch {
+      throw new Refusal(400, 'That invite could not be read');
+    }
+    if ((await bots.list(spaceId)).length >= (options.botsPerSpace ?? 5))
+      throw new Refusal(409, 'This space has as many bots here as it may');
+    let bot: { did: string; name: string };
+    try {
+      bot = await bots.start(input.name, input.invite);
+    } catch (error) {
+      throw new Refusal(409, error instanceof Error ? error.message : 'The bot could not start');
+    }
+    await syncBots();
+    return send(res, 200, { bot: bot.did, receipt: await signedStatusOf(`space:${spaceId}`) });
+  }
+
+  /**
    * A space's own subscription. Nothing is signed: anyone may see how it
    * stands and pay for it, and a pass proves itself, so anyone holding one may
    * hand it over; the host carries it only once someone has paid.
@@ -430,13 +820,19 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     res: ServerResponse,
     method: string,
     space: string,
-    pass: boolean,
+    action: string | null,
   ): Promise<void> {
     const id = `space:${space}`;
-    if (!pass && method === 'GET') return send(res, 200, await signedStatusOf(id));
-    if (pass && method === 'PUT') {
-      // A host carrying only named accounts carries no space for itself.
-      if (options.allow) throw new Refusal(403, new NotAllowedError().message);
+    if (action === null && method === 'GET') return send(res, 200, await signedStatusOf(id));
+    // A host carrying only named accounts carries no space for itself, so takes nothing for one.
+    if (options.allow && action !== null) throw new Refusal(403, new NotAllowedError().message);
+    if (action === 'pay' && method === 'POST')
+      return send(res, 200, await startFund(req, id, jsonFields(await readBody(req))));
+    if (action === 'remind' && method === 'POST') {
+      await askReminders(req, id, jsonFields(await readBody(req)).email);
+      return send(res, 200, { reminders: await reminders?.state(id) });
+    }
+    if (action === 'pass' && method === 'PUT') {
       const input = jsonFields(await readBody(req));
       if (input.pass === undefined) throw new Refusal(400, 'A pass is needed');
       if (options.free) await node.subscribe(id);
@@ -451,138 +847,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       log(`space ${space} carried for itself`);
       return send(res, 200, await signedStatusOf(id));
     }
-    throw new Refusal(405, 'That call does not take that method');
-  }
-
-  /** The pay page, its script, and its API — every call there carries a pay link a home signed, or names a space */
-  async function answerPay(
-    req: IncomingMessage,
-    res: ServerResponse,
-    url: URL,
-    method: string,
-  ): Promise<void> {
-    if (!pays) throw new Refusal(404, 'This host takes no payments');
-    const page = {
-      'content-security-policy': PAY_PAGE_CSP,
-      'referrer-policy': 'no-referrer',
-      'cache-control': 'no-store',
-    };
-    if (url.pathname === '/pay' && method === 'GET')
-      return sendText(res, 'text/html; charset=utf-8', payPageHtml(name), page);
-    if (url.pathname === '/pay/pay.js' && method === 'GET')
-      return sendText(res, 'text/javascript; charset=utf-8', PAY_SCRIPT, page);
-    if (url.pathname === '/pay/walletconnect.js' && method === 'GET' && walletConnectBundle) {
-      return sendText(res, 'text/javascript; charset=utf-8', walletConnectBundle, {
-        'cache-control': 'public, max-age=3600',
-      });
-    }
-
-    const match = PAY_API.exec(url.pathname);
-    if (!match) throw new Refusal(404, 'No such page');
-    const action = match[2] ?? null;
-    const id = await verifyPayLink(req.headers.authorization, node.did, provider);
-    if (!id) throw new Refusal(401, 'This pay link has run out, or is not for this host');
-    const body = await readBody(req);
-    const input = jsonFields(body);
-
-    const forSpace = id.startsWith('space:');
-    if (action === null && method === 'GET') {
-      return send(res, 200, {
-        name,
-        status: await statusOf(id),
-        // A space is paid for once at a time, by whoever chips in; an account's card renews.
-        card: forSpace ? (billing?.once?.plans ?? []) : (billing?.plans ?? []),
-        ...(forSpace ? { space: id.slice('space:'.length) } : {}),
-        wallet: wallet?.offer ?? null,
-        walletConnect,
-      });
-    }
-
-    if (action === 'card' && method === 'POST') {
-      if (!billing) throw new Refusal(404, 'This host takes no card payments');
-      if (forSpace) {
-        const once = billing.once;
-        if (!once) throw new Refusal(404, 'This host takes no one-off card payments');
-        if (typeof input.plan !== 'string' || !once.plans.some((plan) => plan.id === input.plan))
-          throw new Refusal(400, 'No such plan');
-        await node.subscribe(id);
-        const checkout = await once.checkout({
-          subscription: id,
-          plan: input.plan,
-          returnUrl: `${originOf(req, options.publicUrl)}/pay?paid=card`,
-        });
-        return send(res, 200, { url: checkout });
-      }
-      if (typeof input.plan !== 'string' || !billing.plans.some((plan) => plan.id === input.plan))
-        throw new Refusal(400, 'No such plan');
-      const subscription = await node.subscribe(id);
-      const checkout = await billing.checkout({
-        subscription: id,
-        plan: input.plan,
-        // Back to this page, never to anything the person didn't open: the home stays in its own tab.
-        returnUrl: `${originOf(req, options.publicUrl)}/pay?paid=card`,
-        ...(subscription.customer ? { customer: subscription.customer } : {}),
-      });
-      return send(res, 200, { url: checkout });
-    }
-
-    if (action === 'manage' && method === 'POST') {
-      if (!billing) throw new Refusal(404, 'This host takes no card payments');
-      const customer = (await node.get(id))?.customer;
-      if (!customer) throw new Refusal(404, 'Nothing has been paid by card for this subscription');
-      return send(res, 200, {
-        url: await billing.manage({ customer, returnUrl: `${originOf(req, options.publicUrl)}/pay` }),
-      });
-    }
-
-    if (action === 'wallet' && method === 'POST') {
-      if (!wallet) throw new Refusal(404, 'This host takes no wallet payments');
-      if (typeof input.plan !== 'string' || !wallet.offer.plans.some((plan) => plan.id === input.plan))
-        throw new Refusal(400, 'No such plan');
-      const subscription = await node.subscribe(id);
-      const open = subscription.invoice;
-      // Asked again — a reload, a second try — the same amount, so a payment already on its way still counts.
-      if (open && open.plan === input.plan && now() - open.at < INVOICE_SECONDS) {
-        const { chainId, token, to, decimals } = wallet.offer;
-        return send(res, 200, { plan: open.plan, chainId, token, to, amount: open.amount, decimals });
-      }
-      const taken = new Set(
-        (await node.list()).flatMap((other) =>
-          other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [],
-        ),
-      );
-      const payment = wallet.payment(input.plan, taken);
-      await node.setInvoice(id, { plan: payment.plan, amount: payment.amount, at: now() });
-      return send(res, 200, payment);
-    }
-
-    if (action === 'wallet/claim' && method === 'POST') {
-      if (!wallet) throw new Refusal(404, 'This host takes no wallet payments');
-      if (typeof input.tx !== 'string') throw new Refusal(400, 'A transaction hash is needed');
-      const tx = input.tx.toLowerCase();
-      return oneAtATime(async () => {
-        const subscription = await node.get(id);
-        const invoice = subscription?.invoice;
-        if (!subscription || !invoice) throw new Refusal(409, 'No wallet payment was asked for');
-        if (await isSpent(tx)) throw new Refusal(409, 'That transaction was already counted');
-        const check = await wallet.check(tx);
-        if (check.state === 'waiting') return send(res, 202, { waiting: true });
-        if (check.state === 'failed') throw new Refusal(400, check.reason);
-        if (!check.amounts.includes(invoice.amount))
-          throw new Refusal(400, 'That transaction sent a different amount than was asked for');
-        if (check.at < invoice.at - CLOCK_SKEW_SECONDS || check.at > invoice.at + INVOICE_SECONDS) {
-          throw new Refusal(400, 'That transaction was not made while this payment was open');
-        }
-        // Counted first: should anything after fail, the payment is lost to a restart, never counted twice.
-        await markSpent(tx, id);
-        const until = wallet.extend(invoice.plan, Math.max(now(), subscription.paidUntil));
-        await node.extend(id, until);
-        await node.setInvoice(id, null);
-        log(`subscription ${id} paid from a wallet until ${new Date(until * 1000).toISOString()}`);
-        return send(res, 200, await statusOf(id));
-      });
-    }
-
     throw new Refusal(405, 'That call does not take that method');
   }
 
@@ -604,17 +868,55 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     throw error;
   });
 
+  listening = served.port;
+  void syncBots();
+  // Every minute, each community's fund pays for the time since, and its date and bots follow.
+  const fundTick = async () => {
+    if (!options.free)
+      for (const subscription of await node.list())
+        if (subscription.id.startsWith('space:')) await refreshFund(subscription.id);
+    await syncBots();
+  };
+  void fundTick().catch(() => {});
+  const botSweeping = setInterval(
+    () =>
+      void fundTick().catch((error: unknown) =>
+        log(`funds: ${error instanceof Error ? error.message : String(error)}`),
+      ),
+    options.fundMs ?? 60_000,
+  );
+  botSweeping.unref();
+
+  // Who is over their room, known before the first account adds a space.
+  void measureAll().catch((error: unknown) =>
+    log(`measuring failed: ${error instanceof Error ? error.message : String(error)}`),
+  );
   const sweeping = setInterval(() => {
     void node
       .sweep()
-      .then((dropped) => {
+      .then(async (dropped) => {
         for (const id of dropped) log(`subscription ${id} lapsed past its grace period, and was dropped`);
+        await measureAll();
+        if (reminders && options.publicUrl)
+          await reminders.send(
+            await node.list(),
+            (subscription) => node.state(subscription),
+            options.publicUrl,
+          );
       })
       .catch((error: unknown) =>
         log(`sweep failed: ${error instanceof Error ? error.message : String(error)}`),
       );
   }, options.sweepMs ?? 3600_000);
   sweeping.unref();
+  const watching = wallet
+    ? setInterval(() => {
+        void watch().catch((error: unknown) =>
+          log(`reading the network failed: ${error instanceof Error ? error.message : String(error)}`),
+        );
+      }, options.watchMs ?? 10_000)
+    : null;
+  watching?.unref();
 
   if (wallet) log(`taking ${wallet.offer.symbol} on ${wallet.offer.chainName} at ${wallet.offer.to}`);
   const who = options.allow
@@ -628,6 +930,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     port: served.port,
     async close() {
       clearInterval(sweeping);
+      if (watching) clearInterval(watching);
+      clearInterval(botSweeping);
+      await bots?.close();
+      await claiming;
       await served.close();
       await node.close();
       await spentStore?.close();

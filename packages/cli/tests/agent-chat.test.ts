@@ -9,7 +9,15 @@ import os from 'node:os';
 import path from 'node:path';
 import type { MessageCreateParamsBase } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 
-import { createAgentChat, fileSpend, replyCost, type Reply, type Spend } from '../src/agent-chat.js';
+import {
+  MAX_RESULT,
+  capped,
+  createAgentChat,
+  fileSpend,
+  replyCost,
+  type Reply,
+  type Spend,
+} from '../src/agent-chat.js';
 import { PEER_CONTENT_NOTE, PERSON_ONLY } from '../src/mcp.js';
 import { createNode } from '../../core/src/node/node.js';
 import type { P2PNode } from '../../core/src/node/types.js';
@@ -135,6 +143,32 @@ describe('weave agent', () => {
     );
     const ideas = await node.records.list<{ idea: string }>(space.id, { collection: 'app.club.idea' });
     assert.deepEqual(ideas.map((record) => record.body?.idea).sort(), ['polls', 'rides']);
+  });
+
+  test('cuts a tool result too large for the context, and says how to ask for less', async () => {
+    const node = await aNode(14);
+    const space = await node.spaces.create({ name: 'Club', visibility: 'public' });
+    for (let i = 0; i < 40; i++)
+      await node.records.put(space.id, 'app.club.note', { text: 'x'.repeat(2000) });
+    const model = scripted(
+      call({ name: 'records_list', input: { space: space.id, collection: 'app.club.note' } }),
+      say('Too many.'),
+    );
+    const chat = createAgentChat({
+      node,
+      think: model.think,
+      model: MODEL,
+      spend: memorySpend(),
+      dailyCap: 1,
+      confirm: async () => true,
+      log: () => {},
+    });
+    await chat.say('Read the notes');
+    const [result] = lastResults(model.sent);
+    const sent = text(result?.content);
+    assert.ok(sent.length < MAX_RESULT + 1000, `about the cap, not ${sent.length}`);
+    assert.match(sent, /\[Cut: this showed 24000 of \d+ characters\. Ask for less/);
+    assert.equal(capped('short'), 'short', 'a small result as it is');
   });
 
   test('asks before anything destructive, and leaves it undone on a no', async () => {
@@ -272,5 +306,14 @@ describe('weave agent', () => {
     assert.equal(await fileSpend(dir, () => now).today(), 0.75);
     now = new Date(2026, 8, 30, 0, 30);
     assert.equal(await spend.today(), 0);
+  });
+
+  test('makes its folder on the first spend, as a bot a host runs has none yet', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-agent-'));
+    temporary.push(dir);
+    const spend = fileSpend(path.join(dir, 'agent'));
+    assert.equal(await spend.today(), 0);
+    await spend.add(0.1, 'did:key:zSomeone');
+    assert.equal(await spend.today('did:key:zSomeone'), 0.1);
   });
 });

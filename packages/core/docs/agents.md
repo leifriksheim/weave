@@ -57,8 +57,11 @@ _Source: `packages/core/src/session/agent-link.ts`, `apps/example/src/components
 `node_info`, `spaces_list`, `spaces_status`, `spaces_preview_invite`, `spaces_access`, `spaces_profiles`,
 `collections_list`, `records_query`, `records_list`, `records_get`,
 `records_linked`, `records_history`, `records_can`, `records_put`,
-`records_update`, `records_delete`, and for new tools: `apps_list`,
-`apps_propose`, `apps_screen_guide`.
+`records_update`, `records_delete`, `activity_set` (what it is doing, for
+people to see), and for new tools: `apps_list`, `apps_propose`,
+`apps_screen_guide`. A bot, an account of its own, also gets
+`direct_list` and `direct_send`: it holds its own member key, and an agent
+isn't given the person's ([direct messages](direct-messages.md)).
 
 To make something new, an agent proposes an app (`apps_propose`): the
 collections it needs, optionally a screen for each, and optionally what is
@@ -89,6 +92,14 @@ keeps `std.profile`, it says it is a bot there with `bot: true`, as soon as
 the definition arrives; apps list bots from that, so a space without it
 shows none. See [rules.md](rules.md#who-runs-a-rule)
 and [standard-library.md](standard-library.md) (Bots).
+
+The usual way to have one is to let the host that keeps the community online
+run it (`node.hosting.startBot`, [spec 06 §4.7](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)):
+an admin picks its name and role in the app, the host makes its account and
+joins, and the community pays for it as it pays for hosting. The host thinks
+with its own model key, within a daily cap per bot, and holds the bot's keys,
+so it can read what the bot can read. `weave agent --bot` is the same bot run
+by whoever wants to, with their own key.
 
 ## In your own code
 

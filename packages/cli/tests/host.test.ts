@@ -6,6 +6,9 @@
  * where Stripe and USDC from a wallet (on a fake network) pay.
  */
 import { test, describe, afterEach } from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 
@@ -21,19 +24,18 @@ import {
   createHostClient,
   createSpaceHostClient,
   describeHost,
+  hostPeerAddress,
   HostError,
+  readPayAnswer,
   newSubscriptionSeed,
-  payLink,
   readStatus,
   signRequest,
   subscriptionKey,
-  verifyPayLink,
   verifyRequest,
-  type SubscriptionKey,
 } from '../../core/src/session/hosting.js';
 import { startHost } from '../src/host.js';
 import { createStripeBilling, verifyStripeSignature } from '../src/stripe.js';
-import { allowList, checkExposure, walletFromEnv } from '../src/host-setup.js';
+import { allowList, botsFromEnv, checkExposure, walletFromEnv } from '../src/host-setup.js';
 import { createWalletPayments, NETWORKS, toUnits } from '../src/wallet.js';
 import { createMemoryBlobStore } from '../../core/src/storage/blob/memory.js';
 import { createFakeHub, type FakeHub } from '../../core/tests/helpers/fake-transport.js';
@@ -97,25 +99,6 @@ const carries = (node: HostNode, spaceId: string) => async () =>
 const subscriptionId = async () => (await subscriptionKey(newSubscriptionSeed())).did;
 const YEAR = 365 * 24 * 3600;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
-
-/** The pay page's calls, made with a pay link the way the page makes them */
-async function payPage(base: string, hostDid: string, key: SubscriptionKey) {
-  const params = new URLSearchParams(new URL(await payLink(`${base}/pay`, hostDid, key)).hash.slice(1));
-  const authorization = `WeavePay s=${params.get('s')}, at=${params.get('at')}, sig=${params.get('sig')}`;
-  return async <T = Record<string, unknown>>(
-    method: string,
-    path = '',
-    body?: unknown,
-  ): Promise<{ status: number; answer: T }> => {
-    const response = await fetch(`${base}/pay/api${path}`, {
-      method,
-      headers: { authorization, ...(body ? { 'content-type': 'application/json' } : {}) },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- each test names the answer it expects, and its assertions fail on any other
-    return { status: response.status, answer: (await response.json()) as T };
-  };
-}
 
 describe('a host', () => {
   test('carries an account’s spaces once its subscription is paid — and not before', async () => {
@@ -248,7 +231,7 @@ describe('the host API', () => {
     const info = await describeHost(url);
     assert.equal(info.did, served.node.did);
     assert.equal(info.free, true);
-    assert.equal(info.pay, undefined, 'a free host has no pay page');
+    assert.equal(info.plans, undefined, 'a free host takes no payments');
     const client = createHostClient(url, info.did, key);
 
     const me = await account();
@@ -288,7 +271,7 @@ describe('the host API', () => {
     );
   });
 
-  test('a paying host refuses to carry until paid; its pay page starts Stripe, whose webhook moves the date once', async () => {
+  test('a paying host refuses to carry until paid; paying starts Stripe, whose webhook moves the date once', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const key = await subscriptionKey(newSubscriptionSeed());
     const periodEnd = nowSeconds() + 30 * 24 * 3600;
@@ -316,6 +299,8 @@ describe('the host API', () => {
         }
         if (target.endsWith('/v1/billing_portal/sessions'))
           return Response.json({ url: 'https://billing.stripe.test/p/1' });
+        if (target.endsWith('/v1/prices/price_month'))
+          return Response.json({ unit_amount: 400, currency: 'usd', recurring: { interval: 'month' } });
         return Response.json({ error: { message: 'unexpected' } }, { status: 400 });
       },
     });
@@ -325,8 +310,22 @@ describe('the host API', () => {
 
     const info = await describeHost(url);
     assert.deepEqual(
-      { name: info.name, price: info.price, pay: info.pay, free: info.free },
-      { name: 'Test Hosting', price: '$4 a month', pay: '/pay', free: false },
+      { name: info.name, price: info.price, plans: info.plans, free: info.free },
+      {
+        name: 'Test Hosting',
+        price: '$4 a month',
+        plans: [
+          {
+            id: 'card-monthly',
+            label: '$4 a month, by card',
+            method: 'checkout',
+            renews: true,
+            for: ['account'],
+          },
+        ],
+        free: false,
+      },
+      'its plans, priced as Stripe keeps them',
     );
     const me = await account();
     const laptop = await device(me, hub);
@@ -336,29 +335,29 @@ describe('the host API', () => {
       (error: unknown) => error instanceof HostError && error.status === 402,
     );
 
-    // The pay page: the page itself for anyone, its API only with a pay link.
-    const page = await fetch(`${url}/pay`);
-    assert.match(page.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
-    assert.match(await page.text(), /Test Hosting/);
-    assert.equal((await fetch(`${url}/pay/api`)).status, 401);
-    const pay = await payPage(url, served.node.did, key);
-    const state = await pay<{ status: { state: string }; card: Array<{ id: string }>; wallet: unknown }>(
-      'GET',
+    // Paying is a signed call: the home opens the page it answers with, at Stripe.
+    assert.deepEqual(await client.pay('card-monthly'), { checkout: 'https://checkout.stripe.test/c/1' });
+    assert.equal(returnUrl, `${url}/host/paid`, 'Stripe sends people back to a page that says done');
+    assert.match(await (await fetch(returnUrl)).text(), /Done/);
+    await assert.rejects(
+      client.pay('card-weekly'),
+      (error: unknown) => error instanceof HostError && error.status === 400,
     );
-    assert.equal(state.answer.status.state, 'none');
-    assert.deepEqual(state.answer.card, [{ id: 'monthly', label: 'Monthly' }]);
-    assert.equal(state.answer.wallet, null);
-    assert.equal(
-      (await pay<{ url: string }>('POST', '/card', { plan: 'monthly' })).answer.url,
-      'https://checkout.stripe.test/c/1',
+    await assert.rejects(
+      client.pay('once-monthly'),
+      /no such plan/,
+      'a plan for spaces is not for an account',
     );
-    assert.equal(
-      returnUrl,
-      `${url}/pay?paid=card`,
-      'Stripe sends people back to the pay page, never to the home',
+    await assert.rejects(
+      client.manage(),
+      (error: unknown) => error instanceof HostError && error.status === 404,
     );
-    assert.equal((await pay('POST', '/card', { plan: 'weekly' })).status, 400);
-    assert.equal((await pay('POST', '/manage')).status, 404, 'nothing paid by card yet');
+    const stranger = await fetch(`${url}/host/subscriptions/${encodeURIComponent(key.did)}/pay`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ plan: 'card-monthly' }),
+    });
+    assert.equal(stranger.status, 401, 'only the subscription starts paying for itself');
 
     const event = JSON.stringify({
       type: 'checkout.session.completed',
@@ -385,32 +384,31 @@ describe('the host API', () => {
     assert.equal(status.renews, true);
     assert.equal((await client.attach(me.did, invite)).status.carrying, true);
     assert.equal(stripeCalls.filter((call) => call.startsWith('GET /v1/subscriptions')).length, 2);
-    assert.equal(
-      (await pay<{ url: string }>('POST', '/manage')).answer.url,
-      'https://billing.stripe.test/p/1',
-    );
+    assert.deepEqual(await client.manage(), { checkout: 'https://billing.stripe.test/p/1' });
   });
+});
 
-  test('a pay link: this subscription, this host, for an hour', async () => {
-    const host = await subscriptionId(); // any key stands in for the host's
-    const key = await subscriptionKey(newSubscriptionSeed());
-    const at = nowSeconds();
-    const link = new URL(await payLink('https://host.test/pay', host, key, provider, at));
-    assert.equal(link.search, '', 'nothing in what the browser sends');
-    const params = new URLSearchParams(link.hash.slice(1));
-    const header = `WeavePay s=${params.get('s')}, at=${params.get('at')}, sig=${params.get('sig')}`;
-    assert.equal(await verifyPayLink(header, host, provider, at + 10), key.did);
-    assert.equal(await verifyPayLink(header, host, provider, at + 3601), null, 'an hour old');
+describe('pay answers', () => {
+  test('a device takes only an https:// checkout page, or a payment request with a known scheme', () => {
+    assert.deepEqual(readPayAnswer({ checkout: 'https://checkout.stripe.com/c/1' }), {
+      checkout: 'https://checkout.stripe.com/c/1',
+    });
+    assert.equal(readPayAnswer({ checkout: 'http://evil.example/pay' }), null, 'not https');
+    assert.equal(readPayAnswer({ checkout: 'javascript:alert(1)' }), null);
+    assert.ok(readPayAnswer({ checkout: 'http://localhost:8788/x' }), 'http on this machine');
+
+    const request = { uri: 'ethereum:0xabc@8453/transfer', amount: '4 USDC on Base', expires: 1 };
+    assert.deepEqual(readPayAnswer({ request }), { request });
     assert.equal(
-      await verifyPayLink(header, 'did:key:zDnaeAnotherHost', provider, at),
+      readPayAnswer({ request: { ...request, uri: 'https://pay.example' } }),
       null,
-      'at another host',
+      'not a payment URI',
     );
-    assert.equal(
-      await verifyPayLink(header.replace(/at=\d+/, `at=${at + 1}`), host, provider, at),
-      null,
-      'another time',
-    );
+    assert.equal(readPayAnswer({ request: { ...request, amount: 4 } }), null);
+    // A transfer spelled out wrongly is left out, not trusted: the link still works.
+    const read = readPayAnswer({ request: { ...request, evm: { chainId: 8453, to: 'me' } } });
+    assert.ok(read && 'request' in read && read.request.evm === undefined);
+    assert.equal(readPayAnswer({ url: 'https://x' }), null);
   });
 });
 
@@ -440,7 +438,7 @@ describe('an account using a host, end to end over sockets', () => {
     return node;
   }
 
-  test('a paying host: the home only opens its pay page, and hands over the spaces once the webhook says paid', async () => {
+  test('a paying host: the home shows its plans, opens the checkout it answers, and hands over the spaces once paid', async () => {
     let paidFor: string | null = null;
     const periodEnd = nowSeconds() + 365 * 24 * 3600;
     const billing = createStripeBilling({
@@ -477,23 +475,15 @@ describe('an account using a host, end to end over sockets', () => {
 
     const before = await laptop.hosting.use(url);
     assert.deepEqual(
-      { name: before.name, price: before.price, pays: before.pays, live: before.live },
-      { name: 'Test Hosting', price: '$36 a year', pays: true, live: true },
+      { name: before.name, plans: before.plans.map((plan) => plan.id), live: before.live },
+      { name: 'Test Hosting', plans: ['card-yearly'], live: true },
     );
     assert.equal(before.status?.carrying, false);
 
-    // What the home opens: the host's page, with the subscription's signature in the fragment.
-    const link = new URL(await laptop.hosting.payPage(url));
-    assert.equal(`${link.origin}${link.pathname}`, `${url}/pay`);
-    const params = new URLSearchParams(link.hash.slice(1));
-    assert.equal(params.get('s'), before.subscription);
-    const authorization = `WeavePay s=${params.get('s')}, at=${params.get('at')}, sig=${params.get('sig')}`;
-    const checkout = await fetch(`${url}/pay/api/card`, {
-      method: 'POST',
-      headers: { authorization, 'content-type': 'application/json' },
-      body: JSON.stringify({ plan: 'yearly' }),
+    // What the home opens: the checkout page the host answers with, at Stripe, and nothing of the host's.
+    assert.deepEqual(await laptop.hosting.pay(url, 'card-yearly'), {
+      checkout: 'https://checkout.stripe.test/c/2',
     });
-    assert.equal(at(await checkout.json(), 'url'), 'https://checkout.stripe.test/c/2');
     assert.equal(paidFor, before.subscription);
 
     const body = JSON.stringify({
@@ -572,6 +562,323 @@ describe('an account using a host, end to end over sockets', () => {
       (await phone.hosting.list()).map((known) => known.url),
       [url],
     );
+  });
+});
+
+describe('reaching a host at the address it names', () => {
+  /** A device configured with no always-on node at all: whatever it reaches, it learned */
+  async function unconfigured(me: Account, network: { hosts?: string[] } = {}): Promise<P2PNode> {
+    const node = await createNode({
+      signer: me.signer,
+      stores: memoryStores(),
+      accountKey: me.accountKey,
+      watchIntervalMs: 0,
+      network,
+    });
+    open.push(node);
+    return node;
+  }
+
+  test('a host says where it takes peers; only wss://, or ws:// on this machine, is used', () => {
+    assert.equal(hostPeerAddress('https://host.example', { peer: '/peer' }), 'wss://host.example/peer');
+    assert.equal(hostPeerAddress('http://127.0.0.1:8787', { peer: '/peer' }), 'ws://127.0.0.1:8787/peer');
+    assert.equal(hostPeerAddress('https://a.example', { peer: 'wss://b.example/p' }), 'wss://b.example/p');
+    assert.equal(hostPeerAddress('https://host.example', { peer: 'ws://host.example/peer' }), null);
+    assert.equal(hostPeerAddress('https://host.example', {}), null);
+  });
+
+  test('using a host is enough: the device reaches it, and a new phone given only the host gets everything', async () => {
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      free: true,
+    });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    assert.equal((await describeHost(url)).peer, '/peer');
+    const me = await account();
+
+    const laptop = await unconfigured(me);
+    const notes = await laptop.spaces.create({ name: 'Notes', visibility: 'private' });
+    await laptop.records.put(notes.id, 'note', { text: 'found through the host' });
+    await laptop.hosting.use(url);
+    await until(
+      async () => {
+        const reached = (await served.node.spaces()).filter((space) => space.peers > 0).map((s) => s.name);
+        return reached.includes('Account registry') && reached.includes('Notes');
+      },
+      15_000,
+      'the laptop to reach the host with nothing configured',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await laptop.close();
+
+    // The phone knows only the host its app was built with: the registry is there, and every space from it.
+    const phone = await unconfigured(me, { hosts: [url] });
+    await until(
+      async () => (await phone.records.list(notes.id).catch(() => [])).length === 1,
+      15_000,
+      'the note to reach the phone',
+    );
+    assert.deepEqual((await phone.records.list(notes.id))[0]?.body, { text: 'found through the host' });
+  });
+
+  test('a space that pays a host: its members’ devices reach it with nothing configured', async () => {
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      free: true,
+    });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const laptop = await unconfigured(await account());
+    const { id } = await laptop.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await laptop.collections.define(id, hostSchema);
+    await laptop.records.put(id, hostSchema.name, { url });
+    await laptop.records.put(id, 'note', { text: 'kept by the club’s host' });
+    await laptop.hosting.space(id);
+    await until(
+      async () => (await served.node.spaces()).some((space) => space.id === id && space.peers > 0),
+      15_000,
+      'the laptop to reach the host its space pays',
+    );
+  });
+});
+
+describe('bots a host runs', () => {
+  const folders: string[] = [];
+  const hosts: Array<{ close(): Promise<void> }> = [];
+  afterEach(async () => {
+    // The hosts first: their bots write into these folders until they stop.
+    await Promise.all(hosts.splice(0).map((served) => served.close()));
+    await Promise.all(
+      folders
+        .splice(0)
+        .map((folder) => rm(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })),
+    );
+  });
+
+  /** A model that is never asked: these bots have no rules to run */
+  const model = {
+    name: 'claude-sonnet-5-5',
+    dailyCap: 1,
+    think: () => async () => {
+      throw new Error('No model in these tests');
+    },
+  };
+  async function hostWithBots(options: Partial<Parameters<typeof startHost>[0]> = {}) {
+    const folder = await mkdtemp(path.join(os.tmpdir(), 'weave-bots-'));
+    folders.push(folder);
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      bots: { folder, model },
+      ...options,
+    });
+    hosts.push(served);
+    return { served, url: `http://127.0.0.1:${served.port}` };
+  }
+  /** A community whose admin keeps it online at the host, on a laptop that reaches only what it learns */
+  async function community(url: string) {
+    const me = await account();
+    const laptop = await createNode({
+      signer: me.signer,
+      stores: memoryStores(),
+      accountKey: me.accountKey,
+      watchIntervalMs: 0,
+      network: {},
+    });
+    open.push(laptop);
+    const { id } = await laptop.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await laptop.collections.define(id, hostSchema);
+    await laptop.records.put(id, hostSchema.name, { url });
+    return { laptop, space: id };
+  }
+
+  test('an admin asks the host for a bot: it joins with the invite’s role, through the host, and runs', async () => {
+    const { served, url } = await hostWithBots({ free: true });
+    assert.equal((await describeHost(url)).bots, true);
+    const { laptop, space } = await community(url);
+    await laptop.hosting.space(space);
+    await until(carries(served.node, space), 6000, 'the host to carry the space');
+
+    const bot = await laptop.hosting.startBot(space, url, { name: 'Club Bot' });
+    assert.equal(bot.status.subscription, `space:${space}`, 'the answer is the space’s status');
+    await until(
+      async () =>
+        (await laptop.spaces.access(space)).members.some((m) => m.did === bot.bot && m.role !== 'admin'),
+      15_000,
+      'the bot to join, below its admin',
+    );
+    await until(
+      async () =>
+        (await laptop.hosting.space(space))[0]?.bots.some(
+          (b) => b.bot === bot.bot && b.name === 'Club Bot' && b.running,
+        ) ?? false,
+      8000,
+      'the space’s signed status to say the bot runs',
+    );
+  });
+
+  test('a bot runs from its community’s fund: only where the host keeps the space, and while there is money in it', async () => {
+    const { chain, wallet } = fakeChain();
+    const { url } = await hostWithBots({ wallet, watchMs: 20, fundMs: 50 });
+    const info = await describeHost(url);
+    assert.equal(info.bots, true);
+    assert.deepEqual(info.fund, {
+      monthly: '4',
+      min: '1',
+      methods: ['request'],
+      recurring: false,
+      botDailyCap: '1.50',
+    });
+    const { laptop, space } = await community(url);
+    await assert.rejects(
+      laptop.hosting.startBot(space, url, { name: 'Early Bot' }),
+      /keep the space online here first/,
+    );
+
+    // Anyone chips in any amount; the fund keeps the space online and runs its bots.
+    const paying = await laptop.hosting.payForSpace(space, url, { amount: '10', method: 'request' });
+    assert.ok('request' in paying);
+    assert.match(paying.request.amount, /^10\.\d+ USDC/);
+    // Asked for is not paid: however often the host settles the empty fund, it carries nothing.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const [asked] = await laptop.hosting.space(space);
+    assert.equal(asked?.status?.carrying, false, 'an empty fund starts no grace');
+    chain.latest = 150;
+    chain.send(BigInt(paying.request.evm!.units), { block: 147 });
+    await until(
+      async () => (await laptop.hosting.space(space))[0]?.status?.carrying === true,
+      8000,
+      'the space to be kept online',
+    );
+    const [view] = await laptop.hosting.space(space);
+    assert.ok((view?.status?.balance ?? 0) > 9_990_000, 'what was paid is in the fund');
+    assert.ok(
+      Math.abs((view?.status?.daily ?? 0) - 4e6 / 30) < 1000,
+      'spent at the monthly rate, a day at a time',
+    );
+    const lasts = ((view?.status?.paidUntil ?? 0) - nowSeconds()) / 86_400;
+    assert.ok(lasts > 74 && lasts < 76, `$10 at $4 a month lasts about 75 days, not ${lasts}`);
+
+    const bot = await laptop.hosting.startBot(space, url, { name: 'Club Bot' });
+    await until(
+      async () =>
+        (await laptop.hosting.space(space))[0]?.bots.some((b) => b.bot === bot.bot && b.running) ?? false,
+      10_000,
+      'the bot to run, its community funded',
+    );
+  });
+
+  test('a host with no model runs no bots, though communities fund themselves there', async () => {
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      wallet: createWalletPayments({
+        network: 'base-sepolia',
+        to: '0x1111111111111111111111111111111111111111',
+        monthly: '4',
+      }),
+    });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const info = await describeHost(url);
+    assert.equal(info.bots, undefined);
+    assert.equal(info.fund?.monthly, '4');
+    const response = await fetch(`${url}/host/bots`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'x', invite: 'y' }),
+    });
+    assert.equal(response.status, 404);
+  });
+
+  test('from the env: bots think with Anthropic, or with any Chat Completions server, at a known price', async () => {
+    const env = { WEAVE_HOST_BOTS: '1' };
+    assert.equal(await botsFromEnv({}, '/data'), null, 'none unless asked for');
+    await assert.rejects(botsFromEnv(env, '/data'), /ANTHROPIC_API_KEY/);
+    const openai = { ...env, WEAVE_BOT_PROVIDER: 'openai' };
+    await assert.rejects(botsFromEnv(openai, '/data'), /needs WEAVE_BOT_MODEL/);
+    await assert.rejects(botsFromEnv({ ...openai, WEAVE_BOT_MODEL: 'gpt-5.5' }, '/data'), /WEAVE_BOT_PRICE/);
+    await assert.rejects(
+      botsFromEnv({ ...openai, WEAVE_BOT_MODEL: 'gpt-5.5', WEAVE_BOT_PRICE: 'lots' }, '/data'),
+      /dollars per million tokens/,
+    );
+    await assert.rejects(
+      botsFromEnv({ ...openai, WEAVE_BOT_MODEL: 'gpt-5.5', WEAVE_BOT_PRICE: '1/8' }, '/data'),
+      /OPENAI_API_KEY/,
+    );
+
+    const asked: Array<{ url: string; auth: string | null; body: unknown }> = [];
+    const bots = await botsFromEnv(
+      { ...openai, WEAVE_BOT_MODEL: 'gpt-5.5', WEAVE_BOT_PRICE: '1/8', OPENAI_API_KEY: 'sk-test' },
+      '/data',
+      async (input, init) => {
+        asked.push({
+          url: urlOf(input),
+          auth: new Headers(init?.headers).get('authorization'),
+          body: JSON.parse(bodyOf(init)),
+        });
+        return Response.json({
+          model: 'gpt-5.5',
+          choices: [{ message: { role: 'assistant', content: 'Done' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1_000_000, completion_tokens: 0 },
+        });
+      },
+    );
+    assert.equal(bots?.folder, path.join('/data', 'bots'));
+    assert.deepEqual(bots?.model.price, { input: 1, output: 8, cacheWrite: 1, cacheRead: 1 });
+    assert.equal(bots?.model.plain, true, 'no thinking or fallbacks asked of it');
+    const reply = await bots.model.think()({
+      model: 'gpt-5.5',
+      max_tokens: 100,
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    assert.equal(asked[0]?.url, 'https://api.openai.com/v1/chat/completions');
+    assert.equal(asked[0]?.auth, 'Bearer sk-test');
+    assert.equal(at(asked[0]?.body, 'model'), 'gpt-5.5');
+    assert.equal(reply.stop_reason, 'end_turn');
+  });
+});
+
+describe('a host’s room', () => {
+  test('a status says what the spaces take; at its limit an account keeps its spaces and takes no new one', async () => {
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      free: true,
+      measure: async () => 1000,
+      quotaBytes: 2500,
+    });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const me = await account();
+    const laptop = await createNode({
+      signer: me.signer,
+      stores: memoryStores(),
+      accountKey: me.accountKey,
+      watchIntervalMs: 0,
+      network: {},
+    });
+    open.push(laptop);
+    const one = await laptop.spaces.create({ name: 'One', visibility: 'private' });
+    await laptop.hosting.use(url);
+    await until(carries(served.node, one.id), 8000, 'the host to carry the first space');
+
+    const [view] = await laptop.hosting.list();
+    assert.equal(view?.status?.quota, 2500);
+    assert.ok((view?.status?.bytes ?? 0) >= 2500, 'the carry space, the registry and the space: over it now');
+
+    const two = await laptop.spaces.create({ name: 'Two', visibility: 'private' });
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    assert.equal(await carries(served.node, two.id)(), false, 'no room for a new space');
+    assert.equal(await carries(served.node, one.id)(), true, 'what it had stays');
   });
 });
 
@@ -744,6 +1051,8 @@ function fakeChain() {
       }
     >(),
     calls: 0,
+    /** The most blocks one eth_getLogs may ask for, as a public node limits it */
+    maxRange: Infinity,
     /** A transfer of `amount` (smallest units) to `to`, in block `block` */
     send(
       amount: bigint | string,
@@ -774,14 +1083,33 @@ function fakeChain() {
       const [id, method, first] = [at(request, 'id'), at(request, 'method'), at(request, 'params', 0)];
       const answer = (result: unknown) => Response.json({ jsonrpc: '2.0', id, result });
       if (method === 'eth_blockNumber') return answer(`0x${chain.latest.toString(16)}`);
-      if (method === 'eth_getTransactionReceipt') {
-        const found = chain.txs.get(String(first));
-        if (!found || found.block > chain.latest) return answer(null);
-        return answer({
-          status: found.status,
-          blockNumber: `0x${found.block.toString(16)}`,
-          logs: found.logs,
-        });
+      if (method === 'eth_getLogs') {
+        const [from, to] = [Number(at(first, 'fromBlock')), Number(at(first, 'toBlock'))];
+        if (to - from + 1 > chain.maxRange)
+          return Response.json({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32614, message: `eth_getLogs is limited to a ${chain.maxRange} range` },
+          });
+        const address = String(at(first, 'address')).toLowerCase();
+        const receiver = String(at(first, 'topics', 2)).toLowerCase();
+        return answer(
+          [...chain.txs].flatMap(([tx, found]) =>
+            // A reverted transaction leaves no logs.
+            found.status !== '0x1' || found.block < from || found.block > to
+              ? []
+              : found.logs
+                  .filter(
+                    (log) =>
+                      log.address.toLowerCase() === address && log.topics[2]?.toLowerCase() === receiver,
+                  )
+                  .map((log) => ({
+                    ...log,
+                    transactionHash: tx,
+                    blockNumber: `0x${found.block.toString(16)}`,
+                  })),
+          ),
+        );
       }
       if (method === 'eth_getBlockByNumber') {
         const found = [...chain.txs.values()].find((tx) => `0x${tx.block.toString(16)}` === first);
@@ -824,117 +1152,113 @@ describe('wallet payments', () => {
     assert.equal(wallet.extend('monthly', Date.UTC(2026, 0, 15) / 1000), Date.UTC(2026, 1, 15) / 1000);
   });
 
-  test('a transaction counts once confirmed, and only what reached this host in USDC', async () => {
-    const { chain, wallet } = fakeChain();
-    assert.deepEqual(await wallet.check('0x1234'), {
-      state: 'failed',
-      reason: 'That is not a transaction hash',
-    });
-    assert.deepEqual(await wallet.check(`0x${'f'.repeat(64)}`), { state: 'waiting' }, 'not on the chain yet');
+  test('the network is read for what reached this host in USDC, once confirmed, each block once', async () => {
+    const { chain, wallet, HOST_ADDRESS } = fakeChain();
     const tx = chain.send(36_004_217n, { block: 100 });
-    assert.deepEqual(await wallet.check(tx), { state: 'waiting' }, 'one block is not enough');
+    chain.send(1n, { block: 100, to: '0x3333333333333333333333333333333333333333' });
+    chain.send(2n, { block: 100, token: '0x4444444444444444444444444444444444444444' });
+    chain.send(3n, { block: 100, status: '0x0' });
+    let scan = await wallet.scan(null);
+    assert.deepEqual(scan, { upTo: 98n, transfers: [] }, 'a block needs three confirmations');
     chain.latest = 102;
-    const sent = await wallet.check(tx);
-    assert.equal(sent.state, 'sent');
-    assert.deepEqual(sent.state === 'sent' && sent.amounts, ['36004217']);
+    scan = await wallet.scan(scan.upTo);
+    assert.deepEqual(
+      scan.transfers.map((transfer) => [transfer.tx, transfer.amount]),
+      [[tx, '36004217']],
+      'only USDC, to this host, that went through',
+    );
+    assert.deepEqual((await wallet.scan(scan.upTo)).transfers, [], 'and each block once');
 
-    assert.equal(
-      (
-        await wallet.check(
-          chain.send(36_004_217n, { block: 90, to: '0x3333333333333333333333333333333333333333' }),
-        )
-      ).state,
-      'failed',
-      'to someone else',
+    // A node that gives fewer blocks at a time than asked: the host asks for fewer, and remembers.
+    chain.maxRange = 300;
+    chain.latest = 5000;
+    const far = chain.send(4_000_000n, { block: 200 });
+    const wide = await wallet.scan(scan.upTo);
+    assert.ok(wide.upTo - scan.upTo <= 300n, `no more than the node gives, not ${wide.upTo - scan.upTo}`);
+    assert.deepEqual(
+      wide.transfers.map((transfer) => transfer.tx),
+      [far],
+      'and still each block, from where it left off',
     );
+    const asked = chain.calls;
+    await wallet.scan(wide.upTo);
+    assert.equal(chain.calls - asked, 2, 'the next scan asks the smaller range at once');
+
+    // What the home shows: a link any wallet opens, and the amount in words.
+    const request = wallet.request('36004217');
     assert.equal(
-      (
-        await wallet.check(
-          chain.send(36_004_217n, { block: 90, token: '0x4444444444444444444444444444444444444444' }),
-        )
-      ).state,
-      'failed',
-      'another token',
+      request.uri,
+      `ethereum:${NETWORKS['base-sepolia'].usdc}@84532/transfer?address=${HOST_ADDRESS}&uint256=36004217`,
     );
-    assert.equal(
-      (await wallet.check(chain.send(36_004_217n, { block: 90, status: '0x0' }))).state,
-      'failed',
-      'reverted',
-    );
+    assert.equal(request.amount, '36.004217 USDC on Base Sepolia');
   });
 
-  test('the pay page: an amount per subscription, the same when asked again; the date moves once per transaction', async () => {
-    const { chain, wallet } = fakeChain();
+  test('paying from a wallet: an amount per subscription, the same asked again; the host sees it arrive, once', async () => {
+    const { chain, wallet, HOST_ADDRESS } = fakeChain();
     const served = await startHost({
       key: await provider.generateKeyPair(),
       stores: memoryStores(),
       port: 0,
       wallet,
+      watchMs: 20,
     });
     open.push(served);
     const url = `http://127.0.0.1:${served.port}`;
-    const key = await subscriptionKey(newSubscriptionSeed());
-    type Payment = { plan: string; to: string; amount: string };
-    type Status = { state: string; paidUntil: number; renews: boolean };
+    const mine = createHostClient(url, served.node.did, await subscriptionKey(newSubscriptionSeed()));
+    const theirs = createHostClient(url, served.node.did, await subscriptionKey(newSubscriptionSeed()));
+    const requestOf = async (client: typeof mine, plan: string) => {
+      const answer = await client.pay(plan);
+      assert.ok('request' in answer, 'a wallet pays a request');
+      return answer.request;
+    };
+    const state = async (client: typeof mine) => (await client.status()).status;
 
     const info = await describeHost(url);
     assert.equal(info.price, '$4 a month or $36 a year', 'from the wallet prices');
-    const pay = await payPage(url, served.node.did, key);
-    const state = await pay<{
-      wallet: { chainId: number; to: string };
-      card: unknown[];
-      walletConnect: string | null;
-    }>('GET');
-    assert.equal(state.answer.wallet.chainId, 84532);
-    assert.deepEqual(state.answer.card, [], 'no card plans without Stripe');
-    assert.equal(state.answer.walletConnect, null, 'no WalletConnect without a project id');
-
-    const payment = (await pay<Payment>('POST', '/wallet', { plan: 'yearly' })).answer;
-    assert.equal(payment.to, state.answer.wallet.to);
-    assert.equal(
-      (await pay<Payment>('POST', '/wallet', { plan: 'yearly' })).answer.amount,
-      payment.amount,
-      'asked again, the same amount',
+    assert.deepEqual(
+      info.plans?.map((plan) => [plan.id, plan.method, plan.renews, plan.for]),
+      [
+        ['wallet-yearly', 'request', false, ['account']],
+        ['wallet-monthly', 'request', false, ['account']],
+      ],
     );
-    const theirs = await payPage(url, served.node.did, await subscriptionKey(newSubscriptionSeed()));
-    const theirPayment = (await theirs<Payment>('POST', '/wallet', { plan: 'yearly' })).answer;
-    assert.notEqual(theirPayment.amount, payment.amount);
 
-    // Someone else's payment, or one made before this one was asked for, pays nothing here.
+    const request = await requestOf(mine, 'wallet-yearly');
+    assert.equal(request.evm?.to, HOST_ADDRESS);
+    assert.equal(request.evm?.chainId, 84532);
+    assert.match(request.uri, /^ethereum:0x[0-9a-fA-F]{40}@84532\/transfer\?address=/);
+    assert.deepEqual(await requestOf(mine, 'wallet-yearly'), request, 'asked again, the same amount');
+    const their = await requestOf(theirs, 'wallet-yearly');
+    assert.notEqual(their.evm?.units, request.evm?.units);
+
+    // Someone else's payment pays theirs; one made before this one was asked for pays nothing.
+    chain.send(BigInt(their.evm!.units), { block: 101 });
+    chain.send(BigInt(request.evm.units), { block: 102, time: nowSeconds() - 3600 });
     chain.latest = 110;
-    const wrong = chain.send(BigInt(theirPayment.amount), { block: 105 });
-    assert.match(
-      (await pay<{ error: string }>('POST', '/wallet/claim', { tx: wrong })).answer.error,
-      /different amount/,
-    );
-    const early = chain.send(BigInt(payment.amount), { block: 104, time: nowSeconds() - 3600 });
-    assert.match(
-      (await pay<{ error: string }>('POST', '/wallet/claim', { tx: early })).answer.error,
-      /not made while this payment was open/,
-    );
+    await until(async () => (await state(theirs)).state === 'active', 4000, 'their payment to count');
+    assert.notEqual((await state(mine)).state, 'active');
 
-    const tx = chain.send(BigInt(payment.amount), { block: 111 });
-    assert.equal((await pay('POST', '/wallet/claim', { tx })).status, 202, 'not confirmed yet');
+    chain.send(BigInt(request.evm.units), { block: 111 });
+    chain.latest = 112;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.notEqual((await state(mine)).state, 'active', 'not confirmed yet');
     chain.latest = 113;
-    const paid = await pay<Status>('POST', '/wallet/claim', { tx });
-    assert.equal(paid.status, 200);
-    assert.equal(paid.answer.state, 'active');
-    assert.equal(paid.answer.renews, false, 'time paid up front');
-    assert.ok(Math.abs(paid.answer.paidUntil - (nowSeconds() + 365 * 24 * 3600)) < 2 * 24 * 3600);
-    assert.equal((await pay('POST', '/wallet/claim', { tx })).status, 409, 'counted once');
-    assert.ok(
-      [400, 409].includes((await theirs('POST', '/wallet/claim', { tx })).status),
-      "and never for someone else's subscription",
-    );
+    await until(async () => (await state(mine)).state === 'active', 4000, 'my payment to count');
+    const paid = await state(mine);
+    assert.equal(paid.renews, false, 'time paid up front');
+    assert.ok(Math.abs(paid.paidUntil - (nowSeconds() + 365 * 24 * 3600)) < 2 * 24 * 3600);
 
-    // Paying again adds a month on top of the year.
-    const again = (await pay<Payment>('POST', '/wallet', { plan: 'monthly' })).answer;
-    assert.notEqual(again.amount, payment.amount);
+    // Paying again adds a month on top of the year; the first payment is never counted twice.
+    const again = await requestOf(mine, 'wallet-monthly');
+    assert.notEqual(again.evm?.units, request.evm?.units);
+    chain.send(BigInt(again.evm!.units), { block: 114 });
     chain.latest = 120;
-    const more = await pay<Status>('POST', '/wallet/claim', {
-      tx: chain.send(BigInt(again.amount), { block: 117 }),
-    });
-    assert.ok(more.answer.paidUntil > paid.answer.paidUntil + 27 * 24 * 3600);
+    await until(
+      async () => (await state(mine)).paidUntil > paid.paidUntil + 27 * 24 * 3600,
+      4000,
+      'the month to be added',
+    );
+    assert.ok((await state(mine)).paidUntil < paid.paidUntil + 32 * 24 * 3600, 'once');
   });
 
   test('from the env: an address and a price, or nothing', () => {
@@ -965,13 +1289,14 @@ describe('wallet payments', () => {
     );
   });
 
-  test('an account pays from a wallet on the pay page, and the host takes its spaces', async () => {
+  test('an account pays a request from its home, and the host takes its spaces', async () => {
     const { chain, wallet } = fakeChain();
     const served = await startHost({
       key: await provider.generateKeyPair(),
       stores: memoryStores(),
       port: 0,
       wallet,
+      watchMs: 20,
     });
     open.push(served);
     const url = `http://127.0.0.1:${served.port}`;
@@ -981,34 +1306,28 @@ describe('wallet payments', () => {
       stores: memoryStores(),
       accountKey: me.accountKey,
       watchIntervalMs: 0,
-      network: { nodes: [`ws://127.0.0.1:${served.port}/peer`] },
+      network: {},
     });
     open.push(laptop);
     await laptop.spaces.create({ name: 'Notes', visibility: 'private' });
 
     const before = await laptop.hosting.use(url);
-    assert.equal(before.pays, true);
-    assert.equal(before.status?.carrying, false);
-    const params = new URLSearchParams(new URL(await laptop.hosting.payPage(url)).hash.slice(1));
-    const authorization = `WeavePay s=${params.get('s')}, at=${params.get('at')}, sig=${params.get('sig')}`;
-    const call = (path: string, body: unknown) =>
-      fetch(`${url}/pay/api${path}`, {
-        method: 'POST',
-        headers: { authorization, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-    const amount = at(await (await call('/wallet', { plan: 'yearly' })).json(), 'amount');
-    assert.ok(typeof amount === 'string');
-    chain.latest = 200;
-    assert.equal(
-      (await call('/wallet/claim', { tx: chain.send(BigInt(amount), { block: 198 }) })).status,
-      200,
+    assert.deepEqual(
+      before.plans.map((plan) => plan.id),
+      ['wallet-yearly', 'wallet-monthly'],
     );
+    assert.equal(before.status?.carrying, false);
+    const answer = await laptop.hosting.pay(url, 'wallet-yearly');
+    assert.ok('request' in answer);
+    chain.latest = 200;
+    chain.send(BigInt(answer.request.evm!.units), { block: 198 });
 
-    // Back in the home, one more look: paid, so the spaces go over.
-    const after = (await laptop.hosting.list())[0]!;
-    assert.equal(after.status?.state, 'active');
-    assert.equal(after.status?.carrying, true);
+    // Back in the home, it looks again: paid, so the spaces go over.
+    await until(
+      async () => (await laptop.hosting.list())[0]?.status?.carrying === true,
+      6000,
+      'the host to be paid and carry the spaces',
+    );
   });
 });
 
@@ -1045,7 +1364,7 @@ describe('a space paying for itself', () => {
     assert.equal(view?.status?.subscription, `space:${space}`);
     assert.equal(view?.status?.carrying, true);
     assert.ok(view?.status?.readKey?.startsWith('did:key:'), 'it holds the read key, which opens nothing');
-    assert.equal(view?.pay, null, 'a free host has no pay page');
+    assert.equal(view?.fund, null, 'a free host takes no payments');
     await until(carries(served.node, space), 4000, 'the host to carry the space');
 
     // Anyone may ask how a space stands, and gets the host's signed word.
@@ -1068,27 +1387,32 @@ describe('a space paying for itself', () => {
     assert.match(String(at(await wrong.json(), 'error')), /not a pass for this space/);
   });
 
-  test('a paying host carries nothing until someone chips in; a one-off card payment adds its time once', async () => {
+  test('a paying host carries nothing until someone chips in; a card adds any amount to the fund, once or monthly', async () => {
     const hub = createFakeHub({ latencyMs: 1 });
     const bodies: string[] = [];
     const billing = createStripeBilling({
       secretKey: 'sk_test_x',
       webhookSecret: 'whsec_test',
       monthlyPrice: 'price_month',
-      onceMonthlyPrice: 'price_once_month',
       fetch: async (input: string | URL | Request, init?: RequestInit) => {
         if (urlOf(input).endsWith('/v1/checkout/sessions')) bodies.push(bodyOf(init));
         return new Response(JSON.stringify({ url: 'https://checkout.stripe.test/c/1' }));
       },
     });
-    const served = await running({ billing });
+    const served = await running({ billing, fundMs: 50, manageFunds: 'https://billing.stripe.test/p/login' });
     const url = `http://127.0.0.1:${served.port}`;
     const { laptop, space } = await community(hub, url);
 
     const [before] = await laptop.hosting.space(space);
     assert.equal(before?.status?.state, 'none');
     assert.equal(before?.status?.carrying, false);
-    assert.ok(before?.pay?.endsWith(`/pay#space=${space}`), 'a link anyone may open, unsigned');
+    assert.deepEqual(before?.fund, {
+      monthly: '4',
+      min: '1',
+      methods: ['checkout'],
+      recurring: true,
+      manage: 'https://billing.stripe.test/p/login',
+    });
     const put = await fetch(`${url}/host/spaces/${space}/pass`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
@@ -1096,33 +1420,31 @@ describe('a space paying for itself', () => {
     });
     assert.equal(put.status, 402, 'not before someone pays');
 
-    // The pay page, as it calls for a space: no signature, the space named.
-    const pay = async (method: string, path = '', body?: unknown) => {
-      const response = await fetch(`${url}/pay/api${path}`, {
-        method,
-        headers: {
-          authorization: `WeavePay space=${space}`,
-          ...(body ? { 'content-type': 'application/json' } : {}),
-        },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      });
-      const answer: unknown = await response.json();
-      return { status: response.status, answer };
-    };
-    const page = await pay('GET');
-    assert.equal(at(page.answer, 'space'), space);
-    assert.deepEqual(
-      at(page.answer, 'card'),
-      [{ id: 'monthly', label: 'A month' }],
-      'one-off plans, not renewing ones',
+    // Anyone in the space chips in from the app: the host answers with Stripe's page, nothing of its own.
+    assert.deepEqual(await laptop.hosting.payForSpace(space, url, { amount: '12.50', method: 'checkout' }), {
+      checkout: 'https://checkout.stripe.test/c/1',
+    });
+    await assert.rejects(
+      laptop.hosting.payForSpace(space, url, { amount: '0.50', method: 'checkout' }),
+      /at least 1/,
     );
-    assert.equal(
-      at(await pay('POST', '/card', { plan: 'monthly' }), 'answer', 'url'),
-      'https://checkout.stripe.test/c/1',
+    await assert.rejects(
+      laptop.hosting.payForSpace(space, url, { amount: '5', method: 'request' }),
+      /no such payment/,
     );
-    const checkout = new URLSearchParams(bodies[0]);
-    assert.equal(checkout.get('mode'), 'payment');
-    assert.equal(checkout.get('metadata[weave_subscription]'), `space:${space}`);
+    await assert.rejects(
+      laptop.hosting.payForSpace(space, 'https://elsewhere.test', { amount: '5', method: 'checkout' }),
+      /doesn’t use/,
+    );
+    const once = new URLSearchParams(bodies[0]);
+    assert.equal(once.get('mode'), 'payment');
+    assert.equal(once.get('line_items[0][price_data][unit_amount]'), '1250');
+    assert.equal(once.get('metadata[weave_fund]'), `space:${space}`);
+    await laptop.hosting.payForSpace(space, url, { amount: '5', method: 'checkout', monthly: true });
+    const monthly = new URLSearchParams(bodies[1]);
+    assert.equal(monthly.get('mode'), 'subscription');
+    assert.equal(monthly.get('line_items[0][price_data][recurring][interval]'), 'month');
+    assert.equal(monthly.get('subscription_data[metadata][weave_fund]'), `space:${space}`);
 
     const webhook = (body: string) => {
       const t = nowSeconds();
@@ -1133,7 +1455,7 @@ describe('a space paying for itself', () => {
         body,
       });
     };
-    const paid = (id: string) =>
+    const paidOnce = (id: string, cents: number) =>
       JSON.stringify({
         type: 'checkout.session.completed',
         data: {
@@ -1141,21 +1463,36 @@ describe('a space paying for itself', () => {
             id,
             mode: 'payment',
             payment_status: 'paid',
-            metadata: { weave_subscription: `space:${space}`, weave_plan: 'monthly' },
+            amount_total: cents,
+            metadata: { weave_fund: `space:${space}` },
           },
         },
       });
-    await webhook(paid('cs_1'));
-    await webhook(paid('cs_1'));
+    const paidMonthly = (id: string, cents: number) =>
+      JSON.stringify({
+        type: 'invoice.paid',
+        data: {
+          object: {
+            id,
+            amount_paid: cents,
+            parent: {
+              subscription_details: { subscription: 'sub_9', metadata: { weave_fund: `space:${space}` } },
+            },
+          },
+        },
+      });
     const client = createSpaceHostClient(url, served.node.did);
-    const once = (await client.status(space)).status.paidUntil;
-    assert.ok(
-      once > nowSeconds() + 27 * 24 * 3600 && once < nowSeconds() + 32 * 24 * 3600,
-      'a month, counted once',
-    );
-    // Someone else chips in: their month is added to the first.
-    await webhook(paid('cs_2'));
-    assert.ok((await client.status(space)).status.paidUntil > once + 27 * 24 * 3600, 'time adds up');
+    const balance = async () => (await client.status(space)).status.balance ?? 0;
+    await webhook(paidOnce('cs_1', 1250));
+    await webhook(paidOnce('cs_1', 1250));
+    assert.ok(Math.abs((await balance()) - 12_500_000) < 1000, 'counted once');
+    // Someone else adds every month: each month's invoice adds to the same fund.
+    await webhook(paidMonthly('in_1', 500));
+    await webhook(paidMonthly('in_1', 500));
+    assert.ok(Math.abs((await balance()) - 17_500_000) < 1000, 'the monthly one too, once');
+    const paidUntil = (await client.status(space)).status.paidUntil;
+    const days = (paidUntil - nowSeconds()) / 86_400;
+    assert.ok(days > 129 && days < 132, `$17.50 at $4 a month lasts about 131 days, not ${days}`);
 
     const [after] = await laptop.hosting.space(space);
     assert.equal(after?.status?.carrying, true);
@@ -1196,11 +1533,5 @@ describe('a space paying for itself', () => {
       body: JSON.stringify({ pass: { v: 1 } }),
     });
     assert.equal(response.status, 403);
-  });
-
-  test('a pay link for a space names it and signs nothing; the host reads it as that space’s subscription', async () => {
-    const hostDid = 'did:key:zDnaeHost';
-    assert.equal(await verifyPayLink('WeavePay space=abc123', hostDid), 'space:abc123');
-    assert.equal(await verifyPayLink('WeavePay space=../etc', hostDid), null);
   });
 });

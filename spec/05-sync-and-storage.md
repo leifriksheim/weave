@@ -982,7 +982,8 @@ is sealed under the account's **vault key** (AES-256-GCM, derived from the
 seed with HKDF, label `weave-vault-key-v1`, [01 — Identity](01-identity.md)).
 
 Values of entries whose key starts with one of the sealed prefixes —
-`space:`, `spacekey:`, `spaceinvite:`, `spacerole:` — are stored as:
+`space:`, `spacekey:`, `spaceinvite:`, `spacerole:`, `spacememberkey:`,
+`spacerelays:` — are stored as:
 
 ```
 offset  size  field
@@ -999,18 +1000,15 @@ offset  size  field
   shows each record's author, timestamp and collection, and anything in a
   public space.
 
-Every registry entry of §12 that belongs to one space is meant to be sealed,
-including `spacememberkey:` and `spacerelays:`.
+Every registry entry of §12 that belongs to one space is sealed.
 
-> **Known defect:** the sealing adapter's default prefixes leave out
-> `spacememberkey:` and `spacerelays:` (`packages/core/src/storage/encrypted-adapter.ts`,
-> `DEFAULT_ENCRYPTED_PREFIXES`). So a copied data folder exposes each space's
-> member key in the clear — the key new space keys are sealed to (`sys.box`,
-> [03](03-spaces.md)) — and the space's relays. A fix will seal both. Other
-> implementations SHOULD NOT copy this.
-> Tracked in [#16](https://github.com/leifriksheim/weave/issues/16).
+Folders written before `spacememberkey:` and `spacerelays:` were sealed hold
+them in the clear. A reader that finds no entry `sealed:v1` MUST seal every
+entry under those two prefixes that lacks the magic, then write `sealed:v1`
+(sealed, value `01`), before it reads any of them. After that, those two
+prefixes are refused in the clear like the rest.
 
-_Source: `packages/core/src/storage/encrypted-adapter.ts`, `packages/core/src/node/stores.ts`. Tests:
+_Source: `packages/core/src/storage/encrypted-adapter.ts` (`DEFAULT_ENCRYPTED_PREFIXES`, `createEncryptedAdapter`), `packages/core/src/node/stores.ts`. Tests:
 `packages/core/tests/account-vault.test.ts` ("encryption at rest")._
 
 ---

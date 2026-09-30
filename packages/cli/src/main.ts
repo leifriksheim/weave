@@ -32,7 +32,7 @@ import {
   type NodeAction,
   type P2PNode,
 } from '@weaveprotocol/core';
-import { startRules, suggestedRules, type RuleTrigger } from '@weaveprotocol/core/schemas';
+import { suggestedRules } from '@weaveprotocol/core/schemas';
 import {
   chooseAccount,
   createAccount,
@@ -45,6 +45,7 @@ import {
 import { findBot, listBots, newBotFolder } from './bots.js';
 import { startDaemon } from './daemon.js';
 import { startHost } from './host.js';
+import { createReminders, mailerFromEnv } from './reminders.js';
 import {
   allowList,
   billingFromEnv,
@@ -54,9 +55,13 @@ import {
   hostStores,
   mirrorFromEnv,
   presentationFromEnv,
+  botsFromEnv,
+  fundFromEnv,
+  quotaFromEnv,
+  spaceSize,
   walletFromEnv,
 } from './host-setup.js';
-import { PEER_CONTENT_NOTE, runMcpStdio } from './mcp.js';
+import { runMcpStdio } from './mcp.js';
 import {
   configuredRelays,
   connectAgent,
@@ -77,10 +82,9 @@ import {
   parsePrice,
   priceOf,
   type Price,
-  spendFor,
   streamingThink,
 } from './agent-chat.js';
-import { triggerPrompt } from './agent-rules.js';
+import { runRules } from './bot-runner.js';
 import { openAIThink } from './agent-openai.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
 import { addRule, defineStandard, loadModelSetting, setUpModel } from './guide.js';
@@ -593,78 +597,26 @@ async function runAgent(
     ...(openai || model.baseUrl ? { plain: true } : {}),
   };
   const today = async () => `$${(await spend.today()).toFixed(2)} of $${options.dailyCap.toFixed(2)} today`;
-  const names = new Map<string, string>();
-  const nameOf = async (space: string, did: string) => {
-    if (!names.has(did)) {
-      const found = (await node.spaces.profiles(space).catch(() => [])).find((p) => p.did === did);
-      if (found) names.set(did, found.name);
-    }
-    return names.get(did) ?? did.slice(-6);
-  };
-
-  // Rules that ask: each set off runs on its own, one at a time, with nobody at the keyboard to allow deleting.
-  let queue: Promise<unknown> = Promise.resolve();
-  const answer = async (trigger: RuleTrigger): Promise<{ did: string; ok: boolean }> => {
-    const name = trigger.rule.body.name;
-    const space = trigger.rule.space;
-    // What someone set off is counted against them, so one person can't spend the day for everyone.
-    const who = trigger.match?.record.createdBy ?? null;
-    const by = who ? ` by ${await nameOf(space, who)}` : '';
-    if (who && who !== runner.account && options.capEach !== null) {
-      const spent = await spend.today(who);
-      if (spent >= options.capEach) {
-        const did = `Set off${by}, who has used their $${options.capEach.toFixed(2)} for today`;
-        stderr(`  [${name}] ${did}`);
-        return { did, ok: false };
-      }
-    }
-    stderr(`  [${name}] set off${by}${trigger.match ? '' : ' by the time'}`);
-    const run = createAgentChat({
-      node,
-      think: thinking(() => {}),
-      ...modelOptions,
-      spend: who ? spendFor(spend, who) : spend,
-      dailyCap: options.dailyCap,
-      confirm: async () => false,
-      log: (line) => stderr(`  [${name}] ${line}`),
-      maxSteps: 15,
-      unattended: true,
-      ...(runner.bot ? { bot: runner.bot } : {}),
-    });
-    try {
-      const { cost, text } = await run.say(triggerPrompt(trigger, PEER_CONTENT_NOTE));
-      stderr(`  [${name}] ${text || 'Done.'} · $${cost.toFixed(3)} · ${await today()}`);
-      return { did: text || 'Done.', ok: true };
-    } catch (error) {
-      const did = error instanceof Error ? error.message : String(error);
-      stderr(`  [${name}] ${did}`);
-      return { did, ok: false };
-    }
-  };
-  const stopRules = startRules(node, {
+  const stopRules = runRules({
+    node,
     account: runner.account,
-    ...(runner.bot ? { bot: true } : {}),
-    // A person's app may run the same rules; the earlier of two claims acts.
-    claimMs: 1500,
-    ask: (trigger) => {
-      const turn = queue.then(() => answer(trigger));
-      queue = turn.catch(() => {});
-      return turn;
-    },
+    ...(runner.bot ? { bot: runner.bot } : {}),
+    think: () => thinking(() => {}),
+    ...modelOptions,
+    spend,
+    dailyCap: options.dailyCap,
+    capEach: options.capEach,
+    log: stderr,
     onRules: (rules) =>
       stderr(
         `  Rules: ${
           rules.length
-            ? rules.map((r) => `“${r.body.name}”`).join(', ')
+            ? rules.map((name) => `“${name}”`).join(', ')
             : runner.bot
               ? `none yet. ${botWork(runner.bot, runner.account)}`
               : 'none yet. Add one in an app, under Automations, or with `weave rule add`.'
         }`,
       ),
-    onRun: (trigger, run) => {
-      if (trigger.rule.body.then.kind !== 'ask') stderr(`  [${trigger.rule.body.name}] ${run.did}`);
-    },
-    onError: (error) => stderr(`  Rules: ${error instanceof Error ? error.message : String(error)}`),
   });
   if (!runner.bot) {
     const waiting = (
@@ -799,7 +751,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         port: { type: 'string', default: process.env.PORT ?? '8787' },
         host: { type: 'string' },
         data: { type: 'string', default: process.env.WEAVE_HOST_DATA ?? defaultHostData() },
-        free: { type: 'boolean' },
+        free: { type: 'boolean', default: process.env.WEAVE_HOST_FREE === '1' },
         allow: { type: 'string', multiple: true },
       },
     });
@@ -813,17 +765,36 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         'weave host needs a way to take payments — Stripe (STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET), a wallet (WEAVE_WALLET_ADDRESS), or both — or --free to host without them.',
       );
     }
+    const quotaBytes = quotaFromEnv(process.env, !!values.free);
+    const stores = await hostStores(data);
+    const presentation = presentationFromEnv(process.env);
+    const mirror = mirrorFromEnv(process.env);
+    const mailer = mailerFromEnv(process.env);
+    const reminders = mailer
+      ? createReminders({
+          store: await stores('host-reminders'),
+          mailer,
+          name: presentation.name ?? 'Weave host',
+          mirror,
+          log: logLine,
+        })
+      : null;
     const running = await startHost({
       key: await hostKey(data),
-      stores: await hostStores(data),
+      stores,
+      bots: await botsFromEnv(process.env, data),
+      ...fundFromEnv(process.env),
+      reminders,
+      measure: spaceSize(data),
+      ...(quotaBytes ? { quotaBytes } : {}),
       port: Number(values.port),
       ...(values.host ? { host: values.host } : {}),
       ...(values.free ? { free: true } : {}),
       ...(allow ? { allow } : {}),
-      ...presentationFromEnv(process.env),
+      ...presentation,
       billing,
       wallet,
-      mirror: mirrorFromEnv(process.env),
+      mirror,
       log: logLine,
     });
     return untilStopped(running);

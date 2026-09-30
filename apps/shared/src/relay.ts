@@ -37,6 +37,25 @@ export const CONFIGURED_NODES: ReadonlyArray<string> = (import.meta.env.VITE_WEA
   .map((url: string) => url.trim())
   .filter(Boolean);
 
+/**
+ * The host this build offers, `https://host` (`weave host`): what "Keep my
+ * spaces online" suggests, and where a new device looks for its account
+ * before it knows which host the account uses. Hosts the account or a space
+ * uses are reached without being named here.
+ */
+export const DEFAULT_HOST: string | null = (() => {
+  const configured = import.meta.env.VITE_WEAVE_HOST?.trim();
+  if (!configured) return null;
+  try {
+    return new URL(configured).origin;
+  } catch {
+    return null;
+  }
+})();
+
+/** `network.hosts` for a node: the default host, if the build names one */
+export const CONFIGURED_HOSTS: ReadonlyArray<string> = DEFAULT_HOST ? [DEFAULT_HOST] : [];
+
 /** The first configured relay, for messages that talk about one. */
 const CONFIGURED_RELAY: string = CONFIGURED_RELAYS[0] ?? 'ws://localhost:8787';
 

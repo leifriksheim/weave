@@ -211,6 +211,10 @@ function Connected({ agent, onClose }: { agent: AgentAsking; onClose: () => void
           session there, or restart the app, to use it. You can disconnect it any time in your account
           settings.
         </p>
+        <p style={styles.errorHint}>
+          To keep it running your automations while this computer is off, connect it on a server the same way
+          and run <code>weave agent --no-chat</code> there.
+        </p>
       </div>
       <button onClick={onClose} data-variant="primary" style={styles.button}>
         Done

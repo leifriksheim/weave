@@ -13,12 +13,15 @@ import { RecordPanel } from './RecordPanel';
 import { GraphView } from './GraphView';
 import { QueryPlayground } from './QueryPlayground';
 import { RolesView } from './RolesView';
+import { CommunitySetup } from '@weave/app-shared/CommunitySetup';
 import { AppsView } from './apps/AppsView';
 import { AppIcon, Count } from './apps/AppIcon';
 import { CreateApp } from './apps/CreateApp';
 import { MadeAppScreen } from './apps/MadeApps';
 import { NotifyButton } from './apps/NotifyButton';
 import { AutomationsView } from './automations/AutomationsView';
+import { NotificationsView } from './automations/NotificationsView';
+import { HostingView } from './HostingView';
 import { fills, useSpaceApps, type AppEntry } from './apps/entries';
 import { DataView, NEW, type Place } from './DataView';
 import { SpaceMark } from './SpaceList';
@@ -63,6 +66,8 @@ type View =
   | { readonly kind: 'apps' }
   | { readonly kind: 'app'; readonly id: string; readonly since: string }
   | { readonly kind: 'people' }
+  | { readonly kind: 'hosting' }
+  | { readonly kind: 'notifications' }
   | { readonly kind: 'automations' }
   | { readonly kind: 'hood'; readonly hood: Hood };
 
@@ -198,6 +203,18 @@ export function SpaceView({
               onClick={() => setView({ kind: 'people' })}
             />
             <SideItem
+              icon={<Icon name="cloud" size={16} />}
+              label="Hosting"
+              on={view.kind === 'hosting'}
+              onClick={() => setView({ kind: 'hosting' })}
+            />
+            <SideItem
+              icon={<Icon name="bell" size={16} />}
+              label="Notifications"
+              on={view.kind === 'notifications'}
+              onClick={() => setView({ kind: 'notifications' })}
+            />
+            <SideItem
               icon={<Icon name="bolt" size={16} />}
               label="Automations"
               on={view.kind === 'automations'}
@@ -305,6 +322,13 @@ export function SpaceView({
               )}
 
               {view.kind === 'apps' && (
+                <CommunitySetup
+                  spaceId={space.id}
+                  writable={space.writable}
+                  onAutomations={() => setView({ kind: 'automations' })}
+                />
+              )}
+              {view.kind === 'apps' && (
                 <AppsView
                   space={space}
                   collections={collections}
@@ -329,6 +353,10 @@ export function SpaceView({
                 <p style={styles.emptyState}>This app isn't in the space any more.</p>
               )}
               {view.kind === 'people' && <RolesView space={space} collections={collections} />}
+              {view.kind === 'hosting' && (
+                <HostingView space={space} onAutomations={() => setView({ kind: 'automations' })} />
+              )}
+              {view.kind === 'notifications' && <NotificationsView space={space} collections={collections} />}
               {view.kind === 'automations' && <AutomationsView space={space} collections={collections} />}
               {view.kind === 'hood' && view.hood === 'data' && (
                 <DataView
