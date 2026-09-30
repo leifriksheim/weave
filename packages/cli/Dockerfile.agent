@@ -39,6 +39,7 @@ ENV WEAVE_HOME=/data
 # `--bot` for a community's bot (an account of its own), or empty for your agent.
 ENV WEAVE_AGENT_ARGS=""
 
-# Waits until the agent is connected (`weave connect` over `fly ssh console`),
-# then runs it; restarts bring it back.
-CMD ["sh", "-c", "mkdir -p \"$WEAVE_HOME\" && chown -R node:node \"$WEAVE_HOME\" && until [ -f \"$WEAVE_HOME/agent/grant.json\" ] || [ -f \"$WEAVE_HOME/accounts.json\" ]; do echo 'Not connected yet: fly ssh console -C \"weave connect wv_…\"'; sleep 30; done; exec su-exec node node dist/weave.mjs agent --no-chat $WEAVE_AGENT_ARGS"]
+# Waits until there is something to run: an agent connected (`weave connect`
+# over `fly ssh console`), or a bot made (`weave agent --bot`, kept in
+# bots/<name>). Then runs it; restarts bring it back.
+CMD ["sh", "-c", "mkdir -p \"$WEAVE_HOME\" && chown -R node:node \"$WEAVE_HOME\" && until [ -f \"$WEAVE_HOME/agent/grant.json\" ] || ls \"$WEAVE_HOME\"/bots/*/accounts.json >/dev/null 2>&1; do echo 'Nothing to run yet: connect an agent or make a bot over fly ssh console'; sleep 30; done; exec su-exec node node dist/weave.mjs agent --no-chat $WEAVE_AGENT_ARGS"]

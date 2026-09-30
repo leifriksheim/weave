@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MANAGE, roleHolds } from '@weaveprotocol/core';
+import { DEFINE, MANAGE, roleHolds } from '@weaveprotocol/core';
 import type { SpaceHostingView } from '@weaveprotocol/core';
-import { useAccess, useNode } from '@weaveprotocol/core/react';
+import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
+import { profile } from '@weaveprotocol/core/schemas';
 import { SpaceHosting } from './SpaceHosting';
 import { styles, palette } from './styles';
 
@@ -191,9 +192,12 @@ function Step({
 }
 
 /**
- * Adding a bot: an invite for the role it should hold, and the one command
- * that makes its account and joins with it. Where it runs is the admin's
- * choice: this computer to try it, a server to keep it on.
+ * Adding a bot: its name and the role it should hold, then the one command
+ * that makes its account (kept in its own folder, `bots/<name>`) and joins
+ * with an invite for that role. Where it runs is the admin's choice: this
+ * computer to try it, a server to keep it on. A bot says it is one in the
+ * space's `std.profile`, which it never defines itself, so the space is
+ * offered it here when it keeps none.
  */
 function AddBot({
   spaceId,
@@ -208,14 +212,20 @@ function AddBot({
 }) {
   const node = useNode();
   const access = useAccess(spaceId);
+  const collections = useCollections(spaceId);
+  const profiles = collections.some((c) => c.name === profile.name && c.version !== null);
+  const mayDefine = roleHolds(access?.role, DEFINE);
   // Roles below one's own, lowest first: what an invite may give. A bot needs no more than it must.
   const mine = access?.roles.findIndex((role) => role.name === access.role?.name) ?? -1;
   const roles = (access?.roles ?? []).slice(mine + 1).reverse();
   const [role, setRole] = useState<string | null>(null);
   const [invite, setInvite] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [name, setName] = useState('');
   const chosen = role ?? roles[0]?.name ?? null;
-  const command = `${cli} --home ~/weave-bot agent --bot`;
+  const called = name.trim() || 'Club Bot';
+  // Single quotes around what the person typed: nothing in it is read by the shell.
+  const quoted = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`;
 
   const make = async () => {
     setProblem(null);
@@ -229,6 +239,18 @@ function AddBot({
   if (!invite)
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <label
+          style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: palette.ink.muted }}
+        >
+          Its name
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Club Bot"
+            aria-label="The bot's name"
+            style={{ ...styles.input, width: 200 }}
+          />
+        </label>
         {roles.length > 0 && (
           <label
             style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: palette.ink.muted }}
@@ -262,11 +284,12 @@ function AddBot({
     <ol style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingLeft: 18, margin: 0 }}>
       <li>
         <p style={{ fontSize: 14, color: palette.ink.strong }}>Run this in a terminal</p>
-        <Copyable text={command} />
+        <Copyable text={`${cli} agent --bot --name ${quoted(called)} --invite ${quoted(invite)}`} secret />
         <p style={{ ...styles.errorHint, marginTop: 4 }}>
-          It asks for the bot's name, a password for its account, a model's API key, and this invite:
+          It makes {called}'s account in a folder of its own, asks for a password for it and a model's API
+          key, and joins with the invite in the command. Keep the command to yourself: whoever has it can join
+          as the bot's role.
         </p>
-        <Copyable text={invite} secret />
       </li>
       <li>
         <p style={{ fontSize: 14, color: palette.ink.strong }}>Keep it on</p>
@@ -284,6 +307,30 @@ function AddBot({
           {joined ? 'It has joined. ' : 'Once it has joined, it shows here. '}
           Automations say what it does: answer when mentioned, post a plan every morning.
         </p>
+        {!profiles && (
+          <p style={{ ...styles.errorHint, marginTop: 4 }}>
+            This space keeps no profiles yet, so it can't tell the bot is one, and nobody can pick it under
+            "Done by".{' '}
+            {mayDefine ? (
+              <button
+                data-variant="quiet"
+                style={styles.smallButton}
+                onClick={() =>
+                  void node.collections
+                    .define(spaceId, profile)
+                    .catch((error: unknown) =>
+                      setProblem(error instanceof Error ? error.message : String(error)),
+                    )
+                }
+              >
+                Keep profiles here
+              </button>
+            ) : (
+              'Someone who may add collections here can add them.'
+            )}
+          </p>
+        )}
+        {problem && <p style={{ ...styles.errorHint, color: palette.accent.danger }}>{problem}</p>}
         {onAutomations && (
           <button
             onClick={onAutomations}

@@ -298,9 +298,10 @@ Fly (the commands are at the top of the toml):
 
 `WEAVE_HOSTS=https://<host>` lets it find your spaces through the host your
 account uses, with none of your devices online. The same image runs a
-community's bot: `WEAVE_AGENT_ARGS="--bot"`, the bot's passphrase as
-`WEAVE_PASSPHRASE`, then `weave init` and `weave spaces join` over
-`fly ssh console`. Its daily cap (`--daily-cap`) is the most it can cost you.
+community's bot: `WEAVE_AGENT_ARGS="--bot"`, then the command the app shows
+under **Set up this community**, **Add a bot** (`weave agent --bot --name …
+--invite …`) over `fly ssh console`, and the bot's password as the secret
+`WEAVE_PASSPHRASE`. Its daily cap (`--daily-cap`) is the most it can cost you.
 
 ### Other models
 
