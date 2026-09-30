@@ -44,6 +44,7 @@ import {
 } from './home.js';
 import { startDaemon } from './daemon.js';
 import { startHost } from './host.js';
+import { createReminders, mailerFromEnv } from './reminders.js';
 import {
   allowList,
   billingFromEnv,
@@ -759,19 +760,33 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       );
     }
     const quotaBytes = quotaFromEnv(process.env, !!values.free);
+    const stores = await hostStores(data);
+    const presentation = presentationFromEnv(process.env);
+    const mirror = mirrorFromEnv(process.env);
+    const mailer = mailerFromEnv(process.env);
+    const reminders = mailer
+      ? createReminders({
+          store: await stores('host-reminders'),
+          mailer,
+          name: presentation.name ?? 'Weave host',
+          mirror,
+          log: logLine,
+        })
+      : null;
     const running = await startHost({
       key: await hostKey(data),
-      stores: await hostStores(data),
+      stores,
+      reminders,
       measure: spaceSize(data),
       ...(quotaBytes ? { quotaBytes } : {}),
       port: Number(values.port),
       ...(values.host ? { host: values.host } : {}),
       ...(values.free ? { free: true } : {}),
       ...(allow ? { allow } : {}),
-      ...presentationFromEnv(process.env),
+      ...presentation,
       billing,
       wallet,
-      mirror: mirrorFromEnv(process.env),
+      mirror,
       log: logLine,
     });
     return untilStopped(running);

@@ -178,6 +178,12 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   paying host, no limit on a free one; 0 is none). Every status says what
   they take, and the home shows it. At the limit the host takes no new space
   for that account; what it carries stays and keeps syncing.
+- **Reminders by email**, for time paid up front: set `WEAVE_MAIL_API_KEY`
+  and `WEAVE_MAIL_FROM` (Resend's API; `WEAVE_MAIL_URL` for another that takes
+  the same JSON), and `WEAVE_HOST_URL` for the links. The pay page then offers
+  "Remind me by email". Nothing but a link to confirm reaches an address until
+  it is confirmed; then a mail 14 and 3 days before the time runs out and one
+  when the grace period starts, each with a link that stops them.
 - With a bucket, the disk is only a cache: lose it, start on the same key and
   bucket, and every subscription and space comes back.
 - Put it behind something that terminates TLS (Caddy does it in two lines).
@@ -411,7 +417,6 @@ space anywhere leaves it everywhere.
 - **The pay page.**
   - A real Base Sepolia wallet payment.
   - A Lightning route (BTCPay), and gasless USDC (EIP-3009).
-  - An optional email for reminders: SMTP, with double opt-in.
 - **TURN.** Run coturn with `use-auth-secret` and quotas, and set
   `TURN_SECRET` and `TURN_URLS` on the relay and the node. Then test calls
   across real networks, behind a strict NAT, in Safari, and on a phone

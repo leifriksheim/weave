@@ -19,6 +19,8 @@
  *   POST   /pay/api/manage                        → Stripe's portal: change the card, cancel
  *   POST   /pay/api/wallet                        { plan } → the exact amount to send
  *   POST   /pay/api/wallet/claim                  { tx } → counted, or 202 while unconfirmed
+ *   POST   /pay/api/email                         { email } → a mail to confirm reminders with
+ *   GET    /pay/email/confirm?t=…, /pay/email/stop?t=…   the links in those mails
  *
  * `/host/subscriptions` calls are signed with the subscription key; `/pay/api`
  * calls carry the pay link's signature instead. Homes know nothing about how
@@ -47,6 +49,7 @@ import { PAY_PAGE_CSP, PAY_SCRIPT, payPageHtml } from './pay-page.js';
 import { isRecord } from './json.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 import type { WalletPayments } from './wallet.js';
+import { isEmail, type Reminders } from './reminders.js';
 
 /** What the host needs from a payment provider */
 export interface Billing {
@@ -102,6 +105,8 @@ export interface HostOptions {
   readonly billing?: Billing | null;
   /** Payments straight from a crypto wallet, next to (or instead of) `billing` */
   readonly wallet?: WalletPayments | null;
+  /** Reminders by email before paid time runs out, for those who ask on the pay page. Needs `publicUrl`. */
+  readonly reminders?: Reminders | null;
   /** The bucket every carried space, and the subscription list, are kept in too */
   readonly mirror?: BlobStore | null;
   /** Every subscription counts as paid */
@@ -133,7 +138,7 @@ export interface RunningHost {
 const MAX_BODY = 64 * 1024;
 const SUBSCRIPTION_PATH =
   /^\/host\/subscriptions\/(did%3Akey%3Az[1-9A-HJ-NP-Za-km-z]{1,120}|did:key:z[1-9A-HJ-NP-Za-km-z]{1,120})(\/carry)?$/;
-const PAY_API = /^\/pay\/api(\/(card|manage|wallet|wallet\/claim))?$/;
+const PAY_API = /^\/pay\/api(\/(card|manage|wallet|wallet\/claim|email))?$/;
 /** A space's own subscription, open to anyone */
 const SPACE_PATH = /^\/host\/spaces\/([A-Za-z0-9_-]{1,120})(\/pass)?$/;
 /** A plan's time, for payments that add it to what is paid already */
@@ -212,6 +217,12 @@ function originOf(req: IncomingMessage, configured?: string): string {
   return `${proto}://${req.headers.host ?? 'localhost'}`;
 }
 
+/** A page that says one thing: what a link in a reminder mail did */
+function noticeHtml(name: string, said: string): string {
+  const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(name)}</title><style>:root{color-scheme:light dark}body{margin:0;font:15px/1.5 system-ui,sans-serif}main{max-width:480px;margin:0 auto;padding:48px 16px}h1{font-size:22px;margin:0 0 12px}</style></head><body><main><h1>${escape(name)}</h1><p>${escape(said)}</p></main></body></html>`;
+}
+
 /** "$4 a month or $36 a year", from the wallet's prices */
 function priceText(wallet: WalletPayments | null): string | undefined {
   const plans = wallet?.offer.plans ?? [];
@@ -225,6 +236,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const inbound = createInboundPeers();
   const billing = options.billing ?? null;
   const wallet = options.wallet ?? null;
+  const reminders = options.reminders && options.publicUrl ? options.reminders : null;
+  if (options.reminders && !options.publicUrl)
+    throw new Error('Reminders by email need the host’s public address (WEAVE_HOST_URL) for their links');
   // The transactions already counted, so none pays twice — on disk, and in the bucket when there is one.
   const spentStore = wallet || billing?.once ? await options.stores('host-wallet') : null;
   const isSpent = async (tx: string) =>
@@ -522,6 +536,20 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       });
     }
 
+    // The links in a reminder mail: whoever holds the mail holds the token.
+    if ((url.pathname === '/pay/email/confirm' || url.pathname === '/pay/email/stop') && method === 'GET') {
+      if (!reminders) throw new Refusal(404, 'This host sends no reminders');
+      const token = url.searchParams.get('t') ?? '';
+      const confirming = url.pathname.endsWith('/confirm');
+      const done = confirming ? await reminders.confirm(token) : await reminders.stop(token);
+      const said = !done
+        ? 'This link has run out.'
+        : confirming
+          ? 'Done: you’ll get a reminder before the time runs out, and a link in each to stop them.'
+          : 'Done: no more reminders go to this address.';
+      return sendText(res, 'text/html; charset=utf-8', noticeHtml(name, said), page);
+    }
+
     const match = PAY_API.exec(url.pathname);
     if (!match) throw new Refusal(404, 'No such page');
     const action = match[2] ?? null;
@@ -540,7 +568,15 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         ...(forSpace ? { space: id.slice('space:'.length) } : {}),
         wallet: wallet?.offer ?? null,
         walletConnect,
+        reminders: reminders ? await reminders.state(id) : null,
       });
+    }
+
+    if (action === 'email' && method === 'POST') {
+      if (!reminders) throw new Refusal(404, 'This host sends no reminders');
+      if (!isEmail(input.email)) throw new Refusal(400, 'That doesn’t look like an email address');
+      await reminders.ask(id, input.email, originOf(req, options.publicUrl));
+      return send(res, 200, { reminders: await reminders.state(id) });
     }
 
     if (action === 'card' && method === 'POST') {
@@ -659,6 +695,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       .then(async (dropped) => {
         for (const id of dropped) log(`subscription ${id} lapsed past its grace period, and was dropped`);
         await measureAll();
+        if (reminders && options.publicUrl)
+          await reminders.send(
+            await node.list(),
+            (subscription) => node.state(subscription),
+            options.publicUrl,
+          );
       })
       .catch((error: unknown) =>
         log(`sweep failed: ${error instanceof Error ? error.message : String(error)}`),

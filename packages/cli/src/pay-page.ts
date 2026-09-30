@@ -58,6 +58,7 @@ export function payPageHtml(name: string): string {
   button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   button:disabled { opacity: 0.5; cursor: default; }
   button img { width: 16px; height: 16px; }
+  input { font: inherit; font-size: 14px; border-radius: 8px; padding: 8px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); flex: 1; min-width: 0; }
   .error { color: var(--danger); font-size: 14px; }
   .ok { color: var(--ok); }
   [hidden] { display: none !important; }
@@ -78,6 +79,11 @@ export function payPageHtml(name: string): string {
     <span class="muted" id="wallet-fee"></span>
   </div>
   <div id="manage" hidden><button id="manage-button">Change card or cancel</button></div>
+  <div id="remind" class="box" hidden>
+    <span class="label">Remind me by email before the time runs out</span>
+    <div class="row"><input id="remind-email" type="email" placeholder="you@example.com" autocomplete="email" aria-label="Email address"><button id="remind-button">Remind me</button></div>
+    <span class="muted" id="remind-state">Two reminders, 14 and 3 days before. The host keeps the address for this and nothing else.</span>
+  </div>
   <p id="error" class="error" hidden></p>
   <p class="muted" id="after">You can close this tab when you're done. Your home shows the new date when you go back to it.</p>
 </main>
@@ -181,7 +187,21 @@ async function load() {
     $('wallet-fee').textContent = 'Paid up front. The network fee, about a cent, is paid in ETH on ' + w.chainName + '.';
     show('wallet');
   } else show('wallet', false);
+  // Time paid up front runs out; a card that renews doesn't need reminding.
+  show('remind', state.reminders !== null && !state.status.renews);
+  if (state.reminders === 'on') $('remind-state').textContent = 'Reminders are on. Each one has a link to stop them.';
+  if (state.reminders === 'waiting') $('remind-state').textContent = 'Check your inbox for a link to confirm.';
 }
+
+$('remind-button').addEventListener('click', () => act(async () => {
+  const email = $('remind-email').value.trim();
+  if (!email) throw new Error('Type an email address first');
+  const { answer } = await api('POST', '/email', { email });
+  $('remind-email').value = '';
+  $('remind-state').textContent = answer.reminders === 'on'
+    ? 'Reminders are on. Each one has a link to stop them.'
+    : 'Check your inbox for a link to confirm.';
+}));
 
 async function payByCard(plan) {
   location.assign((await api('POST', '/card', { plan })).answer.url);

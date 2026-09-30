@@ -1058,7 +1058,8 @@ _Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `
 > **A reminder before time runs out.** Time paid up front does not renew
 > itself (`renews: false`), so the host reminds the person 14 and 3 days before
 > `paidUntil` and once when the grace period starts. Email is the host's own
-> business. The protocol route is Web Push through the carry space (§4.4,
+> business: the reference host asks for an address on its pay page
+> (`packages/cli/src/reminders.ts`). The protocol route is Web Push through the carry space (§4.4,
 > Planned): the home writes a
 > `sys.subscription` with no filter and `purpose: "hosting"` when the person
 > allows it, and the host pushes `{ kind: "hosting", host, paidUntil }`,
