@@ -15,7 +15,8 @@
     "./hash": "./src/hash.ts",
     "./mini-app": "./src/mini-app.ts",
     "./Payment": "./src/Payment.tsx",
-    "./CommunitySetup": "./src/CommunitySetup.tsx"
+    "./CommunitySetup": "./src/CommunitySetup.tsx",
+    "./Feature": "./src/Feature.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

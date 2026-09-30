@@ -1,16 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
-import { DEFINE, MANAGE, roleHolds } from '@weaveprotocol/core';
-import type { SpaceHostingView } from '@weaveprotocol/core';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { DEFINE, MANAGE, describeHost, roleHolds } from '@weaveprotocol/core';
+import type { HostDescription, HostedBot, SpaceHostingView } from '@weaveprotocol/core';
 import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
 import { profile } from '@weaveprotocol/core/schemas';
-import { SpaceHosting } from './SpaceHosting';
-import { Payment } from './Payment';
+import { DEFAULT_HOST } from './relay';
+import { Modal } from './Modal';
+import { PayFlow } from './Payment';
+import { Benefit, FeatureIcon, Glyph, StatusPill } from './Feature';
+import { KeepOnlineDialog, darkSmall, onlineHost, standing, useSpaceHosts } from './SpaceHosting';
 import { styles, palette } from './styles';
 
 /** Where running a bot on a server is explained */
 const SERVER_GUIDE =
   'https://github.com/leifriksheim/weave/blob/main/packages/cli/README.md#always-on-on-a-server';
-const HIDDEN_KEY = 'weave-community-setup-hidden';
+const HIDDEN_KEY = 'weave-community-upgrades-hidden';
+/** How long "Not now" keeps the upgrades out of the way */
+const NOT_NOW_MS = 30 * 24 * 3600 * 1000;
 /**
  * How the CLI is run where this app is built, from the connect command
  * (`VITE_WEAVE_CONNECT`): `npx @weaveprotocol/cli`, or in this repo
@@ -22,11 +27,13 @@ const CLI = (import.meta.env.VITE_WEAVE_CONNECT ?? 'npx @weaveprotocol/cli conne
 );
 
 /**
- * What an admin sets a community up with, at the top of its screen: keeping
- * it online (a host the space pays for together) and adding a bot (an AI
- * helper with an account of its own, holding a role here like any member),
- * which that host runs.
- * Each step says when it is done. Only those who may manage the space see it.
+ * What an admin can add to a community, at the top of its screen, shown the
+ * way the app shows anything worth having: two tiles, each with what it does
+ * in a line, its price or how it stands, and one button. **Always online**
+ * (a host the community pays for together) and **an AI helper** (a bot that
+ * host runs). The details, and paying, are in a dialog. Quiet by design: only
+ * those who may manage the community see it, and "Not now" puts it away for a
+ * month.
  *
  * `cli` is how the CLI is run, when not the build's own (`CLI`).
  * `onAutomations` opens the space's automations, where a bot is told what to
@@ -45,199 +52,233 @@ export function CommunitySetup({
 }) {
   const node = useNode();
   const access = useAccess(spaceId);
-  const [open, setOpen] = useState<'hosting' | 'bot' | null>(null);
-  const [hosts, setHosts] = useState<ReadonlyArray<SpaceHostingView>>([]);
+  const { hosts, look } = useSpaceHosts(spaceId, writable);
+  const [offer, setOffer] = useState<HostDescription | null>(null);
   const [bots, setBots] = useState<ReadonlyArray<{ did: string; name: string }>>([]);
-  const [hidden, setHidden] = useState(() => readHidden().includes(spaceId));
+  const [dialog, setDialog] = useState<'online' | 'bot' | null>(null);
+  // Put away with "Not now" until a date, asked once when it first shows.
+  const [hidden, setHidden] = useState(() => (readHidden()[spaceId] ?? 0) > Date.now());
   const mayManage = writable && roleHolds(access?.role, MANAGE);
 
-  const look = useCallback(() => {
-    void node.hosting.space(spaceId).then(setHosts, () => setHosts([]));
+  const lookBots = useCallback(() => {
     void botsIn(node, spaceId).then(setBots, () => setBots([]));
   }, [node, spaceId]);
   useEffect(() => {
     if (!mayManage) return;
-    look();
-    // Waiting on a bot to join, or a payment to land: look again now and then.
-    const timer = setInterval(look, 10_000);
+    lookBots();
+    if (DEFAULT_HOST) void describeHost(DEFAULT_HOST).then(setOffer, () => {});
+    // A bot joining, or a payment landing, shows without a reload.
+    const timer = setInterval(() => {
+      look();
+      lookBots();
+    }, 15_000);
     return () => clearInterval(timer);
-  }, [look, mayManage]);
+  }, [mayManage, look, lookBots]);
 
-  if (!mayManage) return null;
-  const online = hosts.find(
-    (host) => host.status?.carrying && (host.status.state === 'active' || host.status.state === 'grace'),
-  );
-  // The bots the community's host runs here, as it says; and what the step says of them.
+  if (!mayManage || hosts === null || hidden) return null;
+  const online = onlineHost(hosts);
+  const host = hosts[0];
   const hosted = online?.bots ?? [];
-  const done = !!online && (bots.length > 0 || hosted.some((bot) => bot.status.carrying));
-  const waiting = hosted.filter((bot) => !bot.status.carrying);
-  const botDetail = !online
-    ? 'An AI helper with its own account, holding a role like any member. It runs at the host that keeps the community online, so keep it online first.'
-    : hosted.length || bots.length
-      ? [
-          ...hosted.map(
-            (bot) => `${bot.name} ${bot.status.carrying ? `runs at ${online.name}` : 'waits to be paid for'}`,
-          ),
-          ...bots.filter((bot) => !hosted.some((h) => h.bot === bot.did)).map((bot) => `${bot.name} is here`),
-        ].join(' · ') + (waiting.length ? '' : '. Tell it what to do in automations.')
-      : `An AI helper with its own account: it answers, sums up and keeps things tidy. ${online.name} runs it, and it holds a role like any member, so it can do only what the role allows.`;
-  if (hidden && done) return null;
+  const running = hosted.filter((bot) => bot.status.carrying);
+  const botNames = [
+    ...running.map((bot) => bot.name),
+    ...bots.filter((bot) => !hosted.some((h) => h.bot === bot.did)).map((bot) => bot.name),
+  ];
+  const onlineView = host ? standing(host) : null;
+  const botPrice = online?.botPlans[0]
+    ? splitPrice(online.botPlans[0].label)
+    : online?.runsBots
+      ? 'Free'
+      : null;
 
-  const until = online?.status?.paidUntil
-    ? new Date(online.status.paidUntil * 1000).toLocaleDateString(undefined, {
-        day: 'numeric',
-        month: 'short',
-      })
-    : null;
+  const close = () => {
+    setDialog(null);
+    look();
+    lookBots();
+  };
 
   return (
-    <section
-      aria-label="Set up this community"
-      style={{
-        border: `1px solid ${palette.surface.line}`,
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 24,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        background: palette.surface.card,
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
-        <h2 style={{ ...styles.sectionTitle, fontSize: 16 }}>Set up this community</h2>
-        {done && (
-          <button
-            data-variant="quiet"
-            style={styles.smallButton}
-            onClick={() => {
-              writeHidden([...readHidden(), spaceId]);
-              setHidden(true);
-            }}
-          >
-            Hide
-          </button>
-        )}
+    <section aria-label="Upgrade this community" style={{ marginBottom: 28 }}>
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}
+      >
+        <p style={{ fontSize: 12, fontWeight: 500, color: palette.ink.muted, letterSpacing: 0.2 }}>
+          For this community
+        </p>
+        <button
+          onClick={() => {
+            const until = Date.now() + NOT_NOW_MS;
+            writeHidden({ ...readHidden(), [spaceId]: until });
+            setHidden(true);
+          }}
+          style={{ ...styles.linkButton, padding: 0, fontSize: 12 }}
+        >
+          Not now
+        </button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+        <Tile
+          icon={<FeatureIcon kind="online" glyph="cloud" />}
+          title="Always online"
+          pill={
+            onlineView && host?.status ? (
+              <StatusPill tone={onlineView.tone}>{onlineView.pill}</StatusPill>
+            ) : null
+          }
+          detail="Reachable when everyone's offline. Encrypted, so the host can't read it."
+          meta={online ? onlineView?.line : offer ? (offer.free ? 'Free' : offer.price) : undefined}
+          action={
+            online ? (
+              <button onClick={() => setDialog('online')} data-variant="quiet" style={styles.smallButton}>
+                Manage
+              </button>
+            ) : (
+              <button onClick={() => setDialog('online')} data-variant="primary" style={darkSmall}>
+                {host ? 'Finish' : 'Turn on'}
+              </button>
+            )
+          }
+        />
+        <Tile
+          icon={<FeatureIcon kind="bot" glyph="sparkle" />}
+          title="AI helper"
+          pill={
+            botNames.length ? (
+              <StatusPill tone="good">
+                {botNames.length === 1 ? `${botNames[0]} is on` : `${botNames.length} on`}
+              </StatusPill>
+            ) : hosted.length ? (
+              <StatusPill tone="warn">Waiting for payment</StatusPill>
+            ) : null
+          }
+          detail="A bot that answers questions, sums up long threads and posts reminders."
+          meta={
+            !online ? (
+              <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                <Glyph name="lock" size={12} /> Needs Always online
+              </span>
+            ) : botPrice ? (
+              `${botPrice}, AI use included`
+            ) : (
+              `${online.name} doesn't run bots`
+            )
+          }
+          action={
+            <button
+              onClick={() => setDialog('bot')}
+              disabled={!online}
+              data-variant={botNames.length || !online ? 'quiet' : 'primary'}
+              style={botNames.length || !online ? styles.smallButton : darkSmall}
+            >
+              {botNames.length ? 'Manage' : hosted.length ? 'Finish' : 'Add a bot'}
+            </button>
+          }
+        />
       </div>
 
-      <Step
-        done={!!online}
-        title="Keep it online"
-        detail={
-          online
-            ? `${online.name} keeps it online${until ? `, funded until ${until}` : ''}. Anyone here can chip in.`
-            : 'A host keeps the community reachable when nobody has it open, without being able to read it. Everyone can chip in.'
-        }
-        action={open === 'hosting' ? 'Close' : online ? 'Manage' : 'Keep it online'}
-        onAction={() => setOpen(open === 'hosting' ? null : 'hosting')}
-      />
-      {open === 'hosting' && (
-        <div style={{ paddingLeft: 32 }}>
-          <SpaceHosting spaceId={spaceId} writable={writable} />
-        </div>
-      )}
-
-      <Step
-        done={bots.length > 0 || hosted.some((bot) => bot.status.carrying)}
-        title="Add a bot"
-        detail={botDetail}
-        action={
-          !online
-            ? 'Keep it online first'
-            : open === 'bot'
-              ? 'Close'
-              : bots.length || hosted.length
-                ? 'Manage'
-                : 'Add a bot'
-        }
-        onAction={() => (!online ? setOpen('hosting') : setOpen(open === 'bot' ? null : 'bot'))}
-      />
-      {open === 'bot' && online && (
-        <div style={{ paddingLeft: 32 }}>
-          <AddBot
-            spaceId={spaceId}
-            host={online}
-            cli={cli}
-            onAutomations={onAutomations}
-            joined={bots.length > 0}
-            onChange={look}
-          />
-        </div>
+      {dialog === 'online' && <KeepOnlineDialog spaceId={spaceId} writable={writable} onClose={close} />}
+      {dialog === 'bot' && online && (
+        <AddBotDialog
+          spaceId={spaceId}
+          host={online}
+          cli={cli}
+          running={botNames}
+          onAutomations={
+            onAutomations
+              ? () => {
+                  close();
+                  onAutomations();
+                }
+              : undefined
+          }
+          onClose={close}
+        />
       )}
     </section>
   );
 }
 
-function Step({
-  done,
+/** One upgrade: its icon, what it does in a line, its price or state, and one button */
+function Tile({
+  icon,
   title,
+  pill,
   detail,
+  meta,
   action,
-  onAction,
 }: {
-  done: boolean;
+  icon: ReactNode;
   title: string;
+  pill: ReactNode;
   detail: string;
-  action: string;
-  onAction: () => void;
+  meta: ReactNode;
+  action: ReactNode;
 }) {
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-      <span
-        aria-hidden
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        padding: 16,
+        borderRadius: 12,
+        border: `1px solid ${palette.surface.line}`,
+        background: palette.surface.card,
+      }}
+    >
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        {icon}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minHeight: 22 }}>
+            <strong style={{ fontSize: 14, color: palette.ink.strong }}>{title}</strong>
+            {pill}
+          </div>
+          <p style={{ fontSize: 13, lineHeight: 1.45, color: palette.ink.muted, marginTop: 2 }}>{detail}</p>
+        </div>
+      </div>
+      <div
         style={{
-          width: 20,
-          height: 20,
-          borderRadius: 10,
-          flexShrink: 0,
-          marginTop: 1,
-          display: 'grid',
-          placeItems: 'center',
-          fontSize: 12,
-          color: done ? '#fff' : palette.ink.faint,
-          background: done ? palette.accent.good : 'transparent',
-          border: done ? 'none' : `1.5px solid ${palette.surface.line}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginTop: 'auto',
         }}
       >
-        {done ? '✓' : ''}
-      </span>
-      <div style={{ flex: 1, minWidth: 200 }}>
-        <p style={{ fontSize: 14, fontWeight: 600, color: palette.ink.strong }}>{title}</p>
-        <p style={{ fontSize: 13, color: palette.ink.muted, lineHeight: 1.5 }}>{detail}</p>
-      </div>
-      <button
-        onClick={onAction}
-        data-variant={done ? 'quiet' : undefined}
-        style={done ? styles.smallButton : styles.addButton}
-      >
+        <span style={{ fontSize: 12.5, color: palette.ink.faint, minWidth: 0 }}>{meta}</span>
         {action}
-      </button>
+      </div>
     </div>
   );
 }
 
+/** "$10 a month, from a wallet (USDC on Base)" as its price: "$10 a month" */
+function splitPrice(label: string): string {
+  const comma = label.indexOf(', ');
+  return comma < 0 ? label : label.slice(0, comma);
+}
+
 /**
- * Adding a bot, hosting first: its name and the role it should hold, and the
- * community's host makes its account, joins and runs it, paid for like the
- * hosting (anyone may chip in). The host holds the bot's account, so it reads
- * what the bot may read, and the card says so. Running it yourself is folded
- * away, for those who want to: the one command that does the same on their
- * own computer or server.
+ * Adding a bot, hosting first. Its name and role, what it costs, and Add;
+ * then, on a host that charges for it, paying for its first month; then what
+ * to tell it to do. The trust it takes is said plainly but small: the host
+ * runs the bot's account, so it can read what the bot can read. Running it
+ * yourself is a link at the bottom, for those who want to.
  */
-function AddBot({
+function AddBotDialog({
   spaceId,
   host,
   cli,
+  running,
   onAutomations,
-  joined,
-  onChange,
+  onClose,
 }: {
   spaceId: string;
   host: SpaceHostingView;
   cli: string;
+  running: ReadonlyArray<string>;
   onAutomations: (() => void) | undefined;
-  joined: boolean;
-  onChange: () => void;
+  onClose: () => void;
 }) {
   const node = useNode();
   const access = useAccess(spaceId);
@@ -251,159 +292,201 @@ function AddBot({
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [yourself, setYourself] = useState(!host.runsBots);
+  const [started, setStarted] = useState<HostedBot | null>(
+    () => host.bots.find((bot) => !bot.status.carrying && host.botPlans.length > 0) ?? null,
+  );
+  const [view, setView] = useState<'add' | 'pay' | 'done' | 'yourself'>(
+    started ? 'pay' : running.length ? 'done' : 'add',
+  );
   const chosen = role ?? roles[0]?.name ?? null;
   const called = name.trim() || 'Club Bot';
-  const price = host.botPlans.map((plan) => plan.label).join(', or ');
+  const price = host.botPlans[0] ? splitPrice(host.botPlans[0].label) : null;
 
-  const start = async () => {
+  const add = async () => {
     setBusy(true);
     setProblem(null);
     try {
-      await node.hosting.startBot(spaceId, host.url, { name: called, ...(chosen ? { role: chosen } : {}) });
-      setName('');
-      onChange();
+      const bot = await node.hosting.startBot(spaceId, host.url, {
+        name: called,
+        ...(chosen ? { role: chosen } : {}),
+      });
+      setStarted(bot);
+      setView(bot.status.carrying || host.botPlans.length === 0 ? 'done' : 'pay');
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
   };
-  const paidSince = (bot: string) => async () => {
-    const now = await node.hosting.space(spaceId);
-    const running = now
-      .find((known) => known.url === host.url)
-      ?.bots.some((b) => b.bot === bot && b.status.carrying);
-    if (running) onChange();
-    return !!running;
-  };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {host.bots
-        .filter((bot) => !bot.status.carrying && host.botPlans.length > 0)
-        .map((bot) => (
-          <div key={bot.bot} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <p style={{ fontSize: 14, color: palette.ink.strong }}>
-              {bot.name} has joined, and starts once it is paid for. Anyone here can chip in.
+    <Modal title="Add an AI helper" onClose={onClose} width={460}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          <FeatureIcon kind="bot" glyph="sparkle" size={44} />
+          <div>
+            <p style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong }}>
+              {view === 'pay' && started ? `Start ${started.name}` : started ? started.name : called}
             </p>
-            <Payment
-              plans={host.botPlans}
-              start={(plan) => node.hosting.payForBot(spaceId, host.url, bot.bot, plan)}
-              paid={paidSince(bot.bot)}
-            />
+            <p style={{ fontSize: 13, color: palette.ink.muted }}>
+              {view === 'pay'
+                ? 'It has joined. It starts working once its first month is paid.'
+                : `Runs at ${host.name}${price ? ` · ${price}, AI use included` : ', at no cost'}`}
+            </p>
           </div>
-        ))}
+        </div>
 
-      {host.runsBots ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <label
-              style={{
-                display: 'flex',
-                gap: 8,
-                alignItems: 'center',
-                fontSize: 13,
-                color: palette.ink.muted,
-              }}
-            >
-              Its name
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Club Bot"
-                aria-label="The bot's name"
-                style={{ ...styles.input, width: 180 }}
-              />
-            </label>
-            {roles.length > 0 && (
+        {view === 'add' && (
+          <>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <Benefit glyph="chat">Answers when someone mentions it</Benefit>
+              <Benefit glyph="clock">Posts summaries and reminders on a schedule</Benefit>
+              <Benefit glyph="shield">Holds a role like any member, and can do only what it allows</Benefit>
+            </ul>
+            <div style={{ display: 'flex', gap: 10 }}>
               <label
                 style={{
+                  flex: 1,
                   display: 'flex',
-                  gap: 8,
-                  alignItems: 'center',
-                  fontSize: 13,
+                  flexDirection: 'column',
+                  gap: 6,
+                  fontSize: 12.5,
                   color: palette.ink.muted,
                 }}
               >
-                Its role
-                <select
-                  value={chosen ?? ''}
-                  onChange={(event) => setRole(event.target.value)}
-                  style={{ ...styles.input, width: 'auto' }}
-                >
-                  {roles.map((known) => (
-                    <option key={known.name} value={known.name}>
-                      {known.title ?? known.name}
-                    </option>
-                  ))}
-                </select>
+                Name
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Club Bot"
+                  style={styles.input}
+                />
               </label>
-            )}
-          </div>
-          <p style={{ ...styles.errorHint, marginTop: 0 }}>
-            {host.name} runs it{price ? ` for ${price}` : ', at no cost'}, AI use included. It holds the bot's
-            account, so it can read what the bot can read. Give it the lowest role that can do its job: a
-            misled bot can still do only what its role allows.
-          </p>
-          <button onClick={() => void start()} disabled={busy} style={styles.addButton}>
-            {busy ? 'Starting…' : `Start ${called} at ${host.name}`}
-          </button>
-          {problem && <p style={{ ...styles.errorHint, color: palette.accent.danger }}>{problem}</p>}
-        </div>
-      ) : (
-        <p style={{ ...styles.errorHint, marginTop: 0 }}>
-          {host.name} doesn't run bots. You can run one yourself.
-        </p>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <p style={{ fontSize: 14, color: palette.ink.strong }}>Tell it what to do</p>
-        <p style={{ ...styles.errorHint, marginTop: 0 }}>
-          {joined ? 'It has joined. ' : 'Once it has joined, it shows here. '}
-          Automations say what it does: answer when mentioned, post a plan every morning.
-        </p>
-        {onAutomations && (
-          <button
-            onClick={onAutomations}
-            data-variant="quiet"
-            style={{ ...styles.smallButton, alignSelf: 'flex-start' }}
-          >
-            Open automations
-          </button>
+              {roles.length > 0 && (
+                <label
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    fontSize: 12.5,
+                    color: palette.ink.muted,
+                  }}
+                >
+                  Role
+                  <select
+                    value={chosen ?? ''}
+                    onChange={(event) => setRole(event.target.value)}
+                    style={{ ...styles.input, width: 'auto' }}
+                  >
+                    {roles.map((known) => (
+                      <option key={known.name} value={known.name}>
+                        {known.title ?? known.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            <button onClick={() => void add()} disabled={busy} data-variant="primary" style={styles.button}>
+              {busy ? 'Adding…' : `Add ${called}`}
+            </button>
+            {problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{problem}</p>}
+            <p style={{ display: 'flex', gap: 8, fontSize: 12, color: palette.ink.faint, lineHeight: 1.5 }}>
+              <Glyph name="lock" size={12} style={{ marginTop: 2 }} />
+              {host.name} runs the bot's account, so it can read what the bot can read. The rest of the
+              community stays encrypted to it.
+            </p>
+            <button
+              onClick={() => setView('yourself')}
+              style={{ ...styles.linkButton, alignSelf: 'center', fontSize: 12 }}
+            >
+              Run it on your own computer instead
+            </button>
+          </>
         )}
-        {!profiles && (
-          <p style={{ ...styles.errorHint, marginTop: 4 }}>
-            This space keeps no profiles yet, so it can't tell the bot is one, and nobody can pick it under
-            "Done by".{' '}
-            {mayDefine ? (
-              <button
-                data-variant="quiet"
-                style={styles.smallButton}
-                onClick={() =>
-                  void node.collections
-                    .define(spaceId, profile)
-                    .catch((error: unknown) =>
-                      setProblem(error instanceof Error ? error.message : String(error)),
-                    )
-                }
+
+        {view === 'pay' && started && (
+          <PayFlow
+            plans={host.botPlans}
+            start={(plan) => node.hosting.payForBot(spaceId, host.url, started.bot, plan)}
+            paid={async () =>
+              !!(await node.hosting.space(spaceId))
+                .find((known) => known.url === host.url)
+                ?.bots.some((bot) => bot.bot === started.bot && bot.status.carrying)
+            }
+            onDone={() => setView('done')}
+          />
+        )}
+
+        {view === 'done' && (
+          <>
+            <p style={{ fontSize: 14, color: palette.ink.body, lineHeight: 1.5 }}>
+              {started
+                ? `${started.name} is in the community.`
+                : `${running.join(', ')} ${running.length === 1 ? 'is' : 'are'} on.`}{' '}
+              Tell it what to do in Automations: answer when mentioned, sum up the week every Friday.
+            </p>
+            {!profiles && (
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  background: palette.surface.sunken,
+                  fontSize: 13,
+                  color: palette.ink.muted,
+                  lineHeight: 1.5,
+                }}
               >
-                Keep profiles here
+                This community keeps no profiles yet, so nobody can see it's a bot or pick it under "Done by".{' '}
+                {mayDefine ? (
+                  <button
+                    onClick={() =>
+                      void node.collections
+                        .define(spaceId, profile)
+                        .catch((error: unknown) =>
+                          setProblem(error instanceof Error ? error.message : String(error)),
+                        )
+                    }
+                    style={{ ...styles.linkButton, padding: 0, color: palette.ink.strong }}
+                  >
+                    Turn on profiles
+                  </button>
+                ) : (
+                  'An admin who may add collections can turn them on.'
+                )}
+              </div>
+            )}
+            {onAutomations ? (
+              <button onClick={onAutomations} data-variant="primary" style={styles.button}>
+                Open Automations
               </button>
             ) : (
-              'Someone who may add collections here can add them.'
+              <button onClick={onClose} data-variant="primary" style={styles.button}>
+                Done
+              </button>
             )}
-          </p>
+            <button
+              onClick={() => setView('add')}
+              style={{ ...styles.linkButton, alignSelf: 'center', fontSize: 12 }}
+            >
+              Add another bot
+            </button>
+          </>
+        )}
+
+        {view === 'yourself' && (
+          <>
+            <RunItYourself spaceId={spaceId} cli={cli} name={called} role={chosen} />
+            <button
+              onClick={() => setView('add')}
+              style={{ ...styles.linkButton, alignSelf: 'center', fontSize: 12 }}
+            >
+              Let {host.name} run it instead
+            </button>
+          </>
         )}
       </div>
-
-      <div>
-        <button data-variant="quiet" style={styles.smallButton} onClick={() => setYourself(!yourself)}>
-          {yourself ? 'Hide' : 'Run it yourself instead'}
-        </button>
-        {yourself && <RunItYourself spaceId={spaceId} cli={cli} name={called} role={chosen} />}
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -437,34 +520,38 @@ function RunItYourself({
     }
   };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-      <p style={{ ...styles.errorHint, marginTop: 0 }}>
-        On your own computer or server, with your own model key. It works while it runs; to keep it on, run it
-        on a server:{' '}
-        <a href={SERVER_GUIDE} target="_blank" rel="noopener noreferrer">
-          how to run a bot on Fly
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <p style={{ fontSize: 13, color: palette.ink.muted, lineHeight: 1.5 }}>
+        Run {name} on your own computer or server, with your own AI key. It works while it runs; to keep it
+        on,{' '}
+        <a
+          href={SERVER_GUIDE}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: palette.ink.strong }}
+        >
+          run it on a server
         </a>
         .
       </p>
       {invite ? (
         <>
           <Copyable text={`${cli} agent --bot --name ${quoted(name)} --invite ${quoted(invite)}`} secret />
-          <p style={{ ...styles.errorHint, marginTop: 0 }}>
-            Run it in a terminal. It makes {name}'s account in a folder of its own, asks for a password for it
-            and a model's API key, and joins. Keep the command to yourself: whoever has it can join as the
-            bot's role.
+          <p style={{ fontSize: 12, color: palette.ink.faint, lineHeight: 1.5 }}>
+            Paste it into a terminal. It asks for a password for the bot and an AI key, then joins. Keep it to
+            yourself: whoever has it can join as the bot.
           </p>
         </>
       ) : (
         <button
+          onClick={() => void make()}
           data-variant="quiet"
           style={{ ...styles.smallButton, alignSelf: 'flex-start' }}
-          onClick={() => void make()}
         >
           Make the command
         </button>
       )}
-      {problem && <p style={{ ...styles.errorHint, color: palette.accent.danger }}>{problem}</p>}
+      {problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{problem}</p>}
     </div>
   );
 }
@@ -478,7 +565,6 @@ function Copyable({ text, secret = false }: { text: string; secret?: boolean }) 
         display: 'flex',
         gap: 8,
         alignItems: 'center',
-        marginTop: 6,
         padding: '6px 6px 6px 10px',
         borderRadius: 8,
         border: `1px solid ${palette.surface.line}`,
@@ -515,16 +601,16 @@ function Copyable({ text, secret = false }: { text: string; secret?: boolean }) 
   );
 }
 
-/** The bots holding a role in a space: members whose profile there says `bot: true` */
+/** The bots holding a role in a space: members whose own profile there says `bot: true` */
 async function botsIn(
   node: ReturnType<typeof useNode>,
   spaceId: string,
 ): Promise<ReadonlyArray<{ did: string; name: string }>> {
   const collections = await node.collections.list(spaceId);
-  if (!collections.some((c) => c.name === 'std.profile' && c.version !== null)) return [];
+  if (!collections.some((c) => c.name === profile.name && c.version !== null)) return [];
   const members = new Set((await node.spaces.access(spaceId)).members.map((member) => member.did));
-  const names = new Map((await node.spaces.profiles(spaceId)).map((profile) => [profile.did, profile.name]));
-  const profiles = await node.records.list<{ bot?: unknown }>(spaceId, { collection: 'std.profile' });
+  const names = new Map((await node.spaces.profiles(spaceId)).map((known) => [known.did, known.name]));
+  const profiles = await node.records.list<{ bot?: unknown }>(spaceId, { collection: profile.name });
   return profiles.flatMap((record) =>
     !record.deleted &&
     record.body?.bot === true &&
@@ -537,18 +623,21 @@ async function botsIn(
   );
 }
 
-function readHidden(): string[] {
+function readHidden(): Record<string, number> {
   try {
-    const kept: unknown = JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? '[]');
-    return Array.isArray(kept) ? kept.filter((id): id is string => typeof id === 'string') : [];
+    const kept: unknown = JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? '{}');
+    if (typeof kept !== 'object' || kept === null || Array.isArray(kept)) return {};
+    return Object.fromEntries(
+      Object.entries(kept).filter((entry): entry is [string, number] => typeof entry[1] === 'number'),
+    );
   } catch {
-    return [];
+    return {};
   }
 }
 
-function writeHidden(ids: ReadonlyArray<string>): void {
+function writeHidden(hidden: Record<string, number>): void {
   try {
-    localStorage.setItem(HIDDEN_KEY, JSON.stringify(ids));
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify(hidden));
   } catch {
     // Hidden for this visit only.
   }
