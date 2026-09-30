@@ -9,7 +9,7 @@ import {
 } from '@weaveprotocol/core';
 import { useAccess, useAccount, useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
-import { AddBotDialog } from '@weave/app-shared/CommunitySetup';
+import { AddBotDialog, useSpaceBots } from '@weave/app-shared/CommunitySetup';
 import { clauseFields, clauseOn, type Clause, type ClauseField } from '../../derive/conditions';
 import { belonging, collectionLabel, recordLabel } from '../../derive/schema-ui';
 import { useBots } from '../../bots';
@@ -19,7 +19,6 @@ import {
   SCHEDULES,
   checkCron,
   matching,
-  profile,
   rule as ruleCollection,
   ruleOf,
   ruleRun as runCollection,
@@ -106,12 +105,12 @@ export function RuleBuilder({
   const everyProblem = timed ? checkCron(every) : null;
   // Who does it, for a rule that asks or runs at set times: their own agent, or a bot here.
   const [by, setBy] = useState<string>(stored?.by ?? '');
-  // Whoever says so on their own profile here, named or not; and the one a rule being changed names.
+  // The bots the space's host runs, whoever says so on their own profile here, and the one a rule being changed names.
   const saidBots = useBots(space.id);
-  const bots = [...new Set([...saidBots, ...(stored?.by ? [stored.by] : [])])].map((d) => ({
-    did: d,
-    name: nameOf(d, people),
-  }));
+  const { bots: known } = useSpaceBots(space.id, space.writable);
+  const bots = [
+    ...new Set([...known.map((bot) => bot.did), ...saidBots, ...(stored?.by ? [stored.by] : [])]),
+  ].map((d) => ({ did: d, name: known.find((bot) => bot.did === d)?.name ?? nameOf(d, people) }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -497,40 +496,13 @@ export function RuleBuilder({
             )}
             {agentDoes && bots.length === 0 && (
               <p style={{ fontSize: 12.5, color: palette.ink.muted }}>
-                {has(profile.name) ? (
-                  <>
-                    No bots in {space.name} yet.{' '}
-                    {space.writable && roleHolds(access?.role, MANAGE) ? (
-                      <button type="button" style={styles.linkButton} onClick={() => setAddingBot(true)}>
-                        Add a bot
-                      </button>
-                    ) : (
-                      'Someone who manages it can add one, under Hosting.'
-                    )}
-                  </>
+                No bots in {space.name} yet.{' '}
+                {space.writable && roleHolds(access?.role, MANAGE) ? (
+                  <button type="button" style={styles.linkButton} onClick={() => setAddingBot(true)}>
+                    Add a bot
+                  </button>
                 ) : (
-                  <>
-                    A bot says it is one on its profile, and {space.name} keeps no profiles yet, so none can
-                    show up here.{' '}
-                    {roleHolds(access?.role, DEFINE) ? (
-                      <button
-                        type="button"
-                        style={styles.linkButton}
-                        disabled={busy}
-                        onClick={() => {
-                          setBusy(true);
-                          void node.collections
-                            .define(space.id, profile)
-                            .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-                            .finally(() => setBusy(false));
-                        }}
-                      >
-                        Keep profiles here
-                      </button>
-                    ) : (
-                      'Someone who may add collections here can add them.'
-                    )}
-                  </>
+                  'Someone who manages it can add one, under Hosting.'
                 )}
               </p>
             )}

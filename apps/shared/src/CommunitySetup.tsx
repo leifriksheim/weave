@@ -306,6 +306,8 @@ export function AddBotDialog({
     setBusy(true);
     setProblem(null);
     try {
+      // Profiles first: a bot says on its own that it is one, which is how "Done by" finds it.
+      if (!profiles && mayDefine) await node.collections.define(spaceId, profile).catch(() => {});
       const { bot } = await node.hosting.startBot(spaceId, host.url, {
         name: called,
         ...(chosen ? { role: chosen } : {}),
@@ -619,22 +621,10 @@ export function SpaceBots({
   cli?: string;
   onAutomations?: () => void;
 }) {
-  const node = useNode();
   const access = useAccess(spaceId);
-  const { hosts, look } = useSpaceHosts(spaceId, writable);
-  const [bots, setBots] = useState<ReadonlyArray<{ did: string; name: string }>>([]);
+  const { bots: listed, look, lookBots } = useSpaceBots(spaceId, writable);
   const [adding, setAdding] = useState(false);
   const mayManage = writable && roleHolds(access?.role, MANAGE);
-  const lookBots = useCallback(() => {
-    void botsIn(node, spaceId).then(setBots, () => setBots([]));
-  }, [node, spaceId]);
-  useEffect(() => lookBots(), [lookBots]);
-
-  const hosted = hosts?.flatMap((host) => host.bots) ?? [];
-  const listed = [
-    ...hosted.map((bot) => ({ did: bot.bot, name: bot.name, state: bot.running ? 'on' : 'waiting' })),
-    ...bots.filter((bot) => !hosted.some((h) => h.bot === bot.did)).map((bot) => ({ ...bot, state: 'own' })),
-  ];
   if (!listed.length && !mayManage) return null;
   return (
     <section aria-label="AI helpers" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -718,6 +708,33 @@ export function SpaceBots({
       )}
     </section>
   );
+}
+
+/**
+ * A space's bots: those its host runs, as the host's signed status names
+ * them (`on`, or `waiting` for the fund), and those run elsewhere that say
+ * so on their own profile (`own`).
+ */
+export function useSpaceBots(spaceId: string, writable: boolean) {
+  const node = useNode();
+  const { hosts, look } = useSpaceHosts(spaceId, writable);
+  const [own, setOwn] = useState<ReadonlyArray<{ did: string; name: string }>>([]);
+  const lookBots = useCallback(() => {
+    void botsIn(node, spaceId).then(setOwn, () => setOwn([]));
+  }, [node, spaceId]);
+  useEffect(() => lookBots(), [lookBots]);
+  const hosted = hosts?.flatMap((host) => host.bots) ?? [];
+  const bots: ReadonlyArray<{ did: string; name: string; state: 'on' | 'waiting' | 'own' }> = [
+    ...hosted.map((bot) => ({
+      did: bot.bot,
+      name: bot.name,
+      state: bot.running ? ('on' as const) : ('waiting' as const),
+    })),
+    ...own
+      .filter((bot) => !hosted.some((h) => h.bot === bot.did))
+      .map((bot) => ({ ...bot, state: 'own' as const })),
+  ];
+  return { bots, look, lookBots };
 }
 
 /** The bots holding a role in a space: members whose own profile there says `bot: true` */
