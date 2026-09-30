@@ -820,29 +820,31 @@ several subscriptions name are held once.
 P-256 key pair from it, and keeps a `sys.hosting` record in the account
 registry, key `hosting:<hex of the first 20 bytes of SHA-256(utf8(url))>`, body:
 
-| Field     | Meaning                                                                 |
-| --------- | ----------------------------------------------------------------------- |
-| `url`     | The host's origin: `https://`, or `http://` on `localhost`/`127.0.0.1`. |
-| `host`    | The host's DID, from its description when first used.                   |
-| `seed`    | The subscription key's seed, base64url.                                 |
-| `since`   | ISO date.                                                               |
-| `name`    | The host's name, as it described itself.                                |
-| `receipt` | The latest `SignedStatus` the host gave (below).                        |
+| Field     | Meaning                                                                      |
+| --------- | ---------------------------------------------------------------------------- |
+| `url`     | The host's origin: `https://`, or `http://` on `localhost`/`127.0.0.1`.      |
+| `host`    | The host's DID, from its description when first used.                        |
+| `seed`    | The subscription key's seed, base64url.                                      |
+| `since`   | ISO date.                                                                    |
+| `name`    | The host's name, as it described itself.                                     |
+| `peer`    | Optional: where the host takes peers, resolved from its description (below). |
+| `receipt` | The latest `SignedStatus` the host gave (below).                             |
 
 Every device of the account signs as the same subscription. It is not the
 account's key: the host learns a subscription, not who pays.
 
 **Description.** `GET <url>/.well-known/weave-host`, public:
 
-| Field   | Meaning                                                                                           |
-| ------- | ------------------------------------------------------------------------------------------------- |
-| `weave` | `"host/1"`                                                                                        |
-| `did`   | The host's key: its identity to peers, and what signs its statuses.                               |
-| `name`  | For people.                                                                                       |
-| `free`  | Every subscription counts as paid.                                                                |
-| `price` | Optional, free text.                                                                              |
-| `pay`   | Optional: the pay page, relative to the host's address or absolute. Absent: it takes no payments. |
-| `terms` | Optional, for people.                                                                             |
+| Field   | Meaning                                                                                                                                                              |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `weave` | `"host/1"`                                                                                                                                                           |
+| `did`   | The host's key: its identity to peers, and what signs its statuses.                                                                                                  |
+| `name`  | For people.                                                                                                                                                          |
+| `free`  | Every subscription counts as paid.                                                                                                                                   |
+| `price` | Optional, free text.                                                                                                                                                 |
+| `pay`   | Optional: the pay page, relative to the host's address or absolute. Absent: it takes no payments.                                                                    |
+| `terms` | Optional, for people.                                                                                                                                                |
+| `peer`  | Optional: where it takes peers over WebSocket ([04](04-network.md)), relative to the host's address or absolute. Absent: devices cannot reach it by its description. |
 
 A device MUST refuse a description whose `weave` is not `host/1` or whose `did`
 is not a `did:key`, and MUST treat a host whose `did` changed since it was first
@@ -944,12 +946,26 @@ in time carries again what the grace period kept. A host MAY carry only a
 configured list of accounts, and then MUST refuse any other before keeping
 anything. It runs the carrier of §4.1–4.2 for every carry space.
 
-How a device reaches a host's sockets is outside this protocol: the reference
-host takes peers at `wss://<host>/peer` ([04](04-network.md)), which a device
-must be configured with. _Not yet specified_: the host description does not
-advertise it, and using a host does not add it (see Planned, below).
+**Reaching a host.** A device resolves `peer` against the host's address
+(`new URL(peer, url + "/")`), reading `https:` as `wss:` and `http:` as `ws:`.
+It MUST NOT use an address that is not `wss://`, except `ws://` on
+`localhost` or `127.0.0.1`. It keeps the resolved address in the
+`sys.hosting` record, so the account's other devices have it without asking.
+Every device of the account then holds a socket to that address for every
+space it holds ([04](04-network.md)), as the host carries all of them through
+the carry space. A device also holds one, for that space, to each host a space
+it holds pays itself (§4.6). Example: a host at `https://host.example` that
+describes `"peer": "/peer"` is reached at `wss://host.example/peer`, and a
+space `b3kq7zp2f4mhx6ydwa5rtc9n1e` at
+`wss://host.example/peer?space=b3kq7zp2f4mhx6ydwa5rtc9n1e`.
 
-_Source: `packages/core/src/session/hosting.ts`, `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`), `packages/cli/src/host.ts`, `packages/cli/src/pay-page.ts`. Tests: `packages/cli/tests/host.test.ts`._
+A device MAY be built with hosts to look for its account registry at before it
+knows which the account uses: that is how a new device with only the recovery
+code finds its registry, and every space from it. The host learns the
+registry's id and the device's session key, and serves it only if it carries
+it. The reference reaches those hosts for the registry alone.
+
+_Source: `packages/core/src/session/hosting.ts` (`hostPeerAddress`), `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`, `reachHosts`), `packages/core/src/node/space-runtime.ts` (`useNodes`), `packages/cli/src/host.ts`, `packages/cli/src/pay-page.ts`. Tests: `packages/cli/tests/host.test.ts` ("reaching a host at the address it names": all)._
 
 ### 4.6 A space paying for itself
 
@@ -1017,15 +1033,6 @@ _Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `
 ### 4.7 Planned: hosts
 
 > **Planned.** Not normative.
->
-> **Reaching a host, and restoring through it.** The host description names
-> where it takes peers, and using a host adds that to the node's always-on
-> nodes, on every device of the account. A new device that has only the
-> recovery code then tries a host by default (one its home was built with), so
-> it finds the account registry there — the registry has a pass like every
-> space (§4.2) — and from it every space. Open: the description field's name,
-> and whether a device should try a default host before it knows the account
-> uses one.
 >
 > **Storage the person already has.** When the account has connected its own
 > storage (a Dropbox or Drive folder, [05](05-sync-and-storage.md) mirrors),

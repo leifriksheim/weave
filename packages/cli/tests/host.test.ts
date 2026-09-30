@@ -21,6 +21,7 @@ import {
   createHostClient,
   createSpaceHostClient,
   describeHost,
+  hostPeerAddress,
   HostError,
   newSubscriptionSeed,
   payLink,
@@ -571,6 +572,88 @@ describe('an account using a host, end to end over sockets', () => {
     assert.deepEqual(
       (await phone.hosting.list()).map((known) => known.url),
       [url],
+    );
+  });
+});
+
+describe('reaching a host at the address it names', () => {
+  /** A device configured with no always-on node at all: whatever it reaches, it learned */
+  async function unconfigured(me: Account, network: { hosts?: string[] } = {}): Promise<P2PNode> {
+    const node = await createNode({
+      signer: me.signer,
+      stores: memoryStores(),
+      accountKey: me.accountKey,
+      watchIntervalMs: 0,
+      network,
+    });
+    open.push(node);
+    return node;
+  }
+
+  test('a host says where it takes peers; only wss://, or ws:// on this machine, is used', () => {
+    assert.equal(hostPeerAddress('https://host.example', { peer: '/peer' }), 'wss://host.example/peer');
+    assert.equal(hostPeerAddress('http://127.0.0.1:8787', { peer: '/peer' }), 'ws://127.0.0.1:8787/peer');
+    assert.equal(hostPeerAddress('https://a.example', { peer: 'wss://b.example/p' }), 'wss://b.example/p');
+    assert.equal(hostPeerAddress('https://host.example', { peer: 'ws://host.example/peer' }), null);
+    assert.equal(hostPeerAddress('https://host.example', {}), null);
+  });
+
+  test('using a host is enough: the device reaches it, and a new phone given only the host gets everything', async () => {
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      free: true,
+    });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    assert.equal((await describeHost(url)).peer, '/peer');
+    const me = await account();
+
+    const laptop = await unconfigured(me);
+    const notes = await laptop.spaces.create({ name: 'Notes', visibility: 'private' });
+    await laptop.records.put(notes.id, 'note', { text: 'found through the host' });
+    await laptop.hosting.use(url);
+    await until(
+      async () => {
+        const reached = (await served.node.spaces()).filter((space) => space.peers > 0).map((s) => s.name);
+        return reached.includes('Account registry') && reached.includes('Notes');
+      },
+      15_000,
+      'the laptop to reach the host with nothing configured',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await laptop.close();
+
+    // The phone knows only the host its app was built with: the registry is there, and every space from it.
+    const phone = await unconfigured(me, { hosts: [url] });
+    await until(
+      async () => (await phone.records.list(notes.id).catch(() => [])).length === 1,
+      15_000,
+      'the note to reach the phone',
+    );
+    assert.deepEqual((await phone.records.list(notes.id))[0]?.body, { text: 'found through the host' });
+  });
+
+  test('a space that pays a host: its members’ devices reach it with nothing configured', async () => {
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      free: true,
+    });
+    open.push(served);
+    const url = `http://127.0.0.1:${served.port}`;
+    const laptop = await unconfigured(await account());
+    const { id } = await laptop.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await laptop.collections.define(id, hostSchema);
+    await laptop.records.put(id, hostSchema.name, { url });
+    await laptop.records.put(id, 'note', { text: 'kept by the club’s host' });
+    await laptop.hosting.space(id);
+    await until(
+      async () => (await served.node.spaces()).some((space) => space.id === id && space.peers > 0),
+      15_000,
+      'the laptop to reach the host its space pays',
     );
   });
 });

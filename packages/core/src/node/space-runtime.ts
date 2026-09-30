@@ -379,6 +379,12 @@ export interface SpaceRuntime {
   status(): Promise<Omit<SpaceStatus, 'own' | 'carriers'>>;
   /** A live message to the peers connected now — all of them, one account's devices, or one device */
   send(message: unknown, to?: string): Promise<void>;
+  /**
+   * Always-on nodes to hold a socket to besides those the node was configured
+   * with: the hosts the account or the space uses. Sockets to any given
+   * before and not now are closed. Nothing without a network.
+   */
+  useNodes(nodes: ReadonlyArray<string>): void;
   close(): Promise<void>;
 }
 
@@ -1916,9 +1922,23 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     emit({ type: 'rejected', space: space.id, peer, reason });
   });
 
+  // Both sides of a socket to a node prove who they are; in a private space the client also proves it may read.
+  let authenticator: ReturnType<typeof createClientAuth> | null = null;
+  /** A socket to an always-on node, for this space */
+  function nodeNetwork(node: string): NetworkManager {
+    authenticator ??= createClientAuth(space.id, session, readAccess, provider);
+    const url = `${node}${node.includes('?') ? '&' : '?'}space=${encodeURIComponent(space.id)}`;
+    const auth = authenticator;
+    return createNetworkManager({
+      did: session.did,
+      createTransport: () => createWebSocketTransport({ url, did: session.did, authenticator: auth }),
+    });
+  }
+  /** Sockets to the hosts the account or the space uses, by address: they change while the space is open */
+  const hostNetworks = new Map<string, NetworkManager>();
+
   const net = deps.network;
   if (net) {
-    const room = encodeURIComponent(space.id);
     // Who is at the other end is asked of the history at each handshake: the space's key may change while it is open.
     await access();
     if (deps.mesh) {
@@ -1927,19 +1947,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       // Every peer met through a relay proves who it is, and in a private space that it may read.
       networks.push(deps.mesh.join(meshRoom, createMeshAuth(space.id, session, readAccess, provider)));
     }
-    // Both sides of a socket to a node prove who they are; in a private space the client also proves it may read.
-    const authenticator = net.nodes?.length
-      ? createClientAuth(space.id, session, readAccess, provider)
-      : null;
-    for (const node of net.nodes ?? []) {
-      const url = `${node}${node.includes('?') ? '&' : '?'}space=${room}`;
-      networks.push(
-        createNetworkManager({
-          did: session.did,
-          createTransport: () => createWebSocketTransport({ url, did: session.did, authenticator }),
-        }),
-      );
-    }
+    for (const node of net.nodes ?? []) networks.push(nodeNetwork(node));
     for (const transport of net.transports?.(space.id, session.did) ?? []) {
       networks.push(createNetworkManager({ did: session.did, createTransport: () => transport }));
     }
@@ -2016,7 +2024,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     }
   }
 
-  for (const network of networks) {
+  function listen(network: NetworkManager): void {
     network.on('message', (message: NetworkMessage) => {
       if (message.type === 'sync') void sync.handleMessage(message.from, message.payload);
       else if (message.type === WHO_MESSAGE) {
@@ -2058,6 +2066,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       emit({ type: 'status', space: space.id });
     });
   }
+  for (const network of networks) listen(network);
 
   // Whether to hold part of the space is settled before the first hello says what this node holds.
   await refreshHolds().catch(() => {});
@@ -2921,6 +2930,34 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       for (const peer of connectedPeers()) {
         if (to && to !== peer && (await peerAccounts.get(peer))?.account !== to) continue;
         routes.get(peer)?.send(peer, { type: LIVE_MESSAGE, from: session.did, payload: message ?? null });
+      }
+    },
+
+    useNodes(nodes: ReadonlyArray<string>) {
+      if (!net || closed) return;
+      const configured = new Set(net.nodes ?? []);
+      const wanted = new Set(nodes.filter((node) => !configured.has(node)));
+      for (const [node, network] of hostNetworks) {
+        if (wanted.has(node)) continue;
+        hostNetworks.delete(node);
+        networks.splice(networks.indexOf(network), 1);
+        network.disconnect();
+      }
+      for (const node of wanted) {
+        if (hostNetworks.has(node)) continue;
+        const network = nodeNetwork(node);
+        hostNetworks.set(node, network);
+        networks.push(network);
+        listen(network);
+        if (connection === 'offline') connection = 'connecting';
+        sync.start();
+        void network.connect().then(
+          () => {
+            connection = 'connected';
+            emit({ type: 'status', space: space.id });
+          },
+          () => emit({ type: 'status', space: space.id }),
+        );
       }
     },
 

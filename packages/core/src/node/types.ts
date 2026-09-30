@@ -35,6 +35,13 @@ export interface NodeNetworkConfig {
   readonly relays?: ReadonlyArray<string>;
   /** Always-on nodes to hold a socket to, `ws(s)://host/peer`. The space id is appended. */
   readonly nodes?: ReadonlyArray<string>;
+  /**
+   * Hosts to look for the account registry at, `https://host`, before the
+   * account says which it uses: how a new device with only the recovery code
+   * finds its spaces. Each is asked where it takes peers. The hosts the
+   * account or a space uses are reached anyway, without being named here.
+   */
+  readonly hosts?: ReadonlyArray<string>;
   readonly iceServers?: ReadonlyArray<RTCIceServer>;
   /**
    * How WebRTC connections through the relays are made, given the ICE servers

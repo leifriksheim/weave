@@ -124,6 +124,7 @@ import {
   createSpaceHostClient,
   spacePayLink,
   describeHost,
+  hostPeerAddress,
   HOSTING_COLLECTION,
   HostError,
   newSubscriptionSeed,
@@ -477,6 +478,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       // Carriers added since this space was last open.
       void open.then((rt) => nameKeepers(spaceId, rt)).catch(() => {});
       runtimes.set(spaceId, open);
+      // The hosts the account or the space uses, reached over their sockets.
+      void open.then(() => reachHosts(spaceId)).catch(() => {});
     }
     return open;
   }
@@ -523,6 +526,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   async function closeRuntime(spaceId: string): Promise<void> {
     holds.delete(spaceId);
+    reaching.delete(spaceId);
     const open = runtimes.get(spaceId);
     if (!open) return;
     runtimes.delete(spaceId);
@@ -813,6 +817,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     for (const [spaceId, open] of runtimes) void open.then((rt) => nameKeepers(spaceId, rt)).catch(() => {});
     // Not awaited: a host that is slow to answer must not hold up the rest.
     void keepHosted().catch(() => {});
+    // Hosts came or went: every open space holds a socket to those the account uses now.
+    for (const spaceId of runtimes.keys()) void reachHosts(spaceId).catch(() => {});
 
     if (changed) emit({ type: 'spaces' });
   }
@@ -1186,17 +1192,21 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     kept: HostStatus | null,
     status: HostStatus,
     receipt: SignedStatus,
-    name: string,
+    description: HostDescription,
   ): Promise<void> {
     if (agentSession || !accountSpaceId) return;
+    const { name } = description;
+    const peer = hostPeerAddress(hosting.url, description) ?? undefined;
     const same =
       kept &&
       kept.state === status.state &&
       kept.paidUntil === status.paidUntil &&
       kept.renews === status.renews &&
-      hosting.name === name;
+      hosting.name === name &&
+      hosting.peer === peer;
     if (same) return;
-    const record: Hosting = { ...hosting, name, receipt };
+    const { peer: _before, ...rest } = hosting;
+    const record: Hosting = { ...rest, name, receipt, ...(peer ? { peer } : {}) };
     await (
       await runtime(accountSpaceId)
     ).upsertSystem<Hosting>(HOSTING_COLLECTION, await hostingKey(hosting.url), record);
@@ -1234,7 +1244,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           handing.delete(hosting.url);
         }
       }
-      await keepReceipt(hosting, kept, status, receipt, description.name);
+      await keepReceipt(hosting, kept, status, receipt, description);
       return {
         ...base,
         name: description.name,
@@ -1359,14 +1369,68 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   /** Hands the hosts a space names its pass, when they were paid and don't carry it with its key yet */
   async function keepSpaceHosts(spaceId: string): Promise<void> {
-    if (agentSession || spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId))
-      return;
+    if (spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId)) return;
     const hosts = await namedHosts(spaceId);
+    await reachHosts(spaceId, hosts);
+    if (agentSession) return;
     const named = hosts.map((h) => h.url).join(' ');
     const asked = spaceHostsAsked.get(spaceId);
     if (!hosts.length || (asked?.named === named && Date.now() - asked.at < SPACE_HOSTS_EVERY_MS)) return;
     spaceHostsAsked.set(spaceId, { at: Date.now(), named });
     for (const known of hosts) await askSpaceHost(spaceId, known, true);
+  }
+
+  // ─── Reaching hosts ────────────────────────────────────────────────
+  //
+  // A host is reached over its socket, at the address its description names
+  // (`peer`). Every space holds one to each host the account uses, as the
+  // account's carry space names them all; a space also holds one to each host
+  // it pays itself (`std.host`). The account registry also tries the hosts
+  // the node was built with (`network.hosts`), so a new device with only the
+  // recovery code finds its registry there, and every space from it.
+
+  /** Each host's socket address, as its description said: asked once, and again after a failure */
+  const describedPeers = new Map<string, Promise<string | null>>();
+  function describedPeer(url: string): Promise<string | null> {
+    let found = describedPeers.get(url);
+    if (!found) {
+      found = describeHost(url).then(
+        (description) => hostPeerAddress(url, description),
+        () => {
+          describedPeers.delete(url);
+          return null;
+        },
+      );
+      describedPeers.set(url, found);
+    }
+    return found;
+  }
+  /** A host's socket address: the one written down with it, or its description's */
+  const peerOf = async (host: { url: string; peer?: string }): Promise<string | null> =>
+    (host.peer ? hostPeerAddress(host.url, { peer: host.peer }) : null) ?? describedPeer(host.url);
+
+  /** What each space was last told to reach, so nothing reconnects when nothing changed */
+  const reaching = new Map<string, string>();
+
+  /** Gives a space's runtime the hosts to hold sockets to: the account's, and those it pays itself */
+  async function reachHosts(
+    spaceId: string,
+    spaceHosts?: ReadonlyArray<{ url: string; peer?: string }>,
+  ): Promise<void> {
+    if (!config.network) return;
+    const open = runtimes.get(spaceId);
+    if (!open) return;
+    const hosts: Array<{ url: string; peer?: string }> = [...(await hostingRecords())];
+    if (spaceId === accountSpaceId) hosts.push(...(config.network.hosts ?? []).map((url) => ({ url })));
+    const own = spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId);
+    if (!own) hosts.push(...(spaceHosts ?? (await namedHosts(spaceId))));
+    const peers = [
+      ...new Set((await Promise.all(hosts.map(peerOf))).filter((peer): peer is string => peer !== null)),
+    ].sort();
+    const said = peers.join(' ');
+    if (reaching.get(spaceId) === said || runtimes.get(spaceId) !== open) return;
+    reaching.set(spaceId, said);
+    (await open).useNodes(peers);
   }
 
   const hosting: NodeHosting = Object.freeze({
@@ -1389,10 +1453,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       const known = (await hostingRecords()).find((existing) => existing.url === base);
       if (known) return viewHosting(known, true);
       const description = await describeHost(base);
+      const peer = hostPeerAddress(base, description);
       const record: Hosting = {
         url: base,
         host: description.did,
         name: description.name,
+        ...(peer ? { peer } : {}),
         seed: base64UrlEncode(newSubscriptionSeed()),
         since: new Date().toISOString(),
       };

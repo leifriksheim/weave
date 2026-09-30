@@ -40,6 +40,8 @@ export interface Hosting {
   readonly since: string;
   /** The host's name, as it described itself */
   readonly name?: string;
+  /** Where the host takes peers, `wss://…`, as its description said: every device of the account connects there */
+  readonly peer?: string;
   /** The latest status the host signed — what every device shows, and the person's proof */
   readonly receipt?: SignedStatus;
 }
@@ -181,6 +183,29 @@ export interface HostDescription {
   readonly pay?: string;
   /** Its terms, for people */
   readonly terms?: string;
+  /** Where it takes peers: a WebSocket address, relative to the host's address or absolute */
+  readonly peer?: string;
+}
+
+/**
+ * The socket address a host takes peers at, from its description: `peer`
+ * resolved against the host's address, with https:// read as wss://. Null
+ * when it names none, or one that isn't wss:// (ws:// only on this machine).
+ * @param url The host's address
+ */
+export function hostPeerAddress(url: string, description: Pick<HostDescription, 'peer'>): string | null {
+  if (typeof description.peer !== 'string') return null;
+  try {
+    const address = new URL(description.peer, `${url.replace(/\/+$/, '')}/`);
+    if (address.protocol === 'https:') address.protocol = 'wss:';
+    else if (address.protocol === 'http:') address.protocol = 'ws:';
+    const local = ['localhost', '127.0.0.1'].includes(address.hostname);
+    if (address.protocol !== 'wss:' && !(address.protocol === 'ws:' && local)) return null;
+    address.hash = '';
+    return address.toString();
+  } catch {
+    return null;
+  }
 }
 
 /** Where a host's description is */

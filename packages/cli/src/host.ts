@@ -298,6 +298,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     free: !!options.free,
     ...((options.price ?? priceText(wallet)) ? { price: options.price ?? priceText(wallet)! } : {}),
     ...(pays ? { pay: '/pay' } : {}),
+    // Where devices hold a socket to it: the one `serve` takes peers at.
+    peer: '/peer',
     ...(options.terms ? { terms: options.terms } : {}),
   };
 

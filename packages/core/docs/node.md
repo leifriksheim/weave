@@ -657,8 +657,13 @@ extension included.
 | `space(id)`    | The hosts a space names in `std.host`, each asked how the space's own subscription stands, with its pay link (below).                                                                                                                       |
 
 Every device runs `list()` after each reconciliation ([following the account](#following-the-account)).
-A device reaches a host's sockets only when configured with it as a node
-(`network.nodes`, `wss://<host>/peer`).
+A device reaches a host at the socket its description names (`peer`,
+[spec 06 §4.5](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)): every
+open space holds one to each host in `sys.hosting`, and to each host the space
+names in `std.host`, and follows as those change. `network.hosts` names hosts
+to look for the account registry at before the account says which it uses, so
+an app built with a default host restores an account from its recovery code
+alone. `network.nodes` still adds sockets of its own, to every space.
 
 The reference host (`weave host`, `packages/cli/src/host.ts`) keeps a lapsed
 subscription for `graceDays` (default 30) after `paidUntil`, and drops lapsed

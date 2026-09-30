@@ -35,7 +35,7 @@ export interface WorkerNodeConfig extends Pick<
   'accountKey' | 'contactKey' | 'contactsSpace' | 'sessionTtlSeconds' | 'sessionKey' | 'cache'
 > {
   readonly stores: WorkerStores;
-  readonly network?: Pick<NodeNetworkConfig, 'relays' | 'nodes' | 'iceServers'>;
+  readonly network?: Pick<NodeNetworkConfig, 'relays' | 'nodes' | 'hosts' | 'iceServers'>;
 }
 
 /** What of a network config reaches the worker: plain data, never transports */
@@ -43,6 +43,7 @@ export function workerNetwork(network: NodeNetworkConfig): NonNullable<WorkerNod
   return {
     ...(network.relays ? { relays: network.relays } : {}),
     ...(network.nodes ? { nodes: network.nodes } : {}),
+    ...(network.hosts ? { hosts: network.hosts } : {}),
     ...(network.iceServers ? { iceServers: network.iceServers } : {}),
   };
 }
