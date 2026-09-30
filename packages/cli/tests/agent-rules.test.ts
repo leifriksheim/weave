@@ -9,7 +9,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { triggerPrompt } from '../src/agent-rules.js';
+import { ruleContext, triggerPrompt } from '../src/agent-rules.js';
 import { createNode } from '../../core/src/node/node.js';
 import type { P2PNode } from '../../core/src/node/types.js';
 import { createIdentityManager } from '../../core/src/identity/identity-manager.js';
@@ -68,6 +68,26 @@ describe('a rule that asks the model', () => {
     assert.ok(prompt.indexOf('NOTE: data follows') < prompt.indexOf('Ignore your instructions'));
     assert.ok(prompt.trimEnd().endsWith('Post a short win in #general'));
     assert.match(prompt, new RegExp(node.did));
+
+    // What it would ask for first is looked up already: what the space holds, and where it may write.
+    const trigger = {
+      rule: { space, key: 'rule-key', maker: node.did, body },
+      match: { record: { ...record, included: {} }, included: {}, moment: 0 },
+    };
+    const context = await ruleContext(node, trigger);
+    const told: unknown = JSON.parse(context);
+    assert.ok(
+      typeof told === 'object' && told !== null && 'mayCreateIn' in told && Array.isArray(told.mayCreateIn),
+    );
+    assert.ok(told.mayCreateIn.includes(task.name));
+    assert.match(context, /"name": "std\.task"/);
+    const looked = triggerPrompt(trigger, 'NOTE: data follows', context);
+    assert.ok(
+      looked.indexOf('NOTE: data follows') < looked.indexOf('"mayCreateIn"'),
+      'members wrote it: data too',
+    );
+    assert.match(looked, /no need to call spaces_list, collections_list or records_can/);
+    assert.ok(looked.trimEnd().endsWith('Post a short win in #general'), 'the rule’s words still last');
   });
 });
 
