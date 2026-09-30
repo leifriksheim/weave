@@ -13,6 +13,7 @@ import { RecordPanel } from './RecordPanel';
 import { GraphView } from './GraphView';
 import { QueryPlayground } from './QueryPlayground';
 import { RolesView } from './RolesView';
+import { CommunitySetup } from '@weave/app-shared/CommunitySetup';
 import { AppsView } from './apps/AppsView';
 import { AppIcon, Count } from './apps/AppIcon';
 import { CreateApp } from './apps/CreateApp';
@@ -33,6 +34,12 @@ import { peopleFrom } from '../derive/people';
 import { useBots } from '../bots';
 import { PersonScopeProvider } from './Person';
 import { markSeen, seenAt, totalOf, unreadOf, useSeen, useUnread, type Unread } from '../seen';
+
+/** How the CLI is run where this app is built: what "Add a bot" tells an admin to type */
+const CLI = (import.meta.env.VITE_WEAVE_CONNECT ?? 'npx @weaveprotocol/cli connect').replace(
+  /\s+connect$/,
+  '',
+);
 
 /**
  * How it works, under the hood: the records apps write, how they point at
@@ -304,6 +311,14 @@ export function SpaceView({
                 </div>
               )}
 
+              {view.kind === 'apps' && (
+                <CommunitySetup
+                  spaceId={space.id}
+                  writable={space.writable}
+                  cli={CLI}
+                  onAutomations={() => setView({ kind: 'automations' })}
+                />
+              )}
               {view.kind === 'apps' && (
                 <AppsView
                   space={space}

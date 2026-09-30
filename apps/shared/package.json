@@ -14,7 +14,8 @@
     "./useDismiss": "./src/useDismiss.ts",
     "./hash": "./src/hash.ts",
     "./mini-app": "./src/mini-app.ts",
-    "./Payment": "./src/Payment.tsx"
+    "./Payment": "./src/Payment.tsx",
+    "./CommunitySetup": "./src/CommunitySetup.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
