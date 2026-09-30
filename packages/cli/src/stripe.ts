@@ -29,6 +29,8 @@ export interface StripeConfig {
   /** One-off price ids, for chipping in for a space: a month's or a year's time, paid once */
   readonly onceMonthlyPrice?: string;
   readonly onceYearlyPrice?: string;
+  /** A one-off price for a month of a bot the host runs */
+  readonly botPrice?: string;
   /** For tests */
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
@@ -113,6 +115,7 @@ export function createStripeBilling(config: StripeConfig): Billing {
   const oncePlans = [
     ...(config.onceMonthlyPrice ? [{ id: 'monthly', label: 'A month', price: config.onceMonthlyPrice }] : []),
     ...(config.onceYearlyPrice ? [{ id: 'yearly', label: 'A year', price: config.onceYearlyPrice }] : []),
+    ...(config.botPrice ? [{ id: 'bot', label: 'A month', price: config.botPrice }] : []),
   ];
 
   /** What a Stripe subscription says: whose it is here, and paid until when */

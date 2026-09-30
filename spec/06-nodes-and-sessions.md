@@ -846,6 +846,7 @@ account's key: the host learns a subscription, not who pays.
 | `peer`   | Optional: where it takes peers over WebSocket ([04](04-network.md)), relative to the host's address or absolute. Absent: devices cannot reach it by its description. |
 | `plans`  | Optional: what can be paid for, and how (below). Absent or empty: it takes no payments.                                                                              |
 | `remind` | Optional: `true` when it sends reminders by email before paid time runs out (`…/remind`).                                                                            |
+| `bots`   | Optional: `true` when it runs bots for the spaces it carries (§4.7).                                                                                                 |
 
 A device MUST refuse a description whose `weave` is not `host/1` or whose `did`
 is not a `did:key`, and MUST treat a host whose `did` changed since it was first
@@ -859,7 +860,7 @@ A **plan** is one way to pay:
 | `label`  | For people, with the price: `"$4 a month, by card"`.                                                                    |
 | `method` | `checkout`: the host answers with a page at a payment provider. `request`: with a payment request for a wallet to send. |
 | `renews` | Charged again by itself until cancelled (a card). `false` for time paid up front.                                       |
-| `for`    | Who may use it: `["account"]`, `["space"]` (§4.6), or both.                                                             |
+| `for`    | Who may use it, in a list: `"account"`, `"space"` (§4.6), `"bot"` (§4.7).                                               |
 
 A device shows only plans whose `for` names the subscription it pays for, and
 ignores a plan whose `method` it does not know. Example:
@@ -1096,7 +1097,61 @@ records sealed, as a carrier does; any member could hand one over already.
 
 _Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `packages/core/src/node/carrier.ts` (`addPass`, `removePass`), `packages/core/src/session/hosting.ts` (`createSpaceHostClient`, `readPayAnswer`), `packages/cli/src/host.ts` (`answerSpace`), `packages/cli/src/stripe.ts` (`once`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself": all)._
 
-### 4.7 Planned: hosts
+### 4.7 Bots a host runs
+
+A host MAY run **bots** for the spaces it carries: each an account of its own
+([01](01-identity.md)) whose keys the host makes and holds, joined to a space
+with an invite for the role it should hold ([03](03-spaces.md)), writing as
+itself like any member. Every member's device checks what it writes against
+that role, as for anyone. It says it is a bot the way any bot does (`bot:
+true` on its profile, [the standard library](../packages/core/docs/standard-library.md)).
+
+This is not carrying: a host holding a bot's keys reads what the bot may
+read. A device MUST say so to the person before it asks a host for a bot.
+
+**The subscription.** Each bot has one, `bot:<the bot's DID>`, which anyone
+may ask about and pay for, like a space's own (§4.6); nothing about it is
+signed but the host's answers. The host runs the bot's work only while it is
+`active` or `grace`, or always on a free host; unpaid, the bot stays a member
+and does nothing. What a bot does is the space's rules naming it
+([rules](../packages/core/docs/rules.md)); how the host thinks for it and
+limits its spending is the host's business.
+
+**Calls.** No `Authorization`: an invite is all it takes to add a bot, as it
+is to add anyone, and its role is all the bot may do.
+
+| Call                               | Body                                                       | Answer                                                                                                                                                                     |
+| ---------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /host/bots`                  | `{ "name": "<≤ 60 chars>", "invite": "<≤ 16 000 chars>" }` | A bot (below). 404 when it runs no bots; 400 for an invite it can't read; 409 when it does not carry the invite's space, or the space has as many bots as the host allows. |
+| `GET /host/spaces/<space id>/bots` | —                                                          | A list of the bots it runs in that space; `[]` when none.                                                                                                                  |
+| `GET /host/bots/<bot DID>`         | —                                                          | `SignedStatus` (§4.5), `subscription` `bot:<bot DID>`; `carrying` is whether it runs the bot's work now. 404 for a bot it doesn't run.                                     |
+| `POST /host/bots/<bot DID>/pay`    | `{ "plan": "<plan id>" }`                                  | A pay answer (§4.5), for a plan `for` bots. Anyone may: what is paid adds time, whoever pays.                                                                              |
+
+A **bot** is `{ "bot": "<its DID>", "name": "<its name>", "receipt": <SignedStatus> }`.
+A device MUST accept one only if the receipt verifies under the host's DID
+and its `subscription` is `bot:` followed by the bot's DID. Example:
+
+```json
+{
+  "bot": "did:key:zDnaeYffVz7NDhG3Rt327UtxvJVmhdMY5btVJawF1PsFdypUU",
+  "name": "Club Bot",
+  "receipt": {
+    "payload": "{\"subscription\":\"bot:did:key:zDnaeYffVz7N…\",\"host\":\"did:key:zDnaeXL64…\",\"state\":\"active\",\"paidUntil\":1793619701,\"renews\":false,\"carrying\":true,\"spaces\":1,\"at\":1791027701}",
+    "sig": "uQ3fT0-…"
+  }
+}
+```
+
+**Stopping a bot** is removing it from the space: it then holds no role
+there, and every peer refuses what it writes. A host drops a bot's
+subscription when it lapses, as any other.
+
+The reference host runs bots only in spaces it carries, each reaching the
+space through the host's own socket, so it needs no relay.
+
+_Source: `packages/core/src/session/hosting.ts` (`createSpaceHostClient`: `bots`, `startBot`, `payBot`), `packages/core/src/node/node.ts` (`hosting.startBot`, `hosting.payForBot`), `packages/cli/src/hosted-bots.ts`, `packages/cli/src/host.ts` (`answerBot`), `packages/cli/src/bot-runner.ts`. Tests: `packages/cli/tests/host.test.ts` ("bots a host runs": all)._
+
+### 4.8 Planned: hosts
 
 > **Planned.** Not normative.
 >

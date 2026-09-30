@@ -39,6 +39,9 @@ const SPACE_SUBSCRIPTION_PREFIX = 'space:';
 /** A space's own subscription id: `space:<space id>` */
 export const spaceSubscription = (spaceId: string) => `${SPACE_SUBSCRIPTION_PREFIX}${spaceId}`;
 
+/** A bot the host runs has a subscription of its own, `bot:<its DID>`, which anyone may pay for */
+const botSubscription = /^bot:did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$/;
+
 /** Someone paying for hosting, as the host knows them */
 export interface Subscription {
   /**
@@ -276,8 +279,8 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     did: core.did,
 
     async subscribe(id: string) {
-      if (!id.startsWith('did:key:') && !spaceIdOf(id))
-        throw new Error('A subscription is named by its key, or by the space it is for');
+      if (!id.startsWith('did:key:') && !spaceIdOf(id) && !botSubscription.test(id))
+        throw new Error('A subscription is named by its key, by the space it is for, or by the bot it runs');
       return (await read(id)) ?? write({ id, paidUntil: 0, since: now() });
     },
 

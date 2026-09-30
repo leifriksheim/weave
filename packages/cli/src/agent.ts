@@ -271,18 +271,22 @@ export async function startBotNode(
   unlocked: Unlocked,
   options: {
     readonly nodes?: ReadonlyArray<string>;
+    /** Relays to meet devices on, over WebRTC. Default `$WEAVE_RELAYS`; none, and it reaches only `nodes`. */
+    readonly relays?: ReadonlyArray<string>;
     /** Once for each space it can't say it is a bot in yet, since the space keeps no `std.profile` */
     readonly undisclosed?: (space: string) => void;
   } = {},
 ): Promise<{ node: P2PNode; close(): Promise<void> }> {
-  await enableWebRTC();
+  const relays = options.relays ?? configuredRelays();
+  // Only a node that meets devices through relays needs WebRTC, a native module a host doesn't ship.
+  if (relays.length) await enableWebRTC();
   const node = await createNode({
     signer: unlocked.signer,
     stores: unlocked.stores,
     accountKey: unlocked.accountKey,
     contactKey: unlocked.contactKey,
     network: {
-      relays: configuredRelays(),
+      relays,
       hosts: configuredHosts(),
       ...(options.nodes?.length ? { nodes: options.nodes } : {}),
     },

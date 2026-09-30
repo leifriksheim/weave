@@ -192,6 +192,16 @@ export interface HostDescription {
   readonly plans?: ReadonlyArray<HostPlan>;
   /** Whether it sends reminders by email before paid time runs out, to an address given with `remind` */
   readonly remind?: boolean;
+  /** Whether it runs bots for the spaces it carries (`startBot`), paid for by plans `for` bots */
+  readonly bots?: boolean;
+}
+
+/** A bot a host runs in a space, as the host says: its DID, its name, and how its subscription stands */
+export interface HostedBot {
+  readonly bot: string;
+  readonly name: string;
+  readonly status: HostStatus;
+  readonly receipt: SignedStatus;
 }
 
 /** One way to pay a host, as its description lists it */
@@ -204,8 +214,8 @@ export interface HostPlan {
   readonly method: 'checkout' | 'request';
   /** Charged again by itself until cancelled (a card); false for time paid up front */
   readonly renews: boolean;
-  /** Who may use it: an account's subscription, a space's own, or both */
-  readonly for: ReadonlyArray<'account' | 'space'>;
+  /** Who may use it: an account's subscription, a space's own, a bot the host runs (`bot:<did>`) */
+  readonly for: ReadonlyArray<'account' | 'space' | 'bot'>;
 }
 
 /**
@@ -407,6 +417,15 @@ export interface SpaceHostClient {
   pay(spaceId: string, plan: string): Promise<PayAnswer>;
   /** Asks for reminders by email before the space's paid time runs out; the host mails a link to confirm first */
   remind(spaceId: string, email: string): Promise<void>;
+  /** The bots the host runs in a space */
+  bots(spaceId: string): Promise<ReadonlyArray<HostedBot>>;
+  /**
+   * Asks the host to run a bot in a space it carries: it makes the bot's
+   * account and joins with the invite, whose role is what the bot may do.
+   */
+  startBot(spaceId: string, name: string, invite: string): Promise<HostedBot>;
+  /** Starts paying for a bot with one of the host's plans `for` bots: anyone may */
+  payBot(bot: string, plan: string): Promise<PayAnswer>;
 }
 
 /**
@@ -423,6 +442,29 @@ export function createSpaceHostClient(
   const path = (spaceId: string) => {
     if (!SPACE_ID.test(spaceId)) throw new Error('That is not a space id');
     return `${base}/host/spaces/${encodeURIComponent(spaceId)}`;
+  };
+  /** A bot as the host answered: its status must be signed by the host, for that bot's own subscription */
+  const checkedBot = async (answer: unknown): Promise<HostedBot> => {
+    const fields = typeof answer === 'object' && answer !== null ? answer : {};
+    const bot = 'bot' in fields ? fields.bot : undefined;
+    const name = 'name' in fields ? fields.name : undefined;
+    const receipt = 'receipt' in fields ? fields.receipt : undefined;
+    if (
+      typeof bot !== 'string' ||
+      typeof name !== 'string' ||
+      typeof receipt !== 'object' ||
+      receipt === null ||
+      !('payload' in receipt) ||
+      !('sig' in receipt) ||
+      typeof receipt.payload !== 'string' ||
+      typeof receipt.sig !== 'string'
+    )
+      throw new Error("The host's answer isn't a bot");
+    const signed = { payload: receipt.payload, sig: receipt.sig };
+    const status = await readStatus(signed, host, provider);
+    if (!status || status.subscription !== `bot:${bot}`)
+      throw new Error("The host's answer isn't signed by the host this space uses");
+    return { bot, name, status, receipt: signed };
   };
   const checked = async (spaceId: string, receipt: SignedStatus) => {
     const status = await readStatus(receipt, host, provider);
@@ -446,6 +488,17 @@ export function createSpaceHostClient(
       ),
     pay: async (spaceId: string, plan: string) => payAnswer(await post(`${path(spaceId)}/pay`, { plan })),
     remind: async (spaceId: string, email: string) => void (await post(`${path(spaceId)}/remind`, { email })),
+    bots: async (spaceId: string) => {
+      const answer = await answerOf<unknown>(await fetch(`${path(spaceId)}/bots`));
+      if (!Array.isArray(answer)) throw new Error("The host's answer isn't a list of bots");
+      return Promise.all(answer.map(checkedBot));
+    },
+    startBot: async (spaceId: string, name: string, invite: string) => {
+      if (!SPACE_ID.test(spaceId)) throw new Error('That is not a space id');
+      return checkedBot(await post(`${base}/host/bots`, { name, invite }));
+    },
+    payBot: async (bot: string, plan: string) =>
+      payAnswer(await post(`${base}/host/bots/${encodeURIComponent(bot)}/pay`, { plan })),
   });
 }
 

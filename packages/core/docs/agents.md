@@ -90,6 +90,14 @@ the definition arrives; apps list bots from that, so a space without it
 shows none. See [rules.md](rules.md#who-runs-a-rule)
 and [standard-library.md](standard-library.md) (Bots).
 
+The usual way to have one is to let the host that keeps the community online
+run it (`node.hosting.startBot`, [spec 06 §4.7](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)):
+an admin picks its name and role in the app, the host makes its account and
+joins, and the community pays for it as it pays for hosting. The host thinks
+with its own model key, within a daily cap per bot, and holds the bot's keys,
+so it can read what the bot can read. `weave agent --bot` is the same bot run
+by whoever wants to, with their own key.
+
 ## In your own code
 
 `node.asAgent({ keys, note })` gives the same node acting as an agent, from an

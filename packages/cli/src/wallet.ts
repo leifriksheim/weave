@@ -97,6 +97,8 @@ export interface WalletConfig {
   /** Prices in dollars ("4", "36"); a plan without one isn't offered */
   readonly monthly?: string;
   readonly yearly?: string;
+  /** A month of a bot the host runs, AI use included; absent when the host runs none */
+  readonly bot?: string;
   /** The node the host reads the network from. Default: the network's public one. */
   readonly rpcUrl?: string;
   /** Blocks on top of the payment's before it counts. Default 3 (a few seconds on Base). */
@@ -201,6 +203,9 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
     ...(config.monthly
       ? [{ id: 'monthly', label: 'Monthly', price: config.monthly.trim(), units: toUnits(config.monthly) }]
       : []),
+    ...(config.bot
+      ? [{ id: 'bot', label: 'A bot', price: config.bot.trim(), units: toUnits(config.bot) }]
+      : []),
   ];
   if (plans.length === 0) throw new Error('A wallet price is needed: monthly, yearly, or both');
 
@@ -297,7 +302,7 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
     extend(planId, from) {
       const date = new Date(from * 1000);
       if (planId === 'yearly') date.setUTCFullYear(date.getUTCFullYear() + 1);
-      else if (planId === 'monthly') date.setUTCMonth(date.getUTCMonth() + 1);
+      else if (planId === 'monthly' || planId === 'bot') date.setUTCMonth(date.getUTCMonth() + 1);
       else throw new Error(`No such plan: ${planId}`);
       return Math.floor(date.getTime() / 1000);
     },

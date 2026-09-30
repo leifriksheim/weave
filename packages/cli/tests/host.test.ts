@@ -6,6 +6,9 @@
  * where Stripe and USDC from a wallet (on a fake network) pay.
  */
 import { test, describe, afterEach } from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 
@@ -641,6 +644,148 @@ describe('reaching a host at the address it names', () => {
       15_000,
       'the laptop to reach the host its space pays',
     );
+  });
+});
+
+describe('bots a host runs', () => {
+  const folders: string[] = [];
+  afterEach(async () => {
+    await Promise.all(folders.splice(0).map((folder) => rm(folder, { recursive: true, force: true })));
+  });
+
+  /** A model that is never asked: these bots have no rules to run */
+  const model = {
+    name: 'claude-sonnet-5-5',
+    dailyCap: 1,
+    think: () => async () => {
+      throw new Error('No model in these tests');
+    },
+  };
+  async function hostWithBots(options: Partial<Parameters<typeof startHost>[0]> = {}) {
+    const folder = await mkdtemp(path.join(os.tmpdir(), 'weave-bots-'));
+    folders.push(folder);
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      bots: { folder, model },
+      ...options,
+    });
+    open.push(served);
+    return { served, url: `http://127.0.0.1:${served.port}` };
+  }
+  /** A community whose admin keeps it online at the host, on a laptop that reaches only what it learns */
+  async function community(url: string) {
+    const me = await account();
+    const laptop = await createNode({
+      signer: me.signer,
+      stores: memoryStores(),
+      accountKey: me.accountKey,
+      watchIntervalMs: 0,
+      network: {},
+    });
+    open.push(laptop);
+    const { id } = await laptop.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await laptop.collections.define(id, hostSchema);
+    await laptop.records.put(id, hostSchema.name, { url });
+    return { laptop, space: id };
+  }
+
+  test('an admin asks the host for a bot: it joins with the invite’s role, through the host, and runs', async () => {
+    const { served, url } = await hostWithBots({ free: true });
+    assert.equal((await describeHost(url)).bots, true);
+    const { laptop, space } = await community(url);
+    await laptop.hosting.space(space);
+    await until(carries(served.node, space), 6000, 'the host to carry the space');
+
+    const bot = await laptop.hosting.startBot(space, url, { name: 'Club Bot' });
+    assert.equal(bot.name, 'Club Bot');
+    assert.equal(bot.status.subscription, `bot:${bot.bot}`);
+    await until(
+      async () =>
+        (await laptop.spaces.access(space)).members.some((m) => m.did === bot.bot && m.role !== 'admin'),
+      15_000,
+      'the bot to join, below its admin',
+    );
+    await until(
+      async () =>
+        (await laptop.hosting.space(space))[0]?.bots.some((b) => b.bot === bot.bot && b.status.carrying) ??
+        false,
+      8000,
+      'the host to say the bot runs',
+    );
+    // A bot is taken only as signed by the host the space uses, for that bot's own subscription.
+    await assert.rejects(createSpaceHostClient(url, 'did:key:zDnaeSomeoneElse').bots(space), /isn't signed/);
+  });
+
+  test('only in a space it keeps online; on a paying host, a bot runs once someone pays for it', async () => {
+    const { chain, wallet } = fakeChain();
+    const botWallet = createWalletPayments({
+      network: 'base-sepolia',
+      to: '0x1111111111111111111111111111111111111111',
+      monthly: '4',
+      bot: '10',
+      fetch: chain.fetch,
+    });
+    void wallet;
+    const { url } = await hostWithBots({ wallet: botWallet, watchMs: 20 });
+    const info = await describeHost(url);
+    assert.equal(info.bots, true);
+    assert.deepEqual(
+      info.plans?.filter((plan) => plan.for.includes('bot')).map((plan) => plan.id),
+      ['wallet-bot'],
+    );
+    const { laptop, space } = await community(url);
+    await assert.rejects(
+      laptop.hosting.startBot(space, url, { name: 'Early Bot' }),
+      /keep the space online here first/,
+    );
+
+    // Chip in for the space, then the bot: each is paid on its own.
+    const spacePay = await laptop.hosting.payForSpace(space, url, 'wallet-monthly');
+    assert.ok('request' in spacePay);
+    chain.latest = 150;
+    chain.send(BigInt(spacePay.request.evm!.units), { block: 147 });
+    await until(
+      async () => (await laptop.hosting.space(space))[0]?.status?.carrying === true,
+      8000,
+      'the space to be kept online',
+    );
+    const bot = await laptop.hosting.startBot(space, url, { name: 'Club Bot' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(
+      (await laptop.hosting.space(space))[0]?.bots[0]?.status.carrying,
+      false,
+      'not before it is paid',
+    );
+    await assert.rejects(laptop.hosting.payForBot(space, url, bot.bot, 'wallet-monthly'), /no such plan/);
+    const botPay = await laptop.hosting.payForBot(space, url, bot.bot, 'wallet-bot');
+    assert.ok('request' in botPay);
+    assert.match(botPay.request.amount, /^10\.\d+ USDC/);
+    chain.latest = 160;
+    chain.send(BigInt(botPay.request.evm!.units), { block: 157 });
+    await until(
+      async () => (await laptop.hosting.space(space))[0]?.bots[0]?.status.carrying === true,
+      10_000,
+      'the bot to run once paid',
+    );
+  });
+
+  test('a host with no bot price, or no model, runs none', async () => {
+    const { url } = await hostWithBots({
+      wallet: createWalletPayments({
+        network: 'base-sepolia',
+        to: '0x1111111111111111111111111111111111111111',
+        monthly: '4',
+      }),
+    });
+    assert.equal((await describeHost(url)).bots, undefined);
+    const response = await fetch(`${url}/host/bots`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'x', invite: 'y' }),
+    });
+    assert.equal(response.status, 404);
   });
 });
 

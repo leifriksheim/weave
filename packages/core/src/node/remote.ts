@@ -459,6 +459,8 @@ export async function remoteNode(port: MessagePortLike): Promise<P2PNode> {
         space: true,
         payForSpace: true,
         remindForSpace: true,
+        startBot: true,
+        payForBot: true,
       }),
       notifications: namespace<NodeNotifications>(handle, 'notifications', {
         list: true,

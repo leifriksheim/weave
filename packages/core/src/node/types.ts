@@ -748,6 +748,24 @@ export interface NodeHosting {
   payForSpace(spaceId: string, url: string, plan: string): Promise<import('../session/hosting.js').PayAnswer>;
   /** Asks a host a space names for reminders by email before the space's paid time runs out */
   remindForSpace(spaceId: string, url: string, email: string): Promise<void>;
+  /**
+   * Asks a host the space names to run a bot there: an invite for `role` is
+   * made here and handed to the host, which makes the bot's account and joins.
+   * The host holds that account's keys, so it reads what the bot may read.
+   * Removing the bot from the space stops it.
+   */
+  startBot(
+    spaceId: string,
+    url: string,
+    bot: { readonly name: string; readonly role?: string },
+  ): Promise<import('../session/hosting.js').HostedBot>;
+  /** Starts paying for a bot a host runs in the space: anyone in it may */
+  payForBot(
+    spaceId: string,
+    url: string,
+    bot: string,
+    plan: string,
+  ): Promise<import('../session/hosting.js').PayAnswer>;
 }
 
 /** A host a space pays for itself, as `hosting.space` sees it */
@@ -763,6 +781,12 @@ export interface SpaceHostingView {
   readonly plans: ReadonlyArray<import('../session/hosting.js').HostPlan>;
   /** Whether it sends reminders by email (`remindForSpace`) */
   readonly reminds: boolean;
+  /** Whether it runs bots for the spaces it carries (`startBot`) */
+  readonly runsBots: boolean;
+  /** The bots it runs in this space, each with how its subscription stands */
+  readonly bots: ReadonlyArray<import('../session/hosting.js').HostedBot>;
+  /** Its plans a bot may be paid with; none when bots are free there, or it runs none */
+  readonly botPlans: ReadonlyArray<import('../session/hosting.js').HostPlan>;
   /** Why it could not be asked, when it couldn't */
   readonly error?: string;
 }

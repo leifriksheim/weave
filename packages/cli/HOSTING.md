@@ -60,6 +60,17 @@ WebRTC. It matters only for devices meeting each other.
    lapsing (the grace period, 30 days by default), and that the host cannot
    read what it keeps.
 
+## Bots
+
+A bot costs its model's tokens: with `WEAVE_BOT_DAILY_CAP=1` a bot spends at
+most $1 a day, about $30 a month if it is busy every day, and most are far
+under that. Price a month of one above what you expect a typical bot to
+spend (`WEAVE_WALLET_BOT`, `STRIPE_ONCE_PRICE_BOT`), and watch spending per
+bot in the host's log. Each bot is also a node in the host's process, about
+the memory of the spaces it holds. Unlike the spaces a host carries, a bot's
+keys are on the host's disk, in `bots/`: keep that volume as private as the
+host's own key.
+
 ## If something goes wrong
 
 What a host holds decides what a breach can expose. It holds no account's
@@ -71,6 +82,10 @@ that is fully taken over can read none of them. What it does hold:
 - **Which spaces exist**, their size, when they change, and which account
   asked for which (through carry spaces).
 - **Payment references**: Stripe customer ids, wallet transactions.
+- **The keys of the bots it runs**, in `bots/`. With them, someone can read
+  and write what those bots may, in the spaces they are in, until an admin
+  removes them. After a breach, tell each community with a bot to remove it
+  and add a new one.
 - **Email addresses** given for reminders.
 - **Mail and payment secrets** in its environment.
 

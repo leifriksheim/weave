@@ -173,6 +173,16 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   paying host, no limit on a free one; 0 is none). Every status says what
   they take, and the home shows it. At the limit the host takes no new space
   for that account; what it carries stays and keeps syncing.
+- **Bots.** With `WEAVE_HOST_BOTS=1` and `ANTHROPIC_API_KEY`, the host runs
+  bots for the spaces it carries: an admin adds one from the app ("Set up this
+  community", Add a bot), the host makes its account in `--data`'s `bots/`
+  and joins with the invite, and it runs the space's rules that name it while
+  it is paid. `WEAVE_WALLET_BOT` and `STRIPE_ONCE_PRICE_BOT` price a month of
+  one (a bot is paid for on its own, and anyone may chip in); on a free host
+  bots cost nothing. `WEAVE_BOT_MODEL` (default `claude-sonnet-5-5`) and
+  `WEAVE_BOT_DAILY_CAP` (dollars a day each, default 1) set what they think
+  with and may spend. A paying host with no bot price runs none. The host
+  holds each bot's keys, so it reads what the bot can read: the app says so.
 - **Reminders by email**, for time paid up front: set `WEAVE_MAIL_API_KEY`
   and `WEAVE_MAIL_FROM` (Resend's API; `WEAVE_MAIL_URL` for another that takes
   the same JSON), and `WEAVE_HOST_URL` for the links. The home and the apps

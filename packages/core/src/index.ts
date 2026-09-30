@@ -459,6 +459,7 @@ export type {
   SignedStatus,
   HostDescription,
   HostPlan,
+  HostedBot,
   PayAnswer,
   HostClient,
   SpaceHostClient,

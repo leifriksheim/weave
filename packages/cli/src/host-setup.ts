@@ -16,6 +16,8 @@ import { openFsDirectory } from './fs-directory.js';
 import type { Billing } from './host.js';
 import { createStripeBilling } from './stripe.js';
 import { createWalletPayments, isNetworkName, NETWORKS, type WalletPayments } from './wallet.js';
+import { priceOf, streamingThink } from './agent-chat.js';
+import type { BotModel } from './hosted-bots.js';
 
 /** Where a host keeps its data unless told: `~/.weave-host` */
 export function defaultHostData(): string {
@@ -86,6 +88,7 @@ export function billingFromEnv(env: NodeJS.ProcessEnv): Billing | null {
     ...(env.STRIPE_PRICE_YEARLY ? { yearlyPrice: env.STRIPE_PRICE_YEARLY } : {}),
     ...(env.STRIPE_ONCE_PRICE_MONTHLY ? { onceMonthlyPrice: env.STRIPE_ONCE_PRICE_MONTHLY } : {}),
     ...(env.STRIPE_ONCE_PRICE_YEARLY ? { onceYearlyPrice: env.STRIPE_ONCE_PRICE_YEARLY } : {}),
+    ...(env.STRIPE_ONCE_PRICE_BOT ? { botPrice: env.STRIPE_ONCE_PRICE_BOT } : {}),
   });
 }
 
@@ -110,6 +113,7 @@ export function walletFromEnv(env: NodeJS.ProcessEnv): WalletPayments | null {
     to: env.WEAVE_WALLET_ADDRESS,
     ...(env.WEAVE_WALLET_MONTHLY ? { monthly: env.WEAVE_WALLET_MONTHLY } : {}),
     ...(env.WEAVE_WALLET_YEARLY ? { yearly: env.WEAVE_WALLET_YEARLY } : {}),
+    ...(env.WEAVE_WALLET_BOT ? { bot: env.WEAVE_WALLET_BOT } : {}),
     ...(env.WEAVE_WALLET_RPC ? { rpcUrl: env.WEAVE_WALLET_RPC } : {}),
   });
 }
@@ -194,4 +198,33 @@ export function checkExposure(options: {
   throw new Error(
     `A free host on ${options.host} would carry spaces for anyone who finds it. Name the accounts it is for with --allow did:key:… (or WEAVE_HOST_ALLOW), or keep it on this machine.`,
   );
+}
+
+/**
+ * Bots the host runs for the spaces it carries, when WEAVE_HOST_BOTS=1: they
+ * think with the host's own key (ANTHROPIC_API_KEY) and WEAVE_BOT_MODEL
+ * (default claude-sonnet-5-5), and each may spend WEAVE_BOT_DAILY_CAP dollars
+ * a day (default 1). What people pay for a month of one is WEAVE_WALLET_BOT
+ * and STRIPE_ONCE_PRICE_BOT. None otherwise.
+ */
+export async function botsFromEnv(
+  env: NodeJS.ProcessEnv,
+  data: string,
+): Promise<{ folder: string; model: BotModel } | null> {
+  if (env.WEAVE_HOST_BOTS !== '1') return null;
+  const apiKey = env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) throw new Error('WEAVE_HOST_BOTS needs ANTHROPIC_API_KEY: the bots think with the host’s key');
+  const name = env.WEAVE_BOT_MODEL?.trim() || 'claude-sonnet-5-5';
+  const price = priceOf(name);
+  if (!price) throw new Error(`WEAVE_BOT_MODEL: no price is known for ${name}, and the daily cap needs one`);
+  const dailyCap = Number(env.WEAVE_BOT_DAILY_CAP ?? '1');
+  if (!Number.isFinite(dailyCap) || dailyCap <= 0)
+    throw new Error(`WEAVE_BOT_DAILY_CAP must be dollars a day, like 1, not "${env.WEAVE_BOT_DAILY_CAP}"`);
+  // The SDK is loaded only when bots run: it is most of the bundle.
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey });
+  return {
+    folder: path.join(data, 'bots'),
+    model: { name, price, dailyCap, think: () => streamingThink(client, () => {}) },
+  };
 }
