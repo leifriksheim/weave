@@ -435,7 +435,7 @@ describe('rules: arriving in any order', () => {
     const { alice, bob, space } = await pollSpace();
     const listed = z
       .array(z.object({ name: z.string(), rules: z.object({ edit: z.unknown() }) }))
-      .parse(await runAction(bob.node, 'collections_list', { space }));
+      .parse(await runAction(bob.node, 'collections_list', { space, names: ['app.poll'] }));
     assert.equal(listed.find((c) => c.name === 'app.poll')?.rules.edit, 'creator');
     const poll = await alice.node.records.put(space, 'app.poll', { question: 'Where?' });
     await until(async () => (await bob.node.records.get(space, poll.key)) !== null, 4000, 'the poll');

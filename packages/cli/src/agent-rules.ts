@@ -3,7 +3,7 @@
  * off. Which rules it runs, what sets them off and what never does is
  * `startRules` in `@weaveprotocol/core/schemas`; this is only the words.
  */
-import { roleHolds, type P2PNode } from '@weaveprotocol/core';
+import { roleHolds, runAction, type P2PNode } from '@weaveprotocol/core';
 import { INSTRUCT, type RuleTrigger } from '@weaveprotocol/core/schemas';
 
 /**
@@ -25,7 +25,7 @@ export function triggerPrompt(
   const about = `The rule "${rule.body.name}" (record ${rule.key} in space ${rule.space}, made by ${rule.maker}) was set off`;
   // Members wrote the collections' titles and descriptions too, so they go after the note, with the record.
   const looked = context
-    ? `\n\nLooked up already, so there is no need to call spaces_list, collections_list or records_can for this space: what it holds, and the collections you may create records in.\n\n${context}`
+    ? `\n\nLooked up already, so there is no need to call spaces_list, records_can, or collections_list without names, for this space: each collection it holds in a line, the one that set it off in full, and those you may create records in. For any other in full, call collections_list with their names, several at once.\n\n${context}`
     : '';
   const cause = record
     ? `${about} by this record.\n\n${note}\n\n${JSON.stringify(
@@ -82,13 +82,17 @@ const THREAD = 8;
 
 /**
  * What a model would otherwise spend its first turns asking for, each a round
- * trip: the collections of the rule's space, those it may create records in,
+ * trip: the collections of the rule's space in a line each, the one that set
+ * the rule off in full, those it may create records in,
  * and, for a reply, the messages before it, oldest first, with their writers'
  * names. Read from the node itself, which costs nothing.
  */
 export async function ruleContext(node: P2PNode, trigger: RuleTrigger): Promise<string> {
   const space = trigger.rule.space;
   const collections = await node.collections.list(space);
+  // Each collection in a line, and only the one that set it off in full: the model asks for more by name.
+  const inSpace = await runAction(node, 'collections_list', { space });
+  const setOff = collections.find((c) => c.name === trigger.match?.record.collection);
   const mayCreate = await Promise.all(
     collections.map(async (c) =>
       (await node.records.can(space, 'create', c.name).catch(() => false)) ? c.name : null,
@@ -118,7 +122,12 @@ export async function ruleContext(node: P2PNode, trigger: RuleTrigger): Promise<
     parent = found.links.find((link) => link.rel === 'replyTo')?.to;
   }
   return JSON.stringify(
-    { collections, mayCreateIn: mayCreate.filter(Boolean), ...(thread.length ? { thread } : {}) },
+    {
+      collections: inSpace,
+      ...(setOff ? { setOffIn: setOff } : {}),
+      mayCreateIn: mayCreate.filter(Boolean),
+      ...(thread.length ? { thread } : {}),
+    },
     null,
     2,
   );

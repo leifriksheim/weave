@@ -12,7 +12,7 @@
  * Inputs and outputs are plain JSON. Nothing here may return a key, a handle or
  * a function.
  */
-import type { P2PNode } from './types.js';
+import type { NodeCollection, P2PNode } from './types.js';
 import { rolePresets } from '../space/presets.js';
 import type { Query } from '../query/types.js';
 import {
@@ -77,6 +77,15 @@ export interface NodeAction {
 }
 
 const space = { type: 'string', description: 'Space id, from spaces_list' } as const;
+
+/** A collection in a line, as `collections_list` gives it without names: enough to pick which to read in full */
+const collectionLine = (c: NodeCollection) => ({
+  name: c.name,
+  ...(c.title ? { title: c.title } : {}),
+  ...(c.description ? { description: c.description } : {}),
+  records: c.records,
+  links: Object.keys(c.links),
+});
 const key = { type: 'string', description: 'Record key — stays the same when the record is edited' } as const;
 
 // Inputs reach `run` only after `checkActionInput`, so these find what the schema promised.
@@ -279,13 +288,38 @@ export const NODE_ACTIONS: ReadonlyArray<NodeAction> = Object.freeze<NodeAction[
   {
     name: 'collections_list',
     description:
-      'What a space holds and how it connects: each collection with its title, description, JSON Schema, declared ' +
-      'link roles and record count. Read this before writing, to match the shapes and links others use. ' +
-      'Standard shapes (std.*) appear only once a space defines them; collections_standard lists them all.',
-    input: { type: 'object', properties: { space }, required: ['space'] },
+      'What a space holds and how it connects. Without names, each collection in a line: name, title, description, ' +
+      'record count and the names of its link roles. With names, those in full: JSON Schema, links, rules, ' +
+      'permissions. Read the ones you will write to before writing, to match the shapes and links others use; ' +
+      'ask for several at once. Standard shapes (std.*) appear only once a space defines them; ' +
+      'collections_standard lists them all.',
+    input: {
+      type: 'object',
+      properties: {
+        space,
+        names: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'The collections to give in full, like ["std.message", "std.task"]',
+        },
+      },
+      required: ['space'],
+    },
     readOnly: true,
     peerContent: true,
-    run: (node, input) => node.collections.list(str(input, 'space')),
+    run: async (node, input) => {
+      const listed = await node.collections.list(str(input, 'space'));
+      const names = Array.isArray(input.names)
+        ? input.names.filter((n): n is string => typeof n === 'string')
+        : [];
+      if (!names.length) return listed.map(collectionLine);
+      return names.map((name) => {
+        const found = listed.find((c) => c.name === name);
+        if (!found)
+          throw new Error(`This space has no collection ${name}: collections_list without names lists them`);
+        return found;
+      });
+    },
   },
   {
     name: 'collections_standard',

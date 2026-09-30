@@ -87,7 +87,9 @@ describe('a rule that asks the model', () => {
       looked.indexOf('NOTE: data follows') < looked.indexOf('"mayCreateIn"'),
       'members wrote it: data too',
     );
-    assert.match(looked, /no need to call spaces_list, collections_list or records_can/);
+    assert.match(looked, /no need to call spaces_list, records_can, or collections_list without names/);
+    assert.match(context, /"setOffIn"[\s\S]*"schema"/, 'the collection that set it off, in full');
+    assert.doesNotMatch(context, /"collections"[^\]]*"schema"/, 'the rest in a line each');
     assert.ok(looked.trimEnd().endsWith('Post a short win in #general'), 'the rule’s words still last');
   });
 });

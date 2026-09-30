@@ -275,10 +275,36 @@ describe('for agents', () => {
     await useSchemas(me, space, [reactionSchema, commentSchema]); // again: nothing redefined
     const listed = z
       .array(z.object({ name: z.string(), version: z.number(), links: z.record(z.string(), z.unknown()) }))
-      .parse(await runAction(me, 'collections_list', { space }));
+      .parse(await runAction(me, 'collections_list', { space, names: ['std.comment'] }));
     const comment = listed.find((c) => c.name === 'std.comment');
     assert.equal(comment?.version, 1);
     assert.deepEqual(Object.keys(comment?.links ?? {}), ['about', 'replyTo']);
+    // Without names, a line each: enough to choose which to read in full, several at once.
+    const lines = z
+      .array(
+        z
+          .object({
+            name: z.string(),
+            title: z.string().optional(),
+            description: z.string().optional(),
+            records: z.number(),
+            links: z.array(z.string()),
+          })
+          .strict(),
+      )
+      .parse(await runAction(me, 'collections_list', { space }));
+    assert.deepEqual(lines.find((c) => c.name === 'std.comment')?.links, ['about', 'replyTo']);
+    assert.equal(
+      z
+        .array(z.unknown())
+        .parse(await runAction(me, 'collections_list', { space, names: ['std.comment', 'std.reaction'] }))
+        .length,
+      2,
+    );
+    await assert.rejects(
+      runAction(me, 'collections_list', { space, names: ['app.nothing'] }),
+      /no collection app\.nothing/,
+    );
 
     const todo = z
       .object({ key: z.string() })
