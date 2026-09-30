@@ -350,18 +350,27 @@ as itself, and every member's device checks what it writes against its role.
 People mention it by its own name.
 
 ```bash
-weave --home ~/club-bot agent --bot
+weave agent --bot
 ```
 
-At a terminal that is all: it makes the bot's account (with its own recovery
-code), asks for an invite an admin made, with the role the bot should hold,
-and joins. By flags alone:
+At a terminal that is all: it asks the bot's name, makes its account (with
+its own recovery code), asks for an invite an admin made, with the role the
+bot should hold, and joins. The name is what the space shows and what people
+type after "@" to mention it.
+
+Each bot is kept in a folder of its own, `bots/<name>` in the data folder
+(`~/.weave/bots/club-bot`), with its account, model, API key and spending.
+It is never the account the data folder already holds. `weave bots` lists
+them; `weave agent --bot --name "Club Bot"` starts one again, and at a
+terminal `weave agent --bot` asks which. By flags alone:
 
 ```bash
-weave --home ~/club-bot init --name "Club Bot" --passphrase
-weave --home ~/club-bot spaces join --invite 'https://…#invite=…'
-weave --home ~/club-bot agent --bot --no-chat
+WEAVE_PASSPHRASE=… weave agent --bot --name "Club Bot" --invite 'https://…#invite=…' --no-chat
 ```
+
+A bot made before bots had folders of their own kept its account at the top
+of its `--home`. Move that folder to `bots/<name>` in the data folder to run
+it with `--name`.
 
 Someone who may instruct it adds rules for it, as themselves, naming it in
 `by`:

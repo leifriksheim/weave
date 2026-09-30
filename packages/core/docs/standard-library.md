@@ -272,7 +272,7 @@ What it writes shows as the bot, and every member's device checks it against
 the bot's role, so a role that may post messages but not delete keeps a
 misled bot from deleting.
 
-_Source: `packages/core/src/schemas/library/social.ts` (`profile`), `packages/core/src/schemas/rules.ts` (`rulesFor`), `packages/cli/src/agent.ts` (`discloseBot`). Tests: `packages/cli/tests/agent-rules.test.ts` ("says it is a bot…"), `packages/core/tests/rule-runners.test.ts` ("a bot")._
+_Source: `packages/core/src/schemas/library/social.ts` (`profile`), `packages/core/src/schemas/rules.ts` (`rulesFor`), `packages/cli/src/agent.ts` (`discloseBot`). Tests: `packages/cli/tests/agent-rules.test.ts` ("says it is a bot…", "a bot’s name"), `packages/core/tests/rule-runners.test.ts` ("a bot")._
 
 **Mentions and replies.** A `std.message`, `std.comment` or `std.post` names
 the accounts it calls on in `mentions` (as do `std.note`, `std.doc-block` and

@@ -42,6 +42,7 @@ import {
   type Home,
   type Unlocked,
 } from './home.js';
+import { findBot, listBots, newBotFolder } from './bots.js';
 import { startDaemon } from './daemon.js';
 import { startHost } from './host.js';
 import { createReminders, mailerFromEnv } from './reminders.js';
@@ -111,7 +112,9 @@ Usage:
   weave mcp [--account]
   weave agent [--setup] [--model claude-opus-5-5] [--daily-cap 2] [--no-chat]
               [--provider anthropic|openai] [--base-url URL] [--price IN/OUT]
-  weave agent --bot [--daily-cap-each 0.5]   an account of its own, as a bot in its spaces
+  weave agent --bot [--name NAME] [--invite LINK] [--daily-cap-each 0.5]
+                                             an account of its own, as a bot in its spaces
+  weave bots                                 the bots kept here, to start again
   weave rule add [--space ID] [--name N] [--collection C] [--where JSON] [--every CRON]
                  [--from ROLES] [--do TEXT] [--by BOT|me]
   weave collections define --standard std.rule [--space ID]
@@ -137,10 +140,13 @@ Agents (Claude Code, Claude Desktop, Cursor):
   whose price it doesn't know need --price, dollars per million tokens.
   The key comes from OPENAI_API_KEY (or ANTHROPIC_API_KEY), or is asked for.
 
-  "weave agent --bot" runs the unlocked account itself as a bot instead: an
-  account of its own that people invite to their spaces. It says it is a bot
-  on its std.profile where a space keeps them, and runs the rules that name
-  it (by) of members holding std.rule/instruct there.
+  "weave agent --bot" runs a bot instead: an account of its own that people
+  invite to their spaces, known there by its name. Each bot is kept in a
+  folder of its own, bots/<name> in the data folder, with its model, key and
+  spending; --name picks one, or makes it, and "weave bots" lists them.
+  --invite joins a space. It says it is a bot on its std.profile where a
+  space keeps them, and runs the rules that name it (by) of members holding
+  std.rule/instruct there.
   --daily-cap-each limits what each person who sets it off may spend a day
   (a quarter of --daily-cap unless given).
 
@@ -381,52 +387,95 @@ async function init(home: Home, args: ReadonlyArray<string>): Promise<void> {
   ask.outro(`${created.account.name} is ready. \`weave\` shows what you can do next.`);
 }
 
-/** The bot's account, unlocked; at a terminal, made first when this folder has none */
-async function botAccount(globals: Globals): Promise<Unlocked> {
-  const home = await openHome(globals.home);
-  if ((await home.accounts.list()).length > 0) return openAccount(globals);
-  if (!ask.interactive())
-    throw new Error(
-      `No account in ${home.path}. Make the bot's first: weave init --name "Club Bot" --passphrase`,
-    );
+/**
+ * The bot `weave agent --bot` runs, unlocked: one kept under the home's
+ * `bots/`, by `--name`, the only one, or picked at a terminal; made when there
+ * is none. Never the home's own account, which is someone's, or a node's.
+ */
+async function botAccount(globals: Globals, name?: string): Promise<{ unlocked: Unlocked; folder: string }> {
+  const home = homePath(globals.home);
+  const bots = await listBots(home);
+  const NEW = '\u0000new';
+  const found = name ? findBot(bots, name) : bots.length === 1 && !ask.interactive() ? bots[0] : undefined;
+  const folder =
+    found?.folder ??
+    (!name && bots.length
+      ? await ask.select({
+          flag: 'name',
+          message: 'Which bot?',
+          hint: `The bots here: ${bots.map((bot) => `"${bot.name}"`).join(', ')}.`,
+          options: [
+            ...bots.map((bot) => ({ value: bot.folder, label: bot.name, hint: bot.did.slice(-6) })),
+            { value: NEW, label: 'A new bot' },
+          ],
+        })
+      : NEW);
+  const picked = bots.find((bot) => bot.folder === folder);
+  if (picked)
+    return { unlocked: await openAccount({ ...globals, home: folder, account: picked.did }), folder };
+
   ask.intro('A bot, with an account of its own');
-  const name = await ask.text({ flag: 'name', message: 'What is the bot called?', placeholder: 'Club Bot' });
+  const called =
+    name ??
+    (await ask.text({
+      flag: 'name',
+      message: 'What is the bot called?',
+      placeholder: 'Club Bot',
+      hint: 'It is what people see, and type after "@" to mention it.',
+    }));
+  const made = await newBotFolder(home, called);
+  const kept = (await (await openHome(home)).accounts.list())[0];
+  if (kept)
+    ask.note(
+      `“${kept.name}”, the account in ${home}, stays as it is. The bot gets its own, in ${made}.`,
+      'Its own account',
+    );
   const passphrase = await newPassphrase();
-  const created = await createAccount(home, { name, passphrase });
+  const botHome = await openHome(made);
+  const created = await createAccount(botHome, { name: called, passphrase });
   if (created.code) showRecoveryCode(created.code);
-  return unlock(home, created.account, { passphrase });
+  return { unlocked: await unlock(botHome, created.account, { passphrase }), folder: made };
 }
 
-/** At a terminal, a bot in no spaces yet joins one, from an invite someone who runs it made */
-async function joinFirstSpace(node: P2PNode): Promise<void> {
-  if ((await node.spaces.list()).length > 0) return;
-  if (!ask.interactive()) {
-    stderr(
-      "The bot is in no spaces yet. Join one: weave spaces join --invite '…', with an invite from an admin.",
-    );
+/** How a bot gets work in a space: a rule naming it, which only someone who may instruct it can add */
+const botWork = (name: string, did: string) =>
+  `It does nothing there until a rule asks it. Someone who may instruct it adds one: in the app, ` +
+  `Automations, with “Done by” ${name}; or \`weave rule add --by ${did}\`. ` +
+  `A rule for messages mentioning it has it answer when someone writes @${name}.`;
+
+/**
+ * Joins the space of `--invite`; or, at a terminal, when the bot is in none
+ * yet, asks for an invite someone who runs it made.
+ */
+async function joinFirstSpace(node: P2PNode, name: string, invite?: string): Promise<void> {
+  if (!invite && (await node.spaces.list()).length > 0) return;
+  if (!invite && !ask.interactive()) {
+    stderr(`${name} is in no spaces yet. Give it an invite an admin made: --invite '…'.`);
     return;
   }
-  ask.note(
-    'An admin of the space makes an invite for it, with the role it should hold:\nin the app, People & roles; or `weave spaces invite`.',
-    'Invite the bot',
-  );
-  const invite = await ask.text({
-    flag: 'invite',
-    message: 'Paste the invite',
-    placeholder: 'https://…#invite=…',
-  });
-  const preview = node.spaces.preview(invite);
+  if (!invite)
+    ask.note(
+      'An admin of the space makes an invite for it, with the role it should hold:\nin the app, People & roles; or `weave spaces invite`.',
+      'Invite the bot',
+    );
+  const link =
+    invite ??
+    (await ask.text({
+      flag: 'invite',
+      message: 'Paste the invite',
+      placeholder: 'https://…#invite=…',
+    }));
+  const preview = node.spaces.preview(link);
   if (
     !(await ask.confirm(`Join “${preview.space.name}”${preview.role ? ` as ${preview.role}` : ''}?`, {
       otherwise: true,
     }))
   )
     return;
-  await node.spaces.join(invite);
-  ask.note(
-    `It does what the space's rules naming it ask. Someone who may instruct it there adds them:\nweave rule add --by ${node.did}, or Automations in an app.`,
-    `Joined ${preview.space.name}`,
-  );
+  await node.spaces.join(link);
+  const joined = `${name} is a member of ${preview.space.name}. ${botWork(name, node.did)}`;
+  if (ask.interactive()) ask.note(joined.replace('. ', '.\n'), `Joined ${preview.space.name}`);
+  else stderr(joined);
 }
 
 /**
@@ -606,7 +655,15 @@ async function runAgent(
       return turn;
     },
     onRules: (rules) =>
-      stderr(`  Rules: ${rules.length ? rules.map((r) => `“${r.body.name}”`).join(', ') : 'none yet'}`),
+      stderr(
+        `  Rules: ${
+          rules.length
+            ? rules.map((r) => `“${r.body.name}”`).join(', ')
+            : runner.bot
+              ? `none yet. ${botWork(runner.bot, runner.account)}`
+              : 'none yet. Add one in an app, under Automations, or with `weave rule add`.'
+        }`,
+      ),
     onRun: (trigger, run) => {
       if (trigger.rule.body.then.kind !== 'ask') stderr(`  [${trigger.rule.body.name}] ${run.did}`);
     },
@@ -837,6 +894,18 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     return 0;
   }
 
+  if (command === 'bots') {
+    const home = homePath(globals.home);
+    const bots = await listBots(home);
+    process.stdout.write(`${JSON.stringify(bots, null, 2)}\n`);
+    stderr(
+      bots.length
+        ? `Start one again: weave agent --bot --name "${bots[0]!.name}"`
+        : 'No bots here yet. Make one: weave agent --bot',
+    );
+    return 0;
+  }
+
   if (command === 'disconnect') {
     await forgetAgent(homePath(globals.home));
     stderr(
@@ -884,6 +953,8 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         'daily-cap-each': { type: 'string' },
         'no-chat': { type: 'boolean' },
         bot: { type: 'boolean' },
+        name: { type: 'string' },
+        invite: { type: 'string' },
         setup: { type: 'boolean' },
       },
     });
@@ -896,7 +967,9 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     // A bot answers anyone who can set it off, so each of them gets a share by default.
     const each = values['daily-cap-each'] ?? (values.bot ? String(dailyCap / 4) : undefined);
     const capEach = each === undefined ? null : dollars('daily-cap-each', each);
-    const home = homePath(globals.home);
+    // A bot keeps everything in its own folder: its account, and its model, key and spending.
+    const bot = values.bot ? await botAccount(globals, values.name) : null;
+    const home = bot?.folder ?? homePath(globals.home);
     // A person's agent needs connecting first: at a terminal, with the code from the app, here and now.
     if (!values.bot && !(await hasConnectedAgent(home)) && ask.interactive()) {
       ask.intro('Connect an agent to your account');
@@ -949,16 +1022,28 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       .map((node) => node.trim())
       .filter(Boolean);
     let runner: Runner;
-    if (values.bot) {
-      const bot = await startBotNode(await botAccount(globals), { nodes });
-      await joinFirstSpace(bot.node);
-      const name = (await bot.node.account.profile())?.name ?? 'Bot';
+    if (bot) {
+      let name = bot.unlocked.account.name;
+      const started = await startBotNode(bot.unlocked, {
+        nodes,
+        undisclosed: (id) =>
+          void started.node.spaces.list().then((spaces) => {
+            const space = spaces.find((s) => s.id === id)?.name ?? id;
+            stderr(
+              `  ${space} keeps no std.profile, so apps can't show ${name} as a bot, or offer it under “Done by”. ` +
+                `Someone who may add collections there can: in the app, Automations; or ` +
+                `\`weave collections define --standard std.profile --space ${id}\`.`,
+            );
+          }),
+      });
+      name = (await started.node.account.profile())?.name ?? name;
+      await joinFirstSpace(started.node, name, values.invite);
       runner = {
-        node: bot.node,
-        account: bot.node.did,
+        node: started.node,
+        account: started.node.did,
         intro: `${name}, a bot`,
         bot: name,
-        close: () => bot.close(),
+        close: () => started.close(),
       };
     } else {
       const agent = await startAgentNode(home, { nodes });

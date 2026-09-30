@@ -222,7 +222,8 @@ function Room({
   const [replying, setReplying] = useState<ChatMessage | null>(null);
   // A space that defined messages before replies could link to what they answer has no such link to write.
   const linksReplies = !!defined(message.name)?.links?.replyTo;
-  const mention = useMentions({ draft, setDraft, people, me, input });
+  const members = access?.members.map((m) => m.did);
+  const mention = useMentions({ draft, setDraft, people, members, me, input });
   const reply = (m: ChatMessage) => {
     setReplying(m);
     input.current?.focus();
