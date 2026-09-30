@@ -229,6 +229,22 @@ function agentTools(bot: boolean): BetaTool[] {
   }));
 }
 
+/**
+ * The most of one tool result the model is sent, in characters: about 6,000
+ * tokens. Every result stays in the conversation until it ends, so one large
+ * list would otherwise fill the context for every step after it.
+ */
+export const MAX_RESULT = 24_000;
+
+/** A tool result, cut to {@link MAX_RESULT} with a note saying so and how to ask for less */
+export function capped(text: string, max = MAX_RESULT): string {
+  if (text.length <= max) return text;
+  return (
+    `${text.slice(0, max)}\n…\n[Cut: this showed ${max} of ${text.length} characters. Ask for less: a limit, ` +
+    'a where, names, or one record by key.]'
+  );
+}
+
 /** Runs one tool call as the model asked, or says why it didn't */
 async function runTool(
   node: P2PNode,
@@ -257,7 +273,7 @@ async function runTool(
   options.log(`→ ${action.name} ${shown.length > 120 ? `${shown.slice(0, 117)}…` : shown}`);
   try {
     const value = await runAction(node, action.name, call.input);
-    const text = JSON.stringify(value, null, 2);
+    const text = capped(JSON.stringify(value, null, 2));
     return result(action.peerContent ? `${PEER_CONTENT_NOTE}\n\n${text}` : text);
   } catch (error) {
     // A failed tool is something for the model to read and correct, not a crash.

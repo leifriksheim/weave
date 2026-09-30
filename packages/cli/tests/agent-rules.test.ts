@@ -95,6 +95,57 @@ describe('a rule that asks the model', () => {
 });
 
 describe('a bot', () => {
+  test('is given as much of a long conversation as fits, the newest first, each text cut short', async () => {
+    const node = await member(createFakeHub({ latencyMs: 1 }), 91);
+    const { id: space } = await node.spaces.create({ name: 'Club', ...community, visibility: 'private' });
+    await node.collections.define(space, message);
+    let parent: string | null = null;
+    for (let i = 0; i < 25; i++) {
+      const text = i === 23 ? `long ${'y'.repeat(5000)}` : `message ${i} ${'x'.repeat(600)}`;
+      const put: { readonly key: string } = await node.records.put(
+        space,
+        message.name,
+        { text },
+        parent ? { links: [{ rel: 'replyTo', to: parent }] } : {},
+      );
+      parent = put.key;
+    }
+    const last = await node.records.put(
+      space,
+      message.name,
+      { text: 'And?' },
+      {
+        links: [{ rel: 'replyTo', to: parent ?? '' }],
+      },
+    );
+    const record = await node.records.get(space, last.key);
+    assert.ok(record);
+    const context = await ruleContext(node, {
+      rule: {
+        space,
+        key: 'rule-key',
+        maker: node.did,
+        body: {
+          name: 'Answer',
+          when: { query: { collection: message.name } },
+          then: { kind: 'ask', text: 'Answer' },
+          since: new Date().toISOString(),
+        },
+      },
+      match: { record: { ...record, included: {} }, included: {}, moment: 0 },
+    });
+    const told: unknown = JSON.parse(context);
+    assert.ok(typeof told === 'object' && told !== null && 'thread' in told && Array.isArray(told.thread));
+    const texts = told.thread.map((entry: unknown) => JSON.stringify(entry));
+    assert.ok(texts.length > 2 && texts.length < 20, `as many as fit, not ${texts.length}`);
+    assert.ok(texts.join('').length <= 8000, 'within the budget');
+    assert.match(texts.at(-1) ?? '', /message 24/, 'the newest kept');
+    assert.ok(
+      texts.some((t: string) => /long y+…/.test(t) && t.length < 2200),
+      'a long one cut short',
+    );
+  });
+
   test('reads a direct message that sets a rule off, with the conversation before it, and answers in private', async () => {
     const names = (options: { agent?: boolean; bot?: boolean }) => offered(options).map((a) => a.name);
     assert.ok(names({ bot: true }).includes('direct_send'), 'a bot holds its own member key');

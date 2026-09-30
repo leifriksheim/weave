@@ -77,8 +77,40 @@ export async function openTrigger(node: P2PNode, trigger: RuleTrigger): Promise<
   return { ...trigger, match: { ...match, record: { ...match.record, body } } };
 }
 
-/** Messages back up a reply chain, at most: enough to follow a conversation */
-const THREAD = 8;
+/**
+ * The conversation before a message, at most: this many messages, within this
+ * many characters, the newest kept first; and each text in it cut to the last.
+ * Enough to follow it, whatever its length, without filling the context.
+ */
+const THREAD = 20;
+const THREAD_CHARS = 8000;
+const MESSAGE_CHARS = 2000;
+
+/** A body with every text in it no longer than {@link MESSAGE_CHARS} */
+const shortened = (body: unknown): unknown =>
+  body && typeof body === 'object' && !Array.isArray(body)
+    ? Object.fromEntries(
+        Object.entries(body).map(([field, value]) => [
+          field,
+          typeof value === 'string' && value.length > MESSAGE_CHARS
+            ? `${value.slice(0, MESSAGE_CHARS)}…`
+            : value,
+        ]),
+      )
+    : body;
+
+/** The newest of a conversation, oldest first, that fits in {@link THREAD_CHARS} */
+function fitted<T extends { body: unknown }>(thread: ReadonlyArray<T>): T[] {
+  const kept: T[] = [];
+  let size = 0;
+  for (const entry of [...thread].reverse()) {
+    const short = { ...entry, body: shortened(entry.body) };
+    size += JSON.stringify(short).length;
+    if (size > THREAD_CHARS) break;
+    kept.unshift(short);
+  }
+  return kept;
+}
 
 /**
  * What a model would otherwise spend its first turns asking for, each a round
@@ -126,7 +158,7 @@ export async function ruleContext(node: P2PNode, trigger: RuleTrigger): Promise<
       collections: inSpace,
       ...(setOff ? { setOffIn: setOff } : {}),
       mayCreateIn: mayCreate.filter(Boolean),
-      ...(thread.length ? { thread } : {}),
+      ...(thread.length ? { thread: fitted(thread) } : {}),
     },
     null,
     2,
