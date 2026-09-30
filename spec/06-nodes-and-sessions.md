@@ -835,20 +835,69 @@ account's key: the host learns a subscription, not who pays.
 
 **Description.** `GET <url>/.well-known/weave-host`, public:
 
-| Field   | Meaning                                                                                                                                                              |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `weave` | `"host/1"`                                                                                                                                                           |
-| `did`   | The host's key: its identity to peers, and what signs its statuses.                                                                                                  |
-| `name`  | For people.                                                                                                                                                          |
-| `free`  | Every subscription counts as paid.                                                                                                                                   |
-| `price` | Optional, free text.                                                                                                                                                 |
-| `pay`   | Optional: the pay page, relative to the host's address or absolute. Absent: it takes no payments.                                                                    |
-| `terms` | Optional, for people.                                                                                                                                                |
-| `peer`  | Optional: where it takes peers over WebSocket ([04](04-network.md)), relative to the host's address or absolute. Absent: devices cannot reach it by its description. |
+| Field    | Meaning                                                                                                                                                              |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `weave`  | `"host/1"`                                                                                                                                                           |
+| `did`    | The host's key: its identity to peers, and what signs its statuses.                                                                                                  |
+| `name`   | For people.                                                                                                                                                          |
+| `free`   | Every subscription counts as paid.                                                                                                                                   |
+| `price`  | Optional, free text.                                                                                                                                                 |
+| `terms`  | Optional, for people.                                                                                                                                                |
+| `peer`   | Optional: where it takes peers over WebSocket ([04](04-network.md)), relative to the host's address or absolute. Absent: devices cannot reach it by its description. |
+| `plans`  | Optional: what can be paid for, and how (below). Absent or empty: it takes no payments.                                                                              |
+| `remind` | Optional: `true` when it sends reminders by email before paid time runs out (`…/remind`).                                                                            |
 
 A device MUST refuse a description whose `weave` is not `host/1` or whose `did`
 is not a `did:key`, and MUST treat a host whose `did` changed since it was first
 used as a different host.
+
+A **plan** is one way to pay:
+
+| Field    | Meaning                                                                                                                 |
+| -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `id`     | What a device sends to start it (`…/pay`).                                                                              |
+| `label`  | For people, with the price: `"$4 a month, by card"`.                                                                    |
+| `method` | `checkout`: the host answers with a page at a payment provider. `request`: with a payment request for a wallet to send. |
+| `renews` | Charged again by itself until cancelled (a card). `false` for time paid up front.                                       |
+| `for`    | Who may use it: `["account"]`, `["space"]` (§4.6), or both.                                                             |
+
+A device shows only plans whose `for` names the subscription it pays for, and
+ignores a plan whose `method` it does not know. Example:
+
+```json
+{
+  "weave": "host/1",
+  "did": "did:key:zDnaeXL64…",
+  "name": "Weave host",
+  "free": false,
+  "price": "$4 a month or $36 a year",
+  "peer": "/peer",
+  "remind": true,
+  "plans": [
+    {
+      "id": "card-monthly",
+      "label": "$4 a month, by card",
+      "method": "checkout",
+      "renews": true,
+      "for": ["account"]
+    },
+    {
+      "id": "once-monthly",
+      "label": "$4 for a month, by card",
+      "method": "checkout",
+      "renews": false,
+      "for": ["space"]
+    },
+    {
+      "id": "wallet-yearly",
+      "label": "$36 a year, from a wallet (USDC on Base)",
+      "method": "request",
+      "renews": false,
+      "for": ["account", "space"]
+    }
+  ]
+}
+```
 
 **Signed requests.** Every call about a subscription carries
 
@@ -879,6 +928,9 @@ Authorization: Weave did=did:key:zDnaet57TmtMH7vQJT8HzNLSZV5sc5JGJub2ZzpX3oHshR2
 | `GET /host/subscriptions/<id>`          | —                                                                            | `SignedStatus`                                                                                                                          |
 | `PUT /host/subscriptions/<id>/carry`    | `{ "account": "<account DID>", "invite": "<carry invite, ≤ 16 000 chars>" }` | `SignedStatus`. 402 when not paid (or lapsed); 403 when the host carries only named accounts and this is not one; 400 for a bad invite. |
 | `DELETE /host/subscriptions/<id>/carry` | —                                                                            | `SignedStatus`. Stops carrying; the subscription stays.                                                                                 |
+| `POST /host/subscriptions/<id>/pay`     | `{ "plan": "<plan id>" }`                                                    | A pay answer (below). 400 for a plan it doesn't have, or one not `for` accounts.                                                        |
+| `POST /host/subscriptions/<id>/manage`  | `{}`                                                                         | A pay answer with `checkout`: the provider's page to change the card or cancel. 404 when nothing renews.                                |
+| `POST /host/subscriptions/<id>/remind`  | `{ "email": "<address>" }`                                                   | `{}`. 404 when it sends no reminders; 400 for an address it can't use.                                                                  |
 
 Errors are `{ "error": "<message>" }` with 400, 401 (not signed by the
 subscription), 402, 403, 404, 405. The reference host sends
@@ -911,24 +963,49 @@ its `host` equals that DID, and its `subscription` is the device's own. Example:
 }
 ```
 
-**Pay link.** A device never handles payment. It opens the host's pay page
-with, in the fragment,
-`s=<subscription DID>&at=<unix seconds>&sig=<base64url>`, where `sig` is the
-subscription key's signature over `utf8("weave-pay/v1\n" + hostDid + "\n" + subscriptionDid + "\n" + at)`.
-The fragment is never sent to a server; the pay page reads it and calls the
-host's pay API with
+**Paying.** A device never handles a payment: it shows the host's plans, and
+what the host answers when asked to start one. A **pay answer** is one of:
 
-```
-Authorization: WeavePay s=<subscription DID>, at=<at>, sig=<sig>
+```json
+{ "checkout": "https://checkout.stripe.com/c/pay/cs_live_a1b2c3" }
 ```
 
-A host MUST accept it only for its own DID, when `at` is at most 3600 s old and
-at most 300 s in the future. The pay page's own API, plans and payment methods
-are the host's business and are _Not yet specified_. Example link:
+```json
+{
+  "request": {
+    "uri": "ethereum:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913@8453/transfer?address=0x1111111111111111111111111111111111111111&uint256=36004217",
+    "amount": "36.004217 USDC on Base",
+    "expires": 1791027701,
+    "evm": {
+      "chainId": 8453,
+      "chainName": "Base",
+      "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "to": "0x1111111111111111111111111111111111111111",
+      "units": "36004217"
+    }
+  }
+}
+```
 
-```
-https://host.example/pay#s=did%3Akey%3AzDnaet57TmtMH7vQJT8HzNLSZV5sc5JGJub2ZzpX3oHshR2k2&at=1790422901&sig=-EIgo2A2JYBWDwiJdfQR4v6rBL2WFqw07YgOJqAQB9_FdmTuq0f9uR1f2DSCOM3xw4sqytIJQ4hfz29T-uAbPA
-```
+- `checkout` is a page at a payment provider. A device MUST refuse one that is
+  not `https://` (`http://` only on `localhost` or `127.0.0.1`), and opens it
+  in a new browsing context with no opener, so the page cannot reach back
+  into the device's.
+- `request` is a payment for a wallet to send: `uri` a payment URI a wallet
+  opens (`ethereum:` per EIP-681, `lightning:` or `bitcoin:`), `amount` for
+  people, and `expires` (unix seconds) until when a payment counts. A device
+  MUST refuse a `uri` with another scheme. `evm`, optional, spells out an
+  ERC-20 transfer (`transfer(to, units)` on `token`, on `chainId`), so a
+  wallet in the browser (EIP-1193) can be asked to send it. A device shows
+  `amount` as it is: the host tells payments apart by it.
+
+A host sees a request paid by itself, on the network, and moves `paidUntil`;
+how is its business. A device asks for the status until it moves. Where a
+checkout page sends people back to is the host's business too; a device
+never follows a link the host gives, only opens `checkout`.
+
+**Reminders** (`…/remind`) are the host's to send, and its business: the
+reference host mails a link to confirm the address before anything else.
 
 **What a device does.** A device asks each host the account uses for its
 status. When the status says it is not carrying and it is paid (`active`,
@@ -967,7 +1044,7 @@ code finds its registry, and every space from it. The host learns the
 registry's id and the device's session key, and serves it only if it carries
 it. The reference reaches those hosts for the registry alone.
 
-_Source: `packages/core/src/session/hosting.ts` (`hostPeerAddress`), `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`, `reachHosts`), `packages/core/src/node/space-runtime.ts` (`useNodes`), `packages/cli/src/host.ts`, `packages/cli/src/pay-page.ts`. Tests: `packages/cli/tests/host.test.ts` ("reaching a host at the address it names": all; "a host’s room": all)._
+_Source: `packages/core/src/session/hosting.ts` (`hostPeerAddress`), `packages/core/src/node/host.ts`, `packages/core/src/node/node.ts` (`hosting`, `reachHosts`), `packages/core/src/node/space-runtime.ts` (`useNodes`), `packages/cli/src/host.ts` (`startPayment`, `watch`), `packages/cli/src/wallet.ts` (`request`, `scan`), `packages/cli/src/reminders.ts`. Tests: `packages/cli/tests/host.test.ts` ("the host API": all; "pay answers": all; "reaching a host at the address it names": all; "a host’s room": all; "wallet payments": all), `packages/cli/tests/reminders.test.ts`._
 
 ### 4.6 A space paying for itself
 
@@ -984,10 +1061,12 @@ does not match `^[A-Za-z0-9_-]{1,120}$`.
 
 **Calls.** No `Authorization`.
 
-| Call                               | Body                            | Answer                                                                                                                                                                                        |
-| ---------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /host/spaces/<space id>`      | —                               | `SignedStatus` (§4.5), `subscription` `space:<space id>`; `state` `none` before anyone paid or handed a pass                                                                                  |
-| `PUT /host/spaces/<space id>/pass` | `{ "pass": <SpacePass, §4.2> }` | `SignedStatus`. 402 when not paid (or lapsed); 403 when the host carries only named accounts; 400 when the pass does not open, or is for another space. A later pass replaces the one before. |
+| Call                                  | Body                            | Answer                                                                                                                                                                                        |
+| ------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /host/spaces/<space id>`         | —                               | `SignedStatus` (§4.5), `subscription` `space:<space id>`; `state` `none` before anyone paid or handed a pass                                                                                  |
+| `PUT /host/spaces/<space id>/pass`    | `{ "pass": <SpacePass, §4.2> }` | `SignedStatus`. 402 when not paid (or lapsed); 403 when the host carries only named accounts; 400 when the pass does not open, or is for another space. A later pass replaces the one before. |
+| `POST /host/spaces/<space id>/pay`    | `{ "plan": "<plan id>" }`       | A pay answer (§4.5), for a plan `for` spaces. Anyone may: what is paid adds time to what is paid already, whoever pays. 403 when the host carries only named accounts.                        |
+| `POST /host/spaces/<space id>/remind` | `{ "email": "<address>" }`      | `{}`, as for an account (§4.5).                                                                                                                                                               |
 
 A host MUST check a pass as a carrier checks one from a carry space (§4.2):
 its space must verify and hash to the id in the path, and a private space's
@@ -1005,21 +1084,6 @@ For a space's own subscription, `HostStatus` also has:
 does. A device compares `readKey` with the space's current read key to know
 whether the host needs a newer pass, after the space's key changed.
 
-**Pay link.** `<pay page>#space=<space id>`, not signed. The pay page calls
-the host's pay API with
-
-```
-Authorization: WeavePay space=<space id>
-```
-
-which a host MUST read as that space's own subscription, and MUST NOT count
-as the pay link of any account's. Payments to it add time to what is paid
-already, whoever makes them.
-
-```
-https://host.example/pay#space=b3kq7zp2f4mhx6ydwa5rtc9n1e
-```
-
 **Which host a space uses** is not protocol: the library keeps it in a
 `std.host` record that only those who may manage the space write, and every
 member's device holding the space key hands that host the pass once the
@@ -1030,7 +1094,7 @@ Anyone who knows a space's id can learn whether a host carries it and until
 when, as its status is open. A pass lets its holder download the space's
 records sealed, as a carrier does; any member could hand one over already.
 
-_Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `packages/core/src/node/carrier.ts` (`addPass`, `removePass`), `packages/core/src/session/hosting.ts` (`createSpaceHostClient`, `spacePayLink`, `verifyPayLink`), `packages/cli/src/host.ts` (`answerSpace`), `packages/cli/src/stripe.ts` (`once`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself": all)._
+_Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `packages/core/src/node/carrier.ts` (`addPass`, `removePass`), `packages/core/src/session/hosting.ts` (`createSpaceHostClient`, `readPayAnswer`), `packages/cli/src/host.ts` (`answerSpace`), `packages/cli/src/stripe.ts` (`once`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself": all)._
 
 ### 4.7 Planned: hosts
 
@@ -1066,8 +1130,9 @@ _Source: `packages/core/src/node/host.ts` (`carrySpace`, `spaceSubscription`), `
 > **A reminder before time runs out.** Time paid up front does not renew
 > itself (`renews: false`), so the host reminds the person 14 and 3 days before
 > `paidUntil` and once when the grace period starts. Email is the host's own
-> business: the reference host asks for an address on its pay page
-> (`packages/cli/src/reminders.ts`). The protocol route is Web Push through the carry space (§4.4,
+> business: the reference host takes an address with `…/remind` (§4.5,
+> `packages/cli/src/reminders.ts`), and every device already shows the date
+> it holds. The protocol route is Web Push through the carry space (§4.4,
 > Planned): the home writes a
 > `sys.subscription` with no filter and `purpose: "hosting"` when the person
 > allows it, and the host pushes `{ kind: "hosting", host, paidUntil }`,

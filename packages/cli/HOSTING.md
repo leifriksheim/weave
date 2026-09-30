@@ -40,7 +40,7 @@ WebRTC. It matters only for devices meeting each other.
    - In a home built with `VITE_WEAVE_HOST`, **Keep online**, pay with
      `4242 4242 4242 4242`. The home should say "renews" with the date within
      a minute, and the host's log "paid until".
-   - **Change card or cancel** on the pay page opens Stripe's portal. Cancel,
+   - **Change card or cancel** in the home opens Stripe's portal. Cancel,
      and the webhook for the end of the period should leave the date as is.
    - A space: **Chip in** twice with the one-off price; its date moves twice.
    - Replay a webhook from Stripe's dashboard: the date must not move again.

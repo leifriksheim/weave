@@ -165,8 +165,7 @@ Elsewhere:
   two small dependencies. Never import it from `packages/core` or the apps.
   Other providers need no SDK: Chat Completions is plain `fetch`
   (`packages/cli/src/agent-openai.ts`).
-- `@reown/appkit`, a dev dependency of `packages/cli`, bundled into the host's
-  pay page only (`packages/cli/pay/`). It brings ~250 packages, which fails the
-  bar anywhere near a key; the pay page runs on the host's own address and can
-  reach only the payment a person approves in their wallet. Never import it
-  from `packages/core` or the apps.
+- `qrcode-generator` in `apps/shared` (`apps/shared/src/Payment.tsx`): a QR code
+  for a wallet to scan when paying a host. QR encoding (ISO 18004) is a spec
+  with a long tail; this one has no dependencies, has been released since
+  2014, and is used very widely. Apps only, never `packages/core`.

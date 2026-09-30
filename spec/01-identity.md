@@ -273,21 +273,21 @@ Strings that separate _signed messages_ or _AEAD contexts_ rather than derive
 keys, listed so new labels do not collide with them. _docs_ marks a label used
 by a convention built on the protocol (`packages/core/docs/`), not by it:
 
-| String                                                           | Kind                                             | Defined in                                                    | Part   |
-| ---------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------- | ------ |
-| `weave/space-invite/v1\|<spaceId>\|<did>`                        | Message signed by an invite key                  | `space/space-access.ts:207`                                   | 03     |
-| `weave/space-key-box/v1\|<spaceId>\|<keyId>\|<to>`               | `sealFor` context                                | `space/space-access.ts:205`                                   | 03     |
-| `weave/space-earlier-keys/v1\|<spaceId>\|<keyId>`                | Sealing context                                  | `space/space-access.ts:192`                                   | 03     |
-| `weave/space-membership/v1\|<spaceId>`                           | Sealing context                                  | `space/space-access.ts:194`                                   | 03, 04 |
-| `weave/contact-request\|<spaceId>\|<from>\|<to>`                 | `sealFor` context                                | `node/node.ts:1340`                                           | docs   |
-| `weave/direct/v1\|<spaceId>\|<from>\|<to,…>`                     | Sealing context (the text)                       | `privacy/direct.ts:37`                                        | docs   |
-| `weave/direct/v1\|<spaceId>\|<from>\|<to,…>\|<reader>`           | `sealFor` context (one reader's box)             | `privacy/direct.ts:41`                                        | docs   |
-| `weave/knock/v1\|<doorKey>`                                      | `sealFor` context                                | `doors/doors.ts` (`sealKnock`)                                | 07     |
-| `weave/door-purge/v1\|<topic>\|<nonce>\|<ids>`                   | Signed by a door signing key, checked by a relay | `doors/doors.ts` (`purgeMessage`), `packages/relay/relay.mjs` | 07     |
-| `weave/knock-answer/v1\|<space>\|<account>`                      | Signed by a door signing key                     | `doors/doors.ts` (`signAnswer`)                               | docs   |
-| `weave-peer/v3\|client\|…`, `weave-peer/v3\|server\|…`           | Signed peer-auth messages                        | `network/peer-auth.ts:191,193`                                | 04     |
-| `weave-mesh/v1\|…`                                               | Signed mesh proof                                | `network/peer-auth.ts:315`                                    | 04     |
-| `weave-host/v1\n…`, `weave-host-status/v1\n…`, `weave-pay/v1\n…` | Signed host requests                             | `session/hosting.ts:75,190,192`                               | 06     |
+| String                                                 | Kind                                             | Defined in                                                    | Part   |
+| ------------------------------------------------------ | ------------------------------------------------ | ------------------------------------------------------------- | ------ |
+| `weave/space-invite/v1\|<spaceId>\|<did>`              | Message signed by an invite key                  | `space/space-access.ts:207`                                   | 03     |
+| `weave/space-key-box/v1\|<spaceId>\|<keyId>\|<to>`     | `sealFor` context                                | `space/space-access.ts:205`                                   | 03     |
+| `weave/space-earlier-keys/v1\|<spaceId>\|<keyId>`      | Sealing context                                  | `space/space-access.ts:192`                                   | 03     |
+| `weave/space-membership/v1\|<spaceId>`                 | Sealing context                                  | `space/space-access.ts:194`                                   | 03, 04 |
+| `weave/contact-request\|<spaceId>\|<from>\|<to>`       | `sealFor` context                                | `node/node.ts:1340`                                           | docs   |
+| `weave/direct/v1\|<spaceId>\|<from>\|<to,…>`           | Sealing context (the text)                       | `privacy/direct.ts:37`                                        | docs   |
+| `weave/direct/v1\|<spaceId>\|<from>\|<to,…>\|<reader>` | `sealFor` context (one reader's box)             | `privacy/direct.ts:41`                                        | docs   |
+| `weave/knock/v1\|<doorKey>`                            | `sealFor` context                                | `doors/doors.ts` (`sealKnock`)                                | 07     |
+| `weave/door-purge/v1\|<topic>\|<nonce>\|<ids>`         | Signed by a door signing key, checked by a relay | `doors/doors.ts` (`purgeMessage`), `packages/relay/relay.mjs` | 07     |
+| `weave/knock-answer/v1\|<space>\|<account>`            | Signed by a door signing key                     | `doors/doors.ts` (`signAnswer`)                               | docs   |
+| `weave-peer/v3\|client\|…`, `weave-peer/v3\|server\|…` | Signed peer-auth messages                        | `network/peer-auth.ts:191,193`                                | 04     |
+| `weave-mesh/v1\|…`                                     | Signed mesh proof                                | `network/peer-auth.ts:315`                                    | 04     |
+| `weave-host/v1\n…`, `weave-host-status/v1\n…`          | Signed host requests and statuses                | `session/hosting.ts:78,314`                                   | 06     |
 
 Notes:
 

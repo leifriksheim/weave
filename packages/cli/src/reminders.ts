@@ -3,7 +3,8 @@
  * the protocol's (spec/06-nodes-and-sessions.md, Planned: hosts).
  *
  * Time paid up front — a wallet, or a space's chip-in — doesn't renew by
- * itself, so someone who wants to be told gives an address on the pay page.
+ * itself, so someone who wants to be told gives an address in their home, or
+ * in the app where a space chips in (`remind`).
  * Nothing is sent to it but a link to confirm it (double opt-in), so nobody
  * can sign someone else up. Once confirmed, it gets a reminder 14 and 3 days
  * before the time runs out and one when the grace period starts, each with a
@@ -134,7 +135,7 @@ export function createReminders(options: {
   const whose = (subscription: string) =>
     subscription.startsWith('space:') ? 'the space you chipped in for' : 'your spaces';
   const stopLine = (origin: string, token: string) =>
-    `To get no more of these: ${origin}/pay/email/stop?t=${token}`;
+    `To get no more of these: ${origin}/host/remind/stop?t=${token}`;
 
   return Object.freeze({
     async ask(subscription: string, email: string, origin: string) {
@@ -149,7 +150,7 @@ export function createReminders(options: {
         text: [
           `Someone asked ${name} to remind this address before the time paid for ${whose(subscription)} runs out.`,
           '',
-          `To say yes: ${origin}/pay/email/confirm?t=${token}`,
+          `To say yes: ${origin}/host/remind/confirm?t=${token}`,
           '',
           'If that wasn’t you, ignore this mail: nothing more is sent.',
         ].join('\n'),

@@ -12,10 +12,13 @@
  * is never counted twice.
  *
  * Time is paid up front: a wallet can't be charged again each month, so a
- * payment adds a month or a year to the date, and the pay page offers to add
- * more.
+ * payment adds a month or a year to the date, and a home offers to add more.
  *
- * Plain JSON-RPC over `fetch` (eth_getTransactionReceipt, eth_blockNumber,
+ * The home shows the payment as a link any wallet opens (EIP-681), and the
+ * host watches its address for the transfer (`scan`), so nobody has to tell
+ * it which transaction paid.
+ *
+ * Plain JSON-RPC over `fetch` (eth_getLogs, eth_blockNumber,
  * eth_getBlockByNumber), against any node for the network — a public one,
  * one from a provider, or one's own.
  */
@@ -23,7 +26,7 @@ import { isRecord } from './json.js';
 
 /**
  * What the host takes from a wallet: USDC, sent straight to its own address
- * on one network, for a plan of time paid up front. The pay page shows it.
+ * on one network, for a plan of time paid up front.
  */
 export interface WalletOffer {
   /** The network, as wallets name it (EIP-155): 8453 for Base */
@@ -102,18 +105,28 @@ export interface WalletConfig {
   readonly fetch?: typeof fetch;
 }
 
-/** What a transaction turned out to be */
-export type TransferCheck =
-  | { readonly state: 'waiting' }
-  | { readonly state: 'failed'; readonly reason: string }
-  | { readonly state: 'sent'; readonly amounts: ReadonlyArray<string>; readonly at: number };
+/** A transfer of the token to the host's address, confirmed */
+export interface Transfer {
+  readonly tx: string;
+  /** In the token's smallest unit, as a decimal string */
+  readonly amount: string;
+  /** When its block was made, unix seconds */
+  readonly at: number;
+}
 
 export interface WalletPayments {
   readonly offer: WalletOffer;
   /** A new payment for a plan, marked with an amount that is not in `taken` */
   payment(plan: string, taken: ReadonlySet<string>): WalletPayment;
-  /** What a transaction sent to the host's address in USDC, once confirmed */
-  check(tx: string): Promise<TransferCheck>;
+  /** A payment as a link a wallet opens (EIP-681), and as people read it */
+  request(amount: string): { readonly uri: string; readonly amount: string };
+  /**
+   * The transfers to the host's address in the blocks after `after`, up to
+   * the latest one with enough confirmations; and that block, to start from
+   * next time. From the last hour when `after` is null. At most 2,000 blocks
+   * a call: a later call goes on from there.
+   */
+  scan(after: bigint | null): Promise<{ readonly upTo: bigint; readonly transfers: ReadonlyArray<Transfer> }>;
   /** Until when a plan paid now lasts, counted on from `from` (unix seconds) */
   extend(plan: string, from: number): number;
 }
@@ -133,10 +146,9 @@ interface Log {
   readonly data: string;
 }
 
-interface Receipt {
-  readonly status: string;
+interface MinedLog extends Log {
+  readonly transactionHash: string;
   readonly blockNumber: string;
-  readonly logs: ReadonlyArray<Log>;
 }
 
 const isLog = (value: unknown): value is Log =>
@@ -146,12 +158,23 @@ const isLog = (value: unknown): value is Log =>
   Array.isArray(value.topics) &&
   value.topics.every((topic: unknown) => typeof topic === 'string');
 
-const isReceipt = (value: unknown): value is Receipt =>
+const isMinedLog = (value: unknown): value is MinedLog =>
+  isLog(value) &&
   isRecord(value) &&
-  typeof value.status === 'string' &&
-  typeof value.blockNumber === 'string' &&
-  Array.isArray(value.logs) &&
-  value.logs.every(isLog);
+  typeof value.transactionHash === 'string' &&
+  TX_HASH.test(value.transactionHash) &&
+  typeof value.blockNumber === 'string';
+
+/** Blocks looked at, at most, in one scan; and how far back a first scan looks (an hour of Base's 2 s blocks) */
+const SCAN_BLOCKS = 2000n;
+const FIRST_SCAN_BLOCKS = 1800n;
+
+/** Units of the token as people read them: 4003217 → "4.003217" */
+function unitsText(units: bigint): string {
+  const scale = 10n ** BigInt(USDC_DECIMALS);
+  const fraction = (units % scale).toString().padStart(USDC_DECIMALS, '0').replace(/0+$/, '');
+  return `${units / scale}${fraction ? `.${fraction}` : ''}`;
+}
 
 /** A hex number the node sent, like a block number or a timestamp */
 function quantity(value: unknown): string {
@@ -232,30 +255,43 @@ export function createWalletPayments(config: WalletConfig): WalletPayments {
       throw new Error('Too many payments are open right now; try again in a while');
     },
 
-    async check(tx) {
-      if (!TX_HASH.test(tx)) return { state: 'failed', reason: 'That is not a transaction hash' };
-      const receipt = await rpc('eth_getTransactionReceipt', [tx]);
-      if (!receipt) return { state: 'waiting' };
-      if (!isReceipt(receipt)) throw new Error('The network node: a receipt that does not read as one');
-      if (receipt.status !== '0x1')
-        return { state: 'failed', reason: 'That transaction failed on the network' };
-      const latest = BigInt(quantity(await rpc('eth_blockNumber', [])));
-      if (latest - BigInt(receipt.blockNumber) + 1n < BigInt(confirmations)) return { state: 'waiting' };
-      const amounts = receipt.logs
-        .filter(
-          (log) =>
-            log.address.toLowerCase() === token &&
-            log.topics[0]?.toLowerCase() === TRANSFER_TOPIC &&
-            // topics[2] is the receiver, as a 32-byte word
-            log.topics[2]?.toLowerCase() === `0x${to.slice(2).padStart(64, '0')}`,
-        )
-        .map((log) => BigInt(log.data).toString());
-      if (amounts.length === 0)
-        return { state: 'failed', reason: `That transaction sent no ${offer.symbol} to this host` };
-      const block = await rpc('eth_getBlockByNumber', [receipt.blockNumber, false]);
-      if (!block) return { state: 'waiting' };
-      if (!isRecord(block)) throw new Error('The network node: a block that does not read as one');
-      return { state: 'sent', amounts, at: Number(BigInt(quantity(block.timestamp))) };
+    request(amount) {
+      return {
+        uri: `ethereum:${network.usdc}@${network.chainId}/transfer?address=${config.to}&uint256=${amount}`,
+        amount: `${unitsText(BigInt(amount))} ${offer.symbol} on ${network.chainName}`,
+      };
+    },
+
+    async scan(after) {
+      const latest = BigInt(quantity(await rpc('eth_blockNumber', []))) - BigInt(confirmations - 1);
+      const from = after !== null ? after + 1n : latest > FIRST_SCAN_BLOCKS ? latest - FIRST_SCAN_BLOCKS : 0n;
+      if (from > latest) return { upTo: after ?? latest, transfers: [] };
+      const upTo = from + SCAN_BLOCKS - 1n < latest ? from + SCAN_BLOCKS - 1n : latest;
+      const logs = await rpc('eth_getLogs', [
+        {
+          address: token,
+          // topics[2] is the receiver, as a 32-byte word
+          topics: [TRANSFER_TOPIC, null, `0x${to.slice(2).padStart(64, '0')}`],
+          fromBlock: `0x${from.toString(16)}`,
+          toBlock: `0x${upTo.toString(16)}`,
+        },
+      ]);
+      if (!Array.isArray(logs) || !logs.every(isMinedLog))
+        throw new Error('The network node: logs that do not read as logs');
+      const times = new Map<string, number>();
+      const transfers: Transfer[] = [];
+      for (const log of logs) {
+        if (log.address.toLowerCase() !== token) continue;
+        let at = times.get(log.blockNumber);
+        if (at === undefined) {
+          const block = await rpc('eth_getBlockByNumber', [log.blockNumber, false]);
+          if (!isRecord(block)) throw new Error('The network node: a block that does not read as one');
+          at = Number(BigInt(quantity(block.timestamp)));
+          times.set(log.blockNumber, at);
+        }
+        transfers.push({ tx: log.transactionHash.toLowerCase(), amount: BigInt(log.data).toString(), at });
+      }
+      return { upTo, transfers };
     },
 
     extend(planId, from) {

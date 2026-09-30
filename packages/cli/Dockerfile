@@ -6,8 +6,7 @@
 #
 # (fly.toml next to this file does that for Fly.)
 
-# The build: the CLI bundled to one file, and the pay page's WalletConnect
-# bundle next to it, where the host looks for it (../pay/dist from dist/).
+# The build: the CLI bundled to one file.
 FROM node:22-alpine AS build
 WORKDIR /repo
 # The workspace's lockfile is only valid with every workspace's manifest in
@@ -23,16 +22,15 @@ RUN npm ci --ignore-scripts --workspace @weaveprotocol/cli
 COPY packages/core packages/core
 COPY packages/relay packages/relay
 COPY packages/cli packages/cli
-RUN npm run bundle -w @weaveprotocol/cli && npm run bundle:pay -w @weaveprotocol/cli
+RUN npm run bundle -w @weaveprotocol/cli
 
 # The runtime: Node, `ws` (the bundle's one outside dependency the host uses;
-# node-datachannel is only for `weave connect`), and the two bundles.
+# node-datachannel is only for `weave connect`), and the bundle.
 FROM node:22-alpine
 RUN apk add --no-cache su-exec
 WORKDIR /app
 COPY --from=build /repo/node_modules/ws node_modules/ws
 COPY --from=build /repo/packages/cli/dist/weave.mjs dist/weave.mjs
-COPY --from=build /repo/packages/cli/pay/dist/walletconnect.js pay/dist/walletconnect.js
 
 ENV PORT=8080
 ENV WEAVE_HOST_DATA=/data

@@ -648,13 +648,16 @@ extension included.
 
 **Hosting.** `node.hosting`:
 
-| Call           | Does                                                                                                                                                                                                                                        |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `use(url)`     | Reads the host's description, makes the subscription key and writes the `sys.hosting` record.                                                                                                                                               |
-| `list()`       | Asks each host for its status and hands over the carry space when paid and not carrying, making the carrier first if needed (named after the host's address). At most once a minute per host; a second look waits for a handover in flight. |
-| `payPage(url)` | The host's pay page, with the signed fragment.                                                                                                                                                                                              |
-| `stop(url)`    | Sends `DELETE …/carry` (ignoring failure), removes the carrier and deletes the `sys.hosting` record.                                                                                                                                        |
-| `space(id)`    | The hosts a space names in `std.host`, each asked how the space's own subscription stands, with its pay link (below).                                                                                                                       |
+| Call                                                           | Does                                                                                                                                                                                                                                        |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `use(url)`                                                     | Reads the host's description, makes the subscription key and writes the `sys.hosting` record.                                                                                                                                               |
+| `list()`                                                       | Asks each host for its status and hands over the carry space when paid and not carrying, making the carrier first if needed (named after the host's address). At most once a minute per host; a second look waits for a handover in flight. |
+| `pay(url, plan)`                                               | Asks the host to start one of its plans (`HostingView.plans`): a pay answer, `checkout` (a page to open in a new tab with no opener) or `request` (a payment for a wallet, shown by the app). Call `list()` until the status moves.         |
+| `manage(url)`                                                  | The payment provider's page to change a card or cancel it, as a `checkout` answer.                                                                                                                                                          |
+| `remind(url, email)`                                           | Asks the host to email a reminder before paid time runs out; it mails a link to confirm first.                                                                                                                                              |
+| `stop(url)`                                                    | Sends `DELETE …/carry` (ignoring failure), removes the carrier and deletes the `sys.hosting` record.                                                                                                                                        |
+| `space(id)`                                                    | The hosts a space names in `std.host`, each asked how the space's own subscription stands, with its plans for spaces (below).                                                                                                               |
+| `payForSpace(id, url, plan)`, `remindForSpace(id, url, email)` | The same as `pay` and `remind`, for a space's own subscription at a host it names. Anyone in it may.                                                                                                                                        |
 
 Every device runs `list()` after each reconciliation ([following the account](#following-the-account)).
 A device reaches a host at the socket its description names (`peer`,
@@ -694,9 +697,9 @@ not carry the space or carries it with an older read key. It looks only where
 the space defines `std.host`, so a space held in part is not made to hold it.
 
 `node.hosting.space(id)` does the same at once and returns each host's view:
-its name, key, status, and `pay`, the pay page with `#space=<id>`, which an
-app opens for anyone who wants to chip in. An agent may call it for a space
-it was given.
+its name, key, status, and `plans`, which an app shows anyone who wants to
+chip in, paying with `payForSpace`. An agent may call `space` for a space it
+was given; paying is a person's.
 
 _Source: `packages/core/src/node/node.ts` (`keepSpaceHosts`, `askSpaceHost`, `hosting.space`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself")._
 

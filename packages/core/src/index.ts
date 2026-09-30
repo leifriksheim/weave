@@ -447,12 +447,9 @@ export {
   describeHost,
   signStatus,
   readStatus,
-  payLink,
-  spacePayLink,
-  verifyPayLink,
   createSpaceHostClient,
+  readPayAnswer,
   HOST_DESCRIPTION_PATH,
-  PAY_LINK_SECONDS,
   HostError,
 } from './session/hosting.js';
 export type {
@@ -461,6 +458,8 @@ export type {
   HostStatus,
   SignedStatus,
   HostDescription,
+  HostPlan,
+  PayAnswer,
   HostClient,
   SpaceHostClient,
 } from './session/hosting.js';

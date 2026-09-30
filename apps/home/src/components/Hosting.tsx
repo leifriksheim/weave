@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useSession } from '@weaveprotocol/core/react';
 import { describeHost, type HostDescription } from '@weaveprotocol/core';
 import type { HostingView, P2PNode } from '@weaveprotocol/core/node';
 import { DEFAULT_HOST } from '@weave/app-shared/relay';
+import { Payment, RemindMe } from '@weave/app-shared/Payment';
 import { message } from '../message';
 import { styles, palette } from '../styles';
 
@@ -12,16 +14,16 @@ const TOP_UP_DAYS = 30;
  * "Keep my spaces online": one host, paid for once, carrying every space of
  * the account — without being able to read them.
  *
- * This home knows nothing about how a host is paid (spec/06-nodes-and-sessions.md, Hosts). **Payment**
- * opens the host's own page in a new tab, with a link signed for this
- * subscription; that page takes cards, wallets, whatever the host chose. The
- * home stays in its own tab, and never follows a link the host hands it, so
- * no host can send the person to a lookalike. Coming back to this tab, the
- * list asks the host again — and what the host signs is kept in the registry.
+ * The whole flow is here, not on the host's site (spec/06-nodes-and-sessions.md, Hosts): the host's
+ * plans as buttons, and what it answers, shown by `Payment` — a checkout page
+ * at the payment provider in a new tab, or a payment request for a wallet.
+ * The home never touches a card or a wallet's keys. Coming back to this tab,
+ * the list asks the host again, and what the host signs is kept in the
+ * registry.
  *
- * With a host this build offers (`VITE_WEAVE_HOST`), starting is one button:
- * its name and price, and the pay page opening straight after when it wants
- * paying. Any other host is folded away under "Use another host".
+ * With a host this build offers (`VITE_WEAVE_HOST`), starting is one button,
+ * with its name and price. Any other host is folded away under "Use another
+ * host".
  */
 export function Hosting({ node }: { node: P2PNode }) {
   const offered = DEFAULT_HOST;
@@ -31,6 +33,8 @@ export function Hosting({ node }: { node: P2PNode }) {
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Whether the plans show for a host that is paid already: adding time, or changing plan */
+  const [adding, setAdding] = useState<string | null>(null);
 
   useEffect(() => {
     if (!DEFAULT_HOST) return;
@@ -42,7 +46,7 @@ export function Hosting({ node }: { node: P2PNode }) {
     const load = () =>
       void node.hosting.list().then(setHosts, (reason: unknown) => setError(message(reason)));
     load();
-    // Back from the host's pay page in the other tab: ask again.
+    // Back from a checkout page in the other tab: ask again.
     const back = () => {
       if (document.visibilityState === 'visible') load();
     };
@@ -62,42 +66,37 @@ export function Hosting({ node }: { node: P2PNode }) {
     }
   };
 
-  /**
-   * Starts with a host, and opens its pay page at once when it wants paying.
-   * The tab is opened inside the click, so no popup blocker stops it; the
-   * link follows, or the tab closes when there's nothing to pay.
-   */
-  const start = (url: string, pays: boolean) => {
-    const tab = pays ? window.open('about:blank', '_blank') : null;
-    void act('start', async () => {
-      try {
-        const view = await node.hosting.use(url);
-        setHosts(await node.hosting.list());
-        if (!pays || !view.pays || !needsPaying(view)) return void tab?.close();
-        await openPayPage(view, tab);
-      } catch (reason) {
-        tab?.close();
-        throw reason;
-      }
+  const start = (url: string) =>
+    act('start', async () => {
+      await node.hosting.use(url);
+      setHosts(await node.hosting.list());
     });
-  };
-  const openPayPage = async (host: HostingView, tab: Window | null) => {
-    const link = await node.hosting.payPage(host.url);
-    if (!tab) return void window.open(link, '_blank', 'noopener');
-    // Cut the tab loose first: the host's page can't reach back into this one.
-    tab.opener = null;
-    tab.location.href = link;
-  };
-  const pay = (host: HostingView) => {
+  /** The payment provider's page for a card that renews: opened inside the click, the link following */
+  const manage = (host: HostingView) => {
     const tab = window.open('about:blank', '_blank');
-    void act('pay', async () => {
+    void act('manage', async () => {
       try {
-        await openPayPage(host, tab);
+        const answer = await node.hosting.manage(host.url);
+        if (!('checkout' in answer)) throw new Error("The host's answer isn't a page to open");
+        if (!tab) return void window.open(answer.checkout, '_blank', 'noopener');
+        tab.opener = null;
+        tab.location.href = answer.checkout;
       } catch (reason) {
         tab?.close();
         throw reason;
       }
     });
+  };
+  /** Whether a host's date moved past what it said before: the payment arrived */
+  const paidSince = (host: HostingView) => async () => {
+    const now = await node.hosting.list();
+    const moved =
+      (now.find((known) => known.url === host.url)?.status?.paidUntil ?? 0) > (host.status?.paidUntil ?? 0);
+    if (moved) {
+      setHosts(now);
+      setAdding(null);
+    }
+    return moved;
   };
   const stop = (host: HostingView) =>
     act('stop', async () => {
@@ -106,7 +105,7 @@ export function Hosting({ node }: { node: P2PNode }) {
     });
 
   return (
-    <section style={styles.settingsSection}>
+    <section id="hosting" style={styles.settingsSection}>
       <div>
         <h2 style={{ ...styles.sectionTitle, fontSize: 16, marginBottom: 4 }}>Keep my spaces online</h2>
         <p style={{ color: palette.ink.muted, fontSize: 14, lineHeight: 1.5 }}>
@@ -125,11 +124,7 @@ export function Hosting({ node }: { node: P2PNode }) {
               {offer.name}
               {offer.free ? ' · free' : offer.price ? ` · ${offer.price}` : ''}
             </span>
-            <button
-              onClick={() => start(offered, !offer.free && offer.pay !== undefined)}
-              disabled={busy !== null}
-              style={styles.addButton}
-            >
+            <button onClick={() => void start(offered)} disabled={busy !== null} style={styles.addButton}>
               {busy === 'start' ? 'Starting…' : 'Keep online'}
             </button>
           </div>
@@ -149,7 +144,7 @@ export function Hosting({ node }: { node: P2PNode }) {
             style={{ ...styles.input, flex: 1 }}
           />
           <button
-            onClick={() => start(address.trim(), false)}
+            onClick={() => void start(address.trim())}
             disabled={busy !== null || !address.trim()}
             style={styles.addButton}
           >
@@ -165,14 +160,23 @@ export function Hosting({ node }: { node: P2PNode }) {
               {host.name} · {describe(host)}
             </span>
             <span style={{ display: 'flex', gap: 8 }}>
-              {host.pays && (
+              {host.status?.renews && (
                 <button
-                  onClick={() => pay(host)}
+                  onClick={() => manage(host)}
                   disabled={busy !== null}
-                  data-variant={needsPaying(host) ? undefined : 'quiet'}
-                  style={needsPaying(host) ? styles.addButton : styles.smallButton}
+                  data-variant="quiet"
+                  style={styles.smallButton}
                 >
-                  {busy === 'pay' ? 'Opening…' : 'Payment'}
+                  {busy === 'manage' ? 'Opening…' : 'Change card or cancel'}
+                </button>
+              )}
+              {plansFor(host).length > 0 && !needsPaying(host) && (
+                <button
+                  onClick={() => setAdding(adding === host.url ? null : host.url)}
+                  data-variant="quiet"
+                  style={styles.smallButton}
+                >
+                  {adding === host.url ? 'Close' : 'Add time'}
                 </button>
               )}
               <button
@@ -185,8 +189,15 @@ export function Hosting({ node }: { node: P2PNode }) {
               </button>
             </span>
           </div>
-          {host.pays && needsPaying(host) && host.price && (
-            <p style={styles.errorHint}>{host.price}, paid on the host's own page.</p>
+          {plansFor(host).length > 0 && (needsPaying(host) || adding === host.url) && (
+            <Payment
+              plans={plansFor(host)}
+              start={(plan) => node.hosting.pay(host.url, plan)}
+              paid={paidSince(host)}
+            />
+          )}
+          {host.reminds && host.status && !host.status.renews && host.status.paidUntil > 0 && (
+            <RemindMe remind={(email) => node.hosting.remind(host.url, email)} />
           )}
           {host.status?.quota !== undefined && (host.status.bytes ?? 0) >= host.status.quota && (
             <p style={styles.errorHint}>
@@ -206,6 +217,56 @@ export function Hosting({ node }: { node: P2PNode }) {
       {error && <p style={{ ...styles.errorHint, color: palette.accent.danger }}>{error}</p>}
     </section>
   );
+}
+
+/** Days before time paid up front runs out that the home says so at the top */
+const DUE_DAYS = 14;
+
+/**
+ * The reminder every device can give without email: each holds the host's
+ * signed `paidUntil`, so the home says when time paid up front runs out soon,
+ * or has run out, above everything else.
+ */
+export function HostingDue() {
+  const session = useSession();
+  const [due, setDue] = useState<ReadonlyArray<HostingView>>([]);
+  useEffect(() => {
+    void session.node.hosting.list().then(
+      (hosts) =>
+        setDue(
+          hosts.filter((host) => {
+            const status = host.status;
+            if (!status || status.renews || status.paidUntil === 0) return false;
+            return status.state === 'grace' || status.paidUntil - Date.now() / 1000 < DUE_DAYS * 24 * 3600;
+          }),
+        ),
+      () => {},
+    );
+  }, [session]);
+  return due.map((host) => {
+    const until = new Date((host.status?.paidUntil ?? 0) * 1000).toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'long',
+    });
+    return (
+      <div key={host.url} style={{ ...styles.errorBox, marginTop: 0, marginBottom: 16 }}>
+        <p style={styles.error}>
+          {host.status?.state === 'grace'
+            ? `The time paid at ${host.name} ran out on ${until}`
+            : `The time paid at ${host.name} runs out on ${until}`}
+        </p>
+        <p style={styles.errorHint}>
+          Your spaces stay on your devices either way; the host keeps its copy online while it is paid.{' '}
+          <a href="#hosting">Add time</a>
+        </p>
+      </div>
+    );
+  });
+}
+
+/** The plans a person may choose now: not a card that renews while one already does */
+function plansFor(host: HostingView) {
+  return host.plans.filter((plan) => !(plan.renews && host.status?.renews));
 }
 
 /** Not paid, running out, or time paid up front that ends within a month */
@@ -240,7 +301,9 @@ function describe(host: HostingView): string {
     case 'grace':
       return `payment ran out on ${until}${spaces}${offline}`;
     default:
-      return host.pays ? `not paid for yet${offline}` : `this host isn't taking new accounts${offline}`;
+      return host.plans.length
+        ? `not paid for yet${offline}`
+        : `this host isn't taking new accounts${offline}`;
   }
 }
 

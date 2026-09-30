@@ -1360,15 +1360,15 @@ members pay for it. A subscription is a key the account makes and keeps in its
 registry (`sys.hosting`), so every device signs as it; `node.hosting.use(url)`
 starts one, and whichever device notices it is paid hands the host the carry
 space. Every call to the host is signed over method, path, time and body.
-The home knows nothing about payment ([06 — Nodes, sessions and apps](spec/06-nodes-and-sessions.md), Hosts): a host describes itself at
-`/.well-known/weave-host` (like a Nostr relay's NIP-11 document), signs every
-status it gives — the home keeps the latest in the registry as the person's
-proof — and takes payments on its own pay page, which `node.hosting.payPage(url)`
-links to with a signature by the subscription key, valid for an hour at that
-host only. On the page: Stripe Checkout and the Customer Portal (card, Apple
-Pay, Google Pay), whose webhook moves a paid-until date taken from Stripe's own
-billing period; and USDC from a crypto wallet straight to the host's address,
-checked on the network by the host. Past the date: a grace period, then the host drops
+The home runs the whole flow and never handles a payment ([06 — Nodes, sessions and apps](spec/06-nodes-and-sessions.md), Hosts): a host
+describes itself and its plans at `/.well-known/weave-host` (like a Nostr
+relay's NIP-11 document), and signs every status it gives — the home keeps the
+latest in the registry as the person's proof. Asked to start a plan
+(`node.hosting.pay(url, plan)`), the host answers with Stripe Checkout's page
+(card, Apple Pay, Google Pay), whose webhook moves a paid-until date taken from
+Stripe's own billing period; or with a request for USDC from a crypto wallet
+straight to the host's address, which the home shows as a QR code and a link,
+and the host sees arrive on the network. Past the date: a grace period, then the host drops
 the spaces and deletes its copy. With a bucket (`WEAVE_S3_*`) the host's disk
 is only a cache — every carried space and the subscription list live in the
 bucket, sealed, and a new machine starts from it. The account home's Settings
@@ -1394,7 +1394,7 @@ That starts everything, with coloured output per part, and Ctrl-C stops it all:
 | liquid | http://localhost:5190 | Liquid, a standalone app for one job: liquid democracy (below)                                                               |
 | home   | http://localhost:5174 | The account home it connects to                                                                                              |
 | node   | port 8787             | An always-on node that is also the relay; a throwaway identity on first run (`packages/cli/.env.dev`, data in `.weave-dev/`) |
-| host   | http://localhost:8788 | `weave host`, what "Keep my spaces online" uses, with its pay page at `/pay`; settings in `packages/cli/.env.host.dev`       |
+| host   | http://localhost:8788 | `weave host`, what "Keep my spaces online" uses and what spaces chip in for; settings in `packages/cli/.env.host.dev`        |
 | stripe | —                     | Only when you add a Stripe test key (below): forwards Stripe's webhooks to the host                                          |
 
 `apps/example/.env.development` and `apps/home/.env.development` point the app and home
@@ -1419,15 +1419,16 @@ header of its own, and the example lists it with `fromMiniApp`
 `apps/` that exports a `MiniApp`, plus one line in the example's `APPS`.
 
 **Trying hosting and payments.** In the home: Settings, **Keep my spaces
-online**, **Keep online** (the dev host is filled in), then **Payment**, which
-opens the host's pay page in a new tab. What you can pay with there:
+online**, **Keep online** (the dev host is filled in), then one of its plans,
+right there. What you can pay with:
 
 - **A browser wallet, on by default.** Payments go to Base Sepolia, a test
   network: test money only. In MetaMask (or any browser wallet), get test ETH
   for the fee from a Base Sepolia faucet (Coinbase's, or Alchemy's) and test
-  USDC from faucet.circle.com (choose Base Sepolia). Pay, and the pay page
-  says "Payment received"; back in the home's tab, the host shows "paid until"
-  and takes your spaces. To see payments arrive, set your own address as
+  USDC from faucet.circle.com (choose Base Sepolia). Choose the wallet plan,
+  then **Pay with this browser's wallet** (or scan the QR code with a phone
+  wallet); within a minute the home says "Payment received", shows "paid
+  until", and the host takes your spaces. To see payments arrive, set your own address as
   `WEAVE_WALLET_ADDRESS` in `packages/cli/.env.host.local`.
 - **A card, in Stripe's test mode.** In `packages/cli/.env.host.local`, add
   `STRIPE_SECRET_KEY=sk_test_…` and the price ids of a monthly and a yearly
@@ -1435,10 +1436,6 @@ opens the host's pay page in a new tab. What you can pay with there:
   dashboard in test mode). With the Stripe CLI installed, `npm run dev`
   forwards Stripe's webhooks to the host by itself. Pay with card
   4242 4242 4242 4242, any future date, any CVC.
-- **Phone wallets, by QR code.** Add `WEAVE_WALLETCONNECT_PROJECT_ID` (free at
-  dashboard.reown.com, with localhost allowed in the project) to
-  `packages/cli/.env.host.local`; `npm run dev` builds what the pay page needs. The
-  wallet has to be on Base Sepolia too.
 
 `npm test` covers the same paths without any of this: a fake network, fake
 Stripe calls, and the home's side against a real host.

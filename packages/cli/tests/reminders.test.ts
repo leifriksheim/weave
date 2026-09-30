@@ -9,11 +9,18 @@ import assert from 'node:assert/strict';
 
 import type { Subscription, SubscriptionState } from '../../core/src/node/host.js';
 import { createP256Provider } from '../../core/src/identity/crypto-p256.js';
-import { newSubscriptionSeed, payLink, subscriptionKey } from '../../core/src/session/hosting.js';
+import {
+  createHostClient,
+  createSpaceHostClient,
+  describeHost,
+  HostError,
+  newSubscriptionSeed,
+  subscriptionKey,
+} from '../../core/src/session/hosting.js';
 import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
 import { createReminders, isEmail, mailerFromEnv, type Mailer } from '../src/reminders.js';
 import { startHost } from '../src/host.js';
-import { at, bodyOf, urlOf } from './helpers/json.js';
+import { bodyOf, urlOf } from './helpers/json.js';
 
 const DAY = 24 * 3600;
 const ORIGIN = 'https://host.example';
@@ -22,7 +29,7 @@ function inbox() {
   const mails: Array<{ to: string; subject: string; text: string }> = [];
   const mailer: Mailer = { send: async (mail) => void mails.push(mail) };
   const link = (kind: 'confirm' | 'stop') =>
-    new URL(new RegExp(`https?://\\S+/pay/email/${kind}\\?t=\\S+`).exec(mails.at(-1)?.text ?? '')![0]);
+    new URL(new RegExp(`https?://\\S+/host/remind/${kind}\\?t=\\S+`).exec(mails.at(-1)?.text ?? '')![0]);
   return { mails, mailer, link };
 }
 
@@ -145,13 +152,13 @@ describe('reminders by email', () => {
   });
 });
 
-describe('reminders on the pay page', () => {
+describe('reminders asked of a host', () => {
   const open: Array<{ close(): Promise<void> }> = [];
   afterEach(async () => {
     await Promise.all(open.splice(0).map((running) => running.close()));
   });
 
-  test('asked for with a pay link, confirmed from the mail', async () => {
+  test('asked for by the subscription, or for a space by anyone; confirmed from the mail', async () => {
     const box = inbox();
     const provider = createP256Provider();
     const served = await startHost({
@@ -174,37 +181,30 @@ describe('reminders on the pay page', () => {
     });
     open.push(served);
     const base = `http://127.0.0.1:${served.port}`;
+    assert.equal((await describeHost(base)).remind, true, 'it says it sends them');
     const key = await subscriptionKey(newSubscriptionSeed());
-    const params = new URLSearchParams(
-      new URL(await payLink(`${base}/pay`, served.node.did, key)).hash.slice(1),
-    );
-    const authorization = `WeavePay s=${params.get('s')}, at=${params.get('at')}, sig=${params.get('sig')}`;
-    const call = (path: string, body?: unknown) =>
-      fetch(`${base}/pay/api${path}`, {
-        method: body ? 'POST' : 'GET',
-        headers: { authorization, ...(body ? { 'content-type': 'application/json' } : {}) },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      });
+    const client = createHostClient(base, served.node.did, key);
 
-    assert.equal(at(await (await call('')).json(), 'reminders'), 'off');
-    assert.equal((await call('/email', { email: 'nope' })).status, 400);
-    assert.equal(
-      at(await (await call('/email', { email: 'me@example.com' })).json(), 'reminders'),
-      'waiting',
+    await assert.rejects(
+      client.remind('nope'),
+      (error: unknown) => error instanceof HostError && error.status === 400,
     );
+    await client.remind('me@example.com');
     assert.equal(box.mails.length, 1);
-
     const confirm = box.link('confirm');
     const page = await fetch(`${base}${confirm.pathname}${confirm.search}`);
     assert.equal(page.status, 200);
     assert.match(await page.text(), /Done/);
-    assert.equal(at(await (await call('')).json(), 'reminders'), 'on');
-    // Without a pay link, nobody may ask for someone else's subscription.
-    const stranger = await fetch(`${base}/pay/api/email`, {
+
+    // Only the subscription asks for its own; a space's anyone may.
+    const stranger = await fetch(`${base}/host/subscriptions/${encodeURIComponent(key.did)}/remind`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: 'x@example.com' }),
     });
     assert.equal(stranger.status, 401);
+    await createSpaceHostClient(base, served.node.did).remind('club', 'club@example.com');
+    assert.equal(box.mails.length, 2);
+    assert.match(box.mails[1]!.text, /the space you chipped in for/);
   });
 });

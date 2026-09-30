@@ -117,16 +117,14 @@ export function walletFromEnv(env: NodeJS.ProcessEnv): WalletPayments | null {
 /**
  * How the host presents itself, from WEAVE_HOST_NAME, WEAVE_HOST_PRICE (text
  * for people; default from the wallet prices), WEAVE_HOST_TERMS (an address),
- * WEAVE_HOST_URL (its public https:// address, where Stripe sends people back
- * to; default from each request) and WEAVE_WALLETCONNECT_PROJECT_ID (the pay
- * page then reaches every wallet, not only the browser's).
+ * and WEAVE_HOST_URL (its public https:// address, where Stripe sends people
+ * back to and reminder mails link to; default from each request).
  */
 export function presentationFromEnv(env: NodeJS.ProcessEnv): {
   name?: string;
   price?: string;
   terms?: string;
   publicUrl?: string;
-  walletConnectProjectId?: string;
 } {
   const url = env.WEAVE_HOST_URL?.trim();
   if (url && !/^https?:\/\/[^/]+\/?$/.test(url))
@@ -136,9 +134,6 @@ export function presentationFromEnv(env: NodeJS.ProcessEnv): {
     ...(env.WEAVE_HOST_PRICE ? { price: env.WEAVE_HOST_PRICE } : {}),
     ...(env.WEAVE_HOST_TERMS ? { terms: env.WEAVE_HOST_TERMS } : {}),
     ...(url ? { publicUrl: url.replace(/\/$/, '') } : {}),
-    ...(env.WEAVE_WALLETCONNECT_PROJECT_ID
-      ? { walletConnectProjectId: env.WEAVE_WALLETCONNECT_PROJECT_ID }
-      : {}),
   };
 }
 

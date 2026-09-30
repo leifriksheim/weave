@@ -452,9 +452,13 @@ export async function remoteNode(port: MessagePortLike): Promise<P2PNode> {
       hosting: namespace<NodeHosting>(handle, 'hosting', {
         list: true,
         use: true,
-        payPage: true,
+        pay: true,
+        manage: true,
+        remind: true,
         stop: true,
         space: true,
+        payForSpace: true,
+        remindForSpace: true,
       }),
       notifications: namespace<NodeNotifications>(handle, 'notifications', {
         list: true,

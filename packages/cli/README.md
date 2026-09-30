@@ -136,15 +136,13 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   Settings, with a Copy button. `--allow` works on a paying host too.
 - The host's key is made once, in `--data` (`host-key`, readable by you alone).
   A new key is a new host: every account would hand its spaces over again.
+- **No pages of its own.** The host lists its plans in its description, and
+  the account home (or the app, for a space) shows them and pays: a card
+  opens Stripe's own checkout page, a wallet gets a payment request as a QR
+  code and a link. Stripe sends people back to `/host/paid`, which says done.
 - Point Stripe's webhook at `https://<host>/host/billing/webhook`, sending
-  `checkout.session.completed` and `invoice.paid`.
-- Every host serves its own **pay page** at `/pay`. Homes know nothing about
-  payment: they open that page in a new tab with a link signed for the
-  subscription, and read the status the host signs. Say who you are with
-  `WEAVE_HOST_NAME`, `WEAVE_HOST_PRICE` (text, like "$4 a month"),
-  `WEAVE_HOST_TERMS` and `WEAVE_HOST_URL` (your public https:// address,
-  where Stripe sends people back to). It's all at
-  `/.well-known/weave-host`.
+  `checkout.session.completed` and `invoice.paid`. Plan labels come from the
+  prices in Stripe ("$4 a month, by card").
 - Crypto wallets pay with no company in between: USDC on Base, sent straight
   to your address. Next to Stripe, or instead of it:
 
@@ -153,21 +151,18 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   ```
 
-  The pay page asks the person's browser wallet (MetaMask, Coinbase Wallet,
-  Rabby…) to send the plan's price plus a fraction of a cent that marks it as
-  theirs; the host reads the network to see it arrive, then adds a month or a
-  year. Time is paid up front. `WEAVE_WALLET_NETWORK=base-sepolia` tries it
+  The home shows a payment request for the plan's price plus a fraction of a
+  cent that marks it as theirs: a QR code for a phone wallet, a link, and one
+  click for a wallet in the browser (MetaMask, Coinbase Wallet, Rabby…). The
+  host reads the network every 10 s while a payment is open, sees it arrive,
+  then adds a month or a year. Time is paid up front. `WEAVE_WALLET_NETWORK=base-sepolia` tries it
   with test USDC; `WEAVE_WALLET_RPC` points at a network node of your own or a
   provider's (default: the network's public one). Keep the address's private
   key off the host — it only needs to receive.
 
-- Phone wallets and every other wallet, by QR code: set
-  `WEAVE_WALLETCONNECT_PROJECT_ID` (free at dashboard.reown.com) and build the
-  WalletConnect bundle once with `npm run bundle:pay` in `cli/` (the published
-  package has it built).
 - **Spaces pay for themselves too.** A community names the host in its space
-  (`std.host`), and anyone in it chips in: `https://<host>/pay#space=<id>`,
-  no sign-in. Each payment adds its time to what is paid already, from a
+  (`std.host`), and anyone in it chips in from the app, no sign-in at the
+  host. Each payment adds its time to what is paid already, from a
   wallet, or by card once `STRIPE_ONCE_PRICE_MONTHLY` and/or
   `STRIPE_ONCE_PRICE_YEARLY` name one-off prices in your Stripe dashboard
   (a card that renews stays for accounts). Members' devices hand the host the
@@ -180,8 +175,8 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   for that account; what it carries stays and keeps syncing.
 - **Reminders by email**, for time paid up front: set `WEAVE_MAIL_API_KEY`
   and `WEAVE_MAIL_FROM` (Resend's API; `WEAVE_MAIL_URL` for another that takes
-  the same JSON), and `WEAVE_HOST_URL` for the links. The pay page then offers
-  "Remind me by email". Nothing but a link to confirm reaches an address until
+  the same JSON), and `WEAVE_HOST_URL` for the links. The home and the apps
+  then offer "Email me before it runs out". Nothing but a link to confirm reaches an address until
   it is confirmed; then a mail 14 and 3 days before the time runs out and one
   when the grace period starts, each with a link that stops them.
 - With a bucket, the disk is only a cache: lose it, start on the same key and
@@ -432,7 +427,7 @@ space anywhere leaves it everywhere.
 - **Hosting, before it's offered to anyone.** The checklist, what it costs
   to run and the breach plan are in [HOSTING.md](HOSTING.md): a real Stripe
   test-mode run, and a decision on tax, are still to do.
-- **The pay page.**
+- **Paying.**
   - A real Base Sepolia wallet payment.
   - A Lightning route (BTCPay), and gasless USDC (EIP-3009).
 - **TURN.** Run coturn with `use-auth-secret` and quotas, and set

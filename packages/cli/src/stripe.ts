@@ -127,8 +127,36 @@ export function createStripeBilling(config: StripeConfig): Billing {
     return { subscription: ours, until, ...(typeof customer === 'string' ? { customer } : {}) };
   }
 
+  /** A price as Stripe keeps it, as people read it: "$4 a month" */
+  async function priceText(price: string): Promise<string | null> {
+    const found = await stripe('GET', `/v1/prices/${encodeURIComponent(price)}`);
+    const { unit_amount: cents, currency, recurring } = found;
+    if (typeof cents !== 'number' || typeof currency !== 'string') return null;
+    const amount = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+      minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    }).format(cents / 100);
+    const interval = isRecord(recurring) ? recurring.interval : undefined;
+    return typeof interval === 'string' ? `${amount} a ${interval}` : amount;
+  }
+
   const billing: Billing = {
     plans: plans.map(({ id, label }) => ({ id, label })),
+
+    async labels() {
+      const found: Record<string, string> = {};
+      for (const [prefix, list] of [
+        ['', plans],
+        ['once-', oncePlans],
+      ] as const) {
+        for (const plan of list) {
+          const text = await priceText(plan.price).catch(() => null);
+          if (text) found[`${prefix}${plan.id}`] = text;
+        }
+      }
+      return found;
+    },
 
     async checkout({ subscription, plan, returnUrl, customer }) {
       const price = plans.find((known) => known.id === plan)?.price;

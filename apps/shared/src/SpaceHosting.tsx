@@ -4,6 +4,7 @@ import type { HostDescription, SpaceHostingView } from '@weaveprotocol/core';
 import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
 import { host as hostSchema } from '@weaveprotocol/core/schemas';
 import { DEFAULT_HOST } from './relay';
+import { Payment, RemindMe } from './Payment';
 import { styles, palette } from './styles';
 
 /** Who may choose the space's host: `std.host` asks for this permission */
@@ -13,7 +14,7 @@ const DAY = 24 * 3600;
 /**
  * Keeping a space online by paying for it together, in any app: the hosts the
  * space names in `std.host`, how long each is paid for, and a Chip in button
- * anyone may use. Whoever may manage it picks the host, the build's own
+ * anyone may use, which pays right here (`Payment`). Whoever may manage it picks the host, the build's own
  * (`VITE_WEAVE_HOST`) in one click, any other by its address. Members' devices
  * hand the host the space's pass once it is paid, so it keeps the space
  * without reading it, and reach it over its socket.
@@ -28,6 +29,8 @@ export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable:
   const [adding, setAdding] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  /** The host being chipped in for, by address */
+  const [paying, setPaying] = useState<string | null>(null);
   const defined = collections.some((c) => c.name === hostSchema.name && c.version !== null);
   // A space that never named a host has none to ask about.
   const shown = defined ? hosts : [];
@@ -40,7 +43,7 @@ export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable:
   }, [node, spaceId, defined]);
   useEffect(() => {
     look();
-    // Back from the pay page in another tab: the date has moved.
+    // Back from a checkout page in another tab: the date has moved.
     const again = () => document.visibilityState === 'visible' && look();
     document.addEventListener('visibilitychange', again);
     return () => document.removeEventListener('visibilitychange', again);
@@ -109,19 +112,38 @@ export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable:
             <strong style={{ color: palette.ink.strong }}>{view.name}</strong>
             <div style={{ fontSize: 13, color: palette.ink.muted }}>{standing(view)}</div>
           </div>
-          {view.pay && (
+          {view.plans.length > 0 && (
             <button
-              data-variant="primary"
+              data-variant={paying === view.url ? 'quiet' : 'primary'}
               style={styles.smallButton}
-              onClick={() => window.open(view.pay!, '_blank', 'noopener')}
+              onClick={() => setPaying(paying === view.url ? null : view.url)}
             >
-              Chip in
+              {paying === view.url ? 'Close' : 'Chip in'}
             </button>
           )}
           {mayChoose && (
             <button data-variant="quiet" style={styles.smallButton} onClick={() => void remove(view.url)}>
               Stop using
             </button>
+          )}
+          {paying === view.url && (
+            <div style={{ flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <Payment
+                plans={view.plans}
+                start={(plan) => node.hosting.payForSpace(spaceId, view.url, plan)}
+                paid={async () => {
+                  const now = await node.hosting.space(spaceId);
+                  const moved =
+                    (now.find((known) => known.url === view.url)?.status?.paidUntil ?? 0) >
+                    (view.status?.paidUntil ?? 0);
+                  if (moved) setHosts(now);
+                  return moved;
+                }}
+              />
+              {view.reminds && (
+                <RemindMe remind={(email) => node.hosting.remindForSpace(spaceId, view.url, email)} />
+              )}
+            </div>
           )}
         </article>
       ))}

@@ -122,17 +122,16 @@ import {
 import {
   createHostClient,
   createSpaceHostClient,
-  spacePayLink,
   describeHost,
   hostPeerAddress,
   HOSTING_COLLECTION,
   HostError,
   newSubscriptionSeed,
-  payLink,
   readStatus,
   subscriptionKey,
   type HostClient,
   type HostDescription,
+  type HostPlan,
   type HostStatus,
   type Hosting,
   type SignedStatus,
@@ -1250,8 +1249,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         name: description.name,
         status,
         live: true,
-        pays: description.pay !== undefined,
-        ...(description.price ? { price: description.price } : {}),
+        plans: plansFor(description, 'account'),
+        reminds: description.remind === true,
       };
     } catch (error) {
       return {
@@ -1259,11 +1258,16 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         name: hosting.name ?? new URL(hosting.url).host,
         status: kept,
         live: false,
-        pays: false,
+        plans: [],
+        reminds: false,
         error: error instanceof Error ? error.message : String(error),
       };
     }
   }
+
+  /** The plans a host describes for an account's subscription, or a space's own */
+  const plansFor = (description: HostDescription, who: 'account' | 'space'): ReadonlyArray<HostPlan> =>
+    (description.plans ?? []).filter((plan) => Array.isArray(plan.for) && plan.for.includes(who));
 
   /** Every device keeps its hosts carrying: after the registry changes, ask each once more */
   async function keepHosted(): Promise<void> {
@@ -1336,7 +1340,15 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       const description = await describeHost(named.url);
       // A host whose key changed since the space chose it is not the host it chose.
       if (named.did && named.did !== description.did)
-        return { url: named.url, name, host: null, status: null, pay: null, error: 'The host’s key changed' };
+        return {
+          url: named.url,
+          name,
+          host: null,
+          status: null,
+          plans: [],
+          reminds: false,
+          error: 'The host’s key changed',
+        };
       const client = createSpaceHostClient(named.url, description.did, provider);
       let { status } = await client.status(spaceId);
       // Paid, or a free host that hasn't let it lapse, as for an account's subscription.
@@ -1350,21 +1362,34 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         if (!status.carrying || (pass.read && status.readKey !== currentReadKey(pass)))
           ({ status } = await client.hand(spaceId, pass));
       }
-      const pay =
-        description.pay === undefined
-          ? null
-          : spacePayLink(new URL(description.pay, `${named.url}/`).toString(), spaceId);
-      return { url: named.url, name: named.name ?? description.name, host: description.did, status, pay };
+      return {
+        url: named.url,
+        name: named.name ?? description.name,
+        host: description.did,
+        status,
+        plans: plansFor(description, 'space'),
+        reminds: description.remind === true,
+      };
     } catch (error) {
       return {
         url: named.url,
         name,
         host: null,
         status: null,
-        pay: null,
+        plans: [],
+        reminds: false,
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /** A client for a host a space names, checked to be the host it chose */
+  async function spaceHostClient(spaceId: string, url: string) {
+    const named = (await namedHosts(spaceId)).find((known) => known.url === url);
+    if (!named) throw new Error('This space doesn’t use the host at that address');
+    const description = await describeHost(named.url);
+    if (named.did && named.did !== description.did) throw new Error('The host’s key changed');
+    return createSpaceHostClient(named.url, description.did, provider);
   }
 
   /** Hands the hosts a space names its pass, when they were paid and don't carry it with its key yet */
@@ -1468,17 +1493,24 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return viewHosting(record, true);
     },
 
-    async payPage(url: string) {
-      const known = await requireHosting(url);
-      const description = await describeKnown(known);
-      if (description.pay === undefined) throw new Error('This host takes no payments');
-      const page = checkAddress(new URL(description.pay, `${known.url}/`).toString(), 'A pay page');
-      return payLink(
-        page.toString(),
-        known.host,
-        await subscriptionKey(base64UrlDecode(known.seed), provider),
-        provider,
-      );
+    async pay(url: string, plan: string) {
+      return (await hostClient(await requireHosting(url))).client.pay(plan);
+    },
+
+    async manage(url: string) {
+      return (await hostClient(await requireHosting(url))).client.manage();
+    },
+
+    async remind(url: string, email: string) {
+      await (await hostClient(await requireHosting(url))).client.remind(email);
+    },
+
+    async payForSpace(spaceId: string, url: string, plan: string) {
+      return (await spaceHostClient(spaceId, url)).pay(spaceId, plan);
+    },
+
+    async remindForSpace(spaceId: string, url: string, email: string) {
+      await (await spaceHostClient(spaceId, url)).remind(spaceId, email);
     },
 
     async stop(url: string) {
@@ -2526,7 +2558,11 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       hosting: Object.freeze({
         list: person('look at hosting'),
         use: person('start using a host'),
-        payPage: person('pay for hosting'),
+        pay: person('pay for hosting'),
+        manage: person('pay for hosting'),
+        remind: person('pay for hosting'),
+        payForSpace: person('pay for hosting'),
+        remindForSpace: person('pay for hosting'),
         stop: person('stop using a host'),
         // Open to an agent in a space it was given, as reading the space is.
         space: async (spaceId: string) => {
