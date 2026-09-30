@@ -13,7 +13,8 @@ import { nameOf, type People } from '../../derive/people';
 import { palette } from '../../styles';
 
 /**
- * "@" in a text box: suggests the people of the space as you type after it,
+ * "@" in a text box: suggests the people of the space as you type after it
+ * (a member who gave no name here by the tail of their DID),
  * and works out whom a text mentions when it is sent, for `mentions` on a
  * `std.message`, `std.comment` or `std.post`. A mention is whoever was picked
  * after "@", or whoever's full name was typed after one. Names are shown
@@ -23,22 +24,23 @@ export function useMentions(options: {
   readonly draft: string;
   readonly setDraft: (draft: string) => void;
   readonly people: People;
+  /** Every member, by DID: those with no name here are offered too, by the tail of their DID */
+  readonly members?: ReadonlyArray<string>;
   /** You: never suggested, never mentioned */
   readonly me: string | null;
   readonly input: RefObject<HTMLInputElement | null>;
 }) {
-  const { draft, setDraft, people, me, input } = options;
+  const { draft, setDraft, people, members = [], me, input } = options;
+  const everyone = [...new Set([...people.keys(), ...members])]
+    .filter((did) => did !== me)
+    .map((did) => ({ did, name: nameOf(did, people) }));
   const picked = useRef(new Map<string, string>());
   const [caret, setCaret] = useState(0);
   const [choice, setChoice] = useState(0);
   const typed = /(?:^|\s)@([^\s@]*)$/.exec(draft.slice(0, caret));
   const query = typed ? (typed[1] ?? '').toLowerCase() : null;
   const suggestions =
-    query === null
-      ? []
-      : [...people.values()]
-          .filter((person) => person.did !== me && person.name.toLowerCase().includes(query))
-          .slice(0, 6);
+    query === null ? [] : everyone.filter((person) => person.name.toLowerCase().includes(query)).slice(0, 6);
 
   // Straight after the new text is in the box, before the next key lands: later, and it lands in the wrong place.
   const placeCaret = useRef<number | null>(null);
@@ -95,9 +97,7 @@ export function useMentions(options: {
         new RegExp(`(?:^|\\s)@${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s.,!?:;)])`, 'i').test(
           text,
         );
-      const typedNames = [...people.keys()]
-        .filter((did) => did !== me)
-        .map((did) => [nameOf(did, people), did] as const);
+      const typedNames = everyone.map(({ did, name }) => [name, did] as const);
       const mentions = [
         ...new Set(
           [...picked.current, ...typedNames].filter(([label]) => named(label)).map(([, did]) => did),
