@@ -18,6 +18,7 @@ import {
   INSTRUCT,
   SCHEDULES,
   checkCron,
+  activity as activityCollection,
   matching,
   rule as ruleCollection,
   ruleOf,
@@ -193,6 +194,9 @@ export function RuleBuilder({
           );
         await node.collections.define(space.id, definition);
       }
+      // Where the agent or bot says it is working on what set the rule off, for apps to show; not needed to run.
+      if (agentDoes && !has(activityCollection.name) && roleHolds(access?.role, DEFINE))
+        await node.collections.define(space.id, activityCollection).catch(() => {});
       const body: Rule = {
         name: shownName.trim() || 'Rule',
         ...(timed ? { every: every.trim() } : { when: compile(when), picked: when }),

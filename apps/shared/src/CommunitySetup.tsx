@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { DEFINE, MANAGE, describeHost, roleHolds } from '@weaveprotocol/core';
 import type { HostDescription } from '@weaveprotocol/core';
 import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
-import { profile } from '@weaveprotocol/core/schemas';
+import { activity, profile } from '@weaveprotocol/core/schemas';
 import { DEFAULT_HOST } from './relay';
 import { Modal } from './Modal';
 import { Benefit, FeatureIcon, Glyph, StatusPill } from './Feature';
@@ -306,8 +306,11 @@ export function AddBotDialog({
     setBusy(true);
     setProblem(null);
     try {
-      // Profiles first: a bot says on its own that it is one, which is how "Done by" finds it.
-      if (!profiles && mayDefine) await node.collections.define(spaceId, profile).catch(() => {});
+      // Profiles first: a bot says on its own that it is one, which is how "Done by" finds it;
+      // and activity, where it says what it is working on, for apps to show.
+      for (const definition of [profile, activity])
+        if (mayDefine && !collections.some((c) => c.name === definition.name && c.version !== null))
+          await node.collections.define(spaceId, definition).catch(() => {});
       const { bot } = await node.hosting.startBot(spaceId, host.url, {
         name: called,
         ...(chosen ? { role: chosen } : {}),

@@ -258,6 +258,27 @@ _Source: `packages/core/src/schemas/library/community.ts` (`host`)._
 to be a certain way, or at set times, and what each rule did. Described in
 [rules.md](rules.md).
 
+**Activity.** `std.activity` is someone at work on a record, for apps to show
+while it lasts: "My bot is working on it…" under a message, a spinner on a
+task. Anyone may write one, only about their own work, and apps show it as
+that account's word.
+
+| Collection     | Body                                                                                                        | Links              | Rules                                                  |
+| -------------- | ----------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------ |
+| `std.activity` | **`state`** `working` \| `waiting` \| `done` \| `failed`; `label` string ≤ 120; **`at`** when it came to it | `about` → any, one | edit, delete: creator; `onePer: [@author, link:about]` |
+
+One per account per record: writing another about the same record is its
+next version, so the work moves from `waiting` to `working` to `done` or
+`failed` in one record. A `working` or `waiting` activity whose `at` is more
+than five minutes old (`ACTIVITY_STALE_SECONDS`) must be shown as over: its
+writer may have gone away mid-way. `setActivity(node, space, key, state,
+label?)` writes one, and `activeNow(body)` says whether one is going on now.
+A bot's rule runner marks what set each rule off: `waiting` when queued,
+`working` when it starts, then `done` or `failed`
+([rules.md](rules.md#running)).
+
+_Source: `packages/core/src/schemas/rules.ts` (`activity`, `setActivity`, `activeNow`), `packages/cli/src/bot-runner.ts` (`runRules`), `apps/example/src/activity.ts`, `apps/example/src/components/apps/Chat.tsx` (`Working`). Tests: `packages/core/tests/rule-runners.test.ts` ("std.activity"), `packages/cli/tests/agent-rules.test.ts` ("while a rule runs")._
+
 **Bots.** A bot is an account of its own that people invite to their spaces
 as a member. The protocol does not tell bots and people apart, and has no way
 to: an account is an account. Disclosing is a convention. A bot says so with

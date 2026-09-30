@@ -114,6 +114,13 @@ the record it added (`made`). A run is one per rule per record (`onePer:
 however often, and by however many devices, it is looked at; it is the rule's
 history for anyone in the space.
 
+A runner that asks a model, which takes seconds, also says so where people
+look: its `std.activity` about the record that set the rule off (or the
+rule, for one set off by the time) is `waiting` while it is queued behind
+another, `working` while it runs, then `done` or `failed`. The space must
+keep `std.activity`; where it doesn't, nothing is shown and the rule runs as
+before ([standard library](standard-library.md)).
+
 Nothing a rule added sets off a rule: a record some run names in `made` is
 left alone. Without that, "when a message is added, add a message" would
 answer itself forever, and two rules could answer each other. Nor does

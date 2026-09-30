@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { openTrigger, ruleContext, triggerPrompt, writerInstructs } from '../src/agent-rules.js';
 import { offered } from '../src/mcp.js';
+import { runRules } from '../src/bot-runner.js';
 import { createNode } from '../../core/src/node/node.js';
 import type { P2PNode } from '../../core/src/node/types.js';
 import { createIdentityManager } from '../../core/src/identity/identity-manager.js';
@@ -24,7 +25,16 @@ import { fileSpend, spendFor } from '../src/agent-chat.js';
 import { discloseBot, nameBot } from '../src/agent.js';
 import { deriveVaultKeyBytes } from '../../core/src/identity/account-vault.js';
 import { community } from '../../core/src/space/presets.js';
-import { direct, message, profile, task, type Rule } from '../../core/src/schemas/index.js';
+import {
+  activity,
+  direct,
+  message,
+  profile,
+  rule,
+  ruleRun,
+  task,
+  type Rule,
+} from '../../core/src/schemas/index.js';
 
 const nodes: P2PNode[] = [];
 after(async () => {
@@ -91,6 +101,64 @@ describe('a rule that asks the model', () => {
     assert.match(context, /"setOffIn"[\s\S]*"schema"/, 'the collection that set it off, in full');
     assert.doesNotMatch(context, /"collections"[^\]]*"schema"/, 'the rest in a line each');
     assert.ok(looked.trimEnd().endsWith('Post a short win in #general'), 'the rule’s words still last');
+  });
+});
+
+describe('while a rule runs', () => {
+  test('the runner says on what set it off that it is working, then done', async () => {
+    const node = await member(createFakeHub({ latencyMs: 1 }), 95);
+    const { id: space } = await node.spaces.create({ name: 'Club', ...community, visibility: 'private' });
+    for (const definition of [message, rule, ruleRun, activity])
+      await node.collections.define(space, definition);
+    const body: Rule = {
+      name: 'Answer',
+      when: { query: { collection: message.name } },
+      then: { kind: 'ask', text: 'Answer them' },
+      since: new Date(Date.now() - 1000).toISOString(),
+    };
+    await node.records.put(space, rule.name, body);
+    const stateOf = async (key: string) => {
+      const [found] = await node.records.linked<{ state: string }>(space, key, {
+        rel: 'about',
+        collection: activity.name,
+      });
+      return found?.body?.state ?? null;
+    };
+    let seen: string | null = null;
+    let asked = '';
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-run-'));
+    const stop = runRules({
+      node,
+      account: node.did,
+      model: 'scripted',
+      price: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+      think: () => async () => {
+        seen = await stateOf(asked);
+        return {
+          model: 'scripted',
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: 'Answered.', citations: null }],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        };
+      },
+      spend: spendFor(fileSpend(dir), 'x'),
+      dailyCap: 1,
+      capEach: null,
+      log: () => {},
+    });
+    try {
+      asked = (await node.records.put(space, message.name, { text: 'Hello?' })).key;
+      await until(async () => (await stateOf(asked)) === 'done', 10_000, 'the activity to say done');
+      assert.equal(seen, 'working', 'working while the model thinks');
+    } finally {
+      stop();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
