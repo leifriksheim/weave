@@ -12,7 +12,7 @@
  * what other people wrote reaches the model marked as data, and every model
  * call is priced and counted against a daily cap before the next one starts.
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type Anthropic from '@anthropic-ai/sdk';
 import type {
@@ -142,6 +142,8 @@ export function fileSpend(dir: string, now: () => Date = () => new Date()): Spen
     async add(usd, who) {
       const spent = await read();
       const by = who === undefined ? spent.by : { ...spent.by, [who]: (spent.by[who] ?? 0) + usd };
+      // Made on the first spend: a bot a host runs has no folder for it until then.
+      await mkdir(dir, { recursive: true, mode: 0o700 });
       await writeFile(file, `${JSON.stringify({ day: localDay(now()), usd: spent.usd + usd, by })}\n`, {
         mode: 0o600,
       });

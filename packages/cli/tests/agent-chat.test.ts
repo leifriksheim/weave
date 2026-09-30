@@ -273,4 +273,13 @@ describe('weave agent', () => {
     now = new Date(2026, 8, 30, 0, 30);
     assert.equal(await spend.today(), 0);
   });
+
+  test('makes its folder on the first spend, as a bot a host runs has none yet', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-agent-'));
+    temporary.push(dir);
+    const spend = fileSpend(path.join(dir, 'agent'));
+    assert.equal(await spend.today(), 0);
+    await spend.add(0.1, 'did:key:zSomeone');
+    assert.equal(await spend.today('did:key:zSomeone'), 0.1);
+  });
 });

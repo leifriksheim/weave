@@ -191,8 +191,9 @@ export function createHostedBots(options: {
           const spend = {
             today: (who?: string) => own.today(who),
             add: async (usd: number, who?: string) => {
-              await own.add(usd, who);
+              // The fund first: what was spent is charged even if the bot's own count fails.
               if (space) await options.charge?.(space, usd, kept.did);
+              await own.add(usd, who);
             },
           };
           runners.set(
