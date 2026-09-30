@@ -336,9 +336,15 @@ describe('a bot', () => {
     await admin.records.put(space, rule.name, mentionsBot(bot.did));
     const mine = running(admin, admin.did);
     const theirs = running(bot, bot.did);
-    await settle(400);
+    // Waited for, not slept on: the rule reaches the bot over the network, which takes longer under load.
+    await until(
+      () => theirs.names.at(-1)?.[0] === 'Answer when mentioned',
+      6000,
+      'the bot to run what names it',
+    );
+    // Now both nodes hold the rule, so what doesn't run is worth checking.
+    await settle(200);
     assert.deepEqual(mine.names.at(-1) ?? [], []);
-    assert.deepEqual(theirs.names.at(-1) ?? [], ['Answer when mentioned'], 'a bot runs what names it');
     const others = running(bot, 'did:key:zDnaeSomeoneElse');
     await settle(200);
     assert.deepEqual(others.names.at(-1) ?? [], []);

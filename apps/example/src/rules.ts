@@ -336,9 +336,6 @@ export function ideas(
   for (const collection of live) {
     const thing = noun(collections, collection.name);
     const fields = fieldsFor(collections, collection.name);
-    const targets = addable(collections, collection.name).filter(
-      (t) => t.collection.name !== collection.name,
-    );
     // Another collection that belongs under this one by a link naming it, as votes do under a poll
     const counted = attachable(live, collection.name).find(
       (a) =>
@@ -348,21 +345,6 @@ export function ideas(
       const many = noun(collections, counted.collection.name, true);
       const count = { collection: counted.collection.name, rel: counted.rel, op: 'atLeast' as const };
       const yes = fields.find((f) => f.kind === 'yesno');
-      // Something added under it by a link that names it, like a message in a channel
-      const under = targets.find((t) => t.links[0] && t.collection.links[t.links[0]]?.to !== '*');
-      if (under)
-        found.push({
-          title: `Say so under ${article(thing)} ${thing} once it has 100 ${many}`,
-          rule: {
-            name: `Busy ${plural(thing)}`,
-            picked: { collection: collection.name, clauses: [], count: { ...count, value: 100 } },
-            then: addAction(
-              under.collection.name,
-              `“{title}” just passed {count} ${many} 🎉`,
-              under.links[0],
-            ),
-          },
-        });
       found.push(
         yes
           ? {
