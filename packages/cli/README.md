@@ -177,7 +177,7 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   paying host, no limit on a free one; 0 is none). Every status says what
   they take, and the home shows it. At the limit the host takes no new space
   for that account; what it carries stays and keeps syncing.
-- **Bots.** With `WEAVE_HOST_BOTS=1` and `ANTHROPIC_API_KEY`, the host runs
+- **Bots.** With `WEAVE_HOST_BOTS=1` and a model's key, the host runs
   bots for the spaces it carries: an admin adds one from the app ("Set up this
   community", Add a bot), the host makes its account in `--data`'s `bots/`
   and joins with the invite, and it runs the space's rules that name it while
@@ -185,7 +185,11 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   fund at `WEAVE_BOT_MARKUP` times what the host pays (default 1.5); on a
   free host bots cost nothing. `WEAVE_BOT_MODEL` (default `claude-sonnet-5-5`) and
   `WEAVE_BOT_DAILY_CAP` (dollars a day each, default 1) set what they think
-  with and may spend. The host
+  with and may spend. The key is `ANTHROPIC_API_KEY`; or, with
+  `WEAVE_BOT_PROVIDER=openai`, `OPENAI_API_KEY` and any Chat Completions server
+  (`WEAVE_BOT_BASE_URL`, default OpenAI's), naming the model. A model whose
+  price isn't built in needs `WEAVE_BOT_PRICE`, dollars per million tokens
+  like `1.25/10`, as `weave agent --price` takes it. The host
   holds each bot's keys, so it reads what the bot can read: the app says so.
 - **Reminders by email**, for time paid up front: set `WEAVE_MAIL_API_KEY`
   and `WEAVE_MAIL_FROM` (Resend's API; `WEAVE_MAIL_URL` for another that takes

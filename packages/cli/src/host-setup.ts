@@ -16,7 +16,8 @@ import { openFsDirectory } from './fs-directory.js';
 import type { Billing } from './host.js';
 import { createStripeBilling } from './stripe.js';
 import { createWalletPayments, isNetworkName, NETWORKS, type WalletPayments } from './wallet.js';
-import { priceOf, streamingThink } from './agent-chat.js';
+import { parsePrice, priceOf, streamingThink } from './agent-chat.js';
+import { openAIThink } from './agent-openai.js';
 import type { BotModel } from './hosted-bots.js';
 
 /** Where a host keeps its data unless told: `~/.weave-host` */
@@ -198,31 +199,55 @@ export function checkExposure(options: {
 
 /**
  * Bots the host runs for the spaces it carries, when WEAVE_HOST_BOTS=1: they
- * think with the host's own key (ANTHROPIC_API_KEY) and WEAVE_BOT_MODEL
- * (default claude-sonnet-5-5), each spends WEAVE_BOT_DAILY_CAP dollars a day
- * at most (default 1), and what they spend is taken from their community's
- * fund (`fundFromEnv`). None otherwise.
+ * think with the host's own key and WEAVE_BOT_MODEL, each spends
+ * WEAVE_BOT_DAILY_CAP dollars a day at most (default 1), and what they spend
+ * is taken from their community's fund (`fundFromEnv`). None otherwise.
+ *
+ * WEAVE_BOT_PROVIDER is `anthropic` (the default: ANTHROPIC_API_KEY, model
+ * claude-sonnet-5-5) or `openai`, for any server that speaks Chat
+ * Completions (OPENAI_API_KEY, WEAVE_BOT_BASE_URL, default OpenAI's; the
+ * model is named). A model whose price isn't known here needs
+ * WEAVE_BOT_PRICE, dollars per million tokens like `1.25/10`, as
+ * `weave agent --price` takes it: the daily cap and the fund are counted in it.
  */
 export async function botsFromEnv(
   env: NodeJS.ProcessEnv,
   data: string,
+  fetch: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<{ folder: string; model: BotModel } | null> {
   if (env.WEAVE_HOST_BOTS !== '1') return null;
-  const apiKey = env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) throw new Error('WEAVE_HOST_BOTS needs ANTHROPIC_API_KEY: the bots think with the host’s key');
-  const name = env.WEAVE_BOT_MODEL?.trim() || 'claude-sonnet-5-5';
-  const price = priceOf(name);
-  if (!price) throw new Error(`WEAVE_BOT_MODEL: no price is known for ${name}, and the daily cap needs one`);
+  const provider = env.WEAVE_BOT_PROVIDER?.trim() || 'anthropic';
+  if (provider !== 'anthropic' && provider !== 'openai')
+    throw new Error(`WEAVE_BOT_PROVIDER is anthropic or openai, not "${provider}"`);
+  const name = env.WEAVE_BOT_MODEL?.trim() || (provider === 'anthropic' ? 'claude-sonnet-5-5' : '');
+  if (!name) throw new Error('WEAVE_BOT_PROVIDER=openai needs WEAVE_BOT_MODEL: gpt-5.5, deepseek-v4-pro, …');
+  const priceText = env.WEAVE_BOT_PRICE?.trim();
+  const price = priceText ? parsePrice(priceText) : priceOf(name);
+  if (priceText && !price)
+    throw new Error(`WEAVE_BOT_PRICE is dollars per million tokens, like 1.25/10, not "${priceText}"`);
+  if (!price)
+    throw new Error(
+      `WEAVE_BOT_PRICE: no price is known for ${name}, and the daily cap and the fund need one. Give dollars per million tokens, input/output, like 1.25/10.`,
+    );
   const dailyCap = Number(env.WEAVE_BOT_DAILY_CAP ?? '1');
   if (!Number.isFinite(dailyCap) || dailyCap <= 0)
     throw new Error(`WEAVE_BOT_DAILY_CAP must be dollars a day, like 1, not "${env.WEAVE_BOT_DAILY_CAP}"`);
+  const folder = path.join(data, 'bots');
+  if (provider === 'openai') {
+    const baseUrl = env.WEAVE_BOT_BASE_URL?.trim() || 'https://api.openai.com/v1';
+    const apiKey = env.OPENAI_API_KEY?.trim() ?? '';
+    // A server on this machine may ask for no key; OpenAI's always does.
+    if (!apiKey && !isLoopback(new URL(baseUrl).hostname))
+      throw new Error(`WEAVE_BOT_PROVIDER=openai needs OPENAI_API_KEY for ${baseUrl}`);
+    const think = openAIThink({ baseUrl, apiKey, write: () => {}, fetch });
+    return { folder, model: { name, price, dailyCap, plain: true, think: () => think } };
+  }
+  const apiKey = env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) throw new Error('WEAVE_HOST_BOTS needs ANTHROPIC_API_KEY: the bots think with the host’s key');
   // The SDK is loaded only when bots run: it is most of the bundle.
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey });
-  return {
-    folder: path.join(data, 'bots'),
-    model: { name, price, dailyCap, think: () => streamingThink(client, () => {}) },
-  };
+  return { folder, model: { name, price, dailyCap, think: () => streamingThink(client, () => {}) } };
 }
 
 /**

@@ -35,7 +35,7 @@ import {
 } from '../../core/src/session/hosting.js';
 import { startHost } from '../src/host.js';
 import { createStripeBilling, verifyStripeSignature } from '../src/stripe.js';
-import { allowList, checkExposure, walletFromEnv } from '../src/host-setup.js';
+import { allowList, botsFromEnv, checkExposure, walletFromEnv } from '../src/host-setup.js';
 import { createWalletPayments, NETWORKS, toUnits } from '../src/wallet.js';
 import { createMemoryBlobStore } from '../../core/src/storage/blob/memory.js';
 import { createFakeHub, type FakeHub } from '../../core/tests/helpers/fake-transport.js';
@@ -796,6 +796,53 @@ describe('bots a host runs', () => {
       body: JSON.stringify({ name: 'x', invite: 'y' }),
     });
     assert.equal(response.status, 404);
+  });
+
+  test('from the env: bots think with Anthropic, or with any Chat Completions server, at a known price', async () => {
+    const env = { WEAVE_HOST_BOTS: '1' };
+    assert.equal(await botsFromEnv({}, '/data'), null, 'none unless asked for');
+    await assert.rejects(botsFromEnv(env, '/data'), /ANTHROPIC_API_KEY/);
+    const openai = { ...env, WEAVE_BOT_PROVIDER: 'openai' };
+    await assert.rejects(botsFromEnv(openai, '/data'), /needs WEAVE_BOT_MODEL/);
+    await assert.rejects(botsFromEnv({ ...openai, WEAVE_BOT_MODEL: 'gpt-5.5' }, '/data'), /WEAVE_BOT_PRICE/);
+    await assert.rejects(
+      botsFromEnv({ ...openai, WEAVE_BOT_MODEL: 'gpt-5.5', WEAVE_BOT_PRICE: 'lots' }, '/data'),
+      /dollars per million tokens/,
+    );
+    await assert.rejects(
+      botsFromEnv({ ...openai, WEAVE_BOT_MODEL: 'gpt-5.5', WEAVE_BOT_PRICE: '1/8' }, '/data'),
+      /OPENAI_API_KEY/,
+    );
+
+    const asked: Array<{ url: string; auth: string | null; body: unknown }> = [];
+    const bots = await botsFromEnv(
+      { ...openai, WEAVE_BOT_MODEL: 'gpt-5.5', WEAVE_BOT_PRICE: '1/8', OPENAI_API_KEY: 'sk-test' },
+      '/data',
+      async (input, init) => {
+        asked.push({
+          url: urlOf(input),
+          auth: new Headers(init?.headers).get('authorization'),
+          body: JSON.parse(bodyOf(init)),
+        });
+        return Response.json({
+          model: 'gpt-5.5',
+          choices: [{ message: { role: 'assistant', content: 'Done' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1_000_000, completion_tokens: 0 },
+        });
+      },
+    );
+    assert.equal(bots?.folder, path.join('/data', 'bots'));
+    assert.deepEqual(bots?.model.price, { input: 1, output: 8, cacheWrite: 1, cacheRead: 1 });
+    assert.equal(bots?.model.plain, true, 'no thinking or fallbacks asked of it');
+    const reply = await bots.model.think()({
+      model: 'gpt-5.5',
+      max_tokens: 100,
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    assert.equal(asked[0]?.url, 'https://api.openai.com/v1/chat/completions');
+    assert.equal(asked[0]?.auth, 'Bearer sk-test');
+    assert.equal(at(asked[0]?.body, 'model'), 'gpt-5.5');
+    assert.equal(reply.stop_reason, 'end_turn');
   });
 });
 

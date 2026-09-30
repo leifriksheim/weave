@@ -36,6 +36,8 @@ export interface BotModel {
   readonly think: () => Think;
   /** Dollars a day each bot may spend */
   readonly dailyCap: number;
+  /** Only the model's plain API: no thinking or fallbacks, at a provider other than Anthropic */
+  readonly plain?: boolean;
 }
 
 /** What a host keeps about a bot it runs */
@@ -202,6 +204,7 @@ export function createHostedBots(options: {
               think: options.model.think,
               model: options.model.name,
               ...(options.model.price ? { price: options.model.price } : {}),
+              ...(options.model.plain ? { plain: true } : {}),
               spend,
               dailyCap: options.model.dailyCap,
               // A quarter of the day for each person who sets it off, as `weave agent --bot` does.
