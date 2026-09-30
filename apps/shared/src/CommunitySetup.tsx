@@ -10,6 +10,15 @@ import { styles, palette } from './styles';
 const SERVER_GUIDE =
   'https://github.com/leifriksheim/weave/blob/main/packages/cli/README.md#always-on-on-a-server';
 const HIDDEN_KEY = 'weave-community-setup-hidden';
+/**
+ * How the CLI is run where this app is built, from the connect command
+ * (`VITE_WEAVE_CONNECT`): `npx @weaveprotocol/cli`, or in this repo
+ * `npm run weave --`, whose `--` hands the flags after it to the CLI, not npm.
+ */
+const CLI = (import.meta.env.VITE_WEAVE_CONNECT ?? 'npx @weaveprotocol/cli connect').replace(
+  /\s+connect$/,
+  '',
+);
 
 /**
  * What an admin sets a community up with, at the top of its screen: keeping
@@ -17,14 +26,14 @@ const HIDDEN_KEY = 'weave-community-setup-hidden';
  * helper with an account of its own, holding a role here like any member).
  * Each step says when it is done. Only those who may manage the space see it.
  *
- * `cli` is how the CLI is run where this app is built: `npx @weaveprotocol/cli`,
- * or in this repo `npm run weave --`. `onAutomations` opens the space's
- * automations, where a bot is told what to do.
+ * `cli` is how the CLI is run, when not the build's own (`CLI`).
+ * `onAutomations` opens the space's automations, where a bot is told what to
+ * do.
  */
 export function CommunitySetup({
   spaceId,
   writable,
-  cli = 'npx @weaveprotocol/cli',
+  cli = CLI,
   onAutomations,
 }: {
   spaceId: string;

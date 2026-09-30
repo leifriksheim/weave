@@ -35,12 +35,6 @@ import { useBots } from '../bots';
 import { PersonScopeProvider } from './Person';
 import { markSeen, seenAt, totalOf, unreadOf, useSeen, useUnread, type Unread } from '../seen';
 
-/** How the CLI is run where this app is built: what "Add a bot" tells an admin to type */
-const CLI = (import.meta.env.VITE_WEAVE_CONNECT ?? 'npx @weaveprotocol/cli connect').replace(
-  /\s+connect$/,
-  '',
-);
-
 /**
  * How it works, under the hood: the records apps write, how they point at
  * each other, asking of them, and how they reach other devices. Nothing is
@@ -315,7 +309,6 @@ export function SpaceView({
                 <CommunitySetup
                   spaceId={space.id}
                   writable={space.writable}
-                  cli={CLI}
                   onAutomations={() => setView({ kind: 'automations' })}
                 />
               )}
