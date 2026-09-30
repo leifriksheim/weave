@@ -742,7 +742,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         port: { type: 'string', default: process.env.PORT ?? '8787' },
         host: { type: 'string' },
         data: { type: 'string', default: process.env.WEAVE_HOST_DATA ?? defaultHostData() },
-        free: { type: 'boolean' },
+        free: { type: 'boolean', default: process.env.WEAVE_HOST_FREE === '1' },
         allow: { type: 'string', multiple: true },
       },
     });

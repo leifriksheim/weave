@@ -1,0 +1,53 @@
+# Your own host on Fly: `weave host` for you (and your family), and nobody else.
+# It keeps your spaces online and restores them to a new device, and can't read
+# them, like any host. It holds no recovery code and no account key.
+#
+# Your account's DID is in the account home, under Settings, with a Copy button.
+# Change `app` to a name of your own, then, from the repository root:
+#
+#   fly launch --no-deploy --copy-config --config packages/cli/fly.self.toml --name my-weave
+#   fly volumes create host_data --size 1 --region ams --config packages/cli/fly.self.toml
+#   fly secrets set --config packages/cli/fly.self.toml WEAVE_HOST_ALLOW=did:key:zDnae…
+#   fly deploy . --config packages/cli/fly.self.toml
+#
+# Then in the account home: Settings, Keep my spaces online, Use another host,
+# and paste https://my-weave.fly.dev. Every device of yours reaches it from then on.
+# WEAVE_HOST_ALLOW takes several DIDs, comma separated.
+
+app = "my-weave"
+primary_region = "ams"
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  WEAVE_HOST_NAME = "My Weave host"
+  # Nothing to pay: every subscription of the accounts in WEAVE_HOST_ALLOW counts as paid.
+  WEAVE_HOST_FREE = "1"
+
+# The host's key and what it carries. Lose it and your devices hand everything over again.
+[mounts]
+  source = "host_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Always on: that's what it's for.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.http_options]
+    idle_timeout = 900
+
+  [[http_service.checks]]
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

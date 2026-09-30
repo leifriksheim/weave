@@ -178,7 +178,32 @@ weave host --host 0.0.0.0 --port 8787 --data /var/lib/weave-host
   bucket, and every subscription and space comes back.
 - Put it behind something that terminates TLS (Caddy does it in two lines).
   The account home offers it under **Keep my spaces online** when built with
-  `VITE_WEAVE_HOST=https://<host>`.
+  `VITE_WEAVE_HOST=https://<host>`, and every app built with it looks there
+  for an account's registry, so a new device restores from the recovery code
+  alone.
+- Devices reach it at the socket its description names (`"peer": "/peer"`),
+  as soon as the account or a space uses it: nothing to configure in the apps.
+
+## Your own host
+
+To keep your own spaces online, run a host for yourself rather than a node
+that holds your account: `weave host --free` limited to your account. It
+carries your spaces sealed, like any host, so the server never holds your
+recovery code or a key to your spaces, and the account home uses it like any
+other host.
+
+```bash
+weave host --free --host 0.0.0.0 --allow did:key:zDnae…   # behind TLS
+```
+
+On Fly, `fly.self.toml` does it (the commands are at its top): set
+`WEAVE_HOST_ALLOW` to your account's DID (Settings, under your name), deploy,
+then in the account home choose **Keep my spaces online**, **Use another
+host**, and paste its address. `WEAVE_HOST_FREE=1` stands for `--free`, so the
+image needs no flags. A few dollars a month on a small machine.
+
+`weave run` is still there for a node that acts as your account (writes, runs
+rules): it needs the account unlocked on the server, a host never does.
 
 ## Agents
 
