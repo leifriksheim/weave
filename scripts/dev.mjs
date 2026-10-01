@@ -110,7 +110,15 @@ const children = [
   start(
     'node',
     process.execPath,
-    ['--env-file=packages/cli/.env.dev', ...fromSource, 'packages/cli/src/main.ts', 'run', '--create'],
+    // Browsers reach it directly, so it meets nobody through relays.
+    [
+      '--env-file=packages/cli/.env.dev',
+      ...fromSource,
+      'packages/cli/src/main.ts',
+      'run',
+      '--create',
+      '--no-relays',
+    ],
     root,
   ),
   start(

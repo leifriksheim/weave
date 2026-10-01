@@ -4,10 +4,13 @@
  * It opens every space the account holds, serves sockets for browsers and
  * other nodes to dial in, and keeps looking for spaces added while it runs — by
  * a CLI command against the same folder, by a browser pointed at it, or by
- * pairing. That is the whole job. It is a peer with uptime, not a server with
+ * pairing. Given relays, it also meets the account's other devices through
+ * them, over WebRTC, so a fresh account on a laptop finds its spaces with
+ * nothing pointed at it. That is the whole job. It is a peer with uptime, not a server with
  * authority: everything that arrives passes the same gates it would anywhere.
  */
 import { createNode, type P2PNode } from '@weaveprotocol/core';
+import { enableWebRTC } from './agent.js';
 import type { Unlocked } from './home.js';
 import { errorCode } from './json.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
@@ -18,6 +21,8 @@ export interface DaemonOptions {
   readonly host?: string;
   /** Other always-on nodes to hold sockets to, `ws(s)://host:port/peer` */
   readonly nodes?: ReadonlyArray<string>;
+  /** Relays to meet devices on, over WebRTC. None, or WebRTC that won't load, and peers reach it over sockets only. */
+  readonly relays?: ReadonlyArray<string>;
   /** How often to look for spaces added or left elsewhere. Default 5000 ms. */
   readonly rescanMs?: number;
   readonly log?: (line: string) => void;
@@ -32,6 +37,18 @@ export interface Daemon {
 export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const log = options.log ?? (() => {});
   const inbound = createInboundPeers();
+  // WebRTC is a native module: a single-file binary doesn't carry it, and is reached over sockets instead.
+  const relays = options.relays?.length
+    ? await enableWebRTC().then(
+        () => options.relays ?? [],
+        (error: unknown) => {
+          log(
+            `no WebRTC here (${error instanceof Error ? error.message : String(error)}), so no relays: peers reach this node over sockets`,
+          );
+          return [];
+        },
+      )
+    : [];
 
   const node = await createNode({
     signer: options.unlocked.signer,
@@ -40,9 +57,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     // space the account joins, on any device, is served here too.
     accountKey: options.unlocked.accountKey,
     contactKey: options.unlocked.contactKey,
-    // No relays: WebRTC needs a browser. Peers reach this node over sockets.
     network: {
       transports: inbound.transports,
+      ...(relays.length ? { relays } : {}),
       ...(options.nodes?.length ? { nodes: options.nodes } : {}),
     },
   });
@@ -105,7 +122,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     throw error;
   }
-  log(`${node.did} listening on port ${served.port}`);
+  log(
+    `${node.did} listening on port ${served.port}${relays.length ? `, meeting devices at ${relays.join(', ')}` : ''}`,
+  );
 
   return {
     node,

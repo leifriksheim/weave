@@ -26,8 +26,11 @@ import {
   publicKeyToDid,
   P256_MULTICODEC,
   createP256Provider,
+  DEFINE,
+  roleHolds,
   type P2PNode,
 } from '@weaveprotocol/core';
+import { profile } from '@weaveprotocol/core/schemas';
 import { grantSigner, type Grant } from '@weaveprotocol/core/session';
 import { acceptAgentLink, checkAgentGrant } from '@weaveprotocol/core/session';
 import { base64UrlDecode } from '@weaveprotocol/core';
@@ -64,7 +67,7 @@ function configuredHosts(): string[] {
  * WebRTC, which Node doesn't have: the same API over libdatachannel. Loaded
  * only here — it is a native module, and the other commands don't need it.
  */
-async function enableWebRTC(): Promise<void> {
+export async function enableWebRTC(): Promise<void> {
   if (typeof globalThis.RTCPeerConnection === 'function') return;
   const { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } =
     await import('node-datachannel/polyfill');
@@ -234,20 +237,25 @@ export async function forgetAgent(home: string): Promise<void> {
 /**
  * Says a bot is one, in a space whose apps keep profiles: its `std.profile`
  * there gets `bot: true`. A convention between apps, not something the
- * protocol checks. False while the space keeps no `std.profile`: there apps
- * can't tell the bot from a person, and its name has to say it.
+ * protocol checks. A bot whose role may add collections adds `std.profile`
+ * where it is missing, as an app does when it starts a hosted bot. False
+ * while the space keeps none: there apps can't tell the bot from a person,
+ * or offer it under "Done by", and its name has to say it.
  */
 export async function discloseBot(node: P2PNode, space: string): Promise<boolean> {
   const collections = await node.collections.list(space);
-  if (!collections.some((c) => c.name === 'std.profile' && c.version !== null)) return false;
-  const mine = (await node.records.list(space, { collection: 'std.profile' })).find(
+  if (!collections.some((c) => c.name === profile.name && c.version !== null)) {
+    if (!roleHolds((await node.spaces.access(space)).role, DEFINE)) return false;
+    await node.collections.define(space, profile);
+  }
+  const mine = (await node.records.list(space, { collection: profile.name })).find(
     (record) => record.root === node.did && !record.deleted,
   );
   const body = mine && isRecord(mine.body) ? mine.body : {};
   if (body.bot === true) return true;
   await (mine
     ? node.records.update(space, mine.key, { ...body, bot: true })
-    : node.records.put(space, 'std.profile', { bot: true }));
+    : node.records.put(space, profile.name, { bot: true }));
   return true;
 }
 

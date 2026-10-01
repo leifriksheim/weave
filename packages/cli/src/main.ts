@@ -106,7 +106,7 @@ Usage:
   weave whoami
   weave spaces  list | create | invite | join | leave | status   [--flags]
   weave records list | get | put | update | delete               [--flags]
-  weave run [--port 8787] [--host 127.0.0.1] [--node wss://…/peer] [--create]
+  weave run [--port 8787] [--host 127.0.0.1] [--node wss://…/peer] [--no-relays] [--create]
   weave host [--port 8787] [--host 127.0.0.1] [--data DIR] [--free] [--allow did:key:…]
   weave connect <code> [--name NAME] [--relay wss://…] [--no-configure]
   weave disconnect
@@ -188,6 +188,15 @@ async function withNode(globals: Globals, work: (node: P2PNode) => Promise<unkno
   });
   try {
     process.stdout.write(`${JSON.stringify(await work(node), null, 2)}\n`);
+  } catch (error) {
+    // Commands work offline, on what this folder has seen; a space made in a browser arrives by `weave run`.
+    if (error instanceof Error && error.message.startsWith('Unknown space'))
+      throw new Error(
+        `${error.message}. This computer knows only the spaces it has seen: \`weave run\` fetches the rest from ` +
+          'your other devices, a browser among them, while one is open. Then try again.',
+        { cause: error },
+      );
+    throw error;
   } finally {
     await node.close();
   }
@@ -729,6 +738,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         port: { type: 'string', default: process.env.PORT ?? '8787' },
         host: { type: 'string' },
         node: { type: 'string', multiple: true },
+        'no-relays': { type: 'boolean' },
         create: { type: 'boolean' },
       },
     });
@@ -739,6 +749,8 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       port: Number(values.port),
       ...(values.host ? { host: values.host } : {}),
       ...(values.node ? { nodes: values.node } : {}),
+      // Meeting the account's other devices, a browser among them, needs no one to point anything here.
+      relays: values['no-relays'] ? [] : configuredRelays(),
       log: logLine,
     });
     return untilStopped(daemon);
