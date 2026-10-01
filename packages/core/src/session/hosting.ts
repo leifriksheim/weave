@@ -386,7 +386,7 @@ export async function readStatus(
   }
 }
 
-/** Why a host said no: its status code, and what it said */
+/** Why a host said no: its status code, and what it said. Status 0 when it gave no answer at all. */
 export class HostError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -395,28 +395,61 @@ export class HostError extends Error {
   }
 }
 
-async function answerOf<T>(response: Response): Promise<T> {
+/** How long a host gets to answer, in milliseconds. A device's own patience: a host that is down must not leave it waiting. */
+const HOST_TIMEOUT_MS = 15_000;
+/** Starting a bot makes an account and joins a space, so it gets longer */
+const BOT_TIMEOUT_MS = 60_000;
+
+const NOT_A_HOST = "That address doesn't answer as a Weave host";
+
+/**
+ * Asks a host, and gives up when it takes too long. Nothing there, or
+ * nothing in time, is a `HostError` with status 0 that names the address.
+ */
+async function ask(url: string, init: RequestInit = {}, timeoutMs = HOST_TIMEOUT_MS): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    let where = url;
+    try {
+      where = new URL(url).host;
+    } catch {
+      // Not an address at all: named as it was given.
+    }
+    const late = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    throw new HostError(0, late ? `${where} took too long to answer` : `Nothing answers at ${where}`);
+  }
+}
+
+/**
+ * @param otherwise What to say when the host refuses without saying why
+ */
+async function answerOf<T>(
+  response: Response,
+  otherwise = `The host answered ${response.status}`,
+): Promise<T> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- callers check what they rely on: describeHost its fields, readStatus a status's signature
   const answer = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok)
-    throw new HostError(response.status, answer.error ?? `The host answered ${response.status}`);
+  if (!response.ok) throw new HostError(response.status, answer.error ?? otherwise);
   return answer;
 }
 
 /**
  * What a host at an address says about itself.
  * @param url The host's address, https://
+ * @param timeoutMs How long it gets to answer
  */
-export async function describeHost(url: string): Promise<HostDescription> {
+export async function describeHost(url: string, timeoutMs = HOST_TIMEOUT_MS): Promise<HostDescription> {
   const description = await answerOf<HostDescription>(
-    await fetch(`${url.replace(/\/+$/, '')}${HOST_DESCRIPTION_PATH}`),
+    await ask(`${url.replace(/\/+$/, '')}${HOST_DESCRIPTION_PATH}`, {}, timeoutMs),
+    NOT_A_HOST,
   );
   if (
     description.weave !== 'host/1' ||
     typeof description.did !== 'string' ||
     !description.did.startsWith('did:key:')
   ) {
-    throw new Error("That address doesn't answer as a Weave host");
+    throw new Error(NOT_A_HOST);
   }
   return description;
 }
@@ -424,13 +457,17 @@ export async function describeHost(url: string): Promise<HostDescription> {
 /** A space id as it may appear in a host's path */
 const SPACE_ID = /^[A-Za-z0-9_-]{1,120}$/;
 
-const post = async (url: string, body: unknown): Promise<unknown> =>
+const post = async (url: string, body: unknown, timeoutMs = HOST_TIMEOUT_MS): Promise<unknown> =>
   answerOf<unknown>(
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
+    await ask(
+      url,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+      timeoutMs,
+    ),
   );
 
 function payAnswer(answer: unknown): PayAnswer {
@@ -487,12 +524,12 @@ export function createSpaceHostClient(
   };
   return Object.freeze({
     status: async (spaceId: string) =>
-      checked(spaceId, await answerOf<SignedStatus>(await fetch(path(spaceId)))),
+      checked(spaceId, await answerOf<SignedStatus>(await ask(path(spaceId)))),
     hand: async (spaceId: string, pass: unknown) =>
       checked(
         spaceId,
         await answerOf<SignedStatus>(
-          await fetch(`${path(spaceId)}/pass`, {
+          await ask(`${path(spaceId)}/pass`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ pass }),
@@ -503,7 +540,7 @@ export function createSpaceHostClient(
       payAnswer(await post(`${path(spaceId)}/pay`, payment)),
     remind: async (spaceId: string, email: string) => void (await post(`${path(spaceId)}/remind`, { email })),
     startBot: async (spaceId: string, name: string, invite: string) => {
-      const answer = await post(`${base}/host/bots`, { name, invite });
+      const answer = await post(`${base}/host/bots`, { name, invite }, BOT_TIMEOUT_MS);
       const fields = typeof answer === 'object' && answer !== null ? answer : {};
       const bot = 'bot' in fields ? fields.bot : undefined;
       const receipt = 'receipt' in fields ? fields.receipt : undefined;
@@ -559,7 +596,7 @@ export function createHostClient(
     };
     if (body !== undefined) headers['content-type'] = 'application/json';
     return answerOf<T>(
-      await fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: text }) }),
+      await ask(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: text }) }),
     );
   }
   const checked = async (receipt: SignedStatus) => {

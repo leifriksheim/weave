@@ -1346,6 +1346,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           name,
           host: null,
           status: null,
+          free: false,
           fund: null,
           reminds: false,
           runsBots: false,
@@ -1370,6 +1371,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         name: named.name ?? description.name,
         host: description.did,
         status,
+        free: description.free === true,
         fund: description.free ? null : (description.fund ?? null),
         reminds: description.remind === true,
         runsBots: description.bots === true,
@@ -1381,6 +1383,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         name,
         host: null,
         status: null,
+        free: false,
         fund: null,
         reminds: false,
         runsBots: false,
@@ -1518,6 +1521,37 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
     async remindForSpace(spaceId: string, url: string, email: string) {
       await (await spaceHostClient(spaceId, url)).remind(spaceId, email);
+    },
+
+    async stopForSpace(spaceId: string, url: string) {
+      const named = (await namedHosts(spaceId)).find((known) => known.url === url);
+      if (!named) throw new Error('This space doesn’t use the host at that address');
+      // Which bots are the host's is its own word, signed: asked before it is let go.
+      const view = await askSpaceHost(spaceId, named, false);
+      // Un-named first, so no device hands it the key that follows.
+      const rt = await runtime(spaceId);
+      for (const record of await rt.list<unknown>({ collection: 'std.host' })) {
+        const body = record.body;
+        if (record.deleted || !isRecord(body) || typeof body.url !== 'string') continue;
+        let origin: string;
+        try {
+          origin = new URL(body.url).origin;
+        } catch {
+          continue;
+        }
+        if (origin === url) await rt.remove(record.key);
+      }
+      const access = await spaces.access(spaceId);
+      if (!roleHolds(access.role, MANAGE)) return { bots: [], newKey: false };
+      const members = new Set(access.members.map((member) => member.did));
+      const bots = view.bots.map((bot) => bot.bot).filter((did) => members.has(did));
+      for (const bot of bots) await spaces.setMember(spaceId, bot, null);
+      // A host that can't say whether it holds a pass is taken to hold one.
+      const handed = view.status ? view.status.carrying : true;
+      const newKey = access.key !== null && (bots.length > 0 || handed);
+      // Removing a member changes the key by itself; with none removed it is changed here.
+      if (newKey && bots.length === 0) await spaces.changeKey(spaceId);
+      return { bots, newKey };
     },
 
     async startBot(spaceId: string, url: string, bot: { readonly name: string; readonly role?: string }) {
@@ -2578,6 +2612,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         payForSpace: person('pay for hosting'),
         remindForSpace: person('pay for hosting'),
         startBot: person('start a bot'),
+        stopForSpace: person('stop using a host'),
         stop: person('stop using a host'),
         // Open to an agent in a space it was given, as reading the space is.
         space: async (spaceId: string) => {
