@@ -97,7 +97,7 @@ export function CreateApp({
   const proposed = before && apps.find((one) => !before.has(one.key) && one.body)?.body;
 
   return (
-    <Modal title="Create an app" onClose={onClose}>
+    <Modal title="Create an app" onClose={onClose} width={560}>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: palette.ink.strong }}>
           What should {space.name} have?
