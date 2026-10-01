@@ -1215,6 +1215,22 @@ _Source: `packages/core/src/session/hosting.ts` (`createSpaceHostClient`: `start
 > space's records take over. Tracked in
 > [#117](https://github.com/leifriksheim/weave/issues/117).
 >
+> **Stopping a host a space pays.** A space that stops using a host (§4.6)
+> can only act on its own side: it removes the host's bots and changes its
+> key, so the host cannot follow. Nothing tells the host, so the fund keeps
+> paying and cards that add every month keep being charged. The space will
+> say it in `sys.keepers` ([03](03-spaces.md) §10), which is in the clear,
+> needs `manage`, and every peer already checks: a host carries a space for
+> the space's own subscription only while the keepers name its DID, and once
+> they no longer do it pauses the subscription, which means it stops carrying,
+> stops its bots there, takes nothing more from the fund and cancels payments
+> that add every month. The balance stays and counts again if the space names
+> the host again. No refunds, and no new call: the subscription has no key,
+> so a call would let any pass holder stop it. Open: keepers need `manage`
+> while choosing a host needs only the library's `std.host/manage`; whether a
+> host must be named a keeper before it carries at all; whether a paused fund
+> expires. Tracked in [#128](https://github.com/leifriksheim/weave/issues/128).
+>
 > **Metering beyond storage.** A host that meters requests and bandwidth per
 > subscription says so in `HostStatus` as it says `bytes`. Open: the fields,
 > and whether a host may stop syncing a space that keeps growing past `quota`

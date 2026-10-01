@@ -4,6 +4,7 @@ import { describeHost, type HostDescription } from '@weaveprotocol/core';
 import type { HostingView, P2PNode } from '@weaveprotocol/core/node';
 import { DEFAULT_HOST } from '@weave/app-shared/relay';
 import { Modal } from '@weave/app-shared/Modal';
+import { HostAddressForm, useWanted, type Wanted } from '@weave/app-shared/HostAddress';
 import { PayFlow, RemindMe } from '@weave/app-shared/Payment';
 import { Benefit, FeatureIcon, StatusPill, shortDate, timeLeft, type Tone } from '@weave/app-shared/Feature';
 import { message } from '../message';
@@ -21,7 +22,9 @@ const DUE_DAYS = 14;
  *
  * Off, it is a product card: what it gives in three lines, the price, and
  * Turn on. On, it is a status line: the host, a pill for how it stands, when
- * it renews or runs out, and how much room is used, with quiet actions.
+ * it renews or runs out, and how much room is used, with quiet actions: pay
+ * or add time, ask again a host that didn't answer, and stop using it, which
+ * asks first.
  * Choosing and paying happen in a dialog, and the whole flow is here, not on
  * the host's site (spec/06-nodes-and-sessions.md, Hosts): a checkout page at
  * the payment provider in a new tab, or a payment request for a wallet. The
@@ -32,18 +35,19 @@ export function Hosting({ node }: { node: P2PNode }) {
   const [hosts, setHosts] = useState<ReadonlyArray<HostingView> | null>(null);
   const [offer, setOffer] = useState<HostDescription | null>(null);
   const [dialog, setDialog] = useState<{ url: string | null } | null>(null);
+  const [stopping, setStopping] = useState<HostingView | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(
-    () => void node.hosting.list().then(setHosts, (reason: unknown) => setError(message(reason))),
+    () => node.hosting.list().then(setHosts, (reason: unknown) => setError(message(reason))),
     [node],
   );
   useEffect(() => {
-    load();
+    void load();
     if (DEFAULT_HOST) void describeHost(DEFAULT_HOST).then(setOffer, () => {});
     // Back from a checkout page in the other tab: ask again.
-    const back = () => document.visibilityState === 'visible' && load();
+    const back = () => document.visibilityState === 'visible' && void load();
     document.addEventListener('visibilitychange', back);
     return () => document.removeEventListener('visibilitychange', back);
   }, [load]);
@@ -75,11 +79,7 @@ export function Hosting({ node }: { node: P2PNode }) {
       }
     });
   };
-  const stop = (host: HostingView) =>
-    act('stop', async () => {
-      await node.hosting.stop(host.url);
-      load();
-    });
+  const again = () => act('again', load);
 
   return (
     <section id="hosting" style={{ ...styles.settingsSection, gap: 16 }}>
@@ -87,18 +87,7 @@ export function Hosting({ node }: { node: P2PNode }) {
         <p style={{ fontSize: 13, color: palette.ink.muted }}>Asking your host…</p>
       ) : hosts?.length ? (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-            <h2 style={{ ...styles.sectionTitle, fontSize: 16 }}>Always online</h2>
-            {hosts.length === 1 && (
-              <button
-                onClick={() => void stop(hosts[0]!)}
-                disabled={busy !== null}
-                style={{ ...styles.linkButton, padding: 0, fontSize: 12, color: palette.ink.faint }}
-              >
-                {busy === 'stop' ? 'Stopping…' : 'Stop'}
-              </button>
-            )}
-          </div>
+          <h2 style={{ ...styles.sectionTitle, fontSize: 16 }}>Always online</h2>
           {hosts.map((host) => (
             <HostRow
               key={host.url}
@@ -106,6 +95,8 @@ export function Hosting({ node }: { node: P2PNode }) {
               busy={busy}
               onAddTime={() => setDialog({ url: host.url })}
               onManage={() => manage(host)}
+              onAgain={() => void again()}
+              onStop={() => setStopping(host)}
               remind={(email) => node.hosting.remind(host.url, email)}
             />
           ))}
@@ -123,7 +114,18 @@ export function Hosting({ node }: { node: P2PNode }) {
           offer={offer}
           onClose={() => {
             setDialog(null);
-            load();
+            void load();
+          }}
+        />
+      )}
+      {stopping && (
+        <StopDialog
+          node={node}
+          host={stopping}
+          onManage={() => manage(stopping)}
+          onClose={() => {
+            setStopping(null);
+            void load();
           }}
         />
       )}
@@ -164,12 +166,17 @@ function HostRow({
   busy,
   onAddTime,
   onManage,
+  onAgain,
+  onStop,
   remind,
 }: {
   host: HostingView;
   busy: string | null;
   onAddTime: () => void;
   onManage: () => void;
+  /** Asks a host that didn't answer once more */
+  onAgain: () => void;
+  onStop: () => void;
   remind: (email: string) => Promise<void>;
 }) {
   const state = standing(host);
@@ -190,7 +197,17 @@ function HostRow({
           </div>
           <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2 }}>{state.line}</p>
         </div>
-        <span style={{ display: 'flex', gap: 8 }}>
+        <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {!host.live && (
+            <button
+              onClick={onAgain}
+              disabled={busy !== null}
+              data-variant="quiet"
+              style={styles.smallButton}
+            >
+              {busy === 'again' ? 'Asking…' : 'Try again'}
+            </button>
+          )}
           {status?.renews ? (
             <button
               onClick={onManage}
@@ -211,6 +228,9 @@ function HostRow({
               </button>
             )
           )}
+          <button onClick={onStop} disabled={busy !== null} data-variant="danger" style={styles.smallButton}>
+            Stop
+          </button>
         </span>
       </div>
       {room !== null && status?.bytes !== undefined && status.quota !== undefined && (
@@ -260,26 +280,36 @@ function HostingDialog({
 }) {
   const [host, setHost] = useState<HostingView | null>(null);
   const [other, setOther] = useState(!offer);
-  const [address, setAddress] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const wanted = useWanted();
 
   useEffect(() => {
     if (!url) return;
     void node.hosting.list().then((hosts) => setHost(hosts.find((known) => known.url === url) ?? null));
   }, [node, url]);
 
-  const use = async (where: string) => {
+  /**
+   * Starts using the host at an address, once it answered as one and is still
+   * wanted: closing the dialog or Cancel while it is asked sets nothing up.
+   */
+  const start = async (where: string, stillWanted: Wanted) => {
+    await describeHost(where);
+    if (!stillWanted()) return;
+    const view = await node.hosting.use(where);
+    if (!stillWanted()) return;
+    if (!plansFor(view).length || !needsPaying(view)) return onClose();
+    setHost(view);
+  };
+  const startOffered = async (where: string) => {
     setBusy(true);
     setProblem(null);
     try {
-      const view = await node.hosting.use(where.trim());
-      if (!plansFor(view).length || !needsPaying(view)) return onClose();
-      setHost(view);
+      await start(where, wanted);
     } catch (reason) {
-      setProblem(message(reason));
+      if (wanted()) setProblem(message(reason));
     } finally {
-      setBusy(false);
+      if (wanted()) setBusy(false);
     }
   };
   const paidUntil = host?.status?.paidUntil ?? 0;
@@ -312,38 +342,14 @@ function HostingDialog({
         ) : url ? (
           <p style={{ fontSize: 13, color: palette.ink.muted }}>One moment…</p>
         ) : other || !offer ? (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void use(address);
-            }}
-            style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
-          >
-            <input
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              placeholder="https://your-host.example"
-              aria-label="Host address"
-              style={styles.input}
-            />
-            <button
-              type="submit"
-              disabled={busy || !address.trim()}
-              data-variant="primary"
-              style={styles.button}
-            >
-              {busy ? 'Asking…' : 'Continue'}
-            </button>
+          <>
+            <HostAddressForm onAddress={start} label="Continue" />
             {offer && (
-              <button
-                type="button"
-                onClick={() => setOther(false)}
-                style={{ ...styles.linkButton, alignSelf: 'center' }}
-              >
+              <button onClick={() => setOther(false)} style={{ ...styles.linkButton, alignSelf: 'center' }}>
                 Use {offer.name} instead
               </button>
             )}
-          </form>
+          </>
         ) : (
           <>
             <div
@@ -363,7 +369,7 @@ function HostingDialog({
               </span>
             </div>
             <button
-              onClick={() => void use(DEFAULT_HOST ?? '')}
+              onClick={() => void startOffered(DEFAULT_HOST ?? '')}
               disabled={busy}
               data-variant="primary"
               style={styles.button}
@@ -375,10 +381,95 @@ function HostingDialog({
             </button>
           </>
         )}
-        {problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{problem}</p>}
+        {problem && (
+          <p role="alert" style={{ fontSize: 13, color: palette.accent.danger }}>
+            {problem}
+          </p>
+        )}
         <p style={{ fontSize: 12, color: palette.ink.faint, lineHeight: 1.5, textAlign: 'center' }}>
           The host sees which spaces exist, how big they are and when they change, never what's in them.
         </p>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Stopping a host, said before it happens: it forgets the account's spaces,
+ * which stay on the account's devices, and the subscription is let go, with
+ * whatever time was paid for. A card that renews is cancelled at the payment
+ * provider, which `stop` doesn't do, so that comes first.
+ */
+function StopDialog({
+  node,
+  host,
+  onManage,
+  onClose,
+}: {
+  node: P2PNode;
+  host: HostingView;
+  onManage: () => void;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const status = host.status;
+  const stop = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await node.hosting.stop(host.url);
+      onClose();
+    } catch (reason) {
+      setProblem(message(reason));
+      setBusy(false);
+    }
+  };
+  const said = { fontSize: 14, color: palette.ink.body, lineHeight: 1.5 };
+  return (
+    <Modal title={`Stop using ${host.name}?`} onClose={onClose} width={460}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <p style={said}>
+          {host.name} forgets your spaces. They stay on your devices, and are reachable only while one of them
+          is online.
+        </p>
+        {status?.renews && (
+          <p style={said}>
+            Your card keeps renewing until you cancel it at the payment provider.{' '}
+            <button
+              onClick={onManage}
+              style={{ ...styles.linkButton, padding: 0, color: palette.ink.strong }}
+            >
+              Cancel the card first
+            </button>
+          </p>
+        )}
+        {status && paidAhead(host) && (
+          <p style={said}>The time paid for, until {shortDate(status.paidUntil)}, isn't paid back.</p>
+        )}
+        {!host.live && (
+          <p style={said}>
+            {host.name} isn't answering right now, so it may be a while before it drops what it has.
+          </p>
+        )}
+        {problem && (
+          <p role="alert" style={{ fontSize: 13, color: palette.accent.danger }}>
+            {problem}
+          </p>
+        )}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 4 }}>
+          <button onClick={onClose} disabled={busy} data-variant="quiet" style={styles.smallButton}>
+            Keep it
+          </button>
+          <button
+            onClick={() => void stop()}
+            disabled={busy}
+            data-variant="danger"
+            style={{ ...styles.smallButton, color: palette.accent.danger }}
+          >
+            {busy ? 'Stopping…' : `Stop using ${host.name}`}
+          </button>
+        </div>
       </div>
     </Modal>
   );
@@ -475,6 +566,12 @@ function standing(host: HostingView): { tone: Tone; pill: string; line: string }
 /** The plans a person may choose now: not a card that renews while one already does */
 function plansFor(host: HostingView) {
   return host.plans.filter((plan) => !(plan.renews && host.status?.renews));
+}
+
+/** Whether time paid up front is still running: what stopping gives up */
+function paidAhead(host: HostingView): boolean {
+  const status = host.status;
+  return status !== null && !status.renews && status.paidUntil > Date.now() / 1000;
 }
 
 /** Not paid, running out, or time paid up front that ends within a month */

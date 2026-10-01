@@ -753,6 +753,26 @@ export interface NodeHosting {
   /** Asks a host a space names for reminders by email before the space's paid time runs out */
   remindForSpace(spaceId: string, url: string, email: string): Promise<void>;
   /**
+   * Stops a space using a host it names, with what the space can do by
+   * itself: its `std.host` record is deleted, so devices stop handing the
+   * space over; the bots the host says it runs there are removed from the
+   * space; and a private space the host was handed gets a new key, so the
+   * host can't follow it from then on. Removing a bot changes the key by
+   * itself (`changeKey` otherwise), and view-only links made before stop
+   * working. Bots and the key need `manage`: without it only the record goes,
+   * and the answer says so. Nothing is asked of the host: it keeps what it
+   * has, unreadable, while the fund lasts, and the fund stays with it.
+   */
+  stopForSpace(
+    spaceId: string,
+    url: string,
+  ): Promise<{
+    /** The bots removed from the space, by DID */
+    readonly bots: ReadonlyArray<string>;
+    /** Whether the space's key changes because of it */
+    readonly newKey: boolean;
+  }>;
+  /**
    * Asks a host the space names to run a bot there: an invite for `role` is
    * made here and handed to the host, which makes the bot's account and joins.
    * It runs from the space's fund. The host holds that account's keys, so it
@@ -774,7 +794,9 @@ export interface SpaceHostingView {
   readonly host: string | null;
   /** How the space's subscription stands there, signed by the host; null when it could not be asked */
   readonly status: import('../session/hosting.js').HostStatus | null;
-  /** How the space's fund is added to there, by anyone in it; null when it takes no payments (a free host) */
+  /** Whether it keeps spaces for nothing: every subscription counts as paid there */
+  readonly free: boolean;
+  /** How the space's fund is added to there, by anyone in it; null on a free host, and on one that takes no communities */
   readonly fund: import('../session/hosting.js').FundOffer | null;
   /** Whether it sends reminders by email (`remindForSpace`) */
   readonly reminds: boolean;

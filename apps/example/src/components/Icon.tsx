@@ -38,6 +38,7 @@ export const ICONS = {
   bell: 'M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11ZM6.5 13.5a1.5 1.5 0 0 0 3 0',
   bellOn: 'M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11ZM6.5 13.5a1.5 1.5 0 0 0 3 0M6 7.5l1.5 1.5L10 6.5',
   chevron: 'M6 4l4 4-4 4',
+  menu: 'M2.5 4.5h11M2.5 8h11M2.5 11.5h11',
   bolt: 'M9 1.5 3 9h4.5L7 14.5 13 7H8.5Z',
 } as const;
 

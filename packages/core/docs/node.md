@@ -659,6 +659,7 @@ extension included.
 | `space(id)`                                                                            | The hosts a space names in `std.host`, each asked how the space's own subscription stands, with its plans for spaces (below).                                                                                                                                                             |
 | `payForSpace(id, url, { amount, method, monthly? })`, `remindForSpace(id, url, email)` | Adds to a space's fund at a host it names (dollars, by `checkout` or `request`, monthly by card), and asks for reminders before it runs out. Anyone in it may. `space(id)` gives each host's `fund` offer, and in its status the `balance`, `daily` spend and `bots`.                     |
 | `startBot(id, url, { name, role? })`                                                   | Asks a host the space names to run a bot there ([spec 06 §4.7](https://github.com/leifriksheim/weave/blob/main/spec/06-nodes-and-sessions.md)): makes an invite for `role` (default the lowest below your own) and hands it over. The host holds the bot's keys, so an app says so first. |
+| `stopForSpace(id, url)`                                                                | Stops a space using a host it names: deletes its `std.host` record, removes the host's bots and changes the key (below).                                                                                                                                                                  |
 
 Every device runs `list()` after each reconciliation ([following the account](#following-the-account)).
 A device reaches a host at the socket its description names (`peer`,
@@ -668,6 +669,13 @@ names in `std.host`, and follows as those change. `network.hosts` names hosts
 to look for the account registry at before the account says which it uses, so
 an app built with a default host restores an account from its recovery code
 alone. `network.nodes` still adds sockets of its own, to every space.
+
+A device waits 15 seconds for a host to answer any call, and a minute for
+`startBot`. A host that gives no answer, or none in time, is a `HostError`
+with status 0 whose message names the address (`describeHost(url, timeoutMs?)`
+takes another limit). `list()` and `space(id)` do not throw it: they return
+that host's view with `error` set, so one host that is down does not hide the
+others, and an app can say so and offer to ask again or to stop using it.
 
 The reference host (`weave host`, `packages/cli/src/host.ts`) keeps a lapsed
 subscription for `graceDays` (default 30) after `paidUntil`, and drops lapsed
@@ -700,11 +708,26 @@ the space defines `std.host`, so a space held in part is not made to hold it.
 
 `node.hosting.space(id)` does the same at once and returns each host's view:
 its name, key, status (with the fund's `balance`, its `daily` spend, and
-the `bots` running), and `fund`, how money goes in, which an app shows anyone
-who wants to chip in, paying with `payForSpace`. An agent may call `space` for a space it
-was given; paying is a person's.
+the `bots` running), whether it is `free`, and `fund`, how money goes in,
+which an app shows anyone who wants to chip in, paying with `payForSpace`.
+A host with neither `free` nor a `fund` takes no communities. A host that
+could not be asked has `error` and no status. An agent may call `space` for
+a space it was given; paying is a person's.
 
-_Source: `packages/core/src/node/node.ts` (`keepSpaceHosts`, `askSpaceHost`, `hosting.space`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself")._
+`node.hosting.stopForSpace(id, url)` stops a space using a host it names, with
+what the space can do by itself. It asks the host which bots it runs there,
+then deletes the `std.host` record first, so no device hands the host what
+follows, removes those bots from the space, and gives a private space a new
+key when the host was handed it (or can't be asked). Removing a bot changes
+the key by itself; with none removed, `changeKey` is called. It answers
+`{ bots, newKey }`. Bots and the key need `manage`: without it only the record
+goes, and the answer is `{ bots: [], newKey: false }`. A host named and never
+handed the space costs no key change. No call asks the host to drop what it
+has, so it keeps that, unreadable, for as long as the space's subscription is
+paid, and what is in the fund stays there
+([#128](https://github.com/leifriksheim/weave/issues/128)).
+
+_Source: `packages/core/src/node/node.ts` (`keepSpaceHosts`, `askSpaceHost`, `hosting.space`), `packages/core/src/session/hosting.ts` (`describeHost`, `HostError`). Tests: `packages/cli/tests/host.test.ts` ("a space paying for itself", "an address that is not a host, or one that is down", "bots a host runs": the two on stopping a space's host)._
 
 ## Doors
 

@@ -39,9 +39,10 @@ import { markSeen, seenAt, totalOf, unreadOf, useSeen, useUnread, type Unread } 
 
 /**
  * How it works, under the hood: the records apps write, how they point at
- * each other, asking of them, and how they reach other devices. Nothing is
- * hidden, only put after the apps and the people, so someone curious is one
- * click from all of it.
+ * each other, asking of them, and how they reach other devices. For the
+ * curious, so it stays out of the way: one folded row at the foot of the
+ * sidebar, which remembers whether it was opened, and on a phone a few rows
+ * at the end of More.
  */
 const HOOD = [
   {
@@ -61,6 +62,31 @@ const HOOD = [
 ] as const satisfies ReadonlyArray<{ id: string; label: string; icon: IconName; about?: string }>;
 type Hood = (typeof HOOD)[number]['id'];
 
+/** How many apps the sidebar lists before the rest fold behind one row, so the space's own sections stay in view */
+const SIDEBAR_APPS = 10;
+
+/** Whether Under the hood was left open in the sidebar, in this browser */
+const HOOD_OPEN_KEY = 'weave:hood-open';
+const hoodWasOpen = (): boolean => {
+  try {
+    return globalThis.localStorage.getItem(HOOD_OPEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * What belongs to the space rather than to one app, in the order the sidebar
+ * and a phone's More list them: what reaches you, who is here, what keeps it
+ * online, and what runs by itself.
+ */
+const SECTIONS = [
+  { kind: 'notifications', label: 'Notifications', icon: 'bell' },
+  { kind: 'people', label: 'People', icon: 'people' },
+  { kind: 'hosting', label: 'Hosting', icon: 'cloud' },
+  { kind: 'automations', label: 'Automations', icon: 'bolt' },
+] as const satisfies ReadonlyArray<{ kind: string; label: string; icon: IconName }>;
+
 /** What the main area shows: the apps, one of them open, the people, or a view under the hood */
 type View =
   | { readonly kind: 'apps' }
@@ -69,14 +95,18 @@ type View =
   | { readonly kind: 'hosting' }
   | { readonly kind: 'notifications' }
   | { readonly kind: 'automations' }
+  /** A phone's list of the sections that have no tab of their own */
+  | { readonly kind: 'more' }
   | { readonly kind: 'hood'; readonly hood: Hood };
 
 /**
  * One space, laid out the way chat apps do it: its apps down a sidebar with
  * what is new in each, and whichever is open taking the rest of the window.
- * People and the views under the hood sit below the apps. A record opens in
- * a panel beside whatever is on screen. On a phone the sidebar gives way to
- * the app grid and a tab bar, and an open app takes the whole screen.
+ * The space's own sections sit below the apps, and the views under the hood
+ * folded away at the foot. A record opens in a panel beside whatever is on
+ * screen. On a phone the sidebar gives way to the app grid and a tab bar,
+ * whose More lists the sections without a tab, and an open app takes the
+ * whole screen.
  */
 export function SpaceView({
   space,
@@ -95,6 +125,16 @@ export function SpaceView({
   const [view, setView] = useState<View>({ kind: 'apps' });
   const [place, setPlace] = useState<Place>({ collection: null, key: null });
   const [creating, setCreating] = useState(false);
+  const [everyApp, setEveryApp] = useState(false);
+  const [hoodOpen, setHoodOpen] = useState(hoodWasOpen);
+  const openHood = (open: boolean) => {
+    setHoodOpen(open);
+    try {
+      globalThis.localStorage.setItem(HOOD_OPEN_KEY, open ? '1' : '0');
+    } catch {
+      // Only remembering it is lost.
+    }
+  };
 
   // Syncing while it is on screen. Opening writes nothing: standard schemas
   // are added only when someone picks them from the library.
@@ -116,7 +156,11 @@ export function SpaceView({
   const seen = useSeen();
   const open = view.kind === 'app' ? apps.ready.find((app) => app.id === view.id) : undefined;
   const openApp = (id: string) => setView({ kind: 'app', id, since: seenAt(seen, space.id, id) });
-  const goHood = (hood: Hood) => setView({ kind: 'hood', hood });
+  // Wherever a view under the hood is opened from, the sidebar unfolds to show where one is.
+  const goHood = (hood: Hood) => {
+    setView({ kind: 'hood', hood });
+    setHoodOpen(true);
+  };
   const openRecord = (r: NodeRecord) =>
     setPlace((was) => ({ collection: view.kind === 'hood' ? r.collection : was.collection, key: r.key }));
 
@@ -133,6 +177,21 @@ export function SpaceView({
     return () => globalThis.document.removeEventListener('visibilitychange', look);
   }, [account.did, space.id, openId, newInOpen]);
 
+  // The sidebar's apps: the first few, and the open one wherever it sits; the rest behind "more", with what is new in them.
+  const folds = apps.ready.length > SIDEBAR_APPS;
+  const listed =
+    folds && !everyApp
+      ? apps.ready.filter((app, at) => at < SIDEBAR_APPS || app.id === open?.id)
+      : apps.ready;
+  const folded = apps.ready.filter((app) => !listed.includes(app));
+  const newInFolded = folded.reduce<Unread>(
+    (sum, app) => {
+      const one = unreadOf(unread, app.id);
+      return { count: sum.count + one.count, forMe: sum.forMe + one.forMe };
+    },
+    { count: 0, forMe: 0 },
+  );
+
   const fill = open ? fills(open, collections) : false;
   const title =
     open?.title ??
@@ -140,9 +199,11 @@ export function SpaceView({
       ? 'People'
       : view.kind === 'automations'
         ? 'Automations'
-        : view.kind === 'hood'
-          ? HOOD.find((h) => h.id === view.hood)!.label
-          : space.name);
+        : view.kind === 'more'
+          ? 'More'
+          : view.kind === 'hood'
+            ? HOOD.find((h) => h.id === view.hood)!.label
+            : space.name);
 
   return (
     <PersonScopeProvider
@@ -177,7 +238,7 @@ export function SpaceView({
               onClick={() => setView({ kind: 'apps' })}
             />
             <SideHeading>Apps</SideHeading>
-            {apps.ready.map((app) => (
+            {listed.map((app) => (
               <SideItem
                 key={app.id}
                 icon={<AppIcon icon={app.icon} hue={app.hue} size={20} />}
@@ -187,6 +248,25 @@ export function SpaceView({
                 onClick={() => openApp(app.id)}
               />
             ))}
+            {folds && (
+              <SideItem
+                icon={
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      transform: everyApp ? 'rotate(-90deg)' : 'rotate(90deg)',
+                    }}
+                  >
+                    <Icon name="chevron" size={12} />
+                  </span>
+                }
+                label={everyApp ? 'Show fewer' : `${folded.length} more`}
+                unread={newInFolded}
+                quiet
+                expanded={everyApp}
+                onClick={() => setEveryApp(!everyApp)}
+              />
+            )}
             {space.writable && (
               <SideItem
                 icon={<Icon name="plus" size={16} />}
@@ -196,40 +276,54 @@ export function SpaceView({
               />
             )}
             <SideHeading>Space</SideHeading>
-            <SideItem
-              icon={<Icon name="people" size={16} />}
-              label="People"
-              on={view.kind === 'people'}
-              onClick={() => setView({ kind: 'people' })}
-            />
-            <SideItem
-              icon={<Icon name="cloud" size={16} />}
-              label="Hosting"
-              on={view.kind === 'hosting'}
-              onClick={() => setView({ kind: 'hosting' })}
-            />
-            <SideItem
-              icon={<Icon name="bell" size={16} />}
-              label="Notifications"
-              on={view.kind === 'notifications'}
-              onClick={() => setView({ kind: 'notifications' })}
-            />
-            <SideItem
-              icon={<Icon name="bolt" size={16} />}
-              label="Automations"
-              on={view.kind === 'automations'}
-              onClick={() => setView({ kind: 'automations' })}
-            />
-            <SideHeading>Under the hood</SideHeading>
-            {HOOD.map((h) => (
+            {SECTIONS.map((section) => (
               <SideItem
-                key={h.id}
-                icon={<Icon name={h.icon} size={16} />}
-                label={h.label}
-                on={view.kind === 'hood' && view.hood === h.id}
-                onClick={() => goHood(h.id)}
+                key={section.kind}
+                icon={<Icon name={section.icon} size={16} />}
+                label={section.label}
+                on={view.kind === section.kind}
+                onClick={() => setView({ kind: section.kind })}
               />
             ))}
+          </nav>
+
+          <nav
+            aria-label="Under the hood"
+            style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 'auto', paddingTop: 24 }}
+          >
+            <button
+              onClick={() => openHood(!hoodOpen)}
+              aria-expanded={hoodOpen}
+              aria-current={!hoodOpen && view.kind === 'hood' ? 'page' : undefined}
+              data-nav
+              className="side-item"
+              style={{ color: palette.ink.faint, fontSize: 13 }}
+            >
+              <span style={{ width: 20, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon name="layers" size={14} />
+              </span>
+              <span style={{ ...ellipsis, flex: 1, minWidth: 0 }}>Under the hood</span>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  transform: hoodOpen ? 'rotate(90deg)' : 'none',
+                  transition: 'transform .12s ease',
+                }}
+              >
+                <Icon name="chevron" size={12} />
+              </span>
+            </button>
+            {hoodOpen &&
+              HOOD.map((h) => (
+                <SideItem
+                  key={h.id}
+                  icon={<Icon name={h.icon} size={16} />}
+                  label={h.label}
+                  quiet
+                  on={view.kind === 'hood' && view.hood === h.id}
+                  onClick={() => goHood(h.id)}
+                />
+              ))}
           </nav>
         </aside>
 
@@ -352,6 +446,22 @@ export function SpaceView({
               {view.kind === 'app' && !open && (
                 <p style={styles.emptyState}>This app isn't in the space any more.</p>
               )}
+              {view.kind === 'more' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {SECTIONS.filter((section) => section.kind !== 'people').map((section) => (
+                    <MoreRow
+                      key={section.kind}
+                      icon={section.icon}
+                      label={section.label}
+                      onClick={() => setView({ kind: section.kind })}
+                    />
+                  ))}
+                  <SideHeading>Under the hood</SideHeading>
+                  {HOOD.map((h) => (
+                    <MoreRow key={h.id} icon={h.icon} label={h.label} quiet onClick={() => goHood(h.id)} />
+                  ))}
+                </div>
+              )}
               {view.kind === 'people' && <RolesView space={space} collections={collections} />}
               {view.kind === 'hosting' && (
                 <HostingView space={space} onAutomations={() => setView({ kind: 'automations' })} />
@@ -406,11 +516,13 @@ export function SpaceView({
             People
           </button>
           <button
-            onClick={() => goHood(view.kind === 'hood' ? view.hood : 'data')}
-            aria-current={view.kind === 'hood' ? 'page' : undefined}
+            onClick={() => setView({ kind: 'more' })}
+            aria-current={
+              view.kind !== 'apps' && view.kind !== 'app' && view.kind !== 'people' ? 'page' : undefined
+            }
           >
-            <Icon name="layers" size={20} />
-            Under the hood
+            <Icon name="menu" size={20} />
+            More
           </button>
         </nav>
       </div>
@@ -503,6 +615,36 @@ function SideHeading({ children }: { children: ReactNode }) {
   );
 }
 
+/** A row of a phone's More: a section to open, tall enough for a thumb */
+function MoreRow({
+  icon,
+  label,
+  quiet,
+  onClick,
+}: {
+  icon: IconName;
+  label: string;
+  quiet?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      data-nav
+      className="side-item"
+      style={{ height: 48, fontSize: 15, color: quiet ? palette.ink.muted : palette.ink.strong }}
+    >
+      <span style={{ width: 24, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+        <Icon name={icon} size={18} />
+      </span>
+      <span style={{ ...ellipsis, flex: 1, minWidth: 0 }}>{label}</span>
+      <span style={{ display: 'inline-flex', color: palette.ink.faint }}>
+        <Icon name="chevron" size={14} />
+      </span>
+    </button>
+  );
+}
+
 /** A row in the sidebar; bold while something in it is new, the way unread channels are */
 function SideItem({
   icon,
@@ -510,6 +652,7 @@ function SideItem({
   unread,
   on,
   quiet,
+  expanded,
   onClick,
 }: {
   icon: ReactNode;
@@ -517,12 +660,15 @@ function SideItem({
   unread?: Unread;
   on?: boolean;
   quiet?: boolean;
+  /** For a row that folds others away: whether they show now */
+  expanded?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
       aria-current={on ? 'page' : undefined}
+      aria-expanded={expanded}
       data-nav
       className="side-item"
       style={{

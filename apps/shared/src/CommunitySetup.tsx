@@ -6,7 +6,15 @@ import { activity, profile } from '@weaveprotocol/core/schemas';
 import { DEFAULT_HOST } from './relay';
 import { Modal } from './Modal';
 import { Benefit, FeatureIcon, Glyph, StatusPill } from './Feature';
-import { KeepOnline, KeepOnlineDialog, darkSmall, onlineHost, standing, useSpaceHosts } from './SpaceHosting';
+import {
+  KeepOnline,
+  KeepOnlineDialog,
+  darkSmall,
+  needsFunding,
+  onlineHost,
+  standing,
+  useSpaceHosts,
+} from './SpaceHosting';
 import { styles, palette } from './styles';
 
 /** Where running a bot on a server is explained */
@@ -119,14 +127,10 @@ export function CommunitySetup({
         <Tile
           icon={<FeatureIcon kind="online" glyph="cloud" />}
           title="Always online"
-          pill={
-            onlineView && host?.status ? (
-              <StatusPill tone={onlineView.tone}>{onlineView.pill}</StatusPill>
-            ) : null
-          }
+          pill={onlineView ? <StatusPill tone={onlineView.tone}>{onlineView.pill}</StatusPill> : null}
           detail="Reachable when everyone's offline. Encrypted, so the host can't read it."
           meta={
-            online
+            host
               ? onlineView?.line
               : offer?.free
                 ? 'Free'
@@ -137,11 +141,11 @@ export function CommunitySetup({
           action={
             online ? (
               <button onClick={() => setDialog('online')} data-variant="quiet" style={styles.smallButton}>
-                Chip in
+                {online.fund ? 'Chip in' : 'Manage'}
               </button>
             ) : (
               <button onClick={() => setDialog('online')} data-variant="primary" style={darkSmall}>
-                {host ? 'Finish' : 'Turn on'}
+                {!host ? 'Turn on' : needsFunding(host) ? 'Add to the fund' : 'Manage'}
               </button>
             )
           }

@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { createServer, type RequestListener } from 'node:http';
 
 import { createNode } from '../../core/src/node/node.js';
 import { createHostNode, type HostNode } from '../../core/src/node/host.js';
@@ -388,6 +389,88 @@ describe('the host API', () => {
   });
 });
 
+describe('an address that is not a host, or one that is down', () => {
+  /** Something listening on this machine that is not a host */
+  async function listening(answer: RequestListener): Promise<string> {
+    const server = createServer(answer);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    open.push({
+      close: async () => {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      },
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    return `http://127.0.0.1:${address.port}`;
+  }
+
+  test('a host that takes the call and never answers is given up on', async () => {
+    const url = await listening(() => {});
+    const started = Date.now();
+    await assert.rejects(
+      describeHost(url, 150),
+      (error) =>
+        error instanceof HostError && error.status === 0 && /took too long to answer/.test(error.message),
+    );
+    assert.ok(Date.now() - started < 5_000, 'within its time, not the network’s');
+  });
+
+  test('an address nothing listens at says so, by name', async () => {
+    const url = await listening(() => {});
+    await Promise.all(open.splice(0).map((server) => server.close()));
+    await assert.rejects(
+      describeHost(url),
+      (error) =>
+        error instanceof HostError &&
+        error.status === 0 &&
+        error.message === `Nothing answers at ${new URL(url).host}`,
+    );
+  });
+
+  test('a server that is not a host is refused as one, whatever it answers', async () => {
+    const missing = await listening((_req, res) => res.writeHead(404).end('Not found'));
+    await assert.rejects(describeHost(missing), /doesn't answer as a Weave host/);
+    const page = await listening((_req, res) =>
+      res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html>'),
+    );
+    await assert.rejects(describeHost(page), /doesn't answer as a Weave host/);
+    const other = await listening((_req, res) =>
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{"weave":"host/2","did":"did:key:z"}'),
+    );
+    await assert.rejects(describeHost(other), /doesn't answer as a Weave host/);
+  });
+
+  test('a space says why a host it names can’t be asked, and its other hosts still answer', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const served = await startHost({
+      key: await provider.generateKeyPair(),
+      stores: memoryStores(),
+      port: 0,
+      free: true,
+    });
+    open.push(served);
+    const gone = await listening(() => {});
+    await Promise.all(open.splice(open.length - 1).map((server) => server.close()));
+
+    const ada = await device(await account(), hub);
+    const space = await ada.spaces.create({ name: 'Club', ...team, visibility: 'private' });
+    await ada.collections.define(space.id, hostSchema);
+    await ada.records.put(space.id, hostSchema.name, { url: gone, name: 'Gone host' });
+    await ada.records.put(space.id, hostSchema.name, { url: `http://127.0.0.1:${served.port}` });
+
+    const views = await ada.hosting.space(space.id);
+    const down = views.find((view) => view.url === gone);
+    assert.equal(down?.status, null);
+    assert.equal(down?.error, `Nothing answers at ${new URL(gone).host}`);
+    assert.equal(down?.name, 'Gone host', 'named as the space named it');
+    const up = views.find((view) => view.url !== gone);
+    assert.equal(up?.error, undefined);
+    assert.equal(up?.free, true);
+    assert.equal(up?.status?.carrying, true, 'the host that answers carries it all the same');
+  });
+});
+
 describe('pay answers', () => {
   test('a device takes only an https:// checkout page, or a payment request with a known scheme', () => {
     assert.deepEqual(readPayAnswer({ checkout: 'https://checkout.stripe.com/c/1' }), {
@@ -721,6 +804,70 @@ describe('bots a host runs', () => {
       8000,
       'the space’s signed status to say the bot runs',
     );
+  });
+
+  test('stopping a space’s host removes its bots and changes the key, leaving the host an old one', async () => {
+    const { served, url } = await hostWithBots({ free: true });
+    const { laptop, space } = await community(url);
+    await laptop.hosting.space(space);
+    await until(carries(served.node, space), 6000, 'the host to carry the space');
+    const bot = await laptop.hosting.startBot(space, url, { name: 'Club Bot' });
+    await until(
+      async () => (await laptop.spaces.access(space)).members.some((m) => m.did === bot.bot),
+      15_000,
+      'the bot to join',
+    );
+    await until(
+      async () => (await laptop.hosting.space(space))[0]?.bots.some((b) => b.bot === bot.bot) ?? false,
+      8000,
+      'the host to say it runs the bot',
+    );
+    const client = createSpaceHostClient(url, served.node.did);
+    const held = (await client.status(space)).status.readKey;
+    assert.ok(held, 'the host holds the space’s read key');
+    const changes = (await laptop.spaces.access(space)).key?.changes ?? 0;
+
+    const stopped = await laptop.hosting.stopForSpace(space, url);
+    assert.deepEqual(stopped, { bots: [bot.bot], newKey: true });
+    assert.deepEqual(await laptop.hosting.space(space), [], 'the space names no host');
+    await until(
+      async () => {
+        const access = await laptop.spaces.access(space);
+        return !access.members.some((m) => m.did === bot.bot) && (access.key?.changes ?? 0) > changes;
+      },
+      8000,
+      'the bot to be out, and the key changed for it',
+    );
+    // Nobody hands the host the new key: it is left with the one it had.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal((await client.status(space)).status.readKey, held);
+    await assert.rejects(laptop.hosting.stopForSpace(space, url), /doesn’t use the host/);
+  });
+
+  test('stopping a host with no bots changes the key only when the host was handed the space', async () => {
+    // Handed over: a new key, though nobody was removed.
+    const free = await hostWithBots({ free: true });
+    const kept = await community(free.url);
+    await kept.laptop.hosting.space(kept.space);
+    await until(carries(free.served.node, kept.space), 6000, 'the host to carry the space');
+    const changes = (await kept.laptop.spaces.access(kept.space)).key?.changes ?? 0;
+    assert.deepEqual(await kept.laptop.hosting.stopForSpace(kept.space, free.url), {
+      bots: [],
+      newKey: true,
+    });
+    assert.equal((await kept.laptop.spaces.access(kept.space)).key?.changes, changes + 1);
+
+    // Named and never paid: the host has nothing, so nothing changes but the record.
+    const paid = await hostWithBots();
+    const named = await community(paid.url);
+    assert.equal((await named.laptop.hosting.space(named.space))[0]?.status?.carrying, false);
+    const before = (await named.laptop.spaces.access(named.space)).key?.changes ?? 0;
+    assert.deepEqual(await named.laptop.hosting.stopForSpace(named.space, paid.url), {
+      bots: [],
+      newKey: false,
+    });
+    assert.equal((await named.laptop.spaces.access(named.space)).key?.changes, before);
+    assert.deepEqual(await named.laptop.hosting.space(named.space), []);
   });
 
   test('a bot runs from its community’s fund: only where the host keeps the space, and while there is money in it', async () => {
