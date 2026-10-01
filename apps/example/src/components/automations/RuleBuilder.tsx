@@ -63,6 +63,7 @@ export function RuleBuilder({
   space,
   collections,
   editing,
+  copying,
   start,
   onClose,
 }: {
@@ -70,6 +71,8 @@ export function RuleBuilder({
   collections: ReadonlyArray<NodeCollection>;
   /** A rule to change, instead of making one */
   editing?: NodeRecord;
+  /** Someone else's rule, which starts a new one of yours */
+  copying?: NodeRecord;
   /** Where a new one starts: an idea picked from the list */
   start?: PickedRule;
   onClose: () => void;
@@ -79,7 +82,8 @@ export function RuleBuilder({
   const access = useAccess(space.id);
   const here = usePeopleHere();
   const people: People = here?.people ?? new Map();
-  const stored = editing ? ruleOf(editing) : null;
+  const from = editing ?? copying;
+  const stored = from ? ruleOf(from) : null;
   const picked = stored ? pickedOf(stored) : (start?.picked ?? null);
   const initial = stored ?? start;
 
@@ -205,7 +209,7 @@ export function RuleBuilder({
         ...(agentDoes && by ? { by } : {}),
         // A rule made elsewhere that has both keeps its time when its records are changed here.
         ...(!timed && stored?.every ? { every: stored.every } : {}),
-        ...(stored?.paused ? { paused: true } : {}),
+        ...(editing && stored?.paused ? { paused: true } : {}),
         since: new Date().toISOString(),
       };
       if (editing) await node.records.update(space.id, editing.key, body);
@@ -220,7 +224,11 @@ export function RuleBuilder({
 
   return (
     <>
-      <Modal title={editing ? 'Change rule' : 'New rule'} onClose={onClose} width={680}>
+      <Modal
+        title={editing ? 'Change rule' : copying ? 'Copy rule' : 'New rule'}
+        onClose={onClose}
+        width={680}
+      >
         <p style={{ fontSize: 14, color: palette.ink.muted, lineHeight: 1.5, marginTop: -6 }}>
           Something happens in {space.name}, or the time comes, and something is done about it — as you, or by
           a bot you name.

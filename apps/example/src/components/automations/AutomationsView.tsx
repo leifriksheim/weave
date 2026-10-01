@@ -18,7 +18,13 @@ import { Empty, SectionHead, iconDot, list, section } from './parts';
 import { SpaceBots } from '@weave/app-shared/CommunitySetup';
 import { useActivityOff } from '../../activity';
 
-type Open = { readonly kind: 'rule'; readonly editing?: NodeRecord; readonly start?: PickedRule } | null;
+type Open = {
+  readonly kind: 'rule';
+  readonly editing?: NodeRecord;
+  /** Someone else's rule, to save as one of your own */
+  readonly copying?: NodeRecord;
+  readonly start?: PickedRule;
+} | null;
 
 /**
  * What the space does without anyone doing it: the rules people made, each
@@ -45,7 +51,8 @@ export function AutomationsView({
   const rules = useLive(
     space.id,
     async (n) => {
-      if (!defined) return { rules: [], runs: new Map<string, NodeRecord<RuleRun>[]>() };
+      if (!defined)
+        return { rules: [], runs: new Map<string, NodeRecord<RuleRun>[]>(), deletable: new Set<string>() };
       const [rules, runs] = await Promise.all([
         n.records.list(space.id, { collection: ruleCollection.name }),
         n.records.list<RuleRun>(space.id, { collection: runCollection.name, newestFirst: true }),
@@ -55,7 +62,11 @@ export function AutomationsView({
         const rule = run.links.find((l) => l.rel === 'rule')?.to;
         if (rule) byRule.set(rule, [...(byRule.get(rule) ?? []), run]);
       }
-      return { rules: rules.filter((r) => ruleOf(r) !== null), runs: byRule };
+      const shown = rules.filter((r) => ruleOf(r) !== null);
+      // Someone else's rule can't be changed, since it runs as them; one who may moderate can still delete it.
+      const deletable = new Set<string>();
+      for (const r of shown) if (await n.records.can(space.id, 'delete', r.key)) deletable.add(r.key);
+      return { rules: shown, runs: byRule, deletable };
     },
     [defined],
   );
@@ -166,8 +177,8 @@ export function AutomationsView({
                         )}
                       </span>
                     </div>
-                    {mine && (
-                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      {mine && (
                         <button
                           onClick={() =>
                             act(() =>
@@ -183,6 +194,8 @@ export function AutomationsView({
                         >
                           {off ? 'Turn on' : 'Pause'}
                         </button>
+                      )}
+                      {mine ? (
                         <button
                           onClick={() => setOpen({ kind: 'rule', editing: record })}
                           data-variant="quiet"
@@ -190,6 +203,19 @@ export function AutomationsView({
                         >
                           Change
                         </button>
+                      ) : (
+                        space.writable && (
+                          <button
+                            onClick={() => setOpen({ kind: 'rule', copying: record })}
+                            data-variant="quiet"
+                            title="Save it as a rule of your own, which you can change"
+                            style={styles.smallButton}
+                          >
+                            Make a copy
+                          </button>
+                        )
+                      )}
+                      {rules.deletable.has(record.key) && (
                         <button
                           onClick={() => {
                             if (globalThis.confirm(`Delete the rule “${rule.name}”?`))
@@ -201,8 +227,8 @@ export function AutomationsView({
                         >
                           Delete
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                   {runs.length > 0 && (
                     <ul
@@ -273,6 +299,7 @@ export function AutomationsView({
           space={space}
           collections={collections}
           {...(open.editing ? { editing: open.editing } : {})}
+          {...(open.copying ? { copying: open.copying } : {})}
           {...(open.start ? { start: open.start } : {})}
           onClose={() => setOpen(null)}
         />
