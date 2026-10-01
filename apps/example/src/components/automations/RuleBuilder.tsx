@@ -17,6 +17,7 @@ import { nameOf, type People } from '../../derive/people';
 import {
   INSTRUCT,
   SCHEDULES,
+  profile,
   checkCron,
   activity as activityCollection,
   matching,
@@ -500,7 +501,28 @@ export function RuleBuilder({
                 </span>
               </Sentence>
             )}
-            {agentDoes && bots.length === 0 && (
+            {agentDoes && !has(profile.name) && (
+              <p style={{ fontSize: 12.5, color: palette.ink.muted }}>
+                A bot run with <code>weave agent --bot</code> shows up here once {space.name} keeps profiles,
+                where it says it is one.{' '}
+                {space.writable && roleHolds(access?.role, DEFINE) ? (
+                  <button
+                    type="button"
+                    style={styles.linkButton}
+                    onClick={() =>
+                      void node.collections
+                        .define(space.id, profile)
+                        .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+                    }
+                  >
+                    Turn on profiles
+                  </button>
+                ) : (
+                  'Someone who may add collections can turn them on.'
+                )}
+              </p>
+            )}
+            {agentDoes && bots.length === 0 && has(profile.name) && (
               <p style={{ fontSize: 12.5, color: palette.ink.muted }}>
                 No bots in {space.name} yet.{' '}
                 {space.writable && roleHolds(access?.role, MANAGE) ? (
@@ -508,7 +530,7 @@ export function RuleBuilder({
                     Add a bot
                   </button>
                 ) : (
-                  'Someone who manages it can add one, under Hosting.'
+                  'Someone who manages it can add one, under Hosting, or run one with weave agent --bot.'
                 )}
               </p>
             )}

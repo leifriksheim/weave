@@ -397,6 +397,26 @@ describe('a bot', () => {
     assert.equal(mine.length, 1);
     assert.deepEqual(mine[0]?.body, { bot: true });
   });
+
+  test('adds std.profile itself where its role may add collections', async () => {
+    const hub = createFakeHub({ latencyMs: 1 });
+    const admin = await member(hub, 65);
+    const bot = await member(hub, 67);
+    const { id: space } = await admin.spaces.create({ name: 'Club', ...community, visibility: 'private' });
+    await bot.spaces.join(await admin.spaces.invite(space, { role: 'admin' }));
+    await hold(admin, space);
+    await joined(bot, space);
+    await hold(bot, space);
+
+    assert.equal(await discloseBot(bot, space), true);
+    await until(
+      async () =>
+        (await admin.records.list(space, { collection: profile.name })).some(
+          (r) => r.root === bot.did && r.body?.bot === true,
+        ),
+      6000,
+    );
+  });
 });
 
 describe('a bot’s name', () => {

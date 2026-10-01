@@ -288,7 +288,9 @@ as a member. The protocol does not tell bots and people apart, and has no way
 to: an account is an account. Disclosing is a convention. A bot says so with
 `bot: true` on its own `std.profile` in a space, which only it can write, and
 apps may show it; it is the account's word, like its name, so it proves
-nothing about an account that leaves it out.
+nothing about an account that leaves it out. A bot whose role may add
+collections adds `std.profile` where a space keeps none, as an app does when
+it starts a hosted bot.
 Besides its own rules, it runs the rules in a space that name it in `by`,
 made by members holding `std.rule/instruct` there
 ([rules.md](rules.md#who-runs-a-rule)). In the `community` preset, admins
@@ -297,7 +299,7 @@ What it writes shows as the bot, and every member's device checks it against
 the bot's role, so a role that may post messages but not delete keeps a
 misled bot from deleting.
 
-_Source: `packages/core/src/schemas/library/social.ts` (`profile`), `packages/core/src/schemas/rules.ts` (`rulesFor`), `packages/cli/src/agent.ts` (`discloseBot`). Tests: `packages/cli/tests/agent-rules.test.ts` ("says it is a bot…", "a bot’s name"), `packages/core/tests/rule-runners.test.ts` ("a bot")._
+_Source: `packages/core/src/schemas/library/social.ts` (`profile`), `packages/core/src/schemas/rules.ts` (`rulesFor`), `packages/cli/src/agent.ts` (`discloseBot`). Tests: `packages/cli/tests/agent-rules.test.ts` ("says it is a bot…", "adds std.profile itself…", "a bot’s name"), `packages/core/tests/rule-runners.test.ts` ("a bot")._
 
 **Mentions and replies.** A `std.message`, `std.comment` or `std.post` names
 the accounts it calls on in `mentions` (as do `std.note`, `std.doc-block` and

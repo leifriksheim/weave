@@ -364,7 +364,9 @@ its role still limits what it can do, but pick a strong model for one.
 `weave agent --bot` runs an account of its own as a **bot**: something a
 community adds to its spaces to help everyone, rather than one person's
 agent. Where a space keeps `std.profile`, it sets `bot: true` on its own
-there, so apps can show it as one; elsewhere its name has to say so. It writes
+there, so apps can show it as one and offer it under "Done by"; where it
+keeps none, a bot whose role may add collections adds it. Elsewhere its name
+has to say so. It writes
 as itself, and every member's device checks what it writes against its role.
 People mention it by its own name.
 
