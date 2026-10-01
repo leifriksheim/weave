@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { Modal } from '@weave/app-shared/Modal';
 import { Reactions } from '../std/Reactions';
 import { useBots } from '../../bots';
-import { MentionList, useMentions } from '../std/Mentions';
+import { MentionField, MentionList, MentionText, useMentions } from '../std/Mentions';
 import { styles, palette } from '../../styles';
 import type { AppProps } from './index';
 import { Ask, PollView, withVotes } from './Polls';
@@ -196,7 +196,6 @@ function Room({
     !(defined(message.name)?.topics.includes('mentions') && defined(message.name)?.links?.channel);
   const [draft, setDraft] = useState('');
   const [asking, setAsking] = useState<string | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const stuck = useRef(true);
@@ -349,8 +348,8 @@ function Room({
                     : undefined
                 }
                 onReply={mayWrite ? () => reply(m) : undefined}
-                showReactions={reacts && (hover === m.key || reactionsOf(m).length > 0)}
-                onHover={(on) => setHover(on ? m.key : (h) => (h === m.key ? null : h))}
+                reacts={reacts}
+                people={people}
                 onDelete={() => void node.records.delete(space.id, m.key)}
                 onOpen={onOpen}
                 space={space}
@@ -465,8 +464,9 @@ function Room({
             background: palette.surface.sunken,
           }}
         >
-          <input
-            ref={input}
+          <MentionField
+            input={input}
+            marked={mention.marked}
             value={draft}
             onChange={mention.onChange}
             onSelect={mention.onSelect}
@@ -480,7 +480,7 @@ function Room({
                 : `Message ${titled ? `#${roomName}` : space.name} · @ to mention someone`
             }
             aria-label="Write a message"
-            style={{ ...styles.input, flex: 1 }}
+            style={styles.input}
           />
           <button type="submit" disabled={!draft.trim()} data-variant="primary" style={styles.addButton}>
             Send
@@ -529,8 +529,8 @@ function Line({
   forMe,
   answers,
   onReply,
-  showReactions,
-  onHover,
+  reacts,
+  people,
   onDelete,
   onOpen,
   space,
@@ -544,8 +544,10 @@ function Line({
   /** The message it replies to: who wrote it, and its text when this device has it */
   answers: { name: string; text: string | null } | undefined;
   onReply: (() => void) | undefined;
-  showReactions: boolean;
-  onHover: (on: boolean) => void;
+  /** The space has reactions */
+  reacts: boolean;
+  /** Who is in the space, to name whom a message mentions */
+  people: People;
   onDelete: () => void;
   onOpen: AppProps['onOpen'];
   space: AppProps['space'];
@@ -553,13 +555,10 @@ function Line({
   const shared = sharedOf(record);
   // It can share anything; a poll is the one this chat knows how to show.
   const sharesPoll = shared?.collection === poll.name;
+  const reactions = reactionsOf(record);
   return (
     <div
       data-row
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-      onFocus={() => onHover(true)}
-      onClick={() => onHover(true)}
       style={{
         display: 'flex',
         gap: 10,
@@ -610,7 +609,7 @@ function Line({
                   wordBreak: 'break-word',
                 }}
               >
-                {record.body.text}
+                <MentionText text={record.body.text} mentions={record.body.mentions} people={people} />
               </p>
               {shared && (
                 <button
@@ -622,6 +621,16 @@ function Line({
                 </button>
               )}
             </div>
+          )}
+          {/* Until someone reacts, adding one is a row action, so hovering doesn't make the row taller. */}
+          {reacts && !reactions.length && (
+            <Reactions
+              space={space}
+              target={record.key}
+              targetAuthor={record.root}
+              reactions={reactions}
+              compact
+            />
           )}
           {onReply && (
             <button
@@ -659,14 +668,9 @@ function Line({
             </button>
           )}
         </div>
-        {showReactions && (
+        {reacts && reactions.length > 0 && (
           <div style={{ margin: '4px 0 6px' }}>
-            <Reactions
-              space={space}
-              target={record.key}
-              targetAuthor={record.root}
-              reactions={reactionsOf(record)}
-            />
+            <Reactions space={space} target={record.key} targetAuthor={record.root} reactions={reactions} />
           </div>
         )}
       </div>

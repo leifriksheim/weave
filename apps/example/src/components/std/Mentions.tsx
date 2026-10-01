@@ -1,5 +1,6 @@
 import {
   useLayoutEffect,
+  type ComponentProps,
   useRef,
   useState,
   type ChangeEvent,
@@ -11,6 +12,41 @@ import {
 import { Avatar } from '@weave/app-shared/Avatar';
 import { nameOf, type People } from '../../derive/people';
 import { palette } from '../../styles';
+import { Person } from '../Person';
+
+/** How a mention stands out, in a message and in the box it is written in */
+const MENTION_BG = '#e8f0fe';
+const MENTION_INK = '#1a56c4';
+
+/** A run of text, and whom it mentions when it is an "@Name" */
+interface Segment {
+  readonly text: string;
+  readonly did?: string;
+}
+
+/** `text` cut around every "@Name" of someone in `named`, the longest name first so "@Ann Lee" beats "@Ann" */
+function splitMentions(
+  text: string,
+  named: ReadonlyArray<{ readonly did: string; readonly name: string }>,
+): Segment[] {
+  const byName = new Map(named.map(({ did, name }) => [name.toLowerCase(), did]));
+  if (!byName.size) return [{ text }];
+  const names = [...byName.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const at = new RegExp(`(^|\\s)@(${names.join('|')})(?=$|[\\s.,!?:;)])`, 'gi');
+  const segments: Segment[] = [];
+  let from = 0;
+  for (const match of text.matchAll(at)) {
+    const start = match.index + (match[1]?.length ?? 0);
+    const end = match.index + match[0].length;
+    if (start > from) segments.push({ text: text.slice(from, start) });
+    segments.push({ text: text.slice(start, end), did: byName.get((match[2] ?? '').toLowerCase()) });
+    from = end;
+  }
+  if (from < text.length) segments.push({ text: text.slice(from) });
+  return segments;
+}
 
 /**
  * "@" in a text box: suggests the people of the space as you type after it
@@ -93,19 +129,15 @@ export function useMentions(options: {
     },
     /** Whom `text` mentions, each once; and forgets what was picked, ready for the next draft */
     take: (text: string): string[] => {
-      const named = (label: string) =>
-        new RegExp(`(?:^|\\s)@${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s.,!?:;)])`, 'i').test(
-          text,
-        );
-      const typedNames = everyone.map(({ did, name }) => [name, did] as const);
+      const named = [...[...picked.current].map(([name, did]) => ({ did, name })), ...everyone];
       const mentions = [
-        ...new Set(
-          [...picked.current, ...typedNames].filter(([label]) => named(label)).map(([, did]) => did),
-        ),
+        ...new Set(splitMentions(text, named).flatMap((segment) => (segment.did ? [segment.did] : []))),
       ];
       picked.current.clear();
       return mentions;
     },
+    /** The draft cut around its mentions, for `MentionField` to highlight */
+    marked: splitMentions(draft, everyone),
   };
 }
 
@@ -153,6 +185,114 @@ export function MentionList({
           <span style={{ color: palette.ink.strong }}>{nameOf(person.did, people)}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+/** What a message or comment says, each "@Name" it mentions highlighted, opening their card */
+export function MentionText({
+  text,
+  mentions,
+  people,
+}: {
+  text: string;
+  mentions: ReadonlyArray<string> | undefined;
+  people: People;
+}) {
+  if (!mentions?.length) return text;
+  const named = mentions.map((did) => ({ did, name: nameOf(did, people) }));
+  return splitMentions(text, named).map((segment, i) =>
+    segment.did ? (
+      <Person
+        key={i}
+        did={segment.did}
+        label={segment.text}
+        style={{
+          color: MENTION_INK,
+          background: MENTION_BG,
+          borderRadius: 4,
+          padding: '0 2px',
+          fontWeight: 500,
+          textDecoration: 'none',
+        }}
+      />
+    ) : (
+      segment.text
+    ),
+  );
+}
+
+/**
+ * A text box that highlights whom its draft mentions: a see-through field over
+ * a copy of the draft whose text is invisible but whose mentions are tinted,
+ * kept scrolled with the field.
+ */
+export function MentionField({
+  marked,
+  input,
+  style,
+  ...props
+}: Omit<ComponentProps<'input'>, 'ref'> & {
+  marked: ReadonlyArray<Segment>;
+  input: RefObject<HTMLInputElement | null>;
+}) {
+  const under = useRef<HTMLDivElement>(null);
+  const follow = () => {
+    if (under.current && input.current) under.current.scrollLeft = input.current.scrollLeft;
+  };
+  useLayoutEffect(follow);
+  return (
+    <div
+      style={{
+        position: 'relative',
+        flex: 1,
+        minWidth: 0,
+        borderRadius: 6,
+        background: palette.surface.card,
+      }}
+    >
+      <div
+        ref={under}
+        aria-hidden
+        className="mention-layer"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          padding: '0 12px',
+          border: '1px solid transparent',
+          fontSize: 14,
+          lineHeight: '38px',
+          whiteSpace: 'pre',
+          overflow: 'hidden',
+          color: 'transparent',
+          pointerEvents: 'none',
+        }}
+      >
+        {marked.map((segment, i) =>
+          segment.did ? (
+            <mark
+              key={i}
+              style={{
+                color: 'transparent',
+                background: MENTION_BG,
+                borderRadius: 3,
+                boxShadow: `0 0 0 2px ${MENTION_BG}`,
+              }}
+            >
+              {segment.text}
+            </mark>
+          ) : (
+            segment.text
+          ),
+        )}
+      </div>
+      <input
+        {...props}
+        ref={input}
+        onScroll={follow}
+        className="mention-layer"
+        style={{ ...style, position: 'relative', width: '100%', backgroundColor: 'transparent' }}
+      />
     </div>
   );
 }

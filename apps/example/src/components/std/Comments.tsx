@@ -8,7 +8,7 @@ import { Avatar } from '@weave/app-shared/Avatar';
 import { styles, palette } from '../../styles';
 import { Person } from '../Person';
 import { peopleFrom, respondingTo } from '../../derive/people';
-import { MentionList, useMentions } from './Mentions';
+import { MentionField, MentionList, MentionText, useMentions } from './Mentions';
 
 /**
  * `std.comment` on a record: a thread, oldest first, and a box to add to it.
@@ -61,7 +61,7 @@ export function Comments({
                 wordBreak: 'break-word',
               }}
             >
-              {textIn(c)}
+              <MentionText text={textIn(c) ?? ''} mentions={mentionsIn(c)} people={people} />
             </p>
           </div>
         </div>
@@ -92,15 +92,16 @@ export function Comments({
           }}
           style={{ display: 'flex', gap: 8 }}
         >
-          <input
-            ref={input}
+          <MentionField
+            input={input}
+            marked={mention.marked}
             value={draft}
             onChange={mention.onChange}
             onSelect={mention.onSelect}
             onKeyDown={mention.onKeyDown}
             placeholder="Write a comment… @ to mention someone"
             aria-label="Write a comment"
-            style={{ ...styles.input, flex: 1 }}
+            style={styles.input}
           />
           <button
             type="submit"
@@ -114,6 +115,12 @@ export function Comments({
       )}
     </section>
   );
+}
+
+/** Whom a comment mentions */
+function mentionsIn(record: NodeRecord): string[] {
+  const mentions = bodyOf(record).mentions;
+  return Array.isArray(mentions) ? mentions.filter((did) => typeof did === 'string') : [];
 }
 
 /** What a comment says */

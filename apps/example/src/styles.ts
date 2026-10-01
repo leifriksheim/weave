@@ -375,8 +375,8 @@ export function injectBaseStyles(): void {
       input:not([type="checkbox"]):not([type="radio"]), select { min-height: 40px; }
       button[data-variant], [role="tab"], [data-nav], [data-menu-item] { min-height: 40px; }
       [data-row-action] { min-width: 36px; min-height: 36px; }
-      /* The query editor is a see-through field over its highlighted copy; both change size together or the caret drifts off the text. */
-      .code-layer { font-size: 16px !important; }
+      /* The query editor and a box you can mention in are see-through fields over a highlighted copy; both change size together or the caret drifts off the text. */
+      .code-layer, .mention-layer { font-size: 16px !important; }
     }
 
     @keyframes weave-sheet { from { transform: translateY(100%) } to { transform: none } }

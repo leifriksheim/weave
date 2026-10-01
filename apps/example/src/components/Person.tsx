@@ -35,10 +35,13 @@ export function usePeopleHere(): { readonly people: People; readonly me: string 
  */
 export function Person({
   did,
+  label,
   suffix,
   style,
 }: {
   did: string | null | undefined;
+  /** Shown instead of their name, like the "@Name" of a mention */
+  label?: string;
   suffix?: string;
   style?: React.CSSProperties;
 }) {
@@ -46,7 +49,7 @@ export function Person({
   const [open, setOpen] = useState(false);
   const people = scope?.people ?? new Map();
   // A bot says so in its profile; shown with its name wherever it appears.
-  const name = isBot(did, people) ? `${nameOf(did, people)} · bot` : nameOf(did, people);
+  const name = label ?? (isBot(did, people) ? `${nameOf(did, people)} · bot` : nameOf(did, people));
   if (!scope || !did)
     return (
       <span style={style}>
