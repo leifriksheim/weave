@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { openFsDirectory } from '../src/fs-directory.js';
 import { openHome, createAccount, unlock, chooseAccount } from '../src/home.js';
 import { startDaemon, type Daemon } from '../src/daemon.js';
+import { enableWebRTC } from '../src/agent.js';
 import { handleMcpMessage, PERSON_ONLY } from '../src/mcp.js';
 import { loadModelSetting } from '../src/guide.js';
 import { createNode } from '../../core/src/node/node.js';
@@ -227,6 +228,38 @@ describe('the daemon', () => {
       'the note to reach the node',
     );
     await laptop.close();
+  });
+
+  test('given relays, a fresh copy of the account finds a space made on another device, over WebRTC', async (t) => {
+    await enableWebRTC();
+    const relays = [`ws://127.0.0.1:${daemon.port}`];
+    // A browser of the same account, reached only through the relay: nothing points at the new node.
+    const browser = await createNode({
+      signer,
+      stores: memoryStores(),
+      accountKey: await deriveVaultKeyBytes(recoveryCodeToSeed(code)),
+      watchIntervalMs: 0,
+      network: { relays },
+    });
+    t.after(() => browser.close());
+    const space = await browser.spaces.create({ name: 'Made in a browser', visibility: 'private' });
+
+    // `weave init --existing`, then `weave run`, on a laptop.
+    const home = await openHome(await tempDir());
+    await createAccount(home, { name: 'Leif', code });
+    const laptop = await startDaemon({
+      unlocked: await unlock(home, await chooseAccount(home), { code }),
+      port: 0,
+      host: '127.0.0.1',
+      relays,
+      rescanMs: 100,
+    });
+    t.after(() => laptop.close());
+    await until(
+      async () => (await laptop.node.spaces.get(space.id)) !== null,
+      20000,
+      'the laptop to find the space through the relay',
+    );
   });
 
   test('lets go of someone removed from a private space once the key changes, and never lets them back', async (t) => {

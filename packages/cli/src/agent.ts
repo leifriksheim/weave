@@ -67,7 +67,7 @@ function configuredHosts(): string[] {
  * WebRTC, which Node doesn't have: the same API over libdatachannel. Loaded
  * only here — it is a native module, and the other commands don't need it.
  */
-async function enableWebRTC(): Promise<void> {
+export async function enableWebRTC(): Promise<void> {
   if (typeof globalThis.RTCPeerConnection === 'function') return;
   const { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } =
     await import('node-datachannel/polyfill');

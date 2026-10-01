@@ -103,7 +103,11 @@ whatever terminates TLS — browsers need `wss://` anyway — or pass
 
 It opens every space the account holds and notices new ones within five
 seconds, whoever added them: `weave spaces join` in another terminal, a browser
-pointed at the same folder, a pairing. It validates everything with the same
+pointed at the same folder, a pairing. It also meets the account's other
+devices, a browser among them, through the relays (`$WEAVE_RELAYS`, or the
+default) over WebRTC, so a fresh `weave init --existing` on a laptop finds its
+spaces with nothing pointed at it. `--no-relays` leaves that out, for a node
+that browsers dial; a single-file binary, which carries no WebRTC, always does. It validates everything with the same
 gates as any peer. It is an **anchor, not a host** — uptime, no authority.
 
 For a server, `bun build.ts` makes single-file binaries for this machine,
@@ -451,10 +455,16 @@ and it follows the account registry: every space you create or join, on any
 device, is served by the node within moments — no invites to hand it. Leaving a
 space anywhere leaves it everywhere.
 
+The other commands work offline, on what the folder has seen. On a new
+computer, run `weave run` while a browser with your account is open, until it
+says it is serving your spaces; until then a command naming one says it is
+unknown here.
+
 ## Not yet
 
-- **WebRTC on the node.** Browsers reach it over WebSocket. `node-datachannel`
-  plugs into the same transport seam if measurement says it is needed.
+- **WebRTC in the single-file binaries.** `weave run` from npm meets devices
+  through relays with `node-datachannel`; the Bun binaries don't carry it, so
+  browsers reach them over WebSocket only.
 - **Publishing.** `weave-protocol-cli` on npm (or a built JS package), and
   trying the Bun binary with `node-datachannel`.
 - **Hosting, before it's offered to anyone.** The checklist, what it costs

@@ -411,7 +411,7 @@ describe('a bot', () => {
     assert.equal(await discloseBot(bot, space), true);
     await until(
       async () =>
-        (await admin.records.list(space, { collection: profile.name })).some(
+        (await admin.records.list<{ bot?: boolean }>(space, { collection: profile.name })).some(
           (r) => r.root === bot.did && r.body?.bot === true,
         ),
       6000,
