@@ -4,9 +4,10 @@
  * enforces them. What the records mean (how a vote travels along
  * delegations) is this app's, in `tally.ts`.
  *
- * A result only ever moves forward. Every proposal fixes who votes on it
- * when it is made; votes are final; and a decision is a proof that cites
- * enough votes to settle it, which no later vote can undo. So every device
+ * A result only ever moves forward. Every proposal fixes who votes on it,
+ * and how many of them must vote for it to pass, when it is made; votes are
+ * final; and a decision is a proof that cites enough votes to settle it,
+ * which no later vote can undo. So every device
  * reaches the same result from whatever votes it holds, in any order, with
  * nobody closing the vote and no clock (issue #131).
  *
@@ -19,8 +20,11 @@ import { fragments } from '@weaveprotocol/core/schemas';
 
 const { typed, words, text, markdown, count, choice, people, one, own } = fragments;
 
-/** The most voters one proposal can have: a decision cites more than half of them, and at most 256 versions */
+/** The most voters one proposal can have */
 export const MAX_VOTERS = 500;
+
+/** The most votes a decision can cite, so a proposal's rule must settle it with no more either way */
+export const MAX_CITED = 255;
 
 /** Ids of versions a record cites */
 const ids = (max: number, description: string) => ({
@@ -37,6 +41,13 @@ const read = (path: string) => ({ var: path });
 const is = (a: unknown, b: unknown) => ({ '==': [a, b] });
 /** A field of the one version cited by the id at `path` */
 const citedOne = (path: string, field: string) => ({ get: [{ versions: [[read(path)]] }, `0.${field}`] });
+/** Half of a count, rounded down */
+const half = (n: unknown) => ({ '/': [{ '-': [n, { '%': [n, 2] }] }, 2] });
+/** `n` × `top` / `bottom`, rounded up */
+const share = (n: unknown, top: number, bottom: number) => {
+  const over = { '+': [{ '*': [n, top] }, bottom - 1] };
+  return { '/': [{ '-': [over, { '%': [over, bottom] }] }, bottom] };
+};
 /** How many different people wrote the versions cited at `path` */
 const authorsOf = (path: string) => ({
   size: { distinct: { map: [{ versions: read(path) }, read('it.author')] } },
@@ -84,8 +95,10 @@ export const CHOICES = ['for', 'against', 'abstain'] as const;
 export type Choice = (typeof CHOICES)[number];
 
 /**
- * Something put to the assembly: yes or no. Who votes on it is fixed when it
- * is made: the members then. People who join later vote on later proposals.
+ * Something put to the assembly: yes or no. Who votes on it, and how many of
+ * them must vote for it to pass (`toPass`), are fixed when it is made. It
+ * fails once so many vote against or abstain that `toPass` can't be reached.
+ * Without `toPass`, as in proposals from before it existed, more than half.
  */
 export const proposal = typed<Proposal>()({
   name: 'liquid.proposal',
@@ -96,7 +109,8 @@ export const proposal = typed<Proposal>()({
     properties: {
       title: words(200),
       body: markdown(20000),
-      voters: people(MAX_VOTERS, 'Who votes on it: the members when it was proposed'),
+      voters: people(MAX_VOTERS, 'Who votes on it, picked from the members when it was proposed'),
+      toPass: count(1, MAX_CITED, 'How many of its voters must vote for it to pass'),
     },
     required: ['title', 'voters'],
   },
@@ -105,7 +119,7 @@ export const proposal = typed<Proposal>()({
   rules: {
     edit: ['creator', 'can:moderate'],
     delete: 'can:moderate',
-    fixed: ['voters'],
+    fixed: ['voters', 'toPass'],
     check: [
       {
         that: {
@@ -124,6 +138,21 @@ export const proposal = typed<Proposal>()({
         },
         else: `A proposal's voters are members, each once, from 1 to ${MAX_VOTERS} of them`,
       },
+      {
+        that: {
+          if: [
+            is(read('body.toPass'), null),
+            true,
+            {
+              and: [
+                { '<=': [read('body.toPass'), { size: read('body.voters') }] },
+                { '<=': [{ '-': [{ size: read('body.voters') }, read('body.toPass')] }, MAX_CITED - 1] },
+              ],
+            },
+          ],
+        },
+        else: `A proposal can't need more votes for than it has voters, nor more than ${MAX_CITED} votes either way`,
+      },
     ],
   },
 });
@@ -131,6 +160,7 @@ interface Proposal {
   readonly title: string;
   readonly body?: string;
   readonly voters: ReadonlyArray<string>;
+  readonly toPass?: number;
 }
 
 /** "This should be looked at": one per person per proposal, for sorting. It decides nothing. */
@@ -204,12 +234,22 @@ interface Delegation {
   readonly topic: string;
 }
 
+/** How many votes for the proposal a decision cites needs: its `toPass`, else more than half */
+const toPassOf = (path: string) => ({
+  if: [
+    is(citedOne(path, 'body.toPass'), null),
+    { '+': [half({ size: read('body.voters') }), 1] },
+    citedOne(path, 'body.toPass'),
+  ],
+});
+
 /**
- * Settles a proposal: it cites the proposal (any version: its voters never change), and enough final
- * votes from its voters that nothing later can change the outcome. Passed:
- * more than half of the voters voted for. Rejected: at least half voted
- * against or abstained, so for can no longer pass. Anyone may write it, once
- * per proposal, and every device checks it.
+ * Settles a proposal: it cites the proposal (any version: its voters and
+ * `toPass` never change), and enough final votes from its voters that
+ * nothing later can change the outcome. Passed: `toPass` of them voted for.
+ * Rejected: so many voted against or abstained that `toPass` can no longer
+ * be reached. Anyone may write it, once per proposal, and every device
+ * checks it.
  */
 export const decision = typed<Decision>()({
   name: 'liquid.decision',
@@ -257,11 +297,16 @@ export const decision = typed<Decision>()({
         that: {
           if: [
             is(read('body.outcome'), 'passed'),
-            { '>': [{ '*': [authorsOf('body.votes'), 2] }, { size: read('body.voters') }] },
-            { '>=': [{ '*': [authorsOf('body.votes'), 2] }, { size: read('body.voters') }] },
+            { '>=': [authorsOf('body.votes'), toPassOf('body.proposal')] },
+            {
+              '>': [
+                { '+': [authorsOf('body.votes'), toPassOf('body.proposal')] },
+                { size: read('body.voters') },
+              ],
+            },
           ],
         },
-        else: 'A proposal passes with more than half its voters for, and fails once half are against or abstain',
+        else: 'A proposal passes once as many voters as it needs voted for, and fails once that can’t happen',
       },
     ] satisfies ReadonlyArray<Check>,
   },
@@ -339,10 +384,39 @@ interface Conflict {
 }
 
 /**
- * A party: a name, what it stands for, who is in it, and its stewards, who
- * keep it. Any steward may change it, so the party carries on when one
- * stops using Liquid. Someone is in the party when they are on its list and
- * have asked to join (`membership`).
+ * How a party takes a position: once this share of its members vote the
+ * same way themselves, or as its representative votes. Every share is more
+ * than half, so a party can never reach two positions at once.
+ */
+export const PARTY_RULES = [
+  'majority',
+  'two-thirds',
+  'three-quarters',
+  'everyone',
+  'representative',
+] as const;
+export type PartyRule = (typeof PARTY_RULES)[number];
+
+/** How many of `n` members a party's rule needs, as a condition; the default is more than half */
+const sharePerRule = (rule: unknown, n: unknown) => ({
+  if: [
+    is(rule, 'two-thirds'),
+    share(n, 2, 3),
+    {
+      if: [
+        is(rule, 'three-quarters'),
+        share(n, 3, 4),
+        { if: [is(rule, 'everyone'), n, { '+': [half(n), 1] }] },
+      ],
+    },
+  ],
+});
+
+/**
+ * A party: a name, what it stands for, who is in it, its stewards, who keep
+ * it, and how it decides (`decides`). Any steward may change it, so the
+ * party carries on when one stops using Liquid. Someone is in the party when
+ * they are on its list and have asked to join (`membership`).
  */
 export const party = typed<Party>()({
   name: 'liquid.party',
@@ -356,6 +430,8 @@ export const party = typed<Party>()({
       hue: count(0, 359),
       members: people(MAX_VOTERS, 'Who the stewards let in'),
       stewards: people(20, 'Who keeps the party: changes it and freezes its members for each proposal'),
+      decides: choice(PARTY_RULES, 'How it takes a position; more than half of its members when absent'),
+      representative: text(256, 'Who votes for it, when it decides by representative: a member', 1),
     },
     required: ['name', 'members', 'stewards'],
   },
@@ -379,6 +455,16 @@ export const party = typed<Party>()({
         },
         else: 'Only a party’s stewards change it, and it always has a steward, who is a member',
       },
+      {
+        that: {
+          if: [
+            is(read('body.decides'), 'representative'),
+            { in: [read('body.representative'), read('body.members')] },
+            is(read('body.representative'), null),
+          ],
+        },
+        else: 'A party that decides by representative names one of its members, and only then',
+      },
     ] satisfies ReadonlyArray<Check>,
   },
 });
@@ -388,6 +474,8 @@ interface Party {
   readonly hue?: number;
   readonly members: ReadonlyArray<string>;
   readonly stewards: ReadonlyArray<string>;
+  readonly decides?: PartyRule;
+  readonly representative?: string;
 }
 
 /** Someone asking to be in a party, or staying in it. Deleting it leaves. */
@@ -401,10 +489,11 @@ export const membership = typed<Record<string, never>>()({
 });
 
 /**
- * A party's members, frozen for one proposal by one of its stewards. Its
- * position on that proposal counts these members, whatever the list says
- * later. One per party per proposal, and final: a second, different one is
- * a conflict.
+ * A party's members and how it decides, frozen for one proposal by one of
+ * its stewards: how many of these members must vote alike (`toTake`), or
+ * whose vote is the party's (`representative`). Its position on that
+ * proposal follows this, whatever the party says later. One per party per
+ * proposal, and final: a second, different one is a conflict.
  */
 export const partyRoll = typed<PartyRoll>()({
   name: 'liquid.party-roll',
@@ -415,6 +504,8 @@ export const partyRoll = typed<PartyRoll>()({
     properties: {
       party: words(128, 'The id of the party’s version it was taken from'),
       members: people(MAX_VOTERS, 'Its members for this proposal'),
+      toTake: count(1, MAX_VOTERS, 'How many of them must vote alike for the party to take a position'),
+      representative: text(256, 'Whose own vote is the party’s, instead', 1),
     },
     required: ['party', 'members'],
   },
@@ -437,22 +528,57 @@ export const partyRoll = typed<PartyRoll>()({
         },
         else: 'A party roll is written by a steward, from the party’s own member list',
       },
+      {
+        that: {
+          if: [
+            is(citedOne('body.party', 'body.decides'), 'representative'),
+            {
+              and: [
+                is(read('body.representative'), citedOne('body.party', 'body.representative')),
+                { in: [read('body.representative'), read('body.members')] },
+                is(read('body.toTake'), null),
+              ],
+            },
+            {
+              and: [
+                is(read('body.representative'), null),
+                {
+                  or: [
+                    // Rolls from before parties chose: more than half
+                    {
+                      and: [is(citedOne('body.party', 'body.decides'), null), is(read('body.toTake'), null)],
+                    },
+                    is(
+                      read('body.toTake'),
+                      sharePerRule(citedOne('body.party', 'body.decides'), { size: read('body.members') }),
+                    ),
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        else: 'A party roll freezes how the party decides, as the party says, and its representative is a member',
+      },
     ] satisfies ReadonlyArray<Check>,
   },
 });
 interface PartyRoll {
   readonly party: string;
   readonly members: ReadonlyArray<string>;
+  readonly toTake?: number;
+  readonly representative?: string;
 }
 
 /** The party roll a party's position cites */
 const rollItself = { get: [{ versions: [[read('body.roll')]] }, '0'] };
 
 /**
- * A party's position on a proposal: more than half of its frozen members
- * voted this way themselves. Votes they cast by following someone don't
- * count, so a party can't count its own followers back into itself. Anyone
- * may write it; followers' devices then cast the same vote.
+ * A party's position on a proposal: as many of its frozen members as its
+ * roll says (more than half, when it doesn't) voted this way themselves, or
+ * its representative did. Votes cast by following someone don't count, so a
+ * party can't count its own followers back into itself. Anyone may write
+ * it; followers' devices then cast the same vote.
  */
 export const partyBallot = typed<PartyBallot>()({
   name: 'liquid.party-ballot',
@@ -496,8 +622,35 @@ export const partyBallot = typed<PartyBallot>()({
         else: 'A party’s position counts only its members’ own votes, for that choice',
       },
       {
-        that: { '>': [{ '*': [authorsOf('body.votes'), 2] }, { size: read('body.members') }] },
-        else: 'A party takes a position once more than half its members voted that way',
+        that: {
+          if: [
+            is(citedOne('body.roll', 'body.representative'), null),
+            {
+              '>=': [
+                authorsOf('body.votes'),
+                {
+                  if: [
+                    is(citedOne('body.roll', 'body.toTake'), null),
+                    { '+': [half({ size: read('body.members') }), 1] },
+                    citedOne('body.roll', 'body.toTake'),
+                  ],
+                },
+              ],
+            },
+            {
+              and: [
+                { '>=': [authorsOf('body.votes'), 1] },
+                {
+                  all: [
+                    { versions: read('body.votes') },
+                    is(read('it.author'), citedOne('body.roll', 'body.representative')),
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        else: 'A party takes a position once as many members as its roll needs voted that way, or its representative did',
       },
     ] satisfies ReadonlyArray<Check>,
   },

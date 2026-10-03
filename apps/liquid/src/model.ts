@@ -4,7 +4,16 @@
  * they all agree, and the count (`tally.ts`) runs on what they show.
  */
 import { useMemo } from 'react';
-import { useAccess, useAccount, useCan, useCollections, useNames, useQuery } from '@weaveprotocol/core/react';
+import {
+  useAccess,
+  useAccount,
+  useCan,
+  useCollections,
+  useLive,
+  useNames,
+  useQuery,
+} from '@weaveprotocol/core/react';
+import { profile, type Profile } from '@weaveprotocol/core/schemas';
 import type { SpaceRole } from '@weaveprotocol/core';
 import {
   conflict,
@@ -18,9 +27,11 @@ import {
   support,
   topic,
   vote,
+  type PartyRule,
 } from './schema';
 import {
   follow,
+  majority,
   pending,
   resultOf,
   tally,
@@ -28,6 +39,7 @@ import {
   type DelegationEdge,
   type Next,
   type Outcome,
+  type PartyDecides,
   type PartyStand,
   type Result,
   type Tally,
@@ -40,11 +52,12 @@ export interface TopicView {
   readonly hue: number;
 }
 
-/** A party's roll for one proposal: its members, frozen */
+/** A party's roll for one proposal: its members and how it decides, frozen */
 export interface RollView {
   readonly key: string;
   readonly version: string;
   readonly members: ReadonlyArray<string>;
+  readonly decides: PartyDecides;
 }
 
 export interface ProposalView {
@@ -56,6 +69,8 @@ export interface ProposalView {
   readonly topic: string | null;
   /** Who votes on it; empty for one made before proposals listed their voters */
   readonly voters: ReadonlyArray<string>;
+  /** How many of its voters must vote for it to pass: what it says, else more than half */
+  readonly toPass: number;
   readonly createdBy: string | null;
   readonly createdAt: string;
   readonly supporters: ReadonlySet<string>;
@@ -90,6 +105,10 @@ export interface PartyFull {
   readonly asked: ReadonlyMap<string, string>;
   /** Who is in it: on the list and asked to join, or a steward */
   readonly members: ReadonlySet<string>;
+  /** How it takes a position */
+  readonly decides: PartyRule;
+  /** Whose vote is the party's, when it decides by representative */
+  readonly representative: string | null;
 }
 
 export interface MyDelegation extends DelegationEdge {
@@ -101,6 +120,8 @@ export interface Assembly {
   readonly me: string;
   readonly name: (did: string | null | undefined) => string;
   readonly members: ReadonlyArray<{ readonly did: string; readonly role: string }>;
+  /** Members whose own profile here says they are a bot: their word, not checked */
+  readonly bots: ReadonlySet<string>;
   readonly roles: ReadonlyArray<SpaceRole>;
   readonly myRole: SpaceRole | null;
   readonly mayModerate: boolean;
@@ -118,10 +139,17 @@ export interface Assembly {
   readonly comingOf: (proposal: ProposalView) => Tally;
   /** What your own device does about a proposal you haven't voted on */
   readonly nextFor: (proposal: ProposalView, did?: string) => Next;
-  /** Whether the space holds the collections this Liquid needs: false for one made by an older Liquid */
+  /** Whether the space holds the collections this Liquid needs, with final votes and proposals that set their rule: false for one made by an older Liquid */
   readonly current: boolean;
   /** False until the first records are read */
   readonly ready: boolean;
+}
+
+/** Whether a stored schema has a field: how a definition from an older Liquid is told apart */
+function hasField(schema: unknown, field: string): boolean {
+  if (typeof schema !== 'object' || schema === null || !('properties' in schema)) return false;
+  const { properties } = schema;
+  return typeof properties === 'object' && properties !== null && field in properties;
 }
 
 /** A hue from a key, for a topic or party that didn't pick one */
@@ -140,6 +168,7 @@ export function useAssembly(spaceId: string): Assembly {
   const access = useAccess(spaceId);
   const mayModerate = useCan(spaceId, 'create', topic.name);
   const collections = useCollections(spaceId);
+  const bots = useBots(spaceId);
 
   const topics = useQuery(spaceId, { collection: topic, sort: { '@createdAt': 'asc' } }).result;
   const proposals = useQuery(spaceId, { collection: proposal, sort: { '@createdAt': 'desc' } }).result;
@@ -209,7 +238,10 @@ export function useAssembly(spaceId: string): Assembly {
       const of = linkOf(r, 'party');
       if (!about || !of) continue;
       const these = rollsOf.get(about) ?? new Map<string, RollView>();
-      these.set(of, { key: r.key, version: r.version, members: r.body.members });
+      const decides: PartyDecides = r.body.representative
+        ? { representative: r.body.representative }
+        : { toTake: r.body.toTake ?? majority(new Set(r.body.members).size) };
+      these.set(of, { key: r.key, version: r.version, members: r.body.members, decides });
       rollsOf.set(about, these);
     }
     const ballotsOf = new Map<string, Map<string, PartyStand>>();
@@ -242,6 +274,7 @@ export function useAssembly(spaceId: string): Assembly {
         body: r.body.body ?? '',
         topic: linked && topicByKey.has(linked) ? linked : null,
         voters: Array.isArray(r.body.voters) ? r.body.voters : [],
+        toPass: r.body.toPass ?? majority(Array.isArray(r.body.voters) ? new Set(r.body.voters).size : 0),
         createdBy: r.createdBy,
         createdAt: r.createdAt,
         supporters: supportersOf.get(r.key) ?? new Set(),
@@ -287,6 +320,8 @@ export function useAssembly(spaceId: string): Assembly {
         listed,
         asked,
         members: inParty,
+        decides: r.body.decides ?? 'majority',
+        representative: r.body.representative ?? null,
       };
     });
     const partyByKey = new Map(partyViews.map((p) => [p.key, p]));
@@ -304,6 +339,7 @@ export function useAssembly(spaceId: string): Assembly {
       me,
       name,
       members,
+      bots,
       roles: access?.roles ?? [],
       myRole: access?.role ?? null,
       mayModerate,
@@ -318,7 +354,10 @@ export function useAssembly(spaceId: string): Assembly {
       countOf: (p) => tally(p.voters, p.votes),
       comingOf: (p) => pending(followInput(p)),
       nextFor: (p, did = me) => follow({ ...followInput(p), me: did }),
-      current: collections.some((c) => c.name === vote.name && c.rules.final === true),
+      current:
+        collections.some((c) => c.name === vote.name && c.rules.final === true) &&
+        collections.some((c) => c.name === proposal.name && c.rules.fixed?.includes('toPass') === true) &&
+        collections.some((c) => c.name === party.name && hasField(c.schema, 'decides')),
       ready: access !== undefined && proposals !== null && topics !== null,
     };
   }, [
@@ -328,6 +367,7 @@ export function useAssembly(spaceId: string): Assembly {
     access,
     mayModerate,
     collections,
+    bots,
     topics,
     proposals,
     supports,
@@ -341,3 +381,21 @@ export function useAssembly(spaceId: string): Assembly {
     ballots,
   ]);
 }
+
+/** Who says they are a bot here: `bot: true` on a `std.profile` their own account wrote */
+function useBots(spaceId: string): ReadonlySet<string> {
+  const bots = useLive(
+    spaceId,
+    async (node) => {
+      const profiles = await node.records.list<Profile>(spaceId, { collection: profile.name });
+      return new Set(
+        profiles.flatMap((r) =>
+          !r.deleted && r.body?.bot === true && r.root && r.root === r.createdBy ? [r.root] : [],
+        ),
+      );
+    },
+    [],
+  );
+  return bots ?? NONE;
+}
+const NONE: ReadonlySet<string> = new Set();

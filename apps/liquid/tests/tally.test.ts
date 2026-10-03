@@ -2,7 +2,11 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   follow,
+  majority,
   needed,
+  ruleName,
+  PARTY_SHARE,
+  partyDecides,
   partyPosition,
   pending,
   proof,
@@ -66,19 +70,19 @@ describe('settling a proposal', () => {
   });
 
   test('passes with more than half for, and not a vote sooner', () => {
-    assert.equal(settled(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'for' }))), null);
+    assert.equal(settled(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'for' })), 3), null);
     assert.equal(
-      settled(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' }))),
+      settled(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' })), 3),
       'passed',
     );
   });
 
   test('fails once half are against or abstain, since for can no longer pass', () => {
     const four = VOTERS.slice(0, 4);
-    assert.equal(settled(tally(four, votes({ 'did:ada': 'against' }))), null);
-    assert.equal(settled(tally(four, votes({ 'did:ada': 'against', 'did:bo': 'abstain' }))), 'rejected');
+    assert.equal(settled(tally(four, votes({ 'did:ada': 'against' })), 3), null);
+    assert.equal(settled(tally(four, votes({ 'did:ada': 'against', 'did:bo': 'abstain' })), 3), 'rejected');
     // Five voters: two not for still leaves three to pass.
-    assert.equal(settled(tally(VOTERS, votes({ 'did:ada': 'against', 'did:bo': 'abstain' }))), null);
+    assert.equal(settled(tally(VOTERS, votes({ 'did:ada': 'against', 'did:bo': 'abstain' })), 3), null);
   });
 
   test('a settled count stays settled whatever arrives later', () => {
@@ -90,12 +94,12 @@ describe('settling a proposal', () => {
       'did:di': 'against',
       'did:ed': 'against',
     });
-    assert.equal(settled(tally(VOTERS, early)), 'passed');
-    assert.equal(settled(tally(VOTERS, later)), 'passed');
+    assert.equal(settled(tally(VOTERS, early), 3), 'passed');
+    assert.equal(settled(tally(VOTERS, later), 3), 'passed');
   });
 
   test('says how far each way is', () => {
-    assert.deepEqual(needed(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'against' }))), {
+    assert.deepEqual(needed(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'against' })), 3), {
       toPass: 2,
       toFail: 2,
     });
@@ -109,8 +113,45 @@ describe('settling a proposal', () => {
       'did:bo': 'for',
       'did:di': 'against',
     });
-    assert.deepEqual(proof(VOTERS, all, 'passed'), ['v-did:ada', 'v-did:bo', 'v-did:cy']);
-    assert.equal(proof(VOTERS, all, 'rejected'), null);
+    assert.deepEqual(proof(VOTERS, all, 'passed', 3), ['v-did:ada', 'v-did:bo', 'v-did:cy']);
+    assert.equal(proof(VOTERS, all, 'rejected', 3), null);
+  });
+
+  test('a proposal that needs more passes later and fails sooner', () => {
+    // Five voters, four to pass: two not for already makes four unreachable.
+    const three = votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' });
+    assert.equal(settled(tally(VOTERS, three), 4), null);
+    assert.equal(settled(tally(VOTERS, votes({ 'did:ada': 'against', 'did:bo': 'abstain' })), 4), 'rejected');
+    assert.deepEqual(needed(tally(VOTERS, three), 4), { toPass: 1, toFail: 2 });
+    const all = votes({
+      'did:ada': 'for',
+      'did:bo': 'for',
+      'did:cy': 'for',
+      'did:di': 'for',
+      'did:ed': 'against',
+    });
+    assert.deepEqual(proof(VOTERS, all, 'passed', 4), ['v-did:ada', 'v-did:bo', 'v-did:cy', 'v-did:di']);
+    // Everyone: one not for settles it.
+    assert.equal(settled(tally(VOTERS, votes({ 'did:ed': 'abstain' })), 5), 'rejected');
+    assert.deepEqual(proof(VOTERS, votes({ 'did:ed': 'abstain' }), 'rejected', 5), ['v-did:ed']);
+  });
+
+  test('a proposal that needs fewer than half can pass without most', () => {
+    assert.equal(settled(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'for' })), 2), 'passed');
+    assert.equal(
+      settled(tally(VOTERS, votes({ 'did:ada': 'against', 'did:bo': 'against', 'did:cy': 'against' })), 2),
+      null,
+    );
+  });
+
+  test('names the rule a proposal took, when it is one of the presets', () => {
+    assert.equal(majority(4), 3);
+    assert.equal(majority(5), 3);
+    assert.equal(ruleName(3, 5), 'More than half');
+    assert.equal(ruleName(6, 9), 'Two-thirds');
+    assert.equal(ruleName(9, 12), 'Three-quarters');
+    assert.equal(ruleName(7, 7), 'Everyone');
+    assert.equal(ruleName(2, 9), null);
   });
 
   test('the ladder: open, then passed or rejected, then disputed for good', () => {
@@ -236,21 +277,66 @@ describe('a party’s position', () => {
   const roll = ['did:ada', 'did:bo', 'did:cy', 'did:di'];
 
   test('more than half of its frozen members, voting themselves', () => {
-    assert.equal(partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for' })), null);
-    assert.deepEqual(partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' })), {
-      choice: 'for',
-      votes: ['v-did:ada', 'v-did:bo', 'v-did:cy'],
-    });
+    assert.equal(partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for' }), { toTake: 3 }), null);
+    assert.deepEqual(
+      partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' }), { toTake: 3 }),
+      {
+        choice: 'for',
+        votes: ['v-did:ada', 'v-did:bo', 'v-did:cy'],
+      },
+    );
   });
 
   test('votes cast by following don’t count, so a party never counts its followers back in', () => {
     const v = votes({ 'did:ada': 'for', 'did:bo': ['for', 'greens'], 'did:cy': ['for', 'greens'] });
-    assert.equal(partyPosition(roll, v), null);
+    assert.equal(partyPosition(roll, v, { toTake: 3 }), null);
+  });
+
+  test('a stricter party needs more of its members', () => {
+    const three = votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' });
+    assert.equal(partyPosition(roll, three, { toTake: 4 }), null);
+    assert.equal(
+      partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for', 'did:di': 'for' }), {
+        toTake: 4,
+      })?.choice,
+      'for',
+    );
+  });
+
+  test('every share is more than half, so a party can never reach two positions', () => {
+    for (let n = 1; n <= 60; n++)
+      for (const share of Object.values(PARTY_SHARE)) {
+        assert.ok(share(n) * 2 > n, `${n}`);
+        assert.ok(share(n) <= n, `${n}`);
+      }
+  });
+
+  test('a representative’s own vote is the party’s; one cast by following isn’t', () => {
+    const rep = { representative: 'did:bo' };
+    assert.deepEqual(partyPosition(roll, votes({ 'did:bo': 'against' }), rep), {
+      choice: 'against',
+      votes: ['v-did:bo'],
+    });
+    assert.equal(partyPosition(roll, votes({ 'did:bo': ['for', 'did:ada'] }), rep), null);
+    // The rest of the members don't decide it.
+    assert.equal(
+      partyPosition(roll, votes({ 'did:ada': 'for', 'did:cy': 'for', 'did:di': 'for' }), rep),
+      null,
+    );
+  });
+
+  test('a roll freezes the party’s rule for its members', () => {
+    assert.deepEqual(partyDecides('two-thirds', null, roll), { toTake: 3 });
+    assert.deepEqual(partyDecides('representative', 'did:bo', roll), { representative: 'did:bo' });
+    // A representative who left can't be frozen: no roll, so no position.
+    assert.equal(partyDecides('representative', 'did:zed', roll), null);
   });
 
   test('members who joined after the roll don’t count', () => {
     assert.equal(
-      partyPosition(['did:ada', 'did:bo', 'did:cy'], votes({ 'did:ada': 'for', 'did:zed': 'for' })),
+      partyPosition(['did:ada', 'did:bo', 'did:cy'], votes({ 'did:ada': 'for', 'did:zed': 'for' }), {
+        toTake: 2,
+      }),
       null,
     );
   });

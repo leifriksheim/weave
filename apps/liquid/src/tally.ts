@@ -5,11 +5,12 @@
  * Every rule here only grows: once true, no vote arriving later makes it
  * false. That is what lets devices agree without anyone closing the vote.
  *
- * - **Who votes** is fixed by the proposal: its voters, N of them.
+ * - **Who votes** is fixed by the proposal: its voters, N of them, and how
+ *   many must vote for it to pass, K (more than half unless it says).
  * - **Votes are final.** Each voter casts one, themselves or by their device
  *   following someone they trust (`via`).
- * - **Passed** once more than N/2 voted for. **Rejected** once at least N/2
- *   voted against or abstained, so for can no longer pass. Until then it is
+ * - **Passed** once K voted for. **Rejected** once more than N − K voted
+ *   against or abstained, so K can no longer be reached. Until then it is
  *   open, however long that takes.
  * - **Disputed** once someone is caught saying two things about it (a
  *   conflict). That sits above passed and rejected: it never goes back.
@@ -19,7 +20,7 @@
  * that party has taken a position, it casts the same vote for you. Along a
  * chain this happens one device at a time; a loop never casts anything.
  */
-import { EVERYTHING, type Choice } from './schema';
+import { EVERYTHING, type Choice, type PartyRule } from './schema';
 
 /** A vote as cast */
 export interface CastVote {
@@ -59,21 +60,46 @@ export function tally(voters: ReadonlyArray<string>, votes: Votes): Tally {
 
 const voterCount = (t: Tally) => t.for + t.against + t.abstain + t.uncast;
 
-/** Whether the count settles it: more than half for, or at least half not for */
-export function settled(t: Tally): Outcome | null {
+/** More than half of `voters`: what a proposal needs when it doesn't say */
+export const majority = (voters: number) => Math.floor(voters / 2) + 1;
+
+/** How many of `n` voters, or of a party's members, each share needs; every one is more than half */
+export const PARTY_SHARE: Readonly<Record<Exclude<PartyRule, 'representative'>, (n: number) => number>> = {
+  majority,
+  'two-thirds': (n) => Math.ceil((n * 2) / 3),
+  'three-quarters': (n) => Math.ceil((n * 3) / 4),
+  everyone: (n) => n,
+};
+
+/** Rules to pick from when proposing: how many of `n` voters must vote for */
+export const RULES = [
+  { id: 'majority', label: 'More than half', toPass: PARTY_SHARE.majority },
+  { id: 'two-thirds', label: 'Two-thirds', toPass: PARTY_SHARE['two-thirds'] },
+  { id: 'three-quarters', label: 'Three-quarters', toPass: PARTY_SHARE['three-quarters'] },
+  { id: 'everyone', label: 'Everyone', toPass: PARTY_SHARE.everyone },
+] as const;
+export type RuleId = (typeof RULES)[number]['id'];
+
+/** A proposal's rule in words: the first preset that needs as many, or null */
+export function ruleName(toPass: number, voters: number): string | null {
+  return RULES.find((r) => r.toPass(voters) === toPass)?.label ?? null;
+}
+
+/** Whether the count settles it: `toPass` for, or so many not for that `toPass` can't be reached */
+export function settled(t: Tally, toPass: number): Outcome | null {
   const n = voterCount(t);
   if (n === 0) return null;
-  if (t.for * 2 > n) return 'passed';
-  if ((t.against + t.abstain) * 2 >= n) return 'rejected';
+  if (t.for >= toPass) return 'passed';
+  if (t.against + t.abstain > n - toPass) return 'rejected';
   return null;
 }
 
 /** How many more votes for it needs to pass, and how many not for to fail */
-export function needed(t: Tally): { readonly toPass: number; readonly toFail: number } {
+export function needed(t: Tally, toPass: number): { readonly toPass: number; readonly toFail: number } {
   const n = voterCount(t);
   return {
-    toPass: Math.max(0, Math.floor(n / 2) + 1 - t.for),
-    toFail: Math.max(0, Math.ceil(n / 2) - t.against - t.abstain),
+    toPass: Math.max(0, toPass - t.for),
+    toFail: Math.max(0, n - toPass + 1 - t.against - t.abstain),
   };
 }
 
@@ -82,9 +108,14 @@ export function needed(t: Tally): { readonly toPass: number; readonly toFail: nu
  * order so two devices make the same proof. Null when the count doesn't
  * settle it that way.
  */
-export function proof(voters: ReadonlyArray<string>, votes: Votes, outcome: Outcome): string[] | null {
+export function proof(
+  voters: ReadonlyArray<string>,
+  votes: Votes,
+  outcome: Outcome,
+  toPass: number,
+): string[] | null {
   const n = new Set(voters).size;
-  const enough = outcome === 'passed' ? Math.floor(n / 2) + 1 : Math.ceil(n / 2);
+  const enough = outcome === 'passed' ? toPass : n - toPass + 1;
   const counts = (v: CastVote) => (outcome === 'passed' ? v.choice === 'for' : v.choice !== 'for');
   const cited = [...new Set(voters)]
     .sort()
@@ -102,17 +133,38 @@ export function resultOf(decided: Outcome | null, disputed: boolean): Result {
 
 // ─── Parties ─────────────────────────────────────────────────────────
 
+/** How a party decides on one proposal, as its roll froze it */
+export type PartyDecides =
+  | { readonly toTake: number; readonly representative?: undefined }
+  | { readonly representative: string; readonly toTake?: undefined };
+
+/** What a roll freezes for a party with this rule and these members */
+export function partyDecides(
+  rule: PartyRule,
+  representative: string | null,
+  members: ReadonlyArray<string>,
+): PartyDecides | null {
+  if (rule !== 'representative') return { toTake: PARTY_SHARE[rule](new Set(members).size) };
+  return representative && members.includes(representative) ? { representative } : null;
+}
+
 /**
- * A party's position: the choice more than half of its frozen members voted
- * themselves, with the votes that prove it. Votes cast by following don't
- * count, so a party never counts its own followers.
+ * A party's position: the choice its representative voted, or the one
+ * enough of its frozen members voted themselves, with the votes that prove
+ * it. Votes cast by following don't count, so a party never counts its own
+ * followers.
  */
 export function partyPosition(
   members: ReadonlyArray<string>,
   votes: Votes,
+  decides: PartyDecides,
 ): { readonly choice: Choice; readonly votes: string[] } | null {
+  if (decides.representative !== undefined) {
+    const theirs = members.includes(decides.representative) ? votes.get(decides.representative) : undefined;
+    return theirs && theirs.via === null ? { choice: theirs.choice, votes: [theirs.version] } : null;
+  }
   const roll = [...new Set(members)].sort();
-  const enough = Math.floor(roll.length / 2) + 1;
+  const enough = decides.toTake;
   const own = roll.map((did) => votes.get(did)).filter((v): v is CastVote => !!v && v.via === null);
   for (const choice of ['for', 'against', 'abstain'] as const) {
     const these = own.filter((v) => v.choice === choice);
