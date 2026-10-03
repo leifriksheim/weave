@@ -25,7 +25,6 @@ import path from 'node:path';
 import { createInterface as createPromiseInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import {
-  createNode,
   isValidRecoveryCode,
   NODE_ACTIONS,
   runAction,
@@ -37,6 +36,7 @@ import {
   chooseAccount,
   createAccount,
   homePath,
+  nodeFor,
   openHome,
   unlock,
   type Home,
@@ -75,21 +75,13 @@ import {
   startBotNode,
   watchRelayRefusal,
 } from './agent.js';
-import {
-  createAgentChat,
-  DEFAULT_MODEL,
-  fileSpend,
-  parsePrice,
-  priceOf,
-  type Price,
-  streamingThink,
-} from './agent-chat.js';
-import { runRules } from './bot-runner.js';
-import { openAIThink } from './agent-openai.js';
+import { createAgentChat, DEFAULT_MODEL, fileSpend, priceOf } from './agent-chat.js';
+import { capEachOf, runRules } from './bot-runner.js';
+import { chooseModel, isLoopback, isPlain, thinker, type ModelChoice } from './model.js';
 import { configSnippet, configureClients, serverCommand } from './clients.js';
 import { addRule, defineStandard, loadModelSetting, setUpModel } from './guide.js';
 import * as ask from './ask.js';
-import { isRecord } from './json.js';
+import { commaList, isRecord, messageOf } from './json.js';
 import { completeInput } from './complete.js';
 
 const VERSION = '0.1.0';
@@ -176,18 +168,20 @@ async function untilStopped(running: { close(): Promise<void> }): Promise<never>
   return new Promise(() => {});
 }
 
-/** Runs something against the unlocked account's folder, offline, printing what it returns */
-async function withNode(globals: Globals, work: (node: P2PNode) => Promise<unknown>): Promise<number> {
-  const unlocked = await openAccount(globals);
-  const node = await createNode({
-    signer: unlocked.signer,
-    stores: unlocked.stores,
-    accountKey: unlocked.accountKey,
-    contactKey: unlocked.contactKey,
-    watchIntervalMs: 0,
-  });
+/** Prints what a command returns, as JSON */
+function print(value: unknown): number {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  return 0;
+}
+
+/**
+ * Runs something against the unlocked account's folder, offline. With a
+ * daemon running on the same folder, it picks the change up and syncs it.
+ */
+async function withNode(globals: Globals, work: (node: P2PNode) => Promise<number>): Promise<number> {
+  const node = await nodeFor(await openAccount(globals), { watchIntervalMs: 0 });
   try {
-    process.stdout.write(`${JSON.stringify(await work(node), null, 2)}\n`);
+    return await work(node);
   } catch (error) {
     // Commands work offline, on what this folder has seen; a space made in a browser arrives by `weave run`.
     if (error instanceof Error && error.message.startsWith('Unknown space'))
@@ -200,7 +194,35 @@ async function withNode(globals: Globals, work: (node: P2PNode) => Promise<unkno
   } finally {
     await node.close();
   }
-  return 0;
+}
+
+/** Says when the relay refuses this node, as another process with the same key holds the room (#55), and when it lets it in */
+const sayRelayRefusal = (node: P2PNode, who: string, meanwhile: string) =>
+  watchRelayRefusal(node, (refused) =>
+    stderr(
+      refused
+        ? `${who}: the relay refused this node: another \`weave agent\`, \`weave mcp\` or \`weave run\` with the ` +
+            `same --home is connected. ${meanwhile} (\`ps aux | grep weave\`).`
+        : `${who}: connected to the relay.`,
+    ),
+  );
+
+/** Trades a code from the app for an agent's note, asking for the code when it wasn't given */
+async function connectHere(home: string, code: string, options: { name?: string; relays?: string[] } = {}) {
+  return connectAgent({
+    home,
+    code:
+      code ||
+      (await ask.text({
+        flag: 'code',
+        message: 'The code from the app (in the app: Connect an agent)',
+        placeholder: 'wv_…',
+        hint: 'Give it as `weave connect wv_…`: in the app, choose "Connect an agent".',
+      })),
+    name: options.name ?? defaultAgentName(),
+    relays: [...new Set([...(options.relays ?? []), ...configuredRelays()])],
+    log: stderr,
+  });
 }
 
 /** What `weave` alone offers at a terminal: the things people come to do, each a command */
@@ -514,29 +536,6 @@ async function createIfEmpty(globals: Globals): Promise<void> {
   stderr('Copy it somewhere safe — a password manager — and then delete that file.');
 }
 
-/**
- * `weave agent`: the connected agent's node, and a chat with it in this
- * terminal. The model's words go to stdout; what it does goes to stderr.
- */
-/** Which model thinks, where, and at what price */
-interface ModelChoice {
-  /** `anthropic`, or `openai` for any server that speaks Chat Completions */
-  readonly provider: 'anthropic' | 'openai';
-  readonly name: string;
-  /** Another server than the provider's own: `http://localhost:11434/v1`, `https://api.deepseek.com` */
-  readonly baseUrl?: string;
-  readonly price: Price;
-}
-
-/** Whether an address is this machine: a model there asks for no key */
-const isLoopback = (url: string) => {
-  try {
-    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname);
-  } catch {
-    return false;
-  }
-};
-
 /** Who `weave agent` runs as: a person's connected agent, or a bot with an account of its own */
 interface Runner {
   readonly node: P2PNode;
@@ -559,25 +558,16 @@ async function runAgent(
   options: { model: ModelChoice; dailyCap: number; capEach: number | null; chat: boolean },
 ): Promise<number> {
   const { node } = runner;
-  watchRelayRefusal(node, (refused) =>
-    stderr(
-      refused
-        ? 'The relay refused this node: another `weave agent`, `weave mcp` or `weave run` with the same --home is ' +
-            'connected. Stop that one (`ps aux | grep weave`) and start this again.'
-        : 'Connected to the relay.',
-    ),
-  );
+  sayRelayRefusal(node, 'weave agent', 'Stop that one and start this again');
 
   const { model } = options;
   const openai = model.provider === 'openai';
-  const local = !!model.baseUrl && isLoopback(model.baseUrl);
   let apiKey =
-    (openai
-      ? (process.env.OPENAI_API_KEY ?? process.env.WEAVE_AGENT_API_KEY)
-      : (process.env.ANTHROPIC_API_KEY ?? process.env.WEAVE_AGENT_API_KEY)
-    )?.trim() || (await loadModelKey(home, model.provider));
+    (openai ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY)?.trim() ||
+    process.env.WEAVE_AGENT_API_KEY?.trim() ||
+    (await loadModelKey(home, model.provider));
   // A model on your own machine usually asks for no key.
-  if (!apiKey && !local) {
+  if (!apiKey && !(model.baseUrl && isLoopback(model.baseUrl))) {
     stderr(
       openai
         ? `weave agent thinks with your own API key at ${model.baseUrl ?? 'api.openai.com'}.`
@@ -590,21 +580,8 @@ async function runAgent(
 
   await mkdir(path.join(home, 'agent'), { recursive: true, mode: 0o700 });
   const spend = fileSpend(path.join(home, 'agent'));
-  // The SDK is loaded here, not at the top: it is most of the bundle, and only this command uses it.
-  const thinking = openai
-    ? (write: (text: string) => void) =>
-        openAIThink({ baseUrl: model.baseUrl ?? 'https://api.openai.com/v1', apiKey: apiKey ?? '', write })
-    : await (async () => {
-        const { default: Anthropic } = await import('@anthropic-ai/sdk');
-        const client = new Anthropic({ apiKey, ...(model.baseUrl ? { baseURL: model.baseUrl } : {}) });
-        return (write: (text: string) => void) => streamingThink(client, write);
-      })();
-  const modelOptions = {
-    model: model.name,
-    price: model.price,
-    // Anthropic's own additions only at Anthropic.
-    ...(openai || model.baseUrl ? { plain: true } : {}),
-  };
+  const thinking = await thinker(model, apiKey);
+  const modelOptions = { model: model.name, price: model.price, ...(isPlain(model) ? { plain: true } : {}) };
   const today = async () => `$${(await spend.today()).toFixed(2)} of $${options.dailyCap.toFixed(2)} today`;
   const stopRules = runRules({
     node,
@@ -680,7 +657,7 @@ async function runAgent(
         process.stdout.write('\n');
         stderr(`  ${tools} tool call${tools === 1 ? '' : 's'} · $${cost.toFixed(3)} · ${await today()}`);
       } catch (error) {
-        stderr(`  ${error instanceof Error ? error.message : String(error)}`);
+        stderr(`  ${messageOf(error)}`);
       }
     }
     lines.prompt();
@@ -822,21 +799,10 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         'no-configure': { type: 'boolean' },
       },
     });
-    const code =
-      positionals.join(' ') ||
-      (await ask.text({
-        flag: 'code',
-        message: 'The code from the app (in the app: Connect an agent)',
-        placeholder: 'wv_…',
-        hint: 'Give it as `weave connect wv_…`: in the app, choose "Connect an agent".',
-      }));
     const home = homePath(globals.home);
-    const grant = await connectAgent({
-      home,
-      code,
-      name: values.name ?? defaultAgentName(),
-      relays: [...new Set([...(values.relay ?? []), ...configuredRelays()])],
-      log: stderr,
+    const grant = await connectHere(home, positionals.join(' '), {
+      ...(values.name ? { name: values.name } : {}),
+      ...(values.relay ? { relays: values.relay } : {}),
     });
     stderr('');
     stderr(
@@ -879,25 +845,12 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   if (command === 'mcp' && !args.includes('--account')) {
     // The connected agent: a node of its own, online, acting as the agent.
-    const agent = await startAgentNode(homePath(globals.home), {
-      nodes: (process.env.WEAVE_NODES ?? '')
-        .split(',')
-        .map((node) => node.trim())
-        .filter(Boolean),
-    });
+    const agent = await startAgentNode(homePath(globals.home), { nodes: commaList(process.env.WEAVE_NODES) });
     stderr(
       `weave mcp: an agent for ${agent.grant.name} (${agent.grant.did}), ${daysLeft(agent.grant)} days left`,
     );
-    // Every agent process on this computer signs with the one agent key, and a relay lets one
-    // of them in; the rest would otherwise sit there looking connected (#55).
-    watchRelayRefusal(agent.node, (refused) =>
-      stderr(
-        refused
-          ? 'weave mcp: the relay refused this agent: another `weave mcp` or `weave agent` with the same --home ' +
-              'is connected. Writes are kept here and sync once that one stops (`ps aux | grep weave`).'
-          : 'weave mcp: connected to the relay.',
-      ),
-    );
+    // Every agent process on this computer signs with the one agent key, and a relay lets one of them in.
+    sayRelayRefusal(agent.node, 'weave mcp', 'Writes are kept here and sync once that one stops');
     await runMcpStdio(agent.node, { name: 'weave', version: VERSION }, { agent: true });
     await agent.close();
     // WebRTC keeps the process alive; the agent closed stdin, so it's done.
@@ -928,7 +881,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     };
     const dailyCap = dollars('daily-cap', values['daily-cap']);
     // A bot answers anyone who can set it off, so each of them gets a share by default.
-    const each = values['daily-cap-each'] ?? (values.bot ? String(dailyCap / 4) : undefined);
+    const each = values['daily-cap-each'] ?? (values.bot ? String(capEachOf(dailyCap)) : undefined);
     const capEach = each === undefined ? null : dollars('daily-cap-each', each);
     // A bot keeps everything in its own folder: its account, and its model, key and spending.
     const bot = values.bot ? await botAccount(globals, values.name) : null;
@@ -937,14 +890,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     if (!values.bot && !(await hasConnectedAgent(home)) && ask.interactive()) {
       ask.intro('Connect an agent to your account');
       ask.note('In the app, open the account menu and choose “Connect an agent”. It shows a code.', 'First');
-      const code = await ask.text({ flag: 'code', message: 'The code', placeholder: 'wv_…' });
-      const grant = await connectAgent({
-        home,
-        code,
-        name: defaultAgentName(),
-        relays: configuredRelays(),
-        log: stderr,
-      });
+      const grant = await connectHere(home, '');
       ask.note(`Connected to ${grant.name}'s account, for ${daysLeft(grant)} days.`, 'Connected');
     }
     // Flags, then the environment, then what setup kept; at a terminal with none of them, setup asks.
@@ -957,33 +903,17 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         : told
           ? null
           : await loadModelSetting(home);
-    const provider = values.provider ?? process.env.WEAVE_AGENT_PROVIDER ?? kept?.provider ?? 'anthropic';
-    if (provider !== 'anthropic' && provider !== 'openai')
-      throw new Error('--provider is anthropic, or openai for any server that speaks Chat Completions');
-    const name =
-      values.model ??
-      process.env.WEAVE_AGENT_MODEL ??
-      kept?.model ??
-      (provider === 'anthropic' ? DEFAULT_MODEL : undefined);
-    if (!name)
-      throw new Error('With --provider openai, say which model: --model gpt-5.5, deepseek-v4-pro, …');
-    const baseUrl = values['base-url'] ?? process.env.WEAVE_AGENT_BASE_URL ?? kept?.baseUrl;
-    const priceText = values.price ?? process.env.WEAVE_AGENT_PRICE ?? kept?.price;
-    const price = priceText ? parsePrice(priceText) : priceOf(name);
-    if (priceText && !price)
-      throw new Error(
-        '--price is dollars per million tokens, input/output or input/output/cached, like 0.15/0.60',
-      );
-    if (!price)
-      throw new Error(
-        `weave agent doesn't know what ${name} costs, so it can't keep the daily cap. ` +
-          'Give --price in dollars per million tokens, like --price 0.15/0.60 (0/0 for a model on your machine).',
-      );
-    const model: ModelChoice = { provider, name, price, ...(baseUrl ? { baseUrl } : {}) };
-    const nodes = (process.env.WEAVE_NODES ?? '')
-      .split(',')
-      .map((node) => node.trim())
-      .filter(Boolean);
+    const model = chooseModel(
+      {
+        provider: values.provider ?? process.env.WEAVE_AGENT_PROVIDER ?? kept?.provider,
+        model: values.model ?? process.env.WEAVE_AGENT_MODEL ?? kept?.model,
+        baseUrl: values['base-url'] ?? process.env.WEAVE_AGENT_BASE_URL ?? kept?.baseUrl,
+        price: values.price ?? process.env.WEAVE_AGENT_PRICE ?? kept?.price,
+      },
+      DEFAULT_MODEL,
+      { provider: '--provider', model: '--model', price: '--price' },
+    );
+    const nodes = commaList(process.env.WEAVE_NODES);
     let runner: Runner;
     if (bot) {
       let name = bot.unlocked.account.name;
@@ -1034,103 +964,68 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
         by: { type: 'string' },
       },
     });
-    return withNode(globals, async (node) => addRule(node, values));
+    return withNode(globals, async (node) => print(await addRule(node, values)));
   }
-  const standard = command === 'collections' && args[0] === 'define' ? args.indexOf('--standard') : -1;
-  if (standard !== -1) {
-    const name = args[standard + 1];
+  if (command === 'collections' && args[0] === 'define' && args.includes('--standard')) {
+    const { values } = parseArgs({
+      args: args.slice(1),
+      options: { standard: { type: 'string' }, space: { type: 'string' } },
+    });
+    const name = values.standard;
     if (!name) throw new Error('--standard needs a name, like std.rule');
-    const spaceAt = args.indexOf('--space');
-    return withNode(globals, (node) =>
-      defineStandard(node, name, spaceAt === -1 ? undefined : args[spaceAt + 1]),
-    );
+    return withNode(globals, async (node) => print(await defineStandard(node, name, values.space)));
   }
-
-  // Named before the account is opened, so a mistyped command, or one this
-  // version doesn't have, says so instead of asking for an account.
-  const found =
-    command === 'mcp'
-      ? null
-      : command === 'whoami'
-        ? findAction(['node_info'])
-        : findAction([command, ...args]);
-  if (command !== 'mcp' && !found) {
-    stderr(
-      `Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "weave help" or "weave actions".`,
-    );
-    return 2;
-  }
-
-  const unlocked = await openAccount(globals);
 
   if (command === 'mcp') {
     // Offline: the MCP process writes to the folder; a running daemon syncs it.
-    const node = await createNode({
-      signer: unlocked.signer,
-      stores: unlocked.stores,
-      accountKey: unlocked.accountKey,
-      contactKey: unlocked.contactKey,
-    });
+    const node = await nodeFor(await openAccount(globals));
     stderr(`weave mcp: serving ${NODE_ACTIONS.length} tools for ${node.did}`);
     await runMcpStdio(node, { name: 'weave', version: VERSION });
     await node.close();
     return 0;
   }
 
-  if (!found) return 2;
-
-  // One-shot commands run offline against the folder. With a daemon running on
-  // the same folder, it picks the change up and syncs it.
-  const node = await createNode({
-    signer: unlocked.signer,
-    stores: unlocked.stores,
-    accountKey: unlocked.accountKey,
-    contactKey: unlocked.contactKey,
-    watchIntervalMs: 0,
-  });
-  try {
-    const { action } = found;
+  // Named before the account is opened, so a mistyped command, or one this
+  // version doesn't have, says so instead of asking for an account.
+  const found = command === 'whoami' ? findAction(['node_info']) : findAction([command, ...args]);
+  if (!found) {
+    stderr(
+      `Unknown command "${[command, ...args].slice(0, 2).join(' ')}". Try "weave help" or "weave actions".`,
+    );
+    return 2;
+  }
+  const { action } = found;
+  const yes = globals.yes ? { yes: true } : {};
+  return withNode(globals, async (node) => {
     // What the flags left out is asked for at a terminal, or refused naming its flag.
     const input = await completeInput(node, action, inputFromFlags(action, found.rest));
-    if (action.name === 'spaces_join' && typeof input.invite === 'string') {
-      const preview = node.spaces.preview(input.invite);
-      if (
-        !(await ask.confirm(
-          `Join “${preview.space.name}”${preview.role ? ` as ${preview.role}` : ', to read it'}?`,
-          {
-            ...(globals.yes ? { yes: true } : {}),
-            otherwise: true,
-          },
-        ))
-      )
-        return 1;
-    } else if (
-      action.destructive &&
-      !(await ask.confirm(`${action.description.split(/\.\s/)[0]?.replace(/\.$/, '')}. Go ahead?`, {
-        ...(globals.yes ? { yes: true } : {}),
-        // With nobody to ask, it runs, as it always has: an agent or a script said so.
-        otherwise: true,
-      }))
-    )
-      return 1;
+    const preview =
+      action.name === 'spaces_join' && typeof input.invite === 'string'
+        ? node.spaces.preview(input.invite)
+        : null;
+    // With nobody to ask, it runs, as it always has: an agent or a script said so.
+    const question = preview
+      ? `Join “${preview.space.name}”${preview.role ? ` as ${preview.role}` : ', to read it'}?`
+      : action.destructive
+        ? `${action.description.split(/\.\s/)[0]?.replace(/\.$/, '')}. Go ahead?`
+        : null;
+    if (question && !(await ask.confirm(question, { ...yes, otherwise: true }))) return 1;
     const result = await runAction(node, action.name, input);
     // An invite read by a person is the invite alone, whole on one line to copy; to a program, JSON.
-    if (
+    if (!(
       action.name === 'spaces_invite' &&
       isRecord(result) &&
       typeof result.invite === 'string' &&
       process.stdout.isTTY
-    ) {
-      ask.note(
-        'Anyone holding it can join, and read everything in a private space: send it only to them.',
-        'The invite',
-      );
-      process.stdout.write(`${result.invite}\n`);
-    } else process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  } finally {
-    await node.close();
-  }
-  return 0;
+    ))
+      return print(result);
+    ask.note(
+      'Anyone holding it can join, and read everything in a private space: send it only to them.',
+      'The invite',
+    );
+    process.stdout.write(`${result.invite}\n`);
+    return 0;
+  });
 }
 
 main(process.argv.slice(2)).then(
@@ -1138,7 +1033,7 @@ main(process.argv.slice(2)).then(
     process.exitCode = code;
   },
   (error: unknown) => {
-    stderr(`weave: ${error instanceof Error ? error.message : String(error)}`);
+    stderr(`weave: ${messageOf(error)}`);
     process.exitCode = 1;
   },
 );

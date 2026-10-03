@@ -1,5 +1,4 @@
 /**
- * @module space-access
  * What a space is, fixed at creation — and the keys around it that anyone can
  * check without holding a secret.
  *
@@ -27,7 +26,7 @@ import { canonicalize } from '../schema/expression.js';
 import { cidFromBytes, hashedKey } from '../utils/hash.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { bufferSource } from '../utils/guards.js';
-import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../identity/did.js';
+import { didOf, didToPublicKey } from '../identity/did.js';
 import { checkRole } from './roles.js';
 
 const READ_INFO = 'weave/space-read/v1';
@@ -77,7 +76,7 @@ export async function expandSecret(secret: Uint8Array, info: string): Promise<Ui
  */
 async function derivePair(secret: Uint8Array, info: string, provider: CryptoProvider): Promise<SpaceKeyPair> {
   const pair = await provider.deriveKeyPairFromSeed(await expandSecret(secret, info));
-  const did = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
+  const did = await didOf(pair.publicKey, provider);
   return Object.freeze({ did, privateKey: pair.privateKey });
 }
 
@@ -104,7 +103,7 @@ export async function deriveReadSeed(spaceKey: SpaceKey): Promise<Uint8Array> {
 /** The read key pair, from its seed */
 export async function readKeyFromSeed(seed: Uint8Array, provider: CryptoProvider): Promise<SpaceKeyPair> {
   const pair = await provider.deriveKeyPairFromSeed(seed);
-  const did = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
+  const did = await didOf(pair.publicKey, provider);
   return Object.freeze({ did, privateKey: pair.privateKey });
 }
 

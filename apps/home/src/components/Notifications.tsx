@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { NotifyView, P2PNode, SpaceSummary } from '@weaveprotocol/core/node';
-import { message } from '../message';
+import { message, useAction } from '@weave/app-shared/action';
 import { styles, palette } from '../styles';
 
 /**
@@ -13,29 +13,25 @@ import { styles, palette } from '../styles';
 export function Notifications({ node }: { node: P2PNode }) {
   const [subscriptions, setSubscriptions] = useState<ReadonlyArray<NotifyView> | null>(null);
   const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [doing, setDoing] = useState<string | null>(null);
+  const { run, busy: acting, error, setError } = useAction();
+  const busy = acting ? doing : null;
 
   useEffect(() => {
     void node.notifications.list().then(setSubscriptions, (reason: unknown) => setError(message(reason)));
     void node.spaces.list().then(setSpaces, () => {});
     // Linked to from an app: straight here.
     if (location.hash === '#notifications') document.getElementById('notifications')?.scrollIntoView();
-  }, [node]);
+  }, [node, setError]);
 
   const spaceName = (id: string) => spaces.find((space) => space.id === id)?.name ?? 'a space';
 
-  const act = async (what: string, work: () => Promise<void>) => {
-    setBusy(what);
-    setError(null);
-    try {
+  const act = (what: string, work: () => Promise<void>) => {
+    setDoing(what);
+    return run(async () => {
       await work();
       setSubscriptions(await node.notifications.list());
-    } catch (reason) {
-      setError(message(reason));
-    } finally {
-      setBusy(null);
-    }
+    });
   };
 
   // By the app that asked; ones made here before, last.

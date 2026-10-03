@@ -2,16 +2,12 @@ import type { CSSProperties } from 'react';
 import type { NodeCollection } from '@weaveprotocol/core';
 import { collectionLabel, fieldsOf } from '../derive/schema-ui';
 import { namespaceOf } from '../derive/filters';
-import { styles, palette } from '../styles';
+import { styles, palette, ui } from '../styles';
 
 /** How a namespace reads in a list: its name, or a word for having none */
 export const namespaceLabel = (namespace: string) => namespace || 'No namespace';
 
-/**
- * Every collection in the space at once — or in one namespace — with how
- * many records each holds and what shape they have. Opening one shows its
- * records.
- */
+/** Every collection in the space, or in one namespace, with how many records each holds and their shape */
 export function CollectionsOverview({
   collections,
   namespace,
@@ -43,10 +39,10 @@ export function CollectionsOverview({
           <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14 }}>
             <thead>
               <tr>
-                <th style={th}>Collection</th>
-                <th style={th}>Namespace</th>
-                <th style={th}>Fields</th>
-                <th style={{ ...th, textAlign: 'right' }}>Records</th>
+                <th style={ui.th}>Collection</th>
+                <th style={ui.th}>Namespace</th>
+                <th style={ui.th}>Fields</th>
+                <th style={{ ...ui.th, textAlign: 'right' }}>Records</th>
               </tr>
             </thead>
             <tbody>
@@ -87,19 +83,4 @@ export function CollectionsOverview({
   );
 }
 
-const th: CSSProperties = {
-  textAlign: 'left',
-  padding: '10px 14px',
-  borderBottom: `1px solid ${palette.surface.line}`,
-  color: palette.ink.muted,
-  fontWeight: 500,
-  fontSize: 12,
-  background: palette.surface.sunken,
-};
-const td: CSSProperties = {
-  padding: '10px 14px',
-  borderBottom: `1px solid ${palette.surface.line}`,
-  color: palette.ink.body,
-  verticalAlign: 'top',
-  whiteSpace: 'nowrap',
-};
+const td: CSSProperties = { ...ui.td, verticalAlign: 'top', whiteSpace: 'nowrap' };

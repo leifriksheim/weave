@@ -1,5 +1,5 @@
 /**
- * @fileoverview WebRTC made on one side of a message port and used from the
+ * WebRTC made on one side of a message port and used from the
  * other. A node running in a worker can't count on `RTCPeerConnection` being
  * there (not every browser has it in workers), so the page keeps the
  * connections (`serveTransport`) and the worker's mesh drives them
@@ -23,11 +23,19 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const EVENTS = ['data', 'connected', 'disconnected', 'error'] as const;
+
+/** Listens to every event of `transport`; returns what stops listening. */
+function listen(transport: SignalledTransport, events: PeerTransportEvents): () => void {
+  for (const name of EVENTS) transport.on(name, events[name]);
+  return () => {
+    for (const name of EVENTS) transport.off(name, events[name]);
+  };
+}
+
 /**
  * Keeps WebRTC connections on this side of `port` for a `remoteTransport` on
  * the other. Returns a function that closes them all and stops.
- *
- * @param create How connections are made, given the ICE servers to use. WebRTC by default.
  */
 export function serveTransport(
   port: MessagePortLike,
@@ -44,17 +52,13 @@ export function serveTransport(
     (candidate) =>
       post({ kind: 'candidate', peer, candidate });
 
-  const events: { [K in keyof PeerTransportEvents]: PeerTransportEvents[K] } = {
+  const stop = listen(transport, {
     data: (peer, data) => post({ kind: 'data', peer, data }),
     // The binding is read only once a connection is open, so it goes with the news that it is.
     connected: (peer) => post({ kind: 'connected', peer, binding: transport.binding?.(peer) ?? null }),
     disconnected: (peer) => post({ kind: 'disconnected', peer }),
     error: (peer, error) => post({ kind: 'error', peer, message: errorText(error) }),
-  };
-  transport.on('data', events.data);
-  transport.on('connected', events.connected);
-  transport.on('disconnected', events.disconnected);
-  transport.on('error', events.error);
+  });
 
   const run = async (message: Record<string, unknown>): Promise<unknown> => {
     const peer = String(message.peer);
@@ -105,10 +109,7 @@ export function serveTransport(
 
   return () => {
     port.removeEventListener('message', onMessage);
-    transport.off('data', events.data);
-    transport.off('connected', events.connected);
-    transport.off('disconnected', events.disconnected);
-    transport.off('error', events.error);
+    stop();
     transport.closeAll();
   };
 }
@@ -272,7 +273,7 @@ export function createTransportSwitch(): TransportSwitch {
     transport,
     add(id: string, added: SignalledTransport) {
       // Only the page in use speaks for the mesh; the others wait their turn.
-      const events: PeerTransportEvents = {
+      const stop = listen(added, {
         data: (peer, data) => {
           if (current() === added) emit('data', peer, data);
         },
@@ -289,16 +290,8 @@ export function createTransportSwitch(): TransportSwitch {
         error: (peer, error) => {
           if (current() === added) emit('error', peer, error);
         },
-      };
-      for (const name of ['data', 'connected', 'disconnected', 'error'] as const)
-        added.on(name, events[name]);
-      pages.set(id, {
-        transport: added,
-        stop: () => {
-          for (const name of ['data', 'connected', 'disconnected', 'error'] as const)
-            added.off(name, events[name]);
-        },
       });
+      pages.set(id, { transport: added, stop });
     },
     remove(id: string) {
       const page = pages.get(id);

@@ -1,5 +1,4 @@
 /**
- * @module sync-engine
  * Keeps one store in step with its peers.
  *
  * 1. A peer says hello with a fingerprint of each collection it keeps. Equal
@@ -61,7 +60,7 @@ const MAX_REFUSED = 10_000;
 export type Holds = 'all' | ReadonlySet<string>;
 
 /** Whether a collection is held, given what a node holds */
-export const holdsCollection = (holds: Holds, collection: string): boolean =>
+const holdsCollection = (holds: Holds, collection: string): boolean =>
   collection.startsWith('sys.') || holds === 'all' || holds.has(collection);
 
 /** Collection definitions first, then records by version — what others depend on comes first */
@@ -126,11 +125,11 @@ export interface SyncEngine {
 }
 
 /** Records asked for, or sent, in one message. */
-export const MAX_IDS_PER_REQUEST = 200;
+const MAX_IDS_PER_REQUEST = 200;
 /** `want`s in flight to one peer at a time; the rest queue */
-export const MAX_WANTS_IN_FLIGHT = 4;
+const MAX_WANTS_IN_FLIGHT = 4;
 /** Largest Negentropy message, in bytes before base64. Stays well inside a data channel's limit. */
-export const FRAME_SIZE_LIMIT = 32_000;
+const FRAME_SIZE_LIMIT = 32_000;
 /**
  * Versions in messages of at most `size`, newest first, with every version of
  * one record in the same message where they fit. A message is taken in whole
@@ -211,11 +210,7 @@ interface PeerState {
   holds: Holds;
 }
 
-/**
- * Creates a sync engine orchestrator.
- * @param config Sync engine configuration.
- * @returns A sync engine instance.
- */
+/** Creates a sync engine orchestrator. */
 export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
   const { storageProvider: storage, sendToPeer, heartbeatInterval = 30000, validate, self } = config;
   const ourHolds = config.holds ?? (() => 'all' as const);
@@ -259,7 +254,6 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
    * Commits an expression from a peer, but only if the gatekeeper allows it.
    * A version waiting for its first version, or for the version before it,
    * names them, so they are asked for at once rather than on the next round.
-   * @returns Whether the expression was accepted
    */
   const admit = async (peerId: string, expression: Expression, intake: Intake): Promise<boolean> => {
     if (validate) {

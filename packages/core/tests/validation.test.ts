@@ -5,7 +5,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createP256Provider } from '../src/identity/crypto-p256.js';
-import { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from '../src/identity/did.js';
+import { didToPublicKey } from '../src/identity/did.js';
 import { issueUCAN, type Capability } from '../src/identity/ucan.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
@@ -13,6 +13,7 @@ import { createCryptoGate } from '../src/validation/crypto-gate.js';
 import { createCapabilityGate } from '../src/validation/capability-gate.js';
 import { createVersionCheck } from '../src/validation/check-version.js';
 import type { Expression } from '../src/types.js';
+import { makeKey } from './helpers/person.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
@@ -21,12 +22,6 @@ const COLLECTION = 'app.test.note';
 const WRITE: Capability = { with: `space:${COLLECTION}`, can: 'expression/write' };
 const ALL: Capability = { with: `space:${COLLECTION}`, can: 'expression/*' };
 const OTHER: Capability = { with: 'space:something.else', can: 'expression/*' };
-
-async function makeKey() {
-  const pair = await provider.generateKeyPair();
-  const did = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
-  return { did, privateKey: pair.privateKey, publicKey: pair.publicKey };
-}
 
 const resolvePublicKey = async (did: string) => provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
 

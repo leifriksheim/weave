@@ -1,11 +1,4 @@
-/**
- * What someone may do in a space, in plain words — worked out from their role
- * and each collection's rules, never from what the collections are about.
- *
- * Pure, so any screen can use it: to list what you can do, to label a
- * permission, or to say why a button is off instead of letting it fail.
- * The rank rules mirror `space/roles.ts` in the protocol.
- */
+// What someone may do in a space, in plain words, from their role and each collection's rules (ranks mirror packages/core/src/space/roles.ts).
 import { permissionMatches, roleHolds, DEFINE, INVITE, MANAGE } from '@weaveprotocol/core';
 import type { NodeCollection, SpaceRole, Who } from '@weaveprotocol/core';
 import { collectionLabel, humanize } from './schema-ui';

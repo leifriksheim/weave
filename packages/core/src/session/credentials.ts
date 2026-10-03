@@ -30,7 +30,6 @@ function isPasswordCredentialConstructor(value: unknown): value is PasswordCrede
  * has to copy it somewhere themselves.
  *
  * @param id What to file it under, which is what the user will see in the vault
- * @param password The secret
  * @param name A longer label, where the manager shows one
  * @returns Whether the browser was asked at all
  */
@@ -58,24 +57,10 @@ export function accountCredentialName(name: string): string {
 }
 
 /**
- * What a password manager filed a device password under, before an account
- * had one password rather than one per device. Kept different from what the
- * recovery code was filed under, so a manager would not fill one for the other.
- *
- * @deprecated New passwords are filed under {@link accountCredentialName}.
- */
-export function deviceCredentialName(name: string): string {
-  return `${name} (this device)`;
-}
-
-/**
  * The recovery code as a file to keep.
  *
  * Plain text, so it opens anywhere and prints as it is. It names the account
  * and its DID, so a drawer with two of these says which is which.
- *
- * @param account The code, and the account it opens
- * @returns A file name and its contents
  */
 export function recoveryKit({ code, name, did }: { code: string; name: string; did: string }): {
   filename: string;

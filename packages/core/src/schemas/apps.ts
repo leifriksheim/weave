@@ -1,5 +1,4 @@
 /**
- * @module schemas/apps
  * An app as a record: a title, and the collections it needs.
  *
  * Someone — often an agent — proposes a way of working together by writing
@@ -16,16 +15,21 @@
  * update is added, the app it replaced is superseded: it would only undo the
  * update, so it is not offered again.
  */
-import type { DefineCollection, NodeCollection, NodeRecord, P2PNode } from '../node/types.js';
-import type { Typed } from '../query/types.js';
+import type { NodeCollection, NodeRecord, P2PNode } from '../node/types.js';
 import type { JsonSchema } from '../schema/collection-def.js';
-import { checkStoredCollection, isStoredCollection, toJsonSchema } from '../schema/collection-def.js';
+import {
+  checkStoredCollection,
+  isStoredCollection,
+  schemaProblem,
+  toJsonSchema,
+} from '../schema/collection-def.js';
 import { standardDefinition } from './standard.js';
 import { isObject } from '../utils/guards.js';
 import { canonicalize } from '../schema/expression.js';
 import type { LinkDeclaration } from '../records/links.js';
 import type { CollectionRules } from '../records/rules.js';
 import { describeCollection } from '../records/describe.js';
+import { typed } from './fragments.js';
 import { checkAppNotify, MAX_PROPOSALS, type AppNotify } from '../space/notify.js';
 
 /** One collection an app needs, as `collections_define` takes it — without a version, which the space decides */
@@ -66,7 +70,7 @@ export interface App {
 export const MAX_APP_COLLECTIONS = 10;
 
 /** A way of working together that someone proposed: what it's called, and the collections it needs. */
-export const app: DefineCollection & Typed<App> = {
+export const app = typed<App>()({
   name: 'std.app',
   title: 'App',
   description: 'A way of working together: what it is called, and the collections it needs, not yet added.',
@@ -84,30 +88,16 @@ export const app: DefineCollection & Typed<App> = {
   },
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
-};
+});
 
 /** Why this can't be an app, or null when it can */
 export function checkApp(value: unknown): string | null {
   if (!isObject(value)) return 'An app must be an object';
+  const shape = schemaProblem(app.schema, value);
+  if (shape) return shape;
   const body = value;
-  if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 100)
-    return 'An app needs a title of 1–100 characters';
-  if (
-    body.description !== undefined &&
-    (typeof body.description !== 'string' || body.description.length > 1000)
-  ) {
-    return "An app's description is at most 1000 characters";
-  }
-  if (
-    body.updates !== undefined &&
-    (typeof body.updates !== 'string' || !body.updates || body.updates.length > 100)
-  ) {
-    return 'An app\'s "updates" is the key of the app it replaces';
-  }
-  if (!Array.isArray(body.needs) || body.needs.length === 0 || body.needs.length > MAX_APP_COLLECTIONS) {
-    return `An app needs 1–${MAX_APP_COLLECTIONS} collections`;
-  }
-  const needs: unknown[] = body.needs;
+  if (typeof body.title !== 'string' || !body.title.trim()) return 'An app needs a title';
+  const needs: unknown[] = Array.isArray(body.needs) ? body.needs : [];
   const names = new Set<string>();
   for (const [index, need] of needs.entries()) {
     const at = `needs[${index}]`;
@@ -125,9 +115,7 @@ export function checkApp(value: unknown): string | null {
       return `${at}: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
-  if (body.notify !== undefined) {
-    if (!Array.isArray(body.notify) || body.notify.length === 0 || body.notify.length > MAX_PROPOSALS)
-      return `An app's notify lists 1–${MAX_PROPOSALS} things worth hearing about`;
+  if (Array.isArray(body.notify)) {
     const notify: unknown[] = body.notify;
     for (const [index, entry] of notify.entries()) {
       const problem = checkAppNotify(entry);

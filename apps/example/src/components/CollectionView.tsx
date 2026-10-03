@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useNode, useLive, useProfiles, useCan } from '@weaveprotocol/core/react';
+import { useNode, useLive, useProfiles, useCan, useAccount } from '@weaveprotocol/core/react';
 import type {
   Filter,
   NodeCollection,
@@ -30,23 +30,19 @@ import {
 import { nameOf, peopleFrom, type People } from '../derive/people';
 import { ago } from '../derive/time';
 import { SchemaForm } from './SchemaForm';
-import { DefinitionEditor, useMayRedefine } from './DefinitionEditor';
+import { CollectionEditor, useMayRedefine } from './CollectionDesigner';
 import { Value } from './Value';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { reactionSummary } from './std/Reactions';
 import { chip, tagLabel } from './std/Tags';
-import { styles, palette } from '../styles';
+import { styles, palette, ui } from '../styles';
+import { useAction } from '@weave/app-shared/action';
+import { Lane, Card } from './Lane';
 import { Person } from './Person';
 import { useDraft } from './useDraft';
 import { QueryBuilder, PAGE_SIZES } from './QueryBuilder';
-import {
-  filterFields,
-  sortFields,
-  whereOf,
-  NEWEST_FIRST,
-  type Condition,
-  type Sort,
-} from '../derive/filters';
+import { NEWEST_FIRST, type Sort } from '../derive/filters';
+import { clauseFields, filterFrom, type Clause } from '../derive/conditions';
 
 const LAYOUTS = ['list', 'table', 'board'] as const;
 type Layout = (typeof LAYOUTS)[number];
@@ -81,23 +77,16 @@ interface Page {
   readonly next: string | null;
 }
 
-/**
- * One collection: a list you can search, add to in one line, and look at
- * as a list, a table, or — when it has a field with fixed choices — a board.
- * All worked out from the collection's schema; nothing here knows what the
- * records are.
- */
+/** One collection to search, add to, and see as a list, a table or a board, all from its schema */
 export function CollectionView({
   space,
   name,
   collection,
-  collections,
   onOpen,
 }: {
   space: SpaceSummary;
   name: string;
   collection: NodeCollection | null;
-  collections: ReadonlyArray<NodeCollection>;
   onOpen: (record: NodeRecord) => void;
 }) {
   const node = useNode();
@@ -111,7 +100,7 @@ export function CollectionView({
     return isLayout(saved) ? saved : 'list';
   });
   const [search, setSearchText] = useState('');
-  const [conditions, setConditionList] = useState<ReadonlyArray<Condition>>([]);
+  const [clauses, setClauseList] = useState<ReadonlyArray<Clause>>([]);
   const [sort, setSortOrder] = useState<Sort>(NEWEST_FIRST);
   const [pageSize, setPageSizeTo] = useState<number>(PAGE_SIZES[1]);
   // Where each page seen so far starts: the first at the beginning, each next one from the page before.
@@ -124,11 +113,12 @@ export function CollectionView({
       setCursors([null]);
     };
   const setSearch = restarting(setSearchText);
-  const setConditions = restarting(setConditionList);
+  const setClauses = restarting(setClauseList);
   const setSort = restarting(setSortOrder);
   const setPageSize = restarting(setPageSizeTo);
   const [adding, setAdding] = useState<Record<string, unknown> | null>(null);
   const people = peopleFrom(useProfiles(space.id));
+  const { did } = useAccount();
   const mayCreate = useCan(space.id, 'create', name);
   const [defining, setDefining] = useState(false);
   const redefine = useMayRedefine(space, collection);
@@ -142,9 +132,8 @@ export function CollectionView({
 
   // Choices that live in a linked record (a vote's poll) need that record to show their label.
   const needsLinked = [...columnsOf(schema), ...metaFields(schema)].some((f) => choicesFrom(f.schema));
-  const fields = filterFields(schema);
-  const sortable = sortFields(schema);
-  const picked = whereOf(conditions, fields);
+  const fields = clauseFields({ schema, topics: [] }, { query: true });
+  const picked = filterFrom(clauses, did);
   const parts: Filter[] = [
     ...(search.trim() && title ? [{ [title]: { $contains: search.trim() } }] : []),
     ...(picked ? [picked] : []),
@@ -198,14 +187,7 @@ export function CollectionView({
   const visible = (rows ?? []).filter((r) => r.record.body !== null);
 
   if (defining && collection) {
-    return (
-      <DefinitionEditor
-        space={space}
-        collection={collection}
-        collections={collections}
-        onDone={() => setDefining(false)}
-      />
-    );
+    return <CollectionEditor space={space} collection={collection} onDone={() => setDefining(false)} />;
   }
 
   return (
@@ -274,15 +256,9 @@ export function CollectionView({
               Edit definition
             </button>
           )}
-          <div role="tablist" aria-label="Layout" style={segmented}>
+          <div role="tablist" aria-label="Layout" className="segmented">
             {LAYOUTS.map((l) => (
-              <button
-                key={l}
-                role="tab"
-                aria-selected={layout === l}
-                onClick={() => choose(l)}
-                style={layout === l ? { ...segment, ...segmentOn } : segment}
-              >
+              <button key={l} role="tab" aria-selected={layout === l} onClick={() => choose(l)}>
                 {l[0]!.toUpperCase() + l.slice(1)}
               </button>
             ))}
@@ -315,14 +291,14 @@ export function CollectionView({
       {(collection?.records ?? 0) > 0 && (
         <QueryBuilder
           fields={fields}
-          sortable={sortable}
-          conditions={conditions}
-          onConditions={setConditions}
+          clauses={clauses}
+          onClauses={setClauses}
           sort={sort}
           onSort={setSort}
           pageSize={pageSize}
           onPageSize={setPageSize}
           people={people}
+          me={did}
           query={query}
         />
       )}
@@ -400,7 +376,7 @@ function QuickAdd({
   onMore: (prefill: Record<string, unknown>) => void;
 }) {
   const [text, setText] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const { run, error, clear } = useAction();
   const title = titleField(schema);
   const noun = label.toLowerCase();
 
@@ -418,12 +394,13 @@ function QuickAdd({
         const value = text.trim();
         if (!value) return;
         const body = quickAddBody(schema, value);
-        setError(null);
+        clear();
         // Something else is required that has no empty value: the full form, with the title filled in.
         if (!body) return onMore({ [title]: value });
-        void onAdd(body)
-          .then(() => setText(''))
-          .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+        void run(async () => {
+          await onAdd(body);
+          setText('');
+        });
       }}
       style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
     >
@@ -503,13 +480,11 @@ function ListLayout({
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span
                 style={{
+                  ...ui.ellipsis,
                   fontSize: 14,
                   fontWeight: 500,
                   color: done ? palette.ink.faint : palette.ink.strong,
                   textDecoration: done ? 'line-through' : 'none',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
                 }}
               >
                 {recordLabel(record, schema)}
@@ -570,12 +545,12 @@ function TableLayout({
         <thead>
           <tr>
             {(columns.length ? columns.map((c) => c.label) : ['Record']).map((h) => (
-              <th key={h} style={th}>
+              <th key={h} style={ui.th}>
                 {h}
               </th>
             ))}
-            <th style={th}>By</th>
-            <th style={{ ...th, textAlign: 'right' }}>Added</th>
+            <th style={ui.th}>By</th>
+            <th style={{ ...ui.th, textAlign: 'right' }}>Added</th>
           </tr>
         </thead>
         <tbody>
@@ -588,17 +563,17 @@ function TableLayout({
             >
               {columns.length ? (
                 columns.map((c) => (
-                  <td key={c.name} style={td}>
+                  <td key={c.name} style={ui.td}>
                     <Value field={c} value={bodyOf(record)[c.name]} linked={linked} compact />
                   </td>
                 ))
               ) : (
-                <td style={td}>{recordLabel(record, schema)}</td>
+                <td style={ui.td}>{recordLabel(record, schema)}</td>
               )}
-              <td style={{ ...td, color: palette.ink.muted, whiteSpace: 'nowrap' }}>
+              <td style={{ ...ui.td, color: palette.ink.muted, whiteSpace: 'nowrap' }}>
                 <Person did={record.createdBy ?? record.root} />
               </td>
-              <td style={{ ...td, color: palette.ink.muted, textAlign: 'right', whiteSpace: 'nowrap' }}>
+              <td style={{ ...ui.td, color: palette.ink.muted, textAlign: 'right', whiteSpace: 'nowrap' }}>
                 {ago(record.createdAt)}
               </td>
             </tr>
@@ -663,9 +638,12 @@ function BoardLayout({
         .map((column) => {
           const cards = rows.filter((r) => columnOf(r) === column.id);
           return (
-            <div
+            <Lane
               key={column.id}
               aria-label={`Column ${column.label}`}
+              name={<span>{column.label}</span>}
+              count={cards.length}
+              over={over === column.id}
               onDragOver={(e) => {
                 if (!space.writable) return;
                 e.preventDefault();
@@ -677,56 +655,24 @@ function BoardLayout({
                 setOver(null);
                 move(e.dataTransfer.getData('text/plain'), column.value);
               }}
-              style={{
-                background: over === column.id ? '#f0f0f0' : palette.surface.sunken,
-                border: `1px solid ${palette.surface.line}`,
-                borderRadius: 12,
-                padding: 10,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-                minHeight: 120,
-              }}
+              style={{ minHeight: 120 }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: 13,
-                  fontWeight: 500,
-                  padding: '2px 4px',
-                }}
-              >
-                <span>{column.label}</span>
-                <span style={{ color: palette.ink.faint }}>{cards.length}</span>
-              </div>
               {cards.map(({ record, linked }) => (
-                <div
+                <Card
                   key={record.key}
                   draggable={space.writable}
                   onDragStart={(e) => e.dataTransfer.setData('text/plain', record.key)}
                   onClick={() => onOpen(record)}
                   aria-label={recordLabel(record, schema)}
-                  style={{
-                    background: palette.surface.card,
-                    border: `1px solid ${palette.surface.line}`,
-                    borderRadius: 8,
-                    padding: 12,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                    boxShadow: '0 1px 2px rgba(0,0,0,.04)',
-                  }}
                 >
-                  <span style={{ fontSize: 14, fontWeight: 500, color: palette.ink.strong }}>
+                  <span style={{ fontWeight: 500, color: palette.ink.strong }}>
                     {recordLabel(record, schema)}
                   </span>
                   <Meta record={record} fields={meta} linked={linked} />
                   <Signals record={record} people={people} />
-                </div>
+                </Card>
               ))}
-            </div>
+            </Lane>
           );
         })}
     </div>
@@ -798,44 +744,3 @@ function Signals({ record, people }: { record: QueryRecord; people: People }) {
     </div>
   );
 }
-
-const th = {
-  textAlign: 'left' as const,
-  padding: '10px 14px',
-  borderBottom: `1px solid ${palette.surface.line}`,
-  color: palette.ink.muted,
-  fontWeight: 500,
-  fontSize: 12,
-  background: palette.surface.sunken,
-};
-const td = {
-  padding: '10px 14px',
-  borderBottom: `1px solid ${palette.surface.line}`,
-  color: palette.ink.body,
-};
-const segmented = {
-  display: 'inline-flex',
-  padding: 2,
-  gap: 2,
-  border: `1px solid ${palette.surface.line}`,
-  borderRadius: 8,
-  background: palette.surface.sunken,
-};
-const segment = {
-  height: 28,
-  padding: '0 10px',
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: 'transparent',
-  borderRadius: 6,
-  background: 'none',
-  color: palette.ink.muted,
-  fontSize: 13,
-  fontWeight: 500,
-};
-const segmentOn = {
-  background: palette.surface.card,
-  color: palette.ink.strong,
-  borderColor: palette.surface.line,
-  boxShadow: '0 1px 2px rgba(0,0,0,.06)',
-};

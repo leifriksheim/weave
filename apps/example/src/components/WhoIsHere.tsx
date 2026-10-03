@@ -9,14 +9,7 @@ import { styles } from '../styles';
 
 const count = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`);
 
-/**
- * Who this space is syncing with right now, in a few words: their faces and
- * the one name, or how many people, else your own other devices or what
- * keeps it online — rather than a count of "peers" that says nothing about
- * whose they are. The whole list is in its tooltip and on the Network view. A peer's account
- * is the one its connection proved (`status.accounts`), so a name here is
- * someone actually connected, not someone claiming to be.
- */
+/** Who this space is syncing with right now, by the accounts their connections proved, in a few words. */
 export function WhoIsHere({
   status,
   people,

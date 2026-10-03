@@ -7,7 +7,7 @@
  * encrypted records (`@weaveprotocol/core/node`, `createCarrierNode`).
  */
 import { createCarrierNode, folderStores, indexedDBStores, type CarrierNode } from '@weaveprotocol/core/node';
-import { appKey, forgetAppKey, type CarryGrant } from '@weaveprotocol/core/session';
+import { appKey, deleteBrowserData, forgetAppKey, type CarryGrant } from '@weaveprotocol/core/session';
 import { forgetDataFolder, queryFolderPermission, recallDataFolder } from '@weaveprotocol/core/storage';
 import {
   BUILT_IN_RELAYS,
@@ -140,20 +140,7 @@ async function forgetAccount(): Promise<void> {
   generation++;
   const did = grant?.did;
   await stop();
-  if (did) {
-    const databases = await indexedDB.databases().catch(() => []);
-    await Promise.all(
-      databases
-        .filter((db) => db.name?.startsWith(storePrefix(did)))
-        .map(
-          (db) =>
-            new Promise<void>((resolve) => {
-              const request = indexedDB.deleteDatabase(db.name!);
-              request.onsuccess = request.onerror = request.onblocked = () => resolve();
-            }),
-        ),
-    );
-  }
+  if (did) await deleteBrowserData(storePrefix(did));
   await forgetDataFolder();
 }
 

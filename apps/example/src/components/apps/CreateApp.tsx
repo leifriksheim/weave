@@ -5,7 +5,7 @@ import { ConnectAgent, useKnownAgent } from '../ConnectAgent';
 import { Icon } from '../Icon';
 import { useMadeApps } from './MadeApps';
 import { DESIGNS, designPrompt, type Design } from './designs';
-import { styles, palette, variants } from '../../styles';
+import { styles, palette, ui, variants } from '../../styles';
 
 /** Things a group might ask for, to start from */
 const IDEAS = [
@@ -29,18 +29,7 @@ const rememberedDesign = (): Design => {
   }
 };
 
-/**
- * Making a new app for a space, by describing it to an agent, in one of a
- * few looks that all sit well beside Weave (`designs.ts`).
- *
- * The agent works in the space through the CLI's MCP server (or this page's
- * WebMCP tools) and proposes the app as a `std.app` record. Nothing is added
- * until someone who may add collections adds it on the Apps screen, so the
- * dialog only has to get the idea and the agent together: describe it, copy
- * the prompt, paste it. Whether an agent is connected is only a hint from
- * this browser, so it never blocks copying. If the proposal turns up while
- * the dialog is open, it says so.
- */
+/** Making an app by describing it to an agent, which proposes it as a `std.app` record to add. */
 export function CreateApp({
   space,
   mayDefine,
@@ -314,14 +303,7 @@ const note = {
   background: palette.surface.sunken,
 } as const;
 
-const chip = {
-  height: 28,
-  padding: '0 10px',
-  borderRadius: 999,
-  background: palette.surface.card,
-  color: palette.ink.body,
-  fontSize: 12.5,
-} as const;
+const chip = { ...ui.chip, fontWeight: 400 };
 
 const action = {
   width: '100%',

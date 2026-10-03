@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DEFINE, MANAGE, describeHost, roleHolds } from '@weaveprotocol/core';
-import type { FundOffer, HostDescription, SpaceHostingView } from '@weaveprotocol/core';
+import type { FundOffer, SpaceHostingView } from '@weaveprotocol/core';
 import { useAccess, useCollections, useNode } from '@weaveprotocol/core/react';
 import { host as hostSchema } from '@weaveprotocol/core/schemas';
 import { DEFAULT_HOST } from './relay';
 import { Modal } from './Modal';
-import { HostAddressForm, useWanted, type Wanted } from './HostAddress';
+import { useWanted, type Wanted } from './HostAddress';
+import { HostOfferPicker, HostStatusRow, StopFooter, useAskAgain, useOffer } from './HostOffer';
 import { ChipIn, RemindMe, dollars, lastsFor } from './Payment';
-import { Benefit, FeatureIcon, Glyph, StatusPill, shortDate, timeLeft, type Tone } from './Feature';
+import { Benefit, FeatureIcon, Glyph, shortDate, timeLeft, type Tone } from './Feature';
+import { useAction } from './action';
 import { styles, palette } from './styles';
 
 /** Who may choose the space's host: `std.host` asks for this permission */
@@ -45,12 +47,7 @@ export function useSpaceHosts(spaceId: string, writable: boolean) {
       if (looks.current === 0) setLooking(false);
     });
   }, [ask]);
-  useEffect(() => {
-    void ask();
-    const again = () => document.visibilityState === 'visible' && void ask();
-    document.addEventListener('visibilitychange', again);
-    return () => document.removeEventListener('visibilitychange', again);
-  }, [ask]);
+  useAskAgain(ask);
   const mayChoose =
     writable && roleHolds(access?.role, MANAGE_HOST) && (defined || roleHolds(access?.role, DEFINE));
   return { hosts, look, looking, defined, mayChoose };
@@ -142,25 +139,20 @@ export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable:
           border: `1px solid ${palette.surface.line}`,
         }}
       >
-        <FeatureIcon kind="online" glyph="cloud" size={36} />
-        <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: 14, color: palette.ink.strong }}>
-              {hosts === null ? 'Asking the host…' : host ? host.name : 'Online only while someone is'}
-            </strong>
-            {view && <StatusPill tone={view.tone}>{view.pill}</StatusPill>}
-          </div>
-          <p style={{ fontSize: 13, color: palette.ink.muted, marginTop: 2, overflowWrap: 'anywhere' }}>
-            {hosts === null
+        <HostStatusRow
+          size={36}
+          name={hosts === null ? 'Asking the host…' : host ? host.name : 'Online only while someone is'}
+          pill={view}
+          line={
+            hosts === null
               ? 'One moment.'
               : view
                 ? view.line
                 : mayChoose
                   ? 'A host can keep it reachable when everyone is offline, without reading it.'
-                  : 'A host can keep it reachable when everyone is offline. An admin can turn that on.'}
-          </p>
-        </div>
-        <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  : 'A host can keep it reachable when everyone is offline. An admin can turn that on.'
+          }
+        >
           {host?.error && (
             <button onClick={look} disabled={looking} data-variant="quiet" style={styles.smallButton}>
               {looking ? 'Asking…' : 'Try again'}
@@ -170,7 +162,7 @@ export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable:
             <button
               onClick={() => setDialog('keep')}
               data-variant={needsFunding(host) ? 'primary' : 'quiet'}
-              style={needsFunding(host) ? darkSmall : styles.smallButton}
+              style={needsFunding(host) ? styles.darkSmall : styles.smallButton}
             >
               {needsFunding(host) ? 'Add to the fund' : 'Chip in'}
             </button>
@@ -181,11 +173,11 @@ export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable:
             </button>
           )}
           {hosts !== null && !host && mayChoose && (
-            <button onClick={() => setDialog('keep')} data-variant="primary" style={darkSmall}>
+            <button onClick={() => setDialog('keep')} data-variant="primary" style={styles.darkSmall}>
               Turn on
             </button>
           )}
-        </span>
+        </HostStatusRow>
       </div>
       {dialog === 'keep' && <KeepOnlineDialog spaceId={spaceId} writable={writable} onClose={close} />}
       {dialog === 'stop' && host && (
@@ -197,22 +189,10 @@ export function SpaceHosting({ spaceId, writable }: { spaceId: string; writable:
   );
 }
 
-/** A small button in the one accent, for the one thing to do next */
-export const darkSmall = {
-  ...styles.smallButton,
-  background: palette.ink.strong,
-  color: '#fff',
-  border: `1px solid ${palette.ink.strong}`,
-};
-
 /**
  * Stopping a host, said plainly before it happens (`hosting.stopForSpace`):
- * the space no longer names it, its bots are removed, and a private space it
- * was handed gets a new key, so it can't follow from then on. Nothing asks
- * the host to drop what it has: it keeps that, unreadable, while the fund
- * lasts, and the fund stays there. A card that adds every month is its
- * owner's to stop. Someone who may choose the host but not manage the space
- * is told what stays for an admin.
+ * its bots are removed and a private space gets a new key. What the host
+ * has stays there, unreadable, as does the fund.
  */
 function StopHost({
   spaceId,
@@ -227,8 +207,7 @@ function StopHost({
 }) {
   const node = useNode();
   const access = useAccess(spaceId);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const { run, busy, error } = useAction();
   const mayManage = roleHolds(access?.role, MANAGE);
   const members = new Set(access?.members.map((member) => member.did));
   const bots = host.bots.filter((bot) => members.has(bot.bot));
@@ -237,17 +216,7 @@ function StopHost({
   const handed = host.status ? host.status.carrying : true;
   const newKey = mayManage && access?.key != null && (bots.length > 0 || handed);
   const balance = host.status?.balance ?? 0;
-  const stop = async () => {
-    setBusy(true);
-    setProblem(null);
-    try {
-      await node.hosting.stopForSpace(spaceId, host.url);
-      onStopped();
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-      setBusy(false);
-    }
-  };
+  const stop = () => void run(() => node.hosting.stopForSpace(spaceId, host.url).then(onStopped));
   const said = { fontSize: 14, color: palette.ink.body, lineHeight: 1.5 };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -300,34 +269,12 @@ function StopHost({
           .
         </p>
       )}
-      {problem && (
-        <p role="alert" style={{ fontSize: 13, color: palette.accent.danger }}>
-          {problem}
-        </p>
-      )}
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 4 }}>
-        <button onClick={onKeep} disabled={busy} data-variant="quiet" style={styles.smallButton}>
-          Keep it
-        </button>
-        <button
-          onClick={() => void stop()}
-          disabled={busy}
-          data-variant="danger"
-          style={{ ...styles.smallButton, color: palette.accent.danger }}
-        >
-          {busy ? 'Stopping…' : `Stop using ${host.name}`}
-        </button>
-      </div>
+      <StopFooter name={host.name} busy={busy} error={error} onKeep={onKeep} onStop={stop} />
     </div>
   );
 }
 
-/**
- * The dialog for keeping a space online. Before a host is chosen: what it
- * gives, the host this build offers with its price, and Continue (another
- * host by its address, for those who have one). After: the host's plans for
- * spaces, paid here by anyone, and reminders by email.
- */
+/** The dialog for keeping a space online: choosing a host, then its fund */
 export function KeepOnlineDialog({
   spaceId,
   writable,
@@ -345,14 +292,9 @@ export function KeepOnlineDialog({
 }
 
 /**
- * What the dialog shows, for other dialogs to show too (adding a bot starts
- * here when the community has no fund yet): without `hero`, no heading of its
- * own.
- *
- * Choosing a host names it in the space at once, before anyone pays, so any
- * member can add to its fund from then on. Closing before paying leaves it
- * named and waiting, which the space's Hosting says, with the way to remove
- * it. Closing while a host is still being asked names nothing.
+ * What the dialog shows, for other dialogs to show too: without `hero`, no
+ * heading of its own. Choosing a host names it in the space at once, before
+ * anyone pays, so any member can add to its fund from then on.
  */
 export function KeepOnline({
   spaceId,
@@ -368,22 +310,12 @@ export function KeepOnline({
   const node = useNode();
   const { hosts, look, looking, defined, mayChoose } = useSpaceHosts(spaceId, writable);
   const wanted = useWanted();
-  const [offer, setOffer] = useState<HostDescription | null>(null);
-  // Until the host this build offers has said its name and price, or failed to.
-  const [offerAsked, setOfferAsked] = useState(!DEFAULT_HOST);
-  const [other, setOther] = useState(!DEFAULT_HOST);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const { offer, asked: offerAsked } = useOffer();
+  const { run, busy, error: problem } = useAction();
   const [stopping, setStopping] = useState(false);
   // The host just chosen, until the space's hosts show it.
   const [chosen, setChosen] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!DEFAULT_HOST) return;
-    void describeHost(DEFAULT_HOST)
-      .then(setOffer, () => setOther(true))
-      .finally(() => setOfferAsked(true));
-  }, []);
   useEffect(() => {
     if (!chosen) return;
     const timer = setTimeout(() => setChosen(null), CHOSEN_SHOWS_MS);
@@ -402,17 +334,6 @@ export function KeepOnline({
     });
     setChosen(url);
     look();
-  };
-  const continueWith = async (url: string) => {
-    setProblem(null);
-    setBusy(true);
-    try {
-      await choose(url, wanted);
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
   };
 
   const host = hosts?.[0];
@@ -473,49 +394,20 @@ export function KeepOnline({
             <p role="status" style={{ fontSize: 13, color: palette.ink.muted }}>
               One moment…
             </p>
-          ) : other || !offer ? (
-            <>
-              <HostAddressForm onAddress={choose} />
-              {offer && (
-                <button onClick={() => setOther(false)} style={{ ...styles.linkButton, alignSelf: 'center' }}>
-                  Use {offer.name} instead
-                </button>
-              )}
-            </>
           ) : (
-            <>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
-                  gap: 12,
-                  padding: '12px 14px',
-                  borderRadius: 10,
-                  background: palette.surface.sunken,
-                }}
-              >
-                <span style={{ fontSize: 14, color: palette.ink.strong, fontWeight: 500 }}>{offer.name}</span>
-                <span style={{ fontSize: 13, color: palette.ink.muted }}>
-                  {offer.free
-                    ? 'Free'
-                    : offer.fund
-                      ? `$${offer.fund.monthly} a month, from the fund`
-                      : (offer.price ?? '')}
-                </span>
-              </div>
-              <button
-                onClick={() => void continueWith(DEFAULT_HOST ?? '')}
-                disabled={busy}
-                data-variant="primary"
-                style={styles.button}
-              >
-                {busy ? 'One moment…' : 'Continue'}
-              </button>
-              <button onClick={() => setOther(true)} style={{ ...styles.linkButton, alignSelf: 'center' }}>
-                Use another host
-              </button>
-            </>
+            <HostOfferPicker
+              offer={offer}
+              price={
+                offer?.free
+                  ? 'Free'
+                  : offer?.fund
+                    ? `$${offer.fund.monthly} a month, from the fund`
+                    : (offer?.price ?? '')
+              }
+              busy={busy}
+              onContinue={() => void run(() => choose(DEFAULT_HOST ?? '', wanted))}
+              onAddress={choose}
+            />
           )}
         </>
       ) : host.error ? (

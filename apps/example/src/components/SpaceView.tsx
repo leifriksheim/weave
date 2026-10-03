@@ -37,13 +37,7 @@ import { useBots } from '../bots';
 import { PersonScopeProvider } from './Person';
 import { markSeen, seenAt, totalOf, unreadOf, useSeen, useUnread, type Unread } from '../seen';
 
-/**
- * How it works, under the hood: the records apps write, how they point at
- * each other, asking of them, and how they reach other devices. For the
- * curious, so it stays out of the way: one folded row at the foot of the
- * sidebar, which remembers whether it was opened, and on a phone a few rows
- * at the end of More.
- */
+/** Under the hood: the views for the curious, folded at the foot of the sidebar */
 const HOOD = [
   {
     id: 'data',
@@ -75,11 +69,7 @@ const hoodWasOpen = (): boolean => {
   }
 };
 
-/**
- * What belongs to the space rather than to one app, in the order the sidebar
- * and a phone's More list them: what reaches you, who is here, what keeps it
- * online, and what runs by itself.
- */
+/** What belongs to the space rather than to one app, in sidebar order */
 const SECTIONS = [
   { kind: 'notifications', label: 'Notifications', icon: 'bell' },
   { kind: 'people', label: 'People', icon: 'people' },
@@ -99,15 +89,7 @@ type View =
   | { readonly kind: 'more' }
   | { readonly kind: 'hood'; readonly hood: Hood };
 
-/**
- * One space, laid out the way chat apps do it: its apps down a sidebar with
- * what is new in each, and whichever is open taking the rest of the window.
- * The space's own sections sit below the apps, and the views under the hood
- * folded away at the foot. A record opens in a panel beside whatever is on
- * screen. On a phone the sidebar gives way to the app grid and a tab bar,
- * whose More lists the sections without a tab, and an open app takes the
- * whole screen.
- */
+/** One space, laid out like a chat app: its apps down a sidebar, the open one beside them */
 export function SpaceView({
   space,
   notices,
@@ -478,7 +460,7 @@ export function SpaceView({
                 />
               )}
               {view.kind === 'hood' && view.hood === 'explore' && (
-                <GraphView space={space} collections={collections} onOpen={openRecord} />
+                <GraphView space={space} collections={collections} />
               )}
               {view.kind === 'hood' && view.hood === 'query' && (
                 <QueryPlayground space={space} collections={collections} onOpen={openRecord} />

@@ -23,7 +23,7 @@
  */
 import type { CryptoProvider } from '../types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
-import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
+import { didOf } from '../identity/did.js';
 import { createSigner } from '../schema/signer.js';
 import { createSchemaEngine } from '../schema/schema-engine.js';
 import { createSpaceManager, parseSpaceInvite, type SpaceRecord } from '../space/space-manager.js';
@@ -39,6 +39,8 @@ import { createLocalHub, type LocalHub } from '../network/local-transport.js';
 import { meshFor, openSpaceRuntime, type SpaceRuntime } from './space-runtime.js';
 import type { StoreFactory } from './stores.js';
 import type { BlobStore } from '../storage/blob-store.js';
+import { createListeners } from '../utils/events.js';
+import { serial } from '../utils/serial.js';
 import type { ConnectionState, NodeEvent, NodeNetworkConfig } from './types.js';
 
 export interface CarrierConfig {
@@ -112,24 +114,6 @@ export interface CarriedSubscriptionView {
   readonly paused: boolean;
 }
 
-export interface CarrierNode {
-  readonly did: string;
-  /** The carry space's id */
-  readonly carrySpace: string;
-  spaces(): Promise<ReadonlyArray<CarriedSpace>>;
-  /**
-   * Also keeps every carried space in a pod — stores rooted at the account's
-   * data path in it. Null stops writing there; the carrier's own copy goes on.
-   */
-  usePod(stores: StoreFactory | null): Promise<void>;
-  /** The account's subscriptions, as this carrier holds them */
-  subscriptions(): Promise<ReadonlyArray<CarriedSubscriptionView>>;
-  /** What a carried space holds, by kind — what the extension can offer to notify about. Empty for a space it doesn't carry. */
-  collections(spaceId: string): Promise<ReadonlyArray<CarriedCollection>>;
-  subscribe(listener: (event: CarrierEvent) => void): () => void;
-  close(): Promise<void>;
-}
-
 interface Carried {
   readonly record: SpaceRecord;
   readonly hub: LocalHub;
@@ -177,12 +161,12 @@ export async function createCarryCore(config: CarryCoreConfig) {
   const signer = createSigner(provider);
   const schemas = createSchemaEngine();
   const { emit } = config;
-  const did = publicKeyToDid(await provider.exportPublicKey(config.key.publicKey), P256_MULTICODEC);
+  const did = await didOf(config.key.publicKey, provider);
   // It never writes, so it never needs a note; the session only names it on the wire.
   const session = { did, key: config.key.privateKey, proof: () => '' };
   // The pod copy is a peer of its own on the local link, so it needs a name of its own.
   const podKeys = await provider.generateKeyPair();
-  const podDid = publicKeyToDid(await provider.exportPublicKey(podKeys.publicKey), P256_MULTICODEC);
+  const podDid = await didOf(podKeys.publicKey, provider);
   const podSession = { did: podDid, key: podKeys.privateKey, proof: () => '' };
 
   // Carry spaces are joined like any space: their keys are the only ones a carrier holds.
@@ -305,13 +289,11 @@ export async function createCarryCore(config: CarryCoreConfig) {
   }
 
   /** Carries what the passes say, and nothing else. */
-  let refreshing: Promise<void> = Promise.resolve();
-  function refresh(): Promise<void> {
-    refreshing = refreshing.then(refreshOnce).catch((error: unknown) => {
+  const refresh = serial(() =>
+    refreshOnce().catch((error: unknown) => {
       if (!closed) console.error('Could not read a carry space:', error);
-    });
-    return refreshing;
-  }
+    }),
+  );
 
   async function refreshOnce(): Promise<void> {
     if (closed) return;
@@ -439,7 +421,11 @@ export async function createCarryCore(config: CarryCoreConfig) {
       await refresh();
     },
 
-    async setPod(stores: StoreFactory | null) {
+    /**
+     * Also keeps every carried space in a pod — stores rooted at the account's
+     * data path in it. Null stops writing there; the carrier's own copy goes on.
+     */
+    setPod: async (stores: StoreFactory | null) => {
       podStores = stores;
       for (const entry of carried.values()) {
         const was = entry.pod;
@@ -450,14 +436,16 @@ export async function createCarryCore(config: CarryCoreConfig) {
       emit({ type: 'spaces' });
     },
 
-    async subscriptions(): Promise<ReadonlyArray<CarriedSubscriptionView>> {
-      await refreshing;
+    /** The account's subscriptions, as this carrier holds them */
+    subscriptions: async (): Promise<ReadonlyArray<CarriedSubscriptionView>> => {
+      await refresh.done();
       return [...carries.values()].flatMap((entry) =>
         [...entry.subscriptions].map(([id, sub]) => view(id, sub)),
       );
     },
 
-    async collections(spaceId: string): Promise<ReadonlyArray<CarriedCollection>> {
+    /** What a carried space holds, by kind — what the extension can offer to notify about. Empty for a space it doesn't carry. */
+    collections: async (spaceId: string): Promise<ReadonlyArray<CarriedCollection>> => {
       const entry = carried.get(spaceId);
       if (!entry || carries.has(spaceId)) return [];
       return (await entry.runtime.collections()).map((found) => ({
@@ -468,7 +456,7 @@ export async function createCarryCore(config: CarryCoreConfig) {
       }));
     },
 
-    async spaces(): Promise<ReadonlyArray<CarriedSpace>> {
+    spaces: async (): Promise<ReadonlyArray<CarriedSpace>> => {
       const found: CarriedSpace[] = [];
       for (const [spaceId, entry] of carried) {
         const status = await entry.runtime.status();
@@ -488,57 +476,40 @@ export async function createCarryCore(config: CarryCoreConfig) {
     async close() {
       if (closed) return;
       closed = true;
-      await refreshing;
+      await refresh.done();
       await Promise.all([...carried.keys()].map((spaceId) => drop(spaceId)));
       await registryStore.close();
     },
   };
 }
 
+/** A carrier, as `createCarrierNode` starts it */
+export type CarrierNode = Awaited<ReturnType<typeof createCarrierNode>>;
+
 /**
  * Starts a carrier.
  * @throws When the carry invite is not a readable invite to a private space
  */
-export async function createCarrierNode(config: CarrierConfig): Promise<CarrierNode> {
-  const listeners = new Set<(event: CarrierEvent) => void>();
-  const emit = (event: CarrierEvent) => {
-    for (const listener of listeners) {
-      try {
-        listener(event);
-      } catch (error) {
-        console.error('Error in carrier listener:', error);
-      }
-    }
-  };
+export async function createCarrierNode(config: CarrierConfig) {
+  const events = createListeners<CarrierEvent>('carrier');
   const core = await createCarryCore({
-    key: config.key,
-    stores: config.stores,
-    ...(config.network ? { network: config.network } : {}),
-    ...(config.provider ? { provider: config.provider } : {}),
-    ...(config.watchIntervalMs !== undefined ? { watchIntervalMs: config.watchIntervalMs } : {}),
-    emit,
-    onClosed: () => emit({ type: 'closed' }),
+    ...config,
+    emit: events.emit,
+    onClosed: () => events.emit({ type: 'closed' }),
   });
   const carrySpace = await core.addCarry(config.account, config.carry);
-
   return Object.freeze({
     did: core.did,
+    /** The carry space's id */
     carrySpace,
-    spaces: () => core.spaces(),
-    usePod: (stores: StoreFactory | null) => core.setPod(stores),
-    subscriptions: () => core.subscriptions(),
-    collections: (spaceId: string) => core.collections(spaceId),
-
-    subscribe(listener: (event: CarrierEvent) => void) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-
+    spaces: core.spaces,
+    usePod: core.setPod,
+    subscriptions: core.subscriptions,
+    collections: core.collections,
+    subscribe: events.subscribe,
     async close() {
       await core.close();
-      listeners.clear();
+      events.clear();
     },
   });
 }

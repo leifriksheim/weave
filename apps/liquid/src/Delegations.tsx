@@ -5,7 +5,8 @@ import { Modal } from '@weave/app-shared/Modal';
 import type { Assembly, MyDelegation, TopicView } from './model';
 import { EVERYTHING, delegation } from './schema';
 import { follow, type DelegationEdge, type Next } from './tally';
-import { PartyChip, PartyMark, PathView, Problem, TopicChip, Who, useAction } from './ui';
+import { PartyChip, PartyMark, PathView, Problem, TopicChip, Who } from './ui';
+import { useAction } from '@weave/app-shared/action';
 import { palette } from './styles';
 
 /** Where someone's vote would go on a topic if nobody voted: the chain of trust alone */

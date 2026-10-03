@@ -1,11 +1,4 @@
-/**
- * Contacts and doors, for the screens that show them.
- *
- * A contact is someone you share a private space for two with (`node.contacts`);
- * a door is how someone you share no space with asks to become one
- * (`node.doors`). Door links carry the code in the URL fragment, like invites,
- * so the server hosting this page never sees it.
- */
+/** Contacts (`node.contacts`) and doors (`node.doors`), for the screens that show them. */
 import { useEffect, useState } from 'react';
 import type { ContactView, P2PNode } from '@weaveprotocol/core';
 import { useLive, useNode } from '@weaveprotocol/core/react';
@@ -58,12 +51,7 @@ export function useContacts(): ReadonlyArray<ContactView> | undefined {
   return contacts;
 }
 
-/**
- * Where a contact stands: `joined` once they are a member of your space for
- * two, `waiting` while your request or knock is unanswered, `gone` when you
- * left that space and the list still names it, `none` with no space at all.
- * Undefined while loading.
- */
+/** Where a contact stands with your space for two (`gone`: you left it); undefined while loading */
 export type Standing = 'joined' | 'waiting' | 'gone' | 'none';
 
 export function useStanding(contact: ContactView | undefined): Standing | undefined {

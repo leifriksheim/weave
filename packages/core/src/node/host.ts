@@ -23,15 +23,16 @@
  */
 import type { CryptoProvider, StorageAdapter } from '../types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
-import { createServerAuth, type ServerAuth } from '../network/peer-auth.js';
+import { createServerAuth } from '../network/peer-auth.js';
 import { utf8Decode, utf8Encode } from '../utils/encoding.js';
 import { isRecord } from '../utils/guards.js';
-import { createCarryCore, type CarriedSpace, type CarrierEvent } from './carrier.js';
+import { createCarryCore, type CarrierEvent } from './carrier.js';
 import type { StoreFactory } from './stores.js';
 import type { NodeNetworkConfig } from './types.js';
 import type { BlobStore } from '../storage/blob-store.js';
 import { deleteMirrored } from '../storage/mirror.js';
 import { openPass } from '../space/pass.js';
+import { createListeners } from '../utils/events.js';
 
 /** What names a space's own subscription at a host */
 const SPACE_SUBSCRIPTION_PREFIX = 'space:';
@@ -104,51 +105,8 @@ export interface HostConfig {
   readonly full?: (carrySpace: string) => boolean;
 }
 
-export interface HostNode {
-  readonly did: string;
-  /** Makes a subscription if there is none by this id, and returns it */
-  subscribe(id: string): Promise<Subscription>;
-  get(id: string): Promise<Subscription | null>;
-  list(): Promise<ReadonlyArray<Subscription>>;
-  /** Whether a subscription is paid, in its grace period, or lapsed */
-  state(subscription: Subscription): SubscriptionState;
-  /** Moves a subscription's paid-until date — the one thing payments do */
-  extend(id: string, until: number, customer?: string): Promise<Subscription>;
-  /** Sets a paid-until date outright, earlier too: what a fund's estimate says as it is spent */
-  setPaidUntil(id: string, until: number): Promise<Subscription>;
-  /** Keeps a wallet payment asked for, or drops it (null) once it arrived */
-  setInvoice(id: string, invoice: Invoice | null): Promise<Subscription>;
-  /**
-   * Starts carrying an account's spaces for a subscription: its carry space,
-   * and every space its passes name. Replaces what the subscription carried.
-   * @throws When the subscription is lapsed, or the invite is not a carry space's
-   */
-  attach(id: string, account: string, invite: string): Promise<Subscription>;
-  /** Stops carrying for a subscription; the subscription stays */
-  detach(id: string): Promise<void>;
-  /**
-   * Carries a space for its own subscription, from a pass. A later pass (the
-   * space's key changed) replaces the one before.
-   * @throws When the subscription is lapsed, or the pass is not for its space
-   */
-  carrySpace(id: string, pass: unknown): Promise<Subscription>;
-  /** The read key a space's own subscription carries it with, as a DID: null when public or not carried */
-  readKeyOf(id: string): string | null;
-  /** Drops what lapsed past its grace period. Run now and then. */
-  sweep(): Promise<ReadonlyArray<string>>;
-  /** Reads every account's passes again, taking a space that waited for room: after what `full` says changed */
-  recheck(): Promise<void>;
-  /** Every space carried, for every subscription */
-  spaces(): Promise<ReadonlyArray<CarriedSpace>>;
-  /** How many spaces a subscription's account asks the host to carry */
-  carriedFor(id: string): Promise<number>;
-  /** The spaces a subscription is carried for now: its carry space and those its passes name, or a space's own */
-  spacesOf(id: string): Promise<ReadonlyArray<string>>;
-  /** For a server taking sockets: checks a connecting peer against the space's history. Null for a space not carried. */
-  authenticator(spaceId: string): Promise<ServerAuth | null>;
-  subscribeEvents(listener: (event: CarrierEvent) => void): () => void;
-  close(): Promise<void>;
-}
+/** A host, as `createHostNode` starts it */
+export type HostNode = Awaited<ReturnType<typeof createHostNode>>;
 
 const SUBSCRIPTION_PREFIX = 'subscription:';
 
@@ -169,23 +127,14 @@ const BUCKET_PREFIX = 'host/subscriptions/';
 const DAY = 24 * 3600;
 
 /** Starts a host */
-export async function createHostNode(config: HostConfig): Promise<HostNode> {
+export async function createHostNode(config: HostConfig) {
   const provider = config.provider ?? createP256Provider();
   const now = config.now ?? (() => Math.floor(Date.now() / 1000));
   const graceSeconds = (config.graceDays ?? 30) * DAY;
   const allowed = (account: string) => !config.allow || config.allow.includes(account);
   const store: StorageAdapter = await config.stores('host');
 
-  const listeners = new Set<(event: CarrierEvent) => void>();
-  const emit = (event: CarrierEvent) => {
-    for (const listener of listeners) {
-      try {
-        listener(event);
-      } catch (error) {
-        console.error('Error in host listener:', error);
-      }
-    }
-  };
+  const events = createListeners<CarrierEvent>('host');
 
   const read = async (id: string): Promise<Subscription | null> => {
     const bytes = await store.get(`${SUBSCRIPTION_PREFIX}${id}`);
@@ -236,7 +185,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
     ...(config.network ? { network: config.network } : {}),
     provider,
     ...(config.watchIntervalMs !== undefined ? { watchIntervalMs: config.watchIntervalMs } : {}),
-    emit,
+    emit: events.emit,
     ...(config.full ? { full: config.full } : {}),
     ...(config.mirror
       ? { mirror: config.mirror, onRelease: (spaceId: string) => deleteMirrored(config.mirror!, spaceId) }
@@ -274,21 +223,24 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
   const carriedByOther = async (carrySpace: string, except: string) =>
     (await list()).some((other) => other.id !== except && other.carry?.space === carrySpace);
 
-  const host: HostNode = {
+  /** Makes a subscription if there is none by this id, and returns it */
+  const subscribe = async (id: string): Promise<Subscription> => {
+    if (!id.startsWith('did:key:') && !spaceIdOf(id))
+      throw new Error('A subscription is named by its key, or by the space it is for');
+    return (await read(id)) ?? write({ id, paidUntil: 0, since: now() });
+  };
+
+  return Object.freeze({
     did: core.did,
-
-    async subscribe(id: string) {
-      if (!id.startsWith('did:key:') && !spaceIdOf(id))
-        throw new Error('A subscription is named by its key, or by the space it is for');
-      return (await read(id)) ?? write({ id, paidUntil: 0, since: now() });
-    },
-
+    subscribe,
     get: read,
     list,
+    /** Whether a subscription is paid, in its grace period, or lapsed */
     state,
 
-    async extend(id: string, until: number, customer?: string) {
-      const subscription = await host.subscribe(id);
+    /** Moves a subscription's paid-until date — the one thing payments do */
+    async extend(id: string, until: number, customer?: string): Promise<Subscription> {
+      const subscription = await subscribe(id);
       const extended = {
         ...subscription,
         paidUntil: Math.max(subscription.paidUntil, until),
@@ -303,8 +255,9 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       return extended;
     },
 
-    async setPaidUntil(id: string, until: number) {
-      const subscription = await host.subscribe(id);
+    /** Sets a paid-until date outright, earlier too: what a fund's estimate says as it is spent */
+    async setPaidUntil(id: string, until: number): Promise<Subscription> {
+      const subscription = await subscribe(id);
       if (subscription.paidUntil === until) return subscription;
       const set = { ...subscription, paidUntil: until };
       await write(set);
@@ -313,11 +266,17 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       return set;
     },
 
+    /** Keeps a wallet payment asked for, or drops it (null) once it arrived */
     async setInvoice(id: string, invoice: Invoice | null) {
-      const { invoice: _before, ...subscription } = await host.subscribe(id);
+      const { invoice: _before, ...subscription } = await subscribe(id);
       return write(invoice ? { ...subscription, invoice } : subscription);
     },
 
+    /**
+     * Starts carrying an account's spaces for a subscription: its carry space,
+     * and every space its passes name. Replaces what the subscription carried.
+     * @throws When the subscription is lapsed, or the invite is not a carry space's
+     */
     async attach(id: string, account: string, invite: string) {
       const subscription = await read(id);
       if (!subscription || state(subscription) === 'lapsed')
@@ -332,6 +291,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       return attached;
     },
 
+    /** Stops carrying for a subscription; the subscription stays */
     async detach(id: string) {
       const subscription = await read(id);
       if (!subscription?.carry) return;
@@ -340,6 +300,11 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       if (!(await carriedByOther(carry.space, id))) await core.removeCarry(carry.space);
     },
 
+    /**
+     * Carries a space for its own subscription, from a pass. A later pass (the
+     * space's key changed) replaces the one before.
+     * @throws When the subscription is lapsed, or the pass is not for its space
+     */
     async carrySpace(id: string, pass: unknown) {
       const spaceId = spaceIdOf(id);
       if (!spaceId) throw new Error('Only a space’s own subscription carries a space from a pass');
@@ -351,12 +316,14 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       return write({ ...subscription, pass });
     },
 
+    /** The read key a space's own subscription carries it with, as a DID: null when public or not carried */
     readKeyOf(id: string) {
       const spaceId = spaceIdOf(id);
       return spaceId ? core.readKeyOf(spaceId) : null;
     },
 
-    async sweep() {
+    /** Drops what lapsed past its grace period. Run now and then. */
+    async sweep(): Promise<ReadonlyArray<string>> {
       const dropped: string[] = [];
       for (const subscription of await list()) {
         if (state(subscription) !== 'lapsed') continue;
@@ -371,15 +338,18 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       return dropped;
     },
 
-    spaces: () => core.spaces(),
+    spaces: core.spaces,
+    /** Reads every account's passes again, taking a space that waited for room: after what `full` says changed */
     recheck: () => core.refresh(),
 
+    /** How many spaces a subscription's account asks the host to carry */
     async carriedFor(id: string) {
       const space = (await read(id))?.carry?.space;
       return space ? (core.carries.get(space)?.wants.size ?? 0) : 0;
     },
 
-    async spacesOf(id: string) {
+    /** The spaces a subscription is carried for now: its carry space and those its passes name, or a space's own */
+    async spacesOf(id: string): Promise<ReadonlyArray<string>> {
       const subscription = await read(id);
       const own = spaceIdOf(id);
       if (own) return subscription?.pass !== undefined ? [own] : [];
@@ -387,6 +357,7 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       return space ? [space, ...(core.carries.get(space)?.wants ?? [])] : [];
     },
 
+    /** For a server taking sockets: checks a connecting peer against the space's history. Null for a space not carried. */
     async authenticator(spaceId: string) {
       const entry = core.carried.get(spaceId);
       if (!entry) return null;
@@ -394,19 +365,13 @@ export async function createHostNode(config: HostConfig): Promise<HostNode> {
       return createServerAuth(spaceId, read, config.key.privateKey, provider);
     },
 
-    subscribeEvents(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribeEvents: events.subscribe,
 
     async close() {
       await closing;
       await core.close();
       await store.close();
-      listeners.clear();
+      events.clear();
     },
-  };
-  return Object.freeze(host);
+  });
 }

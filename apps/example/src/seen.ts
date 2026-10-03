@@ -1,13 +1,4 @@
-/**
- * What is new: records that arrived in an app since you last looked at it.
- *
- * Kept in this browser only, per account: when each app in each space was
- * last open here, and when this browser started keeping track, so a first
- * visit doesn't count a space's whole history as new. Nothing is written to
- * a space — reading is nobody else's business, and another device keeps its
- * own. What counts is what an app says is worth hearing about (its `notify`,
- * the same list notifications offer), written by someone else.
- */
+/** What is new: records others wrote in an app since you last opened it, tracked in this browser only. */
 import { useSyncExternalStore } from 'react';
 import type { SpaceSummary } from '@weaveprotocol/core';
 import { useAccount, useCollections, useLive } from '@weaveprotocol/core/react';

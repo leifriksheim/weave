@@ -1,5 +1,4 @@
 /**
- * @module records/describe
  * What a collection allows, in plain sentences — worked out from its rules,
  * never taken from what anyone says about it.
  *

@@ -22,6 +22,7 @@ import { team } from '../src/space/presets.js';
 import { hold, letGo } from './helpers/hold.js';
 import { until } from './helpers/until.js';
 import { isObject } from '../src/utils/guards.js';
+import { settle } from './helpers/person.js';
 
 const nodes: P2PNode[] = [];
 const allCalls: Calls[] = [];
@@ -69,8 +70,6 @@ async function person(hub: FakeHub, seed = generateSeed(), loseSignal = false) {
   allCalls.push(calls);
   return { node, calls, seed };
 }
-
-const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Alice and Bob as editors of one private space that keeps call history, both connected; Carol can only read it */
 async function space(options: { reader?: boolean; losesSignal?: 'alice' | 'bob' } = {}) {

@@ -1,5 +1,4 @@
 /**
- * @module records/topics
  * Topic tags: letting a node that can't read a record still match what it's about.
  *
  * A collection names a few topics: body fields (`mentions`) or link roles
@@ -22,6 +21,7 @@ import { canonicalize } from '../schema/expression.js';
 import { base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { isRecord } from '../utils/guards.js';
 import type { Link } from '../types.js';
+import { LINK_FIELD_PATTERN } from './links.js';
 
 /** Topic fields one collection may name */
 const MAX_TOPICS = 8;
@@ -32,8 +32,6 @@ const TAG_BYTES = 16;
 
 /** A field of the body, or a dotted path into it: `mentions`, `address.city` */
 const FIELD = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}(\.[a-zA-Z_][a-zA-Z0-9_]{0,63}){0,3}$/;
-/** A link role, as `onePer` names one: `link:channel` */
-const LINK = /^link:[a-z][a-zA-Z0-9]{0,63}$/;
 
 /** Why a list of topic fields can't be a collection's, or null */
 export function checkTopics(topics: unknown, at = 'topics'): string | null {
@@ -41,7 +39,7 @@ export function checkTopics(topics: unknown, at = 'topics'): string | null {
   if (!Array.isArray(topics) || topics.length > MAX_TOPICS)
     return `${at} must be a list of at most ${MAX_TOPICS} topics`;
   for (const topic of topics) {
-    if (typeof topic !== 'string' || !(FIELD.test(topic) || LINK.test(topic)))
+    if (typeof topic !== 'string' || !(FIELD.test(topic) || LINK_FIELD_PATTERN.test(topic)))
       return `${at}: "${String(topic)}" is not a field name or link role, like "mentions" or "link:channel"`;
   }
   return new Set(topics).size === topics.length ? null : `${at} names a topic twice`;

@@ -28,23 +28,12 @@ export interface ProtocolError extends Error {
   readonly hint?: string;
 }
 
-/**
- * Creates a tagged protocol error.
- * @param code Machine-readable cause
- * @param message Human-readable description
- * @param hint Optional remedy to surface in a UI
- * @returns The error, ready to throw
- */
+/** Creates a tagged protocol error. */
 export function protocolError(code: ProtocolErrorCode, message: string, hint?: string): ProtocolError {
   return Object.assign(new Error(message), { code, ...(hint ? { hint } : {}) });
 }
 
-/**
- * The message of a caught value, for a result that reports it.
- * @param error The caught value
- * @param fallback What to say when it carries no message
- * @returns Its message, or the fallback
- */
+/** The message of a caught value, for a result that reports it. */
 export function messageOf(error: unknown, fallback: string): string {
   return typeof error === 'object' &&
     error !== null &&
@@ -55,12 +44,7 @@ export function messageOf(error: unknown, fallback: string): string {
     : fallback;
 }
 
-/**
- * Narrows an unknown thrown value to a protocol error.
- * @param error The caught value
- * @param code Optionally require a specific code
- * @returns Whether it is a protocol error (of that code)
- */
+/** Narrows an unknown thrown value to a protocol error. */
 export function isProtocolError(error: unknown, code?: ProtocolErrorCode): error is ProtocolError {
   if (!(error instanceof Error) || !('code' in error) || typeof error.code !== 'string') {
     return false;

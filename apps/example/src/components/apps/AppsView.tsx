@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useAction } from '@weave/app-shared/action';
 import type { NodeCollection, SpaceSummary } from '@weaveprotocol/core';
 import { useNode } from '@weaveprotocol/core/react';
 // `useSchemas` defines collections in a space; it is not a React hook, whatever its name says.
@@ -11,16 +12,7 @@ import { Icon } from '../Icon';
 import { unreadOf, type Unread } from '../../seen';
 import { styles, palette } from '../../styles';
 
-/**
- * A space's apps, laid out like a phone's home screen: the ones ready to
- * open, with what is new in each, a way to make a new one, then proposals
- * and the built-in ones not added yet. Adding one defines just the
- * collections it is missing.
- *
- * Two kinds sit side by side: apps written as code here (Chat, Kanban…), and
- * apps made for this space and kept in it as records — often by an agent.
- * Those arrive as proposals, and someone who can add collections adds them.
- */
+/** A space's apps like a phone's home screen: those added, then proposals and built-ins to add. */
 export function AppsView({
   space,
   collections,
@@ -39,21 +31,16 @@ export function AppsView({
   onCreate: () => void;
 }) {
   const node = useNode();
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState<WeaveApp | null>(null);
+  const { run, busy, error } = useAction();
 
-  const add = async (app: WeaveApp) => {
-    setBusy(app.id);
-    setError(null);
-    try {
+  const add = (app: WeaveApp) => {
+    setAdding(app);
+    void run(async () => {
       await addSchemas(node, space.id, app.needs);
       await app.setup?.(node, space.id);
       onOpenApp(app.id);
-    } catch (e) {
-      setError(`Could not add ${app.title}: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(null);
-    }
+    });
   };
 
   return (
@@ -145,13 +132,13 @@ export function AppsView({
                   </div>
                   {mayDefine && (
                     <button
-                      onClick={() => void add(app)}
-                      disabled={busy !== null}
+                      onClick={() => add(app)}
+                      disabled={busy}
                       aria-label={`Add ${app.title}`}
                       data-variant="quiet"
                       style={{ ...styles.smallButton, flexShrink: 0 }}
                     >
-                      {busy === app.id ? 'Adding…' : 'Add'}
+                      {busy && adding?.id === app.id ? 'Adding…' : 'Add'}
                     </button>
                   )}
                 </div>
@@ -164,7 +151,11 @@ export function AppsView({
               </div>
             ))}
           </div>
-          {error && <p style={styles.error}>{error}</p>}
+          {error && (
+            <p style={styles.error}>
+              Could not add {adding?.title}: {error}
+            </p>
+          )}
         </section>
       )}
 

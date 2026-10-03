@@ -36,6 +36,7 @@ import { until } from './helpers/until.js';
 import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { hold } from './helpers/hold.js';
 import { joined } from './helpers/joined.js';
+import { settle } from './helpers/person.js';
 
 const stops: Array<() => void> = [];
 const nodes: P2PNode[] = [];
@@ -43,8 +44,6 @@ after(async () => {
   for (const stop of stops) stop();
   await Promise.all(nodes.map((node) => node.close()));
 });
-
-const settle = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A person's node, and the same node acting as their agent under a note that says so */
 async function personAndAgent(fill: number) {
@@ -124,7 +123,7 @@ describe('a rule that asks an agent', () => {
     });
 
     await until(() => asked.length > 0);
-    await settle();
+    await settle(150);
     assert.deepEqual(
       asked.map((t) => t.match?.record.key),
       [posters.key],
@@ -147,11 +146,11 @@ describe('a rule that asks an agent', () => {
     const { person, agent, space, account } = await personAndAgent(22);
     const suggested = await agent.records.put(space, rule.name, doneAndMine());
     const { asked, names } = running(agent, account);
-    await settle();
+    await settle(150);
     assert.deepEqual(names.at(-1) ?? [], []);
 
     await person.records.put(space, task.name, { title: 'Early', status: 'done', assignees: [account] });
-    await settle();
+    await settle(150);
     assert.equal(asked.length, 0, 'nothing runs while the agent’s version is the current one');
 
     await person.records.update(space, suggested.key, doneAndMine());
@@ -171,7 +170,7 @@ describe('a rule that asks an agent', () => {
       status: 'done',
       assignees: [account],
     });
-    await settle();
+    await settle(150);
     assert.equal(asked.length, 0);
   });
 
@@ -190,7 +189,7 @@ describe('a rule that asks an agent', () => {
       since: now(),
     });
     const { names } = running(agent, account);
-    await settle();
+    await settle(150);
     assert.deepEqual(names.at(-1) ?? [], []);
   });
 });

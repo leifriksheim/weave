@@ -37,7 +37,7 @@ import {
 } from './connect.js';
 import type { NotifyProposal } from '../space/notify.js';
 import type { WorkerLike } from '../node/worker.js';
-import type { KeyValueStore } from './stay-signed-in.js';
+import { defaultStorage, guardedStorage, type KeyValueStore } from './stay-signed-in.js';
 
 export interface WeaveConnectionConfig {
   /** The account home to suggest — the person can use their own instead */
@@ -97,16 +97,11 @@ export interface WeaveConnection {
 }
 
 export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConnection {
-  const storage = config.storage !== undefined ? config.storage : (globalThis.localStorage ?? null);
+  const storage = defaultStorage(config.storage);
   const grants = grantStore(storage);
+  const kept = guardedStorage(storage);
   const HOME = 'weave.home';
-  const rememberedHome = (() => {
-    try {
-      return storage?.getItem(HOME) ?? null;
-    } catch {
-      return null;
-    }
-  })();
+  const rememberedHome = kept.get(HOME);
 
   let state: WeaveConnectionState = Object.freeze({
     status: 'starting',
@@ -199,11 +194,7 @@ export function createWeaveConnection(config: WeaveConnectionConfig): WeaveConne
         // Nothing awaited before this: the popup must open inside the click.
         const grant = await connectToHome({ home: address, request: config.request });
         grants.save(grant);
-        try {
-          storage?.setItem(HOME, address);
-        } catch {
-          // Remembering is a convenience.
-        }
+        kept.set(HOME, address);
         update({ home: address });
         await open(grant);
       } catch (error) {

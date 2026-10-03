@@ -1,9 +1,4 @@
-/**
- * Who says they are a bot in a space: `bot: true` on their own `std.profile`
- * there. Only they can write it (`std.profile` is one per person, theirs to
- * change), and it is their word, not something anyone checked: an honest
- * operator discloses with it, and a bot that leaves it out looks like anyone.
- */
+// Who says they are a bot in a space: `bot: true` on their own `std.profile`, their word, not checked.
 import { useLive } from '@weaveprotocol/core/react';
 import { profile, type Profile } from '@weaveprotocol/core/schemas';
 

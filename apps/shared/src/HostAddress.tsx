@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { styles, palette } from './styles';
+import { message } from './action';
 
 /**
  * A host's address as a person types it, as its origin. `host.example` is
@@ -78,13 +79,13 @@ export function HostAddressForm({
     try {
       url = hostAddress(address);
     } catch (error) {
-      return setProblem(error instanceof Error ? error.message : String(error));
+      return setProblem(message(error));
     }
     setAsking(new URL(url).host);
     try {
       await onAddress(url, wanted);
     } catch (error) {
-      if (wanted()) setProblem(error instanceof Error ? error.message : String(error));
+      if (wanted()) setProblem(message(error));
     } finally {
       if (wanted()) setAsking(null);
     }

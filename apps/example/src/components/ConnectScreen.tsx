@@ -3,14 +3,7 @@ import { useConnection } from '@weaveprotocol/core/react';
 import { Wordmark } from '@weave/app-shared/Wordmark';
 import { styles, palette } from '../styles';
 
-/**
- * Before the app is connected: one button that opens the account home.
- *
- * The home is where the person signs in — with a passkey, or the account
- * password from their password manager — and says what this app may use.
- * Nothing about the account is typed here. The home is theirs to choose: this
- * app suggests one, and anyone running their own types its address.
- */
+/** Before the app is connected: one button that opens the account home, where the person signs in */
 export function ConnectScreen() {
   const { connection, state } = useConnection();
   const [own, setOwn] = useState<string | null>(null);

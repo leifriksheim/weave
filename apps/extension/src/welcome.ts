@@ -19,7 +19,7 @@ import {
   type CarrierStatus,
   type StatusChanged,
 } from './shared';
-import { accountLine, h, mark, resumePod, spaceList, summary } from './ui';
+import { accountLine, h, mark, podLine, resumePod, spaceList, summary } from './ui';
 
 const app = document.getElementById('app')!;
 let status: CarrierStatus | null = null;
@@ -198,33 +198,21 @@ function podSection(pod: NonNullable<CarryGrant['pod']>): HTMLElement {
       await ask({ to: 'offscreen', type: 'reload' });
     });
 
+  const button = (label: string, onClick: () => Promise<void>, quiet = false) =>
+    h(
+      'div',
+      { class: 'actions' },
+      h(
+        'button',
+        { class: quiet ? 'quiet small' : 'small', disabled: busy, onClick: () => void onClick() },
+        label,
+      ),
+    );
   const body =
     state === 'writing'
-      ? [
-          h(
-            'p',
-            { class: 'hint' },
-            h('span', { class: 'dot good' }),
-            `Everything that arrives is written into “${pod.folder}”.`,
-          ),
-          h(
-            'div',
-            { class: 'actions' },
-            h(
-              'button',
-              { class: 'quiet small', disabled: busy, onClick: () => void choose() },
-              'Choose another folder',
-            ),
-          ),
-        ]
+      ? [button('Choose another folder', choose, true)]
       : state === 'needs-permission'
         ? [
-            h(
-              'p',
-              { class: 'hint' },
-              h('span', { class: 'dot warn' }),
-              `Chrome wants a click before this writes to “${pod.folder}” again. Until then, your pod catches up later.`,
-            ),
             h(
               'p',
               { class: 'note', style: 'margin-top: 10px' },
@@ -232,34 +220,17 @@ function podSection(pod: NonNullable<CarryGrant['pod']>): HTMLElement {
               h('strong', {}, 'Allow on every visit'),
               '. Then it keeps writing to your pod without asking again.',
             ),
-            h(
-              'div',
-              { class: 'actions' },
-              h(
-                'button',
-                { class: 'small', disabled: busy, onClick: () => void resume() },
-                'Resume pod sync',
-              ),
-            ),
+            button('Resume pod sync', resume),
           ]
-        : [
-            h(
-              'p',
-              { class: 'hint' },
-              `Your account lives in a pod, “${pod.folder}”. Choose that folder, and this keeps it up to date while your apps are closed.`,
-            ),
-            h(
-              'div',
-              { class: 'actions' },
-              h(
-                'button',
-                { class: 'small', disabled: busy, onClick: () => void choose() },
-                'Choose your pod folder',
-              ),
-            ),
-          ];
+        : [button('Choose your pod folder', choose)];
 
-  return h('section', {}, h('h2', {}, 'Your pod'), ...body);
+  return h(
+    'section',
+    {},
+    h('h2', {}, 'Your pod'),
+    podLine(state === 'none' ? 'not-picked' : state, pod.folder),
+    ...body,
+  );
 }
 
 /** Refuses a folder that does not hold this account, before anything is written to it. */

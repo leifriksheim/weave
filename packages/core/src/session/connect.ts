@@ -1,47 +1,27 @@
 /**
  * @module session/connect
- * An app using an account without ever seeing its seed.
- *
- * The account lives in an *account home* — a page, at an address the person
- * chose, that holds the account and does nothing else. An app that wants to
- * act for the account:
- *
- * 1. Makes its own key, kept in its own site's storage, never exportable.
- * 2. Opens the home in a popup, and says what it wants: read or write, and
- *    which spaces — existing ones the person picks, or new ones for it.
- * 3. The person unlocks at the home (a passkey, or their password) and
- *    approves.
- * 4. The home signs a note — a UCAN — saying the app's key may write in those
- *    spaces until a date, and hands back invites for them.
- * 5. The app starts a node that signs with its key under that note.
- *
- * Every peer checks the note, so the app cannot write anywhere it was not
- * given. It never holds the seed, so it cannot become the account.
- *
- * Once connected, an app can come back with a smaller ask when the person
- * wants it: "notify me when…" (`proposeToHome`). The same popup, the same
- * approval, and the home writes what the person keeps. Connecting never asks.
- *
- * The popup and the app talk with `postMessage`. Each side checks the other's
- * origin as the browser reports it — never as a message claims it — and the
- * home only ever sends a grant to the origin that asked for it.
+ * An app using an account without ever seeing its seed. The app opens the
+ * account home in a popup with its own non-exportable key; the person approves
+ * there, and the home signs a note (a UCAN) letting that key write in the
+ * spaces given, which every peer checks. The two sides talk by `postMessage`,
+ * each checking the other's origin as the browser reports it.
  */
 import { createP256Provider } from '../identity/crypto-p256.js';
-import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
+import { didOf } from '../identity/did.js';
+import { idbOnce } from '../identity/idb.js';
 import { cidFromBytes } from '../utils/hash.js';
 import { base64UrlDecode, utf8Encode } from '../utils/encoding.js';
 import { verifyUCAN, parseUCAN, type Capability, type UCANToken } from '../identity/ucan.js';
 import { isAgentNote } from '../identity/agent-note.js';
 import type { RootSigner } from '../identity/root-signer.js';
-import { createNode } from '../node/node.js';
-import { startNodeInWorker, workerNetwork, type WorkerLike } from '../node/worker.js';
-import { indexedDBStores, type StoreFactory } from '../node/stores.js';
+import { startPageNode, type WorkerLike } from '../node/worker.js';
+import type { StoreFactory } from '../node/stores.js';
 import type { Expression } from '../types.js';
 import type { CacheConfig, NewSpace, NodeNetworkConfig, P2PNode } from '../node/types.js';
 import { checkStartingRoles } from '../space/space-access.js';
 import { parseSpaceInvite } from '../space/space-manager.js';
 import { checkProposal, MAX_PROPOSALS, type NotifyProposal } from '../space/notify.js';
-import type { KeyValueStore } from './stay-signed-in.js';
+import { defaultStorage, guardedStorage, type KeyValueStore } from './stay-signed-in.js';
 import { isObject } from '../utils/guards.js';
 
 /** Messages between an app and the home it opened */
@@ -263,46 +243,20 @@ export interface AppKey {
 
 const KEY_DB = 'weave-app-key';
 
-function openKeyDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = globalThis.indexedDB.open(KEY_DB, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore('keys');
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Could not open the app key store'));
-  });
-}
-
-async function keyStore(
-  mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest,
-): Promise<unknown> {
-  const db = await openKeyDb();
-  try {
-    return await new Promise<unknown>((resolve, reject) => {
-      const request = run(db.transaction('keys', mode).objectStore('keys'));
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error ?? new Error('The app key store refused a request'));
-    });
-  } finally {
-    db.close();
-  }
-}
-
 /**
  * This app's key: made once, kept in this site's IndexedDB, and never
  * exportable — a script that gets into the page can sign with it while it is
  * there, but cannot carry it off.
  */
 export async function appKey(name = 'default'): Promise<AppKey> {
-  const provider = createP256Provider();
-  const stored = await keyStore('readonly', (store) => store.get(name));
+  const stored = await idbOnce(KEY_DB, 'keys', 'readonly', (store) => store.get(name));
   let keys = isKeyPair(stored) ? stored : null;
   if (!keys) {
-    const made = await provider.generateKeyPair();
-    keys = { privateKey: made.privateKey, publicKey: made.publicKey };
-    await keyStore('readwrite', (store) => store.put(keys, name));
+    const { privateKey, publicKey } = await createP256Provider().generateKeyPair();
+    keys = { privateKey, publicKey };
+    await idbOnce(KEY_DB, 'keys', 'readwrite', (store) => store.put(keys, name));
   }
-  return { keys, did: publicKeyToDid(await provider.exportPublicKey(keys.publicKey), P256_MULTICODEC) };
+  return { keys, did: await didOf(keys.publicKey) };
 }
 
 function isKeyPair(value: unknown): value is CryptoKeyPair {
@@ -311,7 +265,7 @@ function isKeyPair(value: unknown): value is CryptoKeyPair {
 
 /** Forgets this app's key. The next connection makes a new one. */
 export async function forgetAppKey(name = 'default'): Promise<void> {
-  await keyStore('readwrite', (store) => store.delete(name));
+  await idbOnce(KEY_DB, 'keys', 'readwrite', (store) => store.delete(name));
 }
 
 export interface ConnectOptions {
@@ -487,7 +441,10 @@ function askHome<T>(
 }
 
 /** Refuses a grant that is not a valid note from the account to this key. */
-async function checkGrant(grant: Grant, audience: string): Promise<void> {
+export async function checkGrant(grant: Grant, audience: string): Promise<void> {
+  if (!isObject(grant) || grant.v !== 1 || typeof grant.token !== 'string' || typeof grant.did !== 'string') {
+    throw new Error('That is not a grant.');
+  }
   const verified = await verifyUCAN(grant.token, createP256Provider());
   if (!verified.valid) throw new Error(`The grant does not check out: ${verified.reason ?? 'invalid'}`);
   const { payload } = parseUCAN(grant.token);
@@ -534,32 +491,23 @@ export async function startConnectedNode(params: {
   /** Runs the node in a worker, off the page's main thread. Not with `stores`, which a worker can't be handed. */
   readonly worker?: () => WorkerLike;
 }): Promise<P2PNode> {
-  if (params.worker && params.stores)
-    throw new Error('A node in a worker opens its own stores: pass worker or stores, not both');
   const key = params.key ?? (await appKey());
   // The home's relays as well as the app's, so the two always share one.
   const relays = [...new Set([...(params.network?.relays ?? []), ...(params.grant.relays ?? [])])];
   const network = params.network || relays.length ? { ...params.network, relays } : undefined;
-  const shared = {
-    signer: grantSigner(params.grant),
-    sessionKey: key.keys,
-    ...(params.cache === false ? {} : { cache: params.cache ?? {} }),
-    ...(params.grant.accountKey ? { accountKey: base64UrlDecode(params.grant.accountKey) } : {}),
-    ...(params.grant.contactKey ? { contactKey: base64UrlDecode(params.grant.contactKey) } : {}),
-    ...(params.grant.contactsSpace ? { contactsSpace: params.grant.contactsSpace } : {}),
-  };
-  const stores = `weave-app:${params.grant.did}`;
-  const node = params.worker
-    ? await startNodeInWorker(params.worker(), {
-        ...shared,
-        stores: { indexedDB: stores },
-        ...(network ? { network: workerNetwork(network) } : {}),
-      })
-    : await createNode({
-        ...shared,
-        stores: params.stores ?? indexedDBStores(stores),
-        ...(network ? { network } : {}),
-      });
+  const node = await startPageNode(
+    {
+      signer: grantSigner(params.grant),
+      sessionKey: key.keys,
+      stores: { indexedDB: `weave-app:${params.grant.did}` },
+      ...(network ? { network } : {}),
+      ...(params.cache === false ? {} : { cache: params.cache ?? {} }),
+      ...(params.grant.accountKey ? { accountKey: base64UrlDecode(params.grant.accountKey) } : {}),
+      ...(params.grant.contactKey ? { contactKey: base64UrlDecode(params.grant.contactKey) } : {}),
+      ...(params.grant.contactsSpace ? { contactsSpace: params.grant.contactsSpace } : {}),
+    },
+    params,
+  );
   const held = new Set((await node.spaces.list()).map((space) => space.id));
   for (const space of params.grant.spaces) {
     if (!held.has(space.id))
@@ -572,26 +520,15 @@ export async function startConnectedNode(params: {
 }
 
 /** Where an app keeps its grant between visits */
-export function grantStore(
-  storage: KeyValueStore | null = globalThis.localStorage ?? null,
-  key = 'weave.grant',
-) {
+export function grantStore(storage: KeyValueStore | null = defaultStorage(), key = 'weave.grant') {
+  const kept = guardedStorage(storage);
   return {
     load(): Grant | null {
-      try {
-        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only save writes this key
-        const grant = JSON.parse(storage?.getItem(key) ?? 'null') as Grant | null;
-        return grant && grant.expiresAt > Math.floor(Date.now() / 1000) ? grant : null;
-      } catch {
-        return null;
-      }
+      const grant = kept.read<Grant>(key);
+      return grant && grant.expiresAt > Math.floor(Date.now() / 1000) ? grant : null;
     },
-    save(grant: Grant): void {
-      storage?.setItem(key, JSON.stringify(grant));
-    },
-    forget(): void {
-      storage?.removeItem(key);
-    },
+    save: (grant: Grant): void => kept.write(key, grant),
+    forget: (): void => kept.write(key, null),
   };
 }
 

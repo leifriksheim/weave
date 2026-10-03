@@ -9,14 +9,14 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
-import { useLinked, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
+import { useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
-import { bodyOf, collectionLabel, fieldsOf, humanize, recordLabel, titleField } from '../derive/schema-ui';
-import { nameOf, peopleFrom, type People } from '../derive/people';
+import { collectionLabel, humanize, recordLabel } from '../derive/schema-ui';
+import { nameOf, peopleFrom } from '../derive/people';
 import { ago } from '../derive/time';
 import { Avatar } from '@weave/app-shared/Avatar';
-import { Value } from './Value';
-import { styles, palette } from '../styles';
+import { RecordPanel } from './RecordPanel';
+import { styles, palette, ui } from '../styles';
 import { Person } from './Person';
 
 /** A dot on the map: a record, or — when people are shown — a person */
@@ -74,6 +74,7 @@ const BUDGET_MAX = 1000;
 /** Records walked to from the panel that the budget left out, kept on the map — the most recent ones */
 const WALKED_MAX = 100;
 const PANEL = 320;
+const RECORD_PANEL = 560;
 const PERSON = 'person:';
 
 /** Who a record is by: whoever created it, else whoever the signing key acted for */
@@ -96,13 +97,7 @@ function coloursFor(names: ReadonlyArray<string>): Map<string, string> {
   return map;
 }
 
-/**
- * One step of the layout: lines pull their ends toward a comfortable length,
- * every dot pushes every other away, and a weak pull keeps it all near the
- * middle. The same recipe d3-force uses, small enough to write out; the
- * all-pairs push is fine at a few hundred dots, which is why the map loads
- * at most BUDGET_MAX of them.
- */
+/** One step of d3-force's recipe: springs, an all-pairs push (why the map caps its dots), a pull to the middle. */
 function tick(places: ReadonlyArray<Place>, springs: ReadonlyArray<Spring>, alpha: number): void {
   for (const l of springs) {
     const s = places[l.s]!;
@@ -176,25 +171,13 @@ function shares(
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const short = (text: string, max = 28) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
-/**
- * Explore: every record in a space as a dot, with a line for each link, laid
- * out so that records that point at each other sit together. Pick a dot to see
- * what it is, who wrote it, what it points at and what points at it — and
- * follow those to walk from one record to the next.
- *
- * It starts with every collection and can be narrowed to some. Only the
- * newest records of each are loaded, within a budget the person can raise to
- * a fixed ceiling: the layout costs the square of the dots, so a large space
- * drawn whole would freeze the tab.
- */
+/** Explore: every record in a space as a dot and every link as a line, within a budget the layout can draw. */
 export function GraphView({
   space,
   collections,
-  onOpen,
 }: {
   space: SpaceSummary;
   collections: ReadonlyArray<NodeCollection>;
-  onOpen: (record: NodeRecord) => void;
 }) {
   const node = useNode();
   const uid = useId().replace(/:/g, '');
@@ -342,20 +325,20 @@ export function GraphView({
     selectedRef.current = selected;
   }, [selected]);
 
-  /** The width left for the map once the details panel takes its share */
+  /** The width left for the map once the panel on the right takes its share */
   const room = () => {
-    const w = svgRef.current?.getBoundingClientRect().width ?? 0;
-    return selectedRef.current ? Math.max(w - PANEL - 24, w / 2) : w;
+    const box = svgRef.current?.getBoundingClientRect();
+    const w = box?.width ?? 0;
+    const picked = selectedRef.current;
+    if (!box || !picked) return w;
+    // A person's panel sits in the map; a record's is the record panel, along the window's right edge.
+    const left = picked.startsWith(PERSON) ? w - PANEL - 24 : globalThis.innerWidth - RECORD_PANEL - box.left;
+    return Math.max(left, w / 2);
   };
 
-  /** Glides the view so a dot sits in the middle of what is visible */
-  const flyTo = (id: string) => {
-    const p = places.current.get(id);
-    const box = svgRef.current?.getBoundingClientRect();
-    if (!p || !box) return;
+  /** Eases the view to another one */
+  const glide = (to: View) => {
     const from = { ...viewRef.current };
-    const k = Math.max(from.k, 1);
-    const to = { k, x: room() / 2 - p.x * k, y: box.height / 2 - p.y * k };
     const start = performance.now();
     if (flight.current !== null) cancelAnimationFrame(flight.current);
     const step = (now: number) => {
@@ -369,6 +352,15 @@ export function GraphView({
       flight.current = t < 1 ? requestAnimationFrame(step) : null;
     };
     flight.current = requestAnimationFrame(step);
+  };
+
+  /** Glides the view so a dot sits in the middle of what is visible */
+  const flyTo = (id: string) => {
+    const p = places.current.get(id);
+    const box = svgRef.current?.getBoundingClientRect();
+    if (!p || !box) return;
+    const k = Math.max(viewRef.current.k, 1);
+    glide({ k, x: room() / 2 - p.x * k, y: box.height / 2 - p.y * k });
   };
 
   /** Zooms so everything on screen fits */
@@ -382,21 +374,8 @@ export function GraphView({
     const w = room();
     const k = clamp(Math.min(w / (x1 - x0 + 80), box.height / (y1 - y0 + 80)), 0.15, 1.6);
     const to = { k, x: w / 2 - ((x0 + x1) / 2) * k, y: box.height / 2 - ((y0 + y1) / 2) * k };
-    if (!animate) return setView(to);
-    const from = { ...viewRef.current };
-    const start = performance.now();
-    if (flight.current !== null) cancelAnimationFrame(flight.current);
-    const step = (now: number) => {
-      const t = Math.min(1, (now - start) / 350);
-      const e = 1 - Math.pow(1 - t, 3);
-      setView({
-        x: from.x + (to.x - from.x) * e,
-        y: from.y + (to.y - from.y) * e,
-        k: from.k + (to.k - from.k) * e,
-      });
-      flight.current = t < 1 ? requestAnimationFrame(step) : null;
-    };
-    flight.current = requestAnimationFrame(step);
+    if (animate) glide(to);
+    else setView(to);
   };
 
   /** Runs the layout until it settles, one or two steps a frame */
@@ -695,7 +674,7 @@ export function GraphView({
               }
               onClick={() => toggle(name)}
               style={{
-                ...chip,
+                ...ui.chip,
                 opacity: off ? 0.55 : 1,
                 ...(picked ? { borderColor: palette.ink.strong, color: palette.ink.strong } : {}),
               }}
@@ -716,7 +695,7 @@ export function GraphView({
           );
         })}
         {chosen !== null && (
-          <button onClick={showEverything} style={{ ...chip, color: palette.ink.muted }}>
+          <button onClick={showEverything} style={{ ...ui.chip, color: palette.ink.muted }}>
             Show everything
           </button>
         )}
@@ -724,11 +703,11 @@ export function GraphView({
         <button
           aria-pressed={showPeople}
           onClick={() => setShowPeople((v) => !v)}
-          style={{ ...chip, ...(showPeople ? chipOn : {}) }}
+          style={{ ...ui.chip, ...(showPeople ? ui.chipOn : {}) }}
         >
           Show people
         </button>
-        <button onClick={() => fit()} style={chip}>
+        <button onClick={() => fit()} style={ui.chip}>
           Fit to screen
         </button>
       </div>
@@ -942,18 +921,26 @@ export function GraphView({
           </div>
         )}
 
-        {pick && (
+        {pick?.did && (
           <Details
-            dot={pick}
-            byKey={byKey}
-            spaceId={space.id}
+            did={pick.did}
+            label={pick.label}
             records={all}
-            people={people}
             colourOf={(name) => colours.get(name) ?? palette.ink.faint}
             collectionName={nameOfCollection}
-            schemaOf={schemaOf}
+            labelOf={(r) => recordLabel(r, schemaOf(r.collection))}
             onWalk={walkTo}
-            onOpen={onOpen}
+            onClose={() => setSelected(null)}
+          />
+        )}
+        {pick?.record && (
+          <RecordPanel
+            space={space}
+            recordKey={pick.id}
+            collections={collections}
+            scrim={false}
+            onOpen={(r) => walkTo(r.key, r)}
+            onWriter={(did) => walkTo(PERSON + did)}
             onClose={() => setSelected(null)}
           />
         )}
@@ -978,266 +965,95 @@ export function GraphView({
   );
 }
 
-/**
- * What a picked dot is: its fields, who wrote it and when, and the records on
- * either end of its lines — each one a step further along the chain.
- */
+/** A picked person: what they wrote on the map, each a step further along. */
 function Details({
-  dot,
-  byKey,
-  spaceId,
+  did,
+  label,
   records,
-  people,
   colourOf,
   collectionName,
-  schemaOf,
+  labelOf,
   onWalk,
-  onOpen,
   onClose,
 }: {
-  dot: Dot;
-  byKey: ReadonlyMap<string, NodeRecord>;
-  spaceId: string;
+  did: string;
+  label: string;
   records: ReadonlyArray<NodeRecord>;
-  people: People;
   colourOf: (collection: string) => string;
   collectionName: (collection: string) => string;
-  schemaOf: (collection: string) => NodeCollection['schema'];
+  labelOf: (record: NodeRecord) => string;
   onWalk: (id: string, record?: NodeRecord) => void;
-  onOpen: (record: NodeRecord) => void;
   onClose: () => void;
 }) {
-  const labelOf = (r: NodeRecord) => recordLabel(r, schemaOf(r.collection));
-  // Both ends of its lines, asked of the space: the map may hold only some of its records.
-  const record = dot.record;
-  const outgoing = (record?.links ?? []).filter((l) => l.to !== record?.key);
-  const pointing = useLinked(spaceId, record?.key ?? '');
-  const targets = useLive(
-    spaceId,
-    async (node) =>
-      Object.fromEntries(
-        await Promise.all(
-          outgoing.map(
-            async (l) => [l.to, byKey.get(l.to) ?? (await node.records.get(spaceId, l.to))] as const,
-          ),
-        ),
-      ),
-    [record?.key, record?.updatedAt],
-  );
-  const step = (key: string, rel: string | null, record: NodeRecord | undefined) => (
-    <li key={`${rel ?? ''}:${key}`}>
-      <button
-        onClick={() => record && onWalk(key, record)}
-        disabled={!record}
-        data-row
-        style={{ ...styles.row, padding: '7px 8px', gap: 8, alignItems: 'flex-start' }}
-      >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            marginTop: 5,
-            borderRadius: 99,
-            flexShrink: 0,
-            background: record ? colourOf(record.collection) : palette.surface.lineStrong,
-          }}
-        />
-        <span style={{ minWidth: 0, flex: 1 }}>
-          <span
-            style={{
-              display: 'block',
-              fontSize: 13,
-              color: palette.ink.strong,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {record ? labelOf(record) : 'Something not in this space'}
-          </span>
-          <span style={{ display: 'block', fontSize: 11.5, color: palette.ink.faint }}>
-            {[rel ? humanize(rel) : null, record ? collectionName(record.collection) : null]
-              .filter(Boolean)
-              .join(' · ')}
-          </span>
-        </span>
-      </button>
-    </li>
-  );
-
-  const header = (label: string, colour: string | null) => (
-    <header
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '10px 12px 10px 16px',
-        borderBottom: `1px solid ${palette.surface.line}`,
-      }}
-    >
-      <span
-        style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: palette.ink.muted }}
-      >
-        {colour && <span style={{ width: 8, height: 8, borderRadius: 99, background: colour }} />}
-        {label}
-      </span>
-      <button onClick={onClose} aria-label="Close" style={{ ...styles.rowAction, fontSize: 13 }}>
-        ✕
-      </button>
-    </header>
-  );
-
-  if (dot.did) {
-    const did = dot.did;
-    const wrote = records.filter((r) => writerOf(r) === did);
-    return (
-      <aside aria-label={dot.label} style={panel}>
-        {header('Person', null)}
-        <div style={panelBody}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Avatar did={did} size={32} />
-            <div>
-              <h3
-                style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong, letterSpacing: '-0.02em' }}
-              >
-                <Person did={did} />
-              </h3>
-              <p style={{ fontSize: 12, color: palette.ink.faint }}>
-                Wrote {wrote.length} {wrote.length === 1 ? 'record' : 'records'} on the map
-              </p>
-            </div>
-          </div>
-          <Group title="Wrote">{wrote.map((r) => step(r.key, null, r))}</Group>
-        </div>
-      </aside>
-    );
-  }
-
-  if (!record) return null;
-  const schema = schemaOf(record.collection);
-  const body = bodyOf(record);
-  const title = titleField(schema);
-  const known = fieldsOf(schema);
-  const fields = (
-    known.length > 0
-      ? known.map((f) => ({ name: f.name, label: f.label, field: f }))
-      : Object.keys(body).map((name) => ({ name, label: humanize(name), field: undefined }))
-  )
-    .filter(
-      (f) => f.name !== title && body[f.name] !== undefined && body[f.name] !== null && body[f.name] !== '',
-    )
-    .slice(0, 6);
-  const writer = writerOf(record);
-
+  const wrote = records.filter((r) => writerOf(r) === did);
   return (
-    <aside aria-label={dot.label} style={panel}>
-      {header(collectionName(record.collection), colourOf(record.collection))}
+    <aside aria-label={label} style={panel}>
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '10px 12px 10px 16px',
+          borderBottom: `1px solid ${palette.surface.line}`,
+          fontSize: 12.5,
+          color: palette.ink.muted,
+        }}
+      >
+        Person
+        <button onClick={onClose} aria-label="Close" style={{ ...styles.rowAction, fontSize: 13 }}>
+          ✕
+        </button>
+      </header>
       <div style={panelBody}>
-        <div>
-          <h3
-            style={{
-              fontSize: 16,
-              fontWeight: 600,
-              color: palette.ink.strong,
-              letterSpacing: '-0.02em',
-              lineHeight: 1.35,
-              wordBreak: 'break-word',
-            }}
-          >
-            {dot.label}
-          </h3>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              marginTop: 8,
-              fontSize: 12,
-              color: palette.ink.muted,
-              flexWrap: 'wrap',
-            }}
-          >
-            <button
-              onClick={() => onWalk(PERSON + writer)}
-              style={{ ...plain, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              title="Show this person"
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Avatar did={did} size={32} />
+          <div>
+            <h3
+              style={{ fontSize: 16, fontWeight: 600, color: palette.ink.strong, letterSpacing: '-0.02em' }}
             >
-              <Avatar did={writer} size={18} />
-              <span style={{ color: palette.ink.body, fontWeight: 500 }}>{nameOf(writer, people)}</span>
-            </button>
-            <span style={{ color: palette.ink.faint }}>
-              · added {ago(record.createdAt)}
-              {record.seq > 0 && ` · changed ${ago(record.updatedAt)}`}
-            </span>
+              <Person did={did} />
+            </h3>
+            <p style={{ fontSize: 12, color: palette.ink.faint }}>
+              Wrote {wrote.length} {wrote.length === 1 ? 'record' : 'records'} on the map
+            </p>
           </div>
         </div>
-
-        {record.body === null ? (
-          <p style={{ fontSize: 12.5, color: palette.ink.muted, lineHeight: 1.6 }}>
-            This one is locked — this device does not have the key to read it.
-          </p>
-        ) : (
-          fields.length > 0 && (
-            <dl
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(70px, auto) 1fr',
-                gap: '6px 12px',
-                margin: 0,
-                fontSize: 12.5,
-              }}
-            >
-              {fields.map((f) => (
-                <div key={f.name} style={{ display: 'contents' }}>
-                  <dt style={{ color: palette.ink.faint }}>{f.label}</dt>
-                  <dd
-                    style={{
-                      margin: 0,
-                      color: palette.ink.body,
-                      maxHeight: 54,
-                      overflow: 'hidden',
-                      wordBreak: 'break-word',
-                    }}
-                  >
-                    <Value field={f.field} value={body[f.name]} compact />
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          )
-        )}
-
-        <Group title="Points at" empty="It doesn't point at anything.">
-          {outgoing.map((l) => step(l.to, l.rel, targets?.[l.to] ?? byKey.get(l.to) ?? undefined))}
-        </Group>
-        <Group title="Pointed at by" empty={pointing ? 'Nothing points at it yet.' : 'Looking…'}>
-          {(pointing ?? []).flatMap((from) =>
-            from.links.filter((l) => l.to === record.key).map((l) => step(from.key, l.rel, from)),
-          )}
+        <Group title="Wrote">
+          {wrote.map((r) => (
+            <li key={r.key}>
+              <button
+                onClick={() => onWalk(r.key, r)}
+                data-row
+                style={{ ...styles.row, padding: '7px 8px', gap: 8, alignItems: 'flex-start' }}
+              >
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    marginTop: 5,
+                    borderRadius: 99,
+                    flexShrink: 0,
+                    background: colourOf(r.collection),
+                  }}
+                />
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ ...ui.ellipsis, display: 'block', fontSize: 13, color: palette.ink.strong }}>
+                    {labelOf(r)}
+                  </span>
+                  <span style={{ display: 'block', fontSize: 11.5, color: palette.ink.faint }}>
+                    {collectionName(r.collection)}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
         </Group>
       </div>
-      <footer style={{ padding: 12, borderTop: `1px solid ${palette.surface.line}` }}>
-        <button
-          data-variant="primary"
-          onClick={() => onOpen(record)}
-          style={{ ...styles.button, height: 36 }}
-        >
-          Open
-        </button>
-      </footer>
     </aside>
   );
 }
 
-function Group({
-  title,
-  empty,
-  children,
-}: {
-  title: string;
-  empty?: string;
-  children: ReadonlyArray<ReactElement>;
-}) {
+function Group({ title, children }: { title: string; children: ReadonlyArray<ReactElement> }) {
   return (
     <div>
       <h4 style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: palette.ink.muted }}>
@@ -1246,37 +1062,11 @@ function Group({
           <span style={{ color: palette.ink.faint, fontWeight: 400 }}> · {children.length}</span>
         )}
       </h4>
-      {children.length > 0 ? (
-        <ul style={{ listStyle: 'none', margin: '0 -8px' }}>{children}</ul>
-      ) : (
-        empty && <p style={{ fontSize: 12.5, color: palette.ink.faint }}>{empty}</p>
-      )}
+      {children.length > 0 && <ul style={{ listStyle: 'none', margin: '0 -8px' }}>{children}</ul>}
     </div>
   );
 }
 
-const chip: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  height: 28,
-  padding: '0 10px',
-  borderRadius: palette.radius.pill,
-  // Longhands, so a chip that is on can change the colour alone.
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: palette.surface.line,
-  background: palette.surface.card,
-  color: palette.ink.body,
-  fontSize: 12.5,
-  fontWeight: 500,
-  whiteSpace: 'nowrap',
-};
-const chipOn: CSSProperties = {
-  background: palette.ink.strong,
-  color: '#fff',
-  borderColor: palette.ink.strong,
-};
 const plain: CSSProperties = {
   border: 'none',
   background: 'none',

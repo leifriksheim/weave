@@ -3,11 +3,10 @@
  * every device; asking someone inside a shared space with an invite only they
  * can open; and a space for two that stays the two of you, or says when not.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createNode } from '../src/node/node.js';
-import type { P2PNode } from '../src/node/types.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { generateSeed } from '../src/identity/recovery-code.js';
@@ -24,32 +23,12 @@ import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
 import { memoryStores } from './helpers/memory-stores.js';
 import { team } from '../src/space/presets.js';
 import { until } from './helpers/until.js';
-
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
+import { open, person as somebody } from './helpers/person.js';
 
 /** A device of an account: the seed's own node, with its account key and contact key */
-async function device(hub: FakeHub, seed: Uint8Array, name: string) {
-  const manager = createIdentityManager();
-  const node = await createNode({
-    signer: createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider()),
-    stores: memoryStores(),
-    accountKey: await deriveVaultKeyBytes(seed),
-    contactKey: await deriveContactKeyBytes(seed),
-    watchIntervalMs: 0,
-    network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
-  });
-  open.push(node);
-  await node.account.setName(name);
-  return node;
-}
-
-async function person(hub: FakeHub, name: string) {
-  const seed = generateSeed();
-  return { seed, node: await device(hub, seed, name) };
-}
+const device = async (hub: FakeHub, seed: Uint8Array, name: string) =>
+  (await somebody(hub, { seed, name, accountKey: true, contactKey: true })).node;
+const person = (hub: FakeHub, name: string) => somebody(hub, { name, accountKey: true, contactKey: true });
 
 /** Leif, Anna and Carol in a book club, each knowing the others' contact keys */
 async function bookClub() {

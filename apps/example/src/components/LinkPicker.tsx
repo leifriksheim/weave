@@ -3,6 +3,7 @@ import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/co
 import { useLive, useNode } from '@weaveprotocol/core/react';
 import { collectionLabel, humanize, recordLabel } from '../derive/schema-ui';
 import { styles, palette } from '../styles';
+import { useAction } from '@weave/app-shared/action';
 
 /**
  * Links this record to another, in one of the ways its collection allows —
@@ -29,8 +30,7 @@ export function LinkPicker({
   const kinds = Object.entries(collection.links);
   const [rel, setRel] = useState<string | null>(initialRel ?? (kinds.length === 1 ? kinds[0]![0] : null));
   const [search, setSearch] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { run, busy, error } = useAction();
 
   const everything = useLive(space.id, (n) => n.records.list(space.id, { newestFirst: true }), []) ?? [];
   const schemaOf = (name: string) => collections.find((c) => c.name === name)?.schema ?? null;
@@ -58,20 +58,14 @@ export function LinkPicker({
 
   const link = async (target: NodeRecord) => {
     if (!rel) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // A kind of link there can be only one of is replaced, not added to.
-      const kept = one ? record.links.filter((l) => l.rel !== rel) : record.links;
-      await node.records.update(space.id, record.key, record.body, {
-        links: [...kept, { rel, to: target.key }],
-      });
+    // A kind of link there can be only one of is replaced, not added to.
+    const kept = one ? record.links.filter((l) => l.rel !== rel) : record.links;
+    if (
+      await run(() =>
+        node.records.update(space.id, record.key, record.body, { links: [...kept, { rel, to: target.key }] }),
+      )
+    )
       onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
   };
 
   const allowed = declared ? (declared.to === '*' ? 'anything' : declared.to.map(kindOf).join(' or ')) : '';

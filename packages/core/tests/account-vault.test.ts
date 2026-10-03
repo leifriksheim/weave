@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 
 import { createMemoryDirectory } from './helpers/memory-directory.js';
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
+import { writeFolderVault, hasPassphraseWrap, withoutWrap } from './helpers/vault.js';
 import {
   wrapSeedWithDeviceKey,
   unwrapSeedWithDeviceKey,
@@ -19,16 +20,9 @@ import {
   deriveVaultKey,
   deriveVaultKeyBytes,
   deviceWrapsFor,
-  hasPassphraseWrap,
   withWrap,
-  withoutWrap,
 } from '../src/identity/account-vault.js';
-import {
-  readFolderVault,
-  writeFolderVault,
-  createVault,
-  ACCOUNT_FILE,
-} from '../src/identity/folder-account.js';
+import { readFolderVault, createVault, ACCOUNT_FILE } from '../src/identity/folder-account.js';
 import { createEncryptedAdapter } from '../src/storage/encrypted-adapter.js';
 import { createSpaceManager } from '../src/space/space-manager.js';
 import { createIdentityManager } from '../src/identity/identity-manager.js';

@@ -1,5 +1,4 @@
 /**
- * @module space/names
  * Showing people by the name they gave in a space, without letting a name
  * pretend to be someone else.
  */

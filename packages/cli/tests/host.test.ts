@@ -6,8 +6,6 @@
  * where Stripe and USDC from a wallet (on a fake network) pay.
  */
 import { test, describe, afterEach } from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -42,6 +40,7 @@ import { createMemoryBlobStore } from '../../core/src/storage/blob/memory.js';
 import { createFakeHub, type FakeHub } from '../../core/tests/helpers/fake-transport.js';
 import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
 import { at, bodyOf, urlOf } from './helpers/json.js';
+import { tempDir } from './helpers/nodes.js';
 import { until } from '../../core/tests/helpers/until.js';
 import { host as hostSchema } from '../../core/src/schemas/library/community.js';
 import { team } from '../../core/src/space/presets.js';
@@ -731,17 +730,9 @@ describe('reaching a host at the address it names', () => {
 });
 
 describe('bots a host runs', () => {
-  const folders: string[] = [];
   const hosts: Array<{ close(): Promise<void> }> = [];
-  afterEach(async () => {
-    // The hosts first: their bots write into these folders until they stop.
-    await Promise.all(hosts.splice(0).map((served) => served.close()));
-    await Promise.all(
-      folders
-        .splice(0)
-        .map((folder) => rm(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })),
-    );
-  });
+  // Before their folders go, at the end: their bots write into them until they stop.
+  afterEach(() => Promise.all(hosts.splice(0).map((served) => served.close())));
 
   /** A model that is never asked: these bots have no rules to run */
   const model = {
@@ -752,8 +743,7 @@ describe('bots a host runs', () => {
     },
   };
   async function hostWithBots(options: Partial<Parameters<typeof startHost>[0]> = {}) {
-    const folder = await mkdtemp(path.join(os.tmpdir(), 'weave-bots-'));
-    folders.push(folder);
+    const folder = await tempDir('weave-bots-');
     const served = await startHost({
       key: await provider.generateKeyPair(),
       stores: memoryStores(),

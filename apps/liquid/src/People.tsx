@@ -6,7 +6,8 @@ import { SpaceHosting } from '@weave/app-shared/SpaceHosting';
 import { SpaceBots } from '@weave/app-shared/CommunitySetup';
 import type { Assembly, PartyFull } from './model';
 import { EVERYTHING, delegation, membership, party as partyCollection } from './schema';
-import { PartyChip, PartyMark, Problem, Who, useAction } from './ui';
+import { PartyChip, PartyMark, Problem, Who } from './ui';
+import { useAction } from '@weave/app-shared/action';
 import { hue, palette } from './styles';
 
 const HUES = [4, 28, 48, 110, 160, 200, 230, 265, 300, 335];

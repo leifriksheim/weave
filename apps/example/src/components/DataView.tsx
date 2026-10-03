@@ -5,7 +5,7 @@ import { namespaceOf } from '../derive/filters';
 import { CollectionView } from './CollectionView';
 import { CollectionsOverview, namespaceLabel } from './CollectionsOverview';
 import { Library } from './Library';
-import { NewCollection } from './NewCollection';
+import { CollectionEditor } from './CollectionDesigner';
 import { styles, palette } from '../styles';
 
 /** Where the Data view is: which collection, and which record is open beside it */
@@ -145,7 +145,11 @@ export function DataView({
               Give it a name and some fields. Everything else — forms, lists, boards — is worked out from
               this.
             </p>
-            <NewCollection space={space} onDone={(name) => onPlace({ collection: name, key: null })} />
+            <CollectionEditor
+              space={space}
+              collection={null}
+              onDone={(name) => onPlace({ collection: name, key: null })}
+            />
             <Library
               space={space}
               collections={collections}
@@ -160,14 +164,7 @@ export function DataView({
             onOpen={(name) => onPlace({ collection: name, key: null })}
           />
         ) : selected ? (
-          <CollectionView
-            key={selected}
-            space={space}
-            name={selected}
-            collection={current}
-            collections={collections}
-            onOpen={onOpen}
-          />
+          <CollectionView key={selected} space={space} name={selected} collection={current} onOpen={onOpen} />
         ) : (
           <div
             style={{

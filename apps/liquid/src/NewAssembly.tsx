@@ -5,8 +5,8 @@ import { useMyName, useNode } from '@weaveprotocol/core/react';
 import { useSchemas as defineCollections } from '@weaveprotocol/core/schemas';
 import { Modal, Choice } from '@weave/app-shared/Modal';
 import { ASSEMBLY, topic } from './schema';
-import { Problem, useAction } from './ui';
-import { hue } from './styles';
+import { Problem, TopicPicker } from './ui';
+import { useAction } from '@weave/app-shared/action';
 
 /** Topics most groups start with; the person picks some, adds their own, or none */
 const SUGGESTED: ReadonlyArray<{ name: string; hue: number }> = [
@@ -110,24 +110,7 @@ export function NewAssembly({
             Topics
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {all.map((t) => {
-              const on = topics.some((x) => x.name === t.name);
-              const c = hue(t.hue);
-              return (
-                <button
-                  key={t.name}
-                  type="button"
-                  className="lq-chip"
-                  data-filter
-                  aria-pressed={on}
-                  onClick={() => toggle(t)}
-                  style={on ? { background: c.soft, borderColor: c.line, color: c.strong } : undefined}
-                >
-                  <span className="lq-dot" style={{ background: on ? c.strong : '#d4d4d4' }} />
-                  {t.name}
-                </button>
-              );
-            })}
+            <TopicPicker topics={all} on={(t) => topics.some((x) => x.name === t.name)} onToggle={toggle} />
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <input

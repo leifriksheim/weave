@@ -23,7 +23,7 @@
  */
 import type { CryptoProvider } from '../types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
-import { didToPublicKey, publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
+import { didOf, didToPublicKey } from '../identity/did.js';
 import { base64UrlDecode, base64UrlEncode, utf8Encode } from '../utils/encoding.js';
 import { sha256 } from '../utils/hash.js';
 
@@ -68,7 +68,7 @@ export async function subscriptionKey(
 ): Promise<SubscriptionKey> {
   const pair = await provider.deriveKeyPairFromSeed(seed);
   return {
-    did: publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC),
+    did: await didOf(pair.publicKey, provider),
     privateKey: pair.privateKey,
   };
 }
@@ -106,34 +106,16 @@ export async function verifyRequest(
   provider: CryptoProvider = createP256Provider(),
   now = Math.floor(Date.now() / 1000),
 ): Promise<string | null> {
-  return headerSigner(
-    header,
-    /^Weave did=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/,
-    (at) => Math.abs(now - at) <= REQUEST_WINDOW_SECONDS,
-    (_did, at) => requestText(method, path, at, body),
-    provider,
-  );
-}
-
-/**
- * The key that signed a header of `pattern`'s form — its groups the key, the
- * time and the signature — when the time is in `inWindow` and the signature
- * is over `signed`. Null otherwise.
- */
-async function headerSigner(
-  header: string | undefined,
-  pattern: RegExp,
-  inWindow: (at: number) => boolean,
-  signed: (did: string, at: number) => Uint8Array | Promise<Uint8Array>,
-  provider: CryptoProvider,
-): Promise<string | null> {
+  const pattern =
+    /^Weave did=(did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}), at=(\d{1,12}), sig=([A-Za-z0-9_-]{1,200})$/;
   const [, did, atText, sig] = pattern.exec(header ?? '') ?? [];
   if (did === undefined || atText === undefined || sig === undefined) return null;
   const at = Number(atText);
-  if (!inWindow(at)) return null;
+  if (Math.abs(now - at) > REQUEST_WINDOW_SECONDS) return null;
   try {
     const publicKey = await provider.importPublicKey(didToPublicKey(did).publicKeyBytes);
-    return (await provider.verify(publicKey, base64UrlDecode(sig), await signed(did, at))) ? did : null;
+    const signed = await requestText(method, path, at, body);
+    return (await provider.verify(publicKey, base64UrlDecode(sig), signed)) ? did : null;
   } catch {
     return null;
   }
@@ -336,7 +318,6 @@ export function readPayAnswer(answer: unknown): PayAnswer | null {
  * The socket address a host takes peers at, from its description: `peer`
  * resolved against the host's address, with https:// read as wss://. Null
  * when it names none, or one that isn't wss:// (ws:// only on this machine).
- * @param url The host's address
  */
 export function hostPeerAddress(url: string, description: Pick<HostDescription, 'peer'>): string | null {
   if (typeof description.peer !== 'string') return null;
@@ -434,11 +415,7 @@ async function answerOf<T>(
   return answer;
 }
 
-/**
- * What a host at an address says about itself.
- * @param url The host's address, https://
- * @param timeoutMs How long it gets to answer
- */
+/** What a host at an address says about itself. */
 export async function describeHost(url: string, timeoutMs = HOST_TIMEOUT_MS): Promise<HostDescription> {
   const description = await answerOf<HostDescription>(
     await ask(`${url.replace(/\/+$/, '')}${HOST_DESCRIPTION_PATH}`, {}, timeoutMs),
@@ -503,7 +480,6 @@ export interface SpaceHostClient {
 
 /**
  * A client for one host's calls about spaces paying for themselves.
- * @param url The host's address, https://
  * @param host The host's key: every status must be signed by it
  */
 export function createSpaceHostClient(
@@ -579,7 +555,6 @@ export interface HostClient {
 
 /**
  * A client for one host, signing as one subscription.
- * @param url The host's address, https://
  * @param host The host's key: every status must be signed by it
  */
 export function createHostClient(

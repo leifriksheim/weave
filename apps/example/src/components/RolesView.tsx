@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from 'react';
+import { useAction } from '@weave/app-shared/action';
 import { permissionMatches, roleHolds } from '@weaveprotocol/core';
 import type { NodeCollection, SpaceRole, SpaceSummary } from '@weaveprotocol/core';
 import { useAccess, useAccount, useNode, useProfiles } from '@weaveprotocol/core/react';
@@ -20,10 +21,7 @@ import { createInviteLink } from '../spaces';
 import { styles, palette, variants } from '../styles';
 import { Person } from './Person';
 
-/**
- * Your own name, renamed in place. It goes on the account, and the node
- * republishes it into every space you are in — not just this one.
- */
+/** Your own name, renamed in place on the account, so every space you are in gets it */
 function MyName({ name }: { name: string }) {
   const node = useNode();
   const [draft, setDraft] = useState<string | null>(null);
@@ -64,11 +62,7 @@ function MyName({ name }: { name: string }) {
 /** Who holds what in the space, as the node reports it */
 type SpaceAccess = NonNullable<ReturnType<typeof useAccess>>;
 
-/**
- * Who may do what in a space: what you can do yourself, the roles, and who
- * holds them. Everything is worked out from the roles and each collection's
- * rules — and anything you cannot do is shown switched off, with why.
- */
+/** Who may do what in a space; anything you cannot do is shown switched off, with why */
 export function RolesView({
   space,
   collections,
@@ -90,8 +84,7 @@ export function RolesView({
 }
 
 /** Node errors are written about "its author" — this is about you */
-function plainError(e: unknown): string {
-  const text = e instanceof Error ? e.message : String(e);
+function plainError(text: string): string {
   return text
     .replace(/^Its author/, 'You')
     .replace(/\btheir own\b/g, 'your own')
@@ -165,7 +158,7 @@ function Roles({
   const node = useNode();
   const me = access.role;
   const [editing, setEditing] = useState<Editing>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { run, error } = useAction();
   const roles = [...access.roles].sort((a, b) => b.rank - a.rank);
   const holders = (name: string) => access.members.filter((m) => m.role === name).length;
   const cannotManage = roleChangeRefusal(me, null, null);
@@ -177,12 +170,7 @@ function Roles({
         ? 'Nobody holds it now.'
         : `The ${count === 1 ? 'person' : `${count} people`} holding it will have no role — they can still see the space, but not change anything, until someone gives them another.`;
     if (!globalThis.confirm(`Remove the ${titleOf(role)} role? ${who}`)) return;
-    setError(null);
-    try {
-      await node.spaces.removeRole(space.id, role.name);
-    } catch (e) {
-      setError(plainError(e));
-    }
+    await run(() => node.spaces.removeRole(space.id, role.name));
   };
 
   return (
@@ -213,7 +201,7 @@ function Roles({
           ? `${cannotManage}, so you can look but not change.`
           : `You can change roles ranked below ${me ? titleOf(me) : 'yours'}.`}
       </p>
-      {error && <p style={styles.error}>{error}</p>}
+      {error && <p style={styles.error}>{plainError(error)}</p>}
 
       {editing?.kind === 'new' && me && (
         <RoleEditor
@@ -334,8 +322,7 @@ function RoleEditor({
     String(existing?.rank ?? (lowest && lowest.rank < me.rank ? lowest.rank - 10 : me.rank - 10)),
   );
   const [permissions, setPermissions] = useState<ReadonlySet<string>>(new Set(existing?.permissions ?? []));
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const { run, busy: saving, error } = useAction();
 
   const name = existing?.name ?? slug(title);
   const draft: SpaceRole = {
@@ -385,18 +372,11 @@ function RoleEditor({
       collection: null,
     }));
 
-  const save = async () => {
-    setSaving(true);
-    setError(null);
-    try {
+  const save = () =>
+    run(async () => {
       await node.spaces.putRole(space.id, draft);
       onDone();
-    } catch (e) {
-      setError(plainError(e));
-    } finally {
-      setSaving(false);
-    }
-  };
+    });
 
   return (
     <div
@@ -531,7 +511,7 @@ function RoleEditor({
 
       {existing && existing.rank > draft.rank && holdersNote}
       {problem && <p style={{ fontSize: 13, color: palette.ink.muted }}>{problem}</p>}
-      {error && <p style={styles.error}>{error}</p>}
+      {error && <p style={styles.error}>{plainError(error)}</p>}
       <div style={{ display: 'flex', gap: 8 }}>
         <button
           onClick={() => void save()}
@@ -575,7 +555,7 @@ function Members({
   collections: ReadonlyArray<NodeCollection>;
 }) {
   const node = useNode();
-  const [error, setError] = useState<string | null>(null);
+  const { run, error } = useAction();
   const [inviteOpen, setInviteOpen] = useState(false);
   const mine = access.role;
   const roleNamed = (name: string) => access.roles.find((r) => r.name === name) ?? null;
@@ -586,12 +566,7 @@ function Members({
 
   const change = async (did: string, role: string | null, ask?: string) => {
     if (ask && !globalThis.confirm(ask)) return;
-    setError(null);
-    try {
-      await node.spaces.setMember(space.id, did, role);
-    } catch (e) {
-      setError(plainError(e));
-    }
+    await run(() => node.spaces.setMember(space.id, did, role));
   };
   const closeInvite = async (key: string) => {
     if (
@@ -600,12 +575,7 @@ function Members({
       )
     )
       return;
-    setError(null);
-    try {
-      await node.spaces.closeInvite(space.id, key);
-    } catch (e) {
-      setError(plainError(e));
-    }
+    await run(() => node.spaces.closeInvite(space.id, key));
   };
 
   const row = (did: string, current: SpaceRole | null) => {
@@ -696,7 +666,7 @@ function Members({
         </button>
       </div>
       {inviteOpen && <Invite space={space} access={access} collections={collections} />}
-      {error && <p style={styles.error}>{error}</p>}
+      {error && <p style={styles.error}>{plainError(error)}</p>}
       <ul style={{ ...list, gap: 0 }}>{access.members.map((m) => row(m.did, roleNamed(m.role)))}</ul>
 
       {followers.length > 0 && (
@@ -751,13 +721,7 @@ function Members({
 /** What an invite gives, as the link-maker picks it: a role, or only a view */
 const VIEW_ONLY = '';
 
-/**
- * Making an invite link: pick what the person joins as, and get a link to send.
- *
- * Anyone in the space can hand out a link to view it. Joining with a role takes
- * “Invite people”, and only for roles up to your own — it lands on the lowest
- * one below yours, so the easy choice never gives away more than it should.
- */
+/** Making an invite link, joining as a role up to your own; it lands on the lowest below yours */
 function Invite({
   space,
   access,
@@ -777,7 +741,7 @@ function Invite({
   const [choice, setChoice] = useState(fallback);
   const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { run, error } = useAction();
   const role = offered.find((r) => r.name === choice) ?? null;
 
   const gives = role
@@ -790,9 +754,8 @@ function Invite({
       })()
     : 'They can see everything, but change nothing.';
 
-  const make = async () => {
-    setError(null);
-    try {
+  const make = () =>
+    run(async () => {
       const next = await createInviteLink(node, space.id, role?.name ?? null);
       setLink(next);
       setCopied(
@@ -801,10 +764,7 @@ function Invite({
           () => false,
         )) ?? false,
       );
-    } catch (e) {
-      setError(plainError(e));
-    }
-  };
+    });
 
   return (
     <div
@@ -851,7 +811,7 @@ function Invite({
           Inviting with a role takes “Invite people”, so you can only share it to view.
         </p>
       )}
-      {error && <p style={styles.error}>{error}</p>}
+      {error && <p style={styles.error}>{plainError(error)}</p>}
       <button
         onClick={() => void make()}
         data-variant="primary"

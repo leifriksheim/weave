@@ -13,6 +13,7 @@ import { AddBotDialog, useSpaceBots } from '@weave/app-shared/CommunitySetup';
 import { clauseFields, clauseOn, type Clause, type ClauseField } from '../../derive/conditions';
 import { belonging, collectionLabel, recordLabel } from '../../derive/schema-ui';
 import { useBots } from '../../bots';
+import { useAction } from '@weave/app-shared/action';
 import { nameOf, type People } from '../../derive/people';
 import {
   INSTRUCT,
@@ -47,18 +48,12 @@ import {
 } from '../../rules';
 import { usePeopleHere } from '../Person';
 import { styles, palette } from '../../styles';
-import { ClauseList, Pill, Sentence, Step, ValueInput, card, previewBox } from './parts';
-
-/**
- * A rule, built by picking: when a record of some collection is, or comes to
- * be, a certain way — its fields, or how many records point at it — or at set
- * times, do one thing. What can be picked comes from the space's own
- * definitions, so a rule works on a collection someone made yesterday as well
- * as on polls.
- */
+import { ClauseList, Pill, Sentence, Step, ValueInput, card, chip, previewBox } from './parts';
 
 /** In the schedule picker, a time of one's own */
 const OTHER = 'other';
+
+/** A rule picked from the space's own definitions: when a record is some way, or at set times, do one thing */
 export function RuleBuilder({
   space,
   collections,
@@ -119,8 +114,7 @@ export function RuleBuilder({
   // rule starts with the space's bot, one the host runs first: the agent needs a computer left on.
   const [chosenBy, setBy] = useState<string | null>(stored ? (stored.by ?? '') : null);
   const by = chosenBy ?? known.find((bot) => bot.state === 'on')?.did ?? bots[0]?.did ?? '';
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { run, busy, error, setError } = useAction();
 
   const chosen = offered.find((c) => c.name === collection);
   const fields = useMemo(() => (chosen ? clauseFields(chosen) : []), [chosen]);
@@ -189,8 +183,7 @@ export function RuleBuilder({
       return setError(`${botName ?? 'That bot'} only runs rules of people who may instruct it here.`);
     if (then.kind !== 'set' && !then.text.trim()) return setError('Say what it should say');
     if (count && !Number.isFinite(count.value)) return setError('Say how many');
-    setBusy(true);
-    try {
+    await run(async () => {
       for (const definition of [ruleCollection, runCollection]) {
         if (has(definition.name)) continue;
         if (!roleHolds(access?.role, DEFINE))
@@ -215,11 +208,7 @@ export function RuleBuilder({
       if (editing) await node.records.update(space.id, editing.key, body);
       else await node.records.put(space.id, ruleCollection.name, body);
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
@@ -517,11 +506,7 @@ export function RuleBuilder({
                   <button
                     type="button"
                     style={styles.linkButton}
-                    onClick={() =>
-                      void node.collections
-                        .define(space.id, profile)
-                        .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-                    }
+                    onClick={() => void run(() => node.collections.define(space.id, profile))}
                   >
                     Turn on profiles
                   </button>
@@ -768,14 +753,6 @@ const numberBox = {
   border: `1px solid ${palette.surface.lineStrong}`,
   fontSize: 14,
   fontWeight: 600,
-} as const;
-
-const chip = {
-  ...styles.smallButton,
-  height: 30,
-  borderRadius: 999,
-  fontSize: 13,
-  color: palette.ink.muted,
 } as const;
 
 const tile = {

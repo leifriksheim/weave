@@ -36,7 +36,6 @@ export {
   useNode,
 } from './context.js';
 export type { WeaveProviderProps } from './context.js';
-export { useWeaveAuth } from './use-weave-auth.js';
 export { WeaveAuth } from './weave-auth.js';
 export type { WeaveAuthProps } from './weave-auth.js';
 export { useLive } from './use-live.js';

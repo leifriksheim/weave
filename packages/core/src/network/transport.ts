@@ -1,5 +1,5 @@
 /**
- * @fileoverview What the mesh and network managers need from any way of moving bytes
+ * What the mesh and network managers need from any way of moving bytes
  * between peers.
  *
  * Two kinds exist. A **signalled** transport (WebRTC) cannot open a connection

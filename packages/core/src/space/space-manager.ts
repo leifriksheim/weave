@@ -1,5 +1,4 @@
 /**
- * @module space-manager
  * Spaces — the cryptographic containers everything else lives in — as this
  * node holds them: the space, its key if it is private, and anything waiting
  * to be done with it.
@@ -163,11 +162,7 @@ async function importKey(stored: StoredKey): Promise<SpaceKey> {
   return Object.freeze({ id: stored.id, key, createdAt: stored.createdAt, version: stored.version });
 }
 
-/**
- * Creates a space manager backed by a storage adapter.
- * @param adapter Where spaces and their keys are kept
- * @returns The space manager
- */
+/** Creates a space manager backed by a storage adapter. */
 export function createSpaceManager(
   adapter: StorageAdapter,
   provider: CryptoProvider = createP256Provider(),
@@ -389,11 +384,7 @@ export async function encodeSpaceInvite(
   return base64UrlEncode(utf8Encode(JSON.stringify(invite)));
 }
 
-/**
- * Decodes an invite without touching storage.
- * @param invite The encoded invite string
- * @returns The space it describes, and its key when private
- */
+/** Decodes an invite without touching storage. */
 export function parseSpaceInvite(invite: string): SpaceInvite {
   try {
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only the space's id and name are checked here; joining checks the rest

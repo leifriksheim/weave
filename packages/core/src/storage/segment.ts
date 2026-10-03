@@ -1,5 +1,4 @@
 /**
- * @module storage/segment
  * A batch of record versions, as a mirror keeps them: exactly as they travel
  * on the wire — private bodies still sealed — packed into one immutable file.
  *

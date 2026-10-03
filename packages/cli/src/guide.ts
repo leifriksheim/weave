@@ -17,7 +17,7 @@ import {
 } from '@weaveprotocol/core/schemas';
 import * as ask from './ask.js';
 import { pickCollection, pickSpace } from './complete.js';
-import { errorCode, isRecord } from './json.js';
+import { commaList, errorCode, isRecord } from './json.js';
 
 // ─── Which model an agent thinks with ─────────────────────────────────
 
@@ -293,11 +293,7 @@ export async function addRule(node: P2PNode, flags: RuleFlags): Promise<unknown>
     }
     query = { collection, ...(where ? { where } : {}) };
   }
-  if (flags.from)
-    from = flags.from
-      .split(',')
-      .map((role) => role.trim())
-      .filter(Boolean);
+  if (flags.from) from = commaList(flags.from);
 
   let every: string | undefined;
   if (kind === 'time') {

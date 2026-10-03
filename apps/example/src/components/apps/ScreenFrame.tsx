@@ -5,21 +5,8 @@ import { isObject } from '../../derive/schema-ui';
 import { styles, palette } from '../../styles';
 
 /**
- * An app's own screen, run sealed.
- *
- * The frame is sandboxed to scripts and forms — an opaque origin, so it can't
- * touch this page, its storage or its keys — and the page it loads
- * (`/screen.html`) takes the network away. Forms are allowed so a screen's
- * submit handler runs; `form-action 'none'` in that page's policy keeps a
- * form from sending anything anywhere. The screen gets a message port to
- * a bridge that reads and writes this app's collections, in this space, as
- * the person looking. It is handed over once: a second "ready" means the
- * frame went somewhere else, and the screen is stopped.
- *
- * A screen whose definition names origins (`network`) reaches them only once
- * the person looking says yes: it runs as them, so what it sends is theirs.
- * The answer is kept on this device for that exact list; a new origin asks
- * again. Saying no runs it sealed.
+ * An app's own screen, run sealed: a sandboxed frame with no network, talking to this app's collections
+ * over one message port. Origins it names (`network`) are reached only once the person looking agrees.
  */
 export function ScreenFrame({
   spaceId,

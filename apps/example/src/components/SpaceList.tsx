@@ -18,12 +18,7 @@ function spaceBadges(space: Pick<SpaceSummary, 'visibility' | 'role' | 'joining'
 /** A space keeps its colour everywhere it appears. */
 const hue = (text: string) => hash(text) % 360;
 
-/**
- * A space's icon: its first letter on a tint worked out from its id.
- *
- * Nothing stored, and the same in the grid and in the rail, so a space is
- * recognisable at a glance in both.
- */
+/** A space's icon: its first letter on a tint from its id, the same in the grid and the rail */
 export function SpaceMark({ space, size = 40 }: { space: Pick<SpaceSummary, 'id' | 'name'>; size?: number }) {
   const h = hue(space.id);
   const letter = [...space.name.trim()][0]?.toUpperCase() ?? '·';
@@ -50,13 +45,7 @@ export function SpaceMark({ space, size = 40 }: { space: Pick<SpaceSummary, 'id'
   );
 }
 
-/**
- * What choosing who can read it means, in a sentence.
- *
- * Who can write is not asked here: every space is one kind of thing, and it
- * becomes shared by inviting someone. That is decided later, per person, in
- * People.
- */
+/** What choosing who can read it means; who can write is decided later, per person */
 function describe(visibility: SpaceVisibility): string {
   return visibility === 'private'
     ? 'End-to-end encrypted. Only people you invite get the key, so nobody else can read it — not even the relay that passes it on.'
@@ -196,10 +185,7 @@ const newTile = {
   fontWeight: 500,
 };
 
-/**
- * Making a space, or joining one from a link — the two ways a space arrives,
- * in one dialog so either entry point can reach both.
- */
+/** Making a space, or joining one from a link, in one dialog */
 export function SpaceDialog({
   initial,
   onClose,

@@ -1,34 +1,12 @@
 /**
  * @module session/auth
- * Signing in, as one object any UI can draw.
- *
- * `createWeaveAuth` holds the whole flow — where the data lives, which account,
- * the ways into it, creating one, arriving from a phone-pairing link — as a
- * state you read and actions you call. The `<weave-auth>` element draws it, a
- * React hook follows it, and an app that wants its own screens can draw it
- * itself. None of them see the seed: it stays inside this object.
- *
- * Three things, each with one job:
- *
- * - **The recovery code** is the account: the seed, written out as 26
- *   characters. It needs nothing stored to work, so it restores the account on
- *   a device or home that has never seen it. Shown once when the account is
- *   made, and kept somewhere safe rather than typed every day.
- * - **A passkey or a password** is the everyday way in. Each wraps the seed in
- *   the account's vault, so it works wherever the vault is — this browser, or
- *   a pod — and nowhere else. Setting one up is part of making an account.
- * - **Pairing** hands the account to a new device from one already signed in.
- *
- * So a new account goes: name → recovery code → passkey or password → (a pod,
- * if this browser can open one) → in. Where the data lives is asked only of
- * people who already have something somewhere, or offered at the end.
- *
- * The identity key never signs a record. Signing in starts a node, which makes
- * a throwaway session key and asks the identity for one note saying that key
- * may write for it; everything after is signed by the session key.
+ * Signing in, as one object any UI can draw: the whole flow as a state you
+ * read and actions you call. The recovery code is the account (the seed,
+ * written out); a passkey or password wraps the seed for every day; pairing
+ * hands it to a new device. The seed stays inside this object, and signs only
+ * the note that lets a session key write.
  */
-import { createIdentityManager } from '../identity/identity-manager.js';
-import { createLocalRootSigner } from '../identity/root-signer.js';
+import { createIdentityManager, rootFromSeed } from '../identity/identity-manager.js';
 import { AGENT_FACT } from '../identity/agent-note.js';
 import { accountDataPath, newAccountId, createBrowserAccountStore } from '../identity/account-store.js';
 import type { AccountStore, AccountSummary } from '../identity/account-store.js';
@@ -64,8 +42,7 @@ import {
 import type { PairingTicket } from '../identity/pairing.js';
 import { isFolderStorageAvailable } from '../storage/directory-access.js';
 import { base64UrlEncode } from '../utils/encoding.js';
-import { createNode } from '../node/node.js';
-import { startNodeInWorker, workerNetwork, type WorkerLike } from '../node/worker.js';
+import { startPageNode, type WorkerLike } from '../node/worker.js';
 import { copyAccountData } from '../node/copy.js';
 import type { StoreFactory } from '../node/stores.js';
 import type { NodeNetworkConfig, P2PNode } from '../node/types.js';
@@ -83,7 +60,13 @@ import {
   type Place,
   type PodContents,
 } from './places.js';
-import { createStaySignedIn, type KeyValueStore, type StaySignedIn } from './stay-signed-in.js';
+import {
+  createStaySignedIn,
+  defaultStorage,
+  guardedStorage,
+  type KeyValueStore,
+  type StaySignedIn,
+} from './stay-signed-in.js';
 import {
   grantCapabilities,
   MAX_GRANT_DAYS,
@@ -341,8 +324,6 @@ export interface WeaveAuth {
   dismissMoved(): void;
   /** The recovery code of the open account. Null when signed out. */
   recoveryCode(): string | null;
-  /** @deprecated The recovery code is no longer the everyday password. Use {@link WeaveAuth.recoveryCode}. */
-  accountPassword(): string | null;
   /** Starts offering this account to a phone */
   offerToPhone(onStage: (stage: PairingStage) => void): Promise<PairingOffer>;
   /**
@@ -398,7 +379,6 @@ export interface WeaveAuth {
   signOut(): Promise<void>;
 }
 
-/** Turns a thrown value into something worth showing, ignoring a dismissed prompt. */
 /** Files a new account at a place, with no wraps yet: the passkey or password comes after the recovery code. */
 async function fileAccount(place: Place, did: string, name: string): Promise<AccountSummary> {
   const id = newAccountId();
@@ -413,6 +393,7 @@ async function fileAccount(place: Place, did: string, name: string): Promise<Acc
   return summary;
 }
 
+/** Turns a thrown value into something worth showing, ignoring a dismissed prompt. */
 function describe(error: unknown): AuthError | null {
   if (error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'AbortError')) {
     return null; // the person dismissed a passkey or folder prompt
@@ -466,17 +447,14 @@ async function addSubscriptions(
   return added;
 }
 
-/**
- * Creates the sign-in flow for this page.
- * @param config Where to connect once signed in, and what to call the app
- */
+/** Creates the sign-in flow for this page. */
 export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   const rpId = config.rpId ?? globalThis.location?.hostname ?? 'localhost';
   const appName = config.appName ?? 'Weave';
   const prefix = config.storageKey ?? 'weave';
-  const storage: KeyValueStore | null =
-    config.storage !== undefined ? config.storage : (globalThis.localStorage ?? null);
+  const storage = defaultStorage(config.storage);
   const stay = createStaySignedIn(storage, rpId, prefix);
+  const { get, set, read } = guardedStorage(storage);
   /** Proposals being added, in turn */
   let subscribing: Promise<unknown> = Promise.resolve();
   const browserAccounts = config.browser?.accounts ?? createBrowserAccountStore;
@@ -485,20 +463,6 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
     throw new Error('A node in a worker opens its own stores: pass worker or browser.stores, not both');
 
   const LAST_ACCOUNT = `${prefix}.last-account`;
-  const get = (key: string) => {
-    try {
-      return storage?.getItem(key) ?? null;
-    } catch {
-      return null;
-    }
-  };
-  const set = (key: string, value: string) => {
-    try {
-      storage?.setItem(key, value);
-    } catch {
-      // Remembering is a convenience, never a requirement.
-    }
-  };
 
   let state: AuthState = Object.freeze({
     stage: 'starting',
@@ -607,28 +571,21 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   ): Promise<WeaveSession> {
     await stopNode();
 
-    const manager = createIdentityManager();
-    const identity = await manager.fromSeed(unlocked);
+    const { identity, signer } = await rootFromSeed(unlocked);
     const key = await deriveVaultKey(unlocked);
-    const shared = {
-      signer: createLocalRootSigner(identity, manager.getProvider()),
-      accountKey: await deriveVaultKeyBytes(unlocked),
-      contactKey: await deriveContactKeyBytes(unlocked),
-    };
-    const node = config.worker
-      ? await startNodeInWorker(config.worker(), {
-          ...shared,
-          stores: describeStores(
-            account,
-            place.directory ? { directory: place.directory, vaultKey: key } : undefined,
-          ),
-          ...(config.network ? { network: workerNetwork(config.network) } : {}),
-        })
-      : await createNode({
-          ...shared,
-          stores: storesOf(place, account, key),
-          ...(config.network ? { network: config.network } : {}),
-        });
+    const node = await startPageNode(
+      {
+        signer,
+        accountKey: await deriveVaultKeyBytes(unlocked),
+        contactKey: await deriveContactKeyBytes(unlocked),
+        stores: describeStores(
+          account,
+          place.directory ? { directory: place.directory, vaultKey: key } : undefined,
+        ),
+        ...(config.network ? { network: config.network } : {}),
+      },
+      config.worker ? { worker: config.worker } : { stores: storesOf(place, account, key) },
+    );
 
     seed = unlocked;
     vaultKey = key;
@@ -733,7 +690,6 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   /**
    * Opens an account from its recovery code, filing it here if this place has
    * not seen it.
-   * @param code The code, as typed or filled
    * @param expected The account the person meant, when they picked one
    */
   async function openWithCode(code: string, expected: AccountSummary | null): Promise<WeaveSession> {
@@ -773,36 +729,20 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
   // ─── Passkeys ──────────────────────────────────────────────────────
 
   /**
-   * Runs a passkey ceremony as a gate.
-   *
-   * Nothing is read out of it. The ceremony proves a person with the
-   * authenticator is present, and the key that actually opens the account
-   * lives in this site's storage — which is why every passkey provider works,
-   * including the ones that store passkeys without the PRF extension.
-   *
-   * Steers to this device's own authenticator when it has one: the key this
-   * gates never leaves the browser, so a passkey synced by a manager gates
-   * nothing anywhere else.
+   * Makes a passkey to gate this device's key. Nothing is read out of a
+   * passkey: the ceremony proves someone is present, and the key that opens
+   * the account is in this site's storage, so every provider works. Steers to
+   * this device's own authenticator when it has one, since the key it gates
+   * never leaves this browser.
    */
-  async function passkeyGate(
-    mode: 'create' | 'get',
-    options: { credentialId?: string; label?: string } = {},
-  ): Promise<{ credentialId: string; userHandle?: string }> {
-    const preferPlatform = mode === 'create' ? await hasPlatformAuthenticator() : false;
-    const steer = preferPlatform ? { hints: ['client-device'] as const } : {};
-
-    if (mode === 'create') {
-      const registration = await registerPasskey({
-        rpId,
-        rpName: appName,
-        userName: options.label ?? appName,
-        ...steer,
-        ...(preferPlatform ? { attachment: 'platform' as const } : {}),
-      });
-      return { credentialId: registration.credentialId, userHandle: registration.userHandle };
-    }
-    const auth = await authenticatePasskey(options.credentialId, { rpId, ...steer });
-    return { credentialId: auth.credentialId };
+  async function passkeyGate(label: string): Promise<{ credentialId: string; userHandle: string }> {
+    const platform = await hasPlatformAuthenticator();
+    return registerPasskey({
+      rpId,
+      rpName: appName,
+      userName: label,
+      ...(platform ? { hints: ['client-device'] as const, attachment: 'platform' as const } : {}),
+    });
   }
 
   /** Rewrites the open account's vault. */
@@ -844,13 +784,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
   /** Connected apps are remembered per account, on this device; none when what is kept can't be read */
   function readConnections(account: string): Connection[] {
-    try {
-      const connections: unknown = JSON.parse(get(`${prefix}.connections:${account}`) ?? '[]');
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only writeConnections writes this key
-      return Array.isArray(connections) ? (connections as Connection[]) : [];
-    } catch {
-      return [];
-    }
+    const connections = read<Connection[]>(`${prefix}.connections:${account}`);
+    return Array.isArray(connections) ? connections : [];
   }
 
   function writeConnections(connections: ReadonlyArray<Connection>): void {
@@ -987,7 +922,7 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           );
         }
         // The gate first, so the key is never reached for without someone present.
-        if (target.credentialId) await passkeyGate('get', { credentialId: target.credentialId });
+        if (target.credentialId) await authenticatePasskey(target.credentialId, { rpId });
 
         const key = await getDeviceKey(target.deviceKeyId);
         if (!key) {
@@ -1094,12 +1029,12 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       changeShortcut(async (unlocked) => {
         const session = state.session!;
         const place = state.place!;
-        const { credentialId, userHandle } = await passkeyGate('create', { label: session.account.name });
+        const { credentialId, userHandle } = await passkeyGate(session.account.name);
         const deviceKey = await createDeviceKey();
         const wrap = await wrapSeedWithDeviceKey(unlocked, deviceKey, {
           rpId,
           credentialId,
-          ...(userHandle ? { userHandle } : {}),
+          userHandle,
           label: rpId,
         });
         // Replacing an older passkey leaves its key behind, opening nothing.
@@ -1156,20 +1091,14 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
       await run(async () => {
         const { pod, contents, from } = choice;
         if (!pod.directory) throw new Error('That is not a folder.');
-
-        if (how === 'switch' && contents.account) {
-          // Use the pod's own copy and bring nothing; what was only here stays here.
+        const land = async (summary: AccountSummary, moved: MovedToPod | null) => {
           await rememberPod(pod);
-          const started = await begin(pod, contents.account, unlocked);
-          update({
-            session: started,
-            place: pod,
-            accounts: await listAccounts(pod),
-            podChoice: null,
-            moved: null,
-          });
-          return;
-        }
+          const started = await begin(pod, summary, unlocked);
+          update({ session: started, place: pod, accounts: await listAccounts(pod), podChoice: null, moved });
+        };
+
+        // Switch: use the pod's own copy and bring nothing; what was only here stays here.
+        if (how === 'switch' && contents.account) return land(contents.account, null);
 
         // Combine: every record is signed and named by its content, and deletes
         // are records too, so two copies merge by keeping everything from both.
@@ -1196,19 +1125,11 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
           accountKey: await deriveVaultKeyBytes(unlocked),
         });
 
-        await rememberPod(pod);
-        const started = await begin(pod, summary, unlocked);
-        update({
-          session: started,
-          place: pod,
-          accounts: await listAccounts(pod),
-          podChoice: null,
-          moved: {
-            merged: existing !== null,
-            spacesAdded: copied.spacesAdded,
-            recordsAdded: copied.recordsAdded,
-            from: from.kind === 'folder' ? (from.directory?.name ?? 'your old pod') : null,
-          },
+        await land(summary, {
+          merged: existing !== null,
+          spacesAdded: copied.spacesAdded,
+          recordsAdded: copied.recordsAdded,
+          from: from.kind === 'folder' ? (from.directory?.name ?? 'your old pod') : null,
         });
       });
     },
@@ -1237,10 +1158,6 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
     recoveryCode() {
       return seed ? seedToRecoveryCode(seed) : null;
-    },
-
-    accountPassword() {
-      return auth.recoveryCode();
     },
 
     offerToPhone(onStage) {
@@ -1300,9 +1217,8 @@ export function createWeaveAuth(config: WeaveAuthConfig = {}): WeaveAuth {
 
       const days = Math.min(Math.max(choice.days ?? request.days ?? 7, 1 / 24), MAX_GRANT_DAYS);
       const expiresAt = Math.floor(Date.now() / 1000) + Math.round(days * 24 * 3600);
-      const manager = createIdentityManager();
-      const root = createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider());
-      const token = await root.delegate({
+      const { signer } = await rootFromSeed(seed);
+      const token = await signer.delegate({
         audience: request.audience,
         capabilities: grantCapabilities(access, whole ? 'all' : ids),
         expiration: expiresAt,

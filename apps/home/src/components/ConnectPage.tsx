@@ -10,20 +10,14 @@ import {
 import { WeaveAuth, useAuth, useSession, useWeave } from '@weaveprotocol/core/react';
 import { Wordmark } from '@weave/app-shared/Wordmark';
 import { Avatar } from '@weave/app-shared/Avatar';
+import { useAction } from '@weave/app-shared/action';
 import { styles, palette } from '../styles';
 
 /**
- * An app opened this in a popup to ask for access to the account.
- *
- * Sign in first, with `<weave-auth>` as anywhere else. Then say what the app
- * gets: which spaces, read or change, for how long. The account signs a note
- * for the app's own key; the seed never leaves this page.
- *
- * An app already connected may come back, when the person asks it to, to
- * suggest what to notify them about; that is a smaller screen of its own.
- *
- * What the app calls itself is shown, but its address is what is trusted —
- * the browser reports it, the app cannot make it up.
+ * An app opened this in a popup to ask for access to the account: sign in,
+ * then say what the app gets. The account signs a note for the app's own key;
+ * the seed never leaves this page. The app's address is what is trusted, as
+ * the browser reports it, not what it calls itself.
  */
 export function ConnectPage() {
   const [incoming, setIncoming] = useState<IncomingRequest | null | undefined>(undefined);
@@ -111,35 +105,11 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
   const agent = request.agent === true;
   const previous = auth.connections().find((known) => known.origin === origin && !!known.agent === agent);
 
-  const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
+  const spaces = useSpaces(true);
   const [chosen, setChosen] = useState<ReadonlySet<string>>(
     () => new Set(previous?.spaces.map((space) => space.id) ?? []),
   );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const opened = new Set<string>();
-    const load = () =>
-      void session.node.spaces.list().then(
-        (found) => {
-          setSpaces(found);
-          // A space this home has never opened doesn't know its role here yet, and so can't be offered
-          // to write in. Opening it syncs its access history; the role follows.
-          for (const space of found) {
-            if (space.role !== null || opened.has(space.id)) continue;
-            opened.add(space.id);
-            void session.node.spaces.hold(space.id).catch(() => {});
-          }
-        },
-        () => {},
-      );
-    load();
-    // A space made in an app a moment ago may still be on its way here, and its role with it.
-    return session.node.subscribe((event) => {
-      if (event.type === 'spaces' || event.type === 'account' || event.type === 'records') load();
-    });
-  }, [session]);
+  const { run, busy, error } = useAction();
 
   const whole = request.scope === 'account';
   const choosing = !whole && request.chooseSpaces !== false;
@@ -152,25 +122,8 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
   const contacts = request.contacts === true && !agent && !whole;
   const nothing = !whole && !contacts && chosen.size === 0 && creating.length === 0;
 
-  const toggle = (id: string) =>
-    setChosen((was) => {
-      const next = new Set(was);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const allow = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const grant = await auth.grant({ origin, request, spaceIds: [...chosen] });
-      incoming.approve(grant);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not give access');
-      setBusy(false);
-    }
-  };
+  const allow = () =>
+    run(async () => incoming.approve(await auth.grant({ origin, request, spaceIds: [...chosen] })));
 
   return (
     <Frame>
@@ -229,7 +182,7 @@ function Approve({ incoming, request }: { incoming: IncomingRequest; request: Co
                 <input
                   type="checkbox"
                   checked={chosen.has(space.id)}
-                  onChange={() => toggle(space.id)}
+                  onChange={() => setChosen((was) => toggled(was, space.id))}
                   style={{ ...styles.checkbox, marginTop: 0 }}
                 />
                 <span style={{ flex: 1 }}>{space.name}</span>
@@ -293,22 +246,12 @@ function ApproveCarrier({ incoming, request }: { incoming: IncomingRequest; requ
   const { origin } = incoming;
   const { auth, state } = useAuth();
   const session = useSession();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { run, busy, error } = useAction();
   const pod = state.place?.kind === 'folder' ? (state.place.directory?.name ?? 'your pod') : null;
   // One extension carries one account: allowing it here moves it off another one.
   const elsewhere = auth.connectedElsewhere(origin);
 
-  const allow = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      incoming.approve(await auth.grantCarry({ origin, request }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not connect it');
-      setBusy(false);
-    }
-  };
+  const allow = () => run(async () => incoming.approve(await auth.grantCarry({ origin, request })));
 
   return (
     <Frame>
@@ -385,21 +328,11 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
   const connection = auth
     .connections()
     .find((known) => known.origin === origin && !known.agent && known.access !== 'carry');
-  const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
+  const spaces = useSpaces(false);
   const [kept, setKept] = useState<ReadonlySet<number>>(
     () => new Set(request.notify.map((_, index) => index)),
   );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const load = () => void session.node.spaces.list().then(setSpaces, () => {});
-    load();
-    // A space the app made just now reaches this home a moment later.
-    return session.node.subscribe((event) => {
-      if (event.type === 'spaces' || event.type === 'account') load();
-    });
-  }, [session]);
+  const { run, busy, error } = useAction();
 
   const who = connection?.name ?? request.name ?? asker(origin);
   const reachesAll = connection?.scope === 'account';
@@ -409,16 +342,8 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
     return names.join(', ');
   };
 
-  const allow = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      incoming.approve(await auth.propose({ origin, request, notify: [...kept] }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not add them');
-      setBusy(false);
-    }
-  };
+  const allow = () =>
+    run(async () => incoming.approve(await auth.propose({ origin, request, notify: [...kept] })));
 
   if (!connection) {
     return (
@@ -482,12 +407,42 @@ function ApproveProposal({ incoming, request }: { incoming: IncomingRequest; req
   );
 }
 
-/** The set with `index` taken out if it was in, put in if it wasn't */
-function toggled(set: ReadonlySet<number>, index: number): Set<number> {
+/** The set with `item` taken out if it was in, put in if it wasn't */
+function toggled<T>(set: ReadonlySet<T>, item: T): Set<T> {
   const next = new Set(set);
-  if (next.has(index)) next.delete(index);
-  else next.add(index);
+  if (next.has(item)) next.delete(item);
+  else next.add(item);
   return next;
+}
+
+/**
+ * The account's spaces, asked again as spaces arrive: one made in an app a
+ * moment ago may still be on its way here. With `hold`, a space whose role
+ * isn't known yet is opened, which syncs its access history and so its role.
+ */
+function useSpaces(hold: boolean): ReadonlyArray<SpaceSummary> {
+  const session = useSession();
+  const [spaces, setSpaces] = useState<ReadonlyArray<SpaceSummary>>([]);
+  useEffect(() => {
+    const opened = new Set<string>();
+    const load = () =>
+      void session.node.spaces.list().then(
+        (found) => {
+          setSpaces(found);
+          for (const space of found) {
+            if (!hold || space.role !== null || opened.has(space.id)) continue;
+            opened.add(space.id);
+            void session.node.spaces.hold(space.id).catch(() => {});
+          }
+        },
+        () => {},
+      );
+    load();
+    return session.node.subscribe((event) => {
+      if (event.type === 'spaces' || event.type === 'account' || event.type === 'records') load();
+    });
+  }, [session, hold]);
+  return spaces;
 }
 
 /** A boxed explanation: what something may do, or may not */

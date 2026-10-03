@@ -5,7 +5,7 @@
  * owner clear it; knocks that prove who knocked, with authority to, when; and
  * two people who shared no space becoming contacts through one.
  */
-import { test, describe, before, after, afterEach } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
@@ -46,6 +46,10 @@ import { joined } from './helpers/joined.js';
 import { portOf } from './helpers/net.js';
 import { isRecord } from '../src/utils/guards.js';
 import { patience } from './helpers/until.js';
+import { open, person as somebody } from './helpers/person.js';
+
+const person = async (hub: FakeHub, name: string, seed?: Uint8Array) =>
+  (await somebody(hub, { name, seed, relays: [relayUrl], accountKey: true, contactKey: true })).node;
 
 // ─── Relays, for the mailbox ────────────────────────────────────────
 
@@ -72,29 +76,6 @@ before(async () => {
   relayUrl = main.url;
 });
 after(() => main.close());
-
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person(hub: FakeHub, name: string, seed = generateSeed()) {
-  const manager = createIdentityManager();
-  const node = await createNode({
-    signer: createLocalRootSigner(await manager.fromSeed(seed), manager.getProvider()),
-    stores: memoryStores(),
-    accountKey: await deriveVaultKeyBytes(seed),
-    contactKey: await deriveContactKeyBytes(seed),
-    watchIntervalMs: 0,
-    network: {
-      relays: [relayUrl],
-      transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)],
-    },
-  });
-  open.push(node);
-  await node.account.setName(name);
-  return node;
-}
 
 async function until<T>(
   get: () => Promise<T>,

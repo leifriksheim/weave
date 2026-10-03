@@ -1,5 +1,4 @@
 /**
- * @module space/roles
  * Who may do what in a space: its roles, its members, its invites, and the
  * history of changes to them — replayed the same way on every peer.
  *
@@ -801,11 +800,7 @@ function place(r: Replay, event: AccessEvent): void {
   appended(r.appliedByKey, event.key, event.id);
 }
 
-/**
- * Replays a space's access history.
- * @param genesis What the space started with
- * @param events Every change held, in any order; duplicates are ignored
- */
+/** Replays a space's access history. */
 export function replayAccess(genesis: AccessGenesis, events: ReadonlyArray<AccessEvent>): AccessHistory {
   const r: Replay = {
     genesis,

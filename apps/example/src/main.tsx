@@ -9,14 +9,7 @@ import { Extension } from './site/Extension';
 import { WeaveProvider } from '@weaveprotocol/core/react';
 import { connection } from './weave';
 
-/**
- * Five pages: the front page, for communities (`/`, and `/why` for older
- * links), for developers (`/developers`), how the protocol works
- * (`/protocol`), the Chrome extension (`/extension`), and the app (`/app`). The front page
- * leads with a group that grows its own tools, because no platform offers that.
- * A link made before the app moved — an invite, a door, or a phone-pairing
- * code, all in the fragment — still opens the app wherever it lands.
- */
+/** The site's pages, and the app at `/app`; a link with an invite, door or pairing code in its fragment still opens the app */
 const path = globalThis.location.pathname.replace(/\/+$/, '') || '/';
 const carriesAppLink = /[#&](invite|door)=/.test(globalThis.location.hash);
 const page = carriesAppLink

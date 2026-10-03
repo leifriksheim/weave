@@ -6,10 +6,10 @@
     "build": "node build.mjs",
     "dev": "node build.mjs --watch",
     "package": "node build.mjs --production --zip",
-    "typecheck": "tsc --noEmit",
-    "icons": "node make-icons.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@weave/app-shared": "*",
     "@weaveprotocol/core": "*"
   },
   "devDependencies": {

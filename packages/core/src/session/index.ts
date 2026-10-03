@@ -57,7 +57,6 @@ export type {
 } from './connect.js';
 export {
   browserPlace,
-  folderPlace,
   pickPod,
   rememberPod,
   recallPod,
@@ -65,6 +64,7 @@ export {
   listAccounts,
   inspectPod,
   storesFor,
+  deleteBrowserData,
 } from './places.js';
 export type { Place, PodContents } from './places.js';
 export { createStaySignedIn, STAY_SIGNED_IN_CHOICES, DEFAULT_STAY_SIGNED_IN } from './stay-signed-in.js';
@@ -79,4 +79,4 @@ export {
   readAgentCode,
 } from './agent-link.js';
 export type { AgentLinkStage, AgentLinkOffer, AgentAsking } from './agent-link.js';
-export { offerToSave, accountCredentialName, deviceCredentialName, recoveryKit } from './credentials.js';
+export { offerToSave, accountCredentialName, recoveryKit } from './credentials.js';

@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Avatar } from '@weave/app-shared/Avatar';
 import type { Choice } from './schema';
 import type { Assembly, PartyFull, TopicView } from './model';
@@ -21,31 +21,6 @@ export function ago(iso: string, now = Date.now()): string {
   return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
-/** Runs a write, and keeps what went wrong to show beside the button that started it */
-export function useAction(): {
-  run: (work: () => Promise<unknown>) => Promise<boolean>;
-  busy: boolean;
-  error: string | null;
-  clear: () => void;
-} {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const run = useCallback(async (work: () => Promise<unknown>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await work();
-      return true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-  return { run, busy, error, clear: useCallback(() => setError(null), []) };
-}
-
 export function TopicChip({ topic }: { topic: TopicView }) {
   const c = hue(topic.hue);
   return (
@@ -54,6 +29,41 @@ export function TopicChip({ topic }: { topic: TopicView }) {
       {topic.name}
     </span>
   );
+}
+
+/** Topics as chips to pick; `solid` fills the picked one, for a filter */
+export function TopicPicker<T extends { name: string; hue: number }>({
+  topics,
+  on,
+  onToggle,
+  solid,
+}: {
+  topics: ReadonlyArray<T>;
+  on: (topic: T) => boolean;
+  onToggle: (topic: T) => void;
+  solid?: boolean;
+}) {
+  return topics.map((t) => {
+    const c = hue(t.hue);
+    const picked = on(t);
+    const style = solid
+      ? { background: c.strong, borderColor: c.strong }
+      : { background: c.soft, borderColor: c.strong, color: c.strong };
+    return (
+      <button
+        key={'key' in t && typeof t.key === 'string' ? t.key : t.name}
+        type="button"
+        className="lq-chip"
+        data-filter
+        aria-pressed={picked}
+        onClick={() => onToggle(t)}
+        style={picked ? style : undefined}
+      >
+        <span className="lq-dot" style={{ background: picked && solid ? '#fff' : c.strong }} />
+        {t.name}
+      </button>
+    );
+  });
 }
 
 /** A party's mark: its initial on its colour */

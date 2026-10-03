@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useAction } from '@weave/app-shared/action';
 import type { NodeCollection, NodeRecord, SpaceSummary } from '@weaveprotocol/core';
 import { useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import { SchemaForm } from '../SchemaForm';
@@ -16,20 +17,11 @@ import {
 } from '../../derive/schema-ui';
 import { nameOf, peopleFrom, writerOf, type People } from '../../derive/people';
 import { ago } from '../../derive/time';
-import { styles, palette } from '../../styles';
+import { styles, palette, ui } from '../../styles';
 
 /**
- * An added app, drawn from its definitions alone — no screen of its own.
- *
- * The things nothing else in the app points at are the main list: trips,
- * polls, events. What points at one of them is drawn inside it: seats in a
- * trip, votes on a poll. How each is added comes from its rules and fields:
- *
- * - a field that picks from the thing it points at (`x-choicesFrom`) becomes
- *   buttons with counts — pick one, and pick again to change it;
- * - nothing to fill in, and one per person (`onePer: ['@author', 'link:…']`)
- *   becomes "Add your seat" / "Remove your seat";
- * - anything else gets a small form.
+ * An added app drawn from its definitions alone: unlinked records are the list, what links to them
+ * is drawn inside, as pick buttons (`x-choicesFrom`), a one-per-person toggle, or a small form.
  */
 export function AppBoard({
   space,
@@ -166,24 +158,11 @@ function Children({
   onOpen: (record: NodeRecord) => void;
 }) {
   const node = useNode();
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { run, busy, error } = useAction();
   const fields = fieldsOf(child.schema);
   const mine = records.find((r) => r.createdBy === node.did);
   const links = [{ rel, to: parent.key }];
   const onePerMe = !!child.rules.onePer?.includes('@author') && !!child.rules.onePer?.includes(`link:${rel}`);
-
-  const run = async (work: () => Promise<unknown>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await work();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   // A field that picks from the parent: buttons with counts.
   const picker: Field | undefined = fields.find((f) => choicesFrom(f.schema)?.rel === rel);
@@ -363,11 +342,10 @@ const cardTitle = {
   cursor: 'pointer',
 };
 const chip = {
-  border: `1px solid ${palette.surface.line}`,
-  borderRadius: 999,
-  background: palette.surface.sunken,
+  ...ui.chip,
+  height: 'auto',
   padding: '3px 10px',
+  background: palette.surface.sunken,
   fontSize: 12,
-  color: palette.ink.body,
-  cursor: 'pointer',
+  fontWeight: 400,
 };

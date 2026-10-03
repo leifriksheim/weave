@@ -26,7 +26,15 @@ export type { HostConfig, HostNode, Invoice, Subscription, SubscriptionState } f
 export type { CopyAccountParams, CopyResult } from './copy.js';
 export type { StoreFactory, StoreOptions, WorkerStores } from './stores.js';
 export type { Keeper } from '../space/roles.js';
-export { NODE_ACTIONS, runAction, checkActionInput } from './actions.js';
+export {
+  NODE_ACTIONS,
+  runAction,
+  callAction,
+  offeredActions,
+  PEER_CONTENT_NOTE,
+  PERSON_ONLY,
+  checkActionInput,
+} from './actions.js';
 export type { NodeAction, ActionSchema } from './actions.js';
 export type {
   P2PNode,

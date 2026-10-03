@@ -11,9 +11,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   accountDataPath,
+  createNode,
   createFolderAccountStore,
   createIdentityManager,
-  createLocalRootSigner,
   createVault,
   deriveVaultKey,
   deriveVaultKeyBytes,
@@ -22,6 +22,7 @@ import {
   generateSeed,
   newAccountId,
   recoveryCodeToSeed,
+  rootFromSeed,
   seedToRecoveryCode,
   unwrapSeedWithPassphrase,
   withWrap,
@@ -29,6 +30,8 @@ import {
   CLI_PASSPHRASE_LABEL,
   type AccountStore,
   type AccountSummary,
+  type NodeConfig,
+  type P2PNode,
   type DirectoryHandleLike,
   type PassphraseWrap,
   type RootSigner,
@@ -156,14 +159,13 @@ export async function unlock(
     );
   }
 
-  const manager = createIdentityManager();
-  const identity = await manager.fromSeed(seed);
+  const { identity, signer } = await rootFromSeed(seed);
   if (identity.did !== account.did)
     throw new Error(`That code belongs to a different account than "${account.name}"`);
 
   return {
     account,
-    signer: createLocalRootSigner(identity, manager.getProvider()),
+    signer,
     stores: folderStores(home.directory, {
       basePath: account.dataPath,
       vaultKey: await deriveVaultKey(seed),
@@ -172,3 +174,13 @@ export async function unlock(
     contactKey: await deriveContactKeyBytes(seed),
   };
 }
+
+/** A node of the unlocked account, following its registry so it joins every space the account does */
+export const nodeFor = (unlocked: Unlocked, extra: Partial<NodeConfig> = {}): Promise<P2PNode> =>
+  createNode({
+    signer: unlocked.signer,
+    stores: unlocked.stores,
+    accountKey: unlocked.accountKey,
+    contactKey: unlocked.contactKey,
+    ...extra,
+  });

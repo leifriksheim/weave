@@ -16,16 +16,16 @@ import {
   position,
   text,
   timeZone,
-  typed,
+  define,
   url,
   when,
   words,
-  type Place,
   person,
 } from '../fragments.js';
+import type { BodyOf } from '../../query/types.js';
 
 /** A calendar that events are `in`. */
-export const calendar = typed<Calendar>()({
+export const calendar = define({
   name: 'std.calendar',
   title: 'Calendar',
   description: 'A calendar of events.',
@@ -35,17 +35,14 @@ export const calendar = typed<Calendar>()({
     required: ['name'],
   },
 });
-export interface Calendar {
-  readonly name: string;
-  readonly color?: string;
-}
+export type Calendar = BodyOf<typeof calendar>;
 
 /**
  * Something happening at a time, after JSCalendar (RFC 8984). `start` and
  * `end` are RFC 3339 with `tz` saying where the times are meant, or whole days
  * (`YYYY-MM-DD`) with `allDay`. `rrule` repeats it (RFC 5545).
  */
-export const event = typed<CalendarEvent>()({
+export const event = define({
   name: 'std.event',
   title: 'Event',
   description: 'Something happening at a time and place.',
@@ -67,21 +64,10 @@ export const event = typed<CalendarEvent>()({
   },
   links: { in: one(['std.calendar'], 'The calendar it is in') },
 });
-export interface CalendarEvent {
-  readonly title: string;
-  readonly description?: string;
-  readonly start: string;
-  readonly end?: string;
-  readonly tz?: string;
-  readonly allDay?: boolean;
-  readonly place?: Place;
-  readonly url?: string;
-  readonly rrule?: string;
-  readonly status?: 'confirmed' | 'tentative' | 'cancelled';
-}
+export type CalendarEvent = BodyOf<typeof event>;
 
 /** Whether someone is coming: one per person per event, changed by answering again. */
-export const rsvp = typed<Rsvp>()({
+export const rsvp = define({
   name: 'std.rsvp',
   title: 'RSVP',
   description: 'Whether someone is coming to an event: one answer per person.',
@@ -99,16 +85,10 @@ export const rsvp = typed<Rsvp>()({
   rules: { ...own, onePer: ['@author', 'link:about'] },
   topics: ['respondingTo'],
 });
-export interface Rsvp {
-  readonly status: 'going' | 'maybe' | 'no';
-  readonly guests?: number;
-  readonly note?: string;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type Rsvp = BodyOf<typeof rsvp>;
 
 /** A time that can be booked. Bookings are `about` it, one each. */
-export const slot = typed<Slot>()({
+export const slot = define({
   name: 'std.slot',
   title: 'Slot',
   description: 'A time that one person can book.',
@@ -121,15 +101,10 @@ export const slot = typed<Slot>()({
   permissions: ['moderate'],
   rules: authored,
 });
-export interface Slot {
-  readonly start: string;
-  readonly end: string;
-  readonly tz?: string;
-  readonly note?: string;
-}
+export type Slot = BodyOf<typeof slot>;
 
 /** A booked slot. One per slot, so it can't be booked twice: whoever books first has it. */
-export const booking = typed<Booking>()({
+export const booking = define({
   name: 'std.booking',
   title: 'Booking',
   description: 'A booked slot: one booking per slot, first come.',
@@ -145,14 +120,10 @@ export const booking = typed<Booking>()({
   rules: { ...authored, onePer: ['link:about'] },
   topics: ['respondingTo'],
 });
-export interface Booking {
-  readonly note?: string;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type Booking = BodyOf<typeof booking>;
 
 /** A column on a board — To do, Doing, Done — in the order it sits. */
-export const column = typed<Column>()({
+export const column = define({
   name: 'std.column',
   title: 'Column',
   description: 'A column on a board, holding tasks.',
@@ -165,10 +136,7 @@ export const column = typed<Column>()({
     required: ['name'],
   },
 });
-export interface Column {
-  readonly name: string;
-  readonly position?: string;
-}
+export type Column = BodyOf<typeof column>;
 
 const TASK_STATUS = ['todo', 'doing', 'done', 'cancelled'] as const;
 
@@ -178,7 +146,7 @@ const TASK_STATUS = ['todo', 'doing', 'done', 'cancelled'] as const;
  * `assignees` is its topic, so "assigned to me" can be asked of a keeper that
  * can't read it.
  */
-export const task = typed<Task>()({
+export const task = define({
   name: 'std.task',
   title: 'Task',
   description: 'A task, placed in a column.',
@@ -207,18 +175,10 @@ export const task = typed<Task>()({
     project: one(['std.project'], 'The project it belongs to'),
   },
 });
-export interface Task {
-  readonly title: string;
-  readonly notes?: string;
-  readonly position?: string;
-  readonly due?: string;
-  readonly status?: (typeof TASK_STATUS)[number];
-  readonly assignees?: ReadonlyArray<string>;
-  readonly priority?: number;
-}
+export type Task = BodyOf<typeof task>;
 
 /** A project that tasks belong to. */
-export const project = typed<Project>()({
+export const project = define({
   name: 'std.project',
   title: 'Project',
   description: 'A project that tasks belong to.',
@@ -233,15 +193,10 @@ export const project = typed<Project>()({
     required: ['name'],
   },
 });
-export interface Project {
-  readonly name: string;
-  readonly description?: string;
-  readonly status?: 'planned' | 'active' | 'paused' | 'done' | 'cancelled';
-  readonly due?: string;
-}
+export type Project = BodyOf<typeof project>;
 
 /** Time spent on something; running while it has no `end`. */
-export const timeEntry = typed<TimeEntry>()({
+export const timeEntry = define({
   name: 'std.time-entry',
   title: 'Time entry',
   description: 'Time someone spent on something.',
@@ -253,14 +208,10 @@ export const timeEntry = typed<TimeEntry>()({
   links: { about: about('What the time was spent on') },
   rules: own,
 });
-export interface TimeEntry {
-  readonly start: string;
-  readonly end?: string;
-  readonly note?: string;
-}
+export type TimeEntry = BodyOf<typeof timeEntry>;
 
 /** A reminder for its author. Keep it in your own space. */
-export const reminder = typed<Reminder>()({
+export const reminder = define({
   name: 'std.reminder',
   title: 'Reminder',
   description: 'Something to be reminded of at a time.',
@@ -272,14 +223,10 @@ export const reminder = typed<Reminder>()({
   links: { about: about('What it is about') },
   rules: own,
 });
-export interface Reminder {
-  readonly at: string;
-  readonly note?: string;
-  readonly done?: boolean;
-}
+export type Reminder = BodyOf<typeof reminder>;
 
 /** A habit to keep. Check-ins are `about` it. */
-export const habit = typed<Habit>()({
+export const habit = define({
   name: 'std.habit',
   title: 'Habit',
   description: 'Something to do regularly.',
@@ -296,16 +243,10 @@ export const habit = typed<Habit>()({
   },
   rules: own,
 });
-export interface Habit {
-  readonly name: string;
-  readonly schedule?: string;
-  readonly target?: number;
-  readonly unit?: string;
-  readonly position?: string;
-}
+export type Habit = BodyOf<typeof habit>;
 
 /** Doing a habit on a day: one per person per habit per day. */
-export const checkin = typed<Checkin>()({
+export const checkin = define({
   name: 'std.checkin',
   title: 'Check-in',
   description: 'A habit done on a day: one per person per day.',
@@ -317,8 +258,22 @@ export const checkin = typed<Checkin>()({
   links: { about: one(['std.habit'], 'The habit') },
   rules: { ...own, onePer: ['@author', 'link:about', 'date'] },
 });
-export interface Checkin {
-  readonly date: string;
-  readonly value?: number;
-  readonly note?: string;
-}
+export type Checkin = BodyOf<typeof checkin>;
+
+/** This file's part of `standardGroups` */
+export const planningGroups = {
+  'Time and planning': [
+    calendar,
+    event,
+    rsvp,
+    slot,
+    booking,
+    column,
+    task,
+    project,
+    timeEntry,
+    reminder,
+    habit,
+    checkin,
+  ],
+};

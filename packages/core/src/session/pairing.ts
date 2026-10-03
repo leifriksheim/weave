@@ -1,37 +1,77 @@
 /**
  * @module session/pairing
- * Handing an account to a phone.
- *
- * The desktop shows a QR code. The phone's camera reads it — no scanner in the
- * app, because both iOS and Android recognise a URL in a QR natively — and opens
- * a link whose fragment carries the recovery code and the address of the relay.
- *
- * That gets the phone the identity. It still does not know which spaces exist,
- * and it never will from the code alone: a folder is unreadable to it, and the
- * list of spaces plus their keys is far too big for a camera to read reliably.
- * So both sides derive the same private room from the seed, meet there over the
- * ordinary peer connection, and the desktop sends the spaces across encrypted.
- *
- * Afterwards the phone is a full peer. It holds its own replica, syncs with
- * anyone in the space, and never refers to the desktop again — which is the
- * difference between this and the phone-is-the-real-device pairing that
- * messaging apps do.
+ * Handing an account to a phone. The desktop shows a QR code whose link
+ * carries the recovery code and a relay; both sides then meet in a room
+ * derived from the seed, and the desktop sends the spaces across sealed.
+ * Afterwards the phone is a full peer and never needs the desktop again.
  */
 import { createMesh } from '../network/mesh.js';
+import type { NetworkManager } from '../network/network-manager.js';
 import {
-  pairingRoomId,
-  derivePairingKey,
+  ROOM_PREFIX,
+  PAIRING_KEY_INFO,
   encodePairingTicket,
   decodePairingTicket,
   sealPairingPayload,
   openPairingPayload,
   type PairingTicket,
 } from '../identity/pairing.js';
+import { hkdfAesKey } from '../identity/hkdf.js';
 import { seedToRecoveryCode, recoveryCodeToSeed } from '../identity/recovery-code.js';
-import { utf8Encode, utf8Decode } from '../utils/encoding.js';
+import { concatBytes, utf8Encode, utf8Decode } from '../utils/encoding.js';
+import { cidFromBytes } from '../utils/hash.js';
 import { isObject } from '../utils/guards.js';
 import type { NetworkMessage, PeerInfo } from '../types.js';
 import type { P2PNode } from '../node/types.js';
+
+/**
+ * Both ends of a phone pairing or an agent link: a room and a key worked out
+ * from one secret, JSON sealed under that key, and an outcome settled once.
+ */
+export async function sealedRoom(params: {
+  readonly prefix: Uint8Array;
+  readonly info: Uint8Array;
+  readonly secret: Uint8Array;
+  /** Who this end is on the wire */
+  readonly did: string;
+  readonly join: (room: string) => NetworkManager;
+}) {
+  const key = await hkdfAesKey(params.secret, params.info);
+  const net = params.join(await cidFromBytes(concatBytes(params.prefix, params.secret)));
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const finish = (done: () => void = () => {}): void => {
+    if (settled) return;
+    settled = true;
+    globalThis.clearTimeout(timer);
+    // A moment for the last message to leave.
+    globalThis.setTimeout(() => net.disconnect(), 500);
+    done();
+  };
+  return {
+    net,
+    finish,
+    isSettled: () => settled,
+    /** Settles with `onTimeout` after `ms`, replacing any earlier wait */
+    wait: (ms: number, onTimeout: () => void): void => {
+      globalThis.clearTimeout(timer);
+      timer = globalThis.setTimeout(() => finish(onTimeout), ms);
+    },
+    send: async (to: string, type: string, value: unknown): Promise<void> => {
+      const sealed = await sealPairingPayload(utf8Encode(JSON.stringify(value)), key);
+      net.send(to, { type, from: params.did, payload: Array.from(sealed) });
+    },
+    /** What a message says, or null when it was not sealed with this secret */
+    open: async (message: NetworkMessage): Promise<unknown> => {
+      if (!Array.isArray(message.payload)) return null;
+      try {
+        return JSON.parse(utf8Decode(await openPairingPayload(new Uint8Array(message.payload), key)));
+      } catch {
+        return null;
+      }
+    },
+  };
+}
 
 /** The message the desktop sends once the phone turns up */
 const PAIR_MESSAGE = 'pair';
@@ -60,16 +100,7 @@ export interface PairingOffer {
   stop(): void;
 }
 
-/**
- * Starts offering an account to a phone.
- *
- * @param params.node The signed-in node, whose spaces are handed over
- * @param params.seed The account's seed
- * @param params.relays Relays to meet on; the first goes in the link
- * @param params.link The page the phone should open, without a fragment
- * @param onStage Called as the handover progresses
- * @returns The link to put in a QR code, and a way to stop
- */
+/** Starts offering an account to a phone; the first relay goes in the link */
 export async function offerToPhone(
   params: { node: P2PNode; seed: Uint8Array; relays: ReadonlyArray<string>; link: string },
   onStage: (stage: PairingStage) => void,
@@ -79,25 +110,25 @@ export async function offerToPhone(
   if (!relay) throw new Error('Pairing needs a relay, and none is configured.');
 
   const url = `${params.link}#pair=${encodePairingTicket({ v: 1, code: seedToRecoveryCode(seed), relay })}`;
-  const key = await derivePairingKey(seed);
-  const network = createMesh({ relays, did: node.sessionDid }).join(await pairingRoomId(seed));
+  const did = node.sessionDid;
+  const { net, send } = await sealedRoom({
+    prefix: ROOM_PREFIX,
+    info: PAIRING_KEY_INFO,
+    secret: seed,
+    did,
+    join: (room) => createMesh({ relays, did }).join(room),
+  });
 
-  network.on('peer-connected', (peer: PeerInfo) => {
+  net.on('peer-connected', (peer: PeerInfo) => {
     onStage({ kind: 'connected' });
-
     void (async () => {
       try {
-        // Invites already carry everything a peer needs to open a space,
-        // including the key for a private one. Pairing is handing over a
-        // bundle of them at once.
-        const spaces = await node.spaces.list();
-        const invites = await Promise.all(spaces.map((space) => node.spaces.invite(space.id)));
-        const sealed = await sealPairingPayload(
-          utf8Encode(JSON.stringify({ spaces: invites } satisfies Handover)),
-          key,
+        // Invites carry everything a peer needs to open a space, the key of a
+        // private one included: pairing hands over a bundle of them.
+        const invites = await Promise.all(
+          (await node.spaces.list()).map((space) => node.spaces.invite(space.id)),
         );
-
-        network.send(peer.did, { type: PAIR_MESSAGE, from: node.sessionDid, payload: Array.from(sealed) });
+        await send(peer.did, PAIR_MESSAGE, { spaces: invites } satisfies Handover);
         onStage({ kind: 'sent', spaces: invites.length });
       } catch (error) {
         onStage({ kind: 'failed', reason: error instanceof Error ? error.message : 'Handover failed' });
@@ -105,15 +136,13 @@ export async function offerToPhone(
     })();
   });
 
-  network.on('error', () => {
-    if (!network.isConnected())
-      onStage({ kind: 'failed', reason: 'Could not reach the relay from this page.' });
+  net.on('error', () => {
+    if (!net.isConnected()) onStage({ kind: 'failed', reason: 'Could not reach the relay from this page.' });
   });
 
   onStage({ kind: 'waiting' });
-  await network.connect();
-
-  return { url, stop: () => network.disconnect() };
+  await net.connect();
+  return { url, stop: () => net.disconnect() };
 }
 
 /** The pairing link in this page's URL, if the phone arrived from a QR code. */
@@ -134,18 +163,9 @@ export function clearPairingTicket(): void {
 }
 
 /**
- * Collects the spaces from the desktop, having already signed in with the code.
- *
- * Resolves once they have arrived, or after `timeoutMs` with nothing — the
- * desktop may have closed the QR, or the two devices may not be able to reach
- * each other. The identity is already correct either way, so a timeout costs
- * the spaces, not the account.
- *
- * @param node The phone's node, signed in with the ticket's code
- * @param ticket The ticket from the URL
- * @param onStage Called as the handover progresses
- * @param timeoutMs How long to wait for the desktop
- * @returns How many spaces arrived
+ * Collects the spaces from the desktop, having already signed in with the
+ * code. Resolves with how many arrived, or 0 after `timeoutMs`: the identity
+ * is right either way, so a timeout costs the spaces, not the account.
  */
 export async function collectFromDesktop(
   node: P2PNode,
@@ -153,63 +173,52 @@ export async function collectFromDesktop(
   onStage: (stage: PairingStage) => void,
   timeoutMs = 30_000,
 ): Promise<number> {
-  const seed = recoveryCodeToSeed(ticket.code);
-  const key = await derivePairingKey(seed);
-
-  // The phone uses the relay named in the ticket: it is the one the computer
-  // showing the code is definitely on, and the phone has no configuration.
-  const network = createMesh({ relays: [ticket.relay], did: node.sessionDid }).join(
-    await pairingRoomId(seed),
-  );
+  const did = node.sessionDid;
+  // The relay in the ticket: the computer showing the code is on it, and the
+  // phone has no configuration.
+  const room = await sealedRoom({
+    prefix: ROOM_PREFIX,
+    info: PAIRING_KEY_INFO,
+    secret: recoveryCodeToSeed(ticket.code),
+    did,
+    join: (name) => createMesh({ relays: [ticket.relay], did }).join(name),
+  });
 
   return new Promise<number>((resolve) => {
-    let settled = false;
+    const finish = (count: number, stage: PairingStage) =>
+      room.finish(() => {
+        onStage(stage);
+        resolve(count);
+      });
+    const failed = (reason: string) => finish(0, { kind: 'failed', reason });
 
-    const finish = (count: number, stage: PairingStage) => {
-      if (settled) return;
-      settled = true;
-      globalThis.clearTimeout(timer);
-      network.disconnect();
-      onStage(stage);
-      resolve(count);
-    };
+    room.wait(timeoutMs, () => {
+      onStage({
+        kind: 'failed',
+        reason:
+          'The computer did not answer. Check the code is still showing, and that both devices are on the same network.',
+      });
+      resolve(0);
+    });
 
-    const timer = globalThis.setTimeout(
-      () =>
-        finish(0, {
-          kind: 'failed',
-          reason:
-            'The computer did not answer. Check the code is still showing, and that both devices are on the same network.',
-        }),
-      timeoutMs,
-    );
-
-    network.on('peer-connected', () => onStage({ kind: 'connected' }));
-
-    network.on('message', (message: NetworkMessage) => {
-      const payload = message.payload;
-      if (message.type !== PAIR_MESSAGE || !Array.isArray(payload)) return;
-
+    room.net.on('peer-connected', () => onStage({ kind: 'connected' }));
+    room.net.on('message', (message: NetworkMessage) => {
+      if (message.type !== PAIR_MESSAGE || !Array.isArray(message.payload)) return;
       void (async () => {
         try {
-          const opened = await openPairingPayload(new Uint8Array(payload), key);
-          const handover: unknown = JSON.parse(utf8Decode(opened));
+          const handover = await room.open(message);
+          // Someone else in the room, or a ticket for a different account.
+          if (handover === null) throw new Error('That handover was not meant for this account.');
           if (!isHandover(handover)) throw new Error('That handover could not be read.');
-          const { spaces } = handover;
-          for (const invite of spaces) await node.spaces.join(invite);
-          finish(spaces.length, { kind: 'received', spaces: spaces.length });
+          for (const invite of handover.spaces) await node.spaces.join(invite);
+          finish(handover.spaces.length, { kind: 'received', spaces: handover.spaces.length });
         } catch (error) {
-          finish(0, {
-            kind: 'failed',
-            reason: error instanceof Error ? error.message : 'That handover could not be read.',
-          });
+          failed(error instanceof Error ? error.message : 'That handover could not be read.');
         }
       })();
     });
 
     onStage({ kind: 'waiting' });
-    network
-      .connect()
-      .catch(() => finish(0, { kind: 'failed', reason: 'Could not reach the relay from this phone.' }));
+    room.net.connect().catch(() => failed('Could not reach the relay from this phone.'));
   });
 }

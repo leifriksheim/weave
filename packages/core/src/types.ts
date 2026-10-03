@@ -214,10 +214,7 @@ export interface StorageAdapter {
   get(key: string): Promise<Uint8Array | null>;
   put(key: string, value: Uint8Array): Promise<void>;
   delete(key: string): Promise<void>;
-  has(key: string): Promise<boolean>;
   list(prefix?: string): Promise<string[]>;
-  /** Query expressions by collection */
-  queryExpressions(collection: string, limit?: number, cursor?: string): Promise<Expression[]>;
   /** Store an expression */
   putExpression(expression: Expression): Promise<void>;
   /** Get an expression by ID */

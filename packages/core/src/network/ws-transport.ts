@@ -1,5 +1,5 @@
 /**
- * @fileoverview A WebSocket to one always-on node, as a transport.
+ * A WebSocket to one always-on node, as a transport.
  *
  * Browsers cannot accept connections, but they can dial a node that has a DNS
  * name and a TLS certificate — no relay, no offer and answer, and no TURN for
@@ -22,6 +22,7 @@ import type { PeerTransport, PeerTransportEvents } from './transport.js';
 import { peerNonce, type ClientAuth } from './peer-auth.js';
 import { createEmitter } from '../utils/events.js';
 import { bufferSource, isObject } from '../utils/guards.js';
+import { backoff, createRetry } from '../utils/backoff.js';
 
 export interface WebSocketTransportConfig {
   /** `wss://node.example.com/peer` */
@@ -55,13 +56,7 @@ function parseFrame(data: unknown, type: string): Frame | null {
   }
 }
 
-/**
- * Creates a transport that holds one socket to one node, redialling it with
- * backoff for as long as the transport is wanted.
- *
- * @param config - Where to dial, and as whom.
- * @returns The transport; call `connect()` to start.
- */
+/** Holds one socket to one node, redialling it with backoff for as long as the transport is wanted. */
 export function createWebSocketTransport(config: WebSocketTransportConfig): PeerTransport {
   const reconnect = config.reconnect !== false;
   const maxBackoffMs = config.maxBackoffMs ?? 30_000;
@@ -72,23 +67,14 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
   /** Set by close/closeAll: an intentional shutdown must never be fought */
   let stopped = false;
   let retryCount = 0;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
   const { on, off, emit } = createEmitter<PeerTransportEvents>();
 
+  // A failed dial's close schedules the next attempt.
+  const retry = createRetry(() => dial().catch(() => {}));
   const scheduleRedial = () => {
-    if (stopped || !reconnect || reconnectTimer) return;
-    // Exponential, capped, with jitter so a node restart is not met by every
-    // client at the same instant.
-    const base = Math.min(1000 * 2 ** retryCount, maxBackoffMs);
-    const delay = base / 2 + Math.random() * (base / 2);
+    if (stopped || !reconnect || retry.pending()) return;
+    retry.schedule(backoff(retryCount, maxBackoffMs));
     retryCount += 1;
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      dial().catch(() => {
-        // The close handler schedules the next attempt.
-      });
-    }, delay);
   };
 
   const dial = (): Promise<void> =>
@@ -211,10 +197,7 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Peer
 
   const closeAll = (): void => {
     stopped = true;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
+    retry.clear();
     ws?.close(1000, 'closed');
   };
 

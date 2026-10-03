@@ -1,19 +1,8 @@
 /**
  * @module root-signer
- * Who holds the identity key, and how a session gets permission from it.
- *
- * The root key signs exactly one thing: a note saying "this session key may
- * write for me, until this time". Everything else is signed by the session key.
- * That one signature is the only reason an app needs the identity at all — so
- * it is the only thing that has to be abstracted for the key to live somewhere
- * other than the page.
- *
- * Somewhere else means an account home in another window, or anything that
- * will hold a secret and answer questions about it. The page asks for a delegation
- * and gets back a token; the seed never crosses the boundary.
- *
- * Everything downstream — DIDs, expressions, validation, sync — is unchanged by
- * this, because none of it ever sees the root key either.
+ * Who holds the identity key. It signs one thing: a note letting a session key
+ * write until a time. Abstracting that one signature lets the key live in an
+ * account home instead of the page; the seed never crosses the boundary.
  */
 
 import type { CryptoProvider } from '../types.js';
@@ -51,10 +40,6 @@ export interface RootSigner {
  *
  * The ordinary case: the seed was unlocked here, so the key is in memory and
  * signing is a local operation.
- *
- * @param identity The unlocked identity
- * @param provider Crypto provider for signing
- * @returns A signer over it
  */
 export function createLocalRootSigner(
   identity: { did: string; privateKey: CryptoKey },

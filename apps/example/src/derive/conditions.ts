@@ -1,21 +1,11 @@
-/**
- * "Only when…": conditions a person builds by picking, for notifications and
- * rules. A collection's schema says what each field holds, so what can be
- * picked follows from it — a choice offers its options, a person field "me"
- * and the people in the space, a number "at least" — and nobody types a
- * condition.
- *
- * A picked condition (a {@link Clause}) is kept as picked, so it can be shown
- * and changed again, and turned into the language of checks when it is used:
- * a subscription's `where` (spec 03 §15), or a rule's test. Pure functions,
- * like schema-ui.
- */
+/** Conditions picked from a collection's schema, for filters, notifications and rules: kept as picked, turned into checks or a query's `where` when used. */
 import type { Condition, Filter, NodeCollection } from '@weaveprotocol/core';
 import { choicesOf, fieldsOf, type Choice } from './schema-ui';
 import { fieldTypeOf, type FieldTypeName } from './field-types';
 
-/** How a field is compared */
-export type ClauseKind = 'text' | 'number' | 'yesno' | 'choice' | 'date' | 'person' | 'people' | 'list';
+/** How a field is compared. `search` is text in a query, which can also match a part of it. */
+export type ClauseKind =
+  'text' | 'search' | 'number' | 'yesno' | 'choice' | 'date' | 'person' | 'people' | 'list';
 
 export interface ClauseField {
   readonly name: string;
@@ -70,12 +60,16 @@ const OPS: Readonly<Record<ClauseKind, ReadonlyArray<ClauseOp>>> = {
   yesno: ['is'],
   date: ['before', 'after', 'filled', 'empty'],
   text: ['is', 'isNot', 'filled', 'empty'],
+  search: ['includes', 'is', 'isNot', 'filled', 'empty'],
   list: ['includes', 'filled', 'empty'],
 };
 
 /** The comparisons a kind of field offers, the likeliest first */
 export function opsFor(kind: ClauseKind): ReadonlyArray<{ op: ClauseOp; label: string }> {
-  return OPS[kind].map((op) => ({ op, label: OP_WORDS[op] }));
+  return OPS[kind].map((op) => ({
+    op,
+    label: kind === 'search' && op === 'includes' ? 'contains' : OP_WORDS[op],
+  }));
 }
 
 export const needsValue = (op: ClauseOp) => op !== 'filled' && op !== 'empty';
@@ -94,16 +88,30 @@ const KIND_OF_TYPE: Readonly<Record<FieldTypeName, ClauseKind>> = {
   'list of text': 'list',
 };
 
-/** The fields of a collection a condition can be on, people first: what "for me" is usually about */
+/** What every record has, for a query to filter on */
+const RECORD_FIELDS: ReadonlyArray<ClauseField> = [
+  { name: '@createdAt', label: 'Added', kind: 'date', topic: false },
+  { name: '@updatedAt', label: 'Last changed', kind: 'date', topic: false },
+  { name: '@createdBy', label: 'Added by', kind: 'person', topic: false },
+];
+
+/**
+ * The fields of a collection a condition can be on, people first: what "for me" is usually about.
+ * For a query, text can be searched and the record's own fields come last.
+ */
 export function clauseFields(
   collection: Pick<NodeCollection, 'schema' | 'topics'>,
+  { query = false } = {},
 ): ReadonlyArray<ClauseField> {
   const fields = fieldsOf(collection.schema).flatMap((f): ClauseField[] => {
     const type = fieldTypeOf(f.schema);
     const choices = f.kind === 'choice' ? choicesOf(f) : null;
-    // Choices read from a linked record differ per record: nothing fixed to pick from.
-    if (f.kind === 'choice' && !choices) return [];
-    const kind = f.kind === 'choice' ? 'choice' : type ? KIND_OF_TYPE[type] : null;
+    // Choices read from a linked record differ per record: a query compares what is stored, a check cannot.
+    const numeric = f.schema.type === 'number' || f.schema.type === 'integer';
+    const loose = numeric ? 'number' : 'text';
+    const picked =
+      f.kind === 'choice' ? (choices ? 'choice' : query ? loose : null) : type ? KIND_OF_TYPE[type] : null;
+    const kind = query && picked === 'text' ? 'search' : picked;
     if (!kind) return [];
     return [
       {
@@ -116,7 +124,7 @@ export function clauseFields(
     ];
   });
   const people = fields.filter((f) => f.kind === 'person' || f.kind === 'people');
-  return [...people, ...fields.filter((f) => !people.includes(f))];
+  return [...people, ...fields.filter((f) => !people.includes(f)), ...(query ? RECORD_FIELDS : [])];
 }
 
 /** A new condition on a field: its first comparison, and a starting value */
@@ -167,6 +175,7 @@ function conditionOf(clause: Clause, me: string): Condition {
     case 'before':
       return { '<': [at, value] };
     case 'includes':
+      // Only a list here: text is searched in a query alone.
       return { in: [value, at] };
     case 'filled':
       return { not: { in: [at, EMPTY] } };
@@ -217,11 +226,7 @@ export function filterFrom(clauses: ReadonlyArray<Clause>, me: string): Filter |
   return parts.length === 1 ? parts[0] : { $and: parts };
 }
 
-/**
- * The conditions as a subscription holds them: the first a carrier can match
- * — a topic field equal to, or including, one value — as its `topic`, and the
- * rest as `where`, which only the app judges.
- */
+/** The conditions as a subscription holds them: the first a carrier can match as its `topic`, the rest as `where` */
 export function subscriptionOf(
   clauses: ReadonlyArray<Clause>,
   fields: ReadonlyArray<ClauseField>,
@@ -260,7 +265,7 @@ function valueWords(clause: Clause, field: ClauseField | undefined, nameOf: (did
   if (field?.kind === 'choice') return field.choices?.find((c) => c.value === value)?.label ?? String(value);
   if (field?.kind === 'person' || field?.kind === 'people') return nameOf(String(value));
   if (typeof value === 'boolean') return value ? 'yes' : 'no';
-  if (field?.kind === 'text' || field?.kind === 'list') return `“${value}”`;
+  if (field?.kind === 'text' || field?.kind === 'search' || field?.kind === 'list') return `“${value}”`;
   return String(value);
 }
 
@@ -274,7 +279,14 @@ export function clauseWords(
   const label = field?.label ?? clause.field;
   if (field?.kind === 'yesno')
     return clause.value === false ? `not ${label.toLowerCase()}` : label.toLowerCase();
-  const op = clause.op === 'includes' ? (field?.kind === 'people' ? 'includes' : 'has') : OP_WORDS[clause.op];
+  const op =
+    clause.op === 'includes'
+      ? field?.kind === 'people'
+        ? 'includes'
+        : field?.kind === 'search'
+          ? 'contains'
+          : 'has'
+      : OP_WORDS[clause.op];
   return needsValue(clause.op)
     ? `${label.toLowerCase()} ${op} ${valueWords(clause, field, nameOf)}`
     : `${label.toLowerCase()} ${op}`;

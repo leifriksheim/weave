@@ -1,5 +1,4 @@
 /**
- * @module folder-reconcile
  * Making a shared folder converge, without anybody having to take a lock.
  *
  * Two origins — or two devices behind Dropbox, iCloud or Syncthing — can write
@@ -42,13 +41,10 @@ export interface FolderReconciliation {
  * Safe to call as often as you like: with nothing new on disk it is two
  * directory listings and no writes.
  *
- * @param storage The provider whose entries should be brought up to date
- * @param adapter The folder adapter underneath it
  * @param accept Whether a version found on disk may be placed. Anyone who can
  *   write the folder can drop a file in it — another site given the folder, a
  *   sync service — so what turns up there is checked like anything arriving
  *   from a peer. A version refused now stays on disk and is asked about again.
- * @returns What moved
  */
 export async function reconcileFolder(
   storage: StorageProvider,

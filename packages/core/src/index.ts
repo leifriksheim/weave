@@ -43,8 +43,6 @@ export {
   hasPlatformAuthenticator,
 } from './identity/webauthn.js';
 export type { PasskeyOptions, PasskeyRegistration, PasskeyAuth, AuthOptions } from './identity/webauthn.js';
-export { deriveKeyPair } from './identity/keys.js';
-export type { DerivedKeyPair } from './identity/keys.js';
 export {
   generateRecoveryCode,
   generateSeed,
@@ -54,8 +52,8 @@ export {
   recoveryCodeToSeed,
   RECOVERY_SEED_BYTES,
 } from './identity/recovery-code.js';
-export { publicKeyToDid, didToPublicKey, P256_MULTICODEC } from './identity/did.js';
-export { createIdentityManager } from './identity/identity-manager.js';
+export { publicKeyToDid, didToPublicKey, didOf, P256_MULTICODEC } from './identity/did.js';
+export { createIdentityManager, rootFromSeed } from './identity/identity-manager.js';
 export {
   createFolderAccountStore,
   createBrowserAccountStore,
@@ -65,7 +63,7 @@ export {
   newAccountId,
 } from './identity/account-store.js';
 export type { AccountStore, AccountSummary } from './identity/account-store.js';
-export { readFolderVault, writeFolderVault, createVault, ACCOUNT_FILE } from './identity/folder-account.js';
+export { readFolderVault, createVault, ACCOUNT_FILE } from './identity/folder-account.js';
 export type { FolderState } from './identity/folder-account.js';
 export {
   wrapSeedWithDeviceKey,
@@ -76,9 +74,7 @@ export {
   deriveVaultKey,
   deriveVaultKeyBytes,
   deviceWrapsFor,
-  hasPassphraseWrap,
   withWrap,
-  withoutWrap,
   PASSPHRASE_ITERATIONS,
 } from './identity/account-vault.js';
 export {
@@ -112,7 +108,6 @@ export {
   parseUCAN,
   verifyUCAN,
   isCapabilitySubset,
-  validateDelegationChain,
   delegateCapabilities,
   resolveDelegationRoot,
 } from './identity/ucan.js';
@@ -331,6 +326,10 @@ export {
   copyAccountData,
   NODE_ACTIONS,
   runAction,
+  callAction,
+  offeredActions,
+  PEER_CONTENT_NOTE,
+  PERSON_ONLY,
   checkActionInput,
   createCarrierNode,
   createHostNode,

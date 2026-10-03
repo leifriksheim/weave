@@ -2,73 +2,39 @@ import type { CryptoProvider, Expression, UnsignedExpression } from '../types.js
 import { bodyProblem, canonicalize, envelopeOf, getExpressionId, signedPart } from './expression.js';
 import { utf8Encode, base64UrlEncode, base64UrlDecode } from '../utils/encoding.js';
 
-/**
- * JWS-style signing and verification for expressions.
- */
+/** JWS-style signing and verification for expressions. */
 export interface Signer {
-  /**
-   * Signs an unsigned payload, returning a complete Expression.
-   * @param payload The unsigned expression to sign
-   * @param privateKey The private CryptoKey for signing
-   * @returns Promise resolving to the signed Expression, whole
-   */
+  /** Signs an unsigned payload, returning a complete Expression. */
   sign<T>(
     payload: UnsignedExpression<T>,
     privateKey: CryptoKey,
   ): Promise<Expression<T> & { readonly body: T }>;
 
-  /**
-   * Verifies the signature and ID of an Expression.
-   * @param expression The expression to verify
-   * @param publicKey The public CryptoKey for verification
-   * @returns Promise resolving to true if valid, false otherwise
-   */
+  /** Verifies the signature and ID of an Expression. */
   verify<T>(expression: Expression<T>, publicKey: CryptoKey): Promise<boolean>;
 }
 
-/**
- * Creates a Signer instance using the provided CryptoProvider.
- * @param provider The CryptoProvider for cryptographic operations
- * @returns A Signer instance
- */
 export function createSigner(provider: CryptoProvider): Signer {
   return Object.freeze({
-    async sign<T>(
-      payload: UnsignedExpression<T>,
-      privateKey: CryptoKey,
-    ): Promise<Expression<T> & { readonly body: T }> {
+    async sign<T>(payload: UnsignedExpression<T>, privateKey: CryptoKey) {
       // The body is signed through its hash, so the envelope checks without it.
       const envelope = await envelopeOf(payload);
-      const payloadBytes = utf8Encode(canonicalize(envelope));
-
-      const signatureBytes = await provider.sign(privateKey, payloadBytes);
-      const signature = base64UrlEncode(signatureBytes);
-
-      const id = await getExpressionId(envelope);
-
+      const signature = base64UrlEncode(await provider.sign(privateKey, utf8Encode(canonicalize(envelope))));
       // Everything that was signed, and nothing else: listing fields one by
       // one would silently drop any field added later from the record.
-      return Object.freeze({ id, ...envelope, body: payload.body, signature });
+      return Object.freeze({
+        id: await getExpressionId(envelope),
+        ...envelope,
+        body: payload.body,
+        signature,
+      });
     },
 
     async verify<T>(expression: Expression<T>, publicKey: CryptoKey): Promise<boolean> {
-      const { id, signature } = expression;
-      const unsignedPayload = signedPart(expression);
-
-      if (await bodyProblem(expression)) return false;
-
-      // Verify ID
-      const expectedId = await getExpressionId(unsignedPayload);
-      if (id !== expectedId) {
-        return false;
-      }
-
-      // Verify Signature
-      const canonicalStr = canonicalize(unsignedPayload);
-      const payloadBytes = utf8Encode(canonicalStr);
-      const signatureBytes = base64UrlDecode(signature);
-
-      return await provider.verify(publicKey, signatureBytes, payloadBytes);
+      const signed = signedPart(expression);
+      if ((await bodyProblem(expression)) || expression.id !== (await getExpressionId(signed))) return false;
+      const bytes = utf8Encode(canonicalize(signed));
+      return provider.verify(publicKey, base64UrlDecode(expression.signature), bytes);
     },
   });
 }

@@ -2,23 +2,17 @@ import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useAccount, useConnection } from '@weaveprotocol/core/react';
 import { Avatar } from '@weave/app-shared/Avatar';
 import { useDismiss } from '@weave/app-shared/useDismiss';
+import { useCopy } from '@weave/app-shared/action';
 import { ConnectAgent } from './ConnectAgent';
 import { useAppNotifications } from '../notifications';
 import { palette } from '../styles';
 
-/**
- * The avatar in the corner: who this app acts for, and a short menu.
- *
- * Everything about the account itself — its name, passkeys, staying signed
- * in, connected apps — lives in the account home, so "Account settings" opens
- * it. This app only knows how to disconnect itself, and how to ask for
- * notifications — which it shows itself (`notifications.ts`).
- */
+/** The avatar in the corner: who this app acts for; the account itself lives in the account home */
 export function AccountMenu() {
   const account = useAccount();
   const { connection, state } = useConnection();
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy();
   const [connecting, setConnecting] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const notifications = useAppNotifications();
@@ -78,12 +72,7 @@ export function AccountMenu() {
                 {account.name}
               </div>
               <button
-                onClick={() => {
-                  void globalThis.navigator.clipboard?.writeText(account.did).then(() => {
-                    setCopied(true);
-                    globalThis.setTimeout(() => setCopied(false), 1500);
-                  });
-                }}
+                onClick={() => copy(account.did)}
                 title={`${account.did} — click to copy`}
                 style={{
                   border: 'none',
