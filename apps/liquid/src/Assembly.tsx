@@ -7,8 +7,9 @@ import { useAssembly, type Assembly } from './model';
 import { Proposals } from './Proposals';
 import { Delegations } from './Delegations';
 import { People } from './People';
-import { topic as topicCollection } from './schema';
+import { ASSEMBLY, topic as topicCollection } from './schema';
 import { Problem, TopicChip, useAction } from './ui';
+import { useDuties } from './duties';
 import { palette } from './styles';
 import { CommunitySetup } from '@weave/app-shared/CommunitySetup';
 
@@ -100,7 +101,8 @@ function AssemblyBody({ space, a }: { space: SpaceSummary; a: Assembly }) {
     }
   };
 
-  const open = a.proposals.filter((p) => !p.closed).length;
+  const open = a.proposals.filter((p) => p.result === 'open').length;
+  useDuties(a, space.writable);
   const mine = a.mine.length;
 
   return (
@@ -150,6 +152,7 @@ function AssemblyBody({ space, a }: { space: SpaceSummary; a: Assembly }) {
               You can read this assembly, but you hold no role in it, so you can’t vote, propose or delegate.
             </div>
           )}
+          {!a.current && <Outdated a={a} writable={space.writable} />}
           {tab === 'proposals' && <CommunitySetup spaceId={a.spaceId} writable={space.writable} />}
           {tab === 'proposals' && <Proposals a={a} writable={space.writable} />}
           {tab === 'trust' && <Delegations a={a} writable={space.writable} />}
@@ -159,6 +162,43 @@ function AssemblyBody({ space, a }: { space: SpaceSummary; a: Assembly }) {
 
       {how && <HowItWorks onClose={closeHow} />}
       {topics && <Topics a={a} onClose={() => setTopics(false)} />}
+    </div>
+  );
+}
+
+/**
+ * An assembly made by an older Liquid: votes there could change, and
+ * proposals had no voter list. Someone allowed to change the space's
+ * collections brings it up to date; proposals made before stay undecided.
+ */
+function Outdated({ a, writable }: { a: Assembly; writable: boolean }) {
+  const node = useNode();
+  const action = useAction();
+  return (
+    <div className="lq-note" data-tone="warn" style={{ marginBottom: 20, fontSize: 13, lineHeight: 1.55 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span>
+          This assembly was made with an older Liquid, where votes could change and proposals closed by hand.
+          Updating it makes votes final and proposals settle themselves. Proposals made before stay as they
+          are.
+        </span>
+        {writable && (
+          <button
+            className="lq-btn"
+            data-size="sm"
+            style={{ alignSelf: 'flex-start' }}
+            disabled={action.busy}
+            onClick={() =>
+              void action.run(async () => {
+                for (const definition of ASSEMBLY) await node.collections.define(a.spaceId, definition);
+              })
+            }
+          >
+            Update this assembly
+          </button>
+        )}
+        <Problem>{action.error}</Problem>
+      </div>
     </div>
   );
 }
@@ -330,52 +370,61 @@ function HowItWorks({ onClose }: { onClose: () => void }) {
     <Modal title="How Liquid works" onClose={onClose} width={560}>
       <Section title="Your vote">
         <Li>
-          Vote on any proposal yourself, any time before it closes. Your own vote always counts over a
-          delegation.
+          Each proposal lists who votes on it: everyone in the assembly when it was proposed. People who join
+          later vote on later proposals.
         </Li>
         <Li>
-          When you don’t vote, your vote goes to whoever you trust with the proposal’s topic, or else whoever
-          you trust with everything.
-        </Li>
-        <Li>If they didn’t vote either, it goes on to whoever they trust, and so on.</Li>
-        <Li>
-          A party votes the way most of its members voted themselves. A tie, or no member voting, casts
-          nothing. A party never passes your vote on further.
+          <strong>Votes are final.</strong> Once cast, a vote can’t be changed or taken back. That’s what lets
+          a result, once reached, stay reached.
         </Li>
         <Li>
-          A chain that loops back round, or ends with someone who did nothing, casts nothing. Liquid shows you
-          when yours does.
+          When you don’t vote, your device follows whoever you trust with the proposal’s topic, or else
+          whoever you trust with everything: once they vote, it casts the same vote for you, signed by you.
+          Vote first and your own vote counts instead.
         </Li>
         <Li>
-          A proposal is accepted with more votes for than against. Abstaining counts toward turnout only.
+          Following goes along a chain, one device at a time: if you trust Ada and Ada trusts Bo, Bo’s vote
+          reaches Ada first, then you. A chain that loops back round never casts anything; Liquid warns you.
+        </Li>
+        <Li>
+          A party takes a position once more than half of its members vote the same way themselves. Its
+          stewards’ devices freeze who its members are for each proposal.
+        </Li>
+      </Section>
+      <Section title="How a proposal is settled">
+        <Li>
+          <strong>Passed</strong> once more than half of its voters voted for. <strong>Rejected</strong> once
+          at least half voted against or abstained, so for can no longer pass.
+        </Li>
+        <Li>
+          Whichever device sees that first writes a decision citing the votes, and every device checks it.
+          Nobody closes a vote and nobody adds up, so every device reaches the same result, in any order.
+        </Li>
+        <Li>
+          <strong>Disputed</strong> when someone is caught signing two different versions of a vote, or a
+          party’s members. That proof spreads like any record, and no later vote takes it back.
         </Li>
       </Section>
       <Section title="What this app can’t promise">
+        <Li>
+          <strong>A proposal can stay open.</strong> There’s no deadline: devices don’t share a trusted clock.
+          If too few people vote, it stays open.
+        </Li>
+        <Li>
+          <strong>Following needs a device.</strong> Your vote follows your delegate only while Liquid is open
+          on one of your devices.
+        </Li>
         <Li>
           <strong>Votes are not secret.</strong> Everyone in the assembly can see who voted what, and who
           trusts whom. That’s how delegates stay accountable, but it rules out a secret ballot.
         </Li>
         <Li>
-          <strong>Every device counts for itself.</strong> There is no server adding up. Each device runs the
-          same rules on the votes it holds, so two devices can briefly disagree while votes are still
-          arriving.
-        </Li>
-        <Li>
-          <strong>Closing is one person’s snapshot.</strong> Whoever closes a proposal saves the count their
-          device made. Everyone else sees whether their own count agrees. Nothing stops a vote being changed
-          after closing; Liquid just stops showing the buttons, and the difference shows.
-        </Li>
-        <Li>
-          <strong>There are no deadlines.</strong> Devices don’t share a trusted clock, so a proposal is open
-          until someone closes it.
+          <strong>Someone writes the voter list.</strong> Whoever proposes lists the members their device
+          knows of. Every voter must be a member, but nothing proves nobody was left out.
         </Li>
         <Li>
           <strong>One account, one vote.</strong> Nothing proves an account is a different person. Whoever can
           invite decides who votes, so invite with care.
-        </Li>
-        <Li>
-          <strong>People who leave stop counting.</strong> The count only includes current members, as voters
-          and as delegates.
         </Li>
         <Li>
           <strong>Liquid on its own asks for your whole Weave account.</strong> Making or joining an assembly

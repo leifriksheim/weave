@@ -1,21 +1,40 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { accepted, count, turnout, type CountInput, type DelegationEdge, type PartyView } from '../src/tally';
+import {
+  follow,
+  needed,
+  partyPosition,
+  pending,
+  proof,
+  resultOf,
+  settled,
+  tally,
+  trail,
+  type CastVote,
+  type DelegationEdge,
+  type FollowInput,
+  type PartyStand,
+  type Votes,
+} from '../src/tally';
 import type { Choice } from '../src/schema';
 
 const HOUSING = 'topic-housing';
 const PARKS = 'topic-parks';
+const VOTERS = ['did:ada', 'did:bo', 'did:cy', 'did:di', 'did:ed'];
 
-const input = (
-  over: Partial<Omit<CountInput, 'votes'>> & { votes?: Record<string, Choice> },
-): CountInput => ({
-  members: ['ada', 'bo', 'cy', 'di', 'ed'],
-  topic: HOUSING,
-  delegations: [],
-  parties: [],
-  ...over,
-  votes: new Map(Object.entries(over.votes ?? {})),
+const cast = (choice: Choice, via: string | null = null, who = 'x'): CastVote => ({
+  choice,
+  via,
+  version: `v-${who}`,
+  key: `k-${who}`,
 });
+const votes = (entries: Record<string, Choice | [Choice, string]>): Votes =>
+  new Map(
+    Object.entries(entries).map(([did, v]) => [
+      did,
+      Array.isArray(v) ? cast(v[0], v[1], did) : cast(v, null, did),
+    ]),
+  );
 
 const to = (from: string, target: string, topic = '*'): DelegationEdge => ({
   from,
@@ -29,125 +48,210 @@ const toParty = (from: string, key: string, topic = '*'): DelegationEdge => ({
   to: key,
   topic,
 });
-const party = (key: string, members: string[]): PartyView => ({ key, name: key, members: new Set(members) });
 
-describe('counting a proposal', () => {
-  test('everyone votes themselves', () => {
-    const { totals } = count(input({ votes: { ada: 'for', bo: 'for', cy: 'against', di: 'abstain' } }));
-    assert.deepEqual(totals, { for: 2, against: 1, abstain: 1, uncast: 1 });
-    assert.equal(accepted(totals), true);
-    assert.equal(turnout(totals), 0.8);
+const input = (over: Partial<FollowInput> = {}): FollowInput => ({
+  me: 'did:ada',
+  topic: HOUSING,
+  votes: new Map(),
+  delegations: [],
+  parties: new Map<string, PartyStand>(),
+  voters: new Set(VOTERS),
+  ...over,
+});
+
+describe('settling a proposal', () => {
+  test('counts only its voters', () => {
+    const t = tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'against', 'did:newcomer': 'for' }));
+    assert.deepEqual(t, { for: 1, against: 1, abstain: 0, uncast: 3 });
   });
 
-  test('a delegation carries the vote, along a chain', () => {
-    const { totals, outcomes, carried } = count(
-      input({ votes: { ada: 'against' }, delegations: [to('bo', 'cy'), to('cy', 'ada'), to('di', 'ada')] }),
+  test('passes with more than half for, and not a vote sooner', () => {
+    assert.equal(settled(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'for' }))), null);
+    assert.equal(
+      settled(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' }))),
+      'passed',
     );
-    assert.deepEqual(totals, { for: 0, against: 4, abstain: 0, uncast: 1 });
-    assert.deepEqual(outcomes.get('bo')?.path, [
-      { kind: 'person', did: 'cy' },
-      { kind: 'person', did: 'ada' },
+  });
+
+  test('fails once half are against or abstain, since for can no longer pass', () => {
+    const four = VOTERS.slice(0, 4);
+    assert.equal(settled(tally(four, votes({ 'did:ada': 'against' }))), null);
+    assert.equal(settled(tally(four, votes({ 'did:ada': 'against', 'did:bo': 'abstain' }))), 'rejected');
+    // Five voters: two not for still leaves three to pass.
+    assert.equal(settled(tally(VOTERS, votes({ 'did:ada': 'against', 'did:bo': 'abstain' }))), null);
+  });
+
+  test('a settled count stays settled whatever arrives later', () => {
+    const early = votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' });
+    const later = votes({
+      'did:ada': 'for',
+      'did:bo': 'for',
+      'did:cy': 'for',
+      'did:di': 'against',
+      'did:ed': 'against',
+    });
+    assert.equal(settled(tally(VOTERS, early)), 'passed');
+    assert.equal(settled(tally(VOTERS, later)), 'passed');
+  });
+
+  test('says how far each way is', () => {
+    assert.deepEqual(needed(tally(VOTERS, votes({ 'did:ada': 'for', 'did:bo': 'against' }))), {
+      toPass: 2,
+      toFail: 2,
+    });
+  });
+
+  test('a proof cites just enough votes, in the same order on every device', () => {
+    const all = votes({
+      'did:ed': 'for',
+      'did:ada': 'for',
+      'did:cy': 'for',
+      'did:bo': 'for',
+      'did:di': 'against',
+    });
+    assert.deepEqual(proof(VOTERS, all, 'passed'), ['v-did:ada', 'v-did:bo', 'v-did:cy']);
+    assert.equal(proof(VOTERS, all, 'rejected'), null);
+  });
+
+  test('the ladder: open, then passed or rejected, then disputed for good', () => {
+    assert.equal(resultOf(null, false), 'open');
+    assert.equal(resultOf('passed', false), 'passed');
+    assert.equal(resultOf('passed', true), 'disputed');
+    assert.equal(resultOf(null, true), 'disputed');
+  });
+});
+
+describe('following someone you trust', () => {
+  test('nobody trusted: nothing to do', () => {
+    assert.deepEqual(follow(input()), { kind: 'wait', path: [], how: 'unset' });
+  });
+
+  test('once they have voted, your device casts the same, saying whom it followed', () => {
+    const next = follow(
+      input({ delegations: [to('did:ada', 'did:bo')], votes: votes({ 'did:bo': 'against' }) }),
+    );
+    assert.deepEqual(next, { kind: 'cast', choice: 'against', via: 'did:bo' });
+  });
+
+  test('a copied vote is followed too, so a chain fills in one device at a time', () => {
+    const delegations = [to('did:ada', 'did:bo'), to('did:bo', 'did:cy')];
+    // Cy voted; Bo's device hasn't followed yet, so Ada waits, and sees where it's headed.
+    const waiting = follow(input({ delegations, votes: votes({ 'did:cy': 'for' }) }));
+    assert.equal(waiting.kind, 'wait');
+    assert.deepEqual(waiting.kind === 'wait' && waiting.path, [
+      { kind: 'person', did: 'did:bo' },
+      { kind: 'person', did: 'did:cy' },
     ]);
-    assert.equal(outcomes.get('bo')?.how, 'followed');
-    assert.equal(carried.get('ada'), 4);
-  });
-
-  test('your own vote overrides your delegation', () => {
-    const { outcomes } = count(
-      input({ votes: { ada: 'for', bo: 'against' }, delegations: [to('bo', 'ada')] }),
+    // Bo's device follows Cy; then Ada's follows Bo.
+    const next = follow(
+      input({ delegations, votes: votes({ 'did:cy': 'for', 'did:bo': ['for', 'did:cy'] }) }),
     );
-    assert.equal(outcomes.get('bo')?.choice, 'against');
-    assert.equal(outcomes.get('bo')?.how, 'own');
+    assert.deepEqual(next, { kind: 'cast', choice: 'for', via: 'did:bo' });
   });
 
-  test('a topic delegation comes before the one for everything', () => {
-    const delegations = [to('ed', 'ada'), to('ed', 'bo', HOUSING)];
-    const votes = { ada: 'for', bo: 'against' } as const;
-    assert.equal(count(input({ votes, delegations })).outcomes.get('ed')?.choice, 'against');
-    assert.equal(count(input({ votes, delegations, topic: PARKS })).outcomes.get('ed')?.choice, 'for');
-    assert.equal(count(input({ votes, delegations, topic: null })).outcomes.get('ed')?.choice, 'for');
+  test('a topic’s delegation comes before the one for everything', () => {
+    const delegations = [to('did:ada', 'did:bo'), to('did:ada', 'did:cy', HOUSING)];
+    const v = votes({ 'did:bo': 'for', 'did:cy': 'against' });
+    assert.deepEqual(follow(input({ delegations, votes: v })), {
+      kind: 'cast',
+      choice: 'against',
+      via: 'did:cy',
+    });
+    assert.deepEqual(follow(input({ delegations, votes: v, topic: PARKS })), {
+      kind: 'cast',
+      choice: 'for',
+      via: 'did:bo',
+    });
   });
 
-  test('a loop casts nothing, and says so', () => {
-    const { outcomes, totals } = count(
-      input({ delegations: [to('ada', 'bo'), to('bo', 'cy'), to('cy', 'ada')] }),
-    );
-    assert.equal(outcomes.get('ada')?.how, 'loop');
-    assert.equal(outcomes.get('ada')?.choice, null);
-    assert.equal(totals.uncast, 5);
+  test('a loop never casts anything, and says so', () => {
+    const delegations = [to('did:ada', 'did:bo'), to('did:bo', 'did:ada')];
+    const next = follow(input({ delegations }));
+    assert.equal(next.kind === 'wait' && next.how, 'loop');
   });
 
-  test('a chain that ends with someone who did nothing casts nothing', () => {
-    const { outcomes } = count(input({ delegations: [to('ada', 'bo')] }));
-    assert.equal(outcomes.get('ada')?.how, 'stopped');
-    assert.equal(outcomes.get('cy')?.how, 'unset');
+  test('in a loop, someone voting themselves goes round once and stops', () => {
+    const delegations = [to('did:ada', 'did:bo'), to('did:bo', 'did:cy'), to('did:cy', 'did:ada')];
+    const first = votes({ 'did:cy': 'for' });
+    assert.deepEqual(follow(input({ me: 'did:bo', delegations, votes: first })), {
+      kind: 'cast',
+      choice: 'for',
+      via: 'did:cy',
+    });
+    const second = votes({ 'did:cy': 'for', 'did:bo': ['for', 'did:cy'] });
+    assert.deepEqual(follow(input({ delegations, votes: second })), {
+      kind: 'cast',
+      choice: 'for',
+      via: 'did:bo',
+    });
+    // Everyone in the loop has voted, each once: nothing is left to cast round it.
+    const third = votes({ 'did:cy': 'for', 'did:bo': ['for', 'did:cy'], 'did:ada': ['for', 'did:bo'] });
+    assert.deepEqual(pending(input({ delegations, votes: third })), {
+      for: 0,
+      against: 0,
+      abstain: 0,
+      uncast: 2,
+    });
   });
 
-  test('someone who left the assembly carries no votes', () => {
-    const { outcomes, totals } = count(input({ votes: { gone: 'for' }, delegations: [to('ada', 'gone')] }));
-    assert.equal(outcomes.get('ada')?.how, 'stopped');
-    assert.equal(outcomes.has('gone'), false);
-    assert.equal(totals.for, 0);
+  test('someone who isn’t a voter on this proposal is a dead end', () => {
+    const next = follow(input({ delegations: [to('did:ada', 'did:newcomer')] }));
+    assert.equal(next.kind === 'wait' && next.how, 'stopped');
   });
 
-  test('a party votes with the majority of its members who voted themselves', () => {
-    const greens = party('greens', ['ada', 'bo', 'cy']);
-    const { outcomes, parties, carried } = count(
-      input({
-        votes: { ada: 'for', bo: 'for', cy: 'against' },
-        parties: [greens],
-        delegations: [toParty('di', 'greens'), toParty('ed', 'greens')],
-      }),
-    );
-    assert.equal(parties.get('greens'), 'for');
-    assert.equal(outcomes.get('di')?.choice, 'for');
-    assert.equal(carried.get('greens'), 2);
+  test('a party: cast its position, wait for it, or not follow it when disputed', () => {
+    const delegations = [toParty('did:ada', 'greens')];
+    assert.deepEqual(follow(input({ delegations, parties: new Map([['greens', 'for']]) })), {
+      kind: 'cast',
+      choice: 'for',
+      via: 'greens',
+    });
+    assert.equal(follow(input({ delegations })).kind, 'wait');
+    const disputed = follow(input({ delegations, parties: new Map([['greens', 'disputed']]) }));
+    assert.equal(disputed.kind === 'wait' && disputed.how, 'disputed');
   });
 
-  test('a tied party casts nothing', () => {
-    const { outcomes } = count(
-      input({
-        votes: { ada: 'for', bo: 'against' },
-        parties: [party('greens', ['ada', 'bo'])],
-        delegations: [toParty('di', 'greens')],
-      }),
-    );
-    assert.equal(outcomes.get('di')?.how, 'undecided');
-  });
-
-  test('delegated votes do not decide a party: only its members’ own votes do', () => {
-    // bo follows ada, but only ada voted herself, so the party is for.
-    const { parties } = count(
-      input({
-        votes: { ada: 'for', cy: 'against' },
-        parties: [party('greens', ['ada', 'bo'])],
-        delegations: [to('bo', 'cy')],
-      }),
-    );
-    assert.equal(parties.get('greens'), 'for');
-  });
-
-  test('a person’s chain can end in a party', () => {
-    const { outcomes } = count(
-      input({
-        votes: { ada: 'against' },
-        parties: [party('reds', ['ada'])],
-        delegations: [to('ed', 'di'), toParty('di', 'reds')],
-      }),
-    );
-    assert.equal(outcomes.get('ed')?.choice, 'against');
-    assert.deepEqual(outcomes.get('ed')?.path, [
-      { kind: 'person', did: 'di' },
-      { kind: 'party', key: 'reds' },
+  test('the path a cast vote took, read from its via', () => {
+    const v = votes({
+      'did:cy': ['for', 'greens'],
+      'did:bo': ['for', 'did:cy'],
+      'did:ada': ['for', 'did:bo'],
+    });
+    assert.deepEqual(trail('did:ada', v), [
+      { kind: 'person', did: 'did:bo' },
+      { kind: 'person', did: 'did:cy' },
+      { kind: 'party', key: 'greens' },
     ]);
+    assert.deepEqual(trail('did:ed', v), []);
   });
 
-  test('a delegation to a party that is gone casts nothing', () => {
-    const { outcomes } = count(input({ delegations: [toParty('ada', 'nowhere')] }));
-    assert.equal(outcomes.get('ada')?.how, 'stopped');
+  test('what’s coming: votes devices would cast once online', () => {
+    const delegations = [to('did:bo', 'did:ada'), to('did:cy', 'did:ada'), to('did:di', 'did:ed')];
+    const coming = pending({ ...input({ delegations, votes: votes({ 'did:ada': 'for' }) }) });
+    assert.deepEqual(coming, { for: 2, against: 0, abstain: 0, uncast: 2 });
+  });
+});
+
+describe('a party’s position', () => {
+  const roll = ['did:ada', 'did:bo', 'did:cy', 'did:di'];
+
+  test('more than half of its frozen members, voting themselves', () => {
+    assert.equal(partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for' })), null);
+    assert.deepEqual(partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' })), {
+      choice: 'for',
+      votes: ['v-did:ada', 'v-did:bo', 'v-did:cy'],
+    });
   });
 
-  test('a tie between for and against is not accepted', () => {
-    assert.equal(accepted({ for: 2, against: 2, abstain: 1, uncast: 0 }), false);
+  test('votes cast by following don’t count, so a party never counts its followers back in', () => {
+    const v = votes({ 'did:ada': 'for', 'did:bo': ['for', 'greens'], 'did:cy': ['for', 'greens'] });
+    assert.equal(partyPosition(roll, v), null);
+  });
+
+  test('members who joined after the roll don’t count', () => {
+    assert.equal(
+      partyPosition(['did:ada', 'did:bo', 'did:cy'], votes({ 'did:ada': 'for', 'did:zed': 'for' })),
+      null,
+    );
   });
 });

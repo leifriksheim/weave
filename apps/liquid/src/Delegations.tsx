@@ -4,19 +4,35 @@ import { Avatar } from '@weave/app-shared/Avatar';
 import { Modal } from '@weave/app-shared/Modal';
 import type { Assembly, MyDelegation, TopicView } from './model';
 import { EVERYTHING, delegation } from './schema';
-import { count, type Outcome } from './tally';
+import { follow, type DelegationEdge, type Next } from './tally';
 import { PartyChip, PartyMark, PathView, Problem, TopicChip, Who, useAction } from './ui';
 import { palette } from './styles';
 
 /** Where someone's vote would go on a topic if nobody voted: the chain of trust alone */
-function chainFor(a: Assembly, topic: string | null) {
-  return count({
-    members: a.members.map((m) => m.did),
+function chainFor(
+  a: Assembly,
+  did: string,
+  topic: string | null,
+  delegations: ReadonlyArray<DelegationEdge> = a.delegations,
+): Next {
+  return follow({
+    me: did,
     topic,
     votes: new Map(),
-    delegations: a.delegations,
-    parties: a.parties,
+    delegations,
+    parties: new Map(),
+    voters: new Set(a.members.map((m) => m.did)),
   });
+}
+
+/** Whether trusting someone with a topic would bring the chain back round to you */
+function makesLoop(a: Assembly, topic: string, to: string): boolean {
+  const edges = [
+    ...a.delegations.filter((d) => !(d.from === a.me && d.topic === topic)),
+    { from: a.me, kind: 'person' as const, to, topic },
+  ];
+  const next = chainFor(a, a.me, topic === EVERYTHING ? null : topic, edges);
+  return next.kind === 'wait' && next.how === 'loop';
 }
 
 export function Delegations({ a, writable }: { a: Assembly; writable: boolean }) {
@@ -33,8 +49,9 @@ export function Delegations({ a, writable }: { a: Assembly; writable: boolean })
           Who votes when you don’t
         </h2>
         <p className="lq-muted" style={{ fontSize: 14.5, lineHeight: 1.55, maxWidth: 600 }}>
-          Trust someone with a topic, and they vote for you on it whenever you don’t. Voting yourself always
-          wins, and you can move or take back your trust at any time.
+          Trust someone with a topic. When they vote on a proposal you haven’t, your device casts the same
+          vote for you, signed by you. Vote first and yours counts instead. Votes are final, but you can move
+          or take back your trust at any time, for proposals still to come.
         </p>
       </section>
 
@@ -83,7 +100,7 @@ function TrustRow({
   const action = useAction();
   const mine = a.mine.find((d) => d.topic === topicKey) ?? null;
   const fallback = topic ? (a.mine.find((d) => d.topic === EVERYTHING) ?? null) : null;
-  const outcome = chainFor(a, topic ? topicKey : null).outcomes.get(a.me);
+  const outcome = chainFor(a, a.me, topic ? topicKey : null);
 
   return (
     <div className="lq-row" style={{ alignItems: 'flex-start', padding: '16px 18px', flexWrap: 'wrap' }}>
@@ -114,7 +131,7 @@ function TrustRow({
             {topic ? 'Nobody. You vote on this yourself.' : 'Nobody. You vote on everything yourself.'}
           </span>
         )}
-        {outcome && (mine || fallback) && <ChainNote a={a} outcome={outcome} />}
+        {(mine || fallback) && <ChainNote a={a} next={outcome} />}
         <Problem>{action.error}</Problem>
       </div>
       {writable && (
@@ -158,21 +175,25 @@ function Target({ a, d }: { a: Assembly; d: MyDelegation }) {
 }
 
 /** Where the chain of trust ends, when it goes past the first step, or goes nowhere */
-function ChainNote({ a, outcome }: { a: Assembly; outcome: Outcome }) {
-  if (outcome.how === 'loop')
+function ChainNote({ a, next }: { a: Assembly; next: Next }) {
+  if (next.kind !== 'wait') return null;
+  if (next.how === 'loop')
     return (
       <div className="lq-note" data-tone="warn" style={{ fontSize: 12.5 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <PathView outcome={outcome} a={a} from={a.me} />
-          <span>This comes back round to you, so unless someone on it votes, nobody does.</span>
+          <PathView path={next.path} a={a} from={a.me} />
+          <span>
+            This comes back round to you. Unless someone on it votes themselves, nobody does: nothing is ever
+            copied round a loop.
+          </span>
         </div>
       </div>
     );
-  if (outcome.path.length < 2) return null;
+  if (next.path.length < 2) return null;
   return (
     <div className="lq-muted" style={{ fontSize: 12.5, display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span>When they don’t vote either, it goes on:</span>
-      <PathView outcome={outcome} a={a} from={a.me} />
+      <span>When they follow someone too, it goes on:</span>
+      <PathView path={next.path} a={a} from={a.me} />
     </div>
   );
 }
@@ -186,11 +207,14 @@ function TrustedBy({ a }: { a: Assembly }) {
     ];
     return topics
       .map(({ key, topic }) => {
-        const outcomes = chainFor(a, topic ? key : null).outcomes;
-        const through = [...outcomes].filter(
-          ([did, o]) => did !== a.me && o.path.some((s) => s.kind === 'person' && s.did === a.me),
+        const outcomes = a.members.map((m) => [m.did, chainFor(a, m.did, topic ? key : null)] as const);
+        const through = outcomes.filter(
+          ([did, o]) =>
+            did !== a.me && o.kind === 'wait' && o.path.some((s) => s.kind === 'person' && s.did === a.me),
         );
-        const direct = through.filter(([, o]) => o.path[0]?.kind === 'person' && o.path[0].did === a.me);
+        const direct = through.filter(
+          ([, o]) => o.kind === 'wait' && o.path[0]?.kind === 'person' && o.path[0].did === a.me,
+        );
         return { key, topic, through: through.length, direct: direct.map(([did]) => did) };
       })
       .filter((row, _, all) => {
@@ -230,7 +254,7 @@ function TrustedBy({ a }: { a: Assembly }) {
                 ))}
               </span>
               <span className="lq-muted lq-num" style={{ fontSize: 13 }}>
-                {row.through} {row.through === 1 ? 'vote' : 'votes'} when they don’t vote
+                {row.through} {row.through === 1 ? 'vote follows' : 'votes follow'} yours when they don’t vote
                 {row.through > row.direct.length
                   ? `, ${row.direct.length} from people who trust you directly`
                   : ''}
@@ -325,6 +349,7 @@ function Picker({
           people.map((m) => {
             const n = trustCount(m.did);
             const theirParties = a.parties.filter((p) => p.members.has(m.did));
+            const loops = makesLoop(a, topic, m.did);
             return (
               <button
                 key={m.did}
@@ -337,7 +362,11 @@ function Picker({
                 <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontWeight: 500 }}>{a.name(m.did)}</span>
                   <span className="lq-faint" style={{ fontSize: 12 }}>
-                    {[theirParties.map((p) => p.name).join(', '), n ? `trusted by ${n} on ${label}` : '']
+                    {[
+                      loops ? 'trusts you back: a loop' : '',
+                      theirParties.map((p) => p.name).join(', '),
+                      n ? `trusted by ${n} on ${label}` : '',
+                    ]
                       .filter(Boolean)
                       .join(' · ') || m.role}
                   </span>
@@ -380,7 +409,7 @@ function Picker({
       </div>
       {kind === 'party' && (
         <p className="lq-faint" style={{ fontSize: 12, lineHeight: 1.5 }}>
-          A party votes the way most of its members voted themselves.
+          A party takes a position once more than half of its members vote the same way themselves.
         </p>
       )}
       <Problem>{action.error}</Problem>
