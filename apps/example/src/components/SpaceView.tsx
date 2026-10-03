@@ -198,116 +198,124 @@ export function SpaceView({
     >
       <div className="space-shell" data-app-open={open ? '' : undefined}>
         <aside className="space-sidebar" aria-label={space.name}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 8px 12px' }}>
-            <SpaceMark space={space} size={32} />
-            <div style={{ minWidth: 0 }}>
-              <strong style={{ ...ellipsis, display: 'block', fontSize: 15, color: palette.ink.strong }}>
-                {space.name}
-              </strong>
-              <Privacy space={space} />
+          <div className="space-sidebar-scroll">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 8px 12px' }}>
+              <SpaceMark space={space} size={32} />
+              <div style={{ minWidth: 0 }}>
+                <strong style={{ ...ellipsis, display: 'block', fontSize: 15, color: palette.ink.strong }}>
+                  {space.name}
+                </strong>
+                <Privacy space={space} />
+              </div>
             </div>
-          </div>
-          {status && (
-            <div style={{ padding: '0 8px 12px' }}>
-              <WhoIsHere status={status} people={people} onOpen={() => goHood('network')} />
-            </div>
-          )}
-
-          <nav aria-label="This space" style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <SideItem
-              icon={<Icon name="apps" size={16} />}
-              label="All apps"
-              on={view.kind === 'apps'}
-              onClick={() => setView({ kind: 'apps' })}
-            />
-            <SideHeading>Apps</SideHeading>
-            {listed.map((app) => (
-              <SideItem
-                key={app.id}
-                icon={<AppIcon icon={app.icon} hue={app.hue} size={20} />}
-                label={app.title}
-                unread={unreadOf(unread, app.id)}
-                on={open?.id === app.id}
-                onClick={() => openApp(app.id)}
-              />
-            ))}
-            {folds && (
-              <SideItem
-                icon={
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      transform: everyApp ? 'rotate(-90deg)' : 'rotate(90deg)',
-                    }}
-                  >
-                    <Icon name="chevron" size={12} />
-                  </span>
-                }
-                label={everyApp ? 'Show fewer' : `${folded.length} more`}
-                unread={newInFolded}
-                quiet
-                expanded={everyApp}
-                onClick={() => setEveryApp(!everyApp)}
-              />
+            {status && (
+              <div style={{ padding: '0 8px 12px' }}>
+                <WhoIsHere status={status} people={people} onOpen={() => goHood('network')} />
+              </div>
             )}
-            {space.writable && (
-              <SideItem
-                icon={<Icon name="plus" size={16} />}
-                label="Create an app"
-                quiet
-                onClick={() => setCreating(true)}
-              />
-            )}
-            <SideHeading>Space</SideHeading>
-            {SECTIONS.map((section) => (
-              <SideItem
-                key={section.kind}
-                icon={<Icon name={section.icon} size={16} />}
-                label={section.label}
-                on={view.kind === section.kind}
-                onClick={() => setView({ kind: section.kind })}
-              />
-            ))}
-          </nav>
 
-          <nav
-            aria-label="Under the hood"
-            style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 'auto', paddingTop: 24 }}
-          >
-            <button
-              onClick={() => openHood(!hoodOpen)}
-              aria-expanded={hoodOpen}
-              aria-current={!hoodOpen && view.kind === 'hood' ? 'page' : undefined}
-              data-nav
-              className="side-item"
-              style={{ color: palette.ink.faint, fontSize: 13 }}
-            >
-              <span style={{ width: 20, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon name="layers" size={14} />
-              </span>
-              <span style={{ ...ellipsis, flex: 1, minWidth: 0 }}>Under the hood</span>
-              <span
-                style={{
-                  display: 'inline-flex',
-                  transform: hoodOpen ? 'rotate(90deg)' : 'none',
-                  transition: 'transform .12s ease',
-                }}
-              >
-                <Icon name="chevron" size={12} />
-              </span>
-            </button>
-            {hoodOpen &&
-              HOOD.map((h) => (
+            <nav aria-label="This space" style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <SideItem
+                icon={<Icon name="apps" size={16} />}
+                label="All apps"
+                on={view.kind === 'apps'}
+                onClick={() => setView({ kind: 'apps' })}
+              />
+              <SideHeading>Apps</SideHeading>
+              {listed.map((app) => (
                 <SideItem
-                  key={h.id}
-                  icon={<Icon name={h.icon} size={16} />}
-                  label={h.label}
-                  quiet
-                  on={view.kind === 'hood' && view.hood === h.id}
-                  onClick={() => goHood(h.id)}
+                  key={app.id}
+                  icon={<AppIcon icon={app.icon} hue={app.hue} size={20} />}
+                  label={app.title}
+                  unread={unreadOf(unread, app.id)}
+                  on={open?.id === app.id}
+                  onClick={() => openApp(app.id)}
                 />
               ))}
-          </nav>
+              {folds && (
+                <SideItem
+                  icon={
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        transform: everyApp ? 'rotate(-90deg)' : 'rotate(90deg)',
+                      }}
+                    >
+                      <Icon name="chevron" size={12} />
+                    </span>
+                  }
+                  label={everyApp ? 'Show fewer' : `${folded.length} more`}
+                  unread={newInFolded}
+                  quiet
+                  expanded={everyApp}
+                  onClick={() => setEveryApp(!everyApp)}
+                />
+              )}
+              {space.writable && (
+                <SideItem
+                  icon={<Icon name="plus" size={16} />}
+                  label="Create an app"
+                  quiet
+                  onClick={() => setCreating(true)}
+                />
+              )}
+              <SideHeading>Space</SideHeading>
+              {SECTIONS.map((section) => (
+                <SideItem
+                  key={section.kind}
+                  icon={<Icon name={section.icon} size={16} />}
+                  label={section.label}
+                  on={view.kind === section.kind}
+                  onClick={() => setView({ kind: section.kind })}
+                />
+              ))}
+            </nav>
+
+            <nav
+              aria-label="Under the hood"
+              style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 'auto', paddingTop: 24 }}
+            >
+              <button
+                onClick={() => openHood(!hoodOpen)}
+                aria-expanded={hoodOpen}
+                aria-current={!hoodOpen && view.kind === 'hood' ? 'page' : undefined}
+                data-nav
+                className="side-item"
+                style={{ color: palette.ink.faint, fontSize: 13 }}
+              >
+                <span style={{ width: 20, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon name="layers" size={14} />
+                </span>
+                <span style={{ ...ellipsis, flex: 1, minWidth: 0 }}>Under the hood</span>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    transform: hoodOpen ? 'rotate(90deg)' : 'none',
+                    transition: 'transform .12s ease',
+                  }}
+                >
+                  <Icon name="chevron" size={12} />
+                </span>
+              </button>
+              {hoodOpen &&
+                HOOD.map((h) => (
+                  <SideItem
+                    key={h.id}
+                    icon={<Icon name={h.icon} size={16} />}
+                    label={h.label}
+                    quiet
+                    on={view.kind === 'hood' && view.hood === h.id}
+                    onClick={() => goHood(h.id)}
+                  />
+                ))}
+            </nav>
+          </div>
+
+          {/* You, the way chat apps put you: at the foot of the sidebar, with what's new for you. */}
+          <div className="you-bar">
+            <AccountMenu place="sidebar" />
+            <Bell spaces={spaces} here={space} place="above" onOpenSpace={onOpenSpace ?? (() => {})} />
+          </div>
         </aside>
 
         <main className="space-main">
@@ -331,11 +339,13 @@ export function SpaceView({
             <h1 style={{ ...styles.appTitle, ...ellipsis, fontSize: 18, flex: 1, minWidth: 0 }}>{title}</h1>
             {open && <NotifyButton space={space} app={open} collections={collections} />}
             <CallButton space={space} />
-            {/* The rail carries the bell beside a wide screen; a phone has no rail. */}
+            {/* A phone has no sidebar, so you are in its top bar instead. */}
             <span className="phone-only">
-              <Bell spaces={spaces} here={space} onOpenSpace={onOpenSpace ?? (() => {})} />
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Bell spaces={spaces} here={space} onOpenSpace={onOpenSpace ?? (() => {})} />
+                <AccountMenu />
+              </span>
             </span>
-            <AccountMenu />
           </header>
 
           <div className="space-content" data-fill={fill || undefined}>

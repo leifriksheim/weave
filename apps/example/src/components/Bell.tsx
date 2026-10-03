@@ -26,8 +26,8 @@ export function Bell({
   /** The space on screen, where something more specific can be picked */
   here?: SpaceSummary | undefined;
   onOpenSpace: (id: string) => void;
-  /** Below the button, in a header; or beside it, on the rail */
-  place?: 'below' | 'beside';
+  /** Below the button, in a header; or above the bar it sits in, at the foot of a space's sidebar */
+  place?: 'below' | 'above';
 }) {
   const { did } = useAccount();
   const { items, unread } = useAlerts(did);
@@ -47,7 +47,8 @@ export function Bell({
   const off = setup.on === 0;
 
   return (
-    <div ref={root} style={{ position: 'relative' }}>
+    // Above, the panel hangs from the whole bar rather than the button, as the account's menu does.
+    <div ref={root} style={{ position: place === 'below' ? 'relative' : 'static' }}>
       <button
         onClick={() => {
           if (!open) setTab(off && items.length === 0 ? 'settings' : 'activity');
@@ -60,14 +61,18 @@ export function Bell({
         style={button}
       >
         <Icon name={off ? 'bell' : 'bellOn'} />
-        {unread > 0 && <span style={dot} aria-hidden />}
+        {unread > 0 && (
+          <span style={badge} aria-hidden>
+            <span className="count">{unread > 99 ? '99+' : unread}</span>
+          </span>
+        )}
       </button>
 
       {open && (
         <div
           role="dialog"
           aria-label="Notifications"
-          style={{ ...panel, ...(place === 'below' ? below : beside) }}
+          style={{ ...panel, ...(place === 'below' ? below : above) }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '10px 10px 6px 14px' }}>
             <p style={{ flex: 1, fontWeight: 600, fontSize: 14, color: palette.ink.strong }}>Notifications</p>
@@ -319,14 +324,12 @@ const button = {
   background: palette.surface.card,
   color: palette.ink.strong,
 };
-const dot = {
+const badge = {
   position: 'absolute' as const,
-  top: 6,
-  right: 7,
-  width: 8,
-  height: 8,
-  borderRadius: 4,
-  background: palette.accent.danger,
+  top: -5,
+  right: -6,
+  pointerEvents: 'none' as const,
+  borderRadius: 9,
   boxShadow: `0 0 0 2px ${palette.surface.card}`,
 };
 const panel = {
@@ -342,7 +345,7 @@ const panel = {
   overflow: 'hidden',
 };
 const below = { right: 0, top: 44 };
-const beside = { left: 48, bottom: 0 };
+const above = { left: 0, bottom: 'calc(100% + 8px)' };
 const row = {
   width: '100%',
   display: 'flex',

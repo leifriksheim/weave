@@ -36,6 +36,7 @@ export function injectBaseStyles(): void {
       /* Keyboard users never hover, so the action has to be reachable anyway. */
       [data-row-action]:focus-visible { opacity: 1; }
       ${hoverCss}
+      .you-button:hover, .you-button[aria-expanded="true"] { background: rgba(0, 0, 0, .05); }
     }
 
     /* ── Layout that follows the screen ──────────────────────────────────
@@ -57,8 +58,18 @@ export function injectBaseStyles(): void {
     .shell { padding-left: ${RAIL_WIDTH}px; }
     .space-shell { display: grid; grid-template-columns: ${SIDEBAR_WIDTH}px minmax(0, 1fr); height: 100vh; height: 100dvh; }
     .space-sidebar {
-      display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
-      padding: 16px 10px 24px; background: ${surface.sunken}; border-right: 1px solid ${surface.line};
+      display: flex; flex-direction: column; min-height: 0;
+      background: ${surface.sunken}; border-right: 1px solid ${surface.line};
+    }
+    .space-sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 16px 10px 16px; }
+    /* You, at the foot of the sidebar; its menus open upward from it. */
+    .you-bar {
+      position: relative; z-index: 15; flex-shrink: 0; display: flex; align-items: center; gap: 6px;
+      padding: 8px 10px; border-top: 1px solid ${surface.line}; background: ${surface.sunken};
+    }
+    .you-button {
+      width: 100%; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 6px;
+      border: none; border-radius: 8px; background: none; text-align: left;
     }
     .side-item {
       display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 8px;

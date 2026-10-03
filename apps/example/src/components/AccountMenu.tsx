@@ -6,8 +6,11 @@ import { useCopy } from '@weave/app-shared/action';
 import { ConnectAgent } from './ConnectAgent';
 import { palette } from '../styles';
 
-/** The avatar in the corner: who this app acts for; the account itself lives in the account home */
-export function AccountMenu() {
+/**
+ * Who this app acts for, and its menu; the account itself lives in the account home. A pill in a
+ * header, or the whole of the bar at the foot of a space's sidebar.
+ */
+export function AccountMenu({ place = 'header' }: { place?: 'header' | 'sidebar' }) {
   const account = useAccount();
   const { connection, state } = useConnection();
   const [open, setOpen] = useState(false);
@@ -28,32 +31,52 @@ export function AccountMenu() {
   };
 
   return (
-    <div ref={root} style={{ position: 'relative' }}>
-      <button
-        onClick={() => setOpen((was) => !was)}
-        aria-expanded={open}
-        aria-label="Account"
-        className="account-button"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          height: 36,
-          padding: '0 12px 0 4px',
-          border: `1px solid ${palette.surface.line}`,
-          borderRadius: 999,
-          background: palette.surface.card,
-          color: palette.ink.strong,
-          fontSize: 13,
-          fontWeight: 500,
-        }}
-      >
-        <Avatar did={account.did} size={28} />
-        <span className="account-name">{account.name}</span>
-      </button>
+    // In the sidebar the menu hangs from the whole bar, so it lines up with the bell's panel.
+    <div ref={root} style={place === 'sidebar' ? { flex: 1, minWidth: 0 } : { position: 'relative' }}>
+      {place === 'sidebar' ? (
+        <button
+          onClick={() => setOpen((was) => !was)}
+          aria-expanded={open}
+          aria-label="Account"
+          className="you-button"
+        >
+          <Avatar did={account.did} size={32} />
+          <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <span style={{ ...ellipsis, fontSize: 13.5, fontWeight: 600, color: palette.ink.strong }}>
+              {account.name}
+            </span>
+            <span style={{ ...ellipsis, fontSize: 11.5, color: palette.ink.faint }}>
+              {new URL(state.home).host}
+            </span>
+          </span>
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen((was) => !was)}
+          aria-expanded={open}
+          aria-label="Account"
+          className="account-button"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            height: 36,
+            padding: '0 12px 0 4px',
+            border: `1px solid ${palette.surface.line}`,
+            borderRadius: 999,
+            background: palette.surface.card,
+            color: palette.ink.strong,
+            fontSize: 13,
+            fontWeight: 500,
+          }}
+        >
+          <Avatar did={account.did} size={28} />
+          <span className="account-name">{account.name}</span>
+        </button>
+      )}
 
       {open && (
-        <div role="menu" style={menu}>
+        <div role="menu" style={{ ...menu, ...(place === 'sidebar' ? above : below) }}>
           <div style={{ padding: '14px 14px 12px', display: 'flex', gap: 10, alignItems: 'center' }}>
             <Avatar did={account.did} size={36} />
             <div style={{ minWidth: 0, flex: 1 }}>
@@ -158,10 +181,12 @@ function Divider() {
   return <div style={{ height: 1, background: palette.surface.line }} />;
 }
 
+const below = { right: 0, top: 44 };
+const above = { left: 0, bottom: 'calc(100% + 8px)' };
+const ellipsis = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const;
+
 const menu = {
   position: 'absolute' as const,
-  right: 0,
-  top: 44,
   zIndex: 20,
   width: 280,
   border: `1px solid ${palette.surface.line}`,
