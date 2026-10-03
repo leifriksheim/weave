@@ -480,7 +480,7 @@ function VotePanel({
       {mine ? (
         <CastNote a={a} p={p} />
       ) : p.result !== 'open' ? (
-        <Quiet>It was settled before you voted. Votes cast now don’t change it.</Quiet>
+        <SettledNote next={a.nextFor(p)} />
       ) : (
         <NextNote a={a} next={a.nextFor(p)} topicName={topic?.name ?? null} />
       )}
@@ -527,6 +527,19 @@ function CastNote({ a, p }: { a: Assembly; p: ProposalView }) {
       Your device cast this for you, following who you trust. It’s final.
     </PathNote>
   );
+}
+
+/** Settled before you voted: your device may still follow, for the record, but nothing changes it */
+function SettledNote({ next }: { next: Next }) {
+  if (next.kind === 'cast')
+    return (
+      <Quiet>
+        It was settled before your vote arrived. Your device is casting{' '}
+        {CHOICE_LABEL[next.choice].toLowerCase()} for you, following who you trust, so the record shows where
+        you stood. It doesn’t change the result.
+      </Quiet>
+    );
+  return <Quiet>It was settled before you voted. Votes cast now don’t change it.</Quiet>;
 }
 
 /** What your device will do, in words */

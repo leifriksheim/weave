@@ -110,7 +110,7 @@ describe('what a device does by itself', () => {
     ]);
   });
 
-  test('never votes twice, and leaves proposals settled or disputed alone', () => {
+  test('never votes twice, and leaves disputed proposals alone', () => {
     const trusts = [{ from: ADA, kind: 'person' as const, to: BO, topic: '*' }];
     const votes = new Map([cast('for', BO), cast('for', ADA)]);
     assert.deepEqual(
@@ -125,6 +125,15 @@ describe('what a device does by itself', () => {
       ),
       [],
     );
+  });
+
+  test('still follows on a settled proposal, so the record shows how you stood, but freezes and decides nothing', () => {
+    const trusts = [{ from: ADA, kind: 'person' as const, to: BO, topic: '*' }];
+    const greens = partyView('greens', [ADA, CY], [ADA]);
+    const p = proposalView('p1', { votes: new Map([cast('abstain', BO)]), result: 'rejected' });
+    assert.deepEqual(duties(assembly([p], trusts, [greens])), [
+      { kind: 'vote', proposal: 'p1', choice: 'abstain', via: BO },
+    ]);
   });
 
   test('a steward freezes the party’s members for each open proposal; others don’t', () => {

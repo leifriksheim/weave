@@ -50,8 +50,11 @@ export type Duty =
 export function duties(a: Assembly): Duty[] {
   const todo: Duty[] = [];
   for (const p of a.proposals) {
-    // Made by an older Liquid, without voters; or settled, or disputed: nothing more to do.
-    if (p.voters.length === 0 || p.result !== 'open') continue;
+    // Made by an older Liquid, without voters; or disputed: nothing more to do.
+    if (p.voters.length === 0 || p.result === 'disputed') continue;
+    // Settled can come before followers' devices catch up: a voter trusting the one vote that settled
+    // it still follows, so the record shows how they stood. Nothing new is frozen or decided.
+    const open = p.result === 'open';
 
     if (p.voters.includes(a.me) && !p.votes.has(a.me)) {
       const next = a.nextFor(p);
@@ -60,7 +63,7 @@ export function duties(a: Assembly): Duty[] {
     }
 
     for (const party of a.parties) {
-      if (!party.stewards.has(a.me) || p.rolls.has(party.key) || party.members.size === 0) continue;
+      if (!open || !party.stewards.has(a.me) || p.rolls.has(party.key) || party.members.size === 0) continue;
       // A representative who isn't a member any more can't vote for it: no roll until the stewards pick another.
       const decides = partyDecides(party.decides, party.representative, [...party.members]);
       if (decides) todo.push({ kind: 'roll', proposal: p.key, party, decides });
@@ -72,6 +75,7 @@ export function duties(a: Assembly): Duty[] {
       if (position) todo.push({ kind: 'ballot', proposal: p.key, party, roll, ...position });
     }
 
+    if (!open) continue;
     const outcome = settled(a.countOf(p), p.toPass);
     const votes = outcome ? proof(p.voters, p.votes, outcome, p.toPass) : null;
     if (outcome && votes) todo.push({ kind: 'decision', proposal: p, outcome, votes });

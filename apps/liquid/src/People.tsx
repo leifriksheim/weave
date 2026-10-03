@@ -34,8 +34,8 @@ export function People({ a, writable }: { a: Assembly; writable: boolean }) {
               Parties
             </h2>
             <p className="lq-muted" style={{ fontSize: 14, marginTop: 2 }}>
-              People who vote together. Trust a party, and once more than half its members vote the same way,
-              your device casts that vote for you.
+              People who vote together. Trust a party, and once it takes a position, by its members or its
+              representative, your device casts that vote for you.
             </p>
           </div>
           {writable && (
