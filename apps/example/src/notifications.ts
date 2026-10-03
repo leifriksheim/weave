@@ -7,6 +7,7 @@ import { APPS } from './components/apps';
 import { isForMe, madeNotify } from './components/apps/entries';
 import { isAdded } from './components/apps/MadeApps';
 import { message } from '@weave/app-shared/action';
+import { addAlert } from './alerts';
 
 /** Offered whatever apps a space has */
 const CONTACTS: NotifyProposal = {
@@ -237,9 +238,13 @@ export function useNotifyFor(spaceId: string, offers: ReadonlyArray<AppNotify>) 
 /** How long to wait for every subscription a record matches, before showing one notification for it */
 const GATHER_MS = 150;
 
-/** Shows what this app's subscriptions match while nobody looks; a record several match is one notification, under the most particular */
+/**
+ * What this app's subscriptions match: each goes in the bell, and is shown as a notification
+ * while nobody looks. A record several match is one, under the most particular.
+ */
 export function useShowNotifications(openSpace: (id: string) => void) {
   const node = useNode();
+  const { did } = useAccount();
   const open = useRef(openSpace);
   open.current = openSpace;
   useEffect(() => {
@@ -249,6 +254,8 @@ export function useShowNotifications(openSpace: (id: string) => void) {
     >();
     const show = (key: string, label: string, spaceId: string) => {
       waiting.delete(key);
+      addAlert(did, { record: key, space: spaceId, label, at: new Date().toISOString() });
+      if (!supported() || Notification.permission !== 'granted' || globalThis.document.hasFocus()) return;
       void node.spaces.get(spaceId).then((space) => {
         const shown = new Notification(label, { body: space ? `In ${space.name}` : '', tag: key });
         shown.onclick = () => {
@@ -260,7 +267,6 @@ export function useShowNotifications(openSpace: (id: string) => void) {
     };
     const stop = watchNotifications(node, {
       onNotify: ({ subscription, record }) => {
-        if (!supported() || Notification.permission !== 'granted' || globalThis.document.hasFocus()) return;
         const particular = !!subscription.topic;
         const before = waiting.get(record.key);
         if (before && (before.particular || !particular)) return;
@@ -273,5 +279,5 @@ export function useShowNotifications(openSpace: (id: string) => void) {
       stop();
       for (const { timer } of waiting.values()) clearTimeout(timer);
     };
-  }, [node]);
+  }, [node, did]);
 }

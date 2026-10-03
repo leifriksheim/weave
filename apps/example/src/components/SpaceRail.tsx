@@ -6,6 +6,7 @@ import { palette } from '../styles';
 import { useCallSpaces } from './calls/Calls';
 import { Count } from './apps/AppIcon';
 import { useSpaceUnread } from '../seen';
+import { Bell } from './Bell';
 
 /** Every space down the left edge while one is open; a phone's tab bar does this instead */
 export function SpaceRail({
@@ -109,6 +110,18 @@ export function SpaceRail({
           +
         </span>
       </button>
+
+      <span style={{ flex: 1 }} />
+      <div className="rail-slot">
+        <Bell
+          spaces={spaces}
+          place="beside"
+          onOpenSpace={(id) => {
+            const space = spaces.find((s) => s.id === id);
+            if (space) onOpen(space);
+          }}
+        />
+      </div>
 
       {adding && (
         <SpaceDialog initial="new" onClose={() => setAdding(false)} onCreate={onCreate} onJoin={onJoin} />

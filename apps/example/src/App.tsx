@@ -11,6 +11,7 @@ import {
 import { AccountMenu } from './components/AccountMenu';
 import { AgentCard } from './components/AgentCard';
 import { useShowNotifications } from './notifications';
+import { Bell } from './components/Bell';
 import { useRunRules } from './rules';
 import { ConnectScreen } from './components/ConnectScreen';
 import { ContactsView } from './components/ContactsView';
@@ -151,7 +152,10 @@ function Workspace() {
         <>
           <header style={styles.headerRow}>
             <Wordmark compact />
-            <AccountMenu />
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Bell spaces={spaces} onOpenSpace={openById} />
+              <AccountMenu />
+            </span>
           </header>
           <nav role="tablist" aria-label="Home" style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
             {(['spaces', 'contacts'] as const).map((id) => (
