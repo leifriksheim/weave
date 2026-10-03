@@ -3,7 +3,8 @@
   "entry": [
     "apps/extension/src/{worker,offscreen,welcome,popup}.ts",
     "bump.config.ts",
-    "packages/cli/tests/bench/**/*.ts"
+    "packages/cli/tests/bench/**/*.ts",
+    "packages/core/tests/bench/**/*.ts"
   ],
   "usedClassMembers": ["connectedCallback", "disconnectedCallback", "attributeChangedCallback"],
   "ignoreUnresolvedImports": ["./offscreen.js", "./popup.js", "./welcome.js"]

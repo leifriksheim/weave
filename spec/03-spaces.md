@@ -358,6 +358,18 @@ and place the ready event with the lexicographically smallest
 > something not yet placed still beats a change it had not seen. Then the
 > higher-ranked author, then the lower id.
 
+> Note: `leadsTo(e)` counts every descendant, including ones that saw all of
+> the history. Such a change leads on from every placed event, so when it may
+> take something away it lowers `p1` of every candidate at every earlier
+> choice to at most its author's `−rank` then, and where the candidates then
+> tie on `p1` the rest of the tuple can choose differently. Adding one
+> change can therefore reorder earlier, concurrent ones. An implementation
+> that adds a change to an earlier replay instead of replaying everything
+> must detect this and replay; one that always replays from scratch need do
+> nothing.
+> Whether the rule should count such changes at all is open:
+> [#137](https://github.com/leifriksheim/weave/issues/137).
+
 ### 4.4 Applying one event
 
 When event `e` is placed:
@@ -464,7 +476,7 @@ Alice's removal takes away with author rank 100 (`p1 = −100`); Bob's with rank
 so his removal of Carol is dropped. Every arrival order gives Bob: none,
 Carol: member.
 
-_Source: `packages/core/src/space/roles.ts` (`replayAccess`, `takesAway`, `mayTakeAway`, `refusal`, `apply`). Tests: `packages/core/tests/roles.test.ts` (all of "the rank rule", "invites", "offline conflicts"), `packages/core/tests/key-change.test.ts` ("when a new key is due")._
+_Source: `packages/core/src/space/roles.ts` (`replayAccess`, `place`, `extended`, `takesAway`, `mayTakeAway`, `refusal`, `apply`, `losesReader`). Tests: `packages/core/tests/roles.test.ts` (all of "the rank rule", "invites", "offline conflicts"), `packages/core/tests/key-change.test.ts` ("when a new key is due"), `packages/core/tests/access-convergence.test.ts` (random histories: every arrival order, and adding one change at a time, against a reference replay)._
 
 ---
 

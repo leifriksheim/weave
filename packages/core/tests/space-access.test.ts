@@ -430,6 +430,42 @@ describe('space access: taking it back', () => {
     await assert.rejects(bob.node.spaces.setMember(space, alice.node.did, null), /ranked below them/);
   });
 
+  test('the history a node keeps up as changes arrive is the one it would replay from its store', async () => {
+    const { alice, bob, space } = await sharedWithBob();
+    await alice.node.spaces.setMember(space, bob.node.did, 'owner');
+    await until(
+      async () => (await bob.node.spaces.access(space)).role?.name === 'owner',
+      4000,
+      'Bob to be an owner',
+    );
+    const someone = async () =>
+      publicKeyToDid(
+        await provider.exportPublicKey((await provider.generateKeyPair()).publicKey),
+        P256_MULTICODEC,
+      );
+    // Both change who is in at once, so some changes arrive having not seen others.
+    await Promise.all(
+      [alice, bob].map(async ({ node }) => {
+        for (let i = 0; i < 6; i++) await node.spaces.setMember(space, await someone(), 'editor');
+      }),
+    );
+    const shape = async (node: Person['node']) => {
+      const { roles, members, invites, heads } = await node.spaces.access(space);
+      return { roles, members: [...members].sort((a, b) => a.did.localeCompare(b.did)), invites, heads };
+    };
+    await until(
+      async () => JSON.stringify(await shape(alice.node)) === JSON.stringify(await shape(bob.node)),
+      8000,
+      'the two to agree',
+    );
+    const kept = await shape(alice.node);
+    assert.equal(kept.members.length, 14);
+
+    await alice.node.close();
+    const again = await person(undefined, { seed: alice.seed, stores: alice.stores });
+    assert.deepEqual(await shape(again.node), kept);
+  });
+
   test('a revoked note: nothing more under it counts, what was seen stays', async () => {
     const { alice, bob, space } = await sharedWithBob();
     // An app of Bob's, writing under a note Bob signed for its key.

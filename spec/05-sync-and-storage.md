@@ -464,14 +464,22 @@ For each differing collection the initiator:
    noted in `need` (below) and sends the versions noted in `have` in
    `versions` messages **without** `id`, at most 200 per message. Both go
    **newest first**: the reverse of the order the rounds found them in, which
-   is oldest first.
+   is oldest first. The versions it sends of one record SHOULD go in the same
+   message, in the place of that record's newest; a record with more than 200
+   to send goes over several, newest first.
 
    > Rationale: a record's later versions are newer than its first. Sent
    > oldest first, a joining peer would show every deleted or edited record
    > as it first was until the version that changed it arrived — a canvas
    > filling with pixels long since cleared. Newest first, the later version
    > comes first and waits for its first version (§8), and both go in
-   > together.
+   > together. But a sender sends every message of a session before it hears
+   > a `want`, and versions are ordered by the second they were written, then
+   > by id: a burst of deletes can arrive long before the first versions they
+   > need, and more of them than a peer keeps waiting. Those pushed out go
+   > in without the delete and show until a later round brings it. Sent in
+   > one message, a record's versions are taken in at once (§8), and nothing
+   > waits.
 
    **Asking.** A node asks a peer for ids in `want` messages of at most 200
    ids of one collection, each with a fresh request id. How many it keeps
@@ -539,27 +547,32 @@ A (initiator: its DID sorts first)                       B
    ── hello {sums, reply:true} ──────────────────────────▶    A is level on app.note
 ```
 
-_Source: `packages/core/src/sync/sync-engine.ts` (`onReconciled`, `want`),
+_Source: `packages/core/src/sync/sync-engine.ts` (`onReconciled`, `byRecord`, `want`),
 `packages/core/src/node/space-runtime.ts` (peer connect). Tests: `packages/core/tests/reconcile.test.ts`
 ("sync by reconciliation", "joining, a deleted record never shows as it once
-was", "a want whose answer is lost is given up, and the peer is synced
-again"), `packages/core/tests/sync.test.ts`._
+was", "joining, a canvas cleared and half painted again never shows a pixel
+that ends cleared", "a want whose answer is lost is given up, and the peer is
+synced again"), `packages/core/tests/sync.test.ts`._
 
 ---
 
 ## 7. Pushing writes live
 
 When a node writes a version locally, it sends `push-update` with that
-version to **every** connected peer at once, without waiting for a hello.
-The sender does not filter by what the peer holds; the receiver drops what it
-does not hold (§5).
+version to every connected peer at once, without waiting for a hello, except
+a peer whose latest `hello` said it does not hold the version's collection
+(§5): to that peer it SHOULD NOT send it. A peer it has had no `hello` from
+gets everything. A receiver still drops what it does not hold (§5), so a
+sender that filters nothing works, only less efficiently.
 
 A receiver treats the pushed version exactly like one in `versions` (§8),
 including answering with `stored` when it takes it in. A push that is lost is
 not retried: the next hello finds the difference.
 
 _Source: `packages/core/src/sync/sync-engine.ts` (`onLocalChange`). Tests:
-`packages/core/tests/sync.test.ts` ("pushes a local change to a peer")._
+`packages/core/tests/sync.test.ts` ("pushes a local change to a peer"),
+`packages/core/tests/reconcile.test.ts` ("a write is pushed only to peers that
+hold its collection, once their hello says so")._
 
 ---
 
@@ -617,7 +630,10 @@ taken. A `versions` without `id` is limited to its first 200 entries.
 > removals and key changes, asserting that every peer reaches the same access
 > state and current versions whatever order versions arrive in, and that
 > nothing a removed member wrote after the removal is taken in anywhere. The
-> gatekeeper and the `later` retry above are what it exercises.
+> gatekeeper and the `later` retry above are what it exercises. The replay
+> alone is covered already, without peers: random access histories in any
+> arrival order, and added one change at a time, against a reference replay
+> (`packages/core/tests/access-convergence.test.ts`).
 
 _Source: `packages/core/src/sync/sync-engine.ts` (`admit`, `admitAll`, `retryWaiting`),
 `packages/core/src/node/space-runtime.ts` (`admit`). Tests: `packages/core/tests/sync.test.ts` (forged

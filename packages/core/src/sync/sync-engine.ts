@@ -130,6 +130,41 @@ const MAX_IDS_PER_REQUEST = 200;
 const MAX_WANTS_IN_FLIGHT = 4;
 /** Largest Negentropy message, in bytes before base64. Stays well inside a data channel's limit. */
 const FRAME_SIZE_LIMIT = 32_000;
+/**
+ * Versions in messages of at most `size`, newest first, with every version of
+ * one record in the same message where they fit. A message is taken in whole
+ * (§8 of the sync spec), so a record arrives with its first version and the
+ * versions that changed or deleted it, and is never shown as it once was —
+ * nor waits for the rest while the peer sends everything else.
+ */
+function byRecord(versions: ReadonlyArray<Expression>, size: number): Expression[][] {
+  const records = new Map<string, Expression[]>();
+  for (const version of versions) {
+    const record = records.get(version.key);
+    if (record) record.push(version);
+    else records.set(version.key, [version]);
+  }
+  const messages: Expression[][] = [];
+  let message: Expression[] = [];
+  for (const record of records.values()) {
+    if (message.length + record.length > size && message.length > 0) {
+      messages.push(message);
+      message = [];
+    }
+    // A record with more versions than fit in one message goes over several, newest first.
+    for (let i = 0; i < record.length; i += size) {
+      const part = record.slice(i, i + size);
+      if (message.length + part.length > size) {
+        messages.push(message);
+        message = [];
+      }
+      message.push(...part);
+    }
+  }
+  if (message.length > 0) messages.push(message);
+  return messages;
+}
+
 /** Collections one hello may name. Past this it is hostile, not big. */
 const MAX_COLLECTIONS = 1000;
 /** Rounds one reconciliation may take before it is given up as runaway. */
@@ -472,13 +507,11 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
       // Asked for before the session goes, so the peer never looks idle in between.
       want(peerId, session.collection, session.need.reverse());
       state.sessions.delete(session.collection);
-      const have = session.have.reverse();
-      for (let i = 0; i < have.length; i += MAX_IDS_PER_REQUEST) {
-        const versions = (
-          await Promise.all(have.slice(i, i + MAX_IDS_PER_REQUEST).map((v) => storage.getExpression(v)))
-        ).filter((v): v is Expression => v !== null);
-        if (versions.length > 0) send(peerId, { type: 'versions', versions });
-      }
+      const have = (await Promise.all(session.have.reverse().map((v) => storage.getExpression(v)))).filter(
+        (v): v is Expression => v !== null,
+      );
+      for (const versions of byRecord(have, MAX_IDS_PER_REQUEST))
+        send(peerId, { type: 'versions', versions });
       if (session.again) void begin(peerId, session.collection).catch((err) => emit('error', err));
     };
 
@@ -668,7 +701,11 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     },
 
     onLocalChange(expression: Expression) {
-      for (const peer of peers) send(peer, { type: 'push-update', expression });
+      // Not to a peer whose hello said it doesn't hold the collection: it would pass it by.
+      for (const peer of peers) {
+        if (holdsCollection(states.get(peer)?.holds ?? 'all', expression.collection))
+          send(peer, { type: 'push-update', expression });
+      }
     },
 
     addPeer(peerId: string) {

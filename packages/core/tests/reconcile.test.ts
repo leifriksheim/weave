@@ -369,6 +369,67 @@ describe('sync by reconciliation', () => {
     assert.equal(most, 100, 'never more than the records that stay');
   });
 
+  test('joining, a canvas cleared and half painted again never shows a pixel that ends cleared', async () => {
+    // More deleted than a peer keeps waiting (1,000): sent newest first one message at a
+    // time, the deletes would wait for their first versions and be pushed out, and the
+    // first versions then go in alone, as if never deleted.
+    let b: StorageProvider | null = null;
+    const synced = pair({
+      validate: async (e) =>
+        e.seq > 0 && (!(await b!.getExpression(e.genesis!)) || !(await b!.getExpression(e.prev!)))
+          ? { valid: false, reason: 'an earlier version is not here', later: true }
+          : { valid: true },
+    });
+    b = synced.b.storage;
+    // Painted in a burst: in one second, so what orders them is their ids alone.
+    const createdAt = new Date(1_700_000_000_000).toISOString();
+    const painted = [];
+    for (let i = 0; i < 1100; i++) painted.push(await version('app.pixel', { createdAt }));
+    for (const first of painted) await synced.a.storage.addExpression(first);
+    const cleared = [];
+    for (const first of painted) {
+      const gone = await version('app.pixel', {
+        key: first.key,
+        seq: 1,
+        prev: first.id,
+        genesis: first.id,
+        deleted: true,
+        body: null,
+        createdAt,
+      });
+      cleared.push(gone);
+      await synced.a.storage.addExpression(gone);
+    }
+    for (const gone of cleared.slice(0, 550)) {
+      await synced.a.storage.addExpression(
+        await version('app.pixel', {
+          key: gone.key,
+          seq: 2,
+          prev: gone.id,
+          genesis: gone.genesis!,
+          createdAt,
+        }),
+      );
+    }
+
+    const newest = new Map<string, Expression>();
+    const shown: number[] = [];
+    const ever = new Set<string>();
+    synced.b.sync.on('received', (versions: Expression[]) => {
+      for (const v of versions) if ((newest.get(v.key)?.seq ?? -1) < v.seq) newest.set(v.key, v);
+      const live = [...newest.values()].filter((v) => !v.deleted);
+      for (const v of live) ever.add(v.key);
+      shown.push(live.length);
+    });
+    synced.b.sync.notifyPeers(['a']);
+    await synced.settle();
+
+    assert.equal(await b.fingerprint(), await synced.a.storage.fingerprint());
+    assert.equal(shown.at(-1), 550);
+    assert.equal(Math.max(...shown), 550, 'never more than it ends with');
+    assert.equal(ever.size, 550, 'never a record that ends deleted');
+  });
+
   test('a version that waits for its first version asks for it at once, and is acknowledged once in', async () => {
     let b: StorageProvider | null = null;
     const synced = pair({
@@ -511,6 +572,34 @@ describe('holding part of a space', () => {
       assert.equal((await ids(c.storage, 'app.photos')).length, 41);
     });
   }
+
+  test('a write is pushed only to peers that hold its collection, once their hello says so', async () => {
+    const pushed: string[] = [];
+    const { a, b, settle } = pair({
+      holdsB: () => new Set(['app.chat']),
+      drop: (message) => {
+        if (message.type === 'push-update') pushed.push(message.expression.collection);
+        return false;
+      },
+    });
+    // Before a hello, what a peer holds is not known: everything goes.
+    const early = await version('app.photos');
+    await a.storage.addExpression(early);
+    a.sync.onLocalChange(early);
+    await settle();
+    assert.deepEqual(pushed.splice(0), ['app.photos']);
+
+    b.sync.notifyPeers(['a']);
+    await settle();
+    for (const collection of ['app.photos', 'app.chat', 'sys.member']) {
+      const write = await version(collection);
+      await a.storage.addExpression(write);
+      a.sync.onLocalChange(write);
+    }
+    await settle();
+    assert.deepEqual(pushed, ['app.chat', 'sys.member'], 'not the photos the cache passes by');
+    assert.equal((await ids(b.storage, 'app.chat')).length, 1);
+  });
 
   test('two caches reconcile only what both hold', async () => {
     const { a, b, sent, settle } = pair({
