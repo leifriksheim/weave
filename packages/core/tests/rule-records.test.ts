@@ -127,6 +127,31 @@ describe('rules', () => {
     assert.equal(body.made, posted[0]?.key, 'the run names what it wrote');
   });
 
+  test('“a message in #design” sets off for that channel’s messages alone', async () => {
+    const { node, did, space } = await alone();
+    const design = await node.records.put(space, channel.name, { name: 'design' });
+    const quiet = await node.records.put(space, channel.name, { name: 'quiet' });
+    const say = (text: string, to: string) =>
+      node.records.put(space, message.name, { text }, { links: [{ rel: 'channel', to }] });
+    const when = { query: { collection: message.name, where: { 'link:channel': design.key } } };
+    assert.equal(
+      checkRule({
+        name: 'Design',
+        when,
+        then: { kind: 'notify', text: '{title}' },
+        since: new Date().toISOString(),
+      }),
+      null,
+    );
+    await say('hello', quiet.key);
+    assert.deepEqual(await matching(node, space, when, did), []);
+    const posted = await say('new mockups', design.key);
+    assert.deepEqual(
+      (await matching(node, space, when, did)).map((m) => m.record.key),
+      [posted.key],
+    );
+  });
+
   test('what came to hold before the rule was made does not set it off', async () => {
     const { node, did, space } = await alone();
     const design = await node.records.put(space, channel.name, { name: 'design' });

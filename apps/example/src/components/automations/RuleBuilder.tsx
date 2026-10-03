@@ -7,7 +7,7 @@ import {
   type NodeRecord,
   type SpaceSummary,
 } from '@weaveprotocol/core';
-import { useAccess, useAccount, useNode } from '@weaveprotocol/core/react';
+import { useAccess, useAccount, useNode, useQuery } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
 import { AddBotDialog, useSpaceBots } from '@weave/app-shared/CommunitySetup';
 import { clauseFields, clauseOn, type Clause, type ClauseField } from '../../derive/conditions';
@@ -39,12 +39,14 @@ import {
   compile,
   noun,
   pickedOf,
+  places,
   scheduleWords,
   thenWords,
   whenWords,
   type CountClause,
   type Picked,
   type PickedRule,
+  type Within,
 } from '../../rules';
 import { usePeopleHere } from '../Person';
 import { styles, palette } from '../../styles';
@@ -96,6 +98,7 @@ export function RuleBuilder({
   const [collection, setCollection] = useState(picked?.collection ?? offered[0]?.name ?? '');
   const [addingBot, setAddingBot] = useState(false);
   const [clauses, setClauses] = useState<ReadonlyArray<Clause>>(picked?.clauses ?? []);
+  const [within, setWithin] = useState<ReadonlyArray<Within>>(picked?.within ?? []);
   const [count, setCount] = useState<CountClause | null>(picked?.count ?? null);
   const [then, setThen] = useState<RuleAction>(initial?.then ?? { kind: 'notify', text: '{title}' });
   const [name, setName] = useState<string | null>(initial?.name ?? null);
@@ -127,9 +130,15 @@ export function RuleBuilder({
     return counted ? clauseFields(counted) : [];
   }, [collections, count?.collection]);
 
+  const where = useMemo(() => (collection ? places(collections, collection) : []), [collections, collection]);
   const when = useMemo(
-    (): Picked => ({ collection, clauses, ...(count ? { count } : {}) }),
-    [collection, clauses, count],
+    (): Picked => ({
+      collection,
+      clauses,
+      ...(within.length ? { within } : {}),
+      ...(count ? { count } : {}),
+    }),
+    [collection, clauses, within, count],
   );
   const who = (d: string) => nameOf(d, people);
   const sentence = timed
@@ -302,6 +311,7 @@ export function RuleBuilder({
                     onChange={(next) => {
                       setCollection(next);
                       setClauses([]);
+                      setWithin([]);
                       setCount(null);
                       if (then.kind === 'set') setThen({ kind: 'notify', text: '{title}' });
                       // What a new record can point at depends on what the rule is about
@@ -320,6 +330,18 @@ export function RuleBuilder({
                       }
                     }}
                   />
+                  {where.map((place) => (
+                    <PlacePill
+                      key={place.rel}
+                      spaceId={space.id}
+                      collections={collections}
+                      place={place}
+                      picked={within.find((w) => w.rel === place.rel) ?? null}
+                      onChange={(next) =>
+                        setWithin([...within.filter((w) => w.rel !== place.rel), ...(next ? [next] : [])])
+                      }
+                    />
+                  ))}
                   {count ? (
                     <>
                       <span>has</span>
@@ -768,3 +790,40 @@ const tile = {
 } as const;
 
 const token = { ...styles.smallButton, height: 24, padding: '0 8px', fontSize: 12 } as const;
+
+/** "in any channel", or one of them: where the rule's records must be */
+function PlacePill({
+  spaceId,
+  collections,
+  place,
+  picked,
+  onChange,
+}: {
+  spaceId: string;
+  collections: ReadonlyArray<NodeCollection>;
+  place: { rel: string; to: string };
+  picked: Within | null;
+  onChange: (next: Within | null) => void;
+}) {
+  const found = useQuery(spaceId, { collection: place.to, limit: 200 }).result;
+  const schema = collections.find((c) => c.name === place.to)?.schema ?? null;
+  const options = (found?.records ?? []).map((r) => ({ value: r.key, label: recordLabel(r, schema) }));
+  // One picked before that this device can't see now still shows, by the name it had.
+  if (picked && !options.some((o) => o.value === picked.to))
+    options.unshift({ value: picked.to, label: picked.label });
+  return (
+    <>
+      <span>in</span>
+      <Pill
+        label={`Which ${noun(collections, place.to)}`}
+        strong={picked !== null}
+        value={picked?.to ?? ''}
+        options={[{ value: '', label: `any ${noun(collections, place.to)}` }, ...options]}
+        onChange={(key) => {
+          const option = options.find((o) => o.value === key);
+          onChange(option ? { rel: place.rel, to: option.value, label: option.label } : null);
+        }}
+      />
+    </>
+  );
+}

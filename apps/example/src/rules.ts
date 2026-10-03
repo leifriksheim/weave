@@ -31,11 +31,19 @@ export interface CountClause {
   readonly clauses?: ReadonlyArray<Clause>;
 }
 
-/** What a person picked: records of a collection, some of their fields, and perhaps how many point at them */
+/** "…in #general": only records linked to this one by `rel`. `label` is how it read when picked, for words. */
+export interface Within {
+  readonly rel: string;
+  readonly to: string;
+  readonly label: string;
+}
+
+/** What a person picked: records of a collection, where they are, some of their fields, and perhaps how many point at them */
 // A type, not an interface, so it is also the plain object a rule's `picked` is.
 export type Picked = {
   readonly collection: string;
   readonly clauses: ReadonlyArray<Clause>;
+  readonly within?: ReadonlyArray<Within>;
   readonly count?: CountClause;
 };
 
@@ -51,6 +59,15 @@ const COUNTED = 'count';
 
 function isClause(value: unknown): value is Clause {
   return isObject(value) && typeof value.field === 'string' && typeof value.op === 'string';
+}
+
+function isWithin(value: unknown): value is Within {
+  return (
+    isObject(value) &&
+    typeof value.rel === 'string' &&
+    typeof value.to === 'string' &&
+    typeof value.label === 'string'
+  );
 }
 
 function isCount(value: unknown): value is CountClause {
@@ -69,9 +86,11 @@ export function pickedOf(rule: Rule): Picked | null {
   if (!isObject(picked) || typeof picked.collection !== 'string' || !Array.isArray(picked.clauses))
     return null;
   const clauses: ReadonlyArray<unknown> = picked.clauses;
+  const within: ReadonlyArray<unknown> = Array.isArray(picked.within) ? picked.within : [];
   return {
     collection: picked.collection,
     clauses: clauses.filter(isClause),
+    ...(within.some(isWithin) ? { within: within.filter(isWithin) } : {}),
     ...(isCount(picked.count) ? { count: picked.count } : {}),
   };
 }
@@ -92,9 +111,12 @@ export function compile(picked: Picked): RuleWhen {
   const count = picked.count;
   if (count) parts.push({ [COUNT_OPERATOR[count.op]]: [{ var: `included.${COUNTED}` }, count.value] });
   const only = count ? filterFrom(count.clauses ?? [], ME) : undefined;
+  // Where a record is, as the query's filter: `link:channel` is also a topic a carrier can match.
+  const inside = (picked.within ?? []).map((w) => ({ [`link:${w.rel}`]: w.to }));
   return {
     query: {
       collection: picked.collection,
+      ...(inside.length ? { where: inside.length === 1 ? inside[0] : { $and: inside } } : {}),
       ...(count
         ? {
             include: {
@@ -140,6 +162,22 @@ export function addable(collections: ReadonlyArray<NodeCollection>, about: strin
   return [...found.filter((t) => t.links.length > 0), ...found.filter((t) => t.links.length === 0)];
 }
 
+/**
+ * The links that say where a record of `collection` is, to narrow a rule by: each pointing at one other
+ * collection, like a message's channel. A reply's message, pointing back at its own collection, isn't a place.
+ */
+export function places(
+  collections: ReadonlyArray<NodeCollection>,
+  collection: string,
+): ReadonlyArray<{ rel: string; to: string }> {
+  const declared = collections.find((c) => c.name === collection)?.links ?? {};
+  return Object.entries(declared).flatMap(([rel, link]) =>
+    link.to !== '*' && link.to.length === 1 && link.to[0] !== collection && link.cardinality === 'one'
+      ? [{ rel, to: link.to[0]! }]
+      : [],
+  );
+}
+
 /** The link an added record points at the rule's record by, if any */
 export const linkToIt = (then: RuleAction): string | undefined =>
   then.kind === 'add' ? then.links?.find((l) => l.to === IT)?.rel : undefined;
@@ -181,8 +219,14 @@ export function whenWords(
   collections: ReadonlyArray<NodeCollection>,
   nameOf?: (did: string) => string,
 ): string {
-  const thing = noun(collections, when.collection);
   const fields = fieldsFor(collections, when.collection);
+  const declared = collections.find((c) => c.name === when.collection)?.links ?? {};
+  const where = (when.within ?? []).map((w) => {
+    const to = declared[w.rel]?.to;
+    const kind = Array.isArray(to) && typeof to[0] === 'string' ? `${noun(collections, to[0])} ` : '';
+    return ` in ${kind}“${w.label}”`;
+  });
+  const thing = noun(collections, when.collection) + where.join('');
   const parts: string[] = [];
   if (when.count) {
     const counted = noun(collections, when.count.collection, when.count.value !== 1);
