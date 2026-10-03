@@ -135,6 +135,7 @@ function Workspace() {
         <SpaceView
           key={open.id}
           space={open}
+          spaces={spaces}
           notices={notices}
           onOpenSpace={openById}
           onHome={() => setOpen(null)}

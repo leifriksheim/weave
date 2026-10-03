@@ -115,6 +115,7 @@ export function SpaceRail({
       <div className="rail-slot">
         <Bell
           spaces={spaces}
+          here={spaces.find((s) => s.id === current)}
           place="beside"
           onOpenSpace={(id) => {
             const space = spaces.find((s) => s.id === id);

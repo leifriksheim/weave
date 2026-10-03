@@ -4,7 +4,6 @@ import { Avatar } from '@weave/app-shared/Avatar';
 import { useDismiss } from '@weave/app-shared/useDismiss';
 import { useCopy } from '@weave/app-shared/action';
 import { ConnectAgent } from './ConnectAgent';
-import { useAppNotifications } from '../notifications';
 import { palette } from '../styles';
 
 /** The avatar in the corner: who this app acts for; the account itself lives in the account home */
@@ -15,7 +14,6 @@ export function AccountMenu() {
   const { copied, copy } = useCopy();
   const [connecting, setConnecting] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  const notifications = useAppNotifications();
 
   useDismiss(
     open,
@@ -108,50 +106,6 @@ export function AccountMenu() {
               An agent in this browser works as you, with nothing to set up. One on your computer connects
               here, and keeps working with this tab closed.
             </p>
-          </div>
-
-          <Divider />
-
-          <div style={{ padding: 6 }}>
-            {notifications.permission === 'denied' ? (
-              <p style={{ margin: '4px 10px 6px', fontSize: 12, lineHeight: 1.45, color: palette.ink.faint }}>
-                Notifications are blocked for this site. Allow them from the icon left of the address, then
-                come back here.
-              </p>
-            ) : notifications.permission === 'default' ? (
-              // Its own step: a browser prompt opened with the home's window easily goes unseen behind it.
-              <Item
-                onClick={notifications.allow}
-                hint={
-                  notifications.on > 0 ? `${notifications.on} on in your account` : 'First, in this browser'
-                }
-              >
-                Allow notifications here
-              </Item>
-            ) : notifications.on === 0 ? (
-              <Item
-                onClick={notifications.turnOn}
-                disabled={notifications.asking}
-                hint={notifications.asking ? 'Answer in your account home' : 'Messages, polls, contacts'}
-              >
-                {notifications.asking ? 'Asking your account home…' : 'Turn on notifications'}
-              </Item>
-            ) : (
-              <Item
-                onClick={() => {
-                  setOpen(false);
-                  notifications.manage();
-                }}
-                hint={`${notifications.on} on · manage`}
-              >
-                Notifications
-              </Item>
-            )}
-            {notifications.error && (
-              <p style={{ margin: '4px 10px 6px', fontSize: 12, lineHeight: 1.45, color: palette.ink.faint }}>
-                {notifications.error}
-              </p>
-            )}
           </div>
 
           <Divider />

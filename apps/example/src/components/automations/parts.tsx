@@ -459,14 +459,6 @@ export function Empty({ children }: { children: ReactNode }) {
 
 export const section = { display: 'flex', flexDirection: 'column', gap: 12 } as const;
 export const list = { listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 } as const;
-export const row = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-  padding: '10px 12px',
-  border: `1px solid ${palette.surface.line}`,
-  borderRadius: 10,
-} as const;
 export const iconDot = {
   width: 28,
   height: 28,

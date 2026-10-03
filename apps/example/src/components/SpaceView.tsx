@@ -20,7 +20,7 @@ import { CreateApp } from './apps/CreateApp';
 import { MadeAppScreen } from './apps/MadeApps';
 import { NotifyButton } from './apps/NotifyButton';
 import { AutomationsView } from './automations/AutomationsView';
-import { NotificationsView } from './automations/NotificationsView';
+import { Bell } from './Bell';
 import { HostingView } from './HostingView';
 import { fills, useSpaceApps, type AppEntry } from './apps/entries';
 import { DataView, NEW, type Place } from './DataView';
@@ -71,7 +71,6 @@ const hoodWasOpen = (): boolean => {
 
 /** What belongs to the space rather than to one app, in sidebar order */
 const SECTIONS = [
-  { kind: 'notifications', label: 'Notifications', icon: 'bell' },
   { kind: 'people', label: 'People', icon: 'people' },
   { kind: 'hosting', label: 'Hosting', icon: 'cloud' },
   { kind: 'automations', label: 'Automations', icon: 'bolt' },
@@ -83,7 +82,6 @@ type View =
   | { readonly kind: 'app'; readonly id: string; readonly since: string }
   | { readonly kind: 'people' }
   | { readonly kind: 'hosting' }
-  | { readonly kind: 'notifications' }
   | { readonly kind: 'automations' }
   /** A phone's list of the sections that have no tab of their own */
   | { readonly kind: 'more' }
@@ -92,11 +90,14 @@ type View =
 /** One space, laid out like a chat app: its apps down a sidebar, the open one beside them */
 export function SpaceView({
   space,
+  spaces,
   notices,
   onOpenSpace,
   onHome,
 }: {
   space: SpaceSummary;
+  /** Every space, for the bell */
+  spaces: ReadonlyArray<SpaceSummary>;
   /** Banners about the connection and invites, above whatever is open */
   notices?: ReactNode;
   onOpenSpace?: (id: string) => void;
@@ -330,6 +331,10 @@ export function SpaceView({
             <h1 style={{ ...styles.appTitle, ...ellipsis, fontSize: 18, flex: 1, minWidth: 0 }}>{title}</h1>
             {open && <NotifyButton space={space} app={open} collections={collections} />}
             <CallButton space={space} />
+            {/* The rail carries the bell beside a wide screen; a phone has no rail. */}
+            <span className="phone-only">
+              <Bell spaces={spaces} here={space} onOpenSpace={onOpenSpace ?? (() => {})} />
+            </span>
             <AccountMenu />
           </header>
 
@@ -448,7 +453,6 @@ export function SpaceView({
               {view.kind === 'hosting' && (
                 <HostingView space={space} onAutomations={() => setView({ kind: 'automations' })} />
               )}
-              {view.kind === 'notifications' && <NotificationsView space={space} collections={collections} />}
               {view.kind === 'automations' && <AutomationsView space={space} collections={collections} />}
               {view.kind === 'hood' && view.hood === 'data' && (
                 <DataView
