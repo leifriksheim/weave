@@ -630,7 +630,10 @@ taken. A `versions` without `id` is limited to its first 200 entries.
 > removals and key changes, asserting that every peer reaches the same access
 > state and current versions whatever order versions arrive in, and that
 > nothing a removed member wrote after the removal is taken in anywhere. The
-> gatekeeper and the `later` retry above are what it exercises.
+> gatekeeper and the `later` retry above are what it exercises. The replay
+> alone is covered already, without peers: random access histories in any
+> arrival order, and added one change at a time, against a reference replay
+> (`packages/core/tests/access-convergence.test.ts`).
 
 _Source: `packages/core/src/sync/sync-engine.ts` (`admit`, `admitAll`, `retryWaiting`),
 `packages/core/src/node/space-runtime.ts` (`admit`). Tests: `packages/core/tests/sync.test.ts` (forged

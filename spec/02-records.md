@@ -465,8 +465,9 @@ values until its id sorts lower (a few tries on average). `@createdBy`, the
   `collection` differs from its first version can be refused on arrival
   instead of ignored on read.
 
-A long history might later be compacted by a checkpoint the record's creator
-signs, in place of its stubs.
+A long history might later be compacted by a checkpoint, in place of its
+stubs: a proposal for review is in
+[drafts/stub-checkpoints.md](drafts/stub-checkpoints.md).
 
 **Related.** Signed writer logs
 ([#13](https://github.com/leifriksheim/weave/issues/13)) add a per-writer,
