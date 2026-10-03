@@ -4,9 +4,10 @@
  * enforces them. What the records mean (how a vote travels along
  * delegations) is this app's, in `tally.ts`.
  *
- * A result only ever moves forward. Every proposal fixes who votes on it
- * when it is made; votes are final; and a decision is a proof that cites
- * enough votes to settle it, which no later vote can undo. So every device
+ * A result only ever moves forward. Every proposal fixes who votes on it,
+ * and how many of them must vote for it to pass, when it is made; votes are
+ * final; and a decision is a proof that cites enough votes to settle it,
+ * which no later vote can undo. So every device
  * reaches the same result from whatever votes it holds, in any order, with
  * nobody closing the vote and no clock (issue #131).
  *
@@ -19,8 +20,11 @@ import { fragments } from '@weaveprotocol/core/schemas';
 
 const { typed, words, text, markdown, count, choice, people, one, own } = fragments;
 
-/** The most voters one proposal can have: a decision cites more than half of them, and at most 256 versions */
+/** The most voters one proposal can have */
 export const MAX_VOTERS = 500;
+
+/** The most votes a decision can cite, so a proposal's rule must settle it with no more either way */
+export const MAX_CITED = 255;
 
 /** Ids of versions a record cites */
 const ids = (max: number, description: string) => ({
@@ -37,6 +41,8 @@ const read = (path: string) => ({ var: path });
 const is = (a: unknown, b: unknown) => ({ '==': [a, b] });
 /** A field of the one version cited by the id at `path` */
 const citedOne = (path: string, field: string) => ({ get: [{ versions: [[read(path)]] }, `0.${field}`] });
+/** Half of a count, rounded down */
+const half = (n: unknown) => ({ '/': [{ '-': [n, { '%': [n, 2] }] }, 2] });
 /** How many different people wrote the versions cited at `path` */
 const authorsOf = (path: string) => ({
   size: { distinct: { map: [{ versions: read(path) }, read('it.author')] } },
@@ -84,8 +90,10 @@ export const CHOICES = ['for', 'against', 'abstain'] as const;
 export type Choice = (typeof CHOICES)[number];
 
 /**
- * Something put to the assembly: yes or no. Who votes on it is fixed when it
- * is made: the members then. People who join later vote on later proposals.
+ * Something put to the assembly: yes or no. Who votes on it, and how many of
+ * them must vote for it to pass (`toPass`), are fixed when it is made. It
+ * fails once so many vote against or abstain that `toPass` can't be reached.
+ * Without `toPass`, as in proposals from before it existed, more than half.
  */
 export const proposal = typed<Proposal>()({
   name: 'liquid.proposal',
@@ -96,7 +104,8 @@ export const proposal = typed<Proposal>()({
     properties: {
       title: words(200),
       body: markdown(20000),
-      voters: people(MAX_VOTERS, 'Who votes on it: the members when it was proposed'),
+      voters: people(MAX_VOTERS, 'Who votes on it, picked from the members when it was proposed'),
+      toPass: count(1, MAX_CITED, 'How many of its voters must vote for it to pass'),
     },
     required: ['title', 'voters'],
   },
@@ -105,7 +114,7 @@ export const proposal = typed<Proposal>()({
   rules: {
     edit: ['creator', 'can:moderate'],
     delete: 'can:moderate',
-    fixed: ['voters'],
+    fixed: ['voters', 'toPass'],
     check: [
       {
         that: {
@@ -124,6 +133,21 @@ export const proposal = typed<Proposal>()({
         },
         else: `A proposal's voters are members, each once, from 1 to ${MAX_VOTERS} of them`,
       },
+      {
+        that: {
+          if: [
+            is(read('body.toPass'), null),
+            true,
+            {
+              and: [
+                { '<=': [read('body.toPass'), { size: read('body.voters') }] },
+                { '<=': [{ '-': [{ size: read('body.voters') }, read('body.toPass')] }, MAX_CITED - 1] },
+              ],
+            },
+          ],
+        },
+        else: `A proposal can't need more votes for than it has voters, nor more than ${MAX_CITED} votes either way`,
+      },
     ],
   },
 });
@@ -131,6 +155,7 @@ interface Proposal {
   readonly title: string;
   readonly body?: string;
   readonly voters: ReadonlyArray<string>;
+  readonly toPass?: number;
 }
 
 /** "This should be looked at": one per person per proposal, for sorting. It decides nothing. */
@@ -204,12 +229,22 @@ interface Delegation {
   readonly topic: string;
 }
 
+/** How many votes for the proposal a decision cites needs: its `toPass`, else more than half */
+const toPassOf = (path: string) => ({
+  if: [
+    is(citedOne(path, 'body.toPass'), null),
+    { '+': [half({ size: read('body.voters') }), 1] },
+    citedOne(path, 'body.toPass'),
+  ],
+});
+
 /**
- * Settles a proposal: it cites the proposal (any version: its voters never change), and enough final
- * votes from its voters that nothing later can change the outcome. Passed:
- * more than half of the voters voted for. Rejected: at least half voted
- * against or abstained, so for can no longer pass. Anyone may write it, once
- * per proposal, and every device checks it.
+ * Settles a proposal: it cites the proposal (any version: its voters and
+ * `toPass` never change), and enough final votes from its voters that
+ * nothing later can change the outcome. Passed: `toPass` of them voted for.
+ * Rejected: so many voted against or abstained that `toPass` can no longer
+ * be reached. Anyone may write it, once per proposal, and every device
+ * checks it.
  */
 export const decision = typed<Decision>()({
   name: 'liquid.decision',
@@ -257,11 +292,16 @@ export const decision = typed<Decision>()({
         that: {
           if: [
             is(read('body.outcome'), 'passed'),
-            { '>': [{ '*': [authorsOf('body.votes'), 2] }, { size: read('body.voters') }] },
-            { '>=': [{ '*': [authorsOf('body.votes'), 2] }, { size: read('body.voters') }] },
+            { '>=': [authorsOf('body.votes'), toPassOf('body.proposal')] },
+            {
+              '>': [
+                { '+': [authorsOf('body.votes'), toPassOf('body.proposal')] },
+                { size: read('body.voters') },
+              ],
+            },
           ],
         },
-        else: 'A proposal passes with more than half its voters for, and fails once half are against or abstain',
+        else: 'A proposal passes once as many voters as it needs voted for, and fails once that can’t happen',
       },
     ] satisfies ReadonlyArray<Check>,
   },

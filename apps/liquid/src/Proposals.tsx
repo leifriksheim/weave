@@ -2,8 +2,27 @@ import { useState, type ReactNode } from 'react';
 import { useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
 import type { Assembly, ProposalView } from './model';
-import { CHOICES, MAX_VOTERS, proposal as proposalCollection, support, vote, type Choice } from './schema';
-import { needed, trail, type Next, type Result, type Step, type Tally } from './tally';
+import {
+  CHOICES,
+  MAX_CITED,
+  MAX_VOTERS,
+  proposal as proposalCollection,
+  support,
+  vote,
+  type Choice,
+} from './schema';
+import {
+  RULES,
+  majority,
+  needed,
+  ruleName,
+  trail,
+  type Next,
+  type Result,
+  type RuleId,
+  type Step,
+  type Tally,
+} from './tally';
 import {
   CHOICE_LABEL,
   Empty,
@@ -425,8 +444,8 @@ function VotePanel({
   if (!voter)
     return (
       <div className="lq-note">
-        You joined after this was proposed. Its {p.voters.length} voters were fixed when it was made; you vote
-        on proposals made since.
+        You’re not one of its {p.voters.length} voters. They were picked from the members when it was
+        proposed, and stay fixed.
       </div>
     );
 
@@ -575,7 +594,7 @@ function Results({ a, p }: { a: Assembly; p: ProposalView }) {
   const shown = a.countOf(p);
   const coming = a.comingOf(p);
   const voters = p.voters.length;
-  const need = needed(shown);
+  const need = needed(shown, p.toPass);
   const followed = [...p.votes.values()].filter((v) => v.via).length;
   const own = p.votes.size - followed;
   const comingCount = coming.for + coming.against + coming.abstain;
@@ -586,6 +605,13 @@ function Results({ a, p }: { a: Assembly; p: ProposalView }) {
         <span className="lq-faint lq-num" style={{ fontSize: 12 }}>
           {voters} {voters === 1 ? 'voter' : 'voters'}, as of {ago(p.createdAt)}
         </span>
+      </div>
+      <div className="lq-muted lq-num" style={{ fontSize: 12.5 }}>
+        To pass:{' '}
+        <b>
+          {p.toPass} of {voters}
+        </b>{' '}
+        for{ruleName(p.toPass, voters) && ` (${ruleName(p.toPass, voters)?.toLowerCase()})`}
       </div>
       <Meter tally={shown} size="lg" />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
@@ -695,22 +721,71 @@ function Compose({
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [topicKey, setTopicKey] = useState<string | null>(initialTopic ?? a.topics[0]?.key ?? null);
+  // People vote unless left out; bots only when added. Kept as changes, so a bot list that loads late still applies.
+  const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
+  const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
+  const [rule, setRule] = useState<RuleId | 'custom'>('majority');
+  const [custom, setCustom] = useState(1);
   const action = useAction();
-  // Who votes: everyone in the assembly now. People who join later vote on later proposals.
-  const voters = a.members.map((m) => m.did).sort();
-  const tooMany = voters.length > MAX_VOTERS;
+
+  const byName = (x: string, y: string) =>
+    x === a.me ? -1 : y === a.me ? 1 : a.name(x).localeCompare(a.name(y));
+  const people = a.members
+    .map((m) => m.did)
+    .filter((did) => !a.bots.has(did))
+    .sort(byName);
+  const bots = a.members
+    .map((m) => m.did)
+    .filter((did) => a.bots.has(did))
+    .sort(byName);
+  const picks = (did: string) => (a.bots.has(did) ? added.has(did) : !left.has(did));
+  const voters = a.members
+    .map((m) => m.did)
+    .filter(picks)
+    .sort();
+  const n = voters.length;
+  // An assembly made before proposals set their rule takes more than half.
+  const toPass = !a.current
+    ? majority(n)
+    : rule === 'custom'
+      ? Math.min(Math.max(1, custom), n)
+      : (RULES.find((r) => r.id === rule)?.toPass(n) ?? majority(n));
+  const problem =
+    n === 0
+      ? 'Pick at least one voter.'
+      : n > MAX_VOTERS
+        ? `A proposal can have at most ${MAX_VOTERS} voters for now.`
+        : toPass > MAX_CITED || n - toPass + 1 > MAX_CITED
+          ? `With this many voters, a rule must settle it with at most ${MAX_CITED} votes either way.`
+          : null;
+
+  const toggle = (did: string) => {
+    const flip = (set: ReadonlySet<string>) => {
+      const next = new Set(set);
+      if (!next.delete(did)) next.add(did);
+      return next;
+    };
+    if (a.bots.has(did)) setAdded(flip);
+    else setLeft(flip);
+  };
+
   return (
     <Modal title="New proposal" onClose={onClose} width={560}>
       <form
         style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
         onSubmit={(event) => {
           event.preventDefault();
-          if (!title.trim() || tooMany) return;
+          if (!title.trim() || problem) return;
           void action.run(async () => {
             const made = await node.records.put(
               a.spaceId,
               proposalCollection,
-              { title: title.trim(), ...(body.trim() ? { body: body.trim() } : {}), voters },
+              {
+                title: title.trim(),
+                ...(body.trim() ? { body: body.trim() } : {}),
+                voters,
+                ...(a.current ? { toPass } : {}),
+              },
               topicKey ? { links: [{ rel: 'topic', to: topicKey }] } : {},
             );
             onDone(made.key);
@@ -755,21 +830,151 @@ function Compose({
             maxLength={20000}
           />
         </label>
-        <p className="lq-faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-          {tooMany
-            ? `This assembly has ${voters.length} members. A proposal can have at most ${MAX_VOTERS} voters for now.`
-            : `The ${voters.length} people in the assembly now vote on it. It passes once more than half of them vote for, and fails once half vote against or abstain.`}
-        </p>
-        <Problem>{action.error}</Problem>
+
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+            <p className="lq-label">
+              Who votes · {n} of {a.members.length}
+            </p>
+            <span style={{ display: 'inline-flex', gap: 4 }}>
+              <button
+                type="button"
+                className="lq-btn"
+                data-variant="ghost"
+                data-size="sm"
+                onClick={() => {
+                  setLeft(new Set());
+                  setAdded(new Set());
+                }}
+              >
+                Everyone but bots
+              </button>
+              <button
+                type="button"
+                className="lq-btn"
+                data-variant="ghost"
+                data-size="sm"
+                onClick={() => {
+                  setLeft(new Set(people));
+                  setAdded(new Set());
+                }}
+              >
+                Nobody
+              </button>
+            </span>
+          </div>
+          <div className="lq-card" style={{ marginTop: 8, maxHeight: 240, overflowY: 'auto' }}>
+            {people.map((did) => (
+              <VoterRow key={did} a={a} did={did} on={picks(did)} onToggle={() => toggle(did)} />
+            ))}
+            {bots.length > 0 && (
+              <p className="lq-row lq-faint" style={{ fontSize: 12, padding: '8px 16px' }}>
+                Bots don’t vote unless you add them.
+              </p>
+            )}
+            {bots.map((did) => (
+              <VoterRow key={did} a={a} did={did} bot on={picks(did)} onToggle={() => toggle(did)} />
+            ))}
+          </div>
+          <p className="lq-faint" style={{ fontSize: 12, marginTop: 8 }}>
+            Fixed once proposed. People who join later vote on later proposals.
+          </p>
+        </div>
+
+        <div>
+          <p className="lq-label" style={{ marginBottom: 8 }}>
+            What it takes to pass
+          </p>
+          {a.current ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} role="group" aria-label="Rule">
+              {RULES.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="lq-chip"
+                  data-filter
+                  aria-pressed={rule === r.id}
+                  onClick={() => setRule(r.id)}
+                >
+                  {r.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="lq-chip"
+                data-filter
+                aria-pressed={rule === 'custom'}
+                onClick={() => {
+                  setCustom(toPass);
+                  setRule('custom');
+                }}
+              >
+                A number
+              </button>
+              {rule === 'custom' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                  <input
+                    className="lq-input"
+                    type="number"
+                    min={1}
+                    max={Math.max(1, n)}
+                    value={custom}
+                    onChange={(event) => setCustom(Math.round(Number(event.target.value)) || 1)}
+                    style={{ width: 72, height: 30 }}
+                    aria-label="Votes for it needs"
+                  />
+                  <span className="lq-muted">of {n}</span>
+                </span>
+              )}
+            </div>
+          ) : (
+            <p className="lq-faint" style={{ fontSize: 12.5 }}>
+              More than half. Update this assembly to pick another rule.
+            </p>
+          )}
+          {n > 0 && (
+            <p className="lq-muted lq-num" style={{ fontSize: 12.5, lineHeight: 1.5, marginTop: 8 }}>
+              Passes once {toPass} of the {n} {n === 1 ? 'voter votes' : 'voters vote'} for. Fails once{' '}
+              {n - toPass + 1} vote against or abstain, since it can no longer pass. Until then it stays open:
+              there’s no deadline.
+              {toPass * 2 <= n && ' Fewer than half can pass it.'}
+            </p>
+          )}
+        </div>
+
+        <Problem>{problem ?? action.error}</Problem>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button type="button" className="lq-btn" data-variant="ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="lq-btn" disabled={!title.trim() || action.busy || tooMany}>
+          <button className="lq-btn" disabled={!title.trim() || action.busy || problem !== null}>
             {action.busy ? 'Proposing…' : 'Propose'}
           </button>
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** One member to pick as a voter, or leave out */
+function VoterRow({
+  a,
+  did,
+  bot,
+  on,
+  onToggle,
+}: {
+  a: Assembly;
+  did: string;
+  bot?: boolean;
+  on: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <label className="lq-row" style={{ cursor: 'pointer', padding: '8px 16px' }}>
+      <input type="checkbox" checked={on} onChange={onToggle} />
+      <Who did={did} a={a} size={22} />
+      {bot && <span className="lq-chip">bot</span>}
+    </label>
   );
 }

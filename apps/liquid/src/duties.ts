@@ -65,8 +65,8 @@ export function duties(a: Assembly): Duty[] {
       if (position) todo.push({ kind: 'ballot', proposal: p.key, party, roll, ...position });
     }
 
-    const outcome = settled(a.countOf(p));
-    const votes = outcome ? proof(p.voters, p.votes, outcome) : null;
+    const outcome = settled(a.countOf(p), p.toPass);
+    const votes = outcome ? proof(p.voters, p.votes, outcome, p.toPass) : null;
     if (outcome && votes) todo.push({ kind: 'decision', proposal: p, outcome, votes });
   }
   return todo;

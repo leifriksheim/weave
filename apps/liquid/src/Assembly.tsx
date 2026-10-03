@@ -168,9 +168,10 @@ function AssemblyBody({ space, a }: { space: SpaceSummary; a: Assembly }) {
 }
 
 /**
- * An assembly made by an older Liquid: votes there could change, and
- * proposals had no voter list. Someone allowed to change the space's
- * collections brings it up to date; proposals made before stay undecided.
+ * An assembly made by an older Liquid: votes there could change, proposals
+ * had no voter list, or couldn't set what it takes to pass. Someone allowed
+ * to change the space's collections brings it up to date; proposals made
+ * before keep the rules they were made with.
  */
 function Outdated({ a, writable }: { a: Assembly; writable: boolean }) {
   const node = useNode();
@@ -179,9 +180,9 @@ function Outdated({ a, writable }: { a: Assembly; writable: boolean }) {
     <div className="lq-note" data-tone="warn" style={{ marginBottom: 20, fontSize: 13, lineHeight: 1.55 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <span>
-          This assembly was made with an older Liquid, where votes could change and proposals closed by hand.
-          Updating it makes votes final and proposals settle themselves. Proposals made before stay as they
-          are.
+          This assembly was made with an older Liquid. Updating it makes votes final, lets proposals settle
+          themselves, and lets whoever proposes pick what it takes to pass. Proposals made before keep the
+          rules they were made with.
         </span>
         {writable && (
           <button
@@ -386,8 +387,12 @@ function HowItWorks({ onClose }: { onClose: () => void }) {
       </Section>
       <Section title="How a proposal is settled">
         <Li>
-          <strong>Passed</strong> once more than half of its voters voted for. <strong>Rejected</strong> once
-          at least half voted against or abstained, so for can no longer pass.
+          Whoever proposes picks its voters and what it takes to pass: more than half, two-thirds, everyone,
+          or a number. Bots vote only when they’re picked.
+        </Li>
+        <Li>
+          <strong>Passed</strong> once that many voters voted for. <strong>Rejected</strong> once so many
+          voted against or abstained that it can no longer pass.
         </Li>
         <Li>
           Whichever device sees that first writes a decision citing the votes, and every device checks it.
@@ -412,8 +417,8 @@ function HowItWorks({ onClose }: { onClose: () => void }) {
           trusts whom. That’s how delegates stay accountable, but it rules out a secret ballot.
         </Li>
         <Li>
-          <strong>Someone writes the voter list.</strong> Whoever proposes lists the members their device
-          knows of. Every voter must be a member, but nothing proves nobody was left out.
+          <strong>Whoever proposes picks the voters.</strong> Every voter must be a member, and everyone sees
+          the list, but nothing stops a proposer leaving people out. Check who votes before you vote.
         </Li>
         <Li>
           <strong>One account, one vote.</strong> Nothing proves an account is a different person. Whoever can

@@ -127,10 +127,10 @@ describe('liquid: deciding a proposal', () => {
         about(put.key),
       );
 
-    await assert.rejects(decide('passed', [a.version]), /more than half/);
+    await assert.rejects(decide('passed', [a.version]), /passes once as many voters as it needs/);
     await assert.rejects(
       decide('passed', [a.version, a.version]),
-      /more than half/,
+      /passes once as many voters as it needs/,
       'one voter cited twice is one',
     );
     await assert.rejects(decide('passed', [a.version, elsewhere.version]), /only votes on its proposal/);
@@ -186,7 +186,51 @@ describe('liquid: deciding a proposal', () => {
     });
     await hold(alice.node, space);
     await until(async () => rejected !== '', 4000, 'Bob to refuse it');
-    assert.match(rejected, /more than half/);
+    assert.match(rejected, /passes once as many voters as it needs/);
+  });
+
+  test('a decision follows the proposal’s own rule', async () => {
+    const { alice, bob, carol, space, voters } = await assembly();
+    // Everyone must vote for: two of three isn't enough, one against settles it.
+    const put = await alice.node.records.put(space, proposal, { title: 'Sell the hall', voters, toPass: 3 });
+    const a = await castBy(alice, space, put.key, 'for');
+    const b = await castBy(bob, space, put.key, 'for');
+    const c = await castBy(carol, space, put.key, 'against');
+    await until(async () => (await alice.node.records.get(space, c.key)) !== null, 4000, 'the votes');
+    const decide = (outcome: 'passed' | 'rejected', votes: string[]) =>
+      alice.node.records.put(
+        space,
+        decision,
+        { outcome, proposal: put.version, voters, votes },
+        about(put.key),
+      );
+    await assert.rejects(decide('passed', [a.version, b.version]), /as many voters as it needs/);
+    await decide('rejected', [c.version]);
+
+    // Who votes is picked: two of the three, and one of them is enough.
+    const two = [alice.node.did, bob.node.did].sort();
+    const small = await alice.node.records.put(space, proposal, { title: 'Paint', voters: two, toPass: 1 });
+    const mine = await castBy(alice, space, small.key, 'for');
+    await alice.node.records.put(
+      space,
+      decision,
+      { outcome: 'passed', proposal: small.version, voters: two, votes: [mine.version] },
+      about(small.key),
+    );
+    // The rule is fixed once proposed.
+    await assert.rejects(
+      alice.node.records.update(space, small.key, { title: 'Paint', voters: two, toPass: 2 }),
+      /toPass/,
+    );
+  });
+
+  test('a proposal can’t need more votes for than it has voters', async () => {
+    const { alice, space, voters } = await assembly();
+    await assert.rejects(
+      alice.node.records.put(space, proposal, { title: 'Too many', voters, toPass: 4 }),
+      /more votes for than it has voters/,
+    );
+    await assert.rejects(alice.node.records.put(space, proposal, { title: 'None', voters, toPass: 0 }));
   });
 
   test('a proposal lists members only, each once', async () => {
@@ -359,6 +403,31 @@ describe('liquid: a decision fits in one check', () => {
       member: () => true,
     });
     assert.deepEqual(outcome, { passed: true });
+
+    // The same, with the most a rule may ask for.
+    const strict: CheckedVersion = {
+      ...theProposal,
+      id: 'b-strict',
+      body: { title: 'Big', voters, toPass: 255 },
+    };
+    const most = Array.from({ length: 255 }, (_, i) => ({
+      ...cited[0]!,
+      id: `b-more-${i}`,
+      author: voters[i]!,
+    }));
+    const heldStrict = new Map([...most, strict].map((v) => [v.id, v]));
+    const strictOutcome = await runChecks(decision.rules.check, {
+      values: {
+        body: { outcome: 'passed', proposal: strict.id, voters, votes: most.map((v) => v.id) },
+        links: [{ rel: 'about', to: 'proposal-key' }],
+        author: voters[0],
+        prev: null,
+      },
+      cite: async (id) => heldStrict.get(id) ?? { later: true },
+      can: () => false,
+      member: () => true,
+    });
+    assert.deepEqual(strictOutcome, { passed: true });
   });
 });
 

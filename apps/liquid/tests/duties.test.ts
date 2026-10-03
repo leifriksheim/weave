@@ -2,7 +2,15 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { duties } from '../src/duties';
 import type { Assembly, PartyFull, ProposalView, RollView } from '../src/model';
-import { follow, pending, tally, type CastVote, type DelegationEdge, type PartyStand } from '../src/tally';
+import {
+  follow,
+  majority,
+  pending,
+  tally,
+  type CastVote,
+  type DelegationEdge,
+  type PartyStand,
+} from '../src/tally';
 import type { Choice } from '../src/schema';
 
 const ADA = 'did:ada';
@@ -23,6 +31,7 @@ function proposalView(key: string, over: Partial<ProposalView> = {}): ProposalVi
     body: '',
     topic: null,
     voters: VOTERS,
+    toPass: majority(VOTERS.length),
     createdBy: ADA,
     createdAt: '2026-10-03T12:00:00.000Z',
     supporters: new Set(),
@@ -69,6 +78,7 @@ function assembly(
     me: ADA,
     name: (did) => did ?? '',
     members: VOTERS.map((did) => ({ did, role: 'member' })),
+    bots: new Set(),
     roles: [],
     myRole: null,
     mayModerate: false,
@@ -148,6 +158,21 @@ describe('what a device does by itself', () => {
     assert.deepEqual(
       plan.map((d) => (d.kind === 'decision' ? [d.outcome, d.votes] : d.kind)),
       [['rejected', ['v-did:bo', 'v-did:cy']]],
+    );
+  });
+
+  test('decides by the proposal’s own rule', () => {
+    const votes = new Map([cast('for', BO), cast('for', CY)]);
+    // Two for is enough when it needs two, and not when it needs everyone.
+    const lenient = duties(assembly([proposalView('p1', { votes, toPass: 2 })]));
+    assert.deepEqual(
+      lenient.flatMap((d) => (d.kind === 'decision' ? [d.outcome] : [])),
+      ['passed'],
+    );
+    const strict = duties(assembly([proposalView('p1', { votes, toPass: VOTERS.length })]));
+    assert.deepEqual(
+      strict.filter((d) => d.kind === 'decision'),
+      [],
     );
   });
 });

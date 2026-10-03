@@ -5,11 +5,12 @@
  * Every rule here only grows: once true, no vote arriving later makes it
  * false. That is what lets devices agree without anyone closing the vote.
  *
- * - **Who votes** is fixed by the proposal: its voters, N of them.
+ * - **Who votes** is fixed by the proposal: its voters, N of them, and how
+ *   many must vote for it to pass, K (more than half unless it says).
  * - **Votes are final.** Each voter casts one, themselves or by their device
  *   following someone they trust (`via`).
- * - **Passed** once more than N/2 voted for. **Rejected** once at least N/2
- *   voted against or abstained, so for can no longer pass. Until then it is
+ * - **Passed** once K voted for. **Rejected** once more than N − K voted
+ *   against or abstained, so K can no longer be reached. Until then it is
  *   open, however long that takes.
  * - **Disputed** once someone is caught saying two things about it (a
  *   conflict). That sits above passed and rejected: it never goes back.
@@ -59,21 +60,38 @@ export function tally(voters: ReadonlyArray<string>, votes: Votes): Tally {
 
 const voterCount = (t: Tally) => t.for + t.against + t.abstain + t.uncast;
 
-/** Whether the count settles it: more than half for, or at least half not for */
-export function settled(t: Tally): Outcome | null {
+/** More than half of `voters`: what a proposal needs when it doesn't say */
+export const majority = (voters: number) => Math.floor(voters / 2) + 1;
+
+/** Rules to pick from when proposing: how many of `n` voters must vote for */
+export const RULES = [
+  { id: 'majority', label: 'More than half', toPass: majority },
+  { id: 'two-thirds', label: 'Two-thirds', toPass: (n: number) => Math.ceil((n * 2) / 3) },
+  { id: 'three-quarters', label: 'Three-quarters', toPass: (n: number) => Math.ceil((n * 3) / 4) },
+  { id: 'everyone', label: 'Everyone', toPass: (n: number) => n },
+] as const;
+export type RuleId = (typeof RULES)[number]['id'];
+
+/** A proposal's rule in words: the first preset that needs as many, or null */
+export function ruleName(toPass: number, voters: number): string | null {
+  return RULES.find((r) => r.toPass(voters) === toPass)?.label ?? null;
+}
+
+/** Whether the count settles it: `toPass` for, or so many not for that `toPass` can't be reached */
+export function settled(t: Tally, toPass: number): Outcome | null {
   const n = voterCount(t);
   if (n === 0) return null;
-  if (t.for * 2 > n) return 'passed';
-  if ((t.against + t.abstain) * 2 >= n) return 'rejected';
+  if (t.for >= toPass) return 'passed';
+  if (t.against + t.abstain > n - toPass) return 'rejected';
   return null;
 }
 
 /** How many more votes for it needs to pass, and how many not for to fail */
-export function needed(t: Tally): { readonly toPass: number; readonly toFail: number } {
+export function needed(t: Tally, toPass: number): { readonly toPass: number; readonly toFail: number } {
   const n = voterCount(t);
   return {
-    toPass: Math.max(0, Math.floor(n / 2) + 1 - t.for),
-    toFail: Math.max(0, Math.ceil(n / 2) - t.against - t.abstain),
+    toPass: Math.max(0, toPass - t.for),
+    toFail: Math.max(0, n - toPass + 1 - t.against - t.abstain),
   };
 }
 
@@ -82,9 +100,14 @@ export function needed(t: Tally): { readonly toPass: number; readonly toFail: nu
  * order so two devices make the same proof. Null when the count doesn't
  * settle it that way.
  */
-export function proof(voters: ReadonlyArray<string>, votes: Votes, outcome: Outcome): string[] | null {
+export function proof(
+  voters: ReadonlyArray<string>,
+  votes: Votes,
+  outcome: Outcome,
+  toPass: number,
+): string[] | null {
   const n = new Set(voters).size;
-  const enough = outcome === 'passed' ? Math.floor(n / 2) + 1 : Math.ceil(n / 2);
+  const enough = outcome === 'passed' ? toPass : n - toPass + 1;
   const counts = (v: CastVote) => (outcome === 'passed' ? v.choice === 'for' : v.choice !== 'for');
   const cited = [...new Set(voters)]
     .sort()
