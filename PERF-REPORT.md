@@ -4,6 +4,12 @@ Branch `worktree-perf-sync-fixes`, from `4a224d1`. Measured with Node 24.14
 (not 22), in-memory stores, and the fake transport at 1 ms latency. No
 browser or IndexedDB numbers were taken.
 
+`join-bench.ts` and `sync-bench.ts`, which the brief and this report cite,
+were measured on `4a224d1`. They were removed from main afterwards (the
+v0.4.0 cleanup, `9d73d6f`), so to rerun them, check them out from
+`4a224d1`. The Phase 4 regression test in `tests/reconcile.test.ts` covers
+the same case without them.
+
 Tests at the end: core 691/691, cli 107/107, relay 31/31, none skipped.
 `npm run check` passes. The access oracle passes 10,000 random histories.
 
