@@ -722,24 +722,24 @@ function inCut(r: Replay, cut: Ancestry, id: string): boolean {
   return n !== undefined && (n < cut.prefix || cut.extra.has(n));
 }
 
+/** Whether a cut holds every change applied so far: then its state is where the replay stands, the usual case */
+function holdsAllApplied(r: Replay, cut: Ancestry): boolean {
+  for (let i = r.order.length - 1; i >= 0; i--) {
+    const n = r.placed.get(r.order[i]!)!;
+    if (n < cut.prefix) return true;
+    if (!cut.extra.has(n)) return false;
+  }
+  return true;
+}
+
 /** The state as of what `seen` names. Every id must be placed. */
 function stateAt(r: Replay, seen: ReadonlyArray<string>): AccessState {
   const cacheKey = [...new Set(seen)].sort().join(',');
   const cached = r.stateAtCache.get(cacheKey);
   if (cached) return cached;
   const cut = cutOf(r, seen);
-  // A cut holding every change applied so far is where the replay stands: the usual case.
-  let whole = true;
-  for (let i = r.order.length - 1; i >= 0; i--) {
-    const n = r.placed.get(r.order[i]!)!;
-    if (n < cut.prefix) break;
-    if (!cut.extra.has(n)) {
-      whole = false;
-      break;
-    }
-  }
   let folded: MutableState;
-  if (whole) folded = cloneState(r.state);
+  if (holdsAllApplied(r, cut)) folded = cloneState(r.state);
   else {
     folded = startState(r.genesis);
     for (const id of r.order) if (inCut(r, cut, id)) apply(r.byId.get(id)!, folded);
@@ -775,7 +775,8 @@ function place(r: Replay, event: AccessEvent): void {
   const reason =
     (rival ? 'A change to the same thing that it had not seen came first' : null) ??
     // Its author had to have the power as of what they saw…
-    refusal(event, stateAt(r, event.seen)) ??
+    // (read where the replay stands, without a copy, when that is what it saw)
+    refusal(event, holdsAllApplied(r, saw) ? r.state : stateAt(r, event.seen)) ??
     // …and still have it at its turn.
     refusal(event, r.state);
   if (reason) {
