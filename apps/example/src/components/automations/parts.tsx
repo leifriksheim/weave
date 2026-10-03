@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
+import type { NodeCollection } from '@weaveprotocol/core';
+import { useQuery } from '@weaveprotocol/core/react';
 import {
   clauseOn,
   clauseWords,
@@ -8,6 +10,8 @@ import {
   type ClauseField,
 } from '../../derive/conditions';
 import { nameOf, type People } from '../../derive/people';
+import { recordLabel } from '../../derive/schema-ui';
+import { noun, type Within } from '../../rules';
 import { styles, palette } from '../../styles';
 import { Icon } from '../Icon';
 
@@ -474,3 +478,40 @@ export const iconDot = {
   background: palette.surface.sunken,
   color: palette.ink.body,
 } as const;
+
+/** "in any channel", or one of them: where a rule's or notification's records must be */
+export function PlacePill({
+  spaceId,
+  collections,
+  place,
+  picked,
+  onChange,
+}: {
+  spaceId: string;
+  collections: ReadonlyArray<NodeCollection>;
+  place: { rel: string; to: string };
+  picked: Within | null;
+  onChange: (next: Within | null) => void;
+}) {
+  const found = useQuery(spaceId, { collection: place.to, limit: 200 }).result;
+  const schema = collections.find((c) => c.name === place.to)?.schema ?? null;
+  const options = (found?.records ?? []).map((r) => ({ value: r.key, label: recordLabel(r, schema) }));
+  // One picked before that this device can't see now still shows, by the name it had.
+  if (picked && !options.some((o) => o.value === picked.to))
+    options.unshift({ value: picked.to, label: picked.label });
+  return (
+    <>
+      <span>in</span>
+      <Pill
+        label={`Which ${noun(collections, place.to)}`}
+        strong={picked !== null}
+        value={picked?.to ?? ''}
+        options={[{ value: '', label: `any ${noun(collections, place.to)}` }, ...options]}
+        onChange={(key) => {
+          const option = options.find((o) => o.value === key);
+          onChange(option ? { rel: place.rel, to: option.value, label: option.label } : null);
+        }}
+      />
+    </>
+  );
+}

@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { recordHolds, type NodeCollection, type NodeRecord, type SpaceSummary } from '@weaveprotocol/core';
+import {
+  recordHolds,
+  type Condition,
+  type NodeCollection,
+  type NodeRecord,
+  type SpaceSummary,
+} from '@weaveprotocol/core';
 import { useAccount, useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
 import { clauseFields, clausesWords, subscriptionOf, whereOf, type Clause } from '../../derive/conditions';
@@ -9,10 +15,18 @@ import { ago } from '../../derive/time';
 import { useAsk } from '../../notifications';
 import { usePeopleHere } from '../Person';
 import { styles, palette } from '../../styles';
-import { ClauseList, Pill, Sentence, Step, card, previewBox } from './parts';
+import { places, type Within } from '../../rules';
+import { ClauseList, Pill, PlacePill, Sentence, Step, card, previewBox } from './parts';
 
 type Who = 'others' | 'anyone';
 type Where = 'space' | 'all';
+
+/** "Linked to this record by `rel`", as a condition over a record */
+const linkedTo = (w: Within): Condition => ({ '==': [{ link: [w.rel] }, w.to] });
+
+/** Every condition, all of which must hold; undefined when there are none */
+const allOf = (parts: ReadonlyArray<Condition>): Condition =>
+  parts.length === 0 ? undefined : parts.length === 1 ? parts[0] : { and: [...parts] };
 
 /** How many of the newest records the preview looks through */
 const LOOK_BACK = 50;
@@ -46,6 +60,7 @@ export function WatchBuilder({
 
   const [collection, setCollection] = useState(offered[0]?.name ?? '');
   const [clauses, setClauses] = useState<ReadonlyArray<Clause>>([]);
+  const [within, setWithin] = useState<ReadonlyArray<Within>>([]);
   const [who, setWho] = useState<Who>('others');
   const [where, setWhere] = useState<Where>('space');
   const [label, setLabel] = useState<string | null>(null);
@@ -53,20 +68,29 @@ export function WatchBuilder({
 
   const chosen = offered.find((c) => c.name === collection);
   const fields = useMemo(() => (chosen ? clauseFields(chosen) : []), [chosen]);
+  // Where a record is, like a message's channel: only within one space, where its channels are.
+  const placesHere = useMemo(
+    () => (collection && where === 'space' ? places(collections, collection) : []),
+    [collections, collection, where],
+  );
   const thing = chosen ? collectionLabel(chosen) : '';
   const words = clausesWords(clauses, fields, (d) => nameOf(d, people));
+  const inside = within.map((w) => ` in ${w.label}`).join('');
   const autoLabel =
-    `${thing ? `New ${thing.toLowerCase()}` : 'Something new'}${words ? `: ${words}` : ''}`.slice(0, 120);
+    `${thing ? `New ${thing.toLowerCase()}${inside}` : 'Something new'}${words ? `: ${words}` : ''}`.slice(
+      0,
+      120,
+    );
   const shown = label ?? autoLabel;
 
   // What it would have caught lately, in this space.
-  const looking = JSON.stringify([collection, clauses, who]);
+  const looking = JSON.stringify([collection, clauses, within, who]);
   const [found, setFound] = useState<{ for: string; matched: NodeRecord[]; looked: number } | null>(null);
   const preview = found?.for === looking ? found : null;
   useEffect(() => {
     if (!collection) return;
     let live = true;
-    const condition = whereOf(clauses, did);
+    const condition = allOf([whereOf(clauses, did), ...within.map(linkedTo)].filter((c) => c !== undefined));
     void node.records
       .list(space.id, { collection, newestFirst: true, limit: LOOK_BACK })
       .then(async (records) => {
@@ -87,11 +111,21 @@ export function WatchBuilder({
     return () => {
       live = false;
     };
-  }, [node, space.id, collection, clauses, who, did, looking]);
+  }, [node, space.id, collection, clauses, within, who, did, looking]);
 
   const submit = () => {
     if (!chosen) return;
-    const { topic, where: condition } = subscriptionOf(clauses, fields, did);
+    // A place a carrier can match (`link:channel` is a message's topic) goes first, so it wakes the app
+    // only for that channel; then the fields' conditions, and any other place, are judged by the app.
+    const carried = within.find((w) => chosen.topics.includes(`link:${w.rel}`));
+    const fromFields = subscriptionOf(clauses, fields, did);
+    const topic = carried ? { field: `link:${carried.rel}`, value: carried.to } : fromFields.topic;
+    const condition = allOf(
+      [
+        carried ? whereOf(clauses, did) : fromFields.where,
+        ...within.filter((w) => w !== carried).map(linkedTo),
+      ].filter((c) => c !== undefined),
+    );
     void ask([
       {
         label: shown.trim() || autoLabel,
@@ -150,8 +184,21 @@ export function WatchBuilder({
                 onChange={(name) => {
                   setCollection(name);
                   setClauses([]);
+                  setWithin([]);
                 }}
               />
+              {placesHere.map((place) => (
+                <PlacePill
+                  key={place.rel}
+                  spaceId={space.id}
+                  collections={collections}
+                  place={place}
+                  picked={within.find((w) => w.rel === place.rel) ?? null}
+                  onChange={(next) =>
+                    setWithin([...within.filter((w) => w.rel !== place.rel), ...(next ? [next] : [])])
+                  }
+                />
+              ))}
               <span>in</span>
               <Pill
                 label="Where"
@@ -161,7 +208,11 @@ export function WatchBuilder({
                   { value: 'space', label: space.name },
                   { value: 'all', label: 'any of my spaces' },
                 ]}
-                onChange={setWhere}
+                onChange={(next) => {
+                  setWhere(next);
+                  // Another space has other channels
+                  if (next === 'all') setWithin([]);
+                }}
               />
             </Sentence>
           </Step>

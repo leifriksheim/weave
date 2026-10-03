@@ -7,7 +7,7 @@ import {
   type NodeRecord,
   type SpaceSummary,
 } from '@weaveprotocol/core';
-import { useAccess, useAccount, useNode, useQuery } from '@weaveprotocol/core/react';
+import { useAccess, useAccount, useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
 import { AddBotDialog, useSpaceBots } from '@weave/app-shared/CommunitySetup';
 import { clauseFields, clauseOn, type Clause, type ClauseField } from '../../derive/conditions';
@@ -50,7 +50,7 @@ import {
 } from '../../rules';
 import { usePeopleHere } from '../Person';
 import { styles, palette } from '../../styles';
-import { ClauseList, Pill, Sentence, Step, ValueInput, card, chip, previewBox } from './parts';
+import { ClauseList, Pill, PlacePill, Sentence, Step, ValueInput, card, chip, previewBox } from './parts';
 
 /** In the schedule picker, a time of one's own */
 const OTHER = 'other';
@@ -790,40 +790,3 @@ const tile = {
 } as const;
 
 const token = { ...styles.smallButton, height: 24, padding: '0 8px', fontSize: 12 } as const;
-
-/** "in any channel", or one of them: where the rule's records must be */
-function PlacePill({
-  spaceId,
-  collections,
-  place,
-  picked,
-  onChange,
-}: {
-  spaceId: string;
-  collections: ReadonlyArray<NodeCollection>;
-  place: { rel: string; to: string };
-  picked: Within | null;
-  onChange: (next: Within | null) => void;
-}) {
-  const found = useQuery(spaceId, { collection: place.to, limit: 200 }).result;
-  const schema = collections.find((c) => c.name === place.to)?.schema ?? null;
-  const options = (found?.records ?? []).map((r) => ({ value: r.key, label: recordLabel(r, schema) }));
-  // One picked before that this device can't see now still shows, by the name it had.
-  if (picked && !options.some((o) => o.value === picked.to))
-    options.unshift({ value: picked.to, label: picked.label });
-  return (
-    <>
-      <span>in</span>
-      <Pill
-        label={`Which ${noun(collections, place.to)}`}
-        strong={picked !== null}
-        value={picked?.to ?? ''}
-        options={[{ value: '', label: `any ${noun(collections, place.to)}` }, ...options]}
-        onChange={(key) => {
-          const option = options.find((o) => o.value === key);
-          onChange(option ? { rel: place.rel, to: option.value, label: option.label } : null);
-        }}
-      />
-    </>
-  );
-}
