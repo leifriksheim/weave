@@ -158,11 +158,8 @@ What Phase 3 changed:
 
 ## Not done, and why
 
-- **No GitHub issues or PR.** Opening them is outward-facing, so I left it to
-  you. Suggested:
-  - a PR with `Refs #10` and `Refs #25`;
-  - an issue for the §4.3 append-reorder question (item 3);
-  - an issue for the chain walk (draft §7.1).
+- **Follow-ups are issues:** the §4.3 append-reorder question (item 3) is
+  #137, and the chain walk (draft §7.1) is #138.
 - **Multi-peer convergence (#10)** is only half done. The replay part exists;
   peers with partitions and the gatekeeper do not. 05 §8's Planned note says
   so.

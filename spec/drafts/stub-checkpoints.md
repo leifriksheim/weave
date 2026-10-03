@@ -283,6 +283,8 @@ position instead of a chain.
 
 ### 7.1 Fix the chain walk first (no protocol change beyond 05 §6.3)
 
+Tracked in [#138](https://github.com/leifriksheim/weave/issues/138).
+
 Most of today's cost is per link, not per version. Two library changes,
 each small:
 

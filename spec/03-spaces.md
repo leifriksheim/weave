@@ -367,6 +367,8 @@ and place the ready event with the lexicographically smallest
 > that adds a change to an earlier replay instead of replaying everything
 > must detect this and replay; one that always replays from scratch need do
 > nothing.
+> Whether the rule should count such changes at all is open:
+> [#137](https://github.com/leifriksheim/weave/issues/137).
 
 ### 4.4 Applying one event
 
