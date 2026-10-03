@@ -707,7 +707,11 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
     },
 
     onLocalChange(expression: Expression) {
-      for (const peer of peers) send(peer, { type: 'push-update', expression });
+      // Not to a peer whose hello said it doesn't hold the collection: it would pass it by.
+      for (const peer of peers) {
+        if (holdsCollection(states.get(peer)?.holds ?? 'all', expression.collection))
+          send(peer, { type: 'push-update', expression });
+      }
     },
 
     addPeer(peerId: string) {

@@ -559,16 +559,20 @@ synced again"), `packages/core/tests/sync.test.ts`._
 ## 7. Pushing writes live
 
 When a node writes a version locally, it sends `push-update` with that
-version to **every** connected peer at once, without waiting for a hello.
-The sender does not filter by what the peer holds; the receiver drops what it
-does not hold (§5).
+version to every connected peer at once, without waiting for a hello, except
+a peer whose latest `hello` said it does not hold the version's collection
+(§5): to that peer it SHOULD NOT send it. A peer it has had no `hello` from
+gets everything. A receiver still drops what it does not hold (§5), so a
+sender that filters nothing works, only less efficiently.
 
 A receiver treats the pushed version exactly like one in `versions` (§8),
 including answering with `stored` when it takes it in. A push that is lost is
 not retried: the next hello finds the difference.
 
 _Source: `packages/core/src/sync/sync-engine.ts` (`onLocalChange`). Tests:
-`packages/core/tests/sync.test.ts` ("pushes a local change to a peer")._
+`packages/core/tests/sync.test.ts` ("pushes a local change to a peer"),
+`packages/core/tests/reconcile.test.ts` ("a write is pushed only to peers that
+hold its collection, once their hello says so")._
 
 ---
 

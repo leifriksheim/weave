@@ -573,6 +573,34 @@ describe('holding part of a space', () => {
     });
   }
 
+  test('a write is pushed only to peers that hold its collection, once their hello says so', async () => {
+    const pushed: string[] = [];
+    const { a, b, settle } = pair({
+      holdsB: () => new Set(['app.chat']),
+      drop: (message) => {
+        if (message.type === 'push-update') pushed.push(message.expression.collection);
+        return false;
+      },
+    });
+    // Before a hello, what a peer holds is not known: everything goes.
+    const early = await version('app.photos');
+    await a.storage.addExpression(early);
+    a.sync.onLocalChange(early);
+    await settle();
+    assert.deepEqual(pushed.splice(0), ['app.photos']);
+
+    b.sync.notifyPeers(['a']);
+    await settle();
+    for (const collection of ['app.photos', 'app.chat', 'sys.member']) {
+      const write = await version(collection);
+      await a.storage.addExpression(write);
+      a.sync.onLocalChange(write);
+    }
+    await settle();
+    assert.deepEqual(pushed, ['app.chat', 'sys.member'], 'not the photos the cache passes by');
+    assert.equal((await ids(b.storage, 'app.chat')).length, 1);
+  });
+
   test('two caches reconcile only what both hold', async () => {
     const { a, b, sent, settle } = pair({
       holdsA: () => new Set(['app.x', 'app.y']),
