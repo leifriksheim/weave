@@ -626,10 +626,12 @@ with the body in hand (`matchesRecord`): not paused, the collection, one of the
 spaces, created at or after `since` and within the last 24 hours, by another
 account when `others`, holding the topic value when there is one, and for
 which its `where` holds when it has one (`whereHolds`). What the node held
-before it started is never news. How the app shows a match is its own
+before it started is never news, and neither is what a collection held the
+first time a subscription made it look there; anything arriving after that
+is, even while the account or the list of spaces changes. How the app shows a match is its own
 to decide; a "Notify me" button is where a proposal usually starts.
 
-_Source: `packages/core/src/session/connect.ts` (`appKey`, `forgetAppKey`, `homeAddress`, `connectToHome`, `proposeToHome`, `startConnectedNode`, `grantSigner`), `packages/core/src/session/connection.ts`, `packages/core/src/node/watch-notifications.ts`, `packages/core/src/space/notify.ts` (`matchesRecord`, `whereHolds`). Tests: `packages/core/tests/connect.test.ts` ("an account home typed by a person", "an app showing its own notifications"), `packages/core/tests/topics.test.ts` ("a subscription’s where")._
+_Source: `packages/core/src/session/connect.ts` (`appKey`, `forgetAppKey`, `homeAddress`, `connectToHome`, `proposeToHome`, `startConnectedNode`, `grantSigner`), `packages/core/src/session/connection.ts`, `packages/core/src/node/watch-notifications.ts`, `packages/core/src/space/notify.ts` (`matchesRecord`, `whereHolds`). Tests: `packages/core/tests/connect.test.ts` ("an account home typed by a person", "an app showing its own notifications"), `packages/core/tests/topics.test.ts` ("a subscription’s where"), `packages/core/tests/watch-notifications.test.ts`._
 
 ## Carriers, hosting and notifications
 

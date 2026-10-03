@@ -51,7 +51,8 @@ export function watchNotifications(node: P2PNode, options: WatchNotificationsOpt
         .map((sub) => sub.collection),
     );
 
-  async function look(space: string, collection: string, quiet: boolean): Promise<void> {
+  /** Hands on what is new in one collection; the first look at one only learns what is there */
+  async function look(space: string, collection: string): Promise<void> {
     const where = `${space}\n${collection}`;
     const first = !seen.has(where);
     const known = seen.get(where) ?? new Set<string>();
@@ -60,7 +61,7 @@ export function watchNotifications(node: P2PNode, options: WatchNotificationsOpt
     for (const record of records) {
       if (known.has(record.key)) continue;
       known.add(record.key);
-      if (quiet || first) continue;
+      if (first) continue;
       for (const subscription of subscriptions) {
         if (stopped) return;
         if (matchesRecord(subscription, record, node.did) && (await whereHolds(subscription, record)))
@@ -74,9 +75,9 @@ export function watchNotifications(node: P2PNode, options: WatchNotificationsOpt
       (sub) => !sub.paused && sub.app?.origin === origin,
     );
     spaces = new Set((await node.spaces.list()).map((space) => space.id));
-    // Anything newly looked at starts from what is there now.
-    for (const space of spaces)
-      for (const collection of collectionsIn(space)) await look(space, collection, true);
+    // Anything newly looked at starts from what is there now. What was looked at before still
+    // reports what arrived since: the account changes all the time, and that is no reason to drop news.
+    for (const space of spaces) for (const collection of collectionsIn(space)) await look(space, collection);
   }
 
   // One look at a time; asked meanwhile, it looks once more after.
@@ -88,7 +89,7 @@ export function watchNotifications(node: P2PNode, options: WatchNotificationsOpt
       if (changed.includes(null)) await reload();
       for (const space of changed) {
         if (space === null || !spaces.has(space)) continue;
-        for (const collection of collectionsIn(space)) await look(space, collection, false);
+        for (const collection of collectionsIn(space)) await look(space, collection);
       }
     } catch (error) {
       options.onError?.(error);
