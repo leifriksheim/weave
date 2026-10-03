@@ -420,18 +420,19 @@ describe('space access: taking it back', () => {
 
     // He forges one that claims to have been written before the removal.
     const backdated = await forge(bob, space, { text: 'backdated' }, seenThen);
-    const refused: string[] = [];
-    alice.node.subscribe((event) => {
-      if (event.type === 'rejected') refused.push(event.reason);
-    });
     await letGo(bob.node, space);
     await createStorageProvider(await bob.stores(`spaces/${space}`)).addExpression(backdated);
     await hold(bob.node, space);
+    // Alice keeps it, withdrawn, in case a proof that had not seen the removal cites it
+    // (02 §9.5); it never counts as a note.
+    const aliceStore = createStorageProvider(await alice.stores(`spaces/${space}`));
     await until(
-      async () => refused.some((r) => /taken away/.test(r)),
+      async () => (await aliceStore.getExpression(backdated.id)) !== null,
       4000,
-      'Alice to refuse the backdated note',
+      'the backdated note to reach Alice',
     );
+    assert.equal(await alice.node.records.get(space, backdated.key), null);
+    assert.equal((await alice.node.records.list(space, { collection: 'app.note' })).length, 1);
 
     // What Alice had seen him write before stays.
     assert.equal((await alice.node.records.get(space, before.key))?.verified, true);

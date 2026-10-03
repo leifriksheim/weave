@@ -32,7 +32,7 @@ export interface Describable {
 }
 
 /** Every rule there is. A new one in `CollectionRules` must be added here, with its sentence. */
-const KNOWN_RULES = ['create', 'edit', 'delete', 'onePer', 'fixed', 'check'] as const;
+const KNOWN_RULES = ['create', 'edit', 'delete', 'onePer', 'fixed', 'check', 'final'] as const;
 
 /** `closePolls` → `close polls`, `app.carpool.trip` → `trip` */
 const words = (name: string) =>
@@ -112,7 +112,8 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
     const object = list.includes('creator') ? 'it' : `any ${noun}`;
     return `${capital(open ? text : `only ${text}`)} can ${verb} ${object}.`;
   };
-  if (same) sentences.push(action(editors, 'change or remove'));
+  if (rules.final) sentences.push(`Nobody can change or remove ${a} once it is added.`);
+  else if (same) sentences.push(action(editors, 'change or remove'));
   else sentences.push(action(editors, 'change'), action(removers, 'remove'));
 
   // One per…
@@ -125,7 +126,9 @@ export function describeCollection(definition: Describable): ReadonlyArray<strin
           : fieldLabel(definition.schema, part),
     );
     const perText = `One ${noun} per ${per.join(' per ')}`;
-    if (rules.onePer.includes('@author')) sentences.push(`${perText} — adding another changes the first.`);
+    if (rules.final) sentences.push(`${perText} — the first one added holds it.`);
+    else if (rules.onePer.includes('@author'))
+      sentences.push(`${perText} — adding another changes the first.`);
     else {
       // Not per person: a second one is a change to the first, so the edit rule decides who may.
       const editors = listOf(rules.edit);

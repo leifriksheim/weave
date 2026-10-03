@@ -479,6 +479,83 @@ describe('checks: between peers', () => {
     await bob.node.records.update(space, counter.key, { n: 2 });
     await assert.rejects(alice.node.records.put(space, 'app.counter', { n: 3 }), /starts at 0/);
   });
+
+  test('a proof stays a proof: removing a voter it counted, later, does not undo it', async () => {
+    const { hub, alice, bob, space } = await proposalSpace();
+    const carol = await person(hub);
+    await carol.node.spaces.join(await alice.node.spaces.invite(space));
+    await hold(carol.node, space);
+    await joined(carol.node, space);
+    const first = await alice.node.records.put(space, 'app.proposal', { title: 'A new logo' });
+    const second = await alice.node.records.put(space, 'app.proposal', { title: 'A new name' });
+    const yes = (who: Person, about: string) =>
+      who.node.records.put(
+        space,
+        'app.proposal.vote',
+        { choice: 'yes' },
+        { links: [{ rel: 'about', to: about }] },
+      );
+    await until(
+      async () =>
+        (await bob.node.records.get(space, second.key)) !== null &&
+        (await carol.node.records.get(space, second.key)) !== null &&
+        (await carol.node.collections.list(space)).filter((c) => c.version !== null).length === 4,
+      4000,
+      'the proposals to reach Bob and Carol',
+    );
+
+    // Alice goes offline. Bob votes on both, Carol on the first, and Carol proves the first passed.
+    await letGo(alice.node, space);
+    const bobFirst = await yes(bob, first.key);
+    const bobSecond = await yes(bob, second.key);
+    const carolFirst = await yes(carol, first.key);
+    await until(
+      async () => (await carol.node.records.get(space, bobSecond.key)) !== null,
+      4000,
+      'Bob’s votes to reach Carol',
+    );
+    const passed = await carol.node.records.put(
+      space,
+      'app.proposal.passed',
+      { votes: [bobFirst.version, carolFirst.version] },
+      { links: [{ rel: 'about', to: first.key }] },
+    );
+
+    // Offline, Alice removes Bob, without having seen his votes, so the removal keeps none.
+    await alice.node.spaces.setMember(space, bob.node.did, null);
+    await hold(alice.node, space);
+    await until(
+      async () => (await carol.node.spaces.access(space)).members.every((m) => m.did !== bob.node.did),
+      4000,
+      'the removal to reach Carol',
+    );
+    await until(
+      async () => (await carol.node.records.get(space, bobFirst.key)) === null,
+      4000,
+      'Bob’s vote to stop counting for Carol',
+    );
+
+    // Carol's proof had not seen the removal: it stands for her, and for Alice, who joins in late.
+    assert.notEqual(await carol.node.records.get(space, passed.key), null);
+    await until(
+      async () => (await alice.node.records.get(space, passed.key)) !== null,
+      4000,
+      'Alice to accept the proof',
+    );
+    assert.equal(await alice.node.records.get(space, bobFirst.key), null, 'Bob’s vote counts for no one now');
+
+    // A proof made after seeing the removal can't count him.
+    const carolSecond = await yes(carol, second.key);
+    await assert.rejects(
+      carol.node.records.put(
+        space,
+        'app.proposal.passed',
+        { votes: [bobSecond.version, carolSecond.version] },
+        { links: [{ rel: 'about', to: second.key }] },
+      ),
+      /does not stand/,
+    );
+  });
 });
 
 // ─── The standard library's proven outcomes ────────────────────────

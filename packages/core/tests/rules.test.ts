@@ -123,6 +123,8 @@ describe('rules: checking a definition', () => {
     assert.equal(checkRules({ delete: 'can:moderate' }, 'rules', ['moderate']), null);
     assert.match(checkRules({ create: 'creator' }) ?? '', /no creator until/);
     assert.match(checkRules({ unique: ['x'] }) ?? '', /not a rule/);
+    assert.equal(checkRules({ final: true, onePer: ['@author', 'link:about'] }), null);
+    assert.match(checkRules({ final: false }) ?? '', /final must be true/);
   });
 });
 
@@ -187,6 +189,44 @@ describe('rules: who may edit and delete', () => {
       4000,
       'the delete to reach Bob',
     );
+  });
+
+  test('final: written once, then never edited or deleted, and a forged change is refused by every peer', async () => {
+    const { alice, bob, space } = await pollSpace();
+    await alice.node.collections.define(space, {
+      name: 'app.ballot',
+      schema: voteSchema,
+      rules: { final: true },
+    });
+    await until(
+      async () => (await bob.node.collections.list(space)).filter((c) => c.version !== null).length === 3,
+      4000,
+      'the definition to reach Bob',
+    );
+    const mine = await alice.node.records.put(space, 'app.ballot', { choice: 1 });
+    assert.equal(await alice.node.records.can(space, 'edit', mine.key), false);
+    assert.equal(await alice.node.records.can(space, 'delete', mine.key), false);
+    await assert.rejects(alice.node.records.update(space, mine.key, { choice: 0 }), /is final/);
+    await assert.rejects(alice.node.records.delete(space, mine.key), /is final/);
+
+    const theirs = await bob.node.records.put(space, 'app.ballot', { choice: 0 });
+    await until(async () => (await alice.node.records.get(space, theirs.key)) !== null, 4000, 'Bob’s ballot');
+    await letGo(bob.node, space);
+    await forge(bob, space, {
+      author: '',
+      collection: 'app.ballot',
+      body: null,
+      deleted: true,
+      version: { key: theirs.key, seq: 1, prev: theirs.version, genesis: theirs.version },
+    });
+    let rejected = '';
+    alice.node.subscribe((event) => {
+      if (event.type === 'rejected') rejected = event.reason;
+    });
+    await hold(bob.node, space);
+    await until(async () => rejected !== '', 4000, 'Alice to refuse it');
+    assert.match(rejected, /is final/);
+    assert.notEqual(await alice.node.records.get(space, theirs.key), null);
   });
 
   test('fixed fields keep their first value', async () => {
