@@ -648,8 +648,10 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   /** Events, by version id — building one checks signatures and invites, so they are kept */
   const events = new Map<string, AccessEvent | null>();
 
+  const eventKey = (version: Expression) => `${version.id}|${version.signature}`;
+
   async function toEvent(version: Expression): Promise<AccessEvent | null> {
-    const cacheKey = `${version.id}|${version.signature}`;
+    const cacheKey = eventKey(version);
     if (events.has(cacheKey)) return events.get(cacheKey)!;
     const event = await buildEvent(version);
     // A failed signature is what a stranger can mint for free; only settled answers from a valid one are kept.
@@ -770,6 +772,8 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   interface Access {
     readonly history: AccessHistory;
     readonly events: ReadonlyArray<AccessEvent>;
+    /** Whether a version was passed over that a later look might take: then only reading them all again is sure */
+    readonly unsettled: boolean;
   }
   let accessCache: Promise<Access> | null = null;
   /** The read key readers must prove now — kept at hand, since a handshake asks for it without waiting */
@@ -793,6 +797,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
 
   async function loadAccess(): Promise<Access> {
     const found: AccessEvent[] = [];
+    let unsettled = false;
     // By key, not by the current version's collection: whatever sits on top
     // may be anyone's, and every version of the history counts.
     for (const [prefix, collection] of ACCESS_KEYS) {
@@ -801,14 +806,60 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
           if (held.collection !== collection) continue;
           const event = await toEvent(held);
           if (event) found.push(event);
+          else unsettled ||= !events.has(eventKey(held));
         }
       }
     }
-    const history = replayAccess(accessGenesis, found);
+    return accessFrom(replayAccess(accessGenesis, found), found, unsettled);
+  }
+
+  function accessFrom(history: AccessHistory, found: ReadonlyArray<AccessEvent>, unsettled: boolean): Access {
     reportRole(history.current);
     currentReadKey = history.current.keys.at(-1)?.readKey ?? currentReadKey;
     useRelays(history.current.relays);
-    return { history, events: found };
+    return { history, events: found, unsettled };
+  }
+
+  /**
+   * The history with versions just stored: each change added to the one
+   * there was, the way a whole replay would place it, and the whole history
+   * read and replayed again when one can't be (`AccessHistory.extend`).
+   * Adding a member or changing a role costs as much as the members, not
+   * the history twice over.
+   */
+  async function extendAccess(before: Promise<Access>, placed: ReadonlyArray<Expression>): Promise<Access> {
+    const previous = await before.catch(() => null);
+    if (!previous || previous.unsettled) return loadAccess();
+    let pending: AccessEvent[] = [];
+    for (const version of placed) {
+      if (
+        !ACCESS_KEYS.some(
+          ([prefix, collection]) => version.key.startsWith(prefix) && version.collection === collection,
+        )
+      )
+        continue;
+      const event = await toEvent(version);
+      if (event) pending.push(event);
+      else if (!events.has(eventKey(version))) return loadAccess();
+    }
+    if (pending.length === 0) return previous;
+    let history = previous.history;
+    const found = [...previous.events];
+    // A batch from a peer may hold a change before the one it saw: whichever follows on goes first.
+    while (pending.length > 0) {
+      const left: AccessEvent[] = [];
+      for (const event of pending) {
+        const next = history.extend(event);
+        if (!next) left.push(event);
+        else if (next !== history) {
+          found.push(event);
+          history = next;
+        }
+      }
+      if (left.length === pending.length) return loadAccess();
+      pending = left;
+    }
+    return accessFrom(history, found, false);
   }
 
   let reportedRole: string | null | undefined;
@@ -1586,7 +1637,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     catalogCache = null;
     profilesCache = null;
     memberKeysCache = null;
-    accessCache = null;
+    accessCache = placed && accessCache ? extendAccess(accessCache, placed) : null;
     standings.clear();
     citedStandings.clear();
     keepUp();
@@ -2482,7 +2533,9 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (ACCESS_COLLECTIONS.has(collection)) {
       const event = await toEvent(signed);
       if (!event) throw new Error('That is not a well-formed change to who may do what');
-      const status = replayAccess(accessGenesis, [...held, event]).status(event.id);
+      const status = (history.extend(event) ?? replayAccess(accessGenesis, [...held, event])).status(
+        event.id,
+      );
       if (status?.status !== 'applied')
         throw new Error(status?.status === 'dropped' ? status.reason : 'That change could not be made');
     } else {

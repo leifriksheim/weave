@@ -18,6 +18,7 @@ const extra = await Promise.all([someone(), someone(), someone()]);
 const session = new Session();
 session.connect();
 await session.post('Profiler.enable');
+await session.post('Profiler.setSamplingInterval', { interval: 50 });
 await session.post('Profiler.start');
 for (const did of extra)
   console.log(`add at ${M}: ${ms(await time(() => alice.spaces.setMember(space, did, 'member')))}`);

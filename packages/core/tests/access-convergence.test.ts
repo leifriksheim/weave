@@ -37,6 +37,9 @@ import {
 } from '../src/space/roles.js';
 
 // ─── The reference: replayAccess as it was before it was optimised ─────
+
+/** What the reference answers: everything but `extend`, which came later */
+type ReferenceHistory = Omit<AccessHistory, 'extend'>;
 //
 // Copied verbatim from packages/core/src/space/roles.ts at 4a224d1. Do not
 // change it to match a new replay: that defeats the point. If the protocol's
@@ -287,7 +290,7 @@ function change(event: AccessEvent, state: MutableState): void {
  * @param genesis What the space started with
  * @param events Every change held, in any order; duplicates are ignored
  */
-function replayAccessReference(genesis: AccessGenesis, events: ReadonlyArray<AccessEvent>): AccessHistory {
+function replayAccessReference(genesis: AccessGenesis, events: ReadonlyArray<AccessEvent>): ReferenceHistory {
   const byId = new Map<string, AccessEvent>();
   for (const event of events) if (!byId.has(event.id)) byId.set(event.id, event);
 
@@ -495,7 +498,7 @@ function replayAccessReference(genesis: AccessGenesis, events: ReadonlyArray<Acc
       [...byId.values()].some((event) => event.kind === 'member' && event.did === did && event.role !== null),
     knownInvite: (key: string) =>
       [...byId.values()].some((event) => event.kind === 'invite' && event.inviteKey === key),
-  } satisfies AccessHistory);
+  } satisfies ReferenceHistory);
 
   /** The changes these ids name, and every change they saw */
   function cutOf(ids: ReadonlyArray<string>): Set<string> {
@@ -754,7 +757,7 @@ function stateShape(state: AccessState | null): string {
 }
 
 /** Everything a replay answers, as text — one entry per question, so a difference says where it is */
-function shape(history: AccessHistory, h: History): Record<string, string> {
+function shape(history: ReferenceHistory, h: History): Record<string, string> {
   const status = (s: EventStatus | null) =>
     !s
       ? 'none'
@@ -832,6 +835,38 @@ describe('access replay converges', () => {
         );
       }
     });
+  });
+
+  test('extending one change at a time gives what the reference replay does', () => {
+    let extended = 0;
+    let replayed = 0;
+    forHistories((h, r) => {
+      // As changes arrive: mostly as they were made, sometimes out of order.
+      const arrivals = r.chance(0.7) ? h.events : r.shuffle(h.events);
+      let history = replayAccess(h.genesis, []);
+      for (let i = 0; i < arrivals.length; i++) {
+        const before = stateShape(history.current) + history.heads().join();
+        const next = history.extend(arrivals[i]!);
+        assert.equal(
+          stateShape(history.current) + history.heads().join(),
+          before,
+          'extending changed the history it came from',
+        );
+        if (next) extended++;
+        else replayed++;
+        history = next ?? replayAccess(h.genesis, arrivals.slice(0, i + 1));
+        if (i % 5 === 4 || i === arrivals.length - 1) {
+          same(
+            shape(history, h),
+            shape(replayAccessReference(h.genesis, arrivals.slice(0, i + 1)), h),
+            `extended to ${i + 1} changes`,
+          );
+        }
+      }
+      // A change held already changes nothing.
+      if (arrivals.length > 0) assert.equal(history.extend(r.pick(arrivals)), history);
+    });
+    assert.ok(extended > replayed, `extended ${extended}, replayed ${replayed}`);
   });
 
   test('the histories are not trivial', () => {
