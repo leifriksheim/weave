@@ -386,6 +386,17 @@ function startState(genesis: AccessGenesis): MutableState {
   };
 }
 
+function cloneState(state: MutableState): MutableState {
+  return {
+    ...state,
+    roles: new Map(state.roles),
+    members: new Map(state.members),
+    invites: new Map(state.invites),
+    definitions: new Map(state.definitions),
+    keys: [...state.keys],
+  };
+}
+
 /** Everyone holding a role that exists — who can read, as far as the history is concerned */
 export function readers(state: AccessState): Set<string> {
   return new Set([...state.members].filter(([, role]) => state.roles.has(role)).map(([did]) => did));
@@ -678,8 +689,13 @@ export function replayAccess(genesis: AccessGenesis, events: ReadonlyArray<Acces
       cut.add(id);
       for (const ancestor of ancestors(id)) cut.add(ancestor);
     }
-    const folded = startState(genesis);
-    for (const id of order) if (cut.has(id)) apply(byId.get(id)!, folded);
+    // A cut holding every change applied so far is where the replay stands: the usual case.
+    let folded: MutableState;
+    if (order.every((id) => cut.has(id))) folded = cloneState(state);
+    else {
+      folded = startState(genesis);
+      for (const id of order) if (cut.has(id)) apply(byId.get(id)!, folded);
+    }
     stateAtCache.set(cacheKey, folded);
     return folded;
   };
