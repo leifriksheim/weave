@@ -57,6 +57,8 @@ function partyView(key: string, members: string[], stewards: string[]): PartyFul
     listed: new Set(members),
     asked: new Map(),
     members: new Set(members),
+    decides: 'majority',
+    representative: null,
   };
 }
 
@@ -136,7 +138,7 @@ describe('what a device does by itself', () => {
   });
 
   test('writes a party’s position once more than half its frozen members voted that way themselves', () => {
-    const roll: RollView = { key: 'roll', version: 'v-roll', members: [BO, CY] };
+    const roll: RollView = { key: 'roll', version: 'v-roll', members: [BO, CY], decides: { toTake: 2 } };
     const votes = new Map([cast('for', BO), cast('for', CY)]);
     const plan = duties(assembly([proposalView('p1', { votes, rolls: new Map([['reds', roll]]) })]));
     assert.deepEqual(
@@ -149,6 +151,43 @@ describe('what a device does by itself', () => {
         choice: 'for',
         votes: ['v-did:bo', 'v-did:cy'],
       },
+    );
+  });
+
+  test('freezes the party’s rule in its roll, and skips a representative who left', () => {
+    const greens = { ...partyView('greens', [ADA, CY], [ADA]), decides: 'everyone' as const };
+    const reps = {
+      ...partyView('reps', [ADA, BO], [ADA]),
+      decides: 'representative' as const,
+      representative: BO,
+    };
+    const gone = {
+      ...partyView('gone', [ADA], [ADA]),
+      decides: 'representative' as const,
+      representative: CY,
+    };
+    const plan = duties(assembly([proposalView('p1')], [], [greens, reps, gone]));
+    assert.deepEqual(
+      plan.flatMap((d) => (d.kind === 'roll' ? [[d.party.key, d.decides]] : [])),
+      [
+        ['greens', { toTake: 2 }],
+        ['reps', { representative: BO }],
+      ],
+    );
+  });
+
+  test('writes a party’s position as its representative voted', () => {
+    const roll: RollView = {
+      key: 'roll',
+      version: 'v-roll',
+      members: [BO, CY],
+      decides: { representative: CY },
+    };
+    const votes = new Map([cast('against', CY)]);
+    const plan = duties(assembly([proposalView('p1', { votes, rolls: new Map([['reds', roll]]) })]));
+    assert.deepEqual(
+      plan.flatMap((d) => (d.kind === 'ballot' ? [[d.choice, d.votes]] : [])),
+      [['against', ['v-did:cy']]],
     );
   });
 

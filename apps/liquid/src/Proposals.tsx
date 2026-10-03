@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
-import type { Assembly, ProposalView } from './model';
+import type { Assembly, ProposalView, RollView } from './model';
 import {
   CHOICES,
   MAX_CITED,
@@ -18,6 +18,7 @@ import {
   ruleName,
   trail,
   type Next,
+  type PartyStand,
   type Result,
   type RuleId,
   type Step,
@@ -385,6 +386,7 @@ function ProposalPage({
           {p.result === 'disputed' && <Disputes a={a} p={p} />}
           {writable && <VotePanel a={a} p={p} busy={action.busy} onPick={setConfirming} />}
           <Problem>{action.error}</Problem>
+          <PartyStands a={a} p={p} />
           <Breakdown a={a} p={p} />
         </div>
 
@@ -653,13 +655,52 @@ function Results({ a, p }: { a: Assembly; p: ProposalView }) {
   );
 }
 
+/** Where each party stands on it, and how far it is from a position, by the rule its roll froze */
+function PartyStands({ a, p }: { a: Assembly; p: ProposalView }) {
+  const rolls = [...p.rolls].flatMap(([key, roll]) => {
+    const party = a.partyOf(key);
+    return party ? [{ party, roll, stand: p.stands.get(key) ?? null }] : [];
+  });
+  if (rolls.length === 0) return null;
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <p className="lq-section-title">Parties</p>
+      <div className="lq-card">
+        {rolls.map(({ party, roll, stand }) => (
+          <div key={party.key} className="lq-row" style={{ flexWrap: 'wrap' }}>
+            <PartyChip party={party} />
+            <span className="lq-faint lq-num" style={{ fontSize: 12.5 }}>
+              {standText(a, roll, stand, p.votes)}
+            </span>
+            <span style={{ flex: 1 }} />
+            {stand && stand !== 'disputed' && <ChoicePill choice={stand} />}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function standText(a: Assembly, roll: RollView, stand: PartyStand, votes: ProposalView['votes']): string {
+  if (stand === 'disputed') return 'disputed';
+  const rep = roll.decides.representative;
+  if (rep !== undefined) return stand ? `as ${a.name(rep)} voted` : `waiting for ${a.name(rep)} to vote`;
+  const n = new Set(roll.members).size;
+  if (stand) return `${roll.decides.toTake} of its ${n} members agreed`;
+  const own = roll.members.flatMap((did) => {
+    const v = votes.get(did);
+    return v && v.via === null ? [v.choice] : [];
+  });
+  const most = Math.max(0, ...CHOICES.map((c) => own.filter((x) => x === c).length));
+  return `${most} of the ${roll.decides.toTake} it needs agree so far, of ${n} members`;
+}
+
 /** Who voted, and through whom */
 function Breakdown({ a, p }: { a: Assembly; p: ProposalView }) {
   const rows = [...p.votes]
     .filter(([did]) => p.voters.includes(did))
     .map(([did, cast]) => ({ did, cast, path: trail(did, p.votes) }))
     .sort((x, y) => x.path.length - y.path.length || a.name(x.did).localeCompare(a.name(y.did)));
-  const stands = [...p.stands].filter(([key]) => a.partyOf(key));
 
   if (rows.length === 0)
     return (
@@ -672,16 +713,6 @@ function Breakdown({ a, p }: { a: Assembly; p: ProposalView }) {
     <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <p className="lq-section-title">How the votes came in</p>
       <div className="lq-card">
-        {stands.map(([key, stand]) => (
-          <div key={key} className="lq-row">
-            <PartyChip party={a.partyOf(key)!} />
-            <span className="lq-faint" style={{ fontSize: 12.5 }}>
-              {stand === 'disputed' ? 'disputed' : 'took a position'}
-            </span>
-            <span style={{ flex: 1 }} />
-            {stand && stand !== 'disputed' && <ChoicePill choice={stand} />}
-          </div>
-        ))}
         {rows.map(({ did, cast, path }) => (
           <div key={did} className="lq-row" style={{ flexWrap: 'wrap' }}>
             {path.length > 0 ? <PathView path={path} a={a} from={did} /> : <Who did={did} a={a} />}

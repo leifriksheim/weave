@@ -5,6 +5,8 @@ import {
   majority,
   needed,
   ruleName,
+  PARTY_SHARE,
+  partyDecides,
   partyPosition,
   pending,
   proof,
@@ -275,21 +277,66 @@ describe('a party’s position', () => {
   const roll = ['did:ada', 'did:bo', 'did:cy', 'did:di'];
 
   test('more than half of its frozen members, voting themselves', () => {
-    assert.equal(partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for' })), null);
-    assert.deepEqual(partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' })), {
-      choice: 'for',
-      votes: ['v-did:ada', 'v-did:bo', 'v-did:cy'],
-    });
+    assert.equal(partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for' }), { toTake: 3 }), null);
+    assert.deepEqual(
+      partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' }), { toTake: 3 }),
+      {
+        choice: 'for',
+        votes: ['v-did:ada', 'v-did:bo', 'v-did:cy'],
+      },
+    );
   });
 
   test('votes cast by following don’t count, so a party never counts its followers back in', () => {
     const v = votes({ 'did:ada': 'for', 'did:bo': ['for', 'greens'], 'did:cy': ['for', 'greens'] });
-    assert.equal(partyPosition(roll, v), null);
+    assert.equal(partyPosition(roll, v, { toTake: 3 }), null);
+  });
+
+  test('a stricter party needs more of its members', () => {
+    const three = votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for' });
+    assert.equal(partyPosition(roll, three, { toTake: 4 }), null);
+    assert.equal(
+      partyPosition(roll, votes({ 'did:ada': 'for', 'did:bo': 'for', 'did:cy': 'for', 'did:di': 'for' }), {
+        toTake: 4,
+      })?.choice,
+      'for',
+    );
+  });
+
+  test('every share is more than half, so a party can never reach two positions', () => {
+    for (let n = 1; n <= 60; n++)
+      for (const share of Object.values(PARTY_SHARE)) {
+        assert.ok(share(n) * 2 > n, `${n}`);
+        assert.ok(share(n) <= n, `${n}`);
+      }
+  });
+
+  test('a representative’s own vote is the party’s; one cast by following isn’t', () => {
+    const rep = { representative: 'did:bo' };
+    assert.deepEqual(partyPosition(roll, votes({ 'did:bo': 'against' }), rep), {
+      choice: 'against',
+      votes: ['v-did:bo'],
+    });
+    assert.equal(partyPosition(roll, votes({ 'did:bo': ['for', 'did:ada'] }), rep), null);
+    // The rest of the members don't decide it.
+    assert.equal(
+      partyPosition(roll, votes({ 'did:ada': 'for', 'did:cy': 'for', 'did:di': 'for' }), rep),
+      null,
+    );
+  });
+
+  test('a roll freezes the party’s rule for its members', () => {
+    assert.deepEqual(partyDecides('two-thirds', null, roll), { toTake: 3 });
+    assert.deepEqual(partyDecides('representative', 'did:bo', roll), { representative: 'did:bo' });
+    // A representative who left can't be frozen: no roll, so no position.
+    assert.equal(partyDecides('representative', 'did:zed', roll), null);
   });
 
   test('members who joined after the roll don’t count', () => {
     assert.equal(
-      partyPosition(['did:ada', 'did:bo', 'did:cy'], votes({ 'did:ada': 'for', 'did:zed': 'for' })),
+      partyPosition(['did:ada', 'did:bo', 'did:cy'], votes({ 'did:ada': 'for', 'did:zed': 'for' }), {
+        toTake: 2,
+      }),
       null,
     );
   });

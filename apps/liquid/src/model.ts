@@ -27,6 +27,7 @@ import {
   support,
   topic,
   vote,
+  type PartyRule,
 } from './schema';
 import {
   follow,
@@ -38,6 +39,7 @@ import {
   type DelegationEdge,
   type Next,
   type Outcome,
+  type PartyDecides,
   type PartyStand,
   type Result,
   type Tally,
@@ -50,11 +52,12 @@ export interface TopicView {
   readonly hue: number;
 }
 
-/** A party's roll for one proposal: its members, frozen */
+/** A party's roll for one proposal: its members and how it decides, frozen */
 export interface RollView {
   readonly key: string;
   readonly version: string;
   readonly members: ReadonlyArray<string>;
+  readonly decides: PartyDecides;
 }
 
 export interface ProposalView {
@@ -102,6 +105,10 @@ export interface PartyFull {
   readonly asked: ReadonlyMap<string, string>;
   /** Who is in it: on the list and asked to join, or a steward */
   readonly members: ReadonlySet<string>;
+  /** How it takes a position */
+  readonly decides: PartyRule;
+  /** Whose vote is the party's, when it decides by representative */
+  readonly representative: string | null;
 }
 
 export interface MyDelegation extends DelegationEdge {
@@ -136,6 +143,13 @@ export interface Assembly {
   readonly current: boolean;
   /** False until the first records are read */
   readonly ready: boolean;
+}
+
+/** Whether a stored schema has a field: how a definition from an older Liquid is told apart */
+function hasField(schema: unknown, field: string): boolean {
+  if (typeof schema !== 'object' || schema === null || !('properties' in schema)) return false;
+  const { properties } = schema;
+  return typeof properties === 'object' && properties !== null && field in properties;
 }
 
 /** A hue from a key, for a topic or party that didn't pick one */
@@ -224,7 +238,10 @@ export function useAssembly(spaceId: string): Assembly {
       const of = linkOf(r, 'party');
       if (!about || !of) continue;
       const these = rollsOf.get(about) ?? new Map<string, RollView>();
-      these.set(of, { key: r.key, version: r.version, members: r.body.members });
+      const decides: PartyDecides = r.body.representative
+        ? { representative: r.body.representative }
+        : { toTake: r.body.toTake ?? majority(new Set(r.body.members).size) };
+      these.set(of, { key: r.key, version: r.version, members: r.body.members, decides });
       rollsOf.set(about, these);
     }
     const ballotsOf = new Map<string, Map<string, PartyStand>>();
@@ -303,6 +320,8 @@ export function useAssembly(spaceId: string): Assembly {
         listed,
         asked,
         members: inParty,
+        decides: r.body.decides ?? 'majority',
+        representative: r.body.representative ?? null,
       };
     });
     const partyByKey = new Map(partyViews.map((p) => [p.key, p]));
@@ -337,7 +356,8 @@ export function useAssembly(spaceId: string): Assembly {
       nextFor: (p, did = me) => follow({ ...followInput(p), me: did }),
       current:
         collections.some((c) => c.name === vote.name && c.rules.final === true) &&
-        collections.some((c) => c.name === proposal.name && c.rules.fixed?.includes('toPass') === true),
+        collections.some((c) => c.name === proposal.name && c.rules.fixed?.includes('toPass') === true) &&
+        collections.some((c) => c.name === party.name && hasField(c.schema, 'decides')),
       ready: access !== undefined && proposals !== null && topics !== null,
     };
   }, [

@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Avatar } from '@weave/app-shared/Avatar';
-import type { Choice } from './schema';
+import type { Choice, PartyRule } from './schema';
 import type { Assembly, PartyFull, TopicView } from './model';
-import type { Step, Tally } from './tally';
+import { PARTY_SHARE, type Step, type Tally } from './tally';
 import { hue, tone } from './styles';
 
 export const CHOICE_LABEL: Readonly<Record<Choice, string>> = {
@@ -10,6 +10,24 @@ export const CHOICE_LABEL: Readonly<Record<Choice, string>> = {
   against: 'Against',
   abstain: 'Abstain',
 };
+
+export const PARTY_RULE_LABEL: Readonly<Record<PartyRule, string>> = {
+  majority: 'More than half',
+  'two-thirds': 'Two-thirds',
+  'three-quarters': 'Three-quarters',
+  everyone: 'Everyone',
+  representative: 'A representative',
+};
+
+/** How a party takes a position, in a few words: "5 of its 7 members vote alike", "Ada votes for it" */
+export function decidesText(a: Assembly, party: Pick<PartyFull, 'decides' | 'representative' | 'members'>) {
+  if (party.decides === 'representative')
+    return party.representative && party.members.has(party.representative)
+      ? `${a.name(party.representative)} votes for it`
+      : 'Needs a representative who is a member';
+  const n = party.members.size;
+  return `${PARTY_SHARE[party.decides](n)} of its ${n} ${n === 1 ? 'member' : 'members'} vote alike`;
+}
 
 /** "just now", "5m", "3h", "2d", then a date */
 export function ago(iso: string, now = Date.now()): string {

@@ -20,7 +20,7 @@
  * that party has taken a position, it casts the same vote for you. Along a
  * chain this happens one device at a time; a loop never casts anything.
  */
-import { EVERYTHING, type Choice } from './schema';
+import { EVERYTHING, type Choice, type PartyRule } from './schema';
 
 /** A vote as cast */
 export interface CastVote {
@@ -63,12 +63,20 @@ const voterCount = (t: Tally) => t.for + t.against + t.abstain + t.uncast;
 /** More than half of `voters`: what a proposal needs when it doesn't say */
 export const majority = (voters: number) => Math.floor(voters / 2) + 1;
 
+/** How many of `n` voters, or of a party's members, each share needs; every one is more than half */
+export const PARTY_SHARE: Readonly<Record<Exclude<PartyRule, 'representative'>, (n: number) => number>> = {
+  majority,
+  'two-thirds': (n) => Math.ceil((n * 2) / 3),
+  'three-quarters': (n) => Math.ceil((n * 3) / 4),
+  everyone: (n) => n,
+};
+
 /** Rules to pick from when proposing: how many of `n` voters must vote for */
 export const RULES = [
-  { id: 'majority', label: 'More than half', toPass: majority },
-  { id: 'two-thirds', label: 'Two-thirds', toPass: (n: number) => Math.ceil((n * 2) / 3) },
-  { id: 'three-quarters', label: 'Three-quarters', toPass: (n: number) => Math.ceil((n * 3) / 4) },
-  { id: 'everyone', label: 'Everyone', toPass: (n: number) => n },
+  { id: 'majority', label: 'More than half', toPass: PARTY_SHARE.majority },
+  { id: 'two-thirds', label: 'Two-thirds', toPass: PARTY_SHARE['two-thirds'] },
+  { id: 'three-quarters', label: 'Three-quarters', toPass: PARTY_SHARE['three-quarters'] },
+  { id: 'everyone', label: 'Everyone', toPass: PARTY_SHARE.everyone },
 ] as const;
 export type RuleId = (typeof RULES)[number]['id'];
 
@@ -125,17 +133,38 @@ export function resultOf(decided: Outcome | null, disputed: boolean): Result {
 
 // ─── Parties ─────────────────────────────────────────────────────────
 
+/** How a party decides on one proposal, as its roll froze it */
+export type PartyDecides =
+  | { readonly toTake: number; readonly representative?: undefined }
+  | { readonly representative: string; readonly toTake?: undefined };
+
+/** What a roll freezes for a party with this rule and these members */
+export function partyDecides(
+  rule: PartyRule,
+  representative: string | null,
+  members: ReadonlyArray<string>,
+): PartyDecides | null {
+  if (rule !== 'representative') return { toTake: PARTY_SHARE[rule](new Set(members).size) };
+  return representative && members.includes(representative) ? { representative } : null;
+}
+
 /**
- * A party's position: the choice more than half of its frozen members voted
- * themselves, with the votes that prove it. Votes cast by following don't
- * count, so a party never counts its own followers.
+ * A party's position: the choice its representative voted, or the one
+ * enough of its frozen members voted themselves, with the votes that prove
+ * it. Votes cast by following don't count, so a party never counts its own
+ * followers.
  */
 export function partyPosition(
   members: ReadonlyArray<string>,
   votes: Votes,
+  decides: PartyDecides,
 ): { readonly choice: Choice; readonly votes: string[] } | null {
+  if (decides.representative !== undefined) {
+    const theirs = members.includes(decides.representative) ? votes.get(decides.representative) : undefined;
+    return theirs && theirs.via === null ? { choice: theirs.choice, votes: [theirs.version] } : null;
+  }
   const roll = [...new Set(members)].sort();
-  const enough = Math.floor(roll.length / 2) + 1;
+  const enough = decides.toTake;
   const own = roll.map((did) => votes.get(did)).filter((v): v is CastVote => !!v && v.via === null);
   for (const choice of ['for', 'against', 'abstain'] as const) {
     const these = own.filter((v) => v.choice === choice);

@@ -5,8 +5,15 @@ import { Modal } from '@weave/app-shared/Modal';
 import { SpaceHosting } from '@weave/app-shared/SpaceHosting';
 import { SpaceBots } from '@weave/app-shared/CommunitySetup';
 import type { Assembly, PartyFull } from './model';
-import { EVERYTHING, delegation, membership, party as partyCollection } from './schema';
-import { PartyChip, PartyMark, Problem, Who } from './ui';
+import {
+  EVERYTHING,
+  PARTY_RULES,
+  delegation,
+  membership,
+  party as partyCollection,
+  type PartyRule,
+} from './schema';
+import { PARTY_RULE_LABEL, PartyChip, PartyMark, Problem, Who, decidesText } from './ui';
 import { useAction } from '@weave/app-shared/action';
 import { hue, palette } from './styles';
 
@@ -169,6 +176,7 @@ function PartyCard({
         hue: p.hue,
         members: [...new Set([...p.stewards, ...members])],
         stewards: [...p.stewards],
+        ...(a.current ? ruleBody(p.decides, p.representative) : {}),
       }),
     );
 
@@ -192,6 +200,9 @@ function PartyCard({
           <p className="lq-faint lq-num" style={{ fontSize: 12.5 }}>
             {p.members.size} {p.members.size === 1 ? 'member' : 'members'}
             {trusted ? ` · trusted by ${trusted}` : ''}
+          </p>
+          <p className="lq-muted lq-num" style={{ fontSize: 12.5 }}>
+            Decides: {decidesText(a, p)}
           </p>
         </div>
         {steward && writable && (
@@ -291,6 +302,12 @@ function PartyCard({
           ))}
         </div>
       )}
+      {p.decides === 'representative' && !(p.representative && p.members.has(p.representative)) && (
+        <p className="lq-note" data-tone="warn" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          Its representative isn’t a member, so it can’t take a position on new proposals. A steward picks
+          another under Edit.
+        </p>
+      )}
       {steward && writable && p.stewards.size === 1 && (
         <p className="lq-note" data-tone="warn" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
           You’re its only steward. If you stop using Liquid, nobody can let people in or freeze its members
@@ -307,6 +324,8 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
   const [name, setName] = useState(editing?.name ?? '');
   const [platform, setPlatform] = useState(editing?.platform ?? '');
   const [shade, setShade] = useState(editing?.hue ?? HUES[a.parties.length % HUES.length] ?? 200);
+  const [decides, setDecides] = useState<PartyRule>(editing?.decides ?? 'majority');
+  const [representative, setRepresentative] = useState<string>(editing?.representative ?? a.me);
   const action = useAction();
   const members = editing ? [...editing.listed].filter((did) => did !== a.me) : [];
   const stewards = editing ? editing.stewards : new Set([a.me]);
@@ -319,6 +338,8 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
         hue: shade,
         members: [...new Set([a.me, ...keepers, ...listed])],
         stewards: [...keepers],
+        // An assembly from before parties chose keeps more than half.
+        ...(a.current ? ruleBody(decides, representative) : {}),
       };
       if (editing) {
         await node.records.update(a.spaceId, editing.key, body);
@@ -389,6 +410,58 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
             style={{ minHeight: 96 }}
           />
         </label>
+        {a.current && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <p className="lq-label">How it takes a position</p>
+            <div
+              style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}
+              role="group"
+              aria-label="How it decides"
+            >
+              {PARTY_RULES.map((rule) => (
+                <button
+                  key={rule}
+                  type="button"
+                  className="lq-chip"
+                  data-filter
+                  aria-pressed={decides === rule}
+                  onClick={() => setDecides(rule)}
+                >
+                  {PARTY_RULE_LABEL[rule]}
+                </button>
+              ))}
+            </div>
+            {decides === 'representative' ? (
+              <>
+                <select
+                  className="lq-input"
+                  value={representative}
+                  onChange={(event) => setRepresentative(event.target.value)}
+                  aria-label="Representative"
+                >
+                  {[a.me, ...members].map((did) => (
+                    <option key={did} value={did}>
+                      {did === a.me ? `${a.name(did)} (you)` : a.name(did)}
+                    </option>
+                  ))}
+                </select>
+                <p className="lq-faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+                  Their own vote on a proposal is the party’s, and everyone who trusts the party follows it. A
+                  vote they cast by following someone doesn’t count.
+                </p>
+              </>
+            ) : (
+              <p className="lq-faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+                It takes a position once{' '}
+                {decides === 'everyone' ? 'all' : PARTY_RULE_LABEL[decides].toLowerCase()} of its members vote
+                the same way themselves. Until then, nobody who trusts it votes by it.
+              </p>
+            )}
+            <p className="lq-faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              Changing this applies to proposals made from now on.
+            </p>
+          </div>
+        )}
         {editing && members.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <p className="lq-label">Members</p>
@@ -412,7 +485,12 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
                   className="lq-btn"
                   data-variant="ghost"
                   data-size="sm"
-                  disabled={action.busy}
+                  disabled={action.busy || (decides === 'representative' && representative === did)}
+                  title={
+                    decides === 'representative' && representative === did
+                      ? 'They’re its representative. Pick another first.'
+                      : undefined
+                  }
                   onClick={() =>
                     void save(
                       members.filter((m) => m !== did),
@@ -434,8 +512,7 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
         {!editing && (
           <p className="lq-faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
             You start it as its steward: you let people in, and your device freezes its members for each new
-            proposal. Make other members stewards too, so it doesn’t depend on you alone. It takes a position
-            once more than half its members vote the same way themselves.
+            proposal. Make other members stewards too, so it doesn’t depend on you alone.
           </p>
         )}
         <Problem>{action.error}</Problem>
@@ -472,4 +549,9 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
       </form>
     </Modal>
   );
+}
+
+/** A party's rule, as its body says it: a representative only when it decides by one */
+function ruleBody(decides: PartyRule, representative: string | null) {
+  return decides === 'representative' && representative ? { decides, representative } : { decides };
 }

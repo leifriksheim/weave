@@ -181,8 +181,8 @@ function Outdated({ a, writable }: { a: Assembly; writable: boolean }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <span>
           This assembly was made with an older Liquid. Updating it makes votes final, lets proposals settle
-          themselves, and lets whoever proposes pick what it takes to pass. Proposals made before keep the
-          rules they were made with.
+          themselves, lets whoever proposes pick what it takes to pass, and lets parties pick how they decide.
+          Proposals made before keep the rules they were made with.
         </span>
         {writable && (
           <button
@@ -381,8 +381,9 @@ function HowItWorks({ onClose }: { onClose: () => void }) {
           reaches Ada first, then you. A chain that loops back round never casts anything; Liquid warns you.
         </Li>
         <Li>
-          A party takes a position once more than half of its members vote the same way themselves. Its
-          stewards’ devices freeze who its members are for each proposal.
+          A party decides how it takes a position: once more than half, two-thirds, three-quarters or all of
+          its members vote the same way themselves, or as its representative votes. Its stewards’ devices
+          freeze its members and that rule for each proposal.
         </Li>
       </Section>
       <Section title="How a proposal is settled">

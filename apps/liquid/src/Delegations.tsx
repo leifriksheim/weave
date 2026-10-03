@@ -5,7 +5,7 @@ import { Modal } from '@weave/app-shared/Modal';
 import type { Assembly, MyDelegation, TopicView } from './model';
 import { EVERYTHING, delegation } from './schema';
 import { follow, type DelegationEdge, type Next } from './tally';
-import { PartyChip, PartyMark, PathView, Problem, TopicChip, Who } from './ui';
+import { PartyChip, PartyMark, PathView, Problem, TopicChip, Who, decidesText } from './ui';
 import { useAction } from '@weave/app-shared/action';
 import { palette } from './styles';
 
@@ -391,7 +391,7 @@ function Picker({
                   className="lq-faint"
                   style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >
-                  {p.members.size} {p.members.size === 1 ? 'member' : 'members'}
+                  {decidesText(a, p)}
                   {p.platform ? ` · ${p.platform}` : ''}
                 </span>
               </span>
@@ -410,7 +410,8 @@ function Picker({
       </div>
       {kind === 'party' && (
         <p className="lq-faint" style={{ fontSize: 12, lineHeight: 1.5 }}>
-          A party takes a position once more than half of its members vote the same way themselves.
+          A party takes a position once enough of its members vote the same way themselves, or its
+          representative votes, as the party decides. Your device then casts that vote for you.
         </p>
       )}
       <Problem>{action.error}</Problem>

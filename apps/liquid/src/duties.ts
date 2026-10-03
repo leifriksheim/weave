@@ -4,10 +4,10 @@
  *
  * - **Follow.** You haven't voted, and whoever you trust on the topic has:
  *   cast the same vote, signed by you, saying whom it followed (`via`).
- * - **Freeze a party's members** for a new proposal, if you are one of its
- *   stewards.
- * - **Write a party's position** once more than half of its frozen members
- *   voted one way themselves.
+ * - **Freeze a party's members** and how it decides for a new proposal, if
+ *   you are one of its stewards.
+ * - **Write a party's position** once enough of its frozen members voted one
+ *   way themselves, or its representative did.
  * - **Write the decision** once the count settles the proposal.
  * - **Write a conflict** on finding two different first versions of one
  *   vote or one party roll.
@@ -21,11 +21,16 @@ import { useNode } from '@weaveprotocol/core/react';
 import type { P2PNode } from '@weaveprotocol/core';
 import type { Assembly, PartyFull, ProposalView, RollView } from './model';
 import { conflict, decision, partyBallot, partyRoll, vote, type Choice } from './schema';
-import { partyPosition, proof, settled, type Outcome } from './tally';
+import { partyDecides, partyPosition, proof, settled, type Outcome, type PartyDecides } from './tally';
 
 export type Duty =
   | { readonly kind: 'vote'; readonly proposal: string; readonly choice: Choice; readonly via: string }
-  | { readonly kind: 'roll'; readonly proposal: string; readonly party: PartyFull }
+  | {
+      readonly kind: 'roll';
+      readonly proposal: string;
+      readonly party: PartyFull;
+      readonly decides: PartyDecides;
+    }
   | {
       readonly kind: 'ballot';
       readonly proposal: string;
@@ -56,12 +61,14 @@ export function duties(a: Assembly): Duty[] {
 
     for (const party of a.parties) {
       if (!party.stewards.has(a.me) || p.rolls.has(party.key) || party.members.size === 0) continue;
-      todo.push({ kind: 'roll', proposal: p.key, party });
+      // A representative who isn't a member any more can't vote for it: no roll until the stewards pick another.
+      const decides = partyDecides(party.decides, party.representative, [...party.members]);
+      if (decides) todo.push({ kind: 'roll', proposal: p.key, party, decides });
     }
 
     for (const [party, roll] of p.rolls) {
       if (p.stands.get(party)) continue;
-      const position = partyPosition(roll.members, p.votes);
+      const position = partyPosition(roll.members, p.votes, roll.decides);
       if (position) todo.push({ kind: 'ballot', proposal: p.key, party, roll, ...position });
     }
 
@@ -88,7 +95,7 @@ async function perform(node: P2PNode, a: Assembly, duty: Duty): Promise<void> {
       await node.records.put(
         a.spaceId,
         partyRoll,
-        { party: duty.party.version, members: [...duty.party.members].sort() },
+        { party: duty.party.version, members: [...duty.party.members].sort(), ...duty.decides },
         { links: [{ rel: 'party', to: duty.party.key }, about(duty.proposal)] },
       );
       return;
