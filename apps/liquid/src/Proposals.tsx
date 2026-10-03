@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
 import type { Assembly, ProposalView } from './model';
-import { CHOICES, proposal as proposalCollection, support, vote, type Choice, type Tally } from './schema';
-import { accepted, turnout, type Count, type Outcome } from './tally';
+import { CHOICES, MAX_VOTERS, proposal as proposalCollection, support, vote, type Choice } from './schema';
+import { needed, trail, type Next, type Result, type Tally } from './tally';
 import {
   CHOICE_LABEL,
   Empty,
@@ -19,7 +19,7 @@ import {
 } from './ui';
 import { palette, tone, hue } from './styles';
 
-type Sort = 'top' | 'new' | 'closed';
+type Sort = 'top' | 'new' | 'decided';
 
 export function Proposals({ a, writable }: { a: Assembly; writable: boolean }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export function Proposals({ a, writable }: { a: Assembly; writable: boolean }) {
   if (opened) return <ProposalPage a={a} p={opened} writable={writable} onBack={() => setOpenKey(null)} />;
 
   const shown = a.proposals
-    .filter((p) => (sort === 'closed' ? p.closed : !p.closed))
+    .filter((p) => (sort === 'decided' ? p.result !== 'open' : p.result === 'open'))
     .filter((p) => filter === null || p.topic === filter)
     .sort((x, y) =>
       sort === 'top'
@@ -47,7 +47,7 @@ export function Proposals({ a, writable }: { a: Assembly; writable: boolean }) {
             [
               ['top', 'Top'],
               ['new', 'New'],
-              ['closed', 'Closed'],
+              ['decided', 'Decided'],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -99,8 +99,8 @@ export function Proposals({ a, writable }: { a: Assembly; writable: boolean }) {
       )}
 
       {shown.length === 0 ? (
-        <Empty title={sort === 'closed' ? 'Nothing closed yet' : 'No open proposals'}>
-          {sort !== 'closed' && writable && (
+        <Empty title={sort === 'decided' ? 'Nothing decided yet' : 'No open proposals'}>
+          {sort !== 'decided' && writable && (
             <>
               <p style={{ fontSize: 13.5 }}>
                 Put something to the assembly. Anyone can support it, so the important ones rise.
@@ -170,9 +170,7 @@ function ProposalCard({
   onOpen: () => void;
 }) {
   const supportIt = useSupport(a, p);
-  const counted = a.countOf(p);
-  const totals = p.closed && p.result ? p.result : counted.totals;
-  const mine = counted.outcomes.get(a.me);
+  const totals = a.countOf(p);
   const topic = a.topicOf(p.topic);
 
   return (
@@ -188,7 +186,7 @@ function ProposalCard({
       <Upvote
         count={p.supporters.size}
         pressed={p.mySupportKey !== null}
-        disabled={!writable || supportIt.busy || p.closed}
+        disabled={!writable || supportIt.busy || p.result !== 'open'}
         onToggle={supportIt.toggle}
       />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
@@ -197,7 +195,7 @@ function ProposalCard({
           <span className="lq-faint">
             {a.name(p.createdBy)} · {ago(p.createdAt)}
           </span>
-          {p.closed && <Verdict tally={totals} />}
+          <Verdict result={p.result} />
         </div>
         <h3
           style={{
@@ -215,7 +213,7 @@ function ProposalCard({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 12.5 }}>
           <Numbers tally={totals} />
           <span style={{ flex: 1 }} />
-          {mine && writable && <MyVotePill outcome={mine} a={a} />}
+          {writable && <MyVotePill a={a} p={p} />}
         </div>
       </div>
     </article>
@@ -223,6 +221,7 @@ function ProposalCard({
 }
 
 function Numbers({ tally }: { tally: Tally }) {
+  const voters = tally.for + tally.against + tally.abstain + tally.uncast;
   return (
     <span className="lq-num lq-muted" style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap' }}>
       <span>
@@ -232,48 +231,59 @@ function Numbers({ tally }: { tally: Tally }) {
         <b style={{ color: tone.against, fontWeight: 600 }}>{tally.against}</b> against
       </span>
       {tally.abstain > 0 && <span>{tally.abstain} abstain</span>}
-      <span className="lq-faint">{Math.round(turnout(tally) * 100)}% turnout</span>
+      <span className="lq-faint">
+        of {voters} {voters === 1 ? 'voter' : 'voters'}
+      </span>
     </span>
   );
 }
 
-function Verdict({ tally }: { tally: Tally }) {
-  const yes = accepted(tally);
+const VERDICT: Readonly<
+  Record<Exclude<Result, 'open'>, { label: string; color: string; bg: string; line: string }>
+> = {
+  passed: { label: 'Passed', color: tone.for, bg: '#effaf2', line: '#cfe9d6' },
+  rejected: { label: 'Rejected', color: tone.against, bg: palette.accent.dangerSoft, line: '#f5d9d7' },
+  disputed: { label: 'Disputed', color: '#9a6700', bg: '#fff8e6', line: '#f1dfa6' },
+};
+
+function Verdict({ result }: { result: Result }) {
+  if (result === 'open') return null;
+  const v = VERDICT[result];
   return (
     <span
       className="lq-chip"
-      style={{
-        background: yes ? '#effaf2' : palette.accent.dangerSoft,
-        borderColor: yes ? '#cfe9d6' : '#f5d9d7',
-        color: yes ? tone.for : tone.against,
-        fontWeight: 600,
-      }}
+      style={{ background: v.bg, borderColor: v.line, color: v.color, fontWeight: 600 }}
     >
-      {yes ? 'Accepted' : 'Rejected'}
+      {v.label}
     </span>
   );
 }
 
 /** Where your vote stands on a proposal, in a few words */
-function MyVotePill({ outcome, a }: { outcome: Outcome; a: Assembly }) {
-  const last = outcome.path.at(-1);
+function MyVotePill({ a, p }: { a: Assembly; p: ProposalView }) {
+  const mine = p.votes.get(a.me);
+  if (!p.voters.includes(a.me))
+    return (
+      <span className="lq-chip" style={{ color: palette.ink.muted }}>
+        Not a voter
+      </span>
+    );
+  if (!mine)
+    return (
+      <span className="lq-chip" style={{ color: palette.ink.muted }}>
+        {p.result === 'open' ? 'You haven’t voted' : 'You didn’t vote'}
+      </span>
+    );
+  const last = trail(a.me, p.votes)[0];
   const via = !last
     ? null
     : last.kind === 'person'
       ? a.name(last.did)
       : (a.partyOf(last.key)?.name ?? 'a party');
-  if (!outcome.choice)
-    return (
-      <span className="lq-chip" style={{ color: palette.ink.muted }}>
-        {outcome.how === 'unset' ? 'You haven’t voted' : 'Your vote isn’t counted'}
-      </span>
-    );
   return (
     <span className="lq-chip" style={{ borderColor: palette.surface.lineStrong }}>
-      <span className="lq-dot" style={{ background: tone[outcome.choice] }} />
-      {outcome.how === 'own'
-        ? `You: ${CHOICE_LABEL[outcome.choice]}`
-        : `${CHOICE_LABEL[outcome.choice]} via ${via}`}
+      <span className="lq-dot" style={{ background: tone[mine.choice] }} />
+      {via ? `${CHOICE_LABEL[mine.choice]} via ${via}` : `You: ${CHOICE_LABEL[mine.choice]}`}
     </span>
   );
 }
@@ -292,25 +302,13 @@ function ProposalPage({
   const node = useNode();
   const supportIt = useSupport(a, p);
   const action = useAction();
-  const [closing, setClosing] = useState(false);
-  const counted = a.countOf(p);
+  const [confirming, setConfirming] = useState<Choice | null>(null);
   const topic = a.topicOf(p.topic);
-  const mayClose = writable && (p.createdBy === a.me || a.mayModerate);
 
   const cast = (choice: Choice) =>
-    void action.run(() =>
-      node.records.put(a.spaceId, vote, { choice }, { links: [{ rel: 'about', to: p.key }] }),
-    );
-  const takeBack = () =>
-    void action.run(async () => p.myVoteKey && node.records.delete(a.spaceId, p.myVoteKey));
-  const close = (result: Tally | null) =>
     void action.run(async () => {
-      await node.records.update(a.spaceId, p.key, {
-        title: p.title,
-        ...(p.body ? { body: p.body } : {}),
-        ...(result ? { closed: true, result } : {}),
-      });
-      setClosing(false);
+      await node.records.put(a.spaceId, vote, { choice }, { links: [{ rel: 'about', to: p.key }] });
+      setConfirming(null);
     });
 
   return (
@@ -329,7 +327,7 @@ function ProposalPage({
             <Upvote
               count={p.supporters.size}
               pressed={p.mySupportKey !== null}
-              disabled={!writable || supportIt.busy || p.closed}
+              disabled={!writable || supportIt.busy || p.result !== 'open'}
               onToggle={supportIt.toggle}
             />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
@@ -337,7 +335,7 @@ function ProposalPage({
                 style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}
               >
                 {topic && <TopicChip topic={topic} />}
-                {p.closed && p.result && <Verdict tally={p.result} />}
+                <Verdict result={p.result} />
               </div>
               <h1
                 style={{
@@ -375,60 +373,33 @@ function ProposalPage({
             </p>
           )}
 
-          {!p.closed && writable && (
-            <VotePanel a={a} p={p} counted={counted} busy={action.busy} onCast={cast} onTakeBack={takeBack} />
-          )}
+          {p.result === 'disputed' && <Disputes a={a} p={p} />}
+          {writable && <VotePanel a={a} p={p} busy={action.busy} onPick={setConfirming} />}
           <Problem>{action.error}</Problem>
-          <Breakdown a={a} p={p} counted={counted} />
+          <Breakdown a={a} p={p} />
         </div>
 
         <aside className="lq-aside" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Results p={p} counted={counted} />
-          {mayClose &&
-            (p.closed ? (
-              <button
-                className="lq-btn"
-                data-variant="quiet"
-                disabled={action.busy}
-                onClick={() => close(null)}
-              >
-                Reopen for voting
-              </button>
-            ) : (
-              <button className="lq-btn" data-variant="quiet" onClick={() => setClosing(true)}>
-                Close and record the result
-              </button>
-            ))}
+          <Results a={a} p={p} />
         </aside>
       </div>
 
-      {closing && (
-        <Modal title="Close this proposal?" onClose={() => setClosing(false)} width={420}>
+      {confirming && (
+        <Modal
+          title={`Vote ${CHOICE_LABEL[confirming].toLowerCase()}?`}
+          onClose={() => setConfirming(null)}
+          width={420}
+        >
           <p className="lq-muted" style={{ fontSize: 13.5, lineHeight: 1.55 }}>
-            Voting stops, and the result is saved as your device counts it now:
-          </p>
-          <div className="lq-card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <Meter tally={counted.totals} size="lg" />
-            <Numbers tally={counted.totals} />
-            <p
-              style={{
-                fontSize: 14,
-                fontWeight: 600,
-                color: accepted(counted.totals) ? tone.for : tone.against,
-              }}
-            >
-              {accepted(counted.totals) ? 'Accepted' : 'Rejected'}
-            </p>
-          </div>
-          <p className="lq-faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-            Everyone else’s device checks this against its own count, and shows it if they differ.
+            Votes are final. Once cast, you can’t change it or take it back, so that a result, once reached,
+            stays reached on every device.
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button className="lq-btn" data-variant="ghost" onClick={() => setClosing(false)}>
+            <button className="lq-btn" data-variant="ghost" onClick={() => setConfirming(null)}>
               Cancel
             </button>
-            <button className="lq-btn" disabled={action.busy} onClick={() => close(counted.totals)}>
-              Close proposal
+            <button className="lq-btn" disabled={action.busy} onClick={() => cast(confirming)}>
+              Vote {CHOICE_LABEL[confirming].toLowerCase()}
             </button>
           </div>
           <Problem>{action.error}</Problem>
@@ -438,103 +409,131 @@ function ProposalPage({
   );
 }
 
-/** Your vote: cast it, change it, or hand it back to whoever you trust */
+/** Your vote: cast it, see the one you cast, or see whom your device will follow */
 function VotePanel({
   a,
   p,
-  counted,
   busy,
-  onCast,
-  onTakeBack,
+  onPick,
 }: {
   a: Assembly;
   p: ProposalView;
-  counted: Count;
   busy: boolean;
-  onCast: (choice: Choice) => void;
-  onTakeBack: () => void;
+  onPick: (choice: Choice) => void;
 }) {
-  const mine = counted.outcomes.get(a.me);
-  const own = p.votes.get(a.me) ?? null;
+  const mine = p.votes.get(a.me) ?? null;
+  const voter = p.voters.includes(a.me);
   const topic = a.topicOf(p.topic);
-  const trusted = a.mine.find((d) => d.topic === p.topic) ?? a.mine.find((d) => d.topic === '*');
+
+  if (p.voters.length === 0)
+    return (
+      <div className="lq-note" data-tone="warn">
+        This proposal was made with an older Liquid, before proposals listed their voters, so it can’t be
+        decided.
+      </div>
+    );
+  if (!voter)
+    return (
+      <div className="lq-note">
+        You joined after this was proposed. Its {p.voters.length} voters were fixed when it was made; you vote
+        on proposals made since.
+      </div>
+    );
 
   return (
     <section className="lq-card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
-        <p className="lq-section-title" style={{ fontSize: 15 }}>
-          Your vote
-        </p>
-        {own && (
-          <button className="lq-link lq-muted" style={{ fontSize: 13 }} onClick={onTakeBack} disabled={busy}>
-            {trusted ? 'Let my delegate decide' : 'Take back my vote'}
-          </button>
-        )}
-      </div>
+      <p className="lq-section-title" style={{ fontSize: 15 }}>
+        Your vote
+      </p>
       <div className="lq-votes" role="group" aria-label="Cast your vote">
         {CHOICES.map((choice) => {
-          const pressed = mine?.choice === choice && mine.how === 'own';
-          const following = mine?.choice === choice && mine.how === 'followed';
+          const pressed = mine?.choice === choice;
           return (
             <button
               key={choice}
               className="lq-vote"
               data-choice={choice}
               aria-pressed={pressed}
-              disabled={busy}
-              onClick={() => onCast(choice)}
-              style={following ? { borderColor: tone[choice], borderStyle: 'dashed' } : undefined}
+              disabled={busy || mine !== null || p.result !== 'open'}
+              onClick={() => onPick(choice)}
             >
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <span className="lq-dot" style={{ background: pressed ? '#fff' : tone[choice] }} />
                 {CHOICE_LABEL[choice]}
               </span>
-              <small>{pressed ? 'Your vote' : following ? 'Via your delegate' : ' '}</small>
+              <small>{pressed ? (mine?.via ? 'Followed' : 'Your vote') : ' '}</small>
             </button>
           );
         })}
       </div>
-      {mine && <OutcomeNote outcome={mine} a={a} topicName={topic?.name ?? null} />}
+      {mine ? (
+        <CastNote a={a} p={p} />
+      ) : p.result !== 'open' ? (
+        <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+          It was settled before you voted. Votes cast now don’t change it.
+        </p>
+      ) : (
+        <NextNote a={a} next={a.nextFor(p)} topicName={topic?.name ?? null} />
+      )}
     </section>
   );
 }
 
-/** What happened to your vote, in words */
-function OutcomeNote({ outcome, a, topicName }: { outcome: Outcome; a: Assembly; topicName: string | null }) {
+/** The vote you cast, and the way it came */
+function CastNote({ a, p }: { a: Assembly; p: ProposalView }) {
+  const path = trail(a.me, p.votes);
+  if (path.length === 0)
+    return (
+      <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+        You voted yourself. It’s final.
+      </p>
+    );
+  return (
+    <div className="lq-note">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <PathView path={path} a={a} from={a.me} />
+        <span>Your device cast this for you, following who you trust. It’s final.</span>
+      </div>
+    </div>
+  );
+}
+
+/** What your device will do, in words */
+function NextNote({ a, next, topicName }: { a: Assembly; next: Next; topicName: string | null }) {
   const on = topicName ? `on ${topicName}` : 'on this';
-  switch (outcome.how) {
-    case 'own':
-      return (
-        <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
-          Your own vote counts here, whoever you trust. You can change it until the proposal closes.
-        </p>
-      );
-    case 'followed':
-      return (
-        <div className="lq-note">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <PathView outcome={outcome} a={a} from={a.me} />
-            <span>
-              Your vote goes {outcome.choice ? <b>{CHOICE_LABEL[outcome.choice].toLowerCase()}</b> : null}{' '}
-              through who you trust. Vote yourself to override it for this proposal only.
-            </span>
-          </div>
-        </div>
-      );
+  if (next.kind === 'cast')
+    return (
+      <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+        Your device is casting {CHOICE_LABEL[next.choice].toLowerCase()} for you, following who you trust.
+      </p>
+    );
+  switch (next.how) {
     case 'unset':
       return (
         <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
-          You haven’t voted, and you don’t trust anyone {on}, so your vote isn’t counted yet. Set that up
-          under <b>Your vote</b>.
+          You don’t trust anyone {on}, so nobody votes for you. Set that up under <b>Your vote</b>.
         </p>
+      );
+    case 'waiting':
+      return (
+        <div className="lq-note">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <PathView path={next.path} a={a} from={a.me} />
+            <span>
+              When they vote, your device casts the same vote for you, unless you vote first. Liquid has to be
+              open on one of your devices for that.
+            </span>
+          </div>
+        </div>
       );
     case 'loop':
       return (
         <div className="lq-note" data-tone="warn">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <PathView outcome={outcome} a={a} from={a.me} />
+            <PathView path={next.path} a={a} from={a.me} />
             <span>
-              These delegations loop back round, so nobody on it votes. Vote yourself, or trust someone else.
+              These delegations loop back round, so unless someone on it votes themselves, nobody does. Vote
+              yourself, or trust someone else.
             </span>
           </div>
         </div>
@@ -543,40 +542,72 @@ function OutcomeNote({ outcome, a, topicName }: { outcome: Outcome; a: Assembly;
       return (
         <div className="lq-note" data-tone="warn">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <PathView outcome={outcome} a={a} from={a.me} />
-            <span>
-              Your vote stops with someone who hasn’t voted or trusted anyone {on}, or who has left. It isn’t
-              counted yet.
-            </span>
+            <PathView path={next.path} a={a} from={a.me} />
+            <span>It reaches someone who doesn’t vote on this proposal, so nobody votes for you.</span>
           </div>
         </div>
       );
-    case 'undecided':
+    case 'disputed':
       return (
         <div className="lq-note" data-tone="warn">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <PathView outcome={outcome} a={a} from={a.me} />
-            <span>The party hasn’t decided: its members are tied, or none has voted yet.</span>
+            <PathView path={next.path} a={a} from={a.me} />
+            <span>
+              The party said two different things about who its members are here, so nobody follows it.
+            </span>
           </div>
         </div>
       );
   }
 }
 
-/** The count, and for a closed proposal whether this device agrees with the one saved */
-function Results({ p, counted }: { p: ProposalView; counted: Count }) {
-  const shown = p.closed && p.result ? p.result : counted.totals;
-  const same =
-    p.result !== null &&
-    (['for', 'against', 'abstain', 'uncast'] as const).every((k) => p.result?.[k] === counted.totals[k]);
-  const direct = [...counted.outcomes.values()].filter((o) => o.how === 'own').length;
-  const delegated = [...counted.outcomes.values()].filter((o) => o.how === 'followed').length;
+/** Who said two things, and what that means */
+function Disputes({ a, p }: { a: Assembly; p: ProposalView }) {
+  return (
+    <div className="lq-note" data-tone="warn" style={{ fontSize: 13, lineHeight: 1.55 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span>
+          <b>Disputed.</b> Someone signed two different versions of something this proposal counts. Every
+          device shows it as disputed, whatever the count says:
+        </span>
+        {p.conflicts.map((c) => (
+          <span
+            key={c.record}
+            style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}
+          >
+            {c.voter ? (
+              <>
+                <Who did={c.voter} a={a} size={18} /> voted two ways.
+              </>
+            ) : c.party && a.partyOf(c.party) ? (
+              <>
+                <PartyChip party={a.partyOf(c.party)!} /> froze two different member lists.
+              </>
+            ) : (
+              'A vote or a party’s members, written two ways.'
+            )}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The count among the proposal's voters, and what it needs */
+function Results({ a, p }: { a: Assembly; p: ProposalView }) {
+  const shown = a.countOf(p);
+  const coming = a.comingOf(p);
+  const voters = p.voters.length;
+  const need = needed(shown);
+  const followed = [...p.votes.values()].filter((v) => v.via).length;
+  const own = p.votes.size - followed;
+  const comingCount = coming.for + coming.against + coming.abstain;
   return (
     <section className="lq-card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <p className="lq-section-title">{p.closed ? 'Result' : 'Standing now'}</p>
+        <p className="lq-section-title">{p.result === 'open' ? 'Standing now' : 'Result'}</p>
         <span className="lq-faint lq-num" style={{ fontSize: 12 }}>
-          {Math.round(turnout(shown) * 100)}% turnout
+          {voters} {voters === 1 ? 'voter' : 'voters'}, as of {ago(p.createdAt)}
         </span>
       </div>
       <Meter tally={shown} size="lg" />
@@ -600,40 +631,34 @@ function Results({ p, counted }: { p: ProposalView; counted: Count }) {
           </div>
         ))}
       </div>
-      {!p.closed && (
+      <p className="lq-muted lq-num" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+        {own} voted themselves, {followed} by following someone, {shown.uncast} not yet.
+        {comingCount > 0 && ` ${comingCount} more will follow once their devices are online.`}
+      </p>
+      {p.result === 'open' && voters > 0 && (
         <p className="lq-muted lq-num" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-          {direct} voted themselves, {delegated} through someone they trust, {shown.uncast} not counted.
-          {accepted(shown) ? ' It would pass now.' : ' It wouldn’t pass now.'}
+          Passes with {need.toPass} more for. Fails with {need.toFail} more against or abstaining. Until one
+          of those happens it stays open: there’s no deadline.
         </p>
       )}
-      {p.closed && p.result && (
-        <div className="lq-note" data-tone={same ? 'good' : 'warn'} style={{ fontSize: 12.5 }}>
-          {same
-            ? '✓ Your device counts the same.'
-            : `Your device counts ${counted.totals.for} for and ${counted.totals.against} against now. Votes changed after it closed, or hadn’t reached the closer.`}
+      {p.result === 'passed' || p.result === 'rejected' ? (
+        <div className="lq-note" data-tone="good" style={{ fontSize: 12.5 }}>
+          ✓ Settled, with a proof every device checks. No later vote can change it.
         </div>
-      )}
+      ) : null}
     </section>
   );
 }
 
-/** Who cast the votes: the people and parties that voted, and how many each carried */
-function Breakdown({ a, p, counted }: { a: Assembly; p: ProposalView; counted: Count }) {
-  const people = [...p.votes]
-    .filter(([did]) => counted.outcomes.has(did))
-    .map(([did, choice]) => ({ did, choice, carried: counted.carried.get(did) ?? 1 }))
-    .sort((x, y) => y.carried - x.carried);
-  const parties = a.parties
-    .map((party) => ({
-      party,
-      choice: counted.parties.get(party.key) ?? null,
-      carried: counted.carried.get(party.key) ?? 0,
-    }))
-    .filter((x) => x.carried > 0);
-  const missing = [...counted.outcomes.values()].filter((o) => !o.choice);
-  const loops = missing.filter((o) => o.how === 'loop').length;
+/** Who voted, and through whom */
+function Breakdown({ a, p }: { a: Assembly; p: ProposalView }) {
+  const rows = [...p.votes]
+    .filter(([did]) => p.voters.includes(did))
+    .map(([did, cast]) => ({ did, cast, path: trail(did, p.votes) }))
+    .sort((x, y) => x.path.length - y.path.length || a.name(x.did).localeCompare(a.name(y.did)));
+  const stands = [...p.stands].filter(([key]) => a.partyOf(key));
 
-  if (people.length === 0 && parties.length === 0)
+  if (rows.length === 0)
     return (
       <p className="lq-faint" style={{ fontSize: 13 }}>
         Nobody has voted yet.
@@ -644,34 +669,24 @@ function Breakdown({ a, p, counted }: { a: Assembly; p: ProposalView; counted: C
     <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <p className="lq-section-title">How the votes came in</p>
       <div className="lq-card">
-        {parties.map(({ party, choice, carried }) => (
-          <div key={party.key} className="lq-row">
-            <PartyChip party={party} />
+        {stands.map(([key, stand]) => (
+          <div key={key} className="lq-row">
+            <PartyChip party={a.partyOf(key)!} />
             <span className="lq-faint" style={{ fontSize: 12.5 }}>
-              for {carried} {carried === 1 ? 'person' : 'people'} who trust it
+              {stand === 'disputed' ? 'disputed' : 'took a position'}
             </span>
             <span style={{ flex: 1 }} />
-            {choice && <ChoicePill choice={choice} />}
+            {stand && stand !== 'disputed' && <ChoicePill choice={stand} />}
           </div>
         ))}
-        {people.map(({ did, choice, carried }) => (
-          <div key={did} className="lq-row">
-            <Who did={did} a={a} />
-            {carried > 1 && (
-              <span className="lq-chip" title={`${carried - 1} people’s votes follow theirs`}>
-                +{carried - 1}
-              </span>
-            )}
+        {rows.map(({ did, cast, path }) => (
+          <div key={did} className="lq-row" style={{ flexWrap: 'wrap' }}>
+            {path.length > 0 ? <PathView path={path} a={a} from={did} /> : <Who did={did} a={a} />}
             <span style={{ flex: 1 }} />
-            <ChoicePill choice={choice} />
+            <ChoicePill choice={cast.choice} />
           </div>
         ))}
       </div>
-      {missing.length > 0 && (
-        <p className="lq-faint" style={{ fontSize: 12.5 }}>
-          {missing.length} not counted{loops ? `, ${loops} of them in a loop of delegations` : ''}.
-        </p>
-      )}
     </section>
   );
 }
@@ -704,18 +719,21 @@ function Compose({
   const [body, setBody] = useState('');
   const [topicKey, setTopicKey] = useState<string | null>(initialTopic ?? a.topics[0]?.key ?? null);
   const action = useAction();
+  // Who votes: everyone in the assembly now. People who join later vote on later proposals.
+  const voters = a.members.map((m) => m.did).sort();
+  const tooMany = voters.length > MAX_VOTERS;
   return (
     <Modal title="New proposal" onClose={onClose} width={560}>
       <form
         style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
         onSubmit={(event) => {
           event.preventDefault();
-          if (!title.trim()) return;
+          if (!title.trim() || tooMany) return;
           void action.run(async () => {
             const made = await node.records.put(
               a.spaceId,
               proposalCollection,
-              { title: title.trim(), ...(body.trim() ? { body: body.trim() } : {}) },
+              { title: title.trim(), ...(body.trim() ? { body: body.trim() } : {}), voters },
               topicKey ? { links: [{ rel: 'topic', to: topicKey }] } : {},
             );
             onDone(made.key);
@@ -759,7 +777,7 @@ function Compose({
               })}
             </div>
             <p className="lq-faint" style={{ fontSize: 12, marginTop: 8 }}>
-              Votes of people who don’t vote themselves go to whoever they trust with this topic.
+              People who don’t vote themselves follow whoever they trust with this topic.
             </p>
           </div>
         )}
@@ -773,12 +791,17 @@ function Compose({
             maxLength={20000}
           />
         </label>
+        <p className="lq-faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          {tooMany
+            ? `This assembly has ${voters.length} members. A proposal can have at most ${MAX_VOTERS} voters for now.`
+            : `The ${voters.length} people in the assembly now vote on it. It passes once more than half of them vote for, and fails once half vote against or abstain.`}
+        </p>
         <Problem>{action.error}</Problem>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button type="button" className="lq-btn" data-variant="ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="lq-btn" disabled={!title.trim() || action.busy}>
+          <button className="lq-btn" disabled={!title.trim() || action.busy || tooMany}>
             {action.busy ? 'Proposing…' : 'Propose'}
           </button>
         </div>

@@ -1,8 +1,8 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Avatar } from '@weave/app-shared/Avatar';
-import type { Choice, Tally } from './schema';
+import type { Choice } from './schema';
 import type { Assembly, PartyFull, TopicView } from './model';
-import type { Outcome, Step } from './tally';
+import type { Step, Tally } from './tally';
 import { hue, tone } from './styles';
 
 export const CHOICE_LABEL: Readonly<Record<Choice, string>> = {
@@ -123,11 +123,11 @@ function StepView({ step, a }: { step: Step; a: Assembly }) {
 }
 
 /** Where a vote went: You → Ada → Greens */
-export function PathView({ outcome, a, from }: { outcome: Outcome; a: Assembly; from: string }) {
+export function PathView({ path, a, from }: { path: ReadonlyArray<Step>; a: Assembly; from: string }) {
   return (
     <span className="lq-path">
       <Who did={from} a={a} size={18} />
-      {outcome.path.map((step, i) => (
+      {path.map((step, i) => (
         <span key={i} style={{ display: 'contents' }}>
           <span className="lq-path-arrow">→</span>
           <StepView step={step} a={a} />

@@ -416,8 +416,18 @@ interface Verdict {
 }
 
 type Standing =
-  { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly later?: boolean };
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly reason: string;
+      readonly later?: boolean;
+      /** Passes every check but one: a later change took its author's access away. Kept, never counted (02 §9.5). */
+      readonly withdrawn?: true;
+    };
 const STANDS: Standing = { ok: true };
+
+/** Whether a version goes in the store: it stands, or stood until a later change withdrew it */
+const storable = (standing: Standing): boolean => standing.ok || !!standing.withdrawn;
 
 function looksEncrypted(body: unknown): boolean {
   return isRecord(body) && typeof body.ciphertext === 'string' && typeof body.iv === 'string';
@@ -917,7 +927,32 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     return found;
   }
 
-  async function judgeStanding(expression: Expression): Promise<Standing> {
+  const citedStandings = new Map<string, Promise<Standing>>();
+
+  /**
+   * Whether a version stands for one that cites it: judged as of what the
+   * citing version saw, so a change that came after it can't undo a proof
+   * that held when it was made (02 §7.6).
+   */
+  function standingWithin(expression: Expression, within: ReadonlyArray<string>): Promise<Standing> {
+    const cacheKey = `${verdictKey(expression)}|${[...new Set(within)].sort().join(',')}`;
+    let found = citedStandings.get(cacheKey);
+    if (!found) {
+      found = judgeStanding(expression, within);
+      citedStandings.set(cacheKey, found);
+      found.then(
+        (standing) => !standing.ok && citedStandings.delete(cacheKey),
+        () => citedStandings.delete(cacheKey),
+      );
+    }
+    return found;
+  }
+
+  /**
+   * @param within For a version another cites: what the citing version saw.
+   *   Only access changes among those can take it away.
+   */
+  async function judgeStanding(expression: Expression, within?: ReadonlyArray<string>): Promise<Standing> {
     // A version may only claim the space it actually sits in.
     if (expression.space !== space.id) return { ok: false, reason: 'It belongs to a different space' };
     const verdict = await judge(expression);
@@ -985,9 +1020,33 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
             : `Only ${describeWho(who)} can ${action} this ${expression.collection} record`,
       };
     }
-    const judged = history.judge({ id: expression.id, root, seen, note: await noteOf(expression) }, needs);
-    if (!judged.ok) return judged;
+    // Written once: no later version, not even a delete.
+    if (rules?.final && expression.seq > 0)
+      return {
+        ok: false,
+        reason: `A ${expression.collection} record is final: it can't be edited or deleted`,
+      };
+    const judged = history.judge(
+      { id: expression.id, root, seen, note: await noteOf(expression) },
+      needs,
+      within,
+    );
+    // Withdrawn by a later change: still judged on everything else, since it
+    // is kept and others may cite it.
+    if (!judged.ok && !judged.withdrawn) return judged;
+    const content = await judgeContent(expression, first, root, state, found);
+    return judged.ok || !content.ok ? content : judged;
+  }
 
+  /** The rest of a version's standing: what its definition's topics and rules ask of what it says */
+  async function judgeContent(
+    expression: Expression,
+    first: Expression,
+    root: string,
+    state: AccessState,
+    found: Awaited<ReturnType<typeof rulesAt>>,
+  ): Promise<Standing> {
+    const rules = found?.rules;
     if (found && !expression.deleted) {
       const problem = await tagProblem(expression, found.topics);
       if (problem) return problem;
@@ -1073,13 +1132,14 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
   }
 
   /** A version a check cites: here, kept whole, and standing — or why it can't count */
-  async function cited(id: string): Promise<CheckedVersion | Uncited> {
+  async function cited(id: string, within: ReadonlyArray<string>): Promise<CheckedVersion | Uncited> {
     const version = await storage.getExpression(id);
     if (!version) return { later: true };
     // Whether it was kept is on the version, signed: the same answer on every peer.
     if (!version.retain && !version.deleted) return { refused: `it cites ${id}, which was not kept whole` };
     if (!(await consistent(version))) return { refused: `it cites ${id}, which is not its record's` };
-    const stands = await standingOf(version);
+    // As of what the citing version saw: a removal after it doesn't undo it.
+    const stands = await standingWithin(version, within);
     if (!stands.ok)
       return stands.later ? { later: true } : { refused: `it cites ${id}, which does not stand` };
     return checkedVersion(version, true);
@@ -1111,7 +1171,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         createdAt: expression.createdAt,
         prev,
       },
-      cite: cited,
+      cite: (id) => cited(id, expression.seen ?? []),
       can: (permission, did) => {
         const role = standing(state, did);
         return !!role && roleHolds(role, permissionName(expression.collection, permission));
@@ -1528,6 +1588,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     memberKeysCache = null;
     accessCache = null;
     standings.clear();
+    citedStandings.clear();
     keepUp();
     // The access history may name keepers now, or none.
     void refreshHolds().catch(() => {});
@@ -1826,7 +1887,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
         state: await deps.stores(`mirrors/${space.id}/${index}`),
         accept: async (version) => {
           const verdict = await admit(version);
-          if (!verdict.ok) return verdict.later ? 'later' : 'refused';
+          if (!verdict.ok && !verdict.withdrawn) return verdict.later ? 'later' : 'refused';
           await storage.addExpression(version);
           return 'stored';
         },
@@ -1889,7 +1950,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     },
     validate: async (expression) => {
       const verdict = await admit(expression);
-      return verdict.ok
+      return verdict.ok || verdict.withdrawn
         ? { valid: true }
         : { valid: false, reason: verdict.reason, ...(verdict.later ? { later: true } : {}) };
     },
@@ -2100,7 +2161,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       if (running) return;
       running = true;
       // The same verdict as for a version from a peer.
-      reconcileFolder(storage, adapter, async (expression) => (await admit(expression)).ok)
+      reconcileFolder(storage, adapter, async (expression) => storable(await admit(expression)))
         .then((result) => {
           if (!result.changed) return;
           recordsChanged();
@@ -2515,6 +2576,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
     if (!role) return false;
     const found = await rulesAt(history.current, collection);
     if (!found) return true;
+    if (found.rules.final && action !== 'create') return false;
     const who =
       action === 'create'
         ? found.rules.create
@@ -2870,7 +2932,7 @@ export async function openSpaceRuntime(deps: SpaceRuntimeDeps): Promise<SpaceRun
       for (const version of [...versions].sort((a, b) => a.seq - b.seq)) {
         if (await storage.getExpression(version.id)) continue;
         const verdict = await admit(version).catch(() => null);
-        if (!verdict?.ok) continue;
+        if (!verdict || !storable(verdict)) continue;
         await storage.addExpression(version);
         placed.push(version);
       }

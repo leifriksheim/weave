@@ -4,15 +4,59 @@
  * enforces them. What the records mean (how a vote travels along
  * delegations) is this app's, in `tally.ts`.
  *
+ * A result only ever moves forward. Every proposal fixes who votes on it
+ * when it is made; votes are final; and a decision is a proof that cites
+ * enough votes to settle it, which no later vote can undo. So every device
+ * reaches the same result from whatever votes it holds, in any order, with
+ * nobody closing the vote and no clock (issue #131).
+ *
  * The names are Liquid's own (`liquid.*`) rather than the standard
  * library's: `std.proposal` has fixed options and no topic, and nothing in
  * the library says "I trust this person with my vote on housing".
  */
+import type { Check } from '@weaveprotocol/core';
 import { fragments } from '@weaveprotocol/core/schemas';
 
 const { typed, words, text, markdown, count, choice, people, one, own } = fragments;
 
-/** What the space may vote on, sorted into topics. Only moderators set them. */
+/** The most voters one proposal can have: a decision cites more than half of them, and at most 256 versions */
+export const MAX_VOTERS = 500;
+
+/** Ids of versions a record cites */
+const ids = (max: number, description: string) => ({
+  type: 'array',
+  items: words(128),
+  maxItems: max,
+  description,
+});
+
+// Conditions for the checks below, built here so they read as what they say.
+// What they build is plain JSON, stored with the definition.
+
+const read = (path: string) => ({ var: path });
+const is = (a: unknown, b: unknown) => ({ '==': [a, b] });
+/** A field of the one version cited by the id at `path` */
+const citedOne = (path: string, field: string) => ({ get: [{ versions: [[read(path)]] }, `0.${field}`] });
+/** How many different people wrote the versions cited at `path` */
+const authorsOf = (path: string) => ({
+  size: { distinct: { map: [{ versions: read(path) }, read('it.author')] } },
+});
+/** Every version cited at `path` is a first version of `collection`, about what this record is about */
+const allAbout = (path: string, collection: string, also: ReadonlyArray<unknown>) => ({
+  all: [
+    { versions: read(path) },
+    {
+      and: [
+        is(read('it.collection'), collection),
+        is({ link: ['about', read('it')] }, { link: ['about'] }),
+        is(read('it.seq'), 0),
+        ...also,
+      ],
+    },
+  ],
+});
+
+/** What an assembly may vote on, sorted into topics. Only moderators set them. */
 export const topic = typed<Topic>()({
   name: 'liquid.topic',
   title: 'Topic',
@@ -40,49 +84,53 @@ export const CHOICES = ['for', 'against', 'abstain'] as const;
 export type Choice = (typeof CHOICES)[number];
 
 /**
- * Something put to the assembly: yes or no. Whoever proposed it, or a
- * moderator, closes it, and the close carries the count as their device made
- * it, for everyone to check against their own.
+ * Something put to the assembly: yes or no. Who votes on it is fixed when it
+ * is made: the members then. People who join later vote on later proposals.
  */
 export const proposal = typed<Proposal>()({
   name: 'liquid.proposal',
   title: 'Proposal',
-  description: 'Something put to the assembly to accept or reject.',
+  description: 'Something put to the assembly to accept or reject, and who votes on it.',
   schema: {
     type: 'object',
     properties: {
       title: words(200),
       body: markdown(20000),
-      closed: { type: 'boolean' },
-      result: {
-        type: 'object',
-        description: 'The count when it was closed, as the closer’s device made it',
-        properties: {
-          for: count(0),
-          against: count(0),
-          abstain: count(0),
-          uncast: count(0),
-        },
-        required: ['for', 'against', 'abstain', 'uncast'],
-      },
+      voters: people(MAX_VOTERS, 'Who votes on it: the members when it was proposed'),
     },
-    required: ['title'],
+    required: ['title', 'voters'],
   },
   links: { topic: one(['liquid.topic'], 'The topic it belongs to') },
   permissions: ['moderate'],
-  rules: { edit: ['creator', 'can:moderate'], delete: ['creator', 'can:moderate'] },
+  rules: {
+    edit: ['creator', 'can:moderate'],
+    delete: 'can:moderate',
+    fixed: ['voters'],
+    check: [
+      {
+        that: {
+          if: [
+            is(read('seq'), 0),
+            {
+              and: [
+                { '>=': [{ size: read('body.voters') }, 1] },
+                { '<=': [{ size: read('body.voters') }, MAX_VOTERS] },
+                is({ size: { distinct: read('body.voters') } }, { size: read('body.voters') }),
+                { all: [read('body.voters'), { member: read('it') }] },
+              ],
+            },
+            true,
+          ],
+        },
+        else: `A proposal's voters are members, each once, from 1 to ${MAX_VOTERS} of them`,
+      },
+    ],
+  },
 });
 interface Proposal {
   readonly title: string;
   readonly body?: string;
-  readonly closed?: boolean;
-  readonly result?: Tally;
-}
-export interface Tally {
-  readonly for: number;
-  readonly against: number;
-  readonly abstain: number;
-  readonly uncast: number;
+  readonly voters: ReadonlyArray<string>;
 }
 
 /** "This should be looked at": one per person per proposal, for sorting. It decides nothing. */
@@ -96,25 +144,33 @@ export const support = typed<Record<string, never>>()({
 });
 
 /**
- * Someone's own vote on a proposal. One per person per proposal, changed by
- * voting again and taken back by deleting it, which hands the vote back to
- * their delegation. Every version is kept, so a change can be seen.
+ * Someone's vote on a proposal: one per person per proposal, and final. A
+ * vote their device cast by following someone they trust says whom
+ * (`via`), so the path a vote took is on the record.
  */
 export const vote = typed<Vote>()({
   name: 'liquid.vote',
   title: 'Vote',
-  description: 'A vote cast on a proposal. Casting one overrides any delegation for it.',
+  description:
+    'A final vote on a proposal, cast by its voter or by their device following someone they trust.',
   schema: {
     type: 'object',
-    properties: { choice: choice(CHOICES) },
+    properties: {
+      choice: choice(CHOICES),
+      via: text(
+        256,
+        'Whom it follows: an account DID, or a party’s key. Absent when they voted themselves.',
+        1,
+      ),
+    },
     required: ['choice'],
   },
   links: { about: one(['liquid.proposal'], 'The proposal') },
-  history: 'all',
-  rules: { ...own, onePer: ['@author', 'link:about'] },
+  rules: { onePer: ['@author', 'link:about'], final: true },
 });
 interface Vote {
   readonly choice: Choice;
+  readonly via?: string;
 }
 
 /** Everything, for a delegation that isn't limited to one topic */
@@ -123,13 +179,13 @@ export const EVERYTHING = '*';
 /**
  * "When I don't vote on this topic, vote as they do." One per person per
  * topic (or `*`, for everything else): delegating again moves it, deleting
- * it takes it back. Every version is kept, so who trusted whom stays on the
- * record.
+ * it takes it back. The voter's own device reads it, and casts their vote
+ * once the person or party they trust has voted.
  */
 export const delegation = typed<Delegation>()({
   name: 'liquid.delegation',
   title: 'Delegation',
-  description: 'Who votes for someone when they don’t, on one topic or on everything.',
+  description: 'Who someone’s device follows when they don’t vote, on one topic or on everything.',
   schema: {
     type: 'object',
     properties: {
@@ -149,32 +205,189 @@ interface Delegation {
 }
 
 /**
- * A party: a name, what it stands for, and who is in it. Its founder keeps
- * the member list; someone is in the party when they are on it and have
- * asked to join (`membership`), so nobody is put in a party they didn't ask
- * for, and nobody gets in without the founder.
+ * Settles a proposal: it cites the proposal (any version: its voters never change), and enough final
+ * votes from its voters that nothing later can change the outcome. Passed:
+ * more than half of the voters voted for. Rejected: at least half voted
+ * against or abstained, so for can no longer pass. Anyone may write it, once
+ * per proposal, and every device checks it.
+ */
+export const decision = typed<Decision>()({
+  name: 'liquid.decision',
+  title: 'Decision',
+  description: 'What a proposal came to, proven by the votes it cites.',
+  schema: {
+    type: 'object',
+    properties: {
+      outcome: choice(['passed', 'rejected']),
+      proposal: words(128, 'The id of a version of the proposal'),
+      voters: people(MAX_VOTERS, 'The proposal’s voters, as it lists them'),
+      votes: ids(255, 'Ids of the votes it counts'),
+    },
+    required: ['outcome', 'proposal', 'voters', 'votes'],
+  },
+  links: { about: one(['liquid.proposal'], 'The proposal decided') },
+  rules: {
+    onePer: ['link:about'],
+    final: true,
+    check: [
+      {
+        that: {
+          and: [
+            is(citedOne('body.proposal', 'collection'), 'liquid.proposal'),
+            is(citedOne('body.proposal', 'key'), { link: ['about'] }),
+            is(citedOne('body.proposal', 'body.voters'), read('body.voters')),
+          ],
+        },
+        else: 'A decision cites the proposal it decides, and its voters',
+      },
+      {
+        that: allAbout('body.votes', 'liquid.vote', [
+          { in: [read('it.author'), read('body.voters')] },
+          {
+            if: [
+              is(read('body.outcome'), 'passed'),
+              is(read('it.body.choice'), 'for'),
+              { '!=': [read('it.body.choice'), 'for'] },
+            ],
+          },
+        ]),
+        else: 'A decision counts only votes on its proposal, by its voters, for its outcome',
+      },
+      {
+        that: {
+          if: [
+            is(read('body.outcome'), 'passed'),
+            { '>': [{ '*': [authorsOf('body.votes'), 2] }, { size: read('body.voters') }] },
+            { '>=': [{ '*': [authorsOf('body.votes'), 2] }, { size: read('body.voters') }] },
+          ],
+        },
+        else: 'A proposal passes with more than half its voters for, and fails once half are against or abstain',
+      },
+    ] satisfies ReadonlyArray<Check>,
+  },
+});
+interface Decision {
+  readonly outcome: 'passed' | 'rejected';
+  readonly proposal: string;
+  readonly voters: ReadonlyArray<string>;
+  readonly votes: ReadonlyArray<string>;
+}
+
+/** A field of one of the two versions a conflict cites, by path: `0.body.choice` */
+const both = (path: string) => ({ get: [{ versions: read('body.versions') }, path] });
+
+/**
+ * Proof that one record was written twice, two ways: two first versions of
+ * the same vote with different choices, or of the same party roll with
+ * different members. Honest devices never do this, so whoever finds it
+ * writes this, and every device shows the proposal it is about as disputed.
+ */
+export const conflict = typed<Conflict>()({
+  name: 'liquid.conflict',
+  title: 'Conflict',
+  description: 'Two different first versions of one vote or party roll: proof that someone said two things.',
+  schema: {
+    type: 'object',
+    properties: {
+      record: words(128, 'The key of the record written twice'),
+      versions: ids(2, 'The two versions'),
+    },
+    required: ['record', 'versions'],
+  },
+  links: { about: one(['liquid.proposal'], 'The proposal it disputes') },
+  rules: {
+    onePer: ['record'],
+    final: true,
+    check: [
+      {
+        that: {
+          and: [
+            is({ size: read('body.versions') }, 2),
+            {
+              all: [
+                { versions: read('body.versions') },
+                {
+                  and: [
+                    { in: [read('it.collection'), ['liquid.vote', 'liquid.party-roll']] },
+                    is(read('it.key'), read('body.record')),
+                    is(read('it.seq'), 0),
+                    is({ link: ['about', read('it')] }, { link: ['about'] }),
+                  ],
+                },
+              ],
+            },
+            {
+              or: [
+                {
+                  '!=': [both('0.body.choice'), both('1.body.choice')],
+                },
+                {
+                  '!=': [both('0.body.members'), both('1.body.members')],
+                },
+              ],
+            },
+          ],
+        },
+        else: 'A conflict cites two first versions of one vote or party roll that say different things',
+      },
+    ] satisfies ReadonlyArray<Check>,
+  },
+});
+interface Conflict {
+  readonly record: string;
+  readonly versions: ReadonlyArray<string>;
+}
+
+/**
+ * A party: a name, what it stands for, who is in it, and its stewards, who
+ * keep it. Any steward may change it, so the party carries on when one
+ * stops using Liquid. Someone is in the party when they are on its list and
+ * have asked to join (`membership`).
  */
 export const party = typed<Party>()({
   name: 'liquid.party',
   title: 'Party',
-  description: 'A group that votes together: its members’ majority is its vote.',
+  description: 'A group that votes together: more than half its members agreeing is its vote.',
   schema: {
     type: 'object',
     properties: {
       name: words(80),
       platform: text(2000),
       hue: count(0, 359),
-      members: people(1000, 'Who the founder let in'),
+      members: people(MAX_VOTERS, 'Who the stewards let in'),
+      stewards: people(20, 'Who keeps the party: changes it and freezes its members for each proposal'),
     },
-    required: ['name'],
+    required: ['name', 'members', 'stewards'],
   },
-  rules: own,
+  permissions: ['moderate'],
+  rules: {
+    delete: ['creator', 'can:moderate'],
+    check: [
+      {
+        that: {
+          and: [
+            { '>=': [{ size: read('body.stewards') }, 1] },
+            { all: [read('body.stewards'), { in: [read('it'), read('body.members')] }] },
+            {
+              if: [
+                is(read('prev'), null),
+                { in: [read('author'), read('body.stewards')] },
+                { in: [read('author'), read('prev.body.stewards')] },
+              ],
+            },
+          ],
+        },
+        else: 'Only a party’s stewards change it, and it always has a steward, who is a member',
+      },
+    ] satisfies ReadonlyArray<Check>,
+  },
 });
 interface Party {
   readonly name: string;
   readonly platform?: string;
   readonly hue?: number;
-  readonly members?: ReadonlyArray<string>;
+  readonly members: ReadonlyArray<string>;
+  readonly stewards: ReadonlyArray<string>;
 }
 
 /** Someone asking to be in a party, or staying in it. Deleting it leaves. */
@@ -187,5 +400,126 @@ export const membership = typed<Record<string, never>>()({
   rules: { ...own, onePer: ['@author', 'link:about'] },
 });
 
+/**
+ * A party's members, frozen for one proposal by one of its stewards. Its
+ * position on that proposal counts these members, whatever the list says
+ * later. One per party per proposal, and final: a second, different one is
+ * a conflict.
+ */
+export const partyRoll = typed<PartyRoll>()({
+  name: 'liquid.party-roll',
+  title: 'Party roll',
+  description: 'A party’s members, frozen for one proposal.',
+  schema: {
+    type: 'object',
+    properties: {
+      party: words(128, 'The id of the party’s version it was taken from'),
+      members: people(MAX_VOTERS, 'Its members for this proposal'),
+    },
+    required: ['party', 'members'],
+  },
+  links: {
+    party: one(['liquid.party'], 'The party'),
+    about: one(['liquid.proposal'], 'The proposal'),
+  },
+  rules: {
+    onePer: ['link:party', 'link:about'],
+    final: true,
+    check: [
+      {
+        that: {
+          and: [
+            is(citedOne('body.party', 'collection'), 'liquid.party'),
+            is(citedOne('body.party', 'key'), { link: ['party'] }),
+            { in: [read('author'), citedOne('body.party', 'body.stewards')] },
+            { all: [read('body.members'), { in: [read('it'), citedOne('body.party', 'body.members')] }] },
+          ],
+        },
+        else: 'A party roll is written by a steward, from the party’s own member list',
+      },
+    ] satisfies ReadonlyArray<Check>,
+  },
+});
+interface PartyRoll {
+  readonly party: string;
+  readonly members: ReadonlyArray<string>;
+}
+
+/** The party roll a party's position cites */
+const rollItself = { get: [{ versions: [[read('body.roll')]] }, '0'] };
+
+/**
+ * A party's position on a proposal: more than half of its frozen members
+ * voted this way themselves. Votes they cast by following someone don't
+ * count, so a party can't count its own followers back into itself. Anyone
+ * may write it; followers' devices then cast the same vote.
+ */
+export const partyBallot = typed<PartyBallot>()({
+  name: 'liquid.party-ballot',
+  title: 'Party position',
+  description: 'How a party voted on a proposal, proven by its members’ own votes.',
+  schema: {
+    type: 'object',
+    properties: {
+      choice: choice(CHOICES),
+      roll: words(128, 'The id of the party’s roll for this proposal'),
+      members: people(MAX_VOTERS, 'The roll’s members'),
+      votes: ids(255, 'Ids of the members’ votes it counts'),
+    },
+    required: ['choice', 'roll', 'members', 'votes'],
+  },
+  links: {
+    party: one(['liquid.party'], 'The party'),
+    about: one(['liquid.proposal'], 'The proposal'),
+  },
+  rules: {
+    onePer: ['link:party', 'link:about'],
+    final: true,
+    check: [
+      {
+        that: {
+          and: [
+            is(citedOne('body.roll', 'collection'), 'liquid.party-roll'),
+            is({ link: ['party', rollItself] }, { link: ['party'] }),
+            is({ link: ['about', rollItself] }, { link: ['about'] }),
+            is(citedOne('body.roll', 'body.members'), read('body.members')),
+          ],
+        },
+        else: 'A party’s position cites its roll for the proposal',
+      },
+      {
+        that: allAbout('body.votes', 'liquid.vote', [
+          { in: [read('it.author'), read('body.members')] },
+          is(read('it.body.choice'), read('body.choice')),
+          is(read('it.body.via'), null),
+        ]),
+        else: 'A party’s position counts only its members’ own votes, for that choice',
+      },
+      {
+        that: { '>': [{ '*': [authorsOf('body.votes'), 2] }, { size: read('body.members') }] },
+        else: 'A party takes a position once more than half its members voted that way',
+      },
+    ] satisfies ReadonlyArray<Check>,
+  },
+});
+interface PartyBallot {
+  readonly choice: Choice;
+  readonly roll: string;
+  readonly members: ReadonlyArray<string>;
+  readonly votes: ReadonlyArray<string>;
+}
+
 /** Everything an assembly needs, defined when one is made */
-export const ASSEMBLY = [topic, proposal, support, vote, delegation, party, membership] as const;
+export const ASSEMBLY = [
+  topic,
+  proposal,
+  support,
+  vote,
+  delegation,
+  decision,
+  conflict,
+  party,
+  membership,
+  partyRoll,
+  partyBallot,
+] as const;

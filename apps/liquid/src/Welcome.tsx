@@ -161,12 +161,18 @@ export function Welcome() {
 
         <div className="lq-grid" style={{ width: '100%', marginTop: 8 }}>
           {[
-            ['Vote directly', 'Any proposal, any time. Your own vote always counts over a delegation.'],
+            [
+              'Vote directly',
+              'Vote before your device follows someone, and your own vote is the one that counts.',
+            ],
             [
               'Delegate by topic',
               'Trust a neighbour with housing and a party with the budget. Each topic on its own.',
             ],
-            ['Take it back', 'Move or revoke a delegation in one tap. Nothing is locked in.'],
+            [
+              'Settled for good',
+              'Once more than half the voters agree, it’s decided on every device, and no late vote changes it.',
+            ],
           ].map(([title, text]) => (
             <div key={title} className="lq-card" style={{ padding: 18 }}>
               <p className="lq-section-title" style={{ fontSize: 14, marginBottom: 6 }}>

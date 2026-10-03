@@ -122,6 +122,7 @@ _Source: `packages/core/src/records/links.ts` (`checkLinks`), `packages/core/src
 | `onePer` | At most one record per combination of these               | none           |
 | `fixed`  | Fields that keep the value the record was created with    | none           |
 | `check`  | Conditions every new version must meet ([below](#checks)) | none           |
+| `final`  | `true`: written once, then never edited or deleted        | none           |
 
 Who is one of these, or a list meaning any of them:
 
@@ -226,7 +227,14 @@ same thing however late it joins: any version in a collection with
 `onePer` or `fixed`. Give a collection you mean to cite `history: 'all'`,
 or an edited vote's latest version can't be cited. A cited version proves
 what was signed, not that it is still current, so make evidence final where
-it matters: `fixed: ['choice']` on a vote.
+it matters: `final: true` on a vote, so nobody can change or delete it once
+it is counted, or `fixed: ['choice']` to allow other edits.
+
+**A proof stays a proof.** A cited version is judged as of what the citing
+version saw: removing a voter later, or revoking the device that voted,
+doesn't undo a decision that already counted the vote. A decision written
+after seeing the removal can't count it. Peers keep such withdrawn versions
+for this, without showing them.
 
 The standard library has two ready-made: `std.decision`, a proposal decided
 by a quorum of ballots, and `std.goal-reached`, a goal reached by pledges

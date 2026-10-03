@@ -473,20 +473,30 @@ _Source: `packages/core/src/space/roles.ts` (`replayAccess`, `takesAway`, `mayTa
 ### 5.1 `judge`
 
 Given a record's `id`, its root, its `seen`, the CID of the note it was
-written under (if any), and a predicate `needs(role, state)`:
+written under (if any), a predicate `needs(role, state)`, and optionally
+`within`, the `seen` of a version that cites this one
+([02](02-records.md) §7.6):
 
-1. If anything in `seen` is missing or waiting → not yet (retry later).
-2. If the note has been revoked (§6.4) and the revoke's `keep` does not list
-   this record's id → refused.
+1. If anything in `seen`, or in `within`, is missing or waiting → not yet
+   (retry later).
+2. If the note has been revoked (§6.4), the revoke's `keep` does not list
+   this record's id, and (with `within`) the revoke is in
+   `within ∪ ancestors(within)` → withdrawn.
 3. `S_seen = at(seen)`. If `needs(role(S_seen, root), S_seen)` is false → refused.
 4. For every reduction of `root` whose event is **not** in `seen ∪ ancestors(seen)`,
-   and whose event's `keep` does not list this record's id: if
-   `needs(before)` and not `needs(after)` → refused ("its author's access was
-   taken away").
+   (with `within`) **is** in `within ∪ ancestors(within)`, and whose event's
+   `keep` does not list this record's id: if `needs(before)` and not
+   `needs(after)` → withdrawn ("its author's access was taken away").
 5. Otherwise it stands.
 
 So a record stands if its author was allowed as of what it saw, and nothing it
-had not seen took that away — unless that change kept it.
+had not seen took that away — unless that change kept it. For a version that
+another cites, only what the citer had seen can take it away.
+
+Withdrawn is a refusal for every purpose but two: the version is still
+stored, and a version that cites it can count it ([02](02-records.md) §9.5).
+
+_Source: `packages/core/src/space/roles.ts` (`replayAccess`, `judge`, `cutOf`). Tests: `packages/core/tests/checks.test.ts` ("a proof stays a proof…")._
 
 ### 5.2 Standing of an ordinary record
 
@@ -574,7 +584,7 @@ or removing a role — **SHOULD** carry `keep`: the ids of the current versions,
 outside the access collections, written by the affected accounts that the
 writer has seen (at most 10 000). §5.1 step 4 lets those stand; anything else
 the affected account wrote that relied on the lost power and had not seen the
-change is refused, whatever point in history it claims.
+change is withdrawn, whatever point in history it claims: kept, but never counted, except by a version that cites it and had not seen the change (§5.1).
 
 `keep` on an `invite` event is parsed but has no effect on judging (only
 `member` and `role` events produce reductions); an invite close decides who
@@ -591,7 +601,7 @@ Whoever signed a note (UCAN) may revoke it in a space by writing `sys.revoke`
 at `revoke:<hex40(cid(note))>` with `{ note, keep? }`; `keep` lists the
 versions written under that note that the revoker has seen and wants to stand.
 From the first applied revoke on, every version written under that note
-stands only if kept (§5.1 step 2) — whatever it saw.
+stands only if kept (§5.1 step 2) — whatever it saw; the rest are withdrawn.
 
 _Source: `packages/core/src/node/space-runtime.ts` (`setMember`, `putRole`, `removeRole`, `revoke`, `keepFrom`), `packages/core/src/node/node.ts` (`spaces.leave`). Tests: `packages/core/tests/roles.test.ts` ("handing over…", "a revoked note…"), `packages/core/tests/space-access.test.ts` ("taking it back")._
 

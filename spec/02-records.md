@@ -941,7 +941,7 @@ and the `edit` rule decides whether it is allowed.
 > only part of a collection folds; and that a definition with an unknown rule
 > is invalid to older peers (§7.5), so a new rule needs care in rollout.
 
-### 7.4 `fixed`
+### 7.4 `fixed` and `final`
 
 `fixed` is a non-empty list of top-level body fields that keep the value the
 record was created with. A peer MUST refuse a later, non-delete version in
@@ -957,18 +957,34 @@ stub once superseded, and nothing is compared against it, by any peer.
 > will compare canonical JSON.
 > Tracked in [#20](https://github.com/leifriksheim/weave/issues/20).
 
+`final` is `true`: a record is written once. A peer MUST refuse every version
+with `seq > 0` of a collection whose rules in force (as of the version's
+`seen`) have `final`, deletes included, whatever `edit` and `delete` say.
+
+```json
+"rules": { "onePer": ["@author", "link:about"], "final": true }
+```
+
+It is the one way to say "nobody". `check` (§7.6) can refuse edits, but it is
+not run on deletes, and `edit` and `delete` name only who may. A vote that a
+proof has counted, or the proof itself, must stay what it was.
+
+Two first versions at one key, written apart, both stand, and the ordering
+rule (§4.3) picks the current one, as for any record. `final` does not
+prevent that; telling the two apart, where it matters, is the app's.
+
 ### 7.5 Checking a definition's rules
 
 `rules` MUST be an object with no members other than `create`, `edit`,
-`delete`, `onePer`, `fixed` and `check`, each valid as above (`onePer` and
-`fixed`: non-empty lists of non-empty strings; `check`: §7.6). A definition
-with anything else is invalid (§6.1).
+`delete`, `onePer`, `fixed`, `check` and `final`, each valid as above
+(`onePer` and `fixed`: non-empty lists of non-empty strings; `check`: §7.6;
+`final`: `true`). A definition with anything else is invalid (§6.1).
 
 > Rationale: a rule names either a fact any peer can check from the record
 > (`creator`) or a permission a person decided (`can:…`). "Did a person have to
 > decide it?" is the test for which one to use.
 
-_Source: `packages/core/src/records/rules.ts` (`checkRules`, `allows`, `onePerKey`, `changedFixedField`, `permissionName`, `PERMISSION_PATTERN`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`, `mayNow`, `put`). Tests: `packages/core/tests/rules.test.ts` (all), `packages/core/tests/schemas.test.ts` ("a poll: one vote per person…")._
+_Source: `packages/core/src/records/rules.ts` (`checkRules`, `allows`, `onePerKey`, `changedFixedField`, `permissionName`, `PERMISSION_PATTERN`), `packages/core/src/node/space-runtime.ts` (`judgeStanding`, `rulesAt`, `mayNow`, `put`). Tests: `packages/core/tests/rules.test.ts` (all; "final: written once…"), `packages/core/tests/schemas.test.ts` ("a poll: one vote per person…")._
 
 ### 7.6 `check`: conditions and evidence
 
@@ -1120,11 +1136,34 @@ not resolve decides:
    kept whole reads the same on every peer, however late it joins.
 3. Its collection differs from its record's first version (§4.6): the check
    fails.
-4. It does not stand (§9.4): the check fails; or waits, if judging it waits.
+4. It does not stand **as of the citing version's `seen`** (§9.4, with
+   [03](03-spaces.md) §5.1 judged `within` that `seen`): the check fails; or
+   waits, if judging it waits.
 5. Sealed with a key the peer does not hold: the peer cannot judge (below).
 
 A version's id covers its content, so a version cannot cite itself and
 citations never form a cycle.
+
+"As of the citing version's `seen`" means that only access changes the citing
+version had seen (named in its `seen`, or seen by those) can take a cited
+version away: a removal of its author, or a revoke of its note. A change that
+came later, or apart, does not. So a check that passed when it was written
+passes for every peer, at any time, whatever the access history grows into.
+A cited version withdrawn by a later change is still held for this (§9.5).
+
+Example: Carol cites Bob's vote in a proof. Alice, who had not seen the vote,
+then removes Bob, and her removal keeps nothing ([03](03-spaces.md) §6.3).
+Bob's vote stops counting as a record; Carol's proof, which had not seen the
+removal, still stands, on every peer. A proof written after seeing the
+removal cannot count Bob's vote.
+
+> Rationale: a proof that a later change could undo is not a proof: two peers
+> that judged it before and after the change would disagree, and a result
+> would go back on itself. The cost: a writer chooses its `seen`, and can
+> leave a removal out of it to count a removed member's earlier versions. It
+> cannot count anything written after the removal (§9.4 judges those by their
+> own `seen`), and it must itself hold a role as of what it claims to have
+> seen.
 
 #### Outcomes
 
@@ -1345,24 +1384,34 @@ Given a valid signature and root, whether the version _stands_ in this space:
    2. The access state as of `seen` is known ([03](03-spaces.md)).
    3. The root holds a role as of `seen`, and the rule for the action allows it (§7.2), and the access history's own judgement of the writer passes (revoked notes, removals — [03](03-spaces.md)).
    4. If a definition is in force and the version is not a delete: tags check (§8.4).
-   5. If rules are in force and the version is not a delete: `retain` on a `seq 0` under `onePer` or `fixed`, and on every version under `check` (§4.5); `onePer` (§7.3) on `seq 0`; `fixed` (§7.4) on `seq > 0`; then `check` (§7.6), which may make the version wait for versions it cites.
+   5. If rules are in force: under `final`, no version with `seq > 0`, deletes included (§7.4). Then, if the version is not a delete: `retain` on a `seq 0` under `onePer` or `fixed`, and on every version under `check` (§4.5); `onePer` (§7.3) on `seq 0`; `fixed` (§7.4) on `seq > 0`; then `check` (§7.6), which may make the version wait for versions it cites.
+
+   When step 3 fails only on the access history's judgement of a change that came after the version (a removal it had not seen, or its note revoked: [03](03-spaces.md) §5.1 steps 2 and 4), the peer still judges step 5, and the version is **withdrawn** if that passes.
 
 ### 9.5 What a peer does with a refused version
 
-A check can end three ways:
+A check can end four ways:
 
-| Outcome     | When                                                                                                                                                   | What the peer does                                                                                                             |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| **stands**  | every check passes                                                                                                                                     | Stores it; the ordering rule (§4.3) decides whether it becomes current.                                                        |
-| **later**   | it depends on something not held: its first version, the version its `prev` names, access changes named in `seen`, or a version its checks cite (§7.6) | Holds it aside and re-judges waiting versions whenever something new is stored. Nothing is reported.                           |
-| **refused** | any other failure                                                                                                                                      | Does not store it and does not pass it on. It may remember the refusal as (peer, id), only so it does not ask that peer again. |
+| Outcome       | When                                                                                                                                                   | What the peer does                                                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **stands**    | every check passes                                                                                                                                     | Stores it; the ordering rule (§4.3) decides whether it becomes current.                                                                                                             |
+| **withdrawn** | every check passes but one: a later access change took it away (§9.4)                                                                                  | Stores it and passes it on, as for one that stands. It never counts as a record (below), but a version that cites it, and had not seen that change, counts it (§7.6). Not reported. |
+| **later**     | it depends on something not held: its first version, the version its `prev` names, access changes named in `seen`, or a version its checks cite (§7.6) | Holds it aside and re-judges waiting versions whenever something new is stored. Nothing is reported.                                                                                |
+| **refused**   | any other failure                                                                                                                                      | Does not store it and does not pass it on. It may remember the refusal as (peer, id), only so it does not ask that peer again.                                                      |
+
+A withdrawn version is kept so that every peer can judge a proof that cites
+it, however late the peer joins: a peer that refused it would make the proof
+wait forever, while peers that stored it before the change accept the proof.
+It adds nothing a removed author could not have written while a member: it
+must pass every rule and check as of what it claims to have seen.
 
 A peer MUST NOT remember a refusal by id alone, and MUST NOT cache a failing
 verdict: a copy with a mangled signature shares the genuine version's id
 (§3.2). A peer MAY cache passing verdicts by (`id`, `signature`).
 
 Whether a stored version stands can change as the access history grows (a
-removal, a revoked note — [03](03-spaces.md)). When reading, a peer uses the
+removal, a revoked note — [03](03-spaces.md)); it is then withdrawn, and stays
+stored. When reading, a peer uses the
 current version if it stands; otherwise the newest held version of that record
 that does; otherwise the record is absent.
 
@@ -1382,7 +1431,7 @@ hold, and refusing would leave peers disagreeing forever. A reader may flag
 such a record instead. A writer
 checks them before signing and SHOULD NOT write what does not conform.
 
-_Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`), `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `chainStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/checks.test.ts` ("between peers"), `packages/core/tests/attacks.test.ts`._
+_Source: `packages/core/src/validation/check-version.ts` (`createVersionCheck`), `packages/core/src/validation/crypto-gate.ts`, `packages/core/src/validation/capability-gate.ts` (`MAX_CLOCK_SKEW_SECONDS`), `packages/core/src/node/space-runtime.ts` (`writeCapability`, `judge`, `judgeStanding`, `chainStanding`, `admit`, `currentOf`, `contentIssues`), `packages/core/src/sync/sync-engine.ts` (`admit`, `retryWaiting`). Tests: `packages/core/tests/validation.test.ts` (all), `packages/core/tests/rules.test.ts` ("a forged edit is refused by every peer…", "arriving in any order"), `packages/core/tests/space-catalog.test.ts` ("a record that does not fit is kept and flagged"), `packages/core/tests/links.test.ts` ("declared links"), `packages/core/tests/topics.test.ts` ("a record whose tags don't match…"), `packages/core/tests/checks.test.ts` ("between peers"; "a proof stays a proof…"), `packages/core/tests/space-access.test.ts` ("a removed member cannot write…"), `packages/core/tests/attacks.test.ts`._
 
 ---
 

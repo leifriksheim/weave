@@ -26,7 +26,8 @@ export function People({ a, writable }: { a: Assembly; writable: boolean }) {
               Parties
             </h2>
             <p className="lq-muted" style={{ fontSize: 14, marginTop: 2 }}>
-              People who vote together. Trust a party and it votes for you the way most of its members do.
+              People who vote together. Trust a party, and once more than half its members vote the same way,
+              your device casts that vote for you.
             </p>
           </div>
           {writable && (
@@ -151,7 +152,7 @@ function PartyCard({
   const action = useAction();
   const [requests, setRequests] = useState(false);
   const c = hue(p.hue);
-  const founder = p.founder === a.me;
+  const steward = p.stewards.has(a.me);
   const myAsk = p.asked.get(a.me) ?? null;
   const inIt = p.members.has(a.me);
   const waiting = [...p.asked.keys()].filter(
@@ -165,7 +166,8 @@ function PartyCard({
         name: p.name,
         ...(p.platform ? { platform: p.platform } : {}),
         hue: p.hue,
-        members: [...new Set(members)],
+        members: [...new Set([...p.stewards, ...members])],
+        stewards: [...p.stewards],
       }),
     );
 
@@ -191,7 +193,7 @@ function PartyCard({
             {trusted ? ` · trusted by ${trusted}` : ''}
           </p>
         </div>
-        {founder && writable && (
+        {steward && writable && (
           <button className="lq-btn" data-variant="ghost" data-size="sm" onClick={onEdit}>
             Edit
           </button>
@@ -219,8 +221,8 @@ function PartyCard({
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
         {writable &&
-          (founder ? (
-            <span className="lq-chip">You founded it</span>
+          (steward ? (
+            <span className="lq-chip">You’re a steward</span>
           ) : inIt ? (
             <button
               className="lq-btn"
@@ -237,7 +239,7 @@ function PartyCard({
               data-variant="quiet"
               data-size="sm"
               disabled={action.busy}
-              title="The founder lets members in"
+              title="A steward lets members in"
               onClick={() => void action.run(() => node.records.delete(a.spaceId, myAsk))}
             >
               Asked · Cancel
@@ -256,13 +258,13 @@ function PartyCard({
               Ask to join
             </button>
           ))}
-        {founder && writable && waiting.length > 0 && (
+        {steward && writable && waiting.length > 0 && (
           <button className="lq-btn" data-size="sm" onClick={() => setRequests((was) => !was)}>
             {waiting.length} asking to join
           </button>
         )}
       </div>
-      {requests && founder && waiting.length > 0 && (
+      {requests && steward && waiting.length > 0 && (
         <div
           style={{
             display: 'flex',
@@ -288,6 +290,12 @@ function PartyCard({
           ))}
         </div>
       )}
+      {steward && writable && p.stewards.size === 1 && (
+        <p className="lq-note" data-tone="warn" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          You’re its only steward. If you stop using Liquid, nobody can let people in or freeze its members
+          for new proposals, and it can’t take a position again. Add a second steward under Edit.
+        </p>
+      )}
       <Problem>{action.error}</Problem>
     </article>
   );
@@ -300,14 +308,16 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
   const [shade, setShade] = useState(editing?.hue ?? HUES[a.parties.length % HUES.length] ?? 200);
   const action = useAction();
   const members = editing ? [...editing.listed].filter((did) => did !== a.me) : [];
+  const stewards = editing ? editing.stewards : new Set([a.me]);
 
-  const save = (listed: ReadonlyArray<string>) =>
+  const save = (listed: ReadonlyArray<string>, keepers: ReadonlySet<string> = stewards) =>
     action.run(async () => {
       const body = {
         name: name.trim(),
         ...(platform.trim() ? { platform: platform.trim() } : {}),
         hue: shade,
-        members: [...new Set([a.me, ...listed])],
+        members: [...new Set([a.me, ...keepers, ...listed])],
+        stewards: [...keepers],
       };
       if (editing) {
         await node.records.update(a.spaceId, editing.key, body);
@@ -317,6 +327,12 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
       }
       onClose();
     });
+  const withSteward = (did: string, on: boolean) => {
+    const next = new Set(stewards);
+    if (on) next.add(did);
+    else next.delete(did);
+    return next;
+  };
 
   return (
     <Modal title={editing ? `Edit ${editing.name}` : 'Start a party'} onClose={onClose} width={480}>
@@ -374,10 +390,11 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
         </label>
         {editing && members.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <p className="lq-label">Members you let in</p>
+            <p className="lq-label">Members</p>
             {members.map((did) => (
               <div key={did} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Who did={did} a={a} size={22} />
+                {stewards.has(did) && <span className="lq-chip">Steward</span>}
                 <span style={{ flex: 1 }} />
                 <button
                   type="button"
@@ -385,7 +402,22 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
                   data-variant="ghost"
                   data-size="sm"
                   disabled={action.busy}
-                  onClick={() => void save(members.filter((m) => m !== did))}
+                  onClick={() => void save(members, withSteward(did, !stewards.has(did)))}
+                >
+                  {stewards.has(did) ? 'Not a steward' : 'Make steward'}
+                </button>
+                <button
+                  type="button"
+                  className="lq-btn"
+                  data-variant="ghost"
+                  data-size="sm"
+                  disabled={action.busy}
+                  onClick={() =>
+                    void save(
+                      members.filter((m) => m !== did),
+                      withSteward(did, false),
+                    )
+                  }
                 >
                   Remove
                 </button>
@@ -393,10 +425,16 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
             ))}
           </div>
         )}
+        {editing && stewards.size === 1 && (
+          <p className="lq-faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            Give it a second steward, so the party carries on if you stop using Liquid.
+          </p>
+        )}
         {!editing && (
           <p className="lq-faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-            You found it and decide who gets in. People ask to join; the party votes the way most of its
-            members vote.
+            You start it as its steward: you let people in, and your device freezes its members for each new
+            proposal. Make other members stewards too, so it doesn’t depend on you alone. It takes a position
+            once more than half its members vote the same way themselves.
           </p>
         )}
         <Problem>{action.error}</Problem>
@@ -410,7 +448,7 @@ function PartyForm({ a, editing, onClose }: { a: Assembly; editing?: PartyFull; 
               onClick={() => {
                 if (
                   globalThis.confirm(
-                    `Dissolve ${editing.name}? Everyone who trusts it will vote themselves again.`,
+                    `Dissolve ${editing.name}? Everyone who trusts it will need to vote themselves, or trust someone else.`,
                   )
                 )
                   void action.run(async () => {

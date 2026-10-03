@@ -303,7 +303,18 @@ interface Reduction {
 }
 
 export type RecordVerdict =
-  { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly later?: boolean };
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly reason: string;
+      readonly later?: boolean;
+      /**
+       * Allowed when written, and refused only because a later change took
+       * its author's access away or revoked its note. It is kept, so a
+       * version that cites it, and had not seen that change, can count it.
+       */
+      readonly withdrawn?: true;
+    };
 
 export interface AccessHistory {
   /** Who holds what once everything held is replayed */
@@ -320,6 +331,8 @@ export interface AccessHistory {
    * unless that change kept it.
    * @param record The record's id, its account, what it saw, and the note it was written under
    * @param needs What the record requires of its author's role
+   * @param within For a version another cites: what the citing version saw.
+   *   Only changes among those, and what they saw, can take it away.
    */
   judge(
     record: {
@@ -329,6 +342,7 @@ export interface AccessHistory {
       readonly note?: string;
     },
     needs: (role: Role | null, state: AccessState) => boolean,
+    within?: ReadonlyArray<string>,
   ): RecordVerdict;
   /** The applied change that revoked a note, if any */
   revoked(note: string): { readonly event: string; readonly keep: ReadonlySet<string> } | null;
@@ -758,28 +772,27 @@ export function replayAccess(genesis: AccessGenesis, events: ReadonlyArray<Acces
         ? stateAt(seen)
         : null;
     },
-    judge(record, needs) {
-      if (!seen(record.seen))
+    judge(record, needs, within) {
+      if (!seen(record.seen) || (within && !seen(within)))
         return { ok: false, reason: 'Access changes it depends on have not arrived yet', later: true };
+      // For a cited version, only what the citer had seen can take it away (02 §7.6).
+      const known = within ? cutOf(within) : null;
       const revoked = record.note ? revokes.get(record.note) : undefined;
-      if (revoked && !revoked.keep.has(record.id))
-        return { ok: false, reason: 'The note it was written under was revoked' };
+      if (revoked && !revoked.keep.has(record.id) && (!known || known.has(revoked.event)))
+        return { ok: false, reason: 'The note it was written under was revoked', withdrawn: true };
 
       const cutState = stateAt(record.seen);
       if (!needs(roleOf(cutState, record.root), cutState)) {
         return { ok: false, reason: 'Its author was not allowed to, as of what it had seen' };
       }
       // A change it had not seen, that took this power away, stands unless it kept the record.
-      const cut = new Set<string>();
-      for (const id of record.seen) {
-        cut.add(id);
-        for (const ancestor of ancestors(id)) cut.add(ancestor);
-      }
+      const cut = cutOf(record.seen);
       for (const reduction of reductions) {
         if (reduction.did !== record.root || cut.has(reduction.event)) continue;
+        if (known && !known.has(reduction.event)) continue;
         if (keepOf.get(reduction.event)?.has(record.id)) continue;
         if (needs(reduction.before, cutState) && !needs(reduction.after, cutState)) {
-          return { ok: false, reason: "Its author's access was taken away" };
+          return { ok: false, reason: "Its author's access was taken away", withdrawn: true };
         }
       }
       return { ok: true };
@@ -791,6 +804,16 @@ export function replayAccess(genesis: AccessGenesis, events: ReadonlyArray<Acces
     knownInvite: (key: string) =>
       [...byId.values()].some((event) => event.kind === 'invite' && event.inviteKey === key),
   } satisfies AccessHistory);
+
+  /** The changes these ids name, and every change they saw */
+  function cutOf(ids: ReadonlyArray<string>): Set<string> {
+    const cut = new Set<string>();
+    for (const id of ids) {
+      cut.add(id);
+      for (const ancestor of ancestors(id)) cut.add(ancestor);
+    }
+    return cut;
+  }
 
   function seen(ids: ReadonlyArray<string>): boolean {
     return ids.every((id) => id === genesis.id || (byId.has(id) && !waiting.has(id)));

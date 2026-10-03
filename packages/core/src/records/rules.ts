@@ -64,6 +64,11 @@ export interface CollectionRules {
    * the board before". See `records/checks.ts`.
    */
   readonly check?: ReadonlyArray<Check>;
+  /**
+   * Records are written once: no edit and no delete, by anyone. A vote, a
+   * ballot or a proof that others count on stays what it was.
+   */
+  readonly final?: true;
 }
 
 const isWho = (w: unknown): w is Who =>
@@ -84,9 +89,10 @@ export function checkRules(
   if (!isRecord(rules)) return `${at} must be an object`;
   const r = rules;
   for (const key of Object.keys(r)) {
-    if (!['create', 'edit', 'delete', 'onePer', 'fixed', 'check'].includes(key))
-      return `${at}.${key} is not a rule (use create, edit, delete, onePer, fixed, check)`;
+    if (!['create', 'edit', 'delete', 'onePer', 'fixed', 'check', 'final'].includes(key))
+      return `${at}.${key} is not a rule (use create, edit, delete, onePer, fixed, check, final)`;
   }
+  if (r.final !== undefined && r.final !== true) return `${at}.final must be true`;
   for (const action of ['create', 'edit', 'delete']) {
     const who = r[action];
     if (who === undefined) continue;
