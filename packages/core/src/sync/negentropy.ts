@@ -1,5 +1,4 @@
 /**
- * @module negentropy
  * Range-based set reconciliation: two peers find out which items each lacks
  * by comparing fingerprints of ranges, never by listing everything.
  *
@@ -26,9 +25,9 @@
  */
 import { sha256 } from '../utils/hash.js';
 
-export const NEGENTROPY_VERSION = 0x61;
-export const ID_SIZE = 32;
-export const FINGERPRINT_SIZE = 16;
+const NEGENTROPY_VERSION = 0x61;
+const ID_SIZE = 32;
+const FINGERPRINT_SIZE = 16;
 /** Ranges smaller than two buckets' worth go as their ids */
 const BUCKETS = 16;
 /** A timestamp past every real one: the end of the last range */
@@ -57,7 +56,7 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
   return a.length - b.length;
 }
 
-export function compareItems(a: Bound, b: Bound): number {
+function compareItems(a: Bound, b: Bound): number {
   return a.timestamp === b.timestamp ? compareBytes(a.id, b.id) : a.timestamp < b.timestamp ? -1 : 1;
 }
 
@@ -127,7 +126,7 @@ class Reader {
 const MOD = 1n << 256n;
 
 /** An id as the little-endian 256-bit number the sum is taken over */
-export function idToNumber(id: Uint8Array): bigint {
+function idToNumber(id: Uint8Array): bigint {
   const view = new DataView(id.buffer, id.byteOffset, ID_SIZE);
   return (
     view.getBigUint64(0, true) |
@@ -235,7 +234,6 @@ export interface Round {
 /**
  * One side of one reconciliation.
  *
- * @param set This side's items
  * @param frameSizeLimit Largest message to produce, in bytes; 0 for no limit.
  *   What doesn't fit is left for the next round.
  */

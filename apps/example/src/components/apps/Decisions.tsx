@@ -2,22 +2,13 @@ import { useState } from 'react';
 import { useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import type { IncludedOf, P2PNode, QueryRecord } from '@weaveprotocol/core';
 import { ballot, decision, proposal, type Proposal } from '@weaveprotocol/core/schemas';
-import { nameOf, peopleFrom, respondingTo, type People } from '../../derive/people';
-import { ago } from '../../derive/time';
-import { Avatar } from '@weave/app-shared/Avatar';
-import { styles, palette } from '../../styles';
+import { useAction } from '@weave/app-shared/action';
+import { nameOf, peopleFrom, respondingTo } from '../../derive/people';
+import { styles, palette, ui } from '../../styles';
 import type { AppProps } from './index';
-import { Person } from '../Person';
+import { OptionBar, OptionCard, OptionsForm } from './options';
 
-const MAX_OPTIONS = 10;
-
-/**
- * `std.proposal`, `std.ballot` and `std.decision`: put something to the
- * space, and decide it once enough people agree. A ballot is final. A
- * decision is proven, not declared: it cites the proposal and the ballots
- * that reach its quorum, and every device checks them before it counts
- * (`std.decision`'s check). Nobody has to be trusted to count.
- */
+/** `std.proposal`, `std.ballot` and `std.decision`: a decision cites the ballots that reach quorum, and every device checks them. */
 export function Decisions({ space, onOpen }: AppProps) {
   const node = useNode();
   const mayPropose = useCan(space.id, 'create', proposal.name);
@@ -37,7 +28,7 @@ export function Decisions({ space, onOpen }: AppProps) {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 640 }}>
+    <div style={{ ...ui.stack, gap: 16, maxWidth: 640 }}>
       {mayPropose &&
         (proposing ? (
           <Propose
@@ -92,60 +83,9 @@ function ProposalView({
   const node = useNode();
   const { did: me } = useAccount();
   const people = peopleFrom(useProfiles(space.id));
-  const [problem, setProblem] = useState<string | null>(null);
+  const { run, error } = useAction();
+  const [confirming, setConfirming] = useState<number | null>(null);
   const about = [{ rel: 'about', to: record.key }];
-
-  const attempt = (work: () => Promise<unknown>) => {
-    setProblem(null);
-    work().catch((error: unknown) => setProblem(error instanceof Error ? error.message : String(error)));
-  };
-
-  return (
-    <ProposalCard
-      record={record}
-      me={me}
-      people={people}
-      writable={space.writable}
-      problem={problem}
-      onOpen={() => onOpen(record)}
-      onCast={(choice) =>
-        attempt(() =>
-          node.records.put(space.id, ballot, { choice, ...respondingTo(record.root, me) }, { links: about }),
-        )
-      }
-      onDecide={(outcome, ballots) =>
-        attempt(async () =>
-          node.records.put(
-            space.id,
-            decision,
-            { outcome, proposal: await firstVersion(node, space.id, record), ballots },
-            { links: about },
-          ),
-        )
-      }
-    />
-  );
-}
-
-function ProposalCard({
-  record,
-  me,
-  people,
-  writable,
-  problem,
-  onOpen,
-  onCast,
-  onDecide,
-}: {
-  record: ProposalWithOutcome;
-  me: string;
-  people: People;
-  writable: boolean;
-  problem: string | null;
-  onOpen: () => void;
-  onCast: (choice: number) => void;
-  onDecide: (outcome: number, ballots: string[]) => void;
-}) {
   const { title, options, quorum } = record.body;
   // A ballot counts as first cast: that is the version a decision can cite.
   const ballots = record.included.ballots.filter((b) => b.seq === 0 && b.body.choice < options.length);
@@ -154,116 +94,34 @@ function ProposalCard({
   const reached = quorum
     ? options.findIndex((_, i) => ballots.filter((b) => b.body.choice === i).length >= quorum)
     : -1;
-  const [confirming, setConfirming] = useState<number | null>(null);
-  const open = writable && !decided;
+  const open = space.writable && !decided;
 
   return (
-    <article
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        padding: 16,
-        border: `1px solid ${palette.surface.line}`,
-        borderRadius: 10,
-      }}
+    <OptionCard
+      record={record}
+      verb="proposed"
+      badge={!!decided && 'Decided'}
+      title={title}
+      open="Open this proposal"
+      onOpen={() => onOpen(record)}
     >
-      <header style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div
-          style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: palette.ink.faint }}
-        >
-          <Avatar did={record.createdBy ?? record.author} size={18} />
-          <span>
-            <Person did={record.createdBy} /> proposed · {ago(record.createdAt)}
-          </span>
-          {decided && <span style={{ ...styles.badge, marginLeft: 'auto' }}>Decided</span>}
-        </div>
-        <button
-          onClick={onOpen}
-          title="Open this proposal"
-          style={{
-            border: 'none',
-            background: 'none',
-            padding: 0,
-            font: 'inherit',
-            fontSize: 16,
-            fontWeight: 600,
-            color: palette.ink.strong,
-            textAlign: 'left',
-            wordBreak: 'break-word',
-          }}
-        >
-          {title}
-        </button>
-      </header>
-
-      <div role="group" aria-label="Options" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div role="group" aria-label="Options" style={{ ...ui.stack, gap: 6 }}>
         {options.map((option, i) => {
           const these = ballots.filter((b) => b.body.choice === i);
-          const share = quorum ? Math.min(1, these.length / quorum) : 0;
           const chosen = mine?.body.choice === i;
           const won = decided?.body.outcome === i;
           return (
-            <button
+            <OptionBar
               key={i}
+              label={`${option}${won ? ' ✓' : ''}`}
+              count={quorum ? `${these.length} of ${quorum}` : these.length}
+              share={quorum ? Math.min(1, these.length / quorum) : 0}
+              chosen={chosen}
+              strong={chosen || won}
+              clickable={open && !mine}
+              voters={these.map((b) => nameOf(b.root, people))}
               onClick={() => setConfirming(i)}
-              disabled={!open || !!mine}
-              aria-pressed={chosen}
-              title={these.length ? these.map((b) => nameOf(b.root, people)).join(', ') : undefined}
-              style={{
-                position: 'relative',
-                overflow: 'hidden',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                height: 40,
-                padding: '0 12px',
-                border: `1px solid ${chosen || won ? palette.ink.strong : palette.surface.line}`,
-                borderRadius: 8,
-                background: palette.surface.card,
-                font: 'inherit',
-                fontSize: 14,
-                color: palette.ink.body,
-                textAlign: 'left',
-                opacity: 1,
-                cursor: open && !mine ? 'pointer' : 'default',
-              }}
-            >
-              <span
-                aria-hidden
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  width: `${share * 100}%`,
-                  background: chosen || won ? palette.accent.soft : palette.surface.sunken,
-                  transition: 'width .3s ease',
-                }}
-              />
-              <span
-                style={{
-                  position: 'relative',
-                  flex: 1,
-                  minWidth: 0,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  fontWeight: chosen || won ? 600 : 400,
-                }}
-              >
-                {option}
-                {won ? ' ✓' : ''}
-              </span>
-              <span
-                style={{
-                  position: 'relative',
-                  fontSize: 12,
-                  color: palette.ink.muted,
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                {quorum ? `${these.length} of ${quorum}` : these.length}
-              </span>
-            </button>
+            />
           );
         })}
       </div>
@@ -278,7 +136,15 @@ function ProposalCard({
           </button>
           <button
             onClick={() => {
-              onCast(confirming);
+              const choice = confirming;
+              void run(() =>
+                node.records.put(
+                  space.id,
+                  ballot,
+                  { choice, ...respondingTo(record.root, me) },
+                  { links: about },
+                ),
+              );
               setConfirming(null);
             }}
             data-variant="primary"
@@ -308,12 +174,20 @@ function ProposalCard({
                 ? `You chose “${options[mine.body.choice]}”. ${quorum} ballots for one option decide it.`
                 : `${quorum} ballots for one option decide it. Ballots are final.`}
         </span>
-        {!decided && writable && reached >= 0 && (
+        {!decided && space.writable && reached >= 0 && (
           <button
             onClick={() =>
-              onDecide(
-                reached,
-                ballots.filter((b) => b.body.choice === reached).map((b) => b.version),
+              void run(async () =>
+                node.records.put(
+                  space.id,
+                  decision,
+                  {
+                    outcome: reached,
+                    proposal: await firstVersion(node, space.id, record),
+                    ballots: ballots.filter((b) => b.body.choice === reached).map((b) => b.version),
+                  },
+                  { links: about },
+                ),
               )
             }
             data-variant="primary"
@@ -323,8 +197,8 @@ function ProposalCard({
           </button>
         )}
       </footer>
-      {problem && <p style={{ fontSize: 13, color: palette.accent.danger }}>{problem}</p>}
-    </article>
+      {error && <p style={{ fontSize: 13, color: palette.accent.danger }}>{error}</p>}
+    </OptionCard>
   );
 }
 
@@ -336,88 +210,34 @@ function Propose({
   onPropose: (title: string, options: string[], quorum: number) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [title, setTitle] = useState('');
-  const [options, setOptions] = useState(['Yes', 'No']);
   const [quorum, setQuorum] = useState(2);
-  const [busy, setBusy] = useState(false);
-  const filled = options.map((o) => o.trim()).filter(Boolean);
-  const ready = title.trim() && filled.length >= 2 && new Set(filled).size === filled.length && quorum >= 1;
-
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!ready) return;
-        setBusy(true);
-        void onPropose(title.trim(), filled, quorum).finally(() => setBusy(false));
-      }}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        padding: 16,
-        border: `1px solid ${palette.surface.line}`,
-        borderRadius: 10,
-      }}
-    >
-      <input
-        autoFocus
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="What should the space decide?"
-        aria-label="Proposal"
-        style={styles.input}
-      />
-      {options.map((option, i) => (
-        <input
-          key={i}
-          value={option}
-          onChange={(e) => setOptions((was) => was.map((o, j) => (j === i ? e.target.value : o)))}
-          placeholder={`Option ${i + 1}`}
-          aria-label={`Option ${i + 1}`}
-          style={styles.input}
-        />
-      ))}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: palette.ink.body }}>
-        Decided by
-        <input
-          type="number"
-          min={1}
-          max={10000}
-          value={quorum}
-          onChange={(e) => setQuorum(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-          aria-label="Quorum"
-          style={{ ...styles.input, width: 72 }}
-        />
-        ballots for one option
-      </label>
-      {filled.length !== new Set(filled).size && (
-        <p style={{ fontSize: 13, color: palette.accent.danger }}>Two options are the same.</p>
-      )}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {options.length < MAX_OPTIONS && (
-          <button
-            type="button"
-            onClick={() => setOptions((was) => [...was, ''])}
-            data-variant="quiet"
-            style={styles.smallButton}
-          >
-            + Add option
-          </button>
-        )}
-        <span style={{ flex: 1 }} />
-        <button type="button" onClick={onCancel} data-variant="quiet" style={styles.smallButton}>
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={!ready || busy}
-          data-variant="primary"
-          style={{ ...styles.addButton, height: 32 }}
+    <OptionsForm
+      initialOptions={['Yes', 'No']}
+      placeholder="What should the space decide?"
+      label="Proposal"
+      submit="Propose"
+      submitting="Proposing…"
+      valid={quorum >= 1}
+      onSubmit={(title, options) => onPropose(title, options, quorum)}
+      onCancel={onCancel}
+      extra={
+        <label
+          style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: palette.ink.body }}
         >
-          {busy ? 'Proposing…' : 'Propose'}
-        </button>
-      </div>
-    </form>
+          Decided by
+          <input
+            type="number"
+            min={1}
+            max={10000}
+            value={quorum}
+            onChange={(e) => setQuorum(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+            aria-label="Quorum"
+            style={{ ...styles.input, width: 72 }}
+          />
+          ballots for one option
+        </label>
+      }
+    />
   );
 }

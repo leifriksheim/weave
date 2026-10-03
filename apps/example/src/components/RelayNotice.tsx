@@ -5,11 +5,7 @@ import { duration, nextRetry } from '../derive/network';
 import { styles } from '../styles';
 import { useNow } from './NetworkView';
 
-/**
- * Without a reachable relay nothing syncs, and the only symptom is a peer
- * count that never moves. Better to say it than to look broken: a relay
- * misconfigured for this page, or one that cannot be reached right now.
- */
+/** Says when no relay is reachable, since otherwise nothing syncs and nothing says why */
 export function RelayNotice() {
   const problem = relayProblem();
   if (problem) {
@@ -28,12 +24,7 @@ export function RelayNotice() {
   return local ? <p style={{ ...styles.errorHint, marginBottom: 12 }}>{local}</p> : null;
 }
 
-/**
- * Every relay failing, more than once each: past a blip, worth saying. The
- * client keeps trying on its own, so this is news rather than a call to act —
- * but "Try now" is there for someone who just fixed their Wi-Fi. Shown on
- * every screen but the Network tab, which says the same at more length.
- */
+/** Every relay failing, more than once each: news, with a Try now */
 export function RelayDown() {
   const node = useNode();
   const network = useNetwork();

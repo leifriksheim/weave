@@ -8,6 +8,7 @@ import {
 import { useAccount, useConnection } from '@weaveprotocol/core/react';
 import { Choice, Modal } from '@weave/app-shared/Modal';
 import { relayUrls } from '@weave/app-shared/relay';
+import { message, useAction, useCopy } from '@weave/app-shared/action';
 import { styles, palette, variants } from '../styles';
 
 /** What people run, before the code */
@@ -30,15 +31,7 @@ type Step =
   | { readonly kind: 'connected'; readonly agent: AgentAsking }
   | { readonly kind: 'failed'; readonly reason: string };
 
-/**
- * Connecting an agent on this computer — Claude Code, Claude Desktop, Cursor.
- *
- * Shows one command to paste in a terminal. When it runs, the terminal turns
- * up here and says who it is; a click opens the account home, which signs it
- * an agent's note for the whole account, for as long as chosen. From then on
- * it is a node of its own, and this tab can close. An agent in this browser
- * needs none of this: it works as you, over WebMCP (`webmcp.ts`).
- */
+/** Connects an agent on this computer: one command to paste, then the account home signs its note */
 export function ConnectAgent({ onClose }: { onClose: () => void }) {
   const { state } = useConnection();
   const { did } = useAccount();
@@ -46,9 +39,8 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<Step>({ kind: 'starting' });
   const [code, setCode] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { copied, copy } = useCopy();
+  const { run, busy, error } = useAction();
   const connectedName = step.kind === 'connected' ? step.agent.name : null;
   useEffect(() => {
     if (connectedName) rememberAgent(did, connectedName, Number(days));
@@ -66,8 +58,7 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
         stop = () => offer.stop();
         setCode(offer.code);
       },
-      (e: unknown) =>
-        !stopped && setStep({ kind: 'failed', reason: e instanceof Error ? e.message : String(e) }),
+      (e: unknown) => !stopped && setStep({ kind: 'failed', reason: message(e) }),
     );
     return () => {
       stopped = true;
@@ -80,33 +71,22 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
     ? `${COMMAND} ${code}${relays.includes(CLI_RELAY) || !relays[0] ? '' : ` --relay ${relays[0]}`}`
     : '';
 
-  const copy = () => {
-    void globalThis.navigator.clipboard?.writeText(command).then(() => {
-      setCopied(true);
-      globalThis.setTimeout(() => setCopied(false), 1500);
-    });
-  };
-
-  const allow = (stage: Extract<AgentLinkStage, { kind: 'asking' }>) => {
-    setBusy(true);
-    setError(null);
-    // From the click itself: the home opens in a popup.
-    connectToHome({
-      home: state.home,
-      audience: stage.agent.did,
-      request: {
-        name: stage.agent.name,
-        access: 'write',
-        scope: 'account',
-        chooseSpaces: false,
-        agent: true,
-        days: Number(days),
-      },
-    })
-      .then((grant) => stage.allow(grant))
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setBusy(false));
-  };
+  // From the click itself: the home opens in a popup.
+  const allow = (stage: Extract<AgentLinkStage, { kind: 'asking' }>) =>
+    run(() =>
+      connectToHome({
+        home: state.home,
+        audience: stage.agent.did,
+        request: {
+          name: stage.agent.name,
+          access: 'write',
+          scope: 'account',
+          chooseSpaces: false,
+          agent: true,
+          days: Number(days),
+        },
+      }).then((grant) => stage.allow(grant)),
+    );
 
   return (
     <Modal title="Connect an agent" onClose={onClose}>
@@ -153,7 +133,7 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
               Don't allow
             </button>
             <button
-              onClick={() => allow(step.stage)}
+              onClick={() => void allow(step.stage)}
               disabled={busy}
               data-variant="primary"
               style={styles.button}
@@ -180,7 +160,7 @@ export function ConnectAgent({ onClose }: { onClose: () => void }) {
                 {command || 'Making a code…'}
               </code>
               <button
-                onClick={copy}
+                onClick={() => copy(command)}
                 disabled={!code}
                 data-variant="quiet"
                 style={{ ...variants.quiet, width: 'auto', height: 30, padding: '0 10px', fontSize: 13 }}
@@ -259,12 +239,7 @@ const commandBox = {
   fontFamily: palette.mono,
 } as const;
 
-/**
- * The agent last connected from this browser, by name, until its note runs
- * out, so "Create an app" can say which agent the prompt is for. Only a
- * hint: the account home knows which agents are connected, and this page
- * can't ask it.
- */
+/** The agent last connected from this browser, by name, until its note runs out: only a hint */
 const agentKey = (did: string) => `weave.agent:${did}`;
 const agentListeners = new Set<() => void>();
 const DAY = 24 * 60 * 60 * 1000;

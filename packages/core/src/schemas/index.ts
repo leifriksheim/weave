@@ -1,5 +1,4 @@
 /**
- * @module schemas
  * A standard library of well-known record shapes, broad enough that most apps
  * need no definitions of their own. Optional, and nothing special: the protocol knows
  * none of them. Each is an ordinary collection definition, and a space learns

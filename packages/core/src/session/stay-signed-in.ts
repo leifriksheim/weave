@@ -1,23 +1,9 @@
 /**
  * @module session/stay-signed-in
- * Staying signed in on this device, so a refresh does not ask to unlock again.
- *
- * The seed is encrypted under a device key: a random key the browser keeps in
- * this site's storage and will use for this page but never hand out as bytes
- * (it is created non-extractable). The same thing a passkey shortcut does,
- * minus the fingerprint — which is exactly the convenience asked for, and
- * exactly the cost:
- *
- * - Someone who copies this site's stored data somewhere else gets ciphertext
- *   and no key to open it.
- * - Someone at this computer, in this browser profile, is signed in. So is any
- *   script running in this page. That is what "stay signed in" means anywhere.
- *
- * So it expires: after a chosen time without being used, the key is deleted
- * and the next visit asks to unlock. Signing out deletes it at once.
- *
- * Kept in this browser only, never in a pod — a pod is meant to be copied and
- * synced, and "this device may skip the password" must not travel with it.
+ * Staying signed in on this device: the seed wrapped under a non-extractable
+ * device key in this site's storage, so a copy of the stored data opens
+ * nothing elsewhere, while anyone at this browser profile is signed in. It
+ * expires after a chosen time unused, and never travels in a pod.
  */
 import { createDeviceKey, deleteDeviceKey, getDeviceKey } from '../identity/device-key.js';
 import {
@@ -48,6 +34,48 @@ export interface KeyValueStore {
   removeItem(key: string): void;
 }
 
+/** The given store, or this page's `localStorage` when none was given; null remembers nothing */
+export function defaultStorage(storage?: KeyValueStore | null): KeyValueStore | null {
+  return storage !== undefined ? storage : (globalThis.localStorage ?? null);
+}
+
+/**
+ * A key-value store that never throws: one that refuses (private mode, a full
+ * quota) only means forgetting, and remembering is never a requirement.
+ */
+export function guardedStorage(storage: KeyValueStore | null) {
+  const get = (key: string): string | null => {
+    try {
+      return storage?.getItem(key) ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const set = (key: string, value: string | null): void => {
+    try {
+      if (value === null) storage?.removeItem(key);
+      else storage?.setItem(key, value);
+    } catch {
+      // Forgotten instead.
+    }
+  };
+  return {
+    get,
+    set,
+    /** Parsed JSON, or null when missing or unreadable; the caller owns the key, and so its shape */
+    read: <T>(key: string): T | null => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only the caller's own writes use its keys
+        return JSON.parse(get(key) ?? 'null') as T | null;
+      } catch {
+        return null;
+      }
+    },
+    /** Writes JSON; null removes the key */
+    write: (key: string, value: unknown): void => set(key, value === null ? null : JSON.stringify(value)),
+  };
+}
+
 interface Remembered {
   readonly accountId: string;
   /** Which kind of place the account was opened from — a pod account resumes only when the pod is open again */
@@ -72,11 +100,7 @@ export interface StaySignedInStore {
   forget(): Promise<void>;
 }
 
-/**
- * @param storage Where the setting and the wrapped seed are kept
- * @param rpId The site the device key belongs to
- * @param prefix Namespaces the keys, so two apps on one origin do not share a sign-in
- */
+/** `prefix` namespaces the keys, so two apps on one origin do not share a sign-in */
 export function createStaySignedIn(
   storage: KeyValueStore | null,
   rpId: string,
@@ -85,23 +109,7 @@ export function createStaySignedIn(
   const SETTING = `${prefix}.stay-signed-in`;
   const RECORD = `${prefix}.remembered-session`;
 
-  const read = <T>(key: string): T | null => {
-    try {
-      const raw = storage?.getItem(key);
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only this store writes these keys
-      return raw ? (JSON.parse(raw) as T) : null;
-    } catch {
-      return null;
-    }
-  };
-  const write = (key: string, value: unknown): void => {
-    try {
-      if (value === null) storage?.removeItem(key);
-      else storage?.setItem(key, JSON.stringify(value));
-    } catch {
-      /* private mode: it will ask again next time, which is safe */
-    }
-  };
+  const { read, write } = guardedStorage(storage);
 
   const choice = (): StaySignedIn => {
     const chosen = read<StaySignedIn>(SETTING);

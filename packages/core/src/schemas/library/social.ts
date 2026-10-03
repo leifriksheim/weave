@@ -3,20 +3,8 @@
  * Blocks and mutes are one person's choice, so they belong in that person's
  * own space rather than in a space others read.
  */
-import {
-  address,
-  blob,
-  day,
-  own,
-  person,
-  text,
-  typed,
-  url,
-  when,
-  words,
-  type Address,
-  type BlobRef,
-} from '../fragments.js';
+import { address, blob, day, own, person, text, define, url, when, words } from '../fragments.js';
+import type { BodyOf } from '../../query/types.js';
 
 /**
  * How someone presents themselves: more than the name every space keeps for
@@ -26,7 +14,7 @@ import {
  * apps can show it. It is the account's own word, like the rest: an honest
  * operator discloses with it, and it proves nothing about anyone who doesn't.
  */
-export const profile = typed<Profile>()({
+export const profile = define({
   name: 'std.profile',
   title: 'Profile',
   description: 'How someone presents themselves: one per person.',
@@ -52,24 +40,15 @@ export const profile = typed<Profile>()({
   },
   rules: { ...own, onePer: ['@author'] },
 });
-export interface Profile {
-  readonly name?: string;
-  readonly bio?: string;
-  readonly avatar?: BlobRef;
-  readonly banner?: BlobRef;
-  readonly pronouns?: string;
-  readonly links?: ReadonlyArray<{ readonly title?: string; readonly url: string }>;
-  /** The account says it is software someone runs, not a person */
-  readonly bot?: boolean;
-}
+export type Profile = BodyOf<typeof profile>;
 
-const labelled = (value: Record<string, unknown>, required: string) => ({
-  type: 'array',
+const labelled = <const P extends object, const R extends keyof P>(value: P, required: R) => ({
+  type: 'array' as const,
   maxItems: 16,
   items: {
-    type: 'object',
+    type: 'object' as const,
     properties: { ...value, label: text(50, 'Like "work" or "home"') },
-    required: [required],
+    required: [required] as const,
   },
 });
 
@@ -77,7 +56,7 @@ const labelled = (value: Record<string, unknown>, required: string) => ({
  * A person who may not be on Weave: a subset of JSContact (RFC 9553). For
  * people who are, `std.contact` keeps their DID.
  */
-export const card = typed<Card>()({
+export const card = define({
   name: 'std.card',
   title: 'Contact card',
   description: 'A person’s name, emails, phones and addresses, as an address book keeps them.',
@@ -100,21 +79,10 @@ export const card = typed<Card>()({
     },
   },
 });
-export interface Card {
-  readonly name?: { readonly full?: string; readonly given?: string; readonly family?: string };
-  readonly emails?: ReadonlyArray<{ readonly address: string; readonly label?: string }>;
-  readonly phones?: ReadonlyArray<{ readonly number: string; readonly label?: string }>;
-  readonly addresses?: ReadonlyArray<{ readonly address: Address; readonly label?: string }>;
-  readonly organization?: string;
-  readonly jobTitle?: string;
-  readonly birthday?: string;
-  readonly photo?: BlobRef;
-  readonly urls?: ReadonlyArray<string>;
-  readonly note?: string;
-}
+export type Card = BodyOf<typeof card>;
 
 /** Following someone: their DID, and the space they publish in if known. */
-export const follow = typed<Follow>()({
+export const follow = define({
   name: 'std.follow',
   title: 'Follow',
   description: 'Following a person: one per person followed.',
@@ -126,13 +94,10 @@ export const follow = typed<Follow>()({
   rules: { ...own, onePer: ['@author', 'did'] },
   topics: ['did'],
 });
-export interface Follow {
-  readonly did: string;
-  readonly space?: string;
-}
+export type Follow = BodyOf<typeof follow>;
 
 const avoided = (name: string, title: string, description: string) =>
-  typed<Avoid>()({
+  define({
     name,
     title,
     description,
@@ -143,10 +108,7 @@ const avoided = (name: string, title: string, description: string) =>
     },
     rules: { ...own, onePer: ['@author', 'did'] },
   });
-export interface Avoid {
-  readonly did: string;
-  readonly until?: string;
-}
+export type Avoid = BodyOf<typeof block>;
 
 /** Someone whose records an app hides and whose invitations it refuses. Keep it in your own space. */
 export const block = avoided(
@@ -158,7 +120,7 @@ export const block = avoided(
 export const mute = avoided('std.mute', 'Mute', 'Someone to quiet for a while. Keep it in your own space.');
 
 /** What someone is up to right now: one per person, gone after `until`. */
-export const status = typed<Status>()({
+export const status = define({
   name: 'std.status',
   title: 'Status',
   description: 'What someone is up to now: one per person.',
@@ -168,8 +130,9 @@ export const status = typed<Status>()({
   },
   rules: { ...own, onePer: ['@author'] },
 });
-export interface Status {
-  readonly text?: string;
-  readonly emoji?: string;
-  readonly until?: string;
-}
+export type Status = BodyOf<typeof status>;
+
+/** This file's part of `standardGroups` */
+export const socialGroups = {
+  People: [profile, card, follow, block, mute, status],
+};

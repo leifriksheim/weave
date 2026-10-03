@@ -1,5 +1,4 @@
 /**
- * @module records/links
  * Links between records.
  *
  * A link says "this record is about that one, in a named role". The subject is
@@ -15,7 +14,9 @@
 import { RECORD_KEY_PATTERN } from './key.js';
 import { isObject } from '../utils/guards.js';
 
-const LINK_REL_PATTERN = /^[a-z][a-zA-Z0-9]{0,63}$/;
+export const LINK_REL_PATTERN = /^[a-z][a-zA-Z0-9]{0,63}$/;
+/** A link role as a field names it: `link:channel` */
+export const LINK_FIELD_PATTERN = new RegExp(`^link:${LINK_REL_PATTERN.source.slice(1)}`);
 
 /** A record pointing at more than this is a list, and should be one. */
 const MAX_LINKS = 32;

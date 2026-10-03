@@ -16,12 +16,11 @@ import {
   person,
   position,
   text,
-  typed,
+  define,
   when,
   words,
-  type BlobRef,
-  type ImageRef,
 } from '../fragments.js';
+import type { BodyOf } from '../../query/types.js';
 
 /**
  * A chat message. The space is the room, or it links the `channel` it is in;
@@ -33,7 +32,7 @@ import {
  * it answers. With its channel they are its topics, so "mentions me", "replies
  * to me" and "in #design" can be asked of a keeper that can't read it.
  */
-export const message = typed<Message>()({
+export const message = define({
   name: 'std.message',
   title: 'Message',
   description: 'A chat message, optionally replying to another, or sharing a record.',
@@ -55,20 +54,14 @@ export const message = typed<Message>()({
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 });
-export interface Message {
-  readonly text: string;
-  /** Accounts it mentions */
-  readonly mentions?: ReadonlyArray<string>;
-  /** The account whose message it replies to */
-  readonly replyingTo?: string;
-}
+export type Message = BodyOf<typeof message>;
 
 /**
  * A call worth remembering, in the space it happened in. Calls themselves are
  * live and kept nowhere (`weave-protocol/calls`); this is only the history —
  * a ring nobody answered, or a call that ended and who was in it.
  */
-export const call = typed<Call>()({
+export const call = define({
   name: 'std.call',
   title: 'Call',
   description: 'A missed call, or one that ended and who was in it.',
@@ -91,16 +84,10 @@ export const call = typed<Call>()({
   rules: { edit: 'creator', delete: 'creator' },
   topics: ['to', 'people'],
 });
-export interface Call {
-  readonly status: 'missed' | 'ended';
-  readonly to?: string;
-  readonly startedAt: string;
-  readonly endedAt?: string;
-  readonly people?: ReadonlyArray<string>;
-}
+export type Call = BodyOf<typeof call>;
 
 /** A channel in a space with more than one conversation. Messages link it as their `channel`. */
-export const channel = typed<Channel>()({
+export const channel = define({
   name: 'std.channel',
   title: 'Channel',
   description: 'A named conversation within a space.',
@@ -112,11 +99,7 @@ export const channel = typed<Channel>()({
   permissions: ['moderate'],
   rules: { create: 'can:moderate', edit: 'can:moderate' },
 });
-export interface Channel {
-  readonly name: string;
-  readonly topic?: string;
-  readonly position?: string;
-}
+export type Channel = BodyOf<typeof channel>;
 
 /**
  * A direct message between some members of a space: its text is sealed so
@@ -125,7 +108,7 @@ export interface Channel {
  * when, not what. `to` is a topic, so "sent to me" can be asked of a keeper
  * that can't read it. Write and read it through `node.direct`.
  */
-export const direct = typed<Direct>()({
+export const direct = define({
   name: 'std.direct',
   title: 'Direct message',
   description: 'A message only the people it is sent to can read.',
@@ -156,18 +139,14 @@ export const direct = typed<Direct>()({
   topics: ['to'],
   rules: { edit: 'creator', delete: 'creator' },
 });
-export interface Direct {
-  readonly to: ReadonlyArray<string>;
-  readonly data: string;
-  readonly boxes: ReadonlyArray<{ readonly to: string; readonly sealed: string }>;
-}
+export type Direct = BodyOf<typeof direct>;
 
 /**
  * A post to a feed: short text, pictures, a reply or a quote. `root` is the
  * first post of the thread, so a reader gathers a thread with one query.
  * `mentions` and `replyingTo` are its topics, as on a `std.message`.
  */
-export const post = typed<Post>()({
+export const post = define({
   name: 'std.post',
   title: 'Post',
   description: 'A post to a feed, optionally replying to or quoting another.',
@@ -190,18 +169,10 @@ export const post = typed<Post>()({
   permissions: ['moderate'],
   rules: authored,
 });
-export interface Post {
-  readonly text?: string;
-  readonly images?: ReadonlyArray<ImageRef>;
-  readonly langs?: ReadonlyArray<string>;
-  /** Accounts it mentions */
-  readonly mentions?: ReadonlyArray<string>;
-  /** The account whose post it replies to */
-  readonly replyingTo?: string;
-}
+export type Post = BodyOf<typeof post>;
 
 /** Passing a post on as it is: one per person per post. */
-export const repost = typed<Repost>()({
+export const repost = define({
   name: 'std.repost',
   title: 'Repost',
   description: 'Passing a record on as it is: one per person per record.',
@@ -213,13 +184,10 @@ export const repost = typed<Repost>()({
   rules: { ...own, onePer: ['@author', 'link:about'] },
   topics: ['respondingTo'],
 });
-export interface Repost {
-  /** The account whose record it passes on */
-  readonly respondingTo?: string;
-}
+export type Repost = BodyOf<typeof repost>;
 
 /** Long-form writing, optionally in a publication. `draft` keeps it unlisted. */
-export const article = typed<Article>()({
+export const article = define({
   name: 'std.article',
   title: 'Article',
   description: 'Long-form writing, in CommonMark.',
@@ -242,20 +210,10 @@ export const article = typed<Article>()({
   rules: authored,
   topics: ['mentions'],
 });
-export interface Article {
-  readonly title: string;
-  readonly summary?: string;
-  readonly content?: string;
-  readonly cover?: BlobRef;
-  readonly slug?: string;
-  readonly publishedAt?: string;
-  readonly draft?: boolean;
-  /** Accounts it mentions */
-  readonly mentions?: ReadonlyArray<string>;
-}
+export type Article = BodyOf<typeof article>;
 
 /** A blog, a newsletter: what articles are published in. */
-export const publication = typed<Publication>()({
+export const publication = define({
   name: 'std.publication',
   title: 'Publication',
   description: 'A blog or newsletter that articles are published in.',
@@ -265,22 +223,16 @@ export const publication = typed<Publication>()({
     required: ['title'],
   },
 });
-export interface Publication {
-  readonly title: string;
-  readonly description?: string;
-  readonly icon?: BlobRef;
-}
+export type Publication = BodyOf<typeof publication>;
 
 /** A document: its title here, its content in `std.doc-block`s linked `in` it. */
-export const doc = typed<Doc>()({
+export const doc = define({
   name: 'std.doc',
   title: 'Document',
   description: 'A document made of blocks that people can edit at once.',
   schema: { type: 'object', properties: { title: words(500) }, required: ['title'] },
 });
-export interface Doc {
-  readonly title: string;
-}
+export type Doc = BodyOf<typeof doc>;
 
 const BLOCK_TYPES = [
   'paragraph',
@@ -300,7 +252,7 @@ const BLOCK_TYPES = [
  * One block of a document, in order by `position`. A nested list item or a
  * toggle's contents has a `parent` block.
  */
-export const docBlock = typed<DocBlock>()({
+export const docBlock = define({
   name: 'std.doc-block',
   title: 'Block',
   description: 'One block of a document: a paragraph, heading, list item, image…',
@@ -323,22 +275,13 @@ export const docBlock = typed<DocBlock>()({
   },
   topics: ['mentions'],
 });
-export interface DocBlock {
-  readonly type: (typeof BLOCK_TYPES)[number];
-  readonly text?: string;
-  readonly checked?: boolean;
-  readonly language?: string;
-  readonly image?: ImageRef;
-  readonly position?: string;
-  /** Accounts it mentions */
-  readonly mentions?: ReadonlyArray<string>;
-}
+export type DocBlock = BodyOf<typeof docBlock>;
 
 /**
  * A wiki page: one per slug, anyone may change it, and every version is kept
  * so its history can be read and restored.
  */
-export const wikiPage = typed<WikiPage>()({
+export const wikiPage = define({
   name: 'std.wiki-page',
   title: 'Wiki page',
   description: 'A page anyone can edit, one per name, keeping every version.',
@@ -354,14 +297,10 @@ export const wikiPage = typed<WikiPage>()({
   history: 'all',
   rules: { onePer: ['slug'] },
 });
-export interface WikiPage {
-  readonly slug: string;
-  readonly title: string;
-  readonly content?: string;
-}
+export type WikiPage = BodyOf<typeof wikiPage>;
 
 /** A note, as a notes app keeps them. */
-export const note = typed<Note>()({
+export const note = define({
   name: 'std.note',
   title: 'Note',
   description: 'A note: a title and some text.',
@@ -377,11 +316,22 @@ export const note = typed<Note>()({
   },
   topics: ['mentions'],
 });
-export interface Note {
-  readonly title?: string;
-  readonly content?: string;
-  readonly pinned?: boolean;
-  readonly color?: string;
-  /** Accounts it mentions */
-  readonly mentions?: ReadonlyArray<string>;
-}
+export type Note = BodyOf<typeof note>;
+
+/** This file's part of `standardGroups` */
+export const publishingGroups = {
+  'Messaging and publishing': [
+    message,
+    channel,
+    direct,
+    post,
+    repost,
+    article,
+    publication,
+    doc,
+    docBlock,
+    wikiPage,
+    note,
+    call,
+  ],
+};

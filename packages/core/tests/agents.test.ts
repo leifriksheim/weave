@@ -3,7 +3,7 @@
  * every record shows it, and no peer lets them change a space's collections
  * or who may do what. Apps they invent arrive as proposals a person adds.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileFunction } from 'node:vm';
 import * as z from 'zod';
@@ -58,28 +58,7 @@ import { nextVersion } from '../src/records/version.js';
 import { hold, letGo } from './helpers/hold.js';
 import { isRecord } from '../src/utils/guards.js';
 import { until } from './helpers/until.js';
-
-const open: Array<{ close(): Promise<unknown> }> = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person(hub: FakeHub) {
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(generateSeed());
-  const stores = memoryStores();
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores,
-    watchIntervalMs: 0,
-    network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
-  });
-  open.push(node);
-  return { node, me, manager, stores };
-}
-type Person = Awaited<ReturnType<typeof person>>;
-
-const settle = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
+import { open, person, settle, type Person } from './helpers/person.js';
 
 /** An agent key for this person, and a note from their account saying it is an agent's, for these spaces */
 async function agentFor(who: Person, spaces: ReadonlyArray<string>, facts = [AGENT_FACT]) {
@@ -550,7 +529,7 @@ describe('apps an agent proposes', () => {
       /version/,
     );
     assert.match(checkApp({ title: 'x', needs: [carpool.needs[0], carpool.needs[0]] })!, /twice/);
-    assert.match(checkApp({ title: 'x', needs: [] })!, /1–10/);
+    assert.match(checkApp({ title: 'x', needs: [] })!, /needs: Array has too few items/);
     assert.equal(checkApp(carpool), null);
   });
 
@@ -601,8 +580,11 @@ describe('apps an agent proposes', () => {
     assert.match(checkApp({ ...carpool, notify: [{ ...trips, spaces: ['x'] }] })!, /leaves out spaces/);
     assert.match(checkApp({ ...carpool, notify: [{ ...trips, open: 'https://x.example/' }] })!, /leaves out/);
     assert.match(checkApp({ ...carpool, notify: [{ ...trips, label: '' }] })!, /label/);
-    assert.match(checkApp({ ...carpool, notify: [] })!, /1–8/);
-    assert.match(checkApp({ ...carpool, notify: Array.from({ length: 9 }, () => trips) })!, /1–8/);
+    assert.match(checkApp({ ...carpool, notify: [] })!, /notify: Array has too few items/);
+    assert.match(
+      checkApp({ ...carpool, notify: Array.from({ length: 9 }, () => trips) })!,
+      /notify: Array has too many items/,
+    );
 
     // A proposal keeps it, a bad one is refused, and a copy carries it along.
     const { alice, space } = await setup();

@@ -1,5 +1,4 @@
 /**
- * @module blob-store
  * A dumb file store. Anything that can keep bytes by name can be one: S3, R2,
  * Backblaze, a Dropbox or OneDrive app folder, a Drive folder, a directory.
  *

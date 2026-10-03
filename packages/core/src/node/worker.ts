@@ -188,6 +188,33 @@ function nodeKey(did: string, stores: WorkerStores): string {
   return 'indexedDB' in stores ? `${did} idb:${stores.indexedDB}` : `${did} folder:${stores.basePath ?? ''}`;
 }
 
+/**
+ * Starts a page's node: in `worker` when one is given, or here. The stores
+ * are described so a worker can open them; `stores` replaces them here only.
+ */
+export async function startPageNode(
+  config: Omit<WorkerNodeConfig, 'network'> & {
+    readonly signer: RootSigner;
+    readonly network?: NodeNetworkConfig;
+  },
+  options: { readonly worker?: () => WorkerLike; readonly stores?: StoreFactory } = {},
+): Promise<P2PNode> {
+  if (options.worker && options.stores)
+    throw new Error('A node in a worker opens its own stores: pass worker or stores, not both');
+  const { network, stores, ...shared } = config;
+  return options.worker
+    ? startNodeInWorker(options.worker(), {
+        ...shared,
+        stores,
+        ...(network ? { network: workerNetwork(network) } : {}),
+      })
+    : createNode({
+        ...shared,
+        stores: options.stores ?? workerStores(stores),
+        ...(network ? { network } : {}),
+      });
+}
+
 /** What `runNodeWorker` listens on: a dedicated worker's scope, or a shared worker's */
 interface WorkerScope {
   addEventListener(type: 'message' | 'connect', listener: (event: MessageEvent) => void): void;

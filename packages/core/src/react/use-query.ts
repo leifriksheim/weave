@@ -13,9 +13,6 @@ export interface QueryState<R> {
  * Runs a query and keeps it current as records change, locally or by sync.
  * The query is plain data, compared by value, so writing it inline is fine.
  * Name the collection by its definition and the result comes back typed.
- *
- * @param spaceId The space to query
- * @param query What to find
  */
 export function useQuery<const Q extends Query>(spaceId: string, query: Q): QueryState<ResultOf<Q>> {
   const node = useNode();

@@ -1,18 +1,11 @@
 /**
  * @module node
  * A node: one identity, the spaces it holds, and everything needed to read,
- * write and sync them.
+ * write and sync them — what a tab, a CLI, a daemon and an agent share.
  *
- * This is what a browser tab, a command line, an always-on daemon and an agent
- * all have in common. Each of them is a thin layer over the same node — the
- * tab draws it, the CLI prints it, the daemon keeps it running and serves
- * sockets, the agent calls it through MCP or WebMCP.
- *
- * **The root key signs once.** Starting a node generates a session key and asks
- * the root signer for a note saying that key may write for the next hour. The
- * note is renewed before it runs out. Every record is signed by the session
- * key, so the root — a seed in this page, an account home, whatever holds it — is asked
- * for one signature an hour, never one per write.
+ * **The root key signs once.** A node signs with a session key the root
+ * delegates to for an hour at a time, renewed before it runs out: one
+ * signature an hour, never one per write.
  */
 import { runQuery } from '../query/engine.js';
 import {
@@ -24,8 +17,8 @@ import {
   type ResultOf,
 } from '../query/types.js';
 import { createP256Provider } from '../identity/crypto-p256.js';
-import type { Expression, Link, SpaceRole } from '../types.js';
-import { publicKeyToDid, P256_MULTICODEC } from '../identity/did.js';
+import type { Link, SpaceRole } from '../types.js';
+import { didOf } from '../identity/did.js';
 import {
   delegateCapabilities,
   parseUCAN,
@@ -45,10 +38,11 @@ import {
   type InviteLinkOptions,
   type SpaceRecord,
 } from '../space/space-manager.js';
-import { checkRelays, MANAGE, MAX_KEEPERS, MAX_RELAYS, roleHolds, type Keeper } from '../space/roles.js';
+import { MANAGE, MAX_KEEPERS, MAX_RELAYS, roleHolds, type Keeper } from '../space/roles.js';
 import {
   meshFor,
   noteCid,
+  usableRelays,
   openSpaceRuntime,
   type ActiveSession,
   type SpaceRuntime,
@@ -58,6 +52,9 @@ import { DEFAULT_ICE_SERVERS } from '../network/rtc-transport.js';
 import { deriveInviteKey } from '../space/space-access.js';
 import { base64UrlDecode, base64UrlEncode } from '../utils/encoding.js';
 import { isRecord, unref } from '../utils/guards.js';
+import { createListeners } from '../utils/events.js';
+import { serial } from '../utils/serial.js';
+import { buildNamespaces, callMethod, givenFor, type Namespace, type OwnMethods } from './api.js';
 import { onePerKey } from '../records/rules.js';
 import {
   contactKeyPair,
@@ -132,7 +129,6 @@ import {
   type HostClient,
   type HostDescription,
   type HostPlan,
-  type FundPayment,
   type HostStatus,
   type Hosting,
   type SignedStatus,
@@ -146,9 +142,7 @@ import type {
   NodeDoors,
   DefineCollection,
   DelegateParams,
-  InviteOptions,
   ListOptions,
-  NewSpace,
   NodeConfig,
   NodeEvent,
   NodeRecord,
@@ -212,12 +206,7 @@ function reasonText(reason: unknown): string {
   return String((isRecord(reason) ? reason.message : undefined) ?? reason);
 }
 
-/**
- * Starts a node.
- *
- * @param config Who it acts for, where it keeps data, and how it reaches peers
- * @returns The running node; call `close()` when done
- */
+/** Starts a node; call `close()` when done */
 export async function createNode(config: NodeConfig): Promise<P2PNode> {
   const provider = config.provider ?? createP256Provider();
   const signer = createSigner(provider);
@@ -229,7 +218,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   // ─── Session ───────────────────────────────────────────────────────
 
   const sessionKeys = config.sessionKey ?? (await provider.generateKeyPair());
-  const sessionDid = publicKeyToDid(await provider.exportPublicKey(sessionKeys.publicKey), P256_MULTICODEC);
+  const sessionDid = await didOf(sessionKeys.publicKey, provider);
 
   const delegate = () =>
     config.signer.delegate({
@@ -274,16 +263,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   // ─── Events ────────────────────────────────────────────────────────
 
-  const listeners = new Set<(event: NodeEvent) => void>();
-  const emit = (event: NodeEvent) => {
-    for (const listener of listeners) {
-      try {
-        listener(event);
-      } catch (e) {
-        console.error('Error in node event listener:', e);
-      }
-    }
-  };
+  const events = createListeners<NodeEvent>('node event');
+  const { emit } = events;
 
   const stopWatchingNetwork = mesh?.subscribe(() => emit({ type: 'network' }));
 
@@ -331,9 +312,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
    */
   async function inviteTo(spaceId: string, options: InviteLinkOptions = {}): Promise<string> {
     const named = (await findRecord(spaceId))?.relays ?? [];
-    const own = (config.network?.relays ?? [])
-      .filter((url) => checkRelays([url]) === null)
-      .slice(0, MAX_RELAYS);
+    const own = usableRelays(config.network).slice(0, MAX_RELAYS);
     return registry.createInvite(spaceId, config.signer.did, {
       ...options,
       ...(named.length ? {} : own.length ? { relays: own } : {}),
@@ -384,14 +363,39 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     }
   };
 
-  /** The account's name, from its registry — null without an account key, or before one is set */
-  async function ownName(): Promise<string | null> {
+  /** The account registry, or why `what` can't be done without it */
+  function requireAccount(what: string): Promise<SpaceRuntime> {
+    if (!accountSpaceId) return Promise.reject(new Error(`${what} needs the account key`));
+    return runtime(accountSpaceId);
+  }
+
+  /** What this account wrote in a collection that `check` takes: only it writes its own lists */
+  async function ownRecords<T>(
+    rt: SpaceRuntime,
+    options: ListOptions,
+    check: (record: NodeRecord<T>) => boolean = () => true,
+  ): Promise<NodeRecord<T>[]> {
+    return (await rt.list<T>(options)).filter(
+      (record) => record.verified && record.root === config.signer.did && check(record),
+    );
+  }
+
+  /**
+   * The account's profile, from its registry — null without an account key,
+   * or before one is set. One record: its current version is the name, by the
+   * ordering rule, the same on every device whatever their clocks say.
+   */
+  async function ownProfile(): Promise<{ name: string; updatedAt: string } | null> {
     if (!accountSpaceId) return null;
     const profile = await (await runtime(accountSpaceId)).get<AccountProfile>(PROFILE_KEY);
     return profile?.verified && profile.root === config.signer.did && typeof profile.body?.name === 'string'
-      ? profile.body.name
+      ? { name: profile.body.name, updatedAt: profile.updatedAt }
       : null;
   }
+  const ownName = async () => (await ownProfile())?.name ?? null;
+
+  /** Whether a space is the account's own machinery: its registry, its contacts, a carry space */
+  const ownSpace = (spaceId: string) => spaceId === accountSpaceId || hidden(spaceId);
 
   /**
    * Tells a space who this account is. Done when the space opens and when the
@@ -426,14 +430,9 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
           rootDid: config.signer.did,
           ...(config.network ? { network: config.network } : {}),
           ...(mesh ? { mesh } : {}),
-          peopleOnly: spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId),
+          peopleOnly: ownSpace(spaceId),
           // The account's own spaces are always held whole: every device needs all of them.
-          ...(config.cache &&
-          spaceId !== accountSpaceId &&
-          spaceId !== contactsSpaceId &&
-          !carrySpaces.has(spaceId)
-            ? { cache: config.cache }
-            : {}),
+          ...(config.cache && !ownSpace(spaceId) ? { cache: config.cache } : {}),
           watchIntervalMs: config.watchIntervalMs ?? 2000,
           emit: fromRuntime,
           onRole: (role) => {
@@ -484,44 +483,39 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     return open;
   }
 
+  /** A method that opens the space its first argument names, and asks its runtime */
+  const perSpace =
+    <A extends unknown[], R>(call: (rt: SpaceRuntime, ...args: A) => R | Promise<R>) =>
+    async (spaceId: string, ...args: A): Promise<R> =>
+      call(await runtime(spaceId), ...args);
+
   /**
    * Uses a waiting invite, once its record has reached this device. Asked
    * again while it is still working, it runs once more afterwards — the
    * record that makes the difference may be the one that arrived meanwhile.
    */
-  const joining = new Map<string, { again: boolean }>();
+  const joining = new Map<string, () => Promise<void>>();
   /** Takes in an invite; the space it is for may now have one waiting */
   async function joinRegistry(invite: string): Promise<SpaceRecord> {
     const record = await registry.join(invite);
     noInviteWaiting.delete(record.space.id);
     return record;
   }
-  async function finishJoining(spaceId: string): Promise<void> {
-    if (noInviteWaiting.has(spaceId)) return;
-    const running = joining.get(spaceId);
-    if (running) {
-      running.again = true;
-      return;
-    }
-    const state = { again: true };
-    joining.set(spaceId, state);
-    try {
-      while (state.again && !closed) {
-        state.again = false;
-        const record = await registry.get(spaceId);
-        if (!record?.invite) {
-          noInviteWaiting.add(spaceId);
-          break;
-        }
-        try {
-          if (await (await runtime(spaceId)).join(record.invite)) break;
-        } catch {
-          // Not yet; the next change to the space tries again.
-        }
-      }
-    } finally {
-      joining.delete(spaceId);
-    }
+  function finishJoining(spaceId: string): Promise<void> {
+    if (noInviteWaiting.has(spaceId)) return Promise.resolve();
+    let run = joining.get(spaceId);
+    if (!run) joining.set(spaceId, (run = serial(() => joinOnce(spaceId))));
+    return run();
+  }
+  async function joinOnce(spaceId: string): Promise<void> {
+    if (closed) return;
+    const record = await registry.get(spaceId);
+    if (!record?.invite) return void noInviteWaiting.add(spaceId);
+    const { invite } = record;
+    // Not yet, perhaps; the next change to the space tries again.
+    await runtime(spaceId)
+      .then((rt) => rt.join(invite))
+      .catch(() => {});
   }
 
   async function closeRuntime(spaceId: string): Promise<void> {
@@ -553,16 +547,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   async function memberships(): Promise<ReadonlyArray<NodeRecord<Membership>>> {
     if (!accountSpaceId) return [];
-    const records = await (
-      await runtime(accountSpaceId)
-    ).list<Membership>({ collection: MEMBERSHIP_COLLECTION, includeDeleted: true });
-    // Only the account itself may say what it belongs to.
-    return records.filter(
+    return ownRecords<Membership>(
+      await runtime(accountSpaceId),
+      { collection: MEMBERSHIP_COLLECTION, includeDeleted: true },
       (record) =>
-        record.verified &&
-        record.root === config.signer.did &&
-        (record.deleted ||
-          (typeof record.body?.space === 'string' && record.key === membershipKey(record.body.space))),
+        record.deleted ||
+        (typeof record.body?.space === 'string' && record.key === membershipKey(record.body.space)),
     );
   }
 
@@ -614,8 +604,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     if (!accountSpaceId) return [];
     const open = await runtime(accountSpaceId);
     const found: Array<{ record: NodeRecord<Carrier>; space: string }> = [];
-    for (const record of await open.list<Carrier>({ collection: CARRIER_COLLECTION, includeDeleted: true })) {
-      if (!record.verified || record.root !== config.signer.did) continue;
+    for (const record of await ownRecords<Carrier>(open, {
+      collection: CARRIER_COLLECTION,
+      includeDeleted: true,
+    })) {
       if (!record.deleted) {
         if (typeof record.body?.space === 'string' && typeof record.body.invite === 'string')
           found.push({ record, space: record.body.space });
@@ -632,90 +624,77 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   /** Every carry space, live or not — kept out of the account's own list */
   let carrySpaces = new Set<string>();
 
-  /** Puts a pass in a carrier's space for each of the account's spaces, and takes away the rest. */
+  /**
+   * Puts a pass in a carrier's space for each of the account's spaces, and
+   * takes away the rest; and its subscriptions, with each value replaced by
+   * the space's tag: the carrier matches, never learns.
+   */
   async function syncPasses(carrier: Carrier): Promise<void> {
     if (!account || agentSession) return;
-    const wanted = new Map<string, SpacePass>();
+    const passes = new Map<string, SpacePass>();
+    const spaces: NotifySpace[] = [];
     // The registry and the contacts too, so a restore can come through the carrier.
-    wanted.set(await passKey(account.space.id), await makePass(account));
-    if (contactsRecord) wanted.set(await passKey(contactsRecord.space.id), await makePass(contactsRecord));
+    passes.set(await passKey(account.space.id), await makePass(account));
+    if (contactsRecord) passes.set(await passKey(contactsRecord.space.id), await makePass(contactsRecord));
     for (const membership of await memberships()) {
-      if (membership.deleted || !membership.body) continue;
-      const spaceId = membership.body.space;
-      if (hidden(spaceId)) continue;
-      const record = await registry.get(spaceId);
+      if (membership.deleted || !membership.body || hidden(membership.body.space)) continue;
+      const record = await registry.get(membership.body.space);
       if (!record) continue;
+      spaces.push({ id: record.space.id, key: record.key, visibility: record.space.visibility });
       try {
-        wanted.set(await passKey(spaceId), await makePass(record));
+        passes.set(await passKey(record.space.id), await makePass(record));
       } catch {
         // Held without its key — nothing to pass on until it arrives.
       }
     }
-
     const carry = await runtime(carrier.space);
-    const held = new Map(
-      (await carry.list<SpacePass>({ collection: PASS_COLLECTION, includeDeleted: true }))
-        .filter(
-          (record) => record.verified && record.root === config.signer.did && record.key.startsWith('pass:'),
-        )
-        .map((record) => [record.key, record]),
-    );
-    for (const [key, pass] of wanted) {
-      const current = held.get(key);
-      if (!current || current.deleted || JSON.stringify(current.body) !== JSON.stringify(pass)) {
-        await carry.upsertSystem(PASS_COLLECTION, key, pass);
-      }
-      held.delete(key);
-    }
-    for (const [key, record] of held) if (!record.deleted) await carry.removeSystem(key);
-
-    // Subscriptions, with each value replaced by the space's tag: the carrier matches, never learns.
-    const spaces: NotifySpace[] = [];
-    for (const membership of await memberships()) {
-      if (membership.deleted || !membership.body || hidden(membership.body.space)) continue;
-      const record = await registry.get(membership.body.space);
-      if (record) spaces.push({ id: record.space.id, key: record.key, visibility: record.space.visibility });
-    }
+    await writeExactly(carry, PASS_COLLECTION, passes, (key) => key.startsWith('pass:'));
     const subscriptions = new Map<string, unknown>();
     for (const view of await notifyRecords()) subscriptions.set(view.id, await carriedFor(view, spaces));
-    const carried = new Map(
-      (await carry.list<unknown>({ collection: SUBSCRIPTION_COLLECTION, includeDeleted: true }))
-        .filter((record) => record.verified && record.root === config.signer.did)
-        .map((record) => [record.key, record]),
+    await writeExactly(carry, SUBSCRIPTION_COLLECTION, subscriptions, () => true);
+  }
+
+  /** Makes what this account wrote in a collection, among the keys `mine` takes, say exactly `wanted` */
+  async function writeExactly(
+    rt: SpaceRuntime,
+    collection: string,
+    wanted: ReadonlyMap<string, unknown>,
+    mine: (key: string) => boolean,
+  ): Promise<void> {
+    const held = new Map(
+      (await ownRecords(rt, { collection, includeDeleted: true }, (record) => mine(record.key))).map(
+        (record) => [record.key, record],
+      ),
     );
-    for (const [key, body] of subscriptions) {
-      const current = carried.get(key);
+    for (const [key, body] of wanted) {
+      const current = held.get(key);
       if (!current || current.deleted || JSON.stringify(current.body) !== JSON.stringify(body))
-        await carry.upsertSystem(SUBSCRIPTION_COLLECTION, key, body);
-      carried.delete(key);
+        await rt.upsertSystem(collection, key, body);
+      held.delete(key);
     }
-    for (const [key, record] of carried) if (!record.deleted) await carry.removeSystem(key);
+    for (const [key, record] of held) if (!record.deleted) await rt.removeSystem(key);
   }
 
   /** The account's subscriptions, as it made them */
   async function notifyRecords(): Promise<ReadonlyArray<NotifyView>> {
     if (!accountSpaceId) return [];
-    const found: NotifyView[] = [];
-    for (const record of await (
-      await runtime(accountSpaceId)
-    ).list<NotifyWhen>({ collection: NOTIFY_COLLECTION })) {
-      if (
-        !record.verified ||
-        record.root !== config.signer.did ||
-        !record.key.startsWith('notify:') ||
-        checkNotify(record.body) !== null
-      )
-        continue;
-      found.push({ ...record.body!, id: record.key });
-    }
-    return found.sort((a, b) => a.since.localeCompare(b.since));
+    const found = await ownRecords<NotifyWhen>(
+      await runtime(accountSpaceId),
+      { collection: NOTIFY_COLLECTION },
+      (record) => record.key.startsWith('notify:') && checkNotify(record.body) === null,
+    );
+    return found
+      .map((record) => ({ ...record.body!, id: record.key }))
+      .sort((a, b) => a.since.localeCompare(b.since));
   }
+
+  /** The carriers the account uses now */
+  const liveCarriers = async (): Promise<Carrier[]> =>
+    (await carrierRecords()).flatMap(({ record }) => (!record.deleted && record.body ? [record.body] : []));
 
   /** Every carrier gets the subscriptions as they are now */
   async function passSubscriptionsOn(): Promise<void> {
-    for (const { record } of await carrierRecords()) {
-      if (!record.deleted && record.body) await syncPasses(record.body).catch(() => {});
-    }
+    for (const carrier of await liveCarriers()) await syncPasses(carrier).catch(() => {});
   }
 
   /**
@@ -730,9 +709,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     const access = await rt.access();
     if (!roleHolds(access.role, MANAGE)) return;
     const carriers = await carrierRecords();
-    const active = carriers
-      .filter(({ record }) => !record.deleted && record.body)
-      .map(({ record }) => record.body!);
+    const active = await liveCarriers();
     const gone = new Set<string>();
     for (const { record } of carriers) {
       if (!record.deleted) continue;
@@ -823,25 +800,23 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     if (changed) emit({ type: 'spaces' });
   }
 
-  let reconciling: Promise<void> = Promise.resolve();
-  function reconcile(): Promise<void> {
-    reconciling = reconciling.then(reconcileOnce).catch((error: unknown) => {
+  const reconcile = serial(() =>
+    reconcileOnce().catch((error: unknown) => {
       if (!closed) console.error('Could not reconcile the account registry:', error);
-    });
-    return reconciling;
-  }
+    }),
+  );
 
-  const spaces: NodeSpaces = Object.freeze({
+  const spaces = Object.freeze<NodeSpaces>({
     async list() {
       return (await registry.list()).filter((record) => !hidden(record.space.id)).map(summarize);
     },
 
-    async get(spaceId: string) {
+    async get(spaceId) {
       const record = await findRecord(spaceId);
       return record ? summarize(record) : null;
     },
 
-    async create(params: NewSpace) {
+    async create(params) {
       const record = await registry.create({
         name: params.name,
         visibility: params.visibility,
@@ -854,7 +829,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return summarize(record);
     },
 
-    async invite(spaceId: string, options: InviteOptions = {}) {
+    async invite(spaceId, options = {}) {
       if (options.write === false) return inviteTo(spaceId);
       const open = await runtime(spaceId);
       const { roles, role: mine } = await open.access();
@@ -877,7 +852,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
     preview: previewInvite,
 
-    async join(invite: string, options: { readonly memberKey?: Uint8Array } = {}) {
+    async join(invite, options = {}) {
       const record = await joinRegistry(bareInvite(invite));
       if (options.memberKey) await registry.setMemberKey(record.space.id, options.memberKey);
       // A runtime opened before the key arrived would still be unable to read.
@@ -889,7 +864,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return summarize((await registry.get(record.space.id)) ?? record);
     },
 
-    async leave(spaceId: string) {
+    async leave(spaceId) {
       if (spaceId === accountSpaceId) throw new Error('The account registry cannot be left');
       if (spaceId === contactsSpaceId) throw new Error('The contacts space cannot be left');
       await forget(spaceId);
@@ -898,7 +873,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       emit({ type: 'spaces' });
     },
 
-    async hold(spaceId: string) {
+    async hold(spaceId) {
       const held = holds.get(spaceId) ?? holds.set(spaceId, { count: 0 }).get(spaceId)!;
       held.count += 1;
       let released = false;
@@ -918,21 +893,15 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return release;
     },
 
-    async send(spaceId: string, message: unknown, to?: string) {
-      await (await runtime(spaceId)).send(message, to);
-    },
+    send: perSpace((rt, message: unknown, to?: string) => rt.send(message, to)),
 
-    async status(spaceId: string) {
+    async status(spaceId) {
       const status = await (await runtime(spaceId)).status();
       if (!accountSpaceId) return { ...status, own: [], carriers: [] };
       // A peer's key does not say whose it is. But only this account's devices
       // and apps can read the account registry, so a peer there is one of ours
       // — except a carrier, which the registry names by its key.
-      const carrierKeys = new Set(
-        (await carrierRecords())
-          .filter(({ record }) => !record.deleted && record.body)
-          .map(({ record }) => record.body!.did),
-      );
+      const carrierKeys = new Set((await liveCarriers()).map((carrier) => carrier.did));
       const inRegistry = new Set((await (await runtime(accountSpaceId)).status()).peers);
       return {
         ...status,
@@ -941,27 +910,13 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       };
     },
 
-    async profiles(spaceId: string) {
-      return (await runtime(spaceId)).profiles();
-    },
+    profiles: perSpace((rt) => rt.profiles()),
+    access: perSpace((rt) => rt.access()),
+    setMember: perSpace((rt, did: string, role: string | null) => rt.setMember(did, role)),
+    putRole: perSpace((rt, role: SpaceRole) => rt.putRole(role)),
+    removeRole: perSpace((rt, name: string) => rt.removeRole(name)),
 
-    async access(spaceId: string) {
-      return (await runtime(spaceId)).access();
-    },
-
-    async setMember(spaceId: string, did: string, role: string | null) {
-      await (await runtime(spaceId)).setMember(did, role);
-    },
-
-    async putRole(spaceId: string, role: SpaceRole) {
-      await (await runtime(spaceId)).putRole(role);
-    },
-
-    async removeRole(spaceId: string, name: string) {
-      await (await runtime(spaceId)).removeRole(name);
-    },
-
-    async closeInvite(spaceId: string, keyOrLink: string) {
+    async closeInvite(spaceId, keyOrLink) {
       let key = keyOrLink;
       // The link itself will do: its secret names the invite.
       if (!keyOrLink.startsWith('did:key:')) {
@@ -975,23 +930,14 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       await (await runtime(spaceId)).closeInvite(key);
     },
 
-    async revoke(spaceId: string, token: string) {
-      await (await runtime(spaceId)).revoke(token);
-    },
+    revoke: perSpace((rt, token: string) => rt.revoke(token)),
+    changeKey: perSpace((rt) => rt.rotateKey()),
+    setRelays: perSpace((rt, relays: ReadonlyArray<string>) => rt.setRelays(relays)),
+    setKeepers: perSpace((rt, keepers: ReadonlyArray<Keeper>, copies?: number | null) =>
+      rt.setKeepers(keepers, copies ?? null),
+    ),
 
-    async changeKey(spaceId: string) {
-      await (await runtime(spaceId)).rotateKey();
-    },
-
-    async setRelays(spaceId: string, relays: ReadonlyArray<string>) {
-      await (await runtime(spaceId)).setRelays(relays);
-    },
-
-    async setKeepers(spaceId: string, keepers: ReadonlyArray<Keeper>, copies?: number | null) {
-      await (await runtime(spaceId)).setKeepers(keepers, copies ?? null);
-    },
-
-    async authenticator(spaceId: string) {
+    async authenticator(spaceId) {
       const record = await findRecord(spaceId);
       if (!record) return null;
       // Every peer proves its own DID; in a private space, readers are also
@@ -1009,49 +955,46 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     await reconcile();
   }
 
-  const notifications: NodeNotifications = Object.freeze({
+  /** Writes a subscription, checked, and hands every carrier the subscriptions as they are now */
+  async function writeNotify(id: string, body: NotifyWhen): Promise<NotifyView> {
+    const registryRt = await requireAccount('Subscribing');
+    const problem = checkNotify(body);
+    if (problem) throw new Error(problem);
+    await registryRt.upsertSystem<NotifyWhen>(NOTIFY_COLLECTION, id, body);
+    await passSubscriptionsOn();
+    return { ...body, id };
+  }
+
+  const notifications = Object.freeze<NodeNotifications>({
     list: notifyRecords,
 
-    async add(when: Omit<NotifyWhen, 'since'> & { readonly since?: string }) {
-      if (!accountSpaceId) throw new Error('Subscriptions need the account key');
-      const body: NotifyWhen = {
+    add: (when) =>
+      writeNotify(`notify:${base32Encode(globalThis.crypto.getRandomValues(new Uint8Array(10)))}`, {
         ...when,
         label: when.label.trim(),
         since: when.since ?? new Date().toISOString(),
-      };
-      const problem = checkNotify(body);
-      if (problem) throw new Error(problem);
-      const id = `notify:${base32Encode(globalThis.crypto.getRandomValues(new Uint8Array(10)))}`;
-      await (await runtime(accountSpaceId)).upsertSystem<NotifyWhen>(NOTIFY_COLLECTION, id, body);
-      await passSubscriptionsOn();
-      return { ...body, id };
-    },
+      }),
 
-    async update(id: string, changes: { readonly label?: string; readonly paused?: boolean }) {
-      if (!accountSpaceId) throw new Error('Subscriptions need the account key');
+    async update(id, changes) {
+      await requireAccount('Subscribing');
       const current = (await notifyRecords()).find((view) => view.id === id);
       if (!current) throw new Error('There is no such subscription');
       const { id: _id, ...was } = current;
-      const body: NotifyWhen = {
+      return writeNotify(id, {
         ...was,
         ...(changes.label !== undefined ? { label: changes.label.trim() } : {}),
         ...(changes.paused !== undefined ? { paused: changes.paused } : {}),
-      };
-      const problem = checkNotify(body);
-      if (problem) throw new Error(problem);
-      await (await runtime(accountSpaceId)).upsertSystem<NotifyWhen>(NOTIFY_COLLECTION, id, body);
-      await passSubscriptionsOn();
-      return { ...body, id };
+      });
     },
 
-    async remove(id: string) {
-      if (!accountSpaceId) throw new Error('Subscriptions need the account key');
+    async remove(id) {
+      const registryRt = await requireAccount('Subscribing');
       if (!(await notifyRecords()).some((view) => view.id === id)) return;
-      await (await runtime(accountSpaceId)).removeSystem(id);
+      await registryRt.removeSystem(id);
       await passSubscriptionsOn();
     },
 
-    async versions(ids: ReadonlyArray<string>) {
+    async versions(ids) {
       if (!accountSpaceId) return [];
       const keys = ids.filter((id) => id.startsWith('notify:'));
       return (await (await runtime(accountSpaceId)).versionsOf(keys)).filter(
@@ -1059,7 +1002,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       );
     },
 
-    async take(versions: ReadonlyArray<Expression>) {
+    async take(versions) {
       if (!accountSpaceId) return 0;
       // Subscriptions only: whatever else rides along waits for sync.
       const mine = versions.filter(
@@ -1076,20 +1019,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     },
   });
 
-  const carriers: NodeCarriers = Object.freeze({
-    async list() {
-      return (await carrierRecords())
-        .filter(({ record }) => !record.deleted && record.body)
-        .map(({ record: { body } }) => ({
-          space: body!.space,
-          did: body!.did,
-          name: body!.name,
-          since: body!.since,
-        }));
-    },
+  const carriers = Object.freeze<NodeCarriers>({
+    list: async () =>
+      (await liveCarriers()).map(({ space, did, name, since }) => ({ space, did, name, since })),
 
-    async add(carrier: { readonly did: string; readonly name: string }) {
-      if (!accountSpaceId) throw new Error('Using a carrier needs the account key');
+    async add(carrier) {
+      const registryRt = await requireAccount('Using a carrier');
       const name = carrier.name.trim().slice(0, 80) || 'Carrier';
       // Private, so the passes in it are sealed; the account alone may write there.
       const record = await registry.create({
@@ -1106,27 +1041,25 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         name,
         since: new Date().toISOString(),
       };
-      await (
-        await runtime(accountSpaceId)
-      ).upsertSystem<Carrier>(CARRIER_COLLECTION, await carrierKey(record.space.id), body);
+      await registryRt.upsertSystem<Carrier>(CARRIER_COLLECTION, await carrierKey(record.space.id), body);
       await syncPasses(body);
       return { space: record.space.id, invite };
     },
 
-    async remove(spaceId: string) {
-      if (!accountSpaceId) throw new Error('Removing a carrier needs the account key');
+    async remove(spaceId) {
+      const registryRt = await requireAccount('Removing a carrier');
       const found = (await carrierRecords()).find(
         ({ record, space }) => !record.deleted && space === spaceId,
       )?.record;
       if (!found) return;
       const carry = await runtime(spaceId);
       // Passes gone first, then the word to forget everything, then the carrier's record.
-      for (const pass of await carry.list({ collection: PASS_COLLECTION })) {
-        if (pass.verified && pass.root === config.signer.did && pass.key.startsWith('pass:'))
-          await carry.removeSystem(pass.key);
-      }
+      for (const pass of await ownRecords(carry, { collection: PASS_COLLECTION }, (r) =>
+        r.key.startsWith('pass:'),
+      ))
+        await carry.removeSystem(pass.key);
       await carry.upsertSystem(PASS_COLLECTION, CARRY_CLOSED_KEY, { v: 1, closed: true });
-      await (await runtime(accountSpaceId)).removeSystem(found.key);
+      await registryRt.removeSystem(found.key);
     },
   });
 
@@ -1142,16 +1075,12 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   /** The hosting records the account wrote, live */
   async function hostingRecords(): Promise<ReadonlyArray<Hosting>> {
     if (!accountSpaceId) return [];
-    const records = await (await runtime(accountSpaceId)).list<Hosting>({ collection: HOSTING_COLLECTION });
-    return records
-      .filter(
-        (record) =>
-          record.verified &&
-          record.root === config.signer.did &&
-          typeof record.body?.url === 'string' &&
-          typeof record.body.seed === 'string',
-      )
-      .map((record) => record.body!);
+    const records = await ownRecords<Hosting>(
+      await runtime(accountSpaceId),
+      { collection: HOSTING_COLLECTION },
+      (record) => typeof record.body?.url === 'string' && typeof record.body.seed === 'string',
+    );
+    return records.map((record) => record.body!);
   }
 
   async function hostClient(hosting: Hosting): Promise<{ client: HostClient; subscription: string }> {
@@ -1169,9 +1098,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   /** The carry space shared with a host: the one the account made for it, or a new one */
   async function carryFor(hosting: Hosting): Promise<string> {
-    const known = (await carrierRecords()).find(
-      ({ record }) => !record.deleted && record.body?.did === hosting.host,
-    )?.record.body;
+    const known = (await liveCarriers()).find((carrier) => carrier.did === hosting.host);
     return known
       ? known.invite
       : (await carriers.add({ did: hosting.host, name: new URL(hosting.url).host })).invite;
@@ -1336,23 +1263,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     named: { url: string; did?: string; name?: string },
     hand: boolean,
   ): Promise<SpaceHostingView> {
-    const name = named.name ?? new URL(named.url).hostname;
     try {
       const description = await describeHost(named.url);
       // A host whose key changed since the space chose it is not the host it chose.
-      if (named.did && named.did !== description.did)
-        return {
-          url: named.url,
-          name,
-          host: null,
-          status: null,
-          free: false,
-          fund: null,
-          reminds: false,
-          runsBots: false,
-          bots: [],
-          error: 'The host’s key changed',
-        };
+      if (named.did && named.did !== description.did) throw new Error('The host’s key changed');
       const client = createSpaceHostClient(named.url, description.did, provider);
       let { status } = await client.status(spaceId);
       // Paid, or a free host that hasn't let it lapse, as for an account's subscription.
@@ -1380,7 +1294,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     } catch (error) {
       return {
         url: named.url,
-        name,
+        name: named.name ?? new URL(named.url).hostname,
         host: null,
         status: null,
         free: false,
@@ -1404,7 +1318,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   /** Hands the hosts a space names its pass, when they were paid and don't carry it with its key yet */
   async function keepSpaceHosts(spaceId: string): Promise<void> {
-    if (spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId)) return;
+    if (ownSpace(spaceId)) return;
     const hosts = await namedHosts(spaceId);
     await reachHosts(spaceId, hosts);
     if (agentSession) return;
@@ -1457,8 +1371,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     if (!open) return;
     const hosts: Array<{ url: string; peer?: string }> = [...(await hostingRecords())];
     if (spaceId === accountSpaceId) hosts.push(...(config.network.hosts ?? []).map((url) => ({ url })));
-    const own = spaceId === accountSpaceId || spaceId === contactsSpaceId || carrySpaces.has(spaceId);
-    if (!own) hosts.push(...(spaceHosts ?? (await namedHosts(spaceId))));
+    if (!ownSpace(spaceId)) hosts.push(...(spaceHosts ?? (await namedHosts(spaceId))));
     const peers = [
       ...new Set((await Promise.all(hosts.map(peerOf))).filter((peer): peer is string => peer !== null)),
     ].sort();
@@ -1468,8 +1381,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     (await open).useNodes(peers);
   }
 
-  const hosting: NodeHosting = Object.freeze({
-    async space(spaceId: string) {
+  const hosting = Object.freeze<NodeHosting>({
+    async space(spaceId) {
       const hand = !agentSession;
       const views = await Promise.all(
         (await namedHosts(spaceId)).map((known) => askSpaceHost(spaceId, known, hand)),
@@ -1482,8 +1395,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return Promise.all((await hostingRecords()).map((known) => viewHosting(known)));
     },
 
-    async use(address: string) {
-      if (!accountSpaceId) throw new Error('Using a host needs the account key');
+    async use(address) {
+      const registryRt = await requireAccount('Using a host');
       const base = checkAddress(address, 'A host').origin;
       const known = (await hostingRecords()).find((existing) => existing.url === base);
       if (known) return viewHosting(known, true);
@@ -1497,33 +1410,31 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         seed: base64UrlEncode(newSubscriptionSeed()),
         since: new Date().toISOString(),
       };
-      await (
-        await runtime(accountSpaceId)
-      ).upsertSystem<Hosting>(HOSTING_COLLECTION, await hostingKey(base), record);
+      await registryRt.upsertSystem<Hosting>(HOSTING_COLLECTION, await hostingKey(base), record);
       return viewHosting(record, true);
     },
 
-    async pay(url: string, plan: string) {
+    async pay(url, plan) {
       return (await hostClient(await requireHosting(url))).client.pay(plan);
     },
 
-    async manage(url: string) {
+    async manage(url) {
       return (await hostClient(await requireHosting(url))).client.manage();
     },
 
-    async remind(url: string, email: string) {
+    async remind(url, email) {
       await (await hostClient(await requireHosting(url))).client.remind(email);
     },
 
-    async payForSpace(spaceId: string, url: string, payment: FundPayment) {
+    async payForSpace(spaceId, url, payment) {
       return (await spaceHostClient(spaceId, url)).pay(spaceId, payment);
     },
 
-    async remindForSpace(spaceId: string, url: string, email: string) {
+    async remindForSpace(spaceId, url, email) {
       await (await spaceHostClient(spaceId, url)).remind(spaceId, email);
     },
 
-    async stopForSpace(spaceId: string, url: string) {
+    async stopForSpace(spaceId, url) {
       const named = (await namedHosts(spaceId)).find((known) => known.url === url);
       if (!named) throw new Error('This space doesn’t use the host at that address');
       // Which bots are the host's is its own word, signed: asked before it is let go.
@@ -1554,23 +1465,21 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return { bots, newKey };
     },
 
-    async startBot(spaceId: string, url: string, bot: { readonly name: string; readonly role?: string }) {
+    async startBot(spaceId, url, bot) {
       const client = await spaceHostClient(spaceId, url);
       const invite = await spaces.invite(spaceId, bot.role ? { role: bot.role } : {});
       const { bot: did, status } = await client.startBot(spaceId, bot.name, invite);
       return { bot: did, status };
     },
 
-    async stop(url: string) {
-      if (!accountSpaceId) throw new Error('Stopping a host needs the account key');
+    async stop(url) {
+      const registryRt = await requireAccount('Stopping a host');
       const known = await requireHosting(url);
       const { client } = await hostClient(known);
       await client.detach().catch(() => {});
-      const carrier = (await carrierRecords()).find(
-        ({ record }) => !record.deleted && record.body?.did === known.host,
-      );
+      const carrier = (await liveCarriers()).find((found) => found.did === known.host);
       if (carrier) await carriers.remove(carrier.space);
-      await (await runtime(accountSpaceId)).removeSystem(await hostingKey(known.url));
+      await registryRt.removeSystem(await hostingKey(known.url));
     },
   });
 
@@ -1630,19 +1539,26 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
   async function contactRecords(): Promise<ReadonlyArray<NodeRecord<Contact>>> {
     if (!contactsSpaceId) return [];
     const found: NodeRecord<Contact>[] = [];
-    for (const record of await (await contactsRuntime()).list<Contact>({ collection: contactSchema.name })) {
-      // Only the account writes its own list; one record per person, under the key their DID gives.
-      if (
-        !record.verified ||
-        record.root !== config.signer.did ||
-        typeof record.body?.did !== 'string' ||
-        typeof record.body.name !== 'string'
-      )
-        continue;
-      if (record.key !== (await contactRecordKey(record.body.did))) continue;
-      found.push(record);
-    }
+    const listed = await ownRecords<Contact>(
+      await contactsRuntime(),
+      { collection: contactSchema.name },
+      (record) => typeof record.body?.did === 'string' && typeof record.body.name === 'string',
+    );
+    // One record per person, under the key their DID gives.
+    for (const record of listed)
+      if (record.key === (await contactRecordKey(record.body!.did))) found.push(record);
     return found;
+  }
+
+  /** Whoever the account blocked */
+  const blockedDids = async () =>
+    new Set((await contactRecords()).flatMap(({ body }) => (body!.blocked === true ? [body!.did] : [])));
+
+  function requireContactKeys(): void {
+    if (!contactKeys)
+      throw new Error(
+        "This app can't read contact requests. Connect to your account home again, and allow contacts.",
+      );
   }
 
   function contactView(record: NodeRecord<Contact>): ContactView {
@@ -1714,7 +1630,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     };
   }
 
-  const contacts: NodeContacts = Object.freeze({
+  const contacts: NodeContacts = Object.freeze<NodeContacts>({
     async space() {
       return contactsSpaceId;
     },
@@ -1725,7 +1641,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         .sort((a, b) => a.name.localeCompare(b.name) || a.did.localeCompare(b.did));
     },
 
-    async get(did: string) {
+    async get(did) {
       const record = (await contactRecords()).find((found) => found.body!.did === did);
       return record ? contactView(record) : null;
     },
@@ -1750,14 +1666,14 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       });
     },
 
-    async remove(did: string) {
+    async remove(did) {
       const found = await contacts.get(did);
       if (!found) return;
       await leavePairSpace(found.space, did);
       await (await contactsRuntime()).remove(await contactRecordKey(did));
     },
 
-    async block(did: string) {
+    async block(did) {
       const found = await contacts.get(did);
       await leavePairSpace(found?.space ?? null, did);
       await writeContact({
@@ -1768,7 +1684,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       });
     },
 
-    async ask(spaceId: string, did: string, options: { readonly note?: string } = {}) {
+    async ask(spaceId, did, options = {}) {
       requireEverywhere('Adding a contact');
       if (did === config.signer.did) throw new Error('That is you');
       if (!contactsSpaceId) await contactsRuntime();
@@ -1797,17 +1713,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return { space: pair.id, request: request.key };
     },
 
-    async requests(spaceId: string) {
-      if (!contactKeys)
-        throw new Error(
-          "This app can't read contact requests. Connect to your account home again, and allow contacts.",
-        );
+    async requests(spaceId) {
+      requireContactKeys();
       const shared = await runtime(spaceId);
-      const blocked = new Set(
-        (await contactRecords())
-          .filter((record) => record.body!.blocked === true)
-          .map((record) => record.body!.did),
-      );
+      const blocked = await blockedDids();
       const names = new Map((await shared.profiles()).map((profile) => [profile.did, profile.name]));
       const found: ContactRequest[] = [];
       for (const record of await shared.list<ContactRequestRecord>({
@@ -1830,12 +1739,9 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return found;
     },
 
-    async accept(spaceId: string, requestKey: string) {
+    async accept(spaceId, requestKey) {
       requireEverywhere('Accepting a contact request');
-      if (!contactKeys)
-        throw new Error(
-          "This app can't read contact requests. Connect to your account home again, and allow contacts.",
-        );
+      requireContactKeys();
       const shared = await runtime(spaceId);
       const record = await shared.get<ContactRequestRecord>(requestKey);
       const opened = record ? await openRequest(spaceId, record) : null;
@@ -1848,7 +1754,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return writeContact({ did: opened.from, name, space: opened.pairSpace });
     },
 
-    async others(did: string) {
+    async others(did) {
       const found = await contacts.get(did);
       if (!found?.space || !(await registry.get(found.space))) return [];
       const open = await runtime(found.space);
@@ -1908,14 +1814,17 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   async function doorRecords(): Promise<ReadonlyArray<NodeRecord<Door>>> {
     if (!contactsSpaceId) return [];
-    return (await (await contactsRuntime()).list<Door>({ collection: doorSchema.name })).filter(
-      (record) =>
-        record.verified &&
-        record.root === config.signer.did &&
-        typeof record.body?.id === 'string' &&
-        Array.isArray(record.body.relays),
+    return ownRecords<Door>(
+      await contactsRuntime(),
+      { collection: doorSchema.name },
+      (record) => typeof record.body?.id === 'string' && Array.isArray(record.body.relays),
     );
   }
+
+  const doorById = async (id: string) => (await doorRecords()).find((record) => record.body!.id === id);
+  const forgetKnocksAt = (door: string) => {
+    for (const [knock, cached] of knockCache) if (cached.door === door) knockCache.delete(knock);
+  };
 
   async function doorView(record: NodeRecord<Door>): Promise<DoorView> {
     const body = record.body!;
@@ -1952,10 +1861,10 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
 
   async function sentRecords(): Promise<ReadonlyArray<NodeRecord<Knock>>> {
     if (!contactsSpaceId) return [];
-    return (await (await contactsRuntime()).list<Knock>({ collection: knockSchema.name })).filter(
+    return ownRecords<Knock>(
+      await contactsRuntime(),
+      { collection: knockSchema.name },
       (record) =>
-        record.verified &&
-        record.root === config.signer.did &&
         typeof record.body?.space === 'string' &&
         typeof record.body.sign === 'string' &&
         typeof record.body.invite === 'string',
@@ -2092,8 +2001,8 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     });
   }
 
-  const direct: NodeDirect = Object.freeze({
-    async reachable(spaceId: string) {
+  const direct = Object.freeze<NodeDirect>({
+    async reachable(spaceId) {
       const open = await runtime(spaceId);
       const { members } = await open.access();
       const keys = await open.memberKeys();
@@ -2103,7 +2012,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
         .sort();
     },
 
-    async send(spaceId: string, to: ReadonlyArray<string>, text: string) {
+    async send(spaceId, to, text) {
       const open = await runtime(spaceId);
       const pair = open.ownMemberKey();
       if (!pair)
@@ -2123,7 +2032,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return view;
     },
 
-    async list(spaceId: string) {
+    async list(spaceId) {
       const open = await runtime(spaceId);
       const found: DirectMessage[] = [];
       for (const record of await open.list<DirectBody>({ collection: directSchema.name })) {
@@ -2134,24 +2043,16 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     },
   });
 
-  const doors: NodeDoors = Object.freeze({
+  const doors = Object.freeze<NodeDoors>({
     async list() {
       if (!config.contactKey || agentSession) return [];
       return Promise.all((await doorRecords()).map(doorView));
     },
 
-    async open(
-      options: {
-        readonly relays?: ReadonlyArray<string>;
-        readonly name?: string;
-        readonly label?: string;
-      } = {},
-    ) {
+    async open(options = {}) {
       requireContactKey('Opening a door');
       if (!contactsSpaceId) await contactsRuntime();
-      const relays = [
-        ...(options.relays ?? (config.network?.relays ?? []).filter((url) => checkRelays([url]) === null)),
-      ].slice(0, MAX_DOOR_RELAYS);
+      const relays = [...(options.relays ?? usableRelays(config.network))].slice(0, MAX_DOOR_RELAYS);
       if (relays.length === 0)
         throw new Error('A door needs a relay to hold its knocks, and this node has none.');
       const name = clip((options.name ?? (await ownName()) ?? '').trim(), 64);
@@ -2172,22 +2073,22 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       );
     },
 
-    async close(id: string) {
-      const found = (await doorRecords()).find((record) => record.body!.id === id);
+    async close(id) {
+      const found = await doorById(id);
       if (found) await (await contactsRuntime()).remove(found.key);
-      for (const [knock, cached] of knockCache) if (cached.door === id) knockCache.delete(knock);
+      forgetKnocksAt(id);
     },
 
-    async clear(id: string) {
+    async clear(id) {
       requireContactKey('Clearing a door');
-      const found = (await doorRecords()).find((record) => record.body!.id === id);
+      const found = await doorById(id);
       if (!found) throw new Error('There is no such door');
       if ((await purgeDoor(found.body!, null)) === 0)
         throw new Error("None of the door's relays could be reached to clear it.");
-      for (const [knock, cached] of knockCache) if (cached.door === id) knockCache.delete(knock);
+      forgetKnocksAt(id);
     },
 
-    async knock(code: string, options: { readonly note?: string } = {}) {
+    async knock(code, options = {}) {
       requireContactKey('Knocking on a door');
       requireEverywhere('Knocking on a door');
       const door = parseDoorCode(code);
@@ -2242,11 +2143,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       requireContactKey('Reading knocks');
       await settleSent().catch(() => {});
       await answerAccepted().catch(() => {});
-      const blocked = new Set(
-        (await contactRecords())
-          .filter((record) => record.body!.blocked === true)
-          .map((record) => record.body!.did),
-      );
+      const blocked = await blockedDids();
       const found: KnockView[] = [];
       for (const { id, door, opened } of await readDoors()) {
         if (opened.from === config.signer.did || blocked.has(opened.from)) continue;
@@ -2274,7 +2171,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       );
     },
 
-    async accept(id: string) {
+    async accept(id) {
       requireContactKey('Opening the door to someone');
       requireEverywhere('Opening the door to someone');
       if (!knockCache.get(id)?.opened) await readDoors();
@@ -2292,155 +2189,118 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       });
       await answerAccepted().catch(() => {});
       // Done with: nobody needs it in the mailboxes any more.
-      const door = (await doorRecords()).find((record) => record.body!.id === cached.door);
+      const door = await doorById(cached.door);
       if (door) await purgeDoor(door.body!, [id]).catch(() => 0);
       knockCache.delete(id);
       return contact;
     },
 
-    async dismiss(id: string) {
+    async dismiss(id) {
       requireContactKey('Dismissing a knock');
       if (!knockCache.has(id)) await readDoors();
       const cached = knockCache.get(id);
       if (!cached) return;
-      const door = (await doorRecords()).find((record) => record.body!.id === cached.door);
+      const door = await doorById(cached.door);
       if (door) await purgeDoor(door.body!, [id]);
       knockCache.delete(id);
     },
   });
 
-  const collections: NodeCollections = Object.freeze({
-    async list(spaceId: string) {
-      return (await runtime(spaceId)).collections();
-    },
-    async define(spaceId: string, definition: DefineCollection) {
-      return (await runtime(spaceId)).define(definition);
-    },
-    async delete(spaceId: string, name: string) {
-      return (await runtime(spaceId)).undefine(name);
-    },
-    async tag(spaceId: string, collection: string, field: string, value: string | number | boolean) {
-      return (await runtime(spaceId)).topicTag(collection, field, value);
-    },
+  const collections = Object.freeze<NodeCollections>({
+    list: perSpace((rt) => rt.collections()),
+    define: perSpace((rt, definition: DefineCollection) => rt.define(definition)),
+    delete: perSpace((rt, name: string) => rt.undefine(name)),
+    tag: perSpace((rt, collection: string, field: string, value: string | number | boolean) =>
+      rt.topicTag(collection, field, value),
+    ),
   });
 
-  const accountApi: NodeAccount = Object.freeze({
-    async profile() {
-      if (!accountSpaceId) return null;
-      // One record, key `profile`: its current version is the name, by the
-      // ordering rule — the same on every device, whatever their clocks say.
-      const profile = await (await runtime(accountSpaceId)).get<AccountProfile>(PROFILE_KEY);
-      if (!profile?.verified || profile.root !== config.signer.did || typeof profile.body?.name !== 'string')
-        return null;
-      return { name: profile.body.name, updatedAt: profile.updatedAt };
-    },
-    async setName(name: string) {
-      if (!accountSpaceId) throw new Error('Renaming across devices needs the account key');
+  const accountApi = Object.freeze<NodeAccount>({
+    profile: ownProfile,
+    async setName(name) {
+      const registryRt = await requireAccount('Renaming across devices');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('A name cannot be empty');
-      const written = await (
-        await runtime(accountSpaceId)
-      ).upsertSystem<AccountProfile>(PROFILE_COLLECTION, PROFILE_KEY, { name: trimmed });
+      const written = await registryRt.upsertSystem<AccountProfile>(PROFILE_COLLECTION, PROFILE_KEY, {
+        name: trimmed,
+      });
       emit({ type: 'account' });
       await publishProfileToOpenSpaces();
       return { name: trimmed, updatedAt: written.updatedAt };
     },
-    async revoke(token: string) {
-      if (!accountSpaceId) throw new Error('Revoking in the account registry needs the account key');
-      await (await runtime(accountSpaceId)).revoke(token);
-    },
+    revoke: async (token) => (await requireAccount('Revoking in the account registry')).revoke(token),
   });
 
-  const records: NodeRecords = Object.freeze({
-    async list<T>(spaceId: string, options?: ListOptions) {
-      return (await runtime(spaceId)).list<T>(options);
-    },
-    async get<T>(spaceId: string, key: string) {
-      return (await runtime(spaceId)).get<T>(key);
-    },
-    async put<T>(
-      spaceId: string,
-      collection: CollectionRef,
-      body: T,
-      options?: { key?: string; links?: ReadonlyArray<Link> },
-    ) {
-      return (await runtime(spaceId)).put<T>(nameOf(collection), body, options);
-    },
-    async update<T>(spaceId: string, key: string, body: T, options?: { links?: ReadonlyArray<Link> }) {
-      return (await runtime(spaceId)).update<T>(key, body, options);
-    },
-    async linked<T>(spaceId: string, key: string, options?: { rel?: string; collection?: string }) {
-      return (await runtime(spaceId)).linked<T>(key, options);
-    },
-    async delete(spaceId: string, key: string) {
-      await (await runtime(spaceId)).remove(key);
-    },
-    async history<T>(spaceId: string, key: string) {
-      return (await runtime(spaceId)).history<T>(key);
-    },
-    async can(spaceId: string, action: 'create' | 'edit' | 'delete', target: string) {
-      return (await runtime(spaceId)).can(action, target);
-    },
-    async query<Q extends Query>(spaceId: string, query: Q): Promise<ResultOf<Q>> {
-      const space = await runtime(spaceId);
-      // Asked before running, so a node holding part of the space starts fetching what it lacks.
-      const complete = space.use(collectionsOf(query));
-      const result = await runQuery(
-        {
-          list: (collection) => space.list({ collection }),
-          get: (key) => space.get(key),
-          linked: (key, options) => space.linked(key, options),
-        },
-        query,
-      );
-      // The query's type says what it finds; running it can't prove that.
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- typed from the query
-      return { ...result, complete } as ResultOf<Q>;
-    },
-    watch<Q extends Query>(
-      spaceId: string,
-      query: Q,
-      onResult: (result: ResultOf<Q>) => void,
-      onError?: (error: Error) => void,
-    ) {
-      // Changes arrive in bursts during sync; one run at a time, and one more
-      // after it if anything changed meanwhile — never a queue of stale runs.
-      let stopped = false;
-      let running = false;
-      let again = false;
-      const run = async () => {
-        if (running) {
-          again = true;
-          return;
-        }
-        running = true;
-        do {
-          again = false;
+  /** The records namespace, writing as `as` when given: an agent's key and note */
+  function makeRecords(as?: ActiveSession): NodeRecords {
+    const self: NodeRecords = Object.freeze({
+      list: async <T>(spaceId: string, options?: ListOptions) => (await runtime(spaceId)).list<T>(options),
+      get: async <T>(spaceId: string, key: string) => (await runtime(spaceId)).get<T>(key),
+      put: async <T>(
+        spaceId: string,
+        collection: CollectionRef,
+        body: T,
+        options?: { key?: string; links?: ReadonlyArray<Link> },
+      ) => (await runtime(spaceId)).put<T>(nameOf(collection), body, as ? { ...options, as } : options),
+      update: async <T>(spaceId: string, key: string, body: T, options?: { links?: ReadonlyArray<Link> }) =>
+        (await runtime(spaceId)).update<T>(key, body, as ? { ...options, as } : options),
+      linked: async <T>(spaceId: string, key: string, options?: { rel?: string; collection?: string }) =>
+        (await runtime(spaceId)).linked<T>(key, options),
+      delete: async (spaceId: string, key: string) =>
+        (await runtime(spaceId)).remove(key, as ? { as } : undefined),
+      history: async <T>(spaceId: string, key: string) => (await runtime(spaceId)).history<T>(key),
+      can: perSpace((rt, action: 'create' | 'edit' | 'delete', target: string) => rt.can(action, target)),
+      async query<Q extends Query>(spaceId: string, query: Q): Promise<ResultOf<Q>> {
+        const space = await runtime(spaceId);
+        // Asked before running, so a node holding part of the space starts fetching what it lacks.
+        const complete = space.use(collectionsOf(query));
+        const result = await runQuery(
+          {
+            list: (collection) => space.list({ collection }),
+            get: (key) => space.get(key),
+            linked: (key, options) => space.linked(key, options),
+          },
+          query,
+        );
+        // The query's type says what it finds; running it can't prove that.
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- typed from the query
+        return { ...result, complete } as ResultOf<Q>;
+      },
+      watch<Q extends Query>(
+        spaceId: string,
+        query: Q,
+        onResult: (result: ResultOf<Q>) => void,
+        onError?: (error: Error) => void,
+      ) {
+        let stopped = false;
+        // Changes arrive in bursts during sync: one run at a time, never a queue of stale runs.
+        const run = serial(async () => {
+          if (stopped) return;
           try {
-            const result = await records.query(spaceId, query);
+            const result = await self.query(spaceId, query);
             if (!stopped) onResult(result);
           } catch (error) {
             if (!stopped) onError?.(error instanceof Error ? error : new Error(String(error)));
           }
-        } while (again && !stopped);
-        running = false;
-      };
-      const listener = (event: NodeEvent) => {
-        if (event.type === 'records' && event.space === spaceId) void run();
-      };
-      listeners.add(listener);
-      void run();
-      return () => {
-        stopped = true;
-        listeners.delete(listener);
-      };
-    },
-  });
+        });
+        const unsubscribe = events.subscribe((event) => {
+          if (event.type === 'records' && event.space === spaceId) void run();
+        });
+        void run();
+        return () => {
+          stopped = true;
+          unsubscribe();
+        };
+      },
+    });
+    return self;
+  }
+  const records = makeRecords();
 
   // ─── Agents ────────────────────────────────────────────────────────
 
   async function asAgent(agent: { readonly keys: CryptoKeyPair; readonly note: string }): Promise<P2PNode> {
-    const agentDid = publicKeyToDid(await provider.exportPublicKey(agent.keys.publicKey), P256_MULTICODEC);
+    const agentDid = await didOf(agent.keys.publicKey, provider);
     const checked = await verifyUCAN(agent.note, provider);
     if (!checked.valid)
       throw new Error(`The agent's note does not check out: ${checked.reason ?? 'invalid'}`);
@@ -2450,210 +2310,77 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
     if (note.payload.aud !== agentDid) throw new Error('That note was made out to a different key.');
     if (note.payload.iss !== config.signer.did) throw new Error('That note is from a different account.');
 
-    const as: ActiveSession = { did: agentDid, key: agent.keys.privateKey, proof: () => note.encoded };
     // The spaces its note names; `*` is every space, which a home never gives an agent but a note could say.
     const all = note.payload.att.some((capability) => capability.with === '*');
     const named = new Set(
       note.payload.att.filter((c) => c.with.startsWith('space:')).map((c) => c.with.slice('space:'.length)),
     );
-    const allowed = (spaceId: string) => all || named.has(spaceId);
-    const inside = (spaceId: string) => {
-      if (!allowed(spaceId))
-        throw new Error(
-          'The agent was not given this space. The person can give it more in their account home.',
-        );
-    };
+    const allowed = (spaceId: unknown) => all || (typeof spaceId === 'string' && named.has(spaceId));
+    const contactsGiven = () => contactsSpaceId !== null && allowed(contactsSpaceId);
+    // Written with the agent's key, under its note.
+    const writes = makeRecords({ did: agentDid, key: agent.keys.privateKey, proof: () => note.encoded });
+
+    // What the table in `node/api.ts` marks `own`; the rest it decides there.
+    const own: { readonly [N in Namespace as keyof OwnMethods<N> extends never ? never : N]: OwnMethods<N> } =
+      {
+        spaces: {
+          list: async () => (await spaces.list()).filter((space) => allowed(space.id)),
+          get: async (spaceId) => (allowed(spaceId) ? spaces.get(spaceId) : null),
+          authenticator: async () => null,
+        },
+        records: {
+          can: async (spaceId, action, target) => allowed(spaceId) && records.can(spaceId, action, target),
+          watch: (spaceId, query, onResult, onError) => {
+            if (allowed(spaceId)) return records.watch(spaceId, query, onResult, onError);
+            onError?.(new Error('The agent was not given this space.'));
+            return () => {};
+          },
+        },
+        // The runtime refuses this too, and every peer ignores it — said early, with what to do instead.
+        collections: {
+          define: async () => {
+            throw new Error(
+              "An agent can't add or change collections. Propose an app instead (apps_propose), and a person in the space adds it.",
+            );
+          },
+        },
+        hosting: {
+          space: async (spaceId) => {
+            if (!allowed(spaceId)) throw new Error('That space was not given to this agent');
+            return hosting.space(spaceId);
+          },
+        },
+        contacts: {
+          space: async () => (contactsGiven() ? contactsSpaceId : null),
+          list: async () => (contactsGiven() ? contacts.list() : []),
+          get: async (did) => (contactsGiven() ? contacts.get(did) : null),
+        },
+        direct: { reachable: async (spaceId) => (allowed(spaceId) ? direct.reachable(spaceId) : []) },
+        doors: { list: async () => [] },
+      };
     const person = (what: string) => async (): Promise<never> => {
       throw new Error(`An agent can't ${what}. Ask the person to do it.`);
     };
 
-    // Every method named, none passed through: a new one must be decided here, not inherited.
-    const agentSpaces = Object.freeze({
-      preview: (invite: string) => spaces.preview(invite),
-      changeKey: person("change a space's key"),
-      setRelays: person("change a space's relays"),
-      setKeepers: person('change who keeps a copy'),
-      list: async () => (await spaces.list()).filter((space) => allowed(space.id)),
-      get: async (spaceId: string) => (allowed(spaceId) ? spaces.get(spaceId) : null),
-      create: person('make spaces'),
-      invite: person('invite anyone'),
-      join: person('join spaces'),
-      leave: person('leave spaces'),
-      setMember: person('change who is in a space'),
-      putRole: person('change roles'),
-      removeRole: person('change roles'),
-      closeInvite: person('close invites'),
-      revoke: person('revoke notes'),
-      access: async (spaceId: string) => {
-        inside(spaceId);
-        return spaces.access(spaceId);
-      },
-      hold: async (spaceId: string) => {
-        inside(spaceId);
-        return spaces.hold(spaceId);
-      },
-      status: async (spaceId: string) => {
-        inside(spaceId);
-        return spaces.status(spaceId);
-      },
-      profiles: async (spaceId: string) => {
-        inside(spaceId);
-        return spaces.profiles(spaceId);
-      },
-      // It would arrive as the person: a live message carries no note of its own to say "via agent".
-      send: person('send live messages'),
-      authenticator: async () => null,
-    }) satisfies NodeSpaces;
-
-    const agentRecords: NodeRecords = Object.freeze({
-      list: async <T>(spaceId: string, options?: ListOptions) => {
-        inside(spaceId);
-        return records.list<T>(spaceId, options);
-      },
-      get: async <T>(spaceId: string, key: string) => {
-        inside(spaceId);
-        return records.get<T>(spaceId, key);
-      },
-      put: async <T>(
-        spaceId: string,
-        collection: CollectionRef,
-        body: T,
-        options?: { key?: string; links?: ReadonlyArray<Link> },
-      ) => {
-        inside(spaceId);
-        return (await runtime(spaceId)).put<T>(nameOf(collection), body, { ...options, as });
-      },
-      update: async <T>(spaceId: string, key: string, body: T, options?: { links?: ReadonlyArray<Link> }) => {
-        inside(spaceId);
-        return (await runtime(spaceId)).update<T>(key, body, { ...options, as });
-      },
-      linked: async <T>(spaceId: string, key: string, options?: { rel?: string; collection?: string }) => {
-        inside(spaceId);
-        return records.linked<T>(spaceId, key, options);
-      },
-      delete: async (spaceId: string, key: string) => {
-        inside(spaceId);
-        await (await runtime(spaceId)).remove(key, { as });
-      },
-      history: async <T>(spaceId: string, key: string) => {
-        inside(spaceId);
-        return records.history<T>(spaceId, key);
-      },
-      can: async (spaceId: string, action: 'create' | 'edit' | 'delete', target: string) =>
-        allowed(spaceId) && records.can(spaceId, action, target),
-      query: async <Q extends Query>(spaceId: string, query: Q) => {
-        inside(spaceId);
-        return records.query(spaceId, query);
-      },
-      watch: <Q extends Query>(
-        spaceId: string,
-        query: Q,
-        onResult: (result: ResultOf<Q>) => void,
-        onError?: (error: Error) => void,
-      ) => {
-        if (!allowed(spaceId)) {
-          onError?.(new Error('The agent was not given this space.'));
-          return () => {};
-        }
-        return records.watch(spaceId, query, onResult, onError);
-      },
-    });
-
-    const agentCollections: NodeCollections = Object.freeze({
-      list: async (spaceId: string) => {
-        inside(spaceId);
-        return collections.list(spaceId);
-      },
-      // The runtime refuses these too, and every peer ignores them — said early, with what to do instead.
-      define: async () => {
-        throw new Error(
-          "An agent can't add or change collections. Propose an app instead (apps_propose), and a person in the space adds it.",
-        );
-      },
-      delete: async () => {
-        throw new Error("An agent can't remove collections. Ask the person to do it.");
-      },
-      tag: async (spaceId: string, collection: string, field: string, value: string | number | boolean) => {
-        inside(spaceId);
-        return collections.tag(spaceId, collection, field, value);
-      },
-    });
-
     return Object.freeze({
       did: config.signer.did,
       sessionDid: agentDid,
-      spaces: agentSpaces,
-      records: agentRecords,
-      collections: agentCollections,
-      account: Object.freeze({
-        profile: () => accountApi.profile(),
-        setName: person('rename the account'),
-        revoke: person('revoke notes'),
-      }),
-      carriers: Object.freeze({
-        list: () => carriers.list(),
-        add: person('add a carrier'),
-        remove: person('remove a carrier'),
-      }),
-      notifications: Object.freeze({
-        list: person('look at notifications'),
-        add: person('subscribe to anything'),
-        update: person('change notifications'),
-        remove: person('change notifications'),
-        versions: person('look at notifications'),
-        take: person('change notifications'),
-      }),
-      hosting: Object.freeze({
-        list: person('look at hosting'),
-        use: person('start using a host'),
-        pay: person('pay for hosting'),
-        manage: person('pay for hosting'),
-        remind: person('pay for hosting'),
-        payForSpace: person('pay for hosting'),
-        remindForSpace: person('pay for hosting'),
-        startBot: person('start a bot'),
-        stopForSpace: person('stop using a host'),
-        stop: person('stop using a host'),
-        // Open to an agent in a space it was given, as reading the space is.
-        space: async (spaceId: string) => {
-          if (!allowed(spaceId)) throw new Error('That space was not given to this agent');
-          return hosting.space(spaceId);
-        },
-      }),
-      // The list only when the agent was given it; changing it, or asking anyone, is the person's.
-      contacts: Object.freeze({
-        space: async () => (contactsSpaceId && allowed(contactsSpaceId) ? contactsSpaceId : null),
-        list: async () => (contactsSpaceId && allowed(contactsSpaceId) ? contacts.list() : []),
-        get: async (did: string) => (contactsSpaceId && allowed(contactsSpaceId) ? contacts.get(did) : null),
-        put: person('change contacts'),
-        remove: person('change contacts'),
-        block: person('block anyone'),
-        ask: person('ask anyone to be a contact'),
-        requests: person('open contact requests'),
-        accept: person('accept contact requests'),
-        others: person("look inside a contact's space"),
-      }),
-      // Direct messages are sealed to the person's member key, which an agent isn't given.
-      direct: Object.freeze({
-        reachable: (spaceId: string) => (allowed(spaceId) ? direct.reachable(spaceId) : Promise.resolve([])),
-        send: person('send direct messages'),
-        list: person('read direct messages'),
-      }),
-      // Doors are the person's: an agent has none and knocks on none.
-      doors: Object.freeze({
-        list: async () => [],
-        open: person('open a door'),
-        close: person('close a door'),
-        knock: person("knock on anyone's door"),
-        clear: person('clear a door'),
-        knocks: person('read knocks'),
-        sent: person('look at knocks'),
-        accept: person('open the door to anyone'),
-        dismiss: person('dismiss a knock'),
+      ...buildNamespaces((namespace, name, policy) => {
+        if (policy === 'own') return givenFor(own, namespace, name);
+        const source: unknown = namespace === 'records' ? writes : Reflect.get(node, namespace);
+        if (!isRecord(source)) throw new Error(`A node has no ${namespace}`);
+        if (policy === 'pass') return (...args: unknown[]) => callMethod(source, name, args);
+        if (policy !== 'scoped') return person(policy);
+        return async (...args: unknown[]) => {
+          if (!allowed(args[0]))
+            throw new Error(
+              'The agent was not given this space. The person can give it more in their account home.',
+            );
+          return callMethod(source, name, args);
+        };
       }),
       delegation: () => note,
       iceServers: () => node.iceServers(),
-      network: node.network,
       delegate: person('pass its access on'),
       asAgent: person('start another agent'),
       subscribe: (listener: (event: NodeEvent) => void) =>
@@ -2703,12 +2430,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       return { token, proofs: [current.encoded] };
     },
 
-    subscribe(listener: (event: NodeEvent) => void) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribe: events.subscribe,
 
     async close() {
       if (closed) return;
@@ -2720,7 +2442,7 @@ export async function createNode(config: NodeConfig): Promise<P2PNode> {
       // Let go of the registry too: an open database connection blocks the
       // browser from ever deleting it.
       await registryStore.close();
-      listeners.clear();
+      events.clear();
     },
   });
   return node;

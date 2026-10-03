@@ -1,5 +1,4 @@
 /**
- * @module network/mailbox
  * Talking to a relay's mailbox: leaving a sealed knock under a door's topic,
  * and reading what was left under one's own (`packages/relay/relay.mjs`).
  *
@@ -29,7 +28,6 @@ export interface MailItem {
 export interface MailboxClient {
   /**
    * Leaves a blob under a topic.
-   * @returns The id the relay filed it under
    * @throws When the relay refuses it, or can't be reached
    */
   drop(relay: string, topic: string, blob: string, ttlSeconds?: number): Promise<string>;
@@ -38,8 +36,6 @@ export interface MailboxClient {
   /**
    * Clears knocks from a topic — all of them, or those named — as the door's
    * owner: shows the signing key and signs the relay's challenge with it.
-   * @param signChallenge Signs a nonce for these ids (`signPurge`)
-   * @returns How many the relay let go
    */
   purge(
     relay: string,

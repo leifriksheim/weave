@@ -14,10 +14,7 @@ const P256_KEY_INFO = new TextEncoder().encode('weave/p256-identity-key/v1');
 const publicKeys = new Map<string, Promise<CryptoKey>>();
 const MAX_PUBLIC_KEYS = 1000;
 
-/**
- * Creates a CryptoProvider using the Web Crypto API with ECDSA P-256.
- * @returns {CryptoProvider} A crypto provider implementation for ECDSA P-256.
- */
+/** Creates a CryptoProvider using the Web Crypto API with ECDSA P-256. */
 export function createP256Provider(): CryptoProvider {
   return Object.freeze({
     algorithm: 'ECDSA-P256',

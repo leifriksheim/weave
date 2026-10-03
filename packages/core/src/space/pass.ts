@@ -1,5 +1,4 @@
 /**
- * @module space/pass
  * What a node needs to carry a space it cannot read.
  *
  * A carrier — a browser extension keeping your spaces online, later a host —
@@ -82,7 +81,6 @@ export async function makePass(record: SpaceRecord): Promise<SpacePass> {
 /**
  * Checks a pass someone handed over: the space must hash to its id, and the
  * read key must be the one the space names.
- * @returns The space and its read key pair, or null when the pass does not check out
  */
 export async function openPass(value: unknown, provider: CryptoProvider): Promise<OpenedPass | null> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- checkSpace checks the space, and read and readKey are checked where they are used

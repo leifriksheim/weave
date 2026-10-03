@@ -36,9 +36,7 @@ describe('folder adapter — key/value storage', () => {
     await adapter.put('hello', utf8Encode('world'));
 
     assert.equal(utf8Decode((await adapter.get('hello'))!), 'world');
-    assert.equal(await adapter.has('hello'), true);
     assert.equal(await adapter.get('missing'), null);
-    assert.equal(await adapter.has('missing'), false);
   });
 
   test('survives keys that are not filename-safe', async () => {
@@ -99,7 +97,7 @@ describe('folder adapter — key/value storage', () => {
 });
 
 describe('folder adapter — expressions', () => {
-  test('stores each expression as its own file and queries by collection', async () => {
+  test('stores each expression as its own file', async () => {
     const folder = createMemoryDirectory();
     const adapter = await createFolderAdapter(folder.handle, 'notes');
 
@@ -108,10 +106,7 @@ describe('folder adapter — expressions', () => {
     await adapter.putExpression(first);
     await adapter.putExpression(second);
 
-    const found = await adapter.queryExpressions(COLLECTION, 50);
-    assert.equal(found.length, 2);
-    assert.deepEqual(found.map((expression) => expression.id).sort(), [first.id, second.id].sort());
-
+    assert.deepEqual([...(await adapter.listExpressionIds())].sort(), [first.id, second.id].sort());
     assert.deepEqual(await adapter.getExpression(first.id), first);
     assert.equal(await adapter.getExpression('nope'), null);
 
@@ -120,24 +115,6 @@ describe('folder adapter — expressions', () => {
     const files = folder.paths().filter((path) => path.includes('/expressions/'));
     assert.equal(files.length, 2);
     assert.ok(files.some((path) => path.endsWith(`${first.id}.json`)));
-  });
-
-  test('pages with a cursor', async () => {
-    const folder = createMemoryDirectory();
-    const adapter = await createFolderAdapter(folder.handle, 'notes');
-
-    const written: Expression[] = [];
-    for (let i = 0; i < 5; i++) written.push(await makeExpression(`note ${i}`));
-    for (const expression of written) await adapter.putExpression(expression);
-
-    const firstPage = await adapter.queryExpressions(COLLECTION, 2);
-    assert.equal(firstPage.length, 2);
-
-    const secondPage = await adapter.queryExpressions(COLLECTION, 2, firstPage[1]!.id);
-    assert.equal(secondPage.length, 2);
-
-    const ids = new Set([...firstPage, ...secondPage].map((expression) => expression.id));
-    assert.equal(ids.size, 4, 'pages should not overlap');
   });
 
   test('reopening a folder finds what was written before', async () => {

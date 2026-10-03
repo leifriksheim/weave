@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 
 import { createMemoryAdapter } from './helpers/memory-adapter.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
-import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { issueUCAN, type Capability } from '../src/identity/ucan.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
@@ -16,18 +15,13 @@ import { createVersionCheck } from '../src/validation/check-version.js';
 import { createSyncEngine } from '../src/sync/sync-engine.js';
 import type { SyncMessage } from '../src/sync/sync-messages.js';
 import type { Expression } from '../src/types.js';
+import { makeKey } from './helpers/person.js';
 
 const provider = createP256Provider();
 const signer = createSigner(provider);
 
 const COLLECTION = 'app.test.note';
 const WRITE: Capability = { with: `space:${COLLECTION}`, can: 'expression/write' };
-
-async function makeKey() {
-  const pair = await provider.generateKeyPair();
-  const did = publicKeyToDid(await provider.exportPublicKey(pair.publicKey), P256_MULTICODEC);
-  return { did, privateKey: pair.privateKey };
-}
 
 /** A storage provider plus the validating sync engine in front of it. */
 function createPeer(send: (peerId: string, message: SyncMessage) => void) {

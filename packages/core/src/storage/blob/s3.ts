@@ -1,5 +1,4 @@
 /**
- * @module storage/blob/s3
  * A blob store in any S3-compatible bucket: Cloudflare R2, Backblaze B2,
  * MinIO, Wasabi, AWS itself.
  *
@@ -10,6 +9,7 @@
 import { AwsClient } from 'aws4fetch';
 import type { BlobStore } from '../blob-store.js';
 import { bufferSource } from '../../utils/guards.js';
+import { backoff } from '../../utils/backoff.js';
 
 export interface S3Config {
   /** https://<account>.r2.cloudflarestorage.com, https://s3.us-west-004.backblazeb2.com, … */
@@ -48,10 +48,7 @@ export function createS3BlobStore(config: S3Config): BlobStore {
       if (response.status !== 429 && response.status < 500) return response;
       if (attempt >= ATTEMPTS) return response;
       const after = Number(response.headers.get('retry-after'));
-      const wait =
-        Number.isFinite(after) && after > 0
-          ? after * 1000
-          : Math.min(200 * 2 ** attempt, 5000) * (0.5 + Math.random() / 2);
+      const wait = Number.isFinite(after) && after > 0 ? after * 1000 : backoff(attempt, 5000, 200);
       await new Promise((resolve) => setTimeout(resolve, wait));
     }
   }

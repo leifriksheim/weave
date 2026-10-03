@@ -1,5 +1,5 @@
 /**
- * @fileoverview Peers over a transport that dials on its own — a socket to an
+ * Peers over a transport that dials on its own — a socket to an
  * always-on node, a local link, an in-memory fake in tests. Such a transport
  * authenticates, or is trusted, by itself; relays and WebRTC are the mesh's
  * (`mesh.ts`), which hands each space the same {@link NetworkManager}.
@@ -37,12 +37,7 @@ export interface NetworkManager {
   readonly isConnected: () => boolean;
 }
 
-/**
- * Creates a network manager over a transport that dials on its own.
- *
- * @param config - Who this is, and the transport to use.
- * @returns The network manager instance.
- */
+/** Creates a network manager over a transport that dials on its own. */
 export function createNetworkManager(config: NetworkManagerConfig): NetworkManager {
   const transport = config.createTransport();
   const peers = new Map<string, PeerInfo>();

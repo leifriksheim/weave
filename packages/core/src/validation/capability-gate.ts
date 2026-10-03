@@ -5,6 +5,7 @@ import {
   resolveDelegationRoot,
   type Capability,
   type ProofResolver,
+  UCAN_CLOCK_SKEW_SECONDS,
 } from '../identity/ucan.js';
 
 export interface CapabilityGateConfig {
@@ -32,13 +33,6 @@ export interface CapabilityGate {
 const fail = (reason: string): GateResult => ({ passed: false, gate: 'capability', reason });
 
 /**
- * How far ahead of this machine's clock a record may be dated. Clocks disagree
- * by seconds routinely; minutes is generous without letting a record claim a
- * time when a delegation it does not yet hold will be valid.
- */
-export const MAX_CLOCK_SKEW_SECONDS = 300;
-
-/**
  * Creates a gate that checks an author was *authorized* to write an expression.
  *
  * The crypto gate proves an expression came from the key it claims. This one
@@ -53,9 +47,6 @@ export const MAX_CLOCK_SKEW_SECONDS = 300;
  * leaked session key could backdate records into its own window — which is why
  * session keys live in memory and are short-lived. A record dated in the future
  * is refused outright.
- *
- * @param config Gate configuration
- * @returns A CapabilityGate instance
  */
 export function createCapabilityGate(config: CapabilityGateConfig): CapabilityGate {
   const { provider, requiredCapability, resolveProof = () => null, isTrustedRoot } = config;
@@ -77,7 +68,7 @@ export function createCapabilityGate(config: CapabilityGateConfig): CapabilityGa
         if (!Number.isFinite(signedAt)) {
           return fail('Expression has no valid creation time');
         }
-        if (signedAt > Math.floor(Date.now() / 1000) + MAX_CLOCK_SKEW_SECONDS) {
+        if (signedAt > Math.floor(Date.now() / 1000) + UCAN_CLOCK_SKEW_SECONDS) {
           return fail('Expression is dated in the future');
         }
 

@@ -29,7 +29,7 @@ import { readFolderVault } from './folder-account.js';
 import { base64UrlEncode, utf8Encode, utf8Decode } from '../utils/encoding.js';
 import { protocolError } from '../utils/errors.js';
 import { isRecord } from '../utils/guards.js';
-import { openDb, requestResult, transactionDone } from './idb.js';
+import { idbRun, openDb } from './idb.js';
 
 /** What can be known about an account without unlocking it */
 export interface AccountSummary {
@@ -135,9 +135,6 @@ function byRecency(a: AccountSummary, b: AccountSummary): number {
  * A summary is a label on an identity, so two of them for one DID means the
  * same person listed twice — which is confusing at best and, once they point
  * at different data paths, a way to lose track of where anything is.
- *
- * @param accounts Whatever the store had
- * @returns The list to show
  */
 function collapse(accounts: ReadonlyArray<AccountSummary>): AccountSummary[] {
   const seen = new Set<string>();
@@ -165,12 +162,7 @@ function parseList(bytes: Uint8Array | null): AccountSummary[] {
   }
 }
 
-/**
- * Opens the accounts kept in a folder.
- *
- * @param dir The data folder
- * @returns A store over it
- */
+/** Opens the accounts kept in a folder. */
 export function createFolderAccountStore(dir: DirectoryHandleLike): AccountStore {
   async function readList(): Promise<AccountSummary[]> {
     return parseList(await readFolderFile(dir, LIST_FILE));
@@ -269,7 +261,7 @@ const STORE = 'accounts';
 const LIST_KEY = '__list';
 
 function idbGet(db: IDBDatabase, key: string): Promise<unknown> {
-  return requestResult(db.transaction(STORE, 'readonly').objectStore(STORE).get(key));
+  return idbRun(db, STORE, 'readonly', (store) => store.get(key));
 }
 
 /** The list as this store wrote it; unlike a folder's, no other origin can edit it */
@@ -282,16 +274,8 @@ function isSummaryList(rows: unknown): rows is AccountSummary[] {
   return Array.isArray(rows);
 }
 
-function idbPut(db: IDBDatabase, key: string, value: unknown): Promise<void> {
-  const tx = db.transaction(STORE, 'readwrite');
-  tx.objectStore(STORE).put(value, key);
-  return transactionDone(tx);
-}
-
-function idbDelete(db: IDBDatabase, key: string): Promise<void> {
-  const tx = db.transaction(STORE, 'readwrite');
-  tx.objectStore(STORE).delete(key);
-  return transactionDone(tx);
+async function idbPut(db: IDBDatabase, key: string, value: unknown): Promise<void> {
+  await idbRun(db, STORE, 'readwrite', (store) => store.put(value, key));
 }
 
 /**
@@ -301,7 +285,6 @@ function idbDelete(db: IDBDatabase, key: string): Promise<void> {
  * the difference is only that no other origin can read this one.
  *
  * @param dbName Overridable for tests
- * @returns A store over this origin's database
  */
 export async function createBrowserAccountStore(dbName = DB_NAME): Promise<AccountStore> {
   const db = await openDb(dbName, STORE);
@@ -327,7 +310,7 @@ export async function createBrowserAccountStore(dbName = DB_NAME): Promise<Accou
     },
 
     async remove(id: string): Promise<void> {
-      await idbDelete(db, id);
+      await idbRun(db, STORE, 'readwrite', (store) => store.delete(id));
       const accounts = (await idbList(db)).filter((account) => account.id !== id);
       await idbPut(db, LIST_KEY, accounts);
     },
@@ -343,9 +326,7 @@ export async function createBrowserAccountStore(dbName = DB_NAME): Promise<Accou
  * by hand — the File System Access API cannot rename across directories — for
  * no benefit, so the summary records where the spaces already live instead.
  *
- * @param dir The data folder
  * @param existing Accounts already listed, so one is not adopted twice
- * @returns What to write into the list, or null when there is nothing to adopt
  */
 export async function adoptLegacyFolderAccount(
   dir: DirectoryHandleLike,
@@ -372,13 +353,7 @@ export async function adoptLegacyFolderAccount(
   };
 }
 
-/**
- * Lists a folder's accounts, adopting a pre-list one if it finds it.
- *
- * @param dir The data folder
- * @param store The store over it
- * @returns Every account, including one just adopted
- */
+/** Lists a folder's accounts, adopting a pre-list one if it finds it. */
 export async function listFolderAccounts(
   dir: DirectoryHandleLike,
   store: AccountStore,

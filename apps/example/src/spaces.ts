@@ -1,8 +1,4 @@
-/**
- * Invite links: a space, and for a private one its key, in the URL fragment —
- * which browsers never send to a server, including the one hosting this page
- * (`inviteLink` in `@weaveprotocol/core/react`).
- */
+// Invite links carry the space, and a private one's key, in the URL fragment, which never reaches a server.
 import type { P2PNode } from '@weaveprotocol/core';
 import { inviteLink } from '@weaveprotocol/core/react';
 

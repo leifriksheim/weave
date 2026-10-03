@@ -6,26 +6,16 @@
 import { bufferSource } from './guards.js';
 import { bytesToHex, utf8Encode } from './encoding.js';
 
-/**
- * Computes the SHA-256 hash of the given data.
- * @param {Uint8Array} data - The data to hash.
- * @returns {Promise<Uint8Array>} A promise that resolves to the hash bytes.
- */
+/** Computes the SHA-256 hash of the given data. */
 export async function sha256(data: Uint8Array): Promise<Uint8Array> {
   const buffer = await globalThis.crypto.subtle.digest('SHA-256', bufferSource(data));
   return new Uint8Array(buffer);
 }
 
-/**
- * Base32 encoding alphabet (RFC 4648).
- */
+/** Base32 encoding alphabet (RFC 4648). */
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
-/**
- * Encodes bytes to a base32 string without padding.
- * @param {Uint8Array} bytes - The bytes to encode.
- * @returns {string} The base32 encoded string.
- */
+/** Encodes bytes to a base32 string without padding. */
 export function base32Encode(bytes: Uint8Array): string {
   let bits = 0;
   let value = 0;
@@ -47,10 +37,7 @@ export function base32Encode(bytes: Uint8Array): string {
   return output.toLowerCase();
 }
 
-/**
- * Decodes {@link base32Encode}'s output, either case.
- * @returns The bytes, or null when it is not base32 of whole bytes
- */
+/** Decodes {@link base32Encode}'s output, either case. */
 export function base32Decode(text: string): Uint8Array | null {
   const out: number[] = [];
   let bits = 0;
@@ -80,11 +67,7 @@ export function cidDigest(cid: string): Uint8Array | null {
 /** The content id for a 32-byte hash — the inverse of {@link cidDigest} */
 export const cidOfDigest = (digest: Uint8Array): string => 'b' + base32Encode(digest);
 
-/**
- * Creates a CID-like content identifier (base32 of SHA-256).
- * @param {Uint8Array} data - The data to compute the identifier for.
- * @returns {Promise<string>} A promise that resolves to the CID-like string.
- */
+/** Creates a CID-like content identifier (base32 of SHA-256). */
 export async function cidFromBytes(data: Uint8Array): Promise<string> {
   const hashBytes = await sha256(data);
   return 'b' + base32Encode(hashBytes);

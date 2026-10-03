@@ -1,18 +1,4 @@
-/**
- * Notifications, from this app: asked for when the person wants them, shown
- * by the app itself.
- *
- * Connecting asks for nothing. Each app says what in it is worth hearing
- * about (its `notify`: in `apps/index.ts` for the built-in ones, in the
- * `std.app` record for ones made for a space), and the bell on an open app
- * offers exactly that, for that space. "Turn on notifications" in the
- * account menu offers the lot, in every space: contact requests, the
- * built-in apps, and every app added to one of your spaces. Either way the
- * account home is asked (`connection.propose`); the person keeps what they
- * want, and can pause or remove it there later. The app then matches what
- * arrives against what they kept (`watchNotifications`) and shows it — while
- * it is open, in a tab or installed.
- */
+/** Notifications: each app's `notify` offered through the account home, then matched and shown by this app while it is open. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAccount, useConnection, useNode } from '@weaveprotocol/core/react';
 import { MAX_PROPOSALS, watchNotifications, type NotifyProposal, type NotifyView } from '@weaveprotocol/core';
@@ -20,6 +6,7 @@ import { app as appSchema, supersededApps, type App, type AppNotify } from '@wea
 import { APPS } from './components/apps';
 import { isForMe, madeNotify } from './components/apps/entries';
 import { isAdded } from './components/apps/MadeApps';
+import { message } from '@weave/app-shared/action';
 
 /** Offered whatever apps a space has */
 const CONTACTS: NotifyProposal = {
@@ -60,11 +47,7 @@ export function useSubscriptions(): ReadonlyArray<NotifyView> {
 const proposalKey = (proposal: NotifyProposal) =>
   `${proposal.collection} ${JSON.stringify(proposal.topic ?? null)} ${JSON.stringify(proposal.where ?? null)} ${proposal.spaces?.join(',') ?? 'all'}`;
 
-/**
- * Asking the browser, then the home: both need the click that got here. What
- * the home said yes to counts as on at once: the account's copy of it reaches
- * this app only once the account space has synced.
- */
+/** Asks the browser, then the home, from the click; what the home kept counts as on at once, before the account space syncs */
 export function useAsk() {
   const { connection, state } = useConnection();
   const [permission, setPermission] = useState(() => (supported() ? Notification.permission : 'denied'));
@@ -115,7 +98,7 @@ export function useAsk() {
           return yes.length > 0;
         })
         .catch((failed: unknown) => {
-          setError(failed instanceof Error ? failed.message : String(failed));
+          setError(message(failed));
           return false;
         })
         .finally(() => setAsking(false));
@@ -134,10 +117,7 @@ export function useAsk() {
   return { permission, error, asking, kept, ask, allow, manage };
 }
 
-/**
- * Everything this app can notify about, in every space: worked out ahead of
- * the click, since the home's popup must open from the click itself.
- */
+/** Everything this app can notify about, in every space, worked out before the click that opens the home's popup */
 function useEverything(): ReadonlyArray<NotifyProposal> {
   const node = useNode();
   const [offers, setOffers] = useState<ReadonlyArray<NotifyProposal>>(() => gather([]));
@@ -216,12 +196,7 @@ export function useAppNotifications() {
   };
 }
 
-/**
- * One app's notifications in one space, at two levels: everything new, or
- * only what names you ("Mentions me", "Replies to me"). Whether each is on,
- * and turning one on — what the bell on an open app does. Turning one off
- * is the account home's, where subscriptions are paused and removed.
- */
+/** One app's notifications in one space (all, or only what names you): whether each is on, and turning one on */
 export function useNotifyFor(spaceId: string, offers: ReadonlyArray<AppNotify>) {
   const { did } = useAccount();
   const mine = useSubscriptions();
@@ -262,12 +237,7 @@ export function useNotifyFor(spaceId: string, offers: ReadonlyArray<AppNotify>) 
 /** How long to wait for every subscription a record matches, before showing one notification for it */
 const GATHER_MS = 150;
 
-/**
- * Shows what this app's subscriptions match, while nobody is looking at it.
- * A click opens the space. A record that several of them match — a message
- * that mentions you, when "New message" is on too — is one notification,
- * under the most particular of them.
- */
+/** Shows what this app's subscriptions match while nobody looks; a record several match is one notification, under the most particular */
 export function useShowNotifications(openSpace: (id: string) => void) {
   const node = useNode();
   const open = useRef(openSpace);

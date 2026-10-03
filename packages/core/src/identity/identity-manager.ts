@@ -1,8 +1,8 @@
-import { CryptoProvider } from '../types.js';
+import type { CryptoProvider } from '../types.js';
 import { createP256Provider } from './crypto-p256.js';
-import { deriveKeyPair } from './keys.js';
 import { publicKeyToDid, P256_MULTICODEC } from './did.js';
 import { recoveryCodeToSeed } from './recovery-code.js';
+import { createLocalRootSigner, type RootSigner } from './root-signer.js';
 
 export interface Identity {
   readonly did: string;
@@ -19,11 +19,6 @@ export interface IdentityManager {
   getProvider(): CryptoProvider;
 }
 
-/**
- * Creates an IdentityManager instance.
- * @param {{ provider?: CryptoProvider }} [config] Configuration options.
- * @returns {IdentityManager} The identity manager instance.
- */
 export function createIdentityManager(config?: { readonly provider?: CryptoProvider }): IdentityManager {
   const provider = config?.provider || createP256Provider();
 
@@ -33,16 +28,15 @@ export function createIdentityManager(config?: { readonly provider?: CryptoProvi
     },
 
     async fromSeed(seed: Uint8Array): Promise<Identity> {
-      // The seed already carries 128 bits of entropy, so it goes straight into
-      // HKDF — no password stretching to slow down what is not a password.
-      const keyPair = await deriveKeyPair(seed, provider);
-      const did = publicKeyToDid(keyPair.publicKeyBytes, P256_MULTICODEC);
-
+      // The seed already carries 128 bits of entropy, so the provider's one KDF
+      // step is enough: no password stretching for what is not a password.
+      const { publicKey, privateKey } = await provider.deriveKeyPairFromSeed(seed);
+      const publicKeyBytes = await provider.exportPublicKey(publicKey);
       return Object.freeze({
-        did,
-        publicKey: keyPair.publicKey,
-        privateKey: keyPair.privateKey,
-        publicKeyBytes: keyPair.publicKeyBytes,
+        did: publicKeyToDid(publicKeyBytes, P256_MULTICODEC),
+        publicKey,
+        privateKey,
+        publicKeyBytes,
       });
     },
 
@@ -50,4 +44,11 @@ export function createIdentityManager(config?: { readonly provider?: CryptoProvi
       return provider;
     },
   });
+}
+
+/** The root identity and a signer for it, from the seed */
+export async function rootFromSeed(seed: Uint8Array): Promise<{ identity: Identity; signer: RootSigner }> {
+  const manager = createIdentityManager();
+  const identity = await manager.fromSeed(seed);
+  return { identity, signer: createLocalRootSigner(identity, manager.getProvider()) };
 }

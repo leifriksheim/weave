@@ -18,14 +18,8 @@ export function createMemoryAdapter(): StorageAdapter {
     async delete(key) {
       kv.delete(key);
     },
-    async has(key) {
-      return kv.has(key);
-    },
     async list(prefix = '') {
       return [...kv.keys()].filter((key) => key.startsWith(prefix));
-    },
-    async queryExpressions(collection, limit = 50) {
-      return [...expressions.values()].filter((e) => e.collection === collection).slice(0, limit);
     },
     async putExpression(expression) {
       expressions.set(expression.id, expression);

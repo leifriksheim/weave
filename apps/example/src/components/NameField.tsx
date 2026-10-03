@@ -1,9 +1,6 @@
 import { styles } from '../styles';
 
-/**
- * The name others see, asked where it matters: making or joining a space.
- * `useMyName` from `@weaveprotocol/core/react` fills it in and saves it.
- */
+/** The name others see, asked when making or joining a space */
 export function NameField({ value, onChange }: { value: string; onChange: (name: string) => void }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

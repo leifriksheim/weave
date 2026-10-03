@@ -3,14 +3,10 @@
  * the outside of every record, so a node that can't read it can still match
  * what it's about — and a writer can't lie about it to anyone who can read.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createNode } from '../src/node/node.js';
-import type { P2PNode } from '../src/node/types.js';
-import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
-import { generateSeed } from '../src/identity/recovery-code.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
 import { createSigner } from '../src/schema/signer.js';
 import { createExpression } from '../src/schema/expression.js';
@@ -18,8 +14,7 @@ import { checkStoredCollection } from '../src/schema/collection-def.js';
 import { createStorageProvider } from '../src/storage/storage-provider.js';
 import { generateSpaceKey } from '../src/privacy/space-encryption.js';
 import { checkTopics, tagsFor, topicKey, topicTag, topicValues } from '../src/records/topics.js';
-import { createFakeHub, type FakeHub } from './helpers/fake-transport.js';
-import { memoryStores } from './helpers/memory-stores.js';
+import { createFakeHub } from './helpers/fake-transport.js';
 import { seenBy } from './helpers/as-member.js';
 import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
@@ -33,6 +28,7 @@ import { standardNeeds } from '../src/schemas/apps.js';
 import { standardDefinition } from '../src/schemas/standard.js';
 import { toJsonSchema } from '../src/schema/collection-def.js';
 import { isRecord } from '../src/utils/guards.js';
+import { person } from './helpers/person.js';
 
 describe('topic tags, worked out', () => {
   test('a definition names at most eight fields, each a field name, none twice', () => {
@@ -115,25 +111,6 @@ describe('topic tags, worked out', () => {
     );
   });
 });
-
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person(hub: FakeHub) {
-  const manager = createIdentityManager();
-  const me = await manager.fromSeed(generateSeed());
-  const stores = memoryStores();
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores,
-    watchIntervalMs: 0,
-    network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
-  });
-  open.push(node);
-  return { node, me, manager, stores };
-}
 
 const chat = { name: 'app.chat', schema: { type: 'object' }, topics: ['channel', 'mentions'] };
 
@@ -675,5 +652,13 @@ describe('a subscription’s where', () => {
       }),
       null,
     );
+  });
+
+  test('names a collection the way a definition must: every segment starts with a letter', () => {
+    const base = { label: 'x', spaces: 'all' as const, since: new Date().toISOString() };
+    assert.equal(checkNotify({ ...base, collection: 'app.chat-2.message' }), null);
+    // A definition could never be called this, so neither can a subscription ask for it.
+    assert.match(checkNotify({ ...base, collection: 'app.2chat' })!, /collection/);
+    assert.match(checkNotify({ ...base, collection: 'sys.notify' })!, /collection/);
   });
 });

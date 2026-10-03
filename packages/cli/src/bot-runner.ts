@@ -5,11 +5,11 @@
  * there to allow deleting or overwriting, so those are refused. What someone
  * set off is counted against them, so nobody can spend the day for everyone.
  */
-import type { P2PNode } from '@weaveprotocol/core';
+import { PEER_CONTENT_NOTE, type P2PNode } from '@weaveprotocol/core';
 import { setActivity, startRules, type ActivityState, type RuleTrigger } from '@weaveprotocol/core/schemas';
 import { createAgentChat, spendFor, type Price, type Spend, type Think } from './agent-chat.js';
 import { openTrigger, ruleContext, triggerPrompt, writerInstructs } from './agent-rules.js';
-import { PEER_CONTENT_NOTE } from './mcp.js';
+import { messageOf } from './json.js';
 
 export interface RuleRunnerOptions {
   readonly node: P2PNode;
@@ -32,6 +32,9 @@ export interface RuleRunnerOptions {
   /** Told the rules this runs, each time they change */
   readonly onRules?: (names: ReadonlyArray<string>) => void;
 }
+
+/** What each person who sets a bot off may spend a day unless told: a quarter of its cap, so nobody spends the day for everyone */
+export const capEachOf = (dailyCap: number) => dailyCap / 4;
 
 /** Starts running the rules that name this node; returns how to stop */
 export function runRules(options: RuleRunnerOptions): () => void {
@@ -121,7 +124,7 @@ export function runRules(options: RuleRunnerOptions): () => void {
       await mark(sealed, 'done');
       return { did: text || 'Done.', ok: true };
     } catch (error) {
-      const did = error instanceof Error ? error.message : String(error);
+      const did = messageOf(error);
       log(`  [${name}] ${did}`);
       await mark(sealed, 'failed');
       return { did, ok: false };
@@ -147,6 +150,6 @@ export function runRules(options: RuleRunnerOptions): () => void {
     onRun: (trigger, run) => {
       if (trigger.rule.body.then.kind !== 'ask') log(`  [${trigger.rule.body.name}] ${run.did}`);
     },
-    onError: (error) => log(`  Rules: ${error instanceof Error ? error.message : String(error)}`),
+    onError: (error) => log(`  Rules: ${messageOf(error)}`),
   });
 }

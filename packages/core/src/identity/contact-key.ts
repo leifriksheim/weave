@@ -19,9 +19,10 @@
  * sealed message moved anywhere its context no longer matches doesn't open.
  */
 import { p256 } from '@noble/curves/nist.js';
-import { base64UrlDecode, base64UrlEncode, utf8Decode, utf8Encode } from '../utils/encoding.js';
+import { base64UrlDecode, base64UrlEncode, concatBytes, utf8Decode, utf8Encode } from '../utils/encoding.js';
 import { bufferSource } from '../utils/guards.js';
 import { hkdf } from './hkdf.js';
+import { aesOpen, aesSeal, NONCE_BYTES } from './aes.js';
 
 /** Domain separation for the contact key. Changing it changes every account's contact key. */
 const CONTACT_KEY_INFO = 'weave/p256-contact-key/v1';
@@ -33,7 +34,6 @@ const DOOR_SIGN_KEY_INFO = 'weave/p256-door-sign-key/v1';
 /** 48 bytes reduce to a P-256 scalar without bias, as for the root key (`crypto-p256.ts`) */
 const P256_SEED_BYTES = 48;
 const POINT_BYTES = 65;
-const IV_BYTES = 12;
 
 export interface ContactKeyPair {
   /** The public half: a compressed P-256 point, base64url. What goes on a profile. */
@@ -216,15 +216,8 @@ export async function sealFor(recipient: string, value: unknown, context: string
     256,
   );
   const key = await sealKey(shared, ephemeralPoint, 'encrypt');
-  const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
-  const ciphertext = new Uint8Array(
-    await globalThis.crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv, additionalData: bufferSource(utf8Encode(context)) },
-      key,
-      bufferSource(utf8Encode(JSON.stringify(value))),
-    ),
-  );
-  return base64UrlEncode(new Uint8Array([...ephemeralPoint, ...iv, ...ciphertext]));
+  const sealed = await aesSeal(key, utf8Encode(JSON.stringify(value)), utf8Encode(context));
+  return base64UrlEncode(concatBytes(ephemeralPoint, sealed));
 }
 
 /**
@@ -234,7 +227,7 @@ export async function sealFor(recipient: string, value: unknown, context: string
 export async function openSealed(privateKey: CryptoKey, sealed: string, context: string): Promise<unknown> {
   try {
     const bytes = base64UrlDecode(sealed);
-    if (bytes.length <= POINT_BYTES + IV_BYTES) return null;
+    if (bytes.length <= POINT_BYTES + NONCE_BYTES) return null;
     const ephemeralPoint = bytes.subarray(0, POINT_BYTES);
     const ephemeral = await globalThis.crypto.subtle.importKey(
       'raw',
@@ -249,16 +242,8 @@ export async function openSealed(privateKey: CryptoKey, sealed: string, context:
       256,
     );
     const key = await sealKey(shared, ephemeralPoint, 'decrypt');
-    const plain = await globalThis.crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: bufferSource(bytes.subarray(POINT_BYTES, POINT_BYTES + IV_BYTES)),
-        additionalData: bufferSource(utf8Encode(context)),
-      },
-      key,
-      bufferSource(bytes.subarray(POINT_BYTES + IV_BYTES)),
-    );
-    return JSON.parse(utf8Decode(new Uint8Array(plain)));
+    const plain = await aesOpen(key, bytes.subarray(POINT_BYTES), utf8Encode(context));
+    return JSON.parse(utf8Decode(plain));
   } catch {
     return null;
   }

@@ -1,5 +1,4 @@
 /**
- * @module schemas/contacts
  * Contacts, as two standard collections — the protocol knows neither.
  *
  * A contact is someone you share a private space for two with. Your list of
@@ -11,16 +10,11 @@
  * `node.contacts` does the work with both; these are here so apps can read
  * and query the records like any other.
  */
-import type { DefineCollection } from '../node/types.js';
-import type { Typed } from '../query/types.js';
-
-const typed =
-  <T>() =>
-  <const C extends DefineCollection>(definition: C): C & Typed<T> =>
-    definition;
+import { define } from './fragments.js';
+import type { BodyOf } from '../query/types.js';
 
 /** Someone you can reach, and the space you share with them. One per person. */
-export const contact = typed<Contact>()({
+export const contact = define({
   name: 'std.contact',
   title: 'Contact',
   description: 'Someone you can reach, and the space you share with them.',
@@ -43,17 +37,10 @@ export const contact = typed<Contact>()({
   },
   rules: { onePer: ['did'] },
 });
-export interface Contact {
-  readonly did: string;
-  readonly name: string;
-  readonly space?: string;
-  readonly note?: string;
-  readonly blocked?: boolean;
-  readonly door?: string;
-}
+export type Contact = BodyOf<typeof contact>;
 
 /** An invite to a space for two, sealed so only the person it is for can read it. */
-export const contactRequest = typed<ContactRequestRecord>()({
+export const contactRequest = define({
   name: 'std.contact-request',
   title: 'Contact request',
   description: 'An invite to a space for two, sealed so only one person can read it.',
@@ -71,10 +58,7 @@ export const contactRequest = typed<ContactRequestRecord>()({
   },
   rules: { edit: 'creator', delete: 'creator' },
 });
-export interface ContactRequestRecord {
-  readonly to: string;
-  readonly sealed: string;
-}
+export type ContactRequestRecord = BodyOf<typeof contactRequest>;
 
 /**
  * A door of yours: a way in for people you share no space with (`node.doors`).
@@ -82,7 +66,7 @@ export interface ContactRequestRecord {
  * doors. Its key is derived from the contact key and `id`; closing the door
  * is deleting the record.
  */
-export const door = typed<Door>()({
+export const door = define({
   name: 'std.door',
   title: 'Door',
   description: 'A way for people you share no space with to ask to become your contact.',
@@ -113,19 +97,14 @@ export const door = typed<Door>()({
   },
   rules: { onePer: ['id'] },
 });
-export interface Door {
-  readonly id: string;
-  readonly label?: string;
-  readonly name?: string;
-  readonly relays: ReadonlyArray<string>;
-}
+export type Door = BodyOf<typeof door>;
 
 /**
  * A knock you left on someone's door, waiting for them to open it. You don't
  * know who they are until they join the space for two; then it becomes a
  * `std.contact`, and this goes.
  */
-export const knock = typed<Knock>()({
+export const knock = define({
   name: 'std.knock',
   title: 'Knock',
   description: 'A knock left on a door, waiting for an answer.',
@@ -146,20 +125,14 @@ export const knock = typed<Knock>()({
   },
   rules: { onePer: ['space'] },
 });
-export interface Knock {
-  readonly space: string;
-  readonly name: string;
-  readonly door: string;
-  readonly sign: string;
-  readonly invite: string;
-}
+export type Knock = BodyOf<typeof knock>;
 
 /**
  * The answer to a knock, in the space for two: the door's owner, signing with
  * the door's signing key that the account writing this is theirs. It is how
  * the knocker tells the person behind the door from anyone the invite reached.
  */
-export const knockAnswer = typed<KnockAnswer>()({
+export const knockAnswer = define({
   name: 'std.knock-answer',
   title: 'Knock answer',
   description: 'Proof that the account which joined is the one behind the door knocked on.',
@@ -176,6 +149,4 @@ export const knockAnswer = typed<KnockAnswer>()({
   },
   rules: { edit: 'creator', delete: 'creator' },
 });
-export interface KnockAnswer {
-  readonly sig: string;
-}
+export type KnockAnswer = BodyOf<typeof knockAnswer>;

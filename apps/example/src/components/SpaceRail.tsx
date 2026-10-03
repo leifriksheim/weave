@@ -7,13 +7,7 @@ import { useCallSpaces } from './calls/Calls';
 import { Count } from './apps/AppIcon';
 import { useSpaceUnread } from '../seen';
 
-/**
- * Every space down the left edge while one is open, the way Slack and Discord
- * do it: one click to switch, a home button back to the grid, and a plus to
- * add another. A phone has no room for it: its tab bar leads back to the list
- * of spaces instead — see `.rail` and `.tabbar` in
- * styles.ts.
- */
+/** Every space down the left edge while one is open; a phone's tab bar does this instead */
 export function SpaceRail({
   spaces,
   current,

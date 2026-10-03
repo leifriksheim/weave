@@ -21,40 +21,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./identity": {
-      "@weaveprotocol/source": "./src/identity/index.ts",
-      "types": "./dist/identity/index.d.ts",
-      "import": "./dist/identity/index.js"
-    },
-    "./schema": {
-      "@weaveprotocol/source": "./src/schema/index.ts",
-      "types": "./dist/schema/index.d.ts",
-      "import": "./dist/schema/index.js"
-    },
     "./storage": {
       "@weaveprotocol/source": "./src/storage/index.ts",
       "types": "./dist/storage/index.d.ts",
       "import": "./dist/storage/index.js"
-    },
-    "./network": {
-      "@weaveprotocol/source": "./src/network/index.ts",
-      "types": "./dist/network/index.d.ts",
-      "import": "./dist/network/index.js"
-    },
-    "./sync": {
-      "@weaveprotocol/source": "./src/sync/index.ts",
-      "types": "./dist/sync/index.d.ts",
-      "import": "./dist/sync/index.js"
-    },
-    "./validation": {
-      "@weaveprotocol/source": "./src/validation/index.ts",
-      "types": "./dist/validation/index.d.ts",
-      "import": "./dist/validation/index.js"
-    },
-    "./privacy": {
-      "@weaveprotocol/source": "./src/privacy/index.ts",
-      "types": "./dist/privacy/index.d.ts",
-      "import": "./dist/privacy/index.js"
     },
     "./node-worker": {
       "@weaveprotocol/source": "./src/node-worker.ts",

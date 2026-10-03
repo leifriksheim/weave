@@ -1,6 +1,4 @@
-/**
- * Annotations: records that attach to any other record with an `about` link.
- */
+/** Annotations: records that attach to any other record with an `about` link. */
 import {
   about,
   authored,
@@ -11,14 +9,14 @@ import {
   people,
   person,
   text,
-  typed,
+  define,
   url,
   words,
-  type BlobRef,
 } from '../fragments.js';
+import type { BodyOf } from '../../query/types.js';
 
 /** An emoji reaction to any record. Link it: `{ rel: 'about', to: <key> }`. */
-export const reaction = typed<Reaction>()({
+export const reaction = define({
   name: 'std.reaction',
   title: 'Reaction',
   description: 'An emoji reaction to any record.',
@@ -35,11 +33,7 @@ export const reaction = typed<Reaction>()({
   rules: { edit: 'creator', delete: 'creator', onePer: ['@author', 'link:about', 'emoji'] },
   topics: ['respondingTo'],
 });
-export interface Reaction {
-  readonly emoji: string;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type Reaction = BodyOf<typeof reaction>;
 
 /**
  * A comment on any record, optionally a reply to another comment. As on a
@@ -48,7 +42,7 @@ export interface Reaction {
  * can be asked of a keeper that can't read it. Commenting is also how to
  * mention someone on a record of any kind, whatever its own definition holds.
  */
-export const comment = typed<Comment>()({
+export const comment = define({
   name: 'std.comment',
   title: 'Comment',
   description: 'A comment on any record, optionally replying to another comment.',
@@ -70,18 +64,10 @@ export const comment = typed<Comment>()({
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 });
-export interface Comment {
-  readonly text: string;
-  /** Accounts it mentions */
-  readonly mentions?: ReadonlyArray<string>;
-  /** The account whose comment it replies to */
-  readonly replyingTo?: string;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type Comment = BodyOf<typeof comment>;
 
 /** A label on one or more records. */
-export const tag = typed<Tag>()({
+export const tag = define({
   name: 'std.tag',
   title: 'Tag',
   description: 'A label on one or more records.',
@@ -94,15 +80,13 @@ export const tag = typed<Tag>()({
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 });
-export interface Tag {
-  readonly label: string;
-}
+export type Tag = BodyOf<typeof tag>;
 
 /**
  * A file attached to a record. `blob` names its bytes by hash; `url` is where
  * they are when they live outside the space.
  */
-export const attachment = typed<Attachment>()({
+export const attachment = define({
   name: 'std.attachment',
   title: 'Attachment',
   description: 'A file attached to a record: its bytes by hash, or where they are.',
@@ -121,16 +105,10 @@ export const attachment = typed<Attachment>()({
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 });
-export interface Attachment {
-  readonly name: string;
-  readonly mime: string;
-  readonly size?: number;
-  readonly url?: string;
-  readonly blob?: BlobRef;
-}
+export type Attachment = BodyOf<typeof attachment>;
 
 /** A note that one record refers to another. */
-export const reference = typed<Reference>()({
+export const reference = define({
   name: 'std.reference',
   title: 'Reference',
   description: 'A note that one record refers to another.',
@@ -139,16 +117,14 @@ export const reference = typed<Reference>()({
   permissions: ['moderate'],
   rules: { edit: 'creator', delete: ['creator', 'can:moderate'] },
 });
-export interface Reference {
-  readonly note?: string;
-}
+export type Reference = BodyOf<typeof reference>;
 
 /**
  * Something saved to come back to: a record (`about`) or a web page (`url`).
  * Not one per record, since a web page has no record to key it by; an app
  * looks for an existing bookmark before adding another.
  */
-export const bookmark = typed<Bookmark>()({
+export const bookmark = define({
   name: 'std.bookmark',
   title: 'Bookmark',
   description: 'A record or a web page saved to come back to.',
@@ -159,14 +135,10 @@ export const bookmark = typed<Bookmark>()({
   links: { about: about('The record saved') },
   rules: own,
 });
-export interface Bookmark {
-  readonly title?: string;
-  readonly url?: string;
-  readonly note?: string;
-}
+export type Bookmark = BodyOf<typeof bookmark>;
 
 /** One person's score for something, from 1 to 5, and what they thought. */
-export const rating = typed<Rating>()({
+export const rating = define({
   name: 'std.rating',
   title: 'Rating',
   description: 'A score from 1 to 5, one per person per thing, changed by rating again.',
@@ -178,16 +150,13 @@ export const rating = typed<Rating>()({
   links: { about: about('What is rated') },
   rules: { ...own, onePer: ['@author', 'link:about'] },
 });
-export interface Rating {
-  readonly score: number;
-  readonly review?: string;
-}
+export type Rating = BodyOf<typeof rating>;
 
 /**
  * A passage marked in a longer text. `prefix` and `suffix` find it again when
  * the quote appears more than once (as W3C Web Annotation's text quote does).
  */
-export const highlight = typed<Highlight>()({
+export const highlight = define({
   name: 'std.highlight',
   title: 'Highlight',
   description: 'A passage marked in a text, with an optional note.',
@@ -205,15 +174,10 @@ export const highlight = typed<Highlight>()({
   permissions: ['moderate'],
   rules: authored,
 });
-export interface Highlight {
-  readonly quote: string;
-  readonly prefix?: string;
-  readonly suffix?: string;
-  readonly note?: string;
-}
+export type Highlight = BodyOf<typeof highlight>;
 
 /** A record pinned where everyone sees it. Pinning is for moderators. */
-export const pin = typed<Pin>()({
+export const pin = define({
   name: 'std.pin',
   title: 'Pin',
   description: 'A record pinned for everyone, by a moderator.',
@@ -222,12 +186,10 @@ export const pin = typed<Pin>()({
   permissions: ['moderate'],
   rules: { create: 'can:moderate', edit: 'can:moderate', onePer: ['link:about'] },
 });
-export interface Pin {
-  readonly note?: string;
-}
+export type Pin = BodyOf<typeof pin>;
 
 /** A report that something breaks the space's norms, for its moderators to see. */
-export const report = typed<Report>()({
+export const report = define({
   name: 'std.report',
   title: 'Report',
   description: 'A report that a record breaks the rules, for moderators.',
@@ -243,16 +205,13 @@ export const report = typed<Report>()({
   permissions: ['moderate'],
   rules: { ...authored, onePer: ['@author', 'link:about'] },
 });
-export interface Report {
-  readonly reason: 'spam' | 'abuse' | 'sexual' | 'misleading' | 'illegal' | 'other';
-  readonly note?: string;
-}
+export type Report = BodyOf<typeof report>;
 
 /**
  * A moderator's label on a record, which apps act on: `nsfw` blurs, `spoiler`
  * hides until asked. Unlike a tag, only moderators add one.
  */
-export const label = typed<Label>()({
+export const label = define({
   name: 'std.label',
   title: 'Label',
   description: 'A moderator’s label on a record, like nsfw or spoiler.',
@@ -265,15 +224,13 @@ export const label = typed<Label>()({
   permissions: ['moderate'],
   rules: { create: 'can:moderate', edit: 'can:moderate', onePer: ['link:about', 'value'] },
 });
-export interface Label {
-  readonly value: string;
-}
+export type Label = BodyOf<typeof label>;
 
 /**
  * "I'll take it": one claimer per thing. A potluck dish, a shift, a chore.
  * Whoever claims first holds it until they let it go.
  */
-export const claim = typed<Claim>()({
+export const claim = define({
   name: 'std.claim',
   title: 'Claim',
   description: 'Someone taking something on: one claimer per thing, first come.',
@@ -286,8 +243,22 @@ export const claim = typed<Claim>()({
   rules: { ...authored, onePer: ['link:about'] },
   topics: ['respondingTo'],
 });
-export interface Claim {
-  readonly note?: string;
-  /** The account whose record it responds to */
-  readonly respondingTo?: string;
-}
+export type Claim = BodyOf<typeof claim>;
+
+/** This file's part of `standardGroups` */
+export const annotationGroups = {
+  Annotations: [
+    reaction,
+    comment,
+    tag,
+    attachment,
+    reference,
+    bookmark,
+    rating,
+    highlight,
+    pin,
+    report,
+    label,
+    claim,
+  ],
+};

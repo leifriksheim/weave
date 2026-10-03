@@ -16,6 +16,7 @@ import { styles, palette } from '../../styles';
 import { RuleBuilder } from './RuleBuilder';
 import { Empty, SectionHead, iconDot, list, section } from './parts';
 import { SpaceBots } from '@weave/app-shared/CommunitySetup';
+import { useAction } from '@weave/app-shared/action';
 import { useActivityOff } from '../../activity';
 
 type Open = {
@@ -26,13 +27,7 @@ type Open = {
   readonly start?: PickedRule;
 } | null;
 
-/**
- * What the space does without anyone doing it: the rules people made, each
- * in a sentence, with what it did lately, and the bots that can run them.
- * Everyone sees every rule; only its maker changes it, and only their devices
- * run it, or the bot it names. What you asked to hear about is yours alone,
- * under Notifications.
- */
+/** The space's rules in sentences, what each did lately, and the bots that run them; only a rule's maker changes it */
 export function AutomationsView({
   space,
   collections,
@@ -45,7 +40,7 @@ export function AutomationsView({
   const here = usePeopleHere();
   const people = here?.people ?? new Map();
   const [open, setOpen] = useState<Open>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { run, error } = useAction();
 
   const defined = collections.some((c) => c.name === ruleCollection.name && c.version !== null);
   const rules = useLive(
@@ -76,10 +71,7 @@ export function AutomationsView({
   const who = (d: string) => nameOf(d, people);
 
   const shows = useActivityOff(space.id, space.writable);
-  const act = (work: () => Promise<unknown>) => {
-    setError(null);
-    work().catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  };
+  const act = (work: () => Promise<unknown>) => void run(work);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 36, maxWidth: 760 }}>

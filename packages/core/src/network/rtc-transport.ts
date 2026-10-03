@@ -1,20 +1,11 @@
-/**
- * @fileoverview WebRTC data channel transport management.
- */
-
 import type { CandidateSink, PeerTransportEvents, SignalledTransport } from './transport.js';
 import { createEmitter } from '../utils/events.js';
 import { bufferSource } from '../utils/guards.js';
 
-export interface RTCTransportConfig {
+interface RTCTransportConfig {
   /** Fixed, or asked for each new connection — TURN passwords a relay hands out change */
   readonly iceServers?: ReadonlyArray<RTCIceServer> | (() => ReadonlyArray<RTCIceServer>);
 }
-
-export type RTCTransportEvents = PeerTransportEvents;
-
-/** WebRTC data channels: a transport whose connections start with an offer. */
-export type RTCTransport = SignalledTransport;
 
 interface PeerConnectionData {
   readonly connection: RTCPeerConnection;
@@ -32,46 +23,32 @@ export const DEFAULT_ICE_SERVERS: ReadonlyArray<RTCIceServer> = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
-/**
- * Creates a new WebRTC transport manager.
- *
- * @param config - Optional configuration for ICE servers.
- * @returns The RTC transport instance.
- */
-export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
+/** WebRTC data channels: a transport whose connections start with an offer. */
+export function createRTCTransport(config?: RTCTransportConfig): SignalledTransport {
   const configured = config?.iceServers ?? DEFAULT_ICE_SERVERS;
   const iceServers = () => (typeof configured === 'function' ? configured() : configured);
   const connections = new Map<string, PeerConnectionData>();
 
-  const { on, off, emit } = createEmitter<RTCTransportEvents>();
+  const { on, off, emit } = createEmitter<PeerTransportEvents>();
 
   const setupDataChannel = (peerId: string, channel: RTCDataChannel) => {
     channel.binaryType = 'arraybuffer';
-    channel.onopen = () => {
-      emit('connected', peerId);
-    };
+    const peerData = connections.get(peerId);
+    if (peerData) peerData.channel = channel;
+    channel.onopen = () => emit('connected', peerId);
     channel.onclose = () => {
       emit('disconnected', peerId);
       close(peerId);
     };
-    channel.onerror = (ev) => {
-      const errEvent = ev;
-      emit('error', peerId, errEvent.error || new Error('Data channel error'));
-    };
+    channel.onerror = (ev) => emit('error', peerId, ev.error || new Error('Data channel error'));
+    // Only binary is ever sent.
     channel.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        emit('data', peerId, new Uint8Array(event.data));
-      } else {
-        // Handle other types if necessary, though we strictly use arraybuffer
-        console.warn('Received non-ArrayBuffer data on RTC channel');
-      }
+      if (event.data instanceof ArrayBuffer) emit('data', peerId, new Uint8Array(event.data));
     };
   };
 
   const createConnection = (peerId: string, onCandidate: CandidateSink): RTCPeerConnection => {
-    if (connections.has(peerId)) {
-      close(peerId);
-    }
+    close(peerId);
     const connection = new RTCPeerConnection({ iceServers: [...iceServers()] });
     connections.set(peerId, { connection, channel: null });
 
@@ -79,14 +56,12 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     connection.onicecandidate = (event) => {
       if (event.candidate) onCandidate(event.candidate.toJSON());
     };
-
     connection.onconnectionstatechange = () => {
       if (connection.connectionState === 'failed' || connection.connectionState === 'closed') {
         emit('disconnected', peerId);
         close(peerId);
       }
     };
-
     return connection;
   };
 
@@ -95,17 +70,9 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     onCandidate: CandidateSink,
   ): Promise<RTCSessionDescriptionInit> => {
     const connection = createConnection(peerId, onCandidate);
-    const channel = connection.createDataChannel('data', { ordered: true });
-    setupDataChannel(peerId, channel);
-
-    const peerData = connections.get(peerId);
-    if (peerData) {
-      peerData.channel = channel;
-    }
-
+    setupDataChannel(peerId, connection.createDataChannel('data', { ordered: true }));
     const offer = await connection.createOffer();
     await connection.setLocalDescription(offer);
-
     return offer;
   };
 
@@ -115,64 +82,32 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
     onCandidate: CandidateSink,
   ): Promise<RTCSessionDescriptionInit> => {
     const connection = createConnection(peerId, onCandidate);
-
-    connection.ondatachannel = (event) => {
-      const channel = event.channel;
-      setupDataChannel(peerId, channel);
-      const peerData = connections.get(peerId);
-      if (peerData) {
-        peerData.channel = channel;
-      }
-    };
-
+    connection.ondatachannel = (event) => setupDataChannel(peerId, event.channel);
     await connection.setRemoteDescription(offer);
     const answer = await connection.createAnswer();
     await connection.setLocalDescription(answer);
-
     return answer;
   };
 
-  const handleAnswer = async (peerId: string, answer: RTCSessionDescriptionInit): Promise<void> => {
+  const connectionOf = (peerId: string): RTCPeerConnection => {
     const peerData = connections.get(peerId);
-    if (!peerData) {
-      throw new Error(`No connection found for peer ${peerId}`);
-    }
-    await peerData.connection.setRemoteDescription(answer);
-  };
-
-  const addIceCandidate = async (peerId: string, candidate: RTCIceCandidateInit): Promise<void> => {
-    const peerData = connections.get(peerId);
-    if (!peerData) {
-      throw new Error(`No connection found for peer ${peerId}`);
-    }
-    await peerData.connection.addIceCandidate(candidate);
+    if (!peerData) throw new Error(`No connection found for peer ${peerId}`);
+    return peerData.connection;
   };
 
   const send = (peerId: string, data: Uint8Array): void => {
-    const peerData = connections.get(peerId);
-    if (!peerData || !peerData.channel || peerData.channel.readyState !== 'open') {
-      throw new Error(`Data channel not open for peer ${peerId}`);
-    }
+    const channel = connections.get(peerId)?.channel;
+    if (channel?.readyState !== 'open') throw new Error(`Data channel not open for peer ${peerId}`);
     // The whole buffer, not just the view: callers pass bytes that fill theirs.
-    peerData.channel.send(bufferSource(data).buffer);
+    channel.send(bufferSource(data).buffer);
   };
 
   const close = (peerId: string): void => {
     const peerData = connections.get(peerId);
-    if (peerData) {
-      if (peerData.channel) {
-        peerData.channel.close();
-      }
-      peerData.connection.close();
-      connections.delete(peerId);
-    }
-  };
-
-  const closeAll = (): void => {
-    const allPeers = Array.from(connections.keys());
-    for (const peerId of allPeers) {
-      close(peerId);
-    }
+    if (!peerData) return;
+    peerData.channel?.close();
+    peerData.connection.close();
+    connections.delete(peerId);
   };
 
   const binding = (peerId: string) => {
@@ -185,11 +120,13 @@ export function createRTCTransport(config?: RTCTransportConfig): RTCTransport {
   return Object.freeze({
     createOffer,
     handleOffer,
-    handleAnswer,
-    addIceCandidate,
+    handleAnswer: async (peerId: string, answer: RTCSessionDescriptionInit) =>
+      connectionOf(peerId).setRemoteDescription(answer),
+    addIceCandidate: async (peerId: string, candidate: RTCIceCandidateInit) =>
+      connectionOf(peerId).addIceCandidate(candidate),
     send,
     close,
-    closeAll,
+    closeAll: () => [...connections.keys()].forEach(close),
     binding,
     on,
     off,

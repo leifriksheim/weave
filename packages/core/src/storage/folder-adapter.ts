@@ -1,16 +1,9 @@
 /**
- * @module folder-adapter
  * A StorageAdapter over a directory the user picked on their own disk.
  *
- * This is the store that escapes the origin sandbox. IndexedDB, localStorage and
- * OPFS ("Origin Private File System" — the name is the specification) are all
- * keyed by origin, so two deployments of the same app can never see each other's
- * data. A directory handle is not: each origin asks the user for permission once
- * and both end up reading the same files. That is what makes an app a *view* on
- * the user's data rather than an owner of a private copy of it.
- *
- * The layout is meant to be legible, because the point is that the folder
- * belongs to the user:
+ * Unlike IndexedDB or OPFS it is not keyed by origin: every app given the
+ * folder reads the same files, so an app is a view on the user's data rather
+ * than the owner of a copy. The layout is legible, since the folder is theirs:
  *
  * ```
  * <folder>/
@@ -91,9 +84,6 @@ const EXPRESSION_SUFFIX = '.json';
  * that macOS and Windows filesystems are case-insensitive by default: without
  * this, the keys `space:Abc` and `space:abc` would quietly become one file and
  * one of the two values would be lost.
- *
- * @param key A storage key
- * @returns A filename safe on every filesystem, and reversible
  */
 function encodeKey(key: string): string {
   let out = '';
@@ -104,11 +94,7 @@ function encodeKey(key: string): string {
   return out;
 }
 
-/**
- * Reverses {@link encodeKey}.
- * @param name A filename written by this adapter
- * @returns The storage key it stands for
- */
+/** Reverses {@link encodeKey}. */
 function decodeKey(name: string): string {
   const bytes: number[] = [];
   for (let i = 0; i < name.length; i++) {
@@ -127,12 +113,7 @@ function isNotFound(error: unknown): boolean {
   return error instanceof Error && error.name === 'NotFoundError';
 }
 
-/**
- * Walks — and creates — a chain of subdirectories.
- * @param root The directory to start from
- * @param segments Path segments, already safe for a filename
- * @returns The directory at the end of the path
- */
+/** Walks — and creates — a chain of subdirectories. */
 async function resolvePath(
   root: DirectoryHandleLike,
   segments: ReadonlyArray<string>,
@@ -144,12 +125,7 @@ async function resolvePath(
   return current;
 }
 
-/**
- * Reads a file, treating absence as null rather than as a failure.
- * @param dir The directory holding it
- * @param name The filename
- * @returns Its bytes, or null when there is no such file
- */
+/** Reads a file, treating absence as null rather than as a failure. */
 export async function readFolderFile(dir: DirectoryHandleLike, name: string): Promise<Uint8Array | null> {
   try {
     const handle = await dir.getFileHandle(name);
@@ -161,12 +137,7 @@ export async function readFolderFile(dir: DirectoryHandleLike, name: string): Pr
   }
 }
 
-/**
- * Writes a file, replacing whatever was there.
- * @param dir The directory to write into
- * @param name The filename
- * @param bytes The contents
- */
+/** Writes a file, replacing whatever was there. */
 export async function writeFolderFile(
   dir: DirectoryHandleLike,
   name: string,
@@ -178,11 +149,7 @@ export async function writeFolderFile(
   await writable.close();
 }
 
-/**
- * Deletes a file, ignoring one that is already gone.
- * @param dir The directory holding it
- * @param name The filename
- */
+/** Deletes a file, ignoring one that is already gone. */
 async function removeFile(dir: DirectoryHandleLike, name: string): Promise<void> {
   try {
     await dir.removeEntry(name);
@@ -198,11 +165,9 @@ async function removeFile(dir: DirectoryHandleLike, name: string): Promise<void>
  * mean one file read per record, and the example app re-lists on every render.
  * The cost is that the working set has to fit in memory.
  *
- * @param root The directory the user picked
  * @param path Where to keep these files inside it, `/` separating
  *   subdirectories. The full path from the folder root, so that several
  *   accounts can each have a subtree of their own.
- * @returns An adapter over that directory, already populated
  */
 export async function createFolderAdapter(root: DirectoryHandleLike, path: string): Promise<FolderAdapter> {
   const segments = path.split('/').filter(Boolean).map(encodeKey);
@@ -285,12 +250,6 @@ export async function createFolderAdapter(root: DirectoryHandleLike, path: strin
       kvCache.set(key, null);
     },
 
-    async has(key: string): Promise<boolean> {
-      const cached = kvCache.get(key);
-      if (cached !== undefined) return cached !== null;
-      return (await readFolderFile(kvDir, encodeKey(key))) !== null;
-    },
-
     async list(prefix = ''): Promise<string[]> {
       const keys: string[] = [];
       for await (const name of kvDir.keys()) {
@@ -302,17 +261,6 @@ export async function createFolderAdapter(root: DirectoryHandleLike, path: strin
         if (kvCache.get(key) === null) kvCache.delete(key);
       }
       return keys;
-    },
-
-    async queryExpressions(collection: string, limit = 50, cursor?: string): Promise<Expression[]> {
-      // Ordered so a cursor means the same thing on every device, which a
-      // directory listing on its own would not guarantee.
-      const ordered = [...expressions.values()]
-        .filter((expression) => expression.collection === collection)
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-
-      const start = cursor ? ordered.findIndex((expression) => expression.id === cursor) + 1 : 0;
-      return ordered.slice(start, start + limit);
     },
 
     async putExpression(expression: Expression): Promise<void> {

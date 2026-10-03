@@ -1,7 +1,4 @@
-/**
- * @module storage/blob/memory
- * A blob store in memory, for tests — and for trying a mirror without a service.
- */
+/** A blob store in memory, for tests — and for trying a mirror without a service. */
 import type { BlobStore } from '../blob-store.js';
 
 export function createMemoryBlobStore(): BlobStore & { readonly size: () => number } {

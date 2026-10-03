@@ -1,13 +1,4 @@
-/**
- * The kinds of field and link a person can pick when defining a
- * collection — shared by the form that makes one and the one that changes it,
- * and by everything that reads a field back: the record form, and the
- * builders for notifications and rules.
- *
- * Dates, people and web addresses have no type of their own in JSON Schema:
- * they are strings, spelled the way the standard library's fragments spell
- * them, so a field made here and one from `std.*` read back the same.
- */
+/** The kinds of field and link a person can pick when defining a collection, spelled as `std.*` fragments spell them. */
 import type { JsonSchema } from '@weaveprotocol/core';
 import { fragments } from '@weaveprotocol/core/schemas';
 import { isObject, kindOf } from './schema-ui';

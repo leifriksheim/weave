@@ -1,111 +1,11 @@
-import type { ReactNode } from 'react';
 import { Band, Feature, Page, Points } from './Site';
 import { HeroSpace } from './HeroSpace';
 
 /**
- * The front page, for communities. Its story is the one thing no platform
- * offers: a member asks an agent for a tool, the agent proposes it into the
- * space (`apps_propose`), and someone whose role allows it adds it. The mock-ups
- * are drawn in HTML after what the app shows
- * (`apps/example/src/components/apps/MadeApps.tsx`), so the page needs no images.
+ * The front page, for communities: a member asks an agent for a tool, the agent
+ * proposes it into the space, and someone whose role allows it adds it. The
+ * hero (`HeroSpace`) acts that story out; the mock-up below is drawn in HTML.
  */
-
-/** One step of the story: a number, a title, a line, and a small mock-up of the app */
-function Moment({
-  n,
-  title,
-  children,
-  mock,
-}: {
-  n: number;
-  title: string;
-  children: ReactNode;
-  mock: ReactNode;
-}) {
-  return (
-    <div className="moment">
-      <div className="moment-text">
-        <div className="step-label">Step {n}</div>
-        <h3>{title}</h3>
-        <p>{children}</p>
-      </div>
-      <div className="mock" aria-hidden>
-        {mock}
-      </div>
-    </div>
-  );
-}
-
-const ASK = (
-  <div className="chat">
-    <div className="bubble me">
-      Our team needs a carpool for Saturday’s away game. Can you add one to the club’s space?
-    </div>
-    <div className="bubble agent">
-      I’ve proposed <b>Carpool</b> in Riverside FC: rides for each match, and seats people can take. An admin
-      can add it from Apps.
-    </div>
-  </div>
-);
-
-const REVIEW = (
-  <div className="proposal">
-    <div className="proposal-head">
-      <b>Carpool</b>
-      <span className="tag">Proposal</span>
-    </div>
-    <div className="by">Maya · via agent</div>
-    <div className="allows">What it allows</div>
-    <ul>
-      <li>Any member can offer a ride</li>
-      <li>Only the driver changes their ride</li>
-      <li>One seat per person on each ride</li>
-    </ul>
-    <div className="sealed">Has its own screen. It can’t reach the internet or store anything.</div>
-    <div className="proposal-actions">
-      <span className="mini-btn primary">Add to space</span>
-      <span className="mini-btn">Read the code</span>
-    </div>
-  </div>
-);
-
-const ADDED = (
-  <div className="tiles">
-    {['Chat', 'Polls', 'Decisions', 'Kanban', 'Calls'].map((name) => (
-      <div key={name} className="tile">
-        {name}
-      </div>
-    ))}
-    <div className="tile new">
-      Carpool
-      <span>New</span>
-    </div>
-  </div>
-);
-
-const USE = (
-  <div className="carpool">
-    <div className="carpool-head">Sat · away at Northside</div>
-    {[
-      { driver: 'Anna', seats: 3, taken: 2, mine: true },
-      { driver: 'Joe', seats: 4, taken: 1, mine: false },
-    ].map((ride) => (
-      <div key={ride.driver} className="ride">
-        <div>
-          <b>{ride.driver}</b>
-          <div className="seats">
-            {Array.from({ length: ride.seats }, (_, i) => (
-              <span key={i} className={i < ride.taken ? 'seat taken' : 'seat'} />
-            ))}
-          </div>
-        </div>
-        <span className={ride.mine ? 'mini-btn' : 'mini-btn primary'}>
-          {ride.mine ? 'Your seat' : 'Take a seat'}
-        </span>
-      </div>
-    ))}
-  </div>
-);
 
 /** A proposal decided by its ballots, drawn after the Decisions app (`apps/example/src/components/apps/Decisions.tsx`) */
 const DECIDED = (
@@ -187,24 +87,26 @@ export function Home() {
           </p>
         }
       >
-        <div className="moments">
-          <Moment n={1} title="Someone asks their AI" mock={ASK}>
-            Any member with Claude, Cursor or another assistant connected describes what the group needs. The
-            assistant can’t add anything by itself. It proposes.
-          </Moment>
-          <Moment n={2} title="Everyone sees the proposal" mock={REVIEW}>
-            What it allows is worked out from its rules, not from what the assistant says about it. If it
-            brings its own screen, the code is there to read.
-          </Moment>
-          <Moment n={3} title="The group says yes" mock={ADDED}>
-            Whoever your roles allow adds it: the admins, to begin with. It sits beside the chat and the
-            polls, for everyone in the space.
-          </Moment>
-          <Moment n={4} title="Everyone uses it" mock={USE}>
-            On laptops and phones, live, and offline too. Every seat taken is checked against the rules on
-            every device, so one seat each means one seat each.
-          </Moment>
-        </div>
+        <Points
+          points={[
+            {
+              title: '1. Someone asks their AI',
+              body: 'Any member with Claude, Cursor or another assistant connected describes what the group needs. The assistant can’t add anything by itself. It proposes.',
+            },
+            {
+              title: '2. Everyone sees the proposal',
+              body: 'What it allows is worked out from its rules, not from what the assistant says about it. If it brings its own screen, the code is there to read.',
+            },
+            {
+              title: '3. The group says yes',
+              body: 'Whoever your roles allow adds it: the admins, to begin with. It sits beside the chat and the polls, for everyone in the space.',
+            },
+            {
+              title: '4. Everyone uses it',
+              body: 'On laptops and phones, live, and offline too. Every seat taken is checked against the rules on every device, so one seat each means one seat each.',
+            },
+          ]}
+        />
       </Band>
 
       <Band

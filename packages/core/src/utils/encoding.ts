@@ -6,40 +6,24 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/**
- * Encodes a string to a UTF-8 Uint8Array.
- * @param {string} str - The string to encode.
- * @returns {Uint8Array} The UTF-8 encoded bytes.
- */
+/** Encodes a string to a UTF-8 Uint8Array. */
 export function utf8Encode(str: string): Uint8Array<ArrayBuffer> {
   return encoder.encode(str);
 }
 
-/**
- * Decodes a UTF-8 Uint8Array to a string.
- * @param {Uint8Array} bytes - The bytes to decode.
- * @returns {string} The decoded string.
- */
+/** Decodes a UTF-8 Uint8Array to a string. */
 export function utf8Decode(bytes: Uint8Array): string {
   return decoder.decode(bytes);
 }
 
-/**
- * Encodes a Uint8Array to a base64url string without padding.
- * @param {Uint8Array} bytes - The bytes to encode.
- * @returns {string} The base64url encoded string.
- */
+/** Encodes a Uint8Array to a base64url string without padding. */
 export function base64UrlEncode(bytes: Uint8Array): string {
   const binString = Array.from(bytes, (byte) => String.fromCharCode(byte)).join('');
   const base64 = globalThis.btoa(binString);
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
-/**
- * Decodes a base64url string to a Uint8Array.
- * @param {string} str - The base64url string to decode.
- * @returns {Uint8Array} The decoded bytes.
- */
+/** Decodes a base64url string to a Uint8Array. */
 export function base64UrlDecode(str: string): Uint8Array<ArrayBuffer> {
   let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4) {
@@ -53,11 +37,7 @@ export function base64UrlDecode(str: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-/**
- * Concatenates multiple Uint8Arrays into a single Uint8Array.
- * @param {...Uint8Array[]} arrays - The arrays to concatenate.
- * @returns {Uint8Array} The concatenated array.
- */
+/** Concatenates multiple Uint8Arrays into a single Uint8Array. */
 export function concatBytes(...arrays: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
   const result = new Uint8Array(totalLength);
@@ -69,20 +49,12 @@ export function concatBytes(...arrays: readonly Uint8Array[]): Uint8Array<ArrayB
   return result;
 }
 
-/**
- * Encodes a Uint8Array to a hex string.
- * @param {Uint8Array} bytes - The bytes to encode.
- * @returns {string} The hex string.
- */
+/** Encodes a Uint8Array to a hex string. */
 export function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * Decodes a hex string to a Uint8Array.
- * @param {string} hex - The hex string to decode.
- * @returns {Uint8Array} The decoded bytes.
- */
+/** Decodes a hex string to a Uint8Array. */
 export function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
   if (hex.length % 2 !== 0) {
     throw new Error('Hex string must have an even length');

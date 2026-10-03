@@ -1,4 +1,14 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import { useAction } from '@weave/app-shared/action';
 import { useAccess, useAccount, useCan, useLive, useNode, useProfiles } from '@weaveprotocol/core/react';
 import { DEFINE, roleHolds } from '@weaveprotocol/core';
 import type { DirectMessage, NodeRecord, ResultOf } from '@weaveprotocol/core';
@@ -14,7 +24,7 @@ import { Modal } from '@weave/app-shared/Modal';
 import { Reactions } from '../std/Reactions';
 import { useBots } from '../../bots';
 import { MentionField, MentionList, MentionText, useMentions } from '../std/Mentions';
-import { styles, palette } from '../../styles';
+import { styles, palette, ui } from '../../styles';
 import type { AppProps } from './index';
 import { Ask, PollView, withVotes } from './Polls';
 
@@ -41,12 +51,7 @@ interface Conversation {
   readonly messages: ReadonlyArray<DirectMessage>;
 }
 
-/**
- * A chat the way a team uses one: the space's own room, the channels it adds
- * (`std.channel`), and direct messages between members (`std.direct`) that
- * only the people in them can read. A space with none of those is one room,
- * with no list beside it.
- */
+/** A team chat: the space's own room, its channels (`std.channel`) and sealed direct messages (`std.direct`). */
 export function Chat(props: AppProps) {
   const { space, collections } = props;
   const node = useNode();
@@ -154,15 +159,7 @@ function conversationsOf(messages: ReadonlyArray<DirectMessage>, me: string): Re
   return [...byGroup.values()].sort((a, b) => last(b).localeCompare(last(a)));
 }
 
-/**
- * `std.message` as a chat room: the space's own, or one channel's; oldest at
- * the top, a box at the bottom. Reactions appear when the space has
- * `std.reaction`.
- *
- * A message can share a record. When the space also has polls, `/poll` asks
- * the room one: the poll is an ordinary `std.poll`, and the message shares it,
- * so it can be voted on right here, in the Polls app, or anywhere else.
- */
+/** `std.message` as a room, where `/poll` asks a `std.poll` the message shares, to vote on right here. */
 function Room({
   space,
   collections,
@@ -188,7 +185,7 @@ function Room({
   // Messages defined before mentions were topics still carry them, but only an open app can tell
   // people; someone who may define collections can bring the space up to date so any device can.
   const access = useAccess(space.id);
-  const [updating, setUpdating] = useState(false);
+  const update = useAction();
   const outdated =
     space.writable &&
     roleHolds(access?.role, DEFINE) &&
@@ -262,199 +259,236 @@ function Room({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
-      {titled && (
-        <RoomTitle
-          name={`# ${roomName}`}
-          detail={inChannel?.body?.topic ?? (inChannel ? undefined : 'Everyone in the space')}
-        />
+    <RoomShell
+      scroller={scroller}
+      onScroll={(el) => {
+        stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      }}
+      header={
+        <>
+          {titled && (
+            <RoomTitle
+              name={`# ${roomName}`}
+              detail={inChannel?.body?.topic ?? (inChannel ? undefined : 'Everyone in the space')}
+            />
+          )}
+          {outdated && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
+                padding: '8px 12px',
+                borderBottom: `1px solid ${palette.surface.line}`,
+                background: palette.surface.sunken,
+                fontSize: 13,
+                color: palette.ink.muted,
+              }}
+            >
+              <span style={{ flex: '1 1 240px' }}>
+                Update this space's messages so channels, mentions and replies work everywhere, and notify
+                people even when the app is closed.
+              </span>
+              <button
+                onClick={() => void update.run(() => node.collections.define(space.id, message))}
+                disabled={update.busy}
+                data-variant="quiet"
+                style={{ ...styles.smallButton, height: 28 }}
+              >
+                {update.busy ? 'Updating…' : 'Update'}
+              </button>
+            </div>
+          )}
+        </>
+      }
+      footer={
+        <>
+          {asking !== null && (
+            <div style={{ padding: 12, borderTop: `1px solid ${palette.surface.line}` }}>
+              <Ask initialQuestion={asking} onAsk={sendPoll} onCancel={() => setAsking(null)} />
+            </div>
+          )}
+          {mayWrite &&
+            polls &&
+            asking === null &&
+            draft.startsWith('/') &&
+            !POLL_COMMAND.test(draft.trim()) &&
+            '/poll'.startsWith(draft.trim()) && (
+              <button
+                type="button"
+                // Keep the cursor in the box, at the end, ready for the question.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setDraft('/poll ');
+                  requestAnimationFrame(() => {
+                    const el = input.current;
+                    el?.focus();
+                    el?.setSelectionRange(el.value.length, el.value.length);
+                  });
+                }}
+                data-menu-item
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  alignItems: 'baseline',
+                  padding: '8px 12px',
+                  border: 'none',
+                  borderTop: `1px solid ${palette.surface.line}`,
+                  background: palette.surface.card,
+                  font: 'inherit',
+                  fontSize: 13,
+                  textAlign: 'left',
+                }}
+              >
+                <code style={{ color: palette.ink.strong }}>/poll</code>
+                <span style={{ color: palette.ink.muted }}>Ask the room a question</span>
+              </button>
+            )}
+          {mayWrite && (
+            <MentionList
+              suggestions={mention.suggestions}
+              choice={mention.choice}
+              people={people}
+              onPick={mention.pick}
+              style={{ borderTop: `1px solid ${palette.surface.line}` }}
+            />
+          )}
+          {mayWrite && replying && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 12px',
+                borderTop: `1px solid ${palette.surface.line}`,
+                fontSize: 13,
+                color: palette.ink.muted,
+              }}
+            >
+              <span style={{ ...ui.ellipsis, flex: 1, minWidth: 0 }}>
+                Replying to{' '}
+                <strong style={{ color: palette.ink.strong }}>{writerOf(replying, people)}</strong> ·{' '}
+                {replying.body.text}
+              </span>
+              <button
+                type="button"
+                onClick={() => setReplying(null)}
+                aria-label="Don't reply"
+                data-variant="ghost"
+                style={{ ...rowAction, fontSize: 14, padding: '0 4px' }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </>
+      }
+      composer={
+        mayWrite && {
+          onSend: send,
+          canSend: !!draft.trim(),
+          field: (
+            <MentionField
+              input={input}
+              marked={mention.marked}
+              value={draft}
+              onChange={mention.onChange}
+              onSelect={mention.onSelect}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && replying && !mention.suggestions.length) return setReplying(null);
+                mention.onKeyDown(e);
+              }}
+              placeholder={
+                replying
+                  ? 'Write a reply'
+                  : `Message ${titled ? `#${roomName}` : space.name} · @ to mention someone`
+              }
+              aria-label="Write a message"
+              style={styles.input}
+            />
+          ),
+        }
+      }
+    >
+      {messages?.length === 0 && (
+        <p style={{ margin: 'auto', fontSize: 13, color: palette.ink.faint }}>No messages yet. Say hello.</p>
       )}
-      {outdated && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            flexWrap: 'wrap',
-            padding: '8px 12px',
-            borderBottom: `1px solid ${palette.surface.line}`,
-            background: palette.surface.sunken,
-            fontSize: 13,
-            color: palette.ink.muted,
-          }}
-        >
-          <span style={{ flex: '1 1 240px' }}>
-            Update this space's messages so channels, mentions and replies work everywhere, and notify people
-            even when the app is closed.
-          </span>
-          <button
-            onClick={() => {
-              setUpdating(true);
-              void node.collections.define(space.id, message).finally(() => setUpdating(false));
-            }}
-            disabled={updating}
-            data-variant="quiet"
-            style={{ ...styles.smallButton, height: 28 }}
-          >
-            {updating ? 'Updating…' : 'Update'}
-          </button>
-        </div>
-      )}
+      {messages?.map((m, i) => {
+        const prev = messages[i - 1];
+        const answers = m.links.find((link) => link.rel === 'replyTo')?.to;
+        const answered = answers ? messages.find((other) => other.key === answers) : undefined;
+        const startsRun =
+          !!answers ||
+          !prev ||
+          prev.root !== m.root ||
+          Date.parse(m.createdAt) - Date.parse(prev.createdAt) > RUN_MS;
+        return (
+          <Fragment key={m.key}>
+            {i === firstNew && <NewSince />}
+            <MessageLine
+              record={m}
+              startsRun={startsRun}
+              name={writerOf(m, people)}
+              mine={m.root === me}
+              forMe={m.root !== me && (!!m.body.mentions?.includes(me) || m.body.replyingTo === me)}
+              answers={
+                answers
+                  ? {
+                      name: answered ? writerOf(answered, people) : nameOf(m.body.replyingTo, people),
+                      text: answered?.body.text ?? null,
+                    }
+                  : undefined
+              }
+              onReply={mayWrite ? () => reply(m) : undefined}
+              reacts={reacts}
+              people={people}
+              onDelete={() => void node.records.delete(space.id, m.key)}
+              onOpen={onOpen}
+              space={space}
+            />
+            <Working on={atWork.get(m.key)} people={people} />
+          </Fragment>
+        );
+      })}
+    </RoomShell>
+  );
+}
+
+/** A conversation's frame: its title, the messages scrolling between, and the box to write in */
+function RoomShell({
+  header,
+  scroller,
+  onScroll,
+  footer,
+  composer,
+  children,
+}: {
+  header: ReactNode;
+  scroller: RefObject<HTMLDivElement | null>;
+  onScroll?: (el: HTMLDivElement) => void;
+  footer: ReactNode;
+  /** The box to write in, or false where your role may not send */
+  composer: { field: ReactNode; canSend: boolean; onSend: () => void } | false;
+  children: ReactNode;
+}) {
+  return (
+    <div style={{ ...ui.stack, flex: 1, minHeight: 0, minWidth: 0 }}>
+      {header}
       <div
         ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        }}
-        style={{
-          // As tall as the window lets it be (`.space-content[data-fill]`).
-          flex: '1 1 0',
-          minHeight: 240,
-          overflowY: 'auto',
-          padding: '16px 16px 8px',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
+        onScroll={onScroll && ((e) => onScroll(e.currentTarget))}
+        // As tall as the window lets it be (`.space-content[data-fill]`).
+        style={{ ...ui.stack, flex: '1 1 0', minHeight: 240, overflowY: 'auto', padding: '16px 16px 8px' }}
       >
-        {messages?.length === 0 && (
-          <p style={{ margin: 'auto', fontSize: 13, color: palette.ink.faint }}>
-            No messages yet. Say hello.
-          </p>
-        )}
-        {messages?.map((m, i) => {
-          const prev = messages[i - 1];
-          const answers = m.links.find((link) => link.rel === 'replyTo')?.to;
-          const answered = answers ? messages.find((other) => other.key === answers) : undefined;
-          const startsRun =
-            !!answers ||
-            !prev ||
-            prev.root !== m.root ||
-            Date.parse(m.createdAt) - Date.parse(prev.createdAt) > RUN_MS;
-          return (
-            <Fragment key={m.key}>
-              {i === firstNew && <NewSince />}
-              <Line
-                record={m}
-                startsRun={startsRun}
-                name={writerOf(m, people)}
-                mine={m.root === me}
-                forMe={m.root !== me && (!!m.body.mentions?.includes(me) || m.body.replyingTo === me)}
-                answers={
-                  answers
-                    ? {
-                        name: answered ? writerOf(answered, people) : nameOf(m.body.replyingTo, people),
-                        text: answered?.body.text ?? null,
-                      }
-                    : undefined
-                }
-                onReply={mayWrite ? () => reply(m) : undefined}
-                reacts={reacts}
-                people={people}
-                onDelete={() => void node.records.delete(space.id, m.key)}
-                onOpen={onOpen}
-                space={space}
-              />
-              <Working on={atWork.get(m.key)} people={people} />
-            </Fragment>
-          );
-        })}
+        {children}
       </div>
-      {asking !== null && (
-        <div style={{ padding: 12, borderTop: `1px solid ${palette.surface.line}` }}>
-          <Ask initialQuestion={asking} onAsk={sendPoll} onCancel={() => setAsking(null)} />
-        </div>
-      )}
-      {mayWrite &&
-        polls &&
-        asking === null &&
-        draft.startsWith('/') &&
-        !POLL_COMMAND.test(draft.trim()) &&
-        '/poll'.startsWith(draft.trim()) && (
-          <button
-            type="button"
-            // Keep the cursor in the box, at the end, ready for the question.
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              setDraft('/poll ');
-              requestAnimationFrame(() => {
-                const el = input.current;
-                el?.focus();
-                el?.setSelectionRange(el.value.length, el.value.length);
-              });
-            }}
-            data-menu-item
-            style={{
-              display: 'flex',
-              gap: 10,
-              alignItems: 'baseline',
-              padding: '8px 12px',
-              border: 'none',
-              borderTop: `1px solid ${palette.surface.line}`,
-              background: palette.surface.card,
-              font: 'inherit',
-              fontSize: 13,
-              textAlign: 'left',
-            }}
-          >
-            <code style={{ color: palette.ink.strong }}>/poll</code>
-            <span style={{ color: palette.ink.muted }}>Ask the room a question</span>
-          </button>
-        )}
-      {mayWrite && (
-        <MentionList
-          suggestions={mention.suggestions}
-          choice={mention.choice}
-          people={people}
-          onPick={mention.pick}
-          style={{ borderTop: `1px solid ${palette.surface.line}` }}
-        />
-      )}
-      {mayWrite && replying && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 12px',
-            borderTop: `1px solid ${palette.surface.line}`,
-            fontSize: 13,
-            color: palette.ink.muted,
-          }}
-        >
-          <span
-            style={{
-              flex: 1,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Replying to <strong style={{ color: palette.ink.strong }}>{writerOf(replying, people)}</strong> ·{' '}
-            {replying.body.text}
-          </span>
-          <button
-            type="button"
-            onClick={() => setReplying(null)}
-            aria-label="Don't reply"
-            data-variant="ghost"
-            style={{
-              border: 'none',
-              background: 'none',
-              color: palette.ink.faint,
-              fontSize: 14,
-              padding: '0 4px',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      {mayWrite ? (
+      {footer}
+      {composer ? (
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            send();
+            composer.onSend();
           }}
           style={{
             display: 'flex',
@@ -464,25 +498,8 @@ function Room({
             background: palette.surface.sunken,
           }}
         >
-          <MentionField
-            input={input}
-            marked={mention.marked}
-            value={draft}
-            onChange={mention.onChange}
-            onSelect={mention.onSelect}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape' && replying && !mention.suggestions.length) return setReplying(null);
-              mention.onKeyDown(e);
-            }}
-            placeholder={
-              replying
-                ? 'Write a reply'
-                : `Message ${titled ? `#${roomName}` : space.name} · @ to mention someone`
-            }
-            aria-label="Write a message"
-            style={styles.input}
-          />
-          <button type="submit" disabled={!draft.trim()} data-variant="primary" style={styles.addButton}>
+          {composer.field}
+          <button type="submit" disabled={!composer.canSend} data-variant="primary" style={styles.addButton}>
             Send
           </button>
         </form>
@@ -502,11 +519,7 @@ function Room({
   );
 }
 
-/**
- * Every message, oldest first, with its reactions and whatever it shares —
- * with a shared poll's votes. Asking for what a space has not defined yet
- * simply finds nothing.
- */
+/** Every message, oldest first, with its reactions and what it shares (a shared poll with its votes) */
 const CHAT = {
   collection: message,
   sort: { '@createdAt': 'asc' },
@@ -521,7 +534,93 @@ const reactionsOf = (m: ChatMessage) => m.included.reactions;
 /** The record a message shares, when it has one and this device holds it */
 const sharedOf = (m: ChatMessage) => m.included.shared[0] ?? null;
 
+const rowAction: CSSProperties = {
+  border: 'none',
+  background: 'none',
+  fontSize: 12,
+  color: palette.ink.faint,
+  padding: '2px 4px',
+};
+const textStyle: CSSProperties = {
+  fontSize: 14,
+  lineHeight: 1.5,
+  color: palette.ink.body,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+};
+
+function RowAction({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button onClick={onClick} data-row-action data-variant="ghost" aria-label={label} style={rowAction}>
+      {children}
+    </button>
+  );
+}
+
+/** One message: its writer when it starts a run, what it says, and what can be done with it */
 function Line({
+  from,
+  at,
+  name,
+  startsRun,
+  forMe,
+  answers,
+  below,
+  children,
+}: {
+  from: string;
+  at: string;
+  name: string;
+  startsRun: boolean;
+  /** It mentions you, or replies to you: marked the way chat apps mark what is yours to answer */
+  forMe?: boolean;
+  /** The message it replies to: who wrote it, and its text when this device has it */
+  answers?: { name: string; text: string | null } | undefined;
+  below?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      data-row
+      style={{
+        display: 'flex',
+        gap: 10,
+        padding: '2px 8px',
+        margin: `${startsRun ? 10 : 0}px -8px 0`,
+        borderRadius: 6,
+        ...(forMe ? { background: FOR_ME, boxShadow: `inset 3px 0 0 ${FOR_ME_EDGE}` } : {}),
+      }}
+    >
+      <div style={{ width: 28, flexShrink: 0 }}>{startsRun && <Avatar did={from} size={28} />}</div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        {answers && (
+          <div style={{ ...ui.ellipsis, fontSize: 12, color: palette.ink.muted }}>
+            ↳ Replying to <strong style={{ fontWeight: 600 }}>{answers.name}</strong>
+            {answers.text ? ` · ${answers.text}` : ''}
+          </div>
+        )}
+        {startsRun && (
+          <div style={{ fontSize: 13 }}>
+            <strong style={{ fontWeight: 600, color: palette.ink.strong }}>{name}</strong>
+            <span style={{ color: palette.ink.faint }}> · {at}</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>{children}</div>
+        {below}
+      </div>
+    </div>
+  );
+}
+
+function MessageLine({
   record,
   startsRun,
   name,
@@ -539,9 +638,7 @@ function Line({
   startsRun: boolean;
   name: string;
   mine: boolean;
-  /** It mentions you, or replies to you: marked the way chat apps mark what is yours to answer */
   forMe: boolean;
-  /** The message it replies to: who wrote it, and its text when this device has it */
   answers: { name: string; text: string | null } | undefined;
   onReply: (() => void) | undefined;
   /** The space has reactions */
@@ -557,128 +654,68 @@ function Line({
   const sharesPoll = shared?.collection === poll.name;
   const reactions = reactionsOf(record);
   return (
-    <div
-      data-row
-      style={{
-        display: 'flex',
-        gap: 10,
-        padding: '2px 8px',
-        margin: `${startsRun ? 10 : 0}px -8px 0`,
-        borderRadius: 6,
-        ...(forMe ? { background: FOR_ME, boxShadow: `inset 3px 0 0 ${FOR_ME_EDGE}` } : {}),
-      }}
-    >
-      <div style={{ width: 28, flexShrink: 0 }}>
-        {startsRun && <Avatar did={record.root ?? record.author} size={28} />}
-      </div>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        {answers && (
-          <div
-            style={{
-              fontSize: 12,
-              color: palette.ink.muted,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            ↳ Replying to <strong style={{ fontWeight: 600 }}>{answers.name}</strong>
-            {answers.text ? ` · ${answers.text}` : ''}
-          </div>
-        )}
-        {startsRun && (
-          <div style={{ fontSize: 13 }}>
-            <strong style={{ fontWeight: 600, color: palette.ink.strong }}>{name}</strong>
-            <span style={{ color: palette.ink.faint }}> · {ago(record.createdAt)}</span>
-          </div>
-        )}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-          {sharesPoll ? (
-            // The poll says it better than the message's fallback text.
-            <div style={{ flex: 1, minWidth: 0, maxWidth: 480, margin: '4px 0' }}>
-              <PollView space={space} record={shared} onOpen={onOpen} />
-            </div>
-          ) : (
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p
-                style={{
-                  fontSize: 14,
-                  lineHeight: 1.5,
-                  color: palette.ink.body,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}
-              >
-                <MentionText text={record.body.text} mentions={record.body.mentions} people={people} />
-              </p>
-              {shared && (
-                <button
-                  onClick={() => onOpen(shared)}
-                  data-variant="quiet"
-                  style={{ ...styles.smallButton, height: 28, marginTop: 4 }}
-                >
-                  Open shared record
-                </button>
-              )}
-            </div>
-          )}
-          {/* Until someone reacts, adding one is a row action, so hovering doesn't make the row taller. */}
-          {reacts && !reactions.length && (
-            <Reactions
-              space={space}
-              target={record.key}
-              targetAuthor={record.root}
-              reactions={reactions}
-              compact
-            />
-          )}
-          {onReply && (
-            <button
-              onClick={onReply}
-              data-row-action
-              data-variant="ghost"
-              aria-label={`Reply to ${name}`}
-              style={{
-                border: 'none',
-                background: 'none',
-                fontSize: 12,
-                color: palette.ink.faint,
-                padding: '2px 4px',
-              }}
-            >
-              Reply
-            </button>
-          )}
-          {/* A shared poll has its own Delete; two would be confusing. */}
-          {mine && space.writable && !sharesPoll && (
-            <button
-              onClick={onDelete}
-              data-row-action
-              data-variant="ghost"
-              aria-label="Delete message"
-              style={{
-                border: 'none',
-                background: 'none',
-                fontSize: 12,
-                color: palette.ink.faint,
-                padding: '2px 4px',
-              }}
-            >
-              Delete
-            </button>
-          )}
-        </div>
-        {reacts && reactions.length > 0 && (
+    <Line
+      from={record.root ?? record.author}
+      at={ago(record.createdAt)}
+      name={name}
+      startsRun={startsRun}
+      forMe={forMe}
+      answers={answers}
+      below={
+        reacts &&
+        reactions.length > 0 && (
           <div style={{ margin: '4px 0 6px' }}>
             <Reactions space={space} target={record.key} targetAuthor={record.root} reactions={reactions} />
           </div>
-        )}
-      </div>
-    </div>
+        )
+      }
+    >
+      {sharesPoll ? (
+        // The poll says it better than the message's fallback text.
+        <div style={{ flex: 1, minWidth: 0, maxWidth: 480, margin: '4px 0' }}>
+          <PollView space={space} record={shared} onOpen={onOpen} />
+        </div>
+      ) : (
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={textStyle}>
+            <MentionText text={record.body.text} mentions={record.body.mentions} people={people} />
+          </p>
+          {shared && (
+            <button
+              onClick={() => onOpen(shared)}
+              data-variant="quiet"
+              style={{ ...styles.smallButton, height: 28, marginTop: 4 }}
+            >
+              Open shared record
+            </button>
+          )}
+        </div>
+      )}
+      {/* Until someone reacts, adding one is a row action, so hovering doesn't make the row taller. */}
+      {reacts && !reactions.length && (
+        <Reactions
+          space={space}
+          target={record.key}
+          targetAuthor={record.root}
+          reactions={reactions}
+          compact
+        />
+      )}
+      {onReply && (
+        <RowAction label={`Reply to ${name}`} onClick={onReply}>
+          Reply
+        </RowAction>
+      )}
+      {/* A shared poll has its own Delete; two would be confusing. */}
+      {mine && space.writable && !sharesPoll && (
+        <RowAction label="Delete message" onClick={onDelete}>
+          Delete
+        </RowAction>
+      )}
+    </Line>
   );
 }
 
-/** The line above the first message that arrived since you last looked */
 /** Who is at work on a message now: a bot replying, an agent on it */
 function Working({ on, people }: { on: ReadonlyArray<AtWork> | undefined; people: People }) {
   if (!on?.length) return null;
@@ -698,6 +735,7 @@ function Working({ on, people }: { on: ReadonlyArray<AtWork> | undefined; people
   );
 }
 
+/** The line above the first message that arrived since you last looked */
 function NewSince() {
   return (
     <div
@@ -756,10 +794,7 @@ function RoomTitle({ name, detail }: { name: string; detail?: string | undefined
   );
 }
 
-/**
- * The list beside the chat: the space's own room and its channels, then
- * conversations of direct messages. On a phone it is a row above the chat.
- */
+/** The list beside the chat: rooms, then direct conversations; a row above it on a phone */
 function Places({
   space,
   people,
@@ -784,7 +819,7 @@ function Places({
   // The same function every render: the dialog takes a new one as a reason to move focus again.
   const stopAdding = useCallback(() => setAdding(null), []);
   const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { run, busy } = useAction();
   const inRoom = (key: string | null) => place.kind === 'room' && place.channel === key;
   const inDirect = (group: ReadonlyArray<string>) => place.kind === 'direct' && sameGroup(place.with, group);
   // A conversation just started, before anything is sent in it: listed while it's open, gone if left empty.
@@ -795,14 +830,11 @@ function Places({
   const submitChannel = async () => {
     const trimmed = name.trim();
     if (!trimmed || !onAddChannel) return;
-    setBusy(true);
-    try {
+    await run(async () => {
       await onAddChannel(trimmed);
       setName('');
       setAdding(null);
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
@@ -898,11 +930,7 @@ function Places({
   );
 }
 
-/**
- * Who to write to: everyone who can be written to, ticked one or more at a
- * time. Picking opens the conversation; it stays in the list once something
- * is sent in it.
- */
+/** Who to write to, one or more; the conversation stays listed once something is sent */
 function NewConversation({
   people,
   reachable,
@@ -1087,11 +1115,7 @@ function PlaceButton({
   );
 }
 
-/**
- * A conversation of direct messages. What is written here is sealed for the
- * people in it (`node.direct`): the rest of the space sees that you wrote to
- * them, and when, but not what.
- */
+/** Direct messages, sealed for the people in them: the rest of the space sees only that you wrote. */
 function DirectRoom({
   space,
   people,
@@ -1107,7 +1131,7 @@ function DirectRoom({
   const { did: me } = useAccount();
   const atWork = useActivity(space.id);
   const [draft, setDraft] = useState('');
-  const [problem, setProblem] = useState<string | null>(null);
+  const { run, error } = useAction();
   const scroller = useRef<HTMLDivElement>(null);
   const names = others.map((did) => nameOf(did, people)).join(', ');
 
@@ -1120,167 +1144,97 @@ function DirectRoom({
     const text = draft.trim();
     if (!text) return;
     setDraft('');
-    setProblem(null);
-    node.direct.send(space.id, others, text).catch((error: unknown) => {
-      setDraft(text);
-      setProblem(error instanceof Error ? error.message : String(error));
-    });
+    void run(() => node.direct.send(space.id, others, text)).then((sent) => sent || setDraft(text));
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
-      <RoomTitle
-        name={names}
-        detail={
-          others.length === 1 ? 'Only the two of you can read this' : 'Only the people here can read this'
-        }
-      />
-      <div
-        ref={scroller}
-        style={{
-          flex: '1 1 0',
-          minHeight: 240,
-          overflowY: 'auto',
-          padding: '16px 16px 8px',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        {messages.length === 0 && (
+    <RoomShell
+      scroller={scroller}
+      header={
+        <RoomTitle
+          name={names}
+          detail={
+            others.length === 1 ? 'Only the two of you can read this' : 'Only the people here can read this'
+          }
+        />
+      }
+      footer={
+        error && (
           <p
             style={{
-              margin: 'auto',
-              maxWidth: 320,
-              textAlign: 'center',
+              padding: '8px 12px',
               fontSize: 13,
-              color: palette.ink.faint,
+              color: palette.accent.danger,
+              borderTop: `1px solid ${palette.surface.line}`,
             }}
           >
-            Messages here are sealed for {names} and you. Others in {space.name} see that you wrote, not what.
+            {error}
           </p>
-        )}
-        {messages.map((m, i) => {
-          const prev = messages[i - 1];
-          const startsRun =
-            !prev || prev.from !== m.from || Date.parse(m.createdAt) - Date.parse(prev.createdAt) > RUN_MS;
-          return (
-            <Fragment key={m.key}>
-              <div
-                data-row
+        )
+      }
+      composer={
+        space.writable && {
+          onSend: send,
+          canSend: !!draft.trim(),
+          field: (
+            <input
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={`Message ${names}`}
+              aria-label="Write a direct message"
+              style={{ ...styles.input, flex: 1 }}
+            />
+          ),
+        }
+      }
+    >
+      {messages.length === 0 && (
+        <p
+          style={{
+            margin: 'auto',
+            maxWidth: 320,
+            textAlign: 'center',
+            fontSize: 13,
+            color: palette.ink.faint,
+          }}
+        >
+          Messages here are sealed for {names} and you. Others in {space.name} see that you wrote, not what.
+        </p>
+      )}
+      {messages.map((m, i) => {
+        const prev = messages[i - 1];
+        const startsRun =
+          !prev || prev.from !== m.from || Date.parse(m.createdAt) - Date.parse(prev.createdAt) > RUN_MS;
+        return (
+          <Fragment key={m.key}>
+            <Line
+              from={m.from}
+              at={`${ago(m.createdAt)}${m.viaAgent ? ' · via agent' : ''}`}
+              name={nameOf(m.from, people)}
+              startsRun={startsRun}
+            >
+              <p
                 style={{
-                  display: 'flex',
-                  gap: 10,
-                  padding: '2px 8px',
-                  margin: `${startsRun ? 10 : 0}px -8px 0`,
-                  borderRadius: 6,
+                  ...textStyle,
+                  flex: 1,
+                  minWidth: 0,
+                  color: m.text === null ? palette.ink.faint : palette.ink.body,
+                  fontStyle: m.text === null ? 'italic' : undefined,
                 }}
               >
-                <div style={{ width: 28, flexShrink: 0 }}>
-                  {startsRun && <Avatar did={m.from} size={28} />}
-                </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  {startsRun && (
-                    <div style={{ fontSize: 13 }}>
-                      <strong style={{ fontWeight: 600, color: palette.ink.strong }}>
-                        {nameOf(m.from, people)}
-                      </strong>
-                      <span style={{ color: palette.ink.faint }}>
-                        {' '}
-                        · {ago(m.createdAt)}
-                        {m.viaAgent ? ' · via agent' : ''}
-                      </span>
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    <p
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        fontSize: 14,
-                        lineHeight: 1.5,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        color: m.text === null ? palette.ink.faint : palette.ink.body,
-                        fontStyle: m.text === null ? 'italic' : undefined,
-                      }}
-                    >
-                      {m.text ?? "This device can't open this message."}
-                    </p>
-                    {m.from === me && space.writable && (
-                      <button
-                        onClick={() => void node.records.delete(space.id, m.key)}
-                        data-row-action
-                        data-variant="ghost"
-                        aria-label="Delete message"
-                        style={{
-                          border: 'none',
-                          background: 'none',
-                          fontSize: 12,
-                          color: palette.ink.faint,
-                          padding: '2px 4px',
-                        }}
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <Working on={atWork.get(m.key)} people={people} />
-            </Fragment>
-          );
-        })}
-      </div>
-      {problem && (
-        <p
-          style={{
-            padding: '8px 12px',
-            fontSize: 13,
-            color: palette.accent.danger,
-            borderTop: `1px solid ${palette.surface.line}`,
-          }}
-        >
-          {problem}
-        </p>
-      )}
-      {space.writable ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-          style={{
-            display: 'flex',
-            gap: 8,
-            padding: 12,
-            borderTop: `1px solid ${palette.surface.line}`,
-            background: palette.surface.sunken,
-          }}
-        >
-          <input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={`Message ${names}`}
-            aria-label="Write a direct message"
-            style={{ ...styles.input, flex: 1 }}
-          />
-          <button type="submit" disabled={!draft.trim()} data-variant="primary" style={styles.addButton}>
-            Send
-          </button>
-        </form>
-      ) : (
-        <p
-          style={{
-            padding: 12,
-            fontSize: 13,
-            color: palette.ink.muted,
-            borderTop: `1px solid ${palette.surface.line}`,
-          }}
-        >
-          Your role here doesn't let you send messages.
-        </p>
-      )}
-    </div>
+                {m.text ?? "This device can't open this message."}
+              </p>
+              {m.from === me && space.writable && (
+                <RowAction label="Delete message" onClick={() => void node.records.delete(space.id, m.key)}>
+                  Delete
+                </RowAction>
+              )}
+            </Line>
+            <Working on={atWork.get(m.key)} people={people} />
+          </Fragment>
+        );
+      })}
+    </RoomShell>
   );
 }

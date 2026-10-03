@@ -1,5 +1,9 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import type { DefineCollection, JsonSchema, NodeCollection } from '@weaveprotocol/core';
+import { roleHolds } from '@weaveprotocol/core';
+import type { DefineCollection, JsonSchema, NodeCollection, SpaceSummary } from '@weaveprotocol/core';
+import { useAccess, useAccount, useCollections, useNode, useProfiles } from '@weaveprotocol/core/react';
+import { useAction } from '@weave/app-shared/action';
+import { nameOf, peopleFrom } from '../derive/people';
 import { collectionLabel, humanize, isObject } from '../derive/schema-ui';
 import {
   FIELD_TYPES,
@@ -13,7 +17,7 @@ import {
   type FieldTypeName,
 } from '../derive/field-types';
 import { SchemaForm } from './SchemaForm';
-import { styles, palette } from '../styles';
+import { styles, palette, ui } from '../styles';
 
 type LinkDeclaration = NonNullable<DefineCollection['links']>[string];
 
@@ -144,31 +148,37 @@ function schemaOf(field: FieldDraft): JsonSchema {
     : rest;
 }
 
-/**
- * What a collection is, made or changed by someone who has never seen a
- * schema: its name, its fields as things people recognise (a date, a
- * person, a choice), what it can point at, and who may change it — with a
- * preview of the form everyone will fill in. It writes an ordinary
- * definition, JSON Schema and all; anything it doesn't understand is kept
- * as it was.
- */
-export function CollectionDesigner({
+/** Whether this account may change a collection's definition, and if not, why */
+export function useMayRedefine(
+  space: SpaceSummary,
+  collection: NodeCollection | null,
+): { may: boolean; reason: string } {
+  const account = useAccount();
+  const access = useAccess(space.id);
+  const people = peopleFrom(useProfiles(space.id));
+  if (!collection) return { may: false, reason: '' };
+  if (collection.definedBy === account.did || roleHolds(access?.role, 'manage'))
+    return { may: true, reason: '' };
+  const definer = collection.definedBy ? nameOf(collection.definedBy, people) : 'whoever made it';
+  return {
+    may: false,
+    reason: `Only ${definer}, or someone who manages the space, can change what ${collectionLabel(collection)} is.`,
+  };
+}
+
+/** Makes a collection (null) or changes one, writing an ordinary definition and keeping what it doesn't understand */
+export function CollectionEditor({
+  space,
   collection,
-  collections,
-  onSave,
-  onCancel,
-  onDelete,
-  cannotDelete,
+  onDone,
 }: {
-  /** The collection being changed; null to make one */
+  space: SpaceSummary;
   collection: NodeCollection | null;
-  collections: ReadonlyArray<NodeCollection>;
-  onSave: (definition: DefineCollection) => Promise<void>;
-  onCancel: () => void;
-  onDelete?: () => Promise<void>;
-  /** Why it can't be deleted, when it can't */
-  cannotDelete?: string | null;
+  /** The collection's name once saved; null when cancelled or deleted */
+  onDone: (name: string | null) => void;
 }) {
+  const node = useNode();
+  const collections = useCollections(space.id);
   const making = collection === null;
   const [title, setTitle] = useState(collection ? collectionLabel(collection) : '');
   const [description, setDescription] = useState(collection?.description ?? '');
@@ -189,8 +199,7 @@ export function CollectionDesigner({
   const [onePer, setOnePer] = useState(false);
   const [template, setTemplate] = useState('Blank');
   const [picking, setPicking] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { run, busy, error, setError } = useAction();
   const labels = useRef(new Map<number, HTMLInputElement>());
 
   const slug = title
@@ -286,9 +295,8 @@ export function CollectionDesigner({
     const permissions = [
       ...new Set([...(collection?.permissions ?? []), ...(who === 'creator' ? ['moderate'] : [])]),
     ];
-    setBusy(true);
-    try {
-      await onSave({
+    await run(async () => {
+      await node.collections.define(space.id, {
         name,
         title: title.trim(),
         ...(description.trim() ? { description: description.trim() } : {}),
@@ -298,13 +306,24 @@ export function CollectionDesigner({
         permissions,
         rules,
       });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setBusy(false);
-    }
+      onDone(name);
+    });
+  };
+  const label = collection ? collectionLabel(collection) : '';
+  // Only an empty collection: records left without a definition would lose their shape and rules.
+  const cannotDelete = collection?.records
+    ? `Delete its ${collection.records === 1 ? 'one record' : `${collection.records} records`} first. A definition can only be deleted once nothing uses it.`
+    : null;
+  const remove = (gone: NodeCollection) => {
+    if (!globalThis.confirm(`Delete the definition of ${label}? It's removed for everyone in the space.`))
+      return;
+    void run(async () => {
+      await node.collections.delete(space.id, gone.name);
+      onDone(null);
+    });
   };
 
-  return (
+  const designer = (
     <div className="designer" style={{ display: 'grid', gap: 28, alignItems: 'start' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28, minWidth: 0 }}>
         <section style={section}>
@@ -645,16 +664,16 @@ export function CollectionDesigner({
           </button>
           <button
             type="button"
-            onClick={onCancel}
+            onClick={() => onDone(null)}
             data-variant="quiet"
             style={{ ...styles.smallButton, height: 40 }}
           >
             Cancel
           </button>
-          {onDelete && (
+          {collection && (
             <button
               type="button"
-              onClick={() => void onDelete()}
+              onClick={() => remove(collection)}
               disabled={busy || !!cannotDelete}
               title={cannotDelete ?? undefined}
               data-variant="danger"
@@ -684,6 +703,18 @@ export function CollectionDesigner({
         </fieldset>
       </aside>
     </div>
+  );
+  if (!collection) return designer;
+  return (
+    <section aria-label={`Edit what ${label} is`} style={{ ...ui.stack, gap: 20 }}>
+      <header style={{ ...ui.stack, gap: 4 }}>
+        <h2 style={{ ...styles.appTitle, fontSize: 22 }}>Edit {label}</h2>
+        <p style={{ fontSize: 13, color: palette.ink.muted, lineHeight: 1.5 }}>
+          What every {label.toLowerCase()} is. Every device in the space checks new ones against it.
+        </p>
+      </header>
+      {designer}
+    </section>
   );
 }
 
@@ -822,7 +853,7 @@ const toggle: CSSProperties = {
   color: palette.ink.muted,
   whiteSpace: 'nowrap',
 };
-const chip: CSSProperties = { ...styles.smallButton, height: 28, borderRadius: 999, fontSize: 12.5 };
+const chip: CSSProperties = { ...ui.chip, padding: '0 12px' };
 const optionChip: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',

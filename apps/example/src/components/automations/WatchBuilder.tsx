@@ -17,18 +17,7 @@ type Where = 'space' | 'all';
 /** How many of the newest records the preview looks through */
 const LOOK_BACK = 50;
 
-/**
- * "Notify me when…", built by picking. Any collection in the space, and any
- * of its fields as a condition, in the words its schema gives — a task whose
- * status is Done, a poll someone else asks, a message that mentions me. What
- * a carrier can match goes in the subscription's topic, the rest in its
- * `where`, which this app judges when a record arrives.
- *
- * Before asking, it shows what the notification would have caught lately,
- * so nobody has to imagine what a condition means. The account home then
- * asks the person to confirm, as it does for every notification an app
- * proposes.
- */
+/** "Notify me when…" picked from a collection's fields, showing what it would have caught lately before the home asks to confirm */
 export function WatchBuilder({
   space,
   collections,

@@ -1,5 +1,5 @@
 /**
- * @fileoverview WebRTC signaling over one WebSocket to a relay.
+ * WebRTC signaling over one WebSocket to a relay.
  *
  * One socket serves every room this peer is in: it joins and leaves rooms as
  * spaces open and close, and joins them all again after a reconnect. It
@@ -8,6 +8,7 @@
  */
 import { createEmitter } from '../utils/events.js';
 import { isObject } from '../utils/guards.js';
+import { backoff, createRetry } from '../utils/backoff.js';
 
 /** What a peer's connection offer, answer or candidate is */
 export type SignalKind = 'offer' | 'answer' | 'candidate';
@@ -133,12 +134,6 @@ const MAX_BACKOFF_MS = 30_000;
 const DID_TAKEN_WAIT_MS = 10_000;
 const MAX_DID_TAKEN_WAIT_MS = 60_000;
 
-/** Waits a little longer each time, spread out so peers that dropped together do not return together. */
-function backoff(failures: number): number {
-  const base = Math.min(1000 * 2 ** failures, MAX_BACKOFF_MS);
-  return Math.round(base * (0.8 + Math.random() * 0.4));
-}
-
 /** Why a socket closed, for a person to read */
 function closeReason(code: number | undefined, reason: string | undefined, opened: boolean): string {
   if (code === CLOSE_DID_TAKEN)
@@ -148,21 +143,14 @@ function closeReason(code: number | undefined, reason: string | undefined, opene
 }
 
 /**
- * Creates a new signaling client.
- *
  * Once connected it stays connected: a socket that closes is opened again,
  * waiting longer each time up to 30 seconds and never giving up, and sooner
  * when the device comes back online or its page is looked at again. Only
  * `disconnect` stops it.
- *
- * @param url - The relay's WebSocket URL.
- * @param did - The decentralized identifier of this peer.
- * @returns The signaling client instance.
  */
 export function createSignalingClient(url: string, did: string): SignalingClient {
   let ws: WebSocket | null = null;
   let wanted = false;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
   /** Refusals in a row; the count of failures cannot tell them, since a refused socket did open */
   let refusals = 0;
   const rooms = new Set<string>();
@@ -191,20 +179,11 @@ export function createSignalingClient(url: string, did: string): SignalingClient
     ws.send(JSON.stringify({ ...msg, from: did }));
   };
 
-  const clearRetry = (): void => {
-    if (retryTimer) clearTimeout(retryTimer);
-    retryTimer = null;
-  };
-
+  // A failed open's close schedules the next try.
+  const retry = createRetry(() => open().catch(() => {}));
   const scheduleRetry = (delay: number): void => {
-    clearRetry();
     setStatus({ state: 'waiting', retryAt: Date.now() + delay });
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      open().catch(() => {
-        // Its close schedules the next try.
-      });
-    }, delay);
+    retry.schedule(delay);
   };
 
   /** Opens a socket, unless one is open or opening. Settles when it opens or fails. */
@@ -214,7 +193,7 @@ export function createSignalingClient(url: string, did: string): SignalingClient
         resolve();
         return;
       }
-      clearRetry();
+      retry.clear();
 
       let socket: WebSocket;
       try {
@@ -222,7 +201,7 @@ export function createSignalingClient(url: string, did: string): SignalingClient
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         setStatus({ failures: status.failures + 1, problem: error.message });
-        if (wanted) scheduleRetry(backoff(status.failures));
+        if (wanted) scheduleRetry(backoff(status.failures, MAX_BACKOFF_MS));
         reject(error);
         return;
       }
@@ -296,7 +275,7 @@ export function createSignalingClient(url: string, did: string): SignalingClient
         scheduleRetry(
           refused
             ? Math.min(DID_TAKEN_WAIT_MS * 2 ** (refusals - 1), MAX_DID_TAKEN_WAIT_MS)
-            : backoff(failures),
+            : backoff(failures, MAX_BACKOFF_MS),
         );
       };
     });
@@ -330,7 +309,7 @@ export function createSignalingClient(url: string, did: string): SignalingClient
     const was = status.state === 'open';
     if (wanted) listen(false);
     wanted = false;
-    clearRetry();
+    retry.clear();
     const socket = ws;
     ws = null;
     socket?.close();

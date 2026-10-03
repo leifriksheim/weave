@@ -3,27 +3,19 @@
  * saying it is one, and what each person may spend. Which rules run, and what
  * sets them off, is core's (`packages/core/tests/rule-runners.test.ts`).
  */
-import { test, describe, after } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 
 import { openTrigger, ruleContext, triggerPrompt, writerInstructs } from '../src/agent-rules.js';
-import { offered } from '../src/mcp.js';
+import { offeredActions } from '../../core/src/node/actions.js';
+import { aNode, onHub, tempDir } from './helpers/nodes.js';
 import { runRules } from '../src/bot-runner.js';
-import { createNode } from '../../core/src/node/node.js';
-import type { P2PNode } from '../../core/src/node/types.js';
-import { createIdentityManager } from '../../core/src/identity/identity-manager.js';
-import { createLocalRootSigner } from '../../core/src/identity/root-signer.js';
-import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
 import { until } from '../../core/tests/helpers/until.js';
 import { createFakeHub, type FakeHub } from '../../core/tests/helpers/fake-transport.js';
 import { hold } from '../../core/tests/helpers/hold.js';
 import { joined } from '../../core/tests/helpers/joined.js';
 import { fileSpend, spendFor } from '../src/agent-chat.js';
 import { discloseBot, nameBot } from '../src/agent.js';
-import { deriveVaultKeyBytes } from '../../core/src/identity/account-vault.js';
 import { community } from '../../core/src/space/presets.js';
 import {
   activity,
@@ -36,26 +28,9 @@ import {
   type Rule,
 } from '../../core/src/schemas/index.js';
 
-const nodes: P2PNode[] = [];
-after(async () => {
-  await Promise.all(nodes.map((node) => node.close()));
-});
-
 /** Someone on the network, with an account of their own; with `account`, one that follows its account space, where its name is kept */
-async function member(hub: FakeHub, fill: number, options: { account?: boolean } = {}) {
-  const manager = createIdentityManager();
-  const seed = new Uint8Array(16).fill(fill);
-  const me = await manager.fromSeed(seed);
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    stores: memoryStores(),
-    ...(options.account ? { accountKey: await deriveVaultKeyBytes(seed) } : {}),
-    watchIntervalMs: 0,
-    network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
-  });
-  nodes.push(node);
-  return node;
-}
+const member = (hub: FakeHub, fill: number, options: { account?: boolean } = {}) =>
+  aNode(fill, { ...options, network: onHub(hub) });
 
 describe('a rule that asks the model', () => {
   test('is told the rule’s words, and what set it off marked as data', async () => {
@@ -129,7 +104,7 @@ describe('while a rule runs', () => {
     let asked = '';
     let prompt = '';
     let turn = 0;
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-run-'));
+    const dir = await tempDir('weave-run-');
     const stop = runRules({
       node,
       account: node.did,
@@ -185,7 +160,6 @@ describe('while a rule runs', () => {
       assert.equal((await activityOf(asked))?.label, 'Reading the thread', 'its own words, kept when done');
     } finally {
       stop();
-      await rm(dir, { recursive: true, force: true });
     }
   });
 });
@@ -243,7 +217,7 @@ describe('a bot', () => {
   });
 
   test('reads a direct message that sets a rule off, with the conversation before it, and answers in private', async () => {
-    const names = (options: { agent?: boolean; bot?: boolean }) => offered(options).map((a) => a.name);
+    const names = (options: { agent?: boolean; bot?: boolean }) => offeredActions(options).map((a) => a.name);
     assert.ok(names({ bot: true }).includes('direct_send'), 'a bot holds its own member key');
     assert.ok(!names({ agent: true }).includes('direct_send'), 'an agent is given none');
 
@@ -446,17 +420,12 @@ describe('a bot’s name', () => {
 
 describe('spending', () => {
   test('counts each person’s share of the day, as well as the total', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-spend-'));
-    try {
-      const spend = fileSpend(dir);
-      await spendFor(spend, 'did:bob').add(0.25);
-      await spendFor(spend, 'did:bob').add(0.25);
-      await spend.add(0.1);
-      assert.equal(await spend.today(), 0.6);
-      assert.equal(await spend.today('did:bob'), 0.5);
-      assert.equal(await spend.today('did:carol'), 0);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    const spend = fileSpend(await tempDir('weave-spend-'));
+    await spendFor(spend, 'did:bob').add(0.25);
+    await spendFor(spend, 'did:bob').add(0.25);
+    await spend.add(0.1);
+    assert.equal(await spend.today(), 0.6);
+    assert.equal(await spend.today('did:bob'), 0.5);
+    assert.equal(await spend.today('did:carol'), 0);
   });
 });

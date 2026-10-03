@@ -3,7 +3,7 @@
 A call is voice and video between the members of a space. It is live messages
 in that space ([spec 04 §9.2](https://github.com/leifriksheim/weave/blob/main/spec/04-network.md)),
 plus one WebRTC connection of its own between each pair of devices in it (a
-full mesh). Its history is a [`std.call`](standard-library.md#stdcall)
+full mesh, good up to about six people with video). Its history is a [`std.call`](standard-library.md#stdcall)
 record.
 
 This is a convention built on the protocol, not part of it. Peers that have

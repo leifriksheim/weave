@@ -50,7 +50,7 @@ import {
   type PayAnswer,
   type StoreFactory,
 } from '@weaveprotocol/core';
-import { isRecord } from './json.js';
+import { isRecord, messageOf } from './json.js';
 import { createInboundPeers, serve, type Served } from './serve.js';
 import type { WalletPayments } from './wallet.js';
 import { isEmail, type Reminders } from './reminders.js';
@@ -69,21 +69,11 @@ export interface Billing {
   }): Promise<string>;
   /** The provider's page for managing what a customer pays */
   manage(params: { customer: string; returnUrl: string }): Promise<string>;
-  /**
-   * Each plan's price as people read it ("$4 a month"), by plan id: what the
-   * host's description shows. Asked once, at start.
-   */
+  /** Each plan's price as people read it ("$4 a month"), by plan id. Asked once, at start. */
   labels?(): Promise<Record<string, string>>;
-  /**
-   * A payment page for adding `cents` to a community's fund, once or every
-   * month; paying leads to a webhook call that says how much reached it.
-   */
+  /** A payment page for adding `cents` to a community's fund, once or every month; paying leads to a webhook call */
   fund(params: { fund: string; cents: number; monthly: boolean; returnUrl: string }): Promise<string>;
-  /**
-   * A webhook call, checked as the provider's. What it says about a
-   * subscription: paid until when, and by which customer. Null for anything
-   * else — and for a call that isn't really the provider's.
-   */
+  /** What a webhook call, checked as the provider's, says was paid; null for anything else */
   webhook(
     body: string,
     headers: IncomingMessage['headers'],
@@ -120,12 +110,7 @@ export interface HostOptions {
   /** Only these accounts are carried for */
   readonly allow?: ReadonlyArray<string>;
   readonly graceDays?: number;
-  /**
-   * Bytes an account's spaces may take before the host takes no more new
-   * spaces for it. What it carries already stays, and keeps syncing: a soft
-   * limit, shown to the person in every status. Needs `measure`. Absent: no
-   * limit.
-   */
+  /** Bytes an account's spaces may take before it takes no new space: a soft limit, shown in every status. Needs `measure`. */
   readonly quotaBytes?: number;
   /** How many bytes a carried space takes on the host's disk: what `bytes` in a status adds up */
   readonly measure?: (spaceId: string) => Promise<number>;
@@ -133,10 +118,7 @@ export interface HostOptions {
   readonly sweepMs?: number;
   /** How often the network is read for wallet payments, while any is open. Default 10 s. */
   readonly watchMs?: number;
-  /**
-   * Runs bots for the spaces it carries: each an account of its own in a
-   * folder under `folder`, thinking with `model`. Absent: it runs none.
-   */
+  /** Bots for the spaces it carries, each an account of its own under `folder`, thinking with `model` */
   readonly bots?: { readonly folder: string; readonly model: BotModel } | null;
   /** Bots one space may have here, paid or not. Default 5. */
   readonly botsPerSpace?: number;
@@ -176,12 +158,12 @@ const SPENT_PREFIX = 'host/wallet/spent/';
 /** Where the last block read for wallet payments is kept */
 const SCANNED_KEY = 'scanned';
 
-class Refusal extends Error {
-  readonly status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
+/** The status each refusal is answered with: what the caller got wrong, said to them, never a 500 */
+const refusals = new WeakMap<Error, number>();
+function refusal(status: number, message: string): Error {
+  const error = new Error(message);
+  refusals.set(error, status);
+  return error;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -191,7 +173,7 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on('data', (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_BODY) {
-        reject(new Refusal(413, 'That request is too large'));
+        reject(refusal(413, 'That request is too large'));
         req.destroy();
         return;
       }
@@ -256,7 +238,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   // The transactions already counted, so none pays twice — on disk, and in the bucket when there is one.
   const spentStore = wallet || billing ? await options.stores('host-wallet') : null;
   const isSpent = async (tx: string) =>
-    !!(await spentStore?.has(`spent:${tx}`)) || !!(await options.mirror?.get(`${SPENT_PREFIX}${tx}`));
+    !!(await spentStore?.get(`spent:${tx}`)) || !!(await options.mirror?.get(`${SPENT_PREFIX}${tx}`));
   const markSpent = async (tx: string, subscription: string) => {
     const bytes = new TextEncoder().encode(subscription);
     await spentStore?.put(`spent:${tx}`, bytes);
@@ -316,45 +298,32 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
   const statusOf = async (id: string): Promise<HostStatus> => {
     const subscription = await node.get(id);
-    const at = now();
+    const base = { subscription: id, host: node.did, at: now() };
     if (!subscription)
-      return {
-        subscription: id,
-        host: node.did,
-        state: 'none',
-        paidUntil: 0,
-        renews: false,
-        carrying: false,
-        spaces: 0,
-        at,
-      };
-    if (id.startsWith('space:')) {
-      const readKey = node.readKeyOf(id);
-      const carrying = subscription.pass !== undefined && node.state(subscription) !== 'lapsed';
-      return {
-        subscription: id,
-        host: node.did,
-        state: node.state(subscription),
-        paidUntil: subscription.paidUntil,
-        renews: subscription.customer !== undefined,
-        carrying,
-        spaces: carrying ? 1 : 0,
-        at,
-        ...(readKey ? { readKey } : {}),
-        ...(await usageOf(id)),
-        ...(await fundOf(id)),
-      };
-    }
-    return {
-      subscription: id,
-      host: node.did,
-      state: node.state(subscription),
+      return { ...base, state: 'none', paidUntil: 0, renews: false, carrying: false, spaces: 0 };
+    const state = node.state(subscription);
+    const known = {
+      ...base,
+      state,
       paidUntil: subscription.paidUntil,
       renews: subscription.customer !== undefined,
-      carrying: subscription.carry !== undefined,
-      spaces: await node.carriedFor(id),
-      at,
+    };
+    if (!id.startsWith('space:'))
+      return {
+        ...known,
+        carrying: subscription.carry !== undefined,
+        spaces: await node.carriedFor(id),
+        ...(await usageOf(id)),
+      };
+    const readKey = node.readKeyOf(id);
+    const carrying = subscription.pass !== undefined && state !== 'lapsed';
+    return {
+      ...known,
+      carrying,
+      spaces: carrying ? 1 : 0,
+      ...(readKey ? { readKey } : {}),
       ...(await usageOf(id)),
+      ...(await fundOf(id)),
     };
   };
   /** A community's fund and bots, as its status says them: nothing of a fund on a free host */
@@ -460,10 +429,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       : null;
   /** Whether a community's fund has money in it: on a free host, always */
   const funded = async (spaceId: string) => options.free || (await funds.get(`space:${spaceId}`)).balance > 0;
-  const syncBots = () =>
-    bots
-      ?.sync(funded)
-      .catch((error: unknown) => log(`bots: ${error instanceof Error ? error.message : String(error)}`));
+  const syncBots = () => bots?.sync(funded).catch((error: unknown) => log(`bots: ${messageOf(error)}`));
   /**
    * Takes the hosting fee from a fund for the time since, and moves its
    * paid-until date to what it lasts at the rate it is spent: later after a
@@ -531,47 +497,66 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       await spentStore.put(SCANNED_KEY, new TextEncoder().encode(upTo.toString()));
     });
 
+  /** Where a payment provider's page sends people back to */
+  const returnUrl = (req: IncomingMessage) => `${originOf(req, options.publicUrl)}/host/paid`;
+
+  /**
+   * A payment request for a wallet: the one still open when `same` says it
+   * asks for this, so a payment already on its way still counts (a reload, a
+   * second try); otherwise a new one, for an amount no other open one has.
+   */
+  async function walletRequest(
+    id: string,
+    plan: string,
+    same: (open: { readonly amount: string }) => boolean,
+    payment: (wallet: WalletPayments, taken: ReadonlySet<string>) => { readonly amount: string },
+  ): Promise<PayAnswer> {
+    if (!wallet) throw refusal(400, 'This host takes no such payment');
+    const open = (await node.subscribe(id)).invoice;
+    const fresh = async () => {
+      const taken = new Set(
+        (await node.list()).flatMap((other) =>
+          other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [],
+        ),
+      );
+      const made = { plan, amount: payment(wallet, taken).amount, at: now() };
+      await node.setInvoice(id, made);
+      return made;
+    };
+    const { amount, at } =
+      open && open.plan === plan && same(open) && now() - open.at < INVOICE_SECONDS ? open : await fresh();
+    const { chainId, chainName, token, to } = wallet.offer;
+    return {
+      request: {
+        ...wallet.request(amount),
+        expires: at + INVOICE_SECONDS,
+        evm: { chainId, chainName, token, to, units: amount },
+      },
+    };
+  }
+
   /** Starts one of the host's plans for a subscription: a checkout page to open, or a payment request */
   async function startPayment(req: IncomingMessage, id: string, planId: unknown): Promise<PayAnswer> {
     const plan = plans.find((known) => known.id === planId);
-    if (!plan) throw new Refusal(400, 'This host has no such plan for this');
-    const returnUrl = `${originOf(req, options.publicUrl)}/host/paid`;
+    if (!plan) throw refusal(400, 'This host has no such plan for this');
     const [kind, period] = [plan.id.slice(0, plan.id.indexOf('-')), plan.id.slice(plan.id.indexOf('-') + 1)];
     const subscription = await node.subscribe(id);
     if (kind === 'card' && billing) {
       const checkout = await billing.checkout({
         subscription: id,
         plan: period,
-        returnUrl,
+        returnUrl: returnUrl(req),
         ...(subscription.customer ? { customer: subscription.customer } : {}),
       });
       return { checkout };
     }
-    if (kind !== 'wallet' || !wallet) throw new Refusal(400, 'This host has no such plan for this');
-    const open = subscription.invoice;
-    // Asked again — a reload, a second try — the same amount, so a payment already on its way still counts.
-    const invoice =
-      open && open.plan === period && now() - open.at < INVOICE_SECONDS
-        ? open
-        : await (async () => {
-            const taken = new Set(
-              (await node.list()).flatMap((other) =>
-                other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [],
-              ),
-            );
-            const payment = wallet.payment(period, taken);
-            const made = { plan: payment.plan, amount: payment.amount, at: now() };
-            await node.setInvoice(id, made);
-            return made;
-          })();
-    const { chainId, chainName, token, to } = wallet.offer;
-    return {
-      request: {
-        ...wallet.request(invoice.amount),
-        expires: invoice.at + INVOICE_SECONDS,
-        evm: { chainId, chainName, token, to, units: invoice.amount },
-      },
-    };
+    if (kind !== 'wallet' || !wallet) throw refusal(400, 'This host has no such plan for this');
+    return walletRequest(
+      id,
+      period,
+      () => true,
+      (w, taken) => w.payment(period, taken),
+    );
   }
 
   /**
@@ -584,54 +569,37 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     id: string,
     input: Record<string, unknown>,
   ): Promise<PayAnswer> {
-    if (!fundOffer) throw new Refusal(404, 'This host takes no payments for communities');
+    if (!fundOffer) throw refusal(404, 'This host takes no payments for communities');
     const amount = typeof input.amount === 'string' ? input.amount.trim() : '';
     if (!/^\d{1,5}(\.\d{1,2})?$/.test(amount) || Number(amount) < Number(fundOffer.min))
-      throw new Refusal(400, `An amount in dollars is needed, at least ${fundOffer.min}`);
+      throw refusal(400, `An amount in dollars is needed, at least ${fundOffer.min}`);
     const cents = Math.round(Number(amount) * 100);
     const monthly = input.monthly === true;
     await node.subscribe(id);
-    if (input.method === 'checkout' && billing) {
-      const returnUrl = `${originOf(req, options.publicUrl)}/host/paid`;
-      return { checkout: await billing.fund({ fund: id, cents, monthly, returnUrl }) };
-    }
-    if (input.method !== 'request' || !wallet || monthly)
-      throw new Refusal(400, 'This host takes no such payment');
-    const subscription = await node.subscribe(id);
-    const open = subscription.invoice;
-    // Asked again for the same amount — a reload, a second try — the same payment, so one on its way still counts.
-    const invoice =
-      open &&
-      open.plan === 'fund' &&
-      Math.floor(Number(open.amount) / 10_000) === cents &&
-      now() - open.at < INVOICE_SECONDS
-        ? open
-        : await (async () => {
-            const taken = new Set(
-              (await node.list()).flatMap((other) =>
-                other.invoice && now() - other.invoice.at < INVOICE_SECONDS ? [other.invoice.amount] : [],
-              ),
-            );
-            const payment = wallet.fundPayment(BigInt(cents) * 10_000n, taken);
-            const made = { plan: 'fund', amount: payment.amount, at: now() };
-            await node.setInvoice(id, made);
-            return made;
-          })();
-    const { chainId, chainName, token, to } = wallet.offer;
-    return {
-      request: {
-        ...wallet.request(invoice.amount),
-        expires: invoice.at + INVOICE_SECONDS,
-        evm: { chainId, chainName, token, to, units: invoice.amount },
-      },
-    };
+    if (input.method === 'checkout' && billing)
+      return { checkout: await billing.fund({ fund: id, cents, monthly, returnUrl: returnUrl(req) }) };
+    if (input.method !== 'request' || monthly) throw refusal(400, 'This host takes no such payment');
+    return walletRequest(
+      id,
+      'fund',
+      (open) => Math.floor(Number(open.amount) / 10_000) === cents,
+      (w, taken) => w.fundPayment(BigInt(cents) * 10_000n, taken),
+    );
   }
 
-  /** Keeps an address for reminders about a subscription, and mails it a link to confirm */
-  async function askReminders(req: IncomingMessage, id: string, email: unknown): Promise<void> {
-    if (!reminders) throw new Refusal(404, 'This host sends no reminders');
-    if (!isEmail(email)) throw new Refusal(400, 'That doesn’t look like an email address');
+  /** Keeps an address for reminders about a subscription, and mails it a link to confirm; what it now says */
+  async function askReminders(req: IncomingMessage, id: string, email: unknown) {
+    if (!reminders) throw refusal(404, 'This host sends no reminders');
+    if (!isEmail(email)) throw refusal(400, 'That doesn’t look like an email address');
     await reminders.ask(id, email, originOf(req, options.publicUrl));
+    return { reminders: await reminders.state(id) };
+  }
+
+  /** A subscription someone has paid for; on a free host every one is, made on the way */
+  async function mustBePaid(id: string, otherwise: string): Promise<void> {
+    if (options.free) await node.subscribe(id);
+    const subscription = await node.get(id);
+    if (!subscription || node.state(subscription) === 'lapsed') throw refusal(402, otherwise);
   }
 
   async function routes(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -654,9 +622,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     try {
       await answer(req, res, url);
     } catch (error) {
-      if (error instanceof Refusal) send(res, error.status, { error: error.message });
+      const status = error instanceof Error ? refusals.get(error) : undefined;
+      if (error instanceof Error && status) send(res, status, { error: error.message });
       else {
-        log(`host API failed: ${error instanceof Error ? error.message : String(error)}`);
+        log(`host API failed: ${messageOf(error)}`);
         send(res, 500, { error: 'Something went wrong on the host' });
       }
     }
@@ -677,7 +646,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       (url.pathname === '/host/remind/confirm' || url.pathname === '/host/remind/stop') &&
       method === 'GET'
     ) {
-      if (!reminders) throw new Refusal(404, 'This host sends no reminders');
+      if (!reminders) throw refusal(404, 'This host sends no reminders');
       const token = url.searchParams.get('t') ?? '';
       const confirming = url.pathname.endsWith('/confirm');
       const done = confirming ? await reminders.confirm(token) : await reminders.stop(token);
@@ -690,7 +659,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     }
 
     if (url.pathname === '/host/billing/webhook' && method === 'POST') {
-      if (!billing) throw new Refusal(404, 'This host takes no payments');
+      if (!billing) throw refusal(404, 'This host takes no payments');
       const paid = await billing.webhook(await readBody(req), req.headers);
       if (paid && 'until' in paid) {
         await node.extend(paid.subscription, paid.until, paid.customer);
@@ -715,7 +684,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     if (spaceMatch) return answerSpace(req, res, method, spaceMatch[1]!, spaceMatch[2] ?? null);
 
     const match = SUBSCRIPTION_PATH.exec(url.pathname);
-    if (!match) throw new Refusal(404, 'No such call');
+    if (!match) throw refusal(404, 'No such call');
     const id = decodeURIComponent(match[1]!);
     const action = match[2] ?? null;
     const carry = action === 'carry';
@@ -728,7 +697,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       body,
       provider,
     );
-    if (signer !== id) throw new Refusal(401, 'That call is not signed by the subscription');
+    if (signer !== id) throw refusal(401, 'That call is not signed by the subscription');
     const input = jsonFields(body);
 
     if (action === null && method === 'GET') return send(res, 200, await signedStatusOf(id));
@@ -737,16 +706,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
     if (action === 'manage' && method === 'POST') {
       const customer = (await node.get(id))?.customer;
-      if (!billing || !customer)
-        throw new Refusal(404, 'Nothing has been paid by card for this subscription');
-      const returnUrl = `${originOf(req, options.publicUrl)}/host/paid`;
-      return send(res, 200, { checkout: await billing.manage({ customer, returnUrl }) });
+      if (!billing || !customer) throw refusal(404, 'Nothing has been paid by card for this subscription');
+      return send(res, 200, { checkout: await billing.manage({ customer, returnUrl: returnUrl(req) }) });
     }
 
-    if (action === 'remind' && method === 'POST') {
-      await askReminders(req, id, input.email);
-      return send(res, 200, { reminders: await reminders?.state(id) });
-    }
+    if (action === 'remind' && method === 'POST')
+      return send(res, 200, await askReminders(req, id, input.email));
 
     if (carry && method === 'PUT') {
       if (
@@ -754,20 +719,17 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         typeof input.invite !== 'string' ||
         input.invite.length > 16_000
       ) {
-        throw new Refusal(400, 'An account and a carry invite are needed');
+        throw refusal(400, 'An account and a carry invite are needed');
       }
       // Asked before anything is kept: a stranger at a free host leaves nothing behind.
       if (options.allow && !options.allow.includes(input.account))
-        throw new Refusal(403, new NotAllowedError().message);
-      if (options.free) await node.subscribe(id);
-      const subscription = await node.get(id);
-      if (!subscription || node.state(subscription) === 'lapsed')
-        throw new Refusal(402, 'This subscription is not paid for');
+        throw refusal(403, new NotAllowedError().message);
+      await mustBePaid(id, 'This subscription is not paid for');
       try {
         await node.attach(id, input.account, input.invite);
       } catch (error) {
-        if (error instanceof NotAllowedError) throw new Refusal(403, error.message);
-        throw new Refusal(400, error instanceof Error ? error.message : 'That invite could not be used');
+        if (error instanceof NotAllowedError) throw refusal(403, error.message);
+        throw refusal(400, error instanceof Error ? error.message : 'That invite could not be used');
       }
       log(`subscription ${id} carries ${input.account}'s spaces`);
       return send(res, 200, await signedStatusOf(id));
@@ -778,7 +740,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       return send(res, 200, await signedStatusOf(id));
     }
 
-    throw new Refusal(405, 'That call does not take that method');
+    throw refusal(405, 'That call does not take that method');
   }
 
   /**
@@ -787,24 +749,24 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
    * space's fund, and the answer is the space's status, which lists it.
    */
   async function answerBot(req: IncomingMessage, res: ServerResponse, method: string): Promise<void> {
-    if (!bots) throw new Refusal(404, 'This host runs no bots');
-    if (method !== 'POST') throw new Refusal(405, 'That call does not take that method');
+    if (!bots) throw refusal(404, 'This host runs no bots');
+    if (method !== 'POST') throw refusal(405, 'That call does not take that method');
     const input = jsonFields(await readBody(req));
     if (typeof input.name !== 'string' || typeof input.invite !== 'string' || input.invite.length > 16_000)
-      throw new Refusal(400, 'A name and an invite are needed');
+      throw refusal(400, 'A name and an invite are needed');
     let spaceId: string;
     try {
       spaceId = parseSpaceInvite(input.invite).space.id;
     } catch {
-      throw new Refusal(400, 'That invite could not be read');
+      throw refusal(400, 'That invite could not be read');
     }
     if ((await bots.list(spaceId)).length >= (options.botsPerSpace ?? 5))
-      throw new Refusal(409, 'This space has as many bots here as it may');
+      throw refusal(409, 'This space has as many bots here as it may');
     let bot: { did: string; name: string };
     try {
       bot = await bots.start(input.name, input.invite);
     } catch (error) {
-      throw new Refusal(409, error instanceof Error ? error.message : 'The bot could not start');
+      throw refusal(409, error instanceof Error ? error.message : 'The bot could not start');
     }
     await syncBots();
     return send(res, 200, { bot: bot.did, receipt: await signedStatusOf(`space:${spaceId}`) });
@@ -825,29 +787,24 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     const id = `space:${space}`;
     if (action === null && method === 'GET') return send(res, 200, await signedStatusOf(id));
     // A host carrying only named accounts carries no space for itself, so takes nothing for one.
-    if (options.allow && action !== null) throw new Refusal(403, new NotAllowedError().message);
+    if (options.allow && action !== null) throw refusal(403, new NotAllowedError().message);
     if (action === 'pay' && method === 'POST')
       return send(res, 200, await startFund(req, id, jsonFields(await readBody(req))));
-    if (action === 'remind' && method === 'POST') {
-      await askReminders(req, id, jsonFields(await readBody(req)).email);
-      return send(res, 200, { reminders: await reminders?.state(id) });
-    }
+    if (action === 'remind' && method === 'POST')
+      return send(res, 200, await askReminders(req, id, jsonFields(await readBody(req)).email));
     if (action === 'pass' && method === 'PUT') {
       const input = jsonFields(await readBody(req));
-      if (input.pass === undefined) throw new Refusal(400, 'A pass is needed');
-      if (options.free) await node.subscribe(id);
-      const subscription = await node.get(id);
-      if (!subscription || node.state(subscription) === 'lapsed')
-        throw new Refusal(402, 'Nobody has paid for this space yet');
+      if (input.pass === undefined) throw refusal(400, 'A pass is needed');
+      await mustBePaid(id, 'Nobody has paid for this space yet');
       try {
         await node.carrySpace(id, input.pass);
       } catch (error) {
-        throw new Refusal(400, error instanceof Error ? error.message : 'That pass could not be used');
+        throw refusal(400, error instanceof Error ? error.message : 'That pass could not be used');
       }
       log(`space ${space} carried for itself`);
       return send(res, 200, await signedStatusOf(id));
     }
-    throw new Refusal(405, 'That call does not take that method');
+    throw refusal(405, 'That call does not take that method');
   }
 
   const served: Served = await serve({
@@ -879,18 +836,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   };
   void fundTick().catch(() => {});
   const botSweeping = setInterval(
-    () =>
-      void fundTick().catch((error: unknown) =>
-        log(`funds: ${error instanceof Error ? error.message : String(error)}`),
-      ),
+    () => void fundTick().catch((error: unknown) => log(`funds: ${messageOf(error)}`)),
     options.fundMs ?? 60_000,
   );
   botSweeping.unref();
 
   // Who is over their room, known before the first account adds a space.
-  void measureAll().catch((error: unknown) =>
-    log(`measuring failed: ${error instanceof Error ? error.message : String(error)}`),
-  );
+  void measureAll().catch((error: unknown) => log(`measuring failed: ${messageOf(error)}`));
   const sweeping = setInterval(() => {
     void node
       .sweep()
@@ -904,16 +856,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
             options.publicUrl,
           );
       })
-      .catch((error: unknown) =>
-        log(`sweep failed: ${error instanceof Error ? error.message : String(error)}`),
-      );
+      .catch((error: unknown) => log(`sweep failed: ${messageOf(error)}`));
   }, options.sweepMs ?? 3600_000);
   sweeping.unref();
   const watching = wallet
     ? setInterval(() => {
-        void watch().catch((error: unknown) =>
-          log(`reading the network failed: ${error instanceof Error ? error.message : String(error)}`),
-        );
+        void watch().catch((error: unknown) => log(`reading the network failed: ${messageOf(error)}`));
       }, options.watchMs ?? 10_000)
     : null;
   watching?.unref();

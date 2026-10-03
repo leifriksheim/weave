@@ -4,15 +4,13 @@
  * each member and take it in — so someone removed reads nothing new, a
  * member who was away catches up, and a newcomer still reads the past.
  */
-import { test, describe, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createNode } from '../src/node/node.js';
 import type { P2PNode } from '../src/node/types.js';
-import { createIdentityManager } from '../src/identity/identity-manager.js';
 import { createLocalRootSigner } from '../src/identity/root-signer.js';
 import { createP256Provider } from '../src/identity/crypto-p256.js';
-import { generateSeed } from '../src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../src/identity/account-vault.js';
 import { deriveMemberKeyBytes } from '../src/identity/contact-key.js';
 import { publicKeyToDid, P256_MULTICODEC } from '../src/identity/did.js';
@@ -28,6 +26,12 @@ import { memoryStores } from './helpers/memory-stores.js';
 import { joined } from './helpers/joined.js';
 import { hold, letGo } from './helpers/hold.js';
 import { until } from './helpers/until.js';
+import { open, person as somebody } from './helpers/person.js';
+
+async function person(hub: FakeHub) {
+  const who = await somebody(hub, { accountKey: true });
+  return { ...who, accountKey: await deriveVaultKeyBytes(who.seed) };
+}
 
 const provider = createP256Provider();
 
@@ -122,25 +126,6 @@ describe('when a new key is due', () => {
 
 // ─── Real nodes ────────────────────────────────────────────────────
 
-const open: P2PNode[] = [];
-afterEach(async () => {
-  await Promise.all(open.splice(0).map((node) => node.close()));
-});
-
-async function person(hub: FakeHub) {
-  const manager = createIdentityManager();
-  const seed = generateSeed();
-  const me = await manager.fromSeed(seed);
-  const node = await createNode({
-    signer: createLocalRootSigner(me, manager.getProvider()),
-    accountKey: await deriveVaultKeyBytes(seed),
-    stores: memoryStores(),
-    watchIntervalMs: 0,
-    network: { transports: (spaceId: string, sessionDid: string) => [hub.transport(sessionDid, spaceId)] },
-  });
-  open.push(node);
-  return { node, me, manager, accountKey: await deriveVaultKeyBytes(seed) };
-}
 type Person = Awaited<ReturnType<typeof person>>;
 
 /** Whether a node reads a note with this text */

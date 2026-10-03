@@ -5,8 +5,7 @@
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readdir, mkdir, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { readdir, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -15,8 +14,9 @@ import { fileURLToPath } from 'node:url';
 import { openFsDirectory } from '../src/fs-directory.js';
 import { openHome, createAccount, unlock, chooseAccount } from '../src/home.js';
 import { startDaemon, type Daemon } from '../src/daemon.js';
-import { enableWebRTC } from '../src/agent.js';
-import { handleMcpMessage, PERSON_ONLY } from '../src/mcp.js';
+import { enableWebRTC, holdEverySpace } from '../src/agent.js';
+import { handleMcpMessage } from '../src/mcp.js';
+import { aNode, tempDir } from './helpers/nodes.js';
 import { loadModelSetting } from '../src/guide.js';
 import { createNode } from '../../core/src/node/node.js';
 import type { P2PNode } from '../../core/src/node/types.js';
@@ -28,7 +28,7 @@ import { createSigner } from '../../core/src/schema/signer.js';
 import { createExpression } from '../../core/src/schema/expression.js';
 import { generateSeed, recoveryCodeToSeed } from '../../core/src/identity/recovery-code.js';
 import { deriveVaultKeyBytes } from '../../core/src/identity/account-vault.js';
-import { NODE_ACTIONS } from '../../core/src/node/actions.js';
+import { NODE_ACTIONS, PERSON_ONLY } from '../../core/src/node/actions.js';
 import { memoryStores } from '../../core/tests/helpers/memory-stores.js';
 import { team } from '../../core/src/space/presets.js';
 import { hold } from '../../core/tests/helpers/hold.js';
@@ -39,16 +39,6 @@ import { at } from './helpers/json.js';
 import { until } from '../../core/tests/helpers/until.js';
 
 const run = promisify(execFile);
-
-const temporary: string[] = [];
-async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'weave-cli-'));
-  temporary.push(dir);
-  return dir;
-}
-after(async () => {
-  await Promise.all(temporary.map((dir) => rm(dir, { recursive: true, force: true })));
-});
 
 describe('a folder on disk', () => {
   test('is a drop-in for a browser directory handle', async () => {
@@ -365,13 +355,7 @@ describe('MCP', () => {
   const info = { name: 'weave', version: 'test' };
 
   test('initialises, lists the node actions as tools, and calls them', async () => {
-    const manager = createIdentityManager();
-    const me = await manager.fromSeed(new Uint8Array(16).fill(3));
-    const node = await createNode({
-      signer: createLocalRootSigner(me, manager.getProvider()),
-      stores: memoryStores(),
-      watchIntervalMs: 0,
-    });
+    const node = await aNode(3);
 
     const init = await handleMcpMessage(
       node,
@@ -420,17 +404,10 @@ describe('MCP', () => {
 
     const unknown = await handleMcpMessage(node, { jsonrpc: '2.0', id: 4, method: 'no/such' }, info);
     assert.equal(at(unknown, 'error', 'code'), -32601);
-    await node.close();
   });
 
   test('an agent is not offered what needs a person, and is told to propose apps instead', async () => {
-    const manager = createIdentityManager();
-    const me = await manager.fromSeed(new Uint8Array(16).fill(4));
-    const node = await createNode({
-      signer: createLocalRootSigner(me, manager.getProvider()),
-      stores: memoryStores(),
-      watchIntervalMs: 0,
-    });
+    const node = await aNode(4);
     const agent = { agent: true };
 
     const init = await handleMcpMessage(
@@ -462,7 +439,6 @@ describe('MCP', () => {
       agent,
     );
     assert.match(String(at(refused, 'error', 'message')), /Unknown tool/);
-    await node.close();
   });
 });
 
@@ -623,5 +599,24 @@ describe('the weave command', () => {
     assert.equal(await loadModelSetting(home), null);
     await writeFile(path.join(home, 'agent', 'model.json'), 'not json');
     assert.equal(await loadModelSetting(home), null);
+  });
+});
+
+describe('holding every space', () => {
+  test('holds a space joined after it started, as an agent running for a while needs, and lets go of one left', async () => {
+    const node = await aNode(41);
+    const before = await node.spaces.create({ name: 'Before', visibility: 'public' });
+    const held: string[] = [];
+    const released: string[] = [];
+    const stop = await holdEverySpace(node, {
+      onHold: (id) => held.push(id),
+      onRelease: (id) => released.push(id),
+    });
+    assert.deepEqual(held, [before.id]);
+    const later = await node.spaces.create({ name: 'Later', visibility: 'public' });
+    await until(async () => held.includes(later.id), 5000, 'the space made later to be held');
+    await node.spaces.leave(before.id);
+    await until(async () => released.includes(before.id), 5000, 'the space left to be let go');
+    stop();
   });
 });

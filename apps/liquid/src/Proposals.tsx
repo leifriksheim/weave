@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNode } from '@weaveprotocol/core/react';
 import { Modal } from '@weave/app-shared/Modal';
 import type { Assembly, ProposalView } from './model';
 import { CHOICES, MAX_VOTERS, proposal as proposalCollection, support, vote, type Choice } from './schema';
-import { needed, trail, type Next, type Result, type Tally } from './tally';
+import { needed, trail, type Next, type Result, type Step, type Tally } from './tally';
 import {
   CHOICE_LABEL,
   Empty,
@@ -12,12 +12,13 @@ import {
   PathView,
   Problem,
   TopicChip,
+  TopicPicker,
   Upvote,
   Who,
   ago,
-  useAction,
 } from './ui';
-import { palette, tone, hue } from './styles';
+import { useAction } from '@weave/app-shared/action';
+import { palette, tone } from './styles';
 
 type Sort = 'top' | 'new' | 'decided';
 
@@ -78,23 +79,12 @@ export function Proposals({ a, writable }: { a: Assembly; writable: boolean }) {
           >
             All topics
           </button>
-          {a.topics.map((t) => {
-            const c = hue(t.hue);
-            const on = filter === t.key;
-            return (
-              <button
-                key={t.key}
-                className="lq-chip"
-                data-filter
-                aria-pressed={on}
-                onClick={() => setFilter(on ? null : t.key)}
-                style={on ? { background: c.strong, borderColor: c.strong } : undefined}
-              >
-                <span className="lq-dot" style={{ background: on ? '#fff' : c.strong }} />
-                {t.name}
-              </button>
-            );
-          })}
+          <TopicPicker
+            topics={a.topics}
+            solid
+            on={(t) => filter === t.key}
+            onToggle={(t) => setFilter(filter === t.key ? null : t.key)}
+          />
         </div>
       )}
 
@@ -469,9 +459,7 @@ function VotePanel({
       {mine ? (
         <CastNote a={a} p={p} />
       ) : p.result !== 'open' ? (
-        <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
-          It was settled before you voted. Votes cast now don’t change it.
-        </p>
+        <Quiet>It was settled before you voted. Votes cast now don’t change it.</Quiet>
       ) : (
         <NextNote a={a} next={a.nextFor(p)} topicName={topic?.name ?? null} />
       )}
@@ -479,87 +467,76 @@ function VotePanel({
   );
 }
 
-/** The vote you cast, and the way it came */
-function CastNote({ a, p }: { a: Assembly; p: ProposalView }) {
-  const path = trail(a.me, p.votes);
-  if (path.length === 0)
-    return (
-      <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
-        You voted yourself. It’s final.
-      </p>
-    );
+/** A vote's way, and a sentence about it */
+function PathNote({
+  a,
+  path,
+  warn,
+  children,
+}: {
+  a: Assembly;
+  path: ReadonlyArray<Step>;
+  warn?: boolean;
+  children: string;
+}) {
   return (
-    <div className="lq-note">
+    <div className="lq-note" data-tone={warn ? 'warn' : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <PathView path={path} a={a} from={a.me} />
-        <span>Your device cast this for you, following who you trust. It’s final.</span>
+        <span>{children}</span>
       </div>
     </div>
   );
 }
 
+function Quiet({ children }: { children: ReactNode }) {
+  return (
+    <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+      {children}
+    </p>
+  );
+}
+
+/** The vote you cast, and the way it came */
+function CastNote({ a, p }: { a: Assembly; p: ProposalView }) {
+  const path = trail(a.me, p.votes);
+  if (path.length === 0) return <Quiet>You voted yourself. It’s final.</Quiet>;
+  return (
+    <PathNote a={a} path={path}>
+      Your device cast this for you, following who you trust. It’s final.
+    </PathNote>
+  );
+}
+
 /** What your device will do, in words */
 function NextNote({ a, next, topicName }: { a: Assembly; next: Next; topicName: string | null }) {
-  const on = topicName ? `on ${topicName}` : 'on this';
   if (next.kind === 'cast')
     return (
-      <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+      <Quiet>
         Your device is casting {CHOICE_LABEL[next.choice].toLowerCase()} for you, following who you trust.
-      </p>
+      </Quiet>
     );
-  switch (next.how) {
-    case 'unset':
-      return (
-        <p className="lq-muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
-          You don’t trust anyone {on}, so nobody votes for you. Set that up under <b>Your vote</b>.
-        </p>
-      );
-    case 'waiting':
-      return (
-        <div className="lq-note">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <PathView path={next.path} a={a} from={a.me} />
-            <span>
-              When they vote, your device casts the same vote for you, unless you vote first. Liquid has to be
-              open on one of your devices for that.
-            </span>
-          </div>
-        </div>
-      );
-    case 'loop':
-      return (
-        <div className="lq-note" data-tone="warn">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <PathView path={next.path} a={a} from={a.me} />
-            <span>
-              These delegations loop back round, so unless someone on it votes themselves, nobody does. Vote
-              yourself, or trust someone else.
-            </span>
-          </div>
-        </div>
-      );
-    case 'stopped':
-      return (
-        <div className="lq-note" data-tone="warn">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <PathView path={next.path} a={a} from={a.me} />
-            <span>It reaches someone who doesn’t vote on this proposal, so nobody votes for you.</span>
-          </div>
-        </div>
-      );
-    case 'disputed':
-      return (
-        <div className="lq-note" data-tone="warn">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <PathView path={next.path} a={a} from={a.me} />
-            <span>
-              The party said two different things about who its members are here, so nobody follows it.
-            </span>
-          </div>
-        </div>
-      );
-  }
+  if (next.how === 'unset')
+    return (
+      <Quiet>
+        You don’t trust anyone {topicName ? `on ${topicName}` : 'on this'}, so nobody votes for you. Set that
+        up under <b>Your vote</b>.
+      </Quiet>
+    );
+  return (
+    <PathNote a={a} path={next.path} warn={next.how !== 'waiting'}>
+      {NEXT_SAYS[next.how]}
+    </PathNote>
+  );
 }
+
+const NEXT_SAYS = {
+  waiting:
+    'When they vote, your device casts the same vote for you, unless you vote first. Liquid has to be open on one of your devices for that.',
+  loop: 'These delegations loop back round, so unless someone on it votes themselves, nobody does. Vote yourself, or trust someone else.',
+  stopped: 'It reaches someone who doesn’t vote on this proposal, so nobody votes for you.',
+  disputed: 'The party said two different things about who its members are here, so nobody follows it.',
+};
 
 /** Who said two things, and what that means */
 function Disputes({ a, p }: { a: Assembly; p: ProposalView }) {
@@ -757,24 +734,11 @@ function Compose({
               Topic
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {a.topics.map((t) => {
-                const c = hue(t.hue);
-                const on = topicKey === t.key;
-                return (
-                  <button
-                    key={t.key}
-                    type="button"
-                    className="lq-chip"
-                    data-filter
-                    aria-pressed={on}
-                    onClick={() => setTopicKey(on ? null : t.key)}
-                    style={on ? { background: c.soft, borderColor: c.strong, color: c.strong } : undefined}
-                  >
-                    <span className="lq-dot" style={{ background: c.strong }} />
-                    {t.name}
-                  </button>
-                );
-              })}
+              <TopicPicker
+                topics={a.topics}
+                on={(t) => topicKey === t.key}
+                onToggle={(t) => setTopicKey(topicKey === t.key ? null : t.key)}
+              />
             </div>
             <p className="lq-faint" style={{ fontSize: 12, marginTop: 8 }}>
               People who don’t vote themselves follow whoever they trust with this topic.

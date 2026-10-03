@@ -9,7 +9,6 @@ import { createCapabilityGate, type CapabilityGateConfig } from './capability-ga
  * its shape alone, its signature, then the note behind its key. Body shape is
  * not among them: whether a body fits can depend on which definition a node
  * has, and refusing on it would leave nodes that disagree forever.
- * @returns A check that resolves to the first step that failed, or a pass
  */
 export function createVersionCheck(config: CapabilityGateConfig) {
   const { provider } = config;
