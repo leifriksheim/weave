@@ -547,10 +547,28 @@ function affected(event: AccessEvent, state: AccessState): ReadonlyArray<string>
 }
 
 function apply(event: AccessEvent, state: MutableState): void {
-  const before = event.kind === 'key' ? null : readers(state);
+  const lost = losesReader(event, state);
   change(event, state);
   if (event.kind === 'key') state.keyDue = false;
-  else if (state.keys.length > 0 && [...before!].some((did) => !readers(state).has(did))) state.keyDue = true;
+  else if (state.keys.length > 0 && lost) state.keyDue = true;
+}
+
+/**
+ * Whether a change, about to be made, leaves someone who could read unable
+ * to: the same as comparing `readers` before and after, without building
+ * them. Only a member change, for that member, or a removed role, for whoever
+ * holds it, can.
+ */
+function losesReader(event: AccessEvent, state: AccessState): boolean {
+  if (event.kind === 'member') {
+    const was = state.members.get(event.did);
+    if (was === undefined || !state.roles.has(was)) return false;
+    return event.role === null || !state.roles.has(event.role);
+  }
+  if (event.kind === 'role' && event.role === null && state.roles.has(event.name)) {
+    for (const role of state.members.values()) if (role === event.name) return true;
+  }
+  return false;
 }
 
 function change(event: AccessEvent, state: MutableState): void {
